@@ -9,6 +9,7 @@
 extends RefCounted
 
 const Troops = preload("res://scripts/data/troops.gd")
+const Captains = preload("res://scripts/data/captains.gd")
 
 const ARENA := Vector2(840.0, 1260.0)
 const MID_Y := 630.0
@@ -68,6 +69,9 @@ class Soldier:
 	# strike pose.
 	var stride := 0.0
 	var swing := 0.0
+	## The squad's named captain: hardier, hits harder, and the squad's nerve rests on him.
+	var captain := false
+	var might := 1.0
 
 
 class Squad:
@@ -107,6 +111,23 @@ class Squad:
 	var alive_n := 0
 	var avg := Vector2.ZERO
 	var extent := 0.0
+	# Captain: the soldier leading the squad (null if none or fallen), his record from
+	# the warband, and what happened to him.
+	var captain = null
+	var info := {}
+	## Morale lost per man killed is scaled by this: steadier under a captain, worse
+	## once he's gone.
+	var led := 1.0
+	var captain_fate := ""
+	var death_roll := 0
+	var death_needed := 0
+	var captain_kills := 0
+	var last_words := ""
+	## Seconds of fury left after a bonded friend fell (Vengeful captains).
+	var fury := 0.0
+	## From bonded captains fighting close by: morale regained a second, extra damage.
+	var bond_regen := 0.0
+	var bond_power := 0.0
 
 	func alive_count() -> int:
 		return alive_n
@@ -139,6 +160,7 @@ class Projectile:
 	var aim := Vector2.ZERO
 	var damage := 0.0
 	var source = null
+	var shooter = null
 	var done := false
 
 
@@ -158,6 +180,10 @@ var events: Array = []
 var ai: Array = [null, null]
 var winner := -1
 var end_reason := ""
+## Seconds each pair of captains (key "id|id") spent fighting side by side.
+var bond_time := {}
+var _ranks := {}
+var _bond_clock := 0.0
 var _next_id := 1
 var _cells: Array = []
 var _used_cells: Array = []
@@ -189,11 +215,17 @@ func _to_entries(army: Array) -> Array:
 			id = spare
 			spare -= 1
 		used[id] = true
+		# A wounded captain sits the battle out; his squad fights without him.
+		var captain = entry.get("captain")
+		if typeof(captain) != TYPE_DICTIONARY or int(captain.get("wounded", 0)) > 0:
+			captain = null
 		out.append({
 			"roster_id": id,
 			"type": String(entry["type"]),
 			"men": men,
 			"level": Troops.level_for(int(entry.get("xp", 0))),
+			"name": String(entry.get("name", "")),
+			"captain": captain,
 		})
 	return out
 
@@ -321,6 +353,12 @@ func start_battle() -> void:
 		return
 	for t in 2:
 		auto_deploy(t)
+	# Bond ranks between captains on the same side, from the points they've built up.
+	for a in squads:
+		for b in squads:
+			if a.team == b.team and a != b and not a.info.is_empty() and not b.info.is_empty():
+				var points := float(a.info.get("bonds", {}).get(str(b.info["id"]), 0.0))
+				_ranks[_bond_key(a, b)] = Captains.rank_for(points)
 	phase = PHASE_BATTLE
 
 
@@ -359,6 +397,20 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 		so.hp = so.max_hp
 		so.cooldown = rng.randf_range(0.0, 0.4)
 		sq.soldiers.append(so)
+	var captain = entry.get("captain")
+	if typeof(captain) == TYPE_DICTIONARY:
+		# The captain stands at the heart of the squad, with men on every side.
+		var lead = sq.soldiers[0]
+		for so in sq.soldiers:
+			if so.slot.length_squared() < lead.slot.length_squared() - 0.01:
+				lead = so
+		lead.captain = true
+		lead.might = Captains.DAMAGE_MULT
+		lead.max_hp *= Captains.HP_MULT
+		lead.hp = lead.max_hp
+		sq.captain = lead
+		sq.info = captain
+		sq.led = Captains.LED_BOLD if captain.get("quirk", "") == Captains.BOLD else Captains.LED
 	_move_formation(sq, at)
 	squads.append(sq)
 	return sq
@@ -545,13 +597,55 @@ func step(dt: float = STEP) -> void:
 				_update_soldier(so, sq, dt)
 	_separate()
 	_update_projectiles(dt)
+	_update_bonds(dt)
 	_check_end()
+
+
+func _bond_key(a, b) -> String:
+	var x := int(a.info["id"])
+	var y := int(b.info["id"])
+	return "%d|%d" % [mini(x, y), maxi(x, y)]
+
+
+## Captains fighting near each other build their bond, and bonded pairs lift each other.
+func _update_bonds(dt: float) -> void:
+	_bond_clock += dt
+	if _bond_clock < 0.5:
+		return
+	var span := _bond_clock
+	_bond_clock = 0.0
+	for sq in squads:
+		sq.bond_regen = 0.0
+		sq.bond_power = 0.0
+	for i in squads.size():
+		var a = squads[i]
+		if a.captain == null or not a.is_active():
+			continue
+		for j in range(i + 1, squads.size()):
+			var b = squads[j]
+			if b.team != a.team or b.captain == null or not b.is_active():
+				continue
+			if a.avg.distance_to(b.avg) > Captains.BOND_RANGE:
+				continue
+			var key := _bond_key(a, b)
+			if a.engaged or b.engaged:
+				bond_time[key] = float(bond_time.get(key, 0.0)) + span
+			var rank: int = _ranks.get(key, 0)
+			if rank > 0:
+				for sq in [a, b]:
+					sq.bond_regen = maxf(sq.bond_regen, Captains.RANK_REGEN[rank])
+					sq.bond_power = maxf(sq.bond_power, Captains.RANK_POWER[rank])
 
 
 func _update_squad(sq, dt: float) -> void:
 	if sq.alive_n == 0:
 		return
 	var avg: Vector2 = sq.avg
+	if sq.fury > 0.0:
+		sq.fury = maxf(0.0, sq.fury - dt)
+		sq.morale = maxf(sq.morale, Captains.FURY_MORALE_FLOOR)
+	if not sq.routing and sq.bond_regen > 0.0:
+		sq.morale = minf(100.0, sq.morale + sq.bond_regen * dt)
 	if not sq.routing and sq.morale <= ROUT_MORALE:
 		sq.routing = true
 		sq.focus = null
@@ -758,7 +852,8 @@ func _pick_target(so, sq):
 
 
 func _strike(so, sq, target, gap: float) -> void:
-	var dmg: float = sq.damage * rng.randf_range(0.8, 1.2)
+	var boost: float = 1.0 + sq.bond_power + (Captains.FURY_POWER if sq.fury > 0.0 else 0.0)
+	var dmg: float = sq.damage * so.might * boost * rng.randf_range(0.8, 1.2)
 	var target_type: String = target.squad.type
 	dmg *= float(sq.bonus.get(target_type, 1.0))
 	var charge := false
@@ -773,7 +868,7 @@ func _strike(so, sq, target, gap: float) -> void:
 		if sq.arrows <= 0:
 			_draw_blades(sq)
 	else:
-		_damage(target, dmg, sq, charge)
+		_damage(target, dmg, sq, charge, so)
 		if charge:
 			events.append({"type": "charge", "pos": target.pos})
 
@@ -796,6 +891,7 @@ func _shoot(so, sq, target, dmg: float) -> void:
 	p.aim = target.pos
 	p.damage = dmg
 	p.source = sq
+	p.shooter = so
 	projectiles.append(p)
 
 
@@ -811,13 +907,13 @@ func _update_projectiles(dt: float) -> void:
 				var friends: int = p.source.team if p.source != null else -1
 				if friends != -1 and _fighters_near(p.target.pos, friends, 40.0) and rng.randf() < Troops.MELEE_MISS:
 					continue # shot wide to spare their own men in the press
-				_damage(p.target, p.damage, p.source)
+				_damage(p.target, p.damage, p.source, false, p.shooter)
 		else:
 			p.pos += to.normalized() * travel
 	projectiles = projectiles.filter(func(p): return not p.done)
 
 
-func _damage(victim, dmg: float, attacker, charge: bool = false) -> void:
+func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null) -> void:
 	if not victim.alive:
 		return
 	victim.hp -= dmg
@@ -827,12 +923,52 @@ func _damage(victim, dmg: float, attacker, charge: bool = false) -> void:
 		vs.morale -= CHARGE_SHOCK / float(vs.start_men)
 	if victim.hp <= 0.0:
 		_remove(victim)
-		vs.morale -= 100.0 / float(vs.start_men) * 0.8 + 2.0
+		vs.morale -= (100.0 / float(vs.start_men) * 0.8 + 2.0) * vs.led
 		if attacker != null:
 			attacker.kills += 1
+			if killer != null and killer.captain and killer.alive:
+				attacker.captain_kills += 1
+		if victim.captain:
+			_captain_falls(vs, victim)
 		corpses.append({"pos": victim.pos, "team": vs.team, "type": vs.type})
 		if corpses.size() > MAX_CORPSES:
 			corpses.pop_front()
+
+
+## A captain is down. Roll a d100 for his fate: at or under the death chance he's
+## killed, over it he's carried off wounded. His squad reels, and captains bonded to him
+## take it according to their temperament.
+func _captain_falls(sq, victim) -> void:
+	sq.captain = null
+	sq.led = Captains.LEADERLESS
+	sq.morale -= Captains.FALL_SHOCK
+	var holding: bool = sq.alive_n >= sq.start_men * 0.5
+	var friends := false
+	for other in squads:
+		if other != sq and other.team == sq.team and other.is_active() and other.avg.distance_to(victim.pos) < Captains.RESCUE_RANGE:
+			friends = true
+	var chance := Captains.death_chance(sq.info, holding, friends)
+	var roll := rng.randi_range(1, 100)
+	sq.death_roll = roll
+	sq.death_needed = chance + 1
+	sq.captain_fate = "killed" if roll <= chance else "wounded"
+	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
+	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
+	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
+		"roll": roll, "needed": chance + 1, "rescued": holding or friends})
+	for other in squads:
+		if other.team != sq.team or other.captain == null or other.info.is_empty():
+			continue
+		if _ranks.get(_bond_key(sq, other), 0) <= 0:
+			continue
+		match String(other.info.get("temperament", "")):
+			Captains.VENGEFUL:
+				other.fury = Captains.FURY_SECONDS
+			Captains.STEADFAST:
+				other.morale = minf(100.0, other.morale + Captains.STEADY_MORALE)
+			Captains.FRAGILE:
+				other.morale -= Captains.SHAKEN_MORALE
+		events.append({"type": "grief", "squad": other, "for": sq, "temperament": other.info.get("temperament", "")})
 
 
 func _remove(so) -> void:
@@ -1047,6 +1183,7 @@ func dispose() -> void:
 		sq.soldiers.clear()
 		sq.focus = null
 		sq.order_target = null
+		sq.captain = null
 	squads.clear()
 	projectiles.clear()
 	events.clear()
@@ -1065,6 +1202,21 @@ func result_for(team: int) -> Dictionary:
 			continue
 		var survivors: int = sq.alive_n + sq.escaped
 		by_id[sq.roster_id] = {"men": survivors, "kills": sq.kills}
+		if not sq.info.is_empty():
+			by_id[sq.roster_id]["captain"] = {
+				"id": int(sq.info["id"]),
+				"fate": sq.captain_fate if sq.captain_fate != "" else "fine",
+				"roll": sq.death_roll,
+				"needed": sq.death_needed,
+				"kills": sq.captain_kills,
+				"words": sq.last_words,
+			}
 		lost += sq.start_men - survivors
 		killed += sq.kills
-	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time}
+	var bonds := {}
+	for key in bond_time:
+		for sq in squads:
+			if sq.team == team and not sq.info.is_empty() and String(key).split("|").has(str(sq.info["id"])):
+				bonds[key] = bond_time[key]
+				break
+	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds}

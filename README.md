@@ -16,6 +16,9 @@ This first slice is one playable field battle plus a camp screen. Your warband c
 - **Win by breaking their army.** The battle ends when one side has no squad left standing. After five minutes, the side with more of its army still fighting wins.
 - **An enemy commander** that lines up, holds for a few seconds, then advances with everything, sooner if you come close.
 - **Pixel-art troops.** Original top-down sprites for each type in both team colors: sword and round shield, long spear, hooded bowman, and horseman with a lance he couches for the charge. Two walk frames and a strike pose each, a white flash when hit, fallen bodies, arrows in flight and a grass field.
+- **Captains who can die.** Every squad is led by a named captain ("Brann's Shields"), a tougher man at the heart of the formation marked by a gold ring, with a temperament (Vengeful, Steadfast, Fragile) and sometimes a quirk (Lucky, Mentor, Bold). The squad holds its nerve better under them and reels when they go down.
+- **The death roll.** A fallen captain rolls a d100 against a death chance of 45%, less 15 each if their own squad still has half its men, another squad is close enough to drag them clear, or they're Lucky. Over the chance: wounded, and they sit out the next two battles. At or under: dead. The battle slows for their last words, the roll is shown, and the dead go on the memorial in camp while a veteran takes over the company.
+- **Bonds.** Captains who fight side by side build a bond, rank C, B then A. Bonded pairs fighting near each other regain nerve and, from B, hit harder. When one falls, the other reacts by temperament: fury, a steadied line, or a squad that starts to break.
 - **A persistent warband** saved on the device (`user://warband.json`).
 
 ## Run it
@@ -48,6 +51,7 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and grass at startup. |
 | `scripts/art/sprite_data.gd` | The pixel art itself, as rows of palette letters. Generated: don't edit by hand. |
 | `tools/unit_sprites.py` | Where the pixel art is drawn. Edit this, then run `python3 tools/unit_sprites.py preview/` to regenerate `sprite_data.gd` and a preview sheet. |
+| `scripts/data/captains.gd` | Captain names, traits, the death roll and bond ranks. Tune the odds here. |
 | `scripts/game_state.gd` | The persistent warband (an autoload), battle results and the save file. |
 | `scripts/ui/style.gd` | Shared colors and UI theme. |
 | `tests/run_tests.gd` | Headless checks of the rules. |

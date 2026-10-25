@@ -15,6 +15,10 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
+const Captains = preload("res://scripts/data/captains.gd")
+## When one of your captains goes down the battle slows to this pace for a moment.
+const SLOWMO_PACE := 0.25
+const SLOWMO_SECONDS := 1.4
 
 const TOP_BAR := 76.0
 const BOTTOM_PANEL := 256.0
@@ -31,6 +35,7 @@ var selected_squad = null
 var speed := 1.0
 var autoplay := false
 var floaters: Array = []
+var _slowmo := 0.0
 var font: Font
 
 var _cards: Array = []
@@ -102,7 +107,9 @@ func _layout() -> void:
 
 func _process(delta: float) -> void:
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE:
-		_accumulator += minf(delta, 0.1) * speed
+		var pace := SLOWMO_PACE if _slowmo > 0.0 else 1.0
+		_slowmo = maxf(0.0, _slowmo - delta)
+		_accumulator += minf(delta, 0.1) * speed * pace
 		var steps := 0
 		while _accumulator >= Sim.STEP and steps < 16:
 			sim.step()
@@ -116,7 +123,7 @@ func _process(delta: float) -> void:
 		_show_result()
 	for f in floaters:
 		f["age"] += delta
-	floaters = floaters.filter(func(f): return f["age"] < 1.3)
+	floaters = floaters.filter(func(f): return f["age"] < f["life"])
 	_refresh_hud()
 	queue_redraw()
 
@@ -183,7 +190,7 @@ func _tap_battle(p: Vector2) -> void:
 	if mine != null and mine.is_active():
 		selected_squad = null if mine == selected_squad else mine
 		if selected_squad != null:
-			_hint("Orders now go to this squad only. Tap an enemy squad to attack it, or open ground to march there.")
+			_hint("%s Orders now go to this squad only: tap an enemy squad to attack it, or open ground to march there." % _led_by(mine))
 		else:
 			_hint("Orders go to the whole army.")
 		return
@@ -211,8 +218,8 @@ func _on_card(index: int) -> void:
 	selected_id = e["roster_id"]
 	var placed: bool = sim.placed_squad(Sim.PLAYER, selected_id) != null
 	var level: int = e["level"]
-	var veteran := "Level %d veterans. " % level if level > 1 else ""
-	_hint("%s%s %s" % [veteran, Troops.stats(e["type"])["blurb"],
+	var veteran := " Level %d veterans." % level if level > 1 else ""
+	_hint("%s%s %s" % [_card_story(e), veteran,
 		"Tap the field to move them." if placed else "Tap the blue zone to place them."])
 
 
@@ -292,8 +299,51 @@ func _name(type: String) -> String:
 	return Troops.display_name(type)
 
 
+## "Brann's Shields, led by Brann of Ostmark (Vengeful, Lucky). Bonds: Mira (B)."
+func _led_by(sq) -> String:
+	if sq.info.is_empty():
+		return "%s, without a captain." % (_company(sq.roster_id) if sq.team == Sim.PLAYER else _name(sq.type))
+	var who := "%s, led by %s (%s)" % [_company(sq.roster_id), sq.info["name"], Captains.traits(sq.info)]
+	if sq.captain == null:
+		who = "%s. %s is down" % [_company(sq.roster_id), sq.info["name"]]
+	return who + _bond_text(sq.info) + "."
+
+
+func _card_story(e: Dictionary) -> String:
+	var squad := _squad_record(e["roster_id"])
+	var c = squad.get("captain")
+	if c == null:
+		return "%s have no captain." % squad.get("name", _name(e["type"]))
+	if int(c.get("wounded", 0)) > 0:
+		return "%s is wounded and sits this one out (%d more). %s fight without a captain." % [c["name"], c["wounded"], squad["name"]]
+	return "%s, led by %s (%s)%s." % [squad["name"], c["name"], Captains.traits(c), _bond_text(c)]
+
+
+func _bond_text(c: Dictionary) -> String:
+	var parts := PackedStringArray()
+	for other_id in c.get("bonds", {}):
+		var rank := Captains.rank_letter(float(c["bonds"][other_id]))
+		var other = GameState.captain_by_id(int(other_id))
+		if rank != "" and other != null:
+			parts.append("%s (%s)" % [other["first"], rank])
+	return "" if parts.is_empty() else ". Bonds: " + ", ".join(parts)
+
+
+func _squad_record(roster_id: int) -> Dictionary:
+	for s in GameState.army:
+		if int(s["id"]) == roster_id:
+			return s
+	return {}
+
+
+func _company(roster_id: int) -> String:
+	return String(_squad_record(roster_id).get("name", ""))
+
+
 func _describe(sq) -> String:
 	var text := "Enemy %s · %d men" % [_name(sq.type).to_lower(), sq.alive_count()]
+	if not sq.info.is_empty():
+		text += " · Captain %s%s" % [sq.info["name"], "" if sq.captain != null else " (down)"]
 	if sq.level > 1:
 		text += " · Lv%d" % sq.level
 	if sq.arrows == 0:
@@ -324,14 +374,54 @@ func _consume_events() -> void:
 				_float_text("OUT OF ARROWS", sq.average_pos() + Vector2(0, -56), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
 				if mine:
 					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.")
+			"captain_down":
+				_captain_down(e)
+			"grief":
+				_grief(e)
 	sim.events.clear()
 
 
-func _float_text(text: String, at: Vector2, color: Color) -> void:
+func _captain_down(e: Dictionary) -> void:
+	var sq = e["squad"]
+	var info: Dictionary = sq.info
+	var first := String(info.get("first", "Captain")).to_upper()
+	if sq.team != Sim.PLAYER:
+		_float_text("%s CUT DOWN" % first, e["pos"], Style.PLAYER_LIGHT, 2.2)
+		_hint("You cut down %s, captain of the enemy %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type).to_lower()])
+		return
+	_slowmo = SLOWMO_SECONDS
+	var killed: bool = e["fate"] == "killed"
+	_float_text("%s FALLS" % first if killed else "%s WOUNDED" % first, e["pos"], Style.ENEMY_LIGHT if killed else Style.BRASS, 3.0)
+	if killed:
+		_hint("\"%s\" %s is dead. Death roll %d; needed %d or more to live." % [sq.last_words, info["name"], e["roll"], e["needed"]])
+	else:
+		_hint("\"%s\" %s is down but alive. Death roll %d; needed %d or more. Out for %d battles." % [
+			sq.last_words, info["name"], e["roll"], e["needed"], Captains.WOUND_BATTLES])
+
+
+func _grief(e: Dictionary) -> void:
+	var sq = e["squad"]
+	if sq.team != Sim.PLAYER:
+		return
+	var who := String(sq.info.get("first", ""))
+	var lost := String(e["for"].info.get("first", ""))
+	match String(e["temperament"]):
+		Captains.VENGEFUL:
+			_float_text("FURY", sq.average_pos() + Vector2(0, -56), Style.ENEMY_LIGHT, 2.0)
+			_hint("%s saw %s fall and is consumed by fury: harder blows, and no retreat for %d seconds." % [who, lost, int(Captains.FURY_SECONDS)])
+		Captains.STEADFAST:
+			_float_text("STEADY", sq.average_pos() + Vector2(0, -56), Style.BRASS, 2.0)
+			_hint("%s saw %s fall, and steadies the line." % [who, lost])
+		Captains.FRAGILE:
+			_float_text("SHAKEN", sq.average_pos() + Vector2(0, -56), Style.MUTED, 2.0)
+			_hint("%s saw %s fall and is shaken. Their squad's nerve is slipping." % [who, lost])
+
+
+func _float_text(text: String, at: Vector2, color: Color, life: float = 1.3) -> void:
 	for f in floaters:
 		if f["text"] == text and at.distance_to(f["pos"]) < 70.0 and f["age"] < 0.6:
 			return
-	floaters.append({"text": text, "pos": at, "color": color, "age": 0.0})
+	floaters.append({"text": text, "pos": at, "color": color, "age": 0.0, "life": life})
 
 
 func _show_result() -> void:
@@ -348,8 +438,11 @@ func _show_result() -> void:
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
-	result_body.text = "%s\nYou lost %d men and cut down %d.\nSurvivors return to camp; losses carry over." % [
-		why, _pending_result["lost"], _pending_result["killed"]]
+	var text := "%s\nYou lost %d men and cut down %d." % [why, _pending_result["lost"], _pending_result["killed"]]
+	var fates: Array = GameState.describe_result(_pending_result)
+	if not fates.is_empty():
+		text += "\n\n" + "\n".join(PackedStringArray(fates))
+	result_body.text = text
 	result_panel.visible = true
 	if autoplay:
 		get_tree().create_timer(0.8).timeout.connect(_back_to_camp)
@@ -480,7 +573,7 @@ func _build_hud() -> void:
 	result_title = Style.label("Victory", 64, Style.BRASS)
 	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rv.add_child(result_title)
-	result_body = Style.label("", 22)
+	result_body = Style.label("", 20)
 	result_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	result_body.custom_minimum_size = Vector2(520, 0)
 	result_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -530,7 +623,11 @@ func _refresh_deploy() -> void:
 		var b: Button = card_buttons[i]
 		var e: Dictionary = _cards[i]
 		var level: int = e["level"]
-		b.text = "%s %d%s" % [_name(e["type"]), e["men"], "" if level <= 1 else " L%d" % level]
+		var c = _squad_record(e["roster_id"]).get("captain")
+		var who := _name(e["type"])
+		if c != null:
+			who = String(c["first"]) + ("*" if int(c.get("wounded", 0)) > 0 else "")
+		b.text = "%s %d%s" % [who, e["men"], "" if level <= 1 else " L%d" % level]
 		var picked: bool = e["roster_id"] == selected_id
 		var placed: bool = sim.placed_squad(Sim.PLAYER, e["roster_id"]) != null
 		var style: StyleBox = _card_styles["normal"]
@@ -560,8 +657,12 @@ func _refresh_battle() -> void:
 			arrows = " · %d arrows" % sq.arrows
 		elif sq.arrows == 0:
 			arrows = " · no arrows"
-		orders_label.text = "%s · %d men · %d%% morale%s · %s" % [
-			_name(sq.type), sq.alive_count(), maxi(0, int(sq.morale)), arrows, ORDER_WORDS.get(sq.order, sq.order)]
+		var title := _company(sq.roster_id)
+		if title == "":
+			title = _name(sq.type)
+		var mood := " · fury" if sq.fury > 0.0 else ""
+		orders_label.text = "%s · %d men · %d%% morale%s%s · %s" % [
+			title, sq.alive_count(), maxi(0, int(sq.morale)), mood, arrows, ORDER_WORDS.get(sq.order, sq.order)]
 		advance_button.text = "Advance"
 		hold_button.text = "Hold"
 	else:
@@ -642,8 +743,8 @@ func _draw_zones() -> void:
 
 
 ## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing up).
-func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE) -> void:
-	var s := field_scale * Art.pixel_size(name)
+func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE, grow: float = 1.0) -> void:
+	var s := field_scale * Art.pixel_size(name) * grow
 	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s, s))
 	draw_texture(Art.frame(name, team, index), -Art.pivot(name), tint)
 
@@ -686,7 +787,15 @@ func _draw_men(sq) -> void:
 			continue
 		var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
 		var angle: float = so.facing.angle() + PI * 0.5
-		_sprite(type, sq.team, index, so.pos, angle, tint)
+		var grow := 1.0
+		if so.captain:
+			# Captains stand a head taller, on a gold ring.
+			grow = 1.2
+			var px := field_scale * Art.pixel_size(type)
+			draw_set_transform(field_origin + so.pos * field_scale, 0.0, Vector2(px, px))
+			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
+			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
+		_sprite(type, sq.team, index, so.pos, angle, tint, grow)
 		if so.flash > 0.05:
 			draw_texture(Art.flash(type, index), -Art.pivot(type), Color(1, 1, 1, so.flash * 0.8))
 
@@ -694,8 +803,8 @@ func _draw_men(sq) -> void:
 func _draw_floaters() -> void:
 	for f in floaters:
 		var age: float = f["age"]
-		var a := clampf(1.3 - age, 0.0, 1.0)
-		var pos: Vector2 = f["pos"] + Vector2(-110.0, -age * 40.0)
+		var a := clampf(float(f["life"]) - age, 0.0, 1.0)
+		var pos: Vector2 = f["pos"] + Vector2(-200.0, -minf(age, 1.3) * 40.0)
 		var color: Color = f["color"]
-		draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 220.0, 26, 6, Color(0, 0, 0, a))
-		draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 220.0, 26, Color(color, a))
+		draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, 26, 6, Color(0, 0, 0, a))
+		draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, 26, Color(color, a))
