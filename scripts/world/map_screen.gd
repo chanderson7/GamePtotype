@@ -11,8 +11,11 @@ const WorldSim = preload("res://scripts/world/world_sim.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Style = preload("res://scripts/ui/style.gd")
-const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
+const MapArt = preload("res://scripts/art/map_art.gd")
+const MapTerrain = preload("res://scripts/world/map_terrain.gd")
+const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
+const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 122.0
 ## Game hours that pass each real second at 1x.
@@ -24,18 +27,13 @@ const NARROWEST_VIEW := 260.0
 const TAP_RADIUS := 46.0
 ## A press that moves less than this is a tap, not a drag.
 const DRAG_SLOP := 14.0
-const SEA := Color("1d3a48")
-const SEA_LIGHT := Color("2a5062")
-const LAND := {
-	"vardmark": Color("5d7a43"),
-	"kharzan": Color("b39a63"),
-	"ryumon": Color("6b876e"),
-}
-const COAST := Color("1a2a22")
-const ROAD := Color("e2cd98")
-const SEA_LANE := Color("a8d2e6")
-const BANDIT_CLOTH := Color("8a7f70")
-const BANDIT_DARK := Color("4e463c")
+## Screen pixels per pixel of a settlement or party sprite, at the default zoom.
+const SPRITE_PIXEL := 2.5
+## The light over the map through the day.
+const NIGHT_LIGHT := Color(0.46, 0.5, 0.78)
+const DAWN_LIGHT := Color(1.0, 0.84, 0.72)
+const DUSK_LIGHT := Color(1.0, 0.75, 0.58)
+const LAMP := Color(1.0, 0.76, 0.42)
 
 var world
 var font: Font
@@ -54,8 +52,19 @@ var _touches := {}
 var _pinch_from := 0.0
 var _pinch_scale := 1.0
 var _pinching := false
-var _decor: Array = []
 var _save_clock := 0.0
+## Seconds since the map opened, for anything that moves on its own.
+var _clock := 0.0
+## Dust kicked up behind the warband on the road: [{pos, age}] in map units.
+var _dust: Array = []
+var _dust_clock := 0.0
+var _music_clock := 0.0
+
+var terrain
+var backdrop
+var sky: ColorRect
+var labels: Node2D
+var _plate: StyleBoxFlat
 
 var top_panel: PanelContainer
 var clock_label: Label
@@ -78,13 +87,17 @@ func _ready() -> void:
 		return
 	if autoplay:
 		speed = 8.0
-	_build_decor()
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_build_layers()
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	cam_scale = _view.size.x / 640.0
 	cam_center = world.party_pos(world.player())
 	_clamp_camera()
+	_sync_layers()
+	_refresh_hud()
+	_update_music()
 	if world.encounter != -1:
 		_open_encounter()
 	elif GameState.map_notice != "":
@@ -92,6 +105,10 @@ func _ready() -> void:
 		GameState.map_notice = ""
 	elif world.here() != "":
 		_open_here()
+
+
+func _exit_tree() -> void:
+	Sound.set_loop("")
 
 
 func _notification(what: int) -> void:
@@ -117,6 +134,7 @@ func _layout() -> void:
 	var top: float = TOP_BAR + float(insets["top"])
 	_view = Rect2(Vector2(0.0, top), Vector2(vs.x, vs.y - top))
 	_clamp_camera()
+	_sync_layers()
 	queue_redraw()
 
 
@@ -139,6 +157,7 @@ func _process(delta: float) -> void:
 		match e["type"]:
 			"arrived", "waited":
 				GameState.save_game()
+				Sound.play("page", 0.0, 0.05)
 				_open_here()
 			"encounter":
 				GameState.save_game()
@@ -147,8 +166,18 @@ func _process(delta: float) -> void:
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
 	if GameState.map_notice != "" and _sheet != "encounter" and _sheet != "notice":
 		_open_notice(GameState.map_notice, "On the road")
+		Sound.play("page")
 		GameState.map_notice = ""
+	_clock += delta
+	_music_clock -= delta
+	if _music_clock <= 0.0:
+		_music_clock = 0.5
+		_update_music()
+	var riding: bool = world.player().moving() and world.busy() and _sheet != "encounter" and _sheet != "notice"
+	Sound.set_loop("hooves" if riding else "")
+	_kick_dust(delta)
 	_refresh_hud()
+	_sync_layers()
 	queue_redraw()
 
 
@@ -282,7 +311,7 @@ func _tap(at: Vector2) -> void:
 			_open_preview(best)
 		return
 	for b in world.bands():
-		if at.distance_to(_to_screen(world.party_pos(b)) + Vector2(10, -30)) < TAP_RADIUS:
+		if at.distance_to(_to_screen(world.party_pos(b)) + Vector2(0, -14) * _sprite_px()) < TAP_RADIUS:
 			_open_band(b)
 			return
 	_selected = ""
@@ -383,7 +412,9 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> v
 		if spec.size() > 2 and spec[2]:
 			Style.make_primary(b)
 		sheet_row.add_child(b)
-	sheet_panel.visible = true
+	if not sheet_panel.visible:
+		sheet_panel.visible = true
+		Style.ease_in(sheet_panel)
 
 
 func _close_sheet() -> void:
@@ -454,6 +485,14 @@ func _open_encounter() -> void:
 			b.army.size(), men, ", ".join(parts), _odds_text(AutoResolve.odds(fighters, b.army)),
 			Data.settlement(world.player().node)["name"]],
 		[["Fight", _on_fight, true], ["Send in", _on_send_in], ["Withdraw", _on_withdraw]])
+	Sound.play("alarm")
+
+
+## The music of the realm you're riding through; at sea, whatever was playing.
+func _update_music() -> void:
+	var realm: String = terrain.realm_at(world.party_pos(world.player()))
+	if realm != "":
+		Sound.play_music(Data.culture_of(realm))
 
 
 ## What your scouts make of a fight, from auto-resolve's reckoning.
@@ -505,23 +544,25 @@ func _on_wait() -> void:
 
 func _on_enter() -> void:
 	GameState.save_game()
-	get_tree().change_scene_to_file("res://scenes/settlement.tscn")
+	Scenes.go("res://scenes/settlement.tscn")
 
 
 func _on_warband() -> void:
 	GameState.save_game()
-	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	Scenes.go("res://scenes/main_menu.tscn")
 
 
 func _on_fight() -> void:
 	GameState.start_encounter_battle()
 	GameState.save_game()
-	get_tree().change_scene_to_file("res://scenes/battle.tscn")
+	Scenes.go("res://scenes/battle.tscn")
 
 
 ## Settle the fight at once, without the battle screen.
 func _on_send_in() -> void:
-	GameState.auto_resolve_encounter()
+	var won: bool = GameState.auto_resolve_encounter().get("won", false)
+	Sound.play("charge")
+	get_tree().create_timer(1.1).timeout.connect(Sound.play.bind("coins" if won else "bell"))
 	_close_sheet()
 	_open_notice(GameState.map_notice)
 	GameState.map_notice = ""
@@ -541,7 +582,7 @@ func _on_speed() -> void:
 
 
 func _on_new_campaign() -> void:
-	get_tree().change_scene_to_file("res://scenes/new_campaign.tscn")
+	Scenes.go("res://scenes/new_campaign.tscn")
 
 
 func _refresh_hud() -> void:
@@ -565,109 +606,160 @@ func _refresh_hud() -> void:
 		status_label.text = "At %s" % Data.settlement(p.node)["name"]
 
 
+
+
+# ---------------------------------------------------------------- layers
+
+## The map is drawn in layers, back to front: the sea and the land (the backdrop),
+## settlements and parties (this node), the light of the hour, then the names.
+func _build_layers() -> void:
+	terrain = MapTerrain.shared()
+	backdrop = MapBackdrop.new()
+	add_child(backdrop)
+	sky = ColorRect.new()
+	sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sky.z_index = 1
+	sky.material = backdrop.shader_material(SKY_SHADER)
+	add_child(sky)
+	labels = Node2D.new()
+	labels.z_index = 2
+	labels.draw.connect(_draw_labels)
+	add_child(labels)
+
+
+## Point the layers at what the camera sees, in the hour's light.
+func _sync_layers() -> void:
+	if backdrop == null or backdrop.land_layer == null:
+		return
+	backdrop.point_camera(cam_center, cam_scale, _view.get_center(), get_viewport_rect().size, [sky])
+	(sky.material as ShaderMaterial).set_shader_parameter("daylight", _daylight())
+	labels.queue_redraw()
+
+
+## The light over the map at this hour: white by day, gold at dawn and dusk, blue at night.
+func _daylight() -> Color:
+	var h := fposmod(world.hour, 24.0)
+	var keys := [[0.0, NIGHT_LIGHT], [5.0, NIGHT_LIGHT], [6.5, DAWN_LIGHT], [8.5, Color.WHITE],
+		[17.0, Color.WHITE], [19.0, DUSK_LIGHT], [20.5, NIGHT_LIGHT], [24.0, NIGHT_LIGHT]]
+	for i in keys.size() - 1:
+		if h <= keys[i + 1][0]:
+			var t: float = (h - keys[i][0]) / (keys[i + 1][0] - keys[i][0])
+			return (keys[i][1] as Color).lerp(keys[i + 1][1], t)
+	return NIGHT_LIGHT
+
+
+## How dark it is, from 0 by day to 1 at night: when the lamps are lit.
+func _night() -> float:
+	return clampf((1.0 - _daylight().b * 0.5 - _daylight().g * 0.5) / (1.0 - (NIGHT_LIGHT.b + NIGHT_LIGHT.g) * 0.5), 0.0, 1.0)
+
+
+## Screen pixels per sprite pixel: a little bigger as you zoom in, in half steps so the
+## pixel art stays even.
+func _sprite_px() -> float:
+	return clampf(round(cam_scale * SPRITE_PIXEL / 1.125 * 2.0) / 2.0, 1.5, 3.5)
+
+
+func _kick_dust(delta: float) -> void:
+	for d in _dust:
+		d["age"] = float(d["age"]) + delta
+	_dust = _dust.filter(func(d): return float(d["age"]) < 1.2)
+	var p = world.player()
+	if not p.moving() or not world.busy():
+		return
+	_dust_clock -= delta * speed
+	if _dust_clock <= 0.0:
+		_dust_clock = 0.22
+		_dust.append({"pos": world.party_pos(p), "age": 0.0})
+
+
 # ---------------------------------------------------------------- drawing
 
-## Trees in the north, dunes in the south, pines on the isles: scattered once, the same
-## every time.
-func _build_decor() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1166
-	for i in 900:
-		var p := Vector2(rng.randf_range(0, Data.SIZE.x), rng.randf_range(0, Data.SIZE.y))
-		var land := Data.land_at(p)
-		if land == -1:
-			continue
-		var near_place := false
-		for id in Data.SETTLEMENTS:
-			if p.distance_to(Data.pos(id)) < 45.0:
-				near_place = true
-		if near_place:
-			continue
-		var realm := _realm_at(p, land)
-		_decor.append({"pos": p, "realm": realm, "size": rng.randf_range(0.7, 1.3)})
-
-
-func _realm_at(p: Vector2, land: int) -> String:
-	if land == 1:
-		return "ryumon"
-	if Geometry2D.is_point_in_polygon(p, PackedVector2Array(Data.REALM_TINT["vardmark"])):
-		return "vardmark"
-	return "kharzan"
-
-
+## Settlements and parties, front to back by how far down the map they stand.
 func _draw() -> void:
 	if world == null:
 		return
-	draw_rect(Rect2(Vector2.ZERO, get_viewport_rect().size), SEA)
-	_draw_waves()
-	_draw_land()
-	_draw_decor()
-	_draw_roads()
+	var px := _sprite_px()
+	for d in _dust:
+		var age: float = d["age"]
+		draw_circle(_to_screen(d["pos"]) + Vector2(0, -2), (2.0 + age * 5.0) * px * 0.5, Color(0.85, 0.78, 0.6, 0.35 * (1.0 - age / 1.2)))
+	var things := []
+	for id in Data.SETTLEMENTS:
+		things.append({"y": Data.pos(id).y, "settlement": id})
+	for b in world.bands():
+		things.append({"y": world.party_pos(b).y, "band": b})
+	things.append({"y": world.party_pos(world.player()).y + 0.5, "player": true})
+	things.sort_custom(func(a, b): return a["y"] < b["y"])
+	for t in things:
+		if t.has("settlement"):
+			_draw_settlement(t["settlement"], px)
+		elif t.has("band"):
+			_draw_party(t["band"], "bandits", Color.WHITE, px)
+		else:
+			_draw_party(world.player(), "rider", Cultures.color(world.culture), px)
+
+
+func _draw_settlement(id: String, px: float) -> void:
+	var s := Data.settlement(id)
+	var c := _to_screen(s["pos"])
+	var culture := Data.culture_of(s["faction"])
+	var sprite := "%s/%s" % [culture, s["type"]]
+	var w: float = MapArt.size(sprite).x * px
+	draw_set_transform(c + Vector2(0, 2), 0.0, Vector2(1.0, 0.32))
+	draw_circle(Vector2.ZERO, w * 0.5, Color(0, 0, 0, 0.22))
+	if id == _selected:
+		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Style.BRASS, 3.0 / 0.32)
+	draw_set_transform(c, 0.0, Vector2(px, px))
+	draw_texture(MapArt.texture(sprite, 0, Cultures.color(culture)), -MapArt.pivot(sprite))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## A party on the road: your rider under your banner, or a bandit band. Walks while it
+## moves, facing the way it's going.
+func _draw_party(p, sprite: String, color: Color, px: float) -> void:
+	var at: Vector2 = world.party_pos(p)
+	var base := _to_screen(at)
+	var moving: bool = p.moving() and (world.busy() or p != world.player())
+	var facing := 1.0
+	if p.moving() and Data.pos(p.next).x < at.x:
+		facing = -1.0
+	var frame := int(_clock * 6.0) % 2 if moving else 0
+	var mine := sprite == "rider"
+	draw_set_transform(base + Vector2(0, 2), 0.0, Vector2(1.0, 0.35))
+	draw_circle(Vector2.ZERO, 8.0 * px, Color(0, 0, 0, 0.28))
+	if mine:
+		draw_arc(Vector2.ZERO, 9.5 * px, 0.0, TAU, 32, Style.BRASS, 2.5 / 0.35)
+	draw_set_transform(base, 0.0, Vector2(px * facing, px))
+	draw_texture(MapArt.texture(sprite, frame, color), -MapArt.pivot(sprite))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Above the light of the hour: lamps lit at night, your route, and every name.
+func _draw_labels() -> void:
+	var px := _sprite_px()
+	var night := _night()
+	if night > 0.02:
+		for id in Data.SETTLEMENTS:
+			var c := _to_screen(Data.pos(id)) + Vector2(0, -8) * px
+			labels.draw_circle(c, 26.0 * px * 0.5, Color(LAMP, 0.10 * night))
+			labels.draw_circle(c, 14.0 * px * 0.5, Color(LAMP, 0.14 * night))
 	_draw_route()
 	for id in Data.SETTLEMENTS:
-		_draw_settlement(id)
+		var s := Data.settlement(id)
+		var size := Style.SMALL if s["type"] != Data.VILLAGE else 19
+		_name_plate(_to_screen(s["pos"]) + Vector2(0, 8.0 + px * 2.0), String(s["name"]), size,
+			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
 	for b in world.bands():
-		_draw_party(world.party_pos(b), BANDIT_CLOTH, BANDIT_DARK, false, b.name)
-	var culture_color := Cultures.color(world.culture)
-	_draw_party(world.party_pos(world.player()), culture_color, culture_color.darkened(0.45), true, "")
+		_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -17.0 * px - 6.0), b.name, 17, Color("e8d9c0"))
 
 
-func _draw_waves() -> void:
-	var step := 70.0
-	var y := fposmod(-cam_center.y * cam_scale, step)
-	while y < get_viewport_rect().size.y:
-		var x := fposmod(-cam_center.x * cam_scale * 0.5 + y * 0.37, step * 2.0) - step * 2.0
-		while x < get_viewport_rect().size.x:
-			draw_line(Vector2(x, y), Vector2(x + 14.0, y), Color(SEA_LIGHT, 0.6), 2.0)
-			x += step * 2.0
-		y += step
-
-
-func _draw_land() -> void:
-	var main := _screen_poly(Data.LAND[0])
-	draw_colored_polygon(main, LAND["kharzan"])
-	draw_colored_polygon(_screen_poly(Data.REALM_TINT["vardmark"]), LAND["vardmark"])
-	var isle := _screen_poly(Data.LAND[1])
-	draw_colored_polygon(isle, LAND["ryumon"])
-	for poly in [main, isle]:
-		var ring: PackedVector2Array = poly.duplicate()
-		ring.append(poly[0])
-		draw_polyline(ring, COAST, 4.0)
-		draw_polyline(ring, Color(1, 1, 1, 0.12), 1.5)
-
-
-func _screen_poly(points: Array) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	for p in points:
-		out.append(_to_screen(p))
-	return out
-
-
-func _draw_decor() -> void:
-	var k := clampf(cam_scale, 0.6, 1.6)
-	for d in _decor:
-		var p := _to_screen(d["pos"])
-		if not _view.grow(20.0).has_point(p):
-			continue
-		var s: float = float(d["size"]) * 4.0 * k
-		match String(d["realm"]):
-			"vardmark":
-				draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s * 1.6), p + Vector2(s, s * 0.6), p + Vector2(-s, s * 0.6)]), Color("3f5a2e"))
-			"kharzan":
-				draw_arc(p, s * 1.6, PI * 1.15, PI * 1.85, 8, Color("8f7a4a"), 2.0)
-			"ryumon":
-				draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s * 1.8), p + Vector2(s * 0.8, s * 0.5), p + Vector2(-s * 0.8, s * 0.5)]), Color("44624b"))
-
-
-func _draw_roads() -> void:
-	for r in Data.ROADS:
-		var a := _to_screen(Data.pos(r[0]))
-		var b := _to_screen(Data.pos(r[1]))
-		if r[2]:
-			draw_dashed_line(a, b, Color(SEA_LANE, 0.75), 2.0, 5.0)
-		else:
-			draw_line(a, b, Color(0, 0, 0, 0.25), 6.0)
-			draw_dashed_line(a, b, ROAD, 3.0, 12.0)
+## A name on a dark plate, centered on `at` (the plate's top edge).
+func _name_plate(at: Vector2, text: String, size: int, color: Color) -> void:
+	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var rect := Rect2(at + Vector2(-w * 0.5 - 8.0, 0.0), Vector2(w + 16.0, size + 8.0))
+	if _plate == null:
+		_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
+	_plate.draw(labels.get_canvas_item(), rect)
+	labels.draw_string(font, rect.position + Vector2(8.0, size * 0.92 + 3.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
 
 
 ## Where you're riding: a gold line through the settlements still ahead.
@@ -679,58 +771,7 @@ func _draw_route() -> void:
 	for id in p.path:
 		pts.append(_to_screen(Data.pos(id)))
 	for i in pts.size() - 1:
-		draw_dashed_line(pts[i], pts[i + 1], Style.BRASS, 4.0, 10.0)
-	draw_arc(pts[pts.size() - 1], 18.0, 0.0, TAU, 24, Style.BRASS, 3.0)
-
-
-func _draw_settlement(id: String) -> void:
-	var s := Data.settlement(id)
-	var c := _to_screen(s["pos"])
-	var color := Cultures.color(Data.culture_of(s["faction"]))
-	var dark := color.darkened(0.5)
-	if id == _selected:
-		draw_circle(c, 30.0, Color(Style.BRASS, 0.18))
-		draw_arc(c, 30.0, 0.0, TAU, 32, Style.BRASS, 3.0)
-	match String(s["type"]):
-		Data.TOWN:
-			# A keep between two towers.
-			draw_rect(Rect2(c + Vector2(-16, -12), Vector2(32, 22)), Color("d8d0bd"))
-			draw_rect(Rect2(c + Vector2(-20, -20), Vector2(10, 30)), Color("c9c0aa"))
-			draw_rect(Rect2(c + Vector2(10, -20), Vector2(10, 30)), Color("c9c0aa"))
-			draw_rect(Rect2(c + Vector2(-20, -20), Vector2(40, 30)), COAST, false, 2.0)
-			draw_rect(Rect2(c + Vector2(-4, -2), Vector2(8, 12)), Color("4a3a28"))
-			Heraldry.flag(self, c + Vector2(-2, -38), Vector2(20, 14), color, dark, false)
-			draw_line(c + Vector2(-2, -38), c + Vector2(-2, -20), COAST, 2.0)
-		Data.CASTLE:
-			draw_rect(Rect2(c + Vector2(-9, -18), Vector2(18, 28)), Color("c9c0aa"))
-			draw_rect(Rect2(c + Vector2(-9, -18), Vector2(18, 28)), COAST, false, 2.0)
-			for i in 3:
-				draw_rect(Rect2(c + Vector2(-9 + i * 7, -23), Vector2(4, 5)), Color("c9c0aa"))
-			Heraldry.flag(self, c + Vector2(0, -38), Vector2(18, 12), color, dark, false)
-			draw_line(c + Vector2(0, -38), c + Vector2(0, -23), COAST, 2.0)
-		_:
-			draw_colored_polygon(PackedVector2Array([c + Vector2(-10, -2), c + Vector2(0, -12), c + Vector2(10, -2)]), Color("8a4b32"))
-			draw_rect(Rect2(c + Vector2(-8, -2), Vector2(16, 11)), Color("d9c9a3"))
-			draw_rect(Rect2(c + Vector2(-8, -2), Vector2(16, 11)), COAST, false, 1.5)
-			draw_rect(Rect2(c + Vector2(-8, -16), Vector2(5, 4)), color)
-	var label := String(s["name"])
-	var size := Style.SMALL if s["type"] != Data.VILLAGE else 20
-	var at := c + Vector2(-120, 34)
-	draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_CENTER, 240.0, size, 6, Color(0, 0, 0, 0.75))
-	draw_string(font, at, label, HORIZONTAL_ALIGNMENT_CENTER, 240.0, size, Style.TEXT)
-
-
-func _draw_party(at: Vector2, cloth: Color, dark: Color, mine: bool, label: String) -> void:
-	var base := _to_screen(at)
-	draw_set_transform(base + Vector2(2, 3), 0.0, Vector2(1.0, 0.5))
-	draw_circle(Vector2.ZERO, 9.0, Color(0, 0, 0, 0.35))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	var top := base + Vector2(0, -40)
-	draw_line(base, top, Color("6b4a2a"), 3.0)
-	draw_circle(top, 4.0, Style.BRASS)
-	Heraldry.flag(self, top + Vector2(0, 2), Vector2(30, 22), cloth, dark, mine, "", false, mine, 0.0,
-		Style.BRASS if mine else Heraldry.EDGE)
-	if label != "":
-		var at_text := base + Vector2(-110, -48)
-		draw_string_outline(font, at_text, label, HORIZONTAL_ALIGNMENT_CENTER, 220.0, 18, 5, Color(0, 0, 0, 0.8))
-		draw_string(font, at_text, label, HORIZONTAL_ALIGNMENT_CENTER, 220.0, 18, Color("e8d9c0"))
+		labels.draw_dashed_line(pts[i], pts[i + 1], Color(Style.BRASS, 0.85), 4.0, 10.0)
+	var end := pts[pts.size() - 1]
+	var pulse := 0.5 + 0.5 * sin(_clock * 4.0)
+	labels.draw_arc(end, 16.0 + pulse * 6.0, 0.0, TAU, 28, Color(Style.BRASS, 0.9 - pulse * 0.5), 3.0)

@@ -524,7 +524,7 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
 		if other != null and rank != "":
 			friends.append("%s (%s)" % [other["first"], rank])
 	return {
-		"name": c["name"], "company": squad.get("name", ""), "type": squad["type"],
+		"name": c["name"], "company": squad.get("name", ""), "type": squad["type"], "culture": squad.get("culture", culture),
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		"words": words,
 		"bonds": friends,

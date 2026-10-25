@@ -553,9 +553,10 @@ func _check_map() -> void:
 func _check_travel() -> void:
 	var w := _quiet_world(2)
 	var hours := w.hours_to("khalun")
+	var set_out := w.hour
 	w.travel("khalun")
 	w.step(hours)
-	_expect(w.here() == "khalun" and absf(w.hour - hours) < 0.01,
+	_expect(w.here() == "khalun" and absf(w.hour - set_out - hours) < 0.01,
 		"a ride from Highcliff to Khalun takes the time the map says (%.1f hours)" % hours)
 
 	w = _quiet_world(3)

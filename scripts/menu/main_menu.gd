@@ -8,6 +8,7 @@ const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
+const SoundToggles = preload("res://scripts/ui/sound_toggles.gd")
 
 
 func _ready() -> void:
@@ -93,7 +94,7 @@ func _build() -> void:
 	Style.make_primary(back)
 	if w != null:
 		back.text = "Back to the map"
-		back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/world_map.tscn"))
+		back.pressed.connect(func(): Scenes.go("res://scenes/world_map.tscn"))
 	else:
 		back.text = "To battle"
 		back.disabled = GameState.total_men() == 0
@@ -117,6 +118,9 @@ func _build() -> void:
 		col.add_child(rest)
 	else:
 		col.add_child(_note("Ride to a town to reinforce and train."))
+
+	col.add_child(_section("Sound"))
+	col.add_child(SoundToggles.make())
 
 	col.add_child(_section("How to play"))
 	var how := Style.label(
@@ -161,7 +165,7 @@ func _squad_row(s: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	row.add_child(_portrait(type))
+	row.add_child(_portrait(type, String(s.get("culture", GameState.culture))))
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.add_theme_constant_override("separation", 2)
@@ -198,7 +202,7 @@ func _memorial_row(f: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	var portrait := _portrait(String(f.get("type", "infantry")))
+	var portrait := _portrait(String(f.get("type", "infantry")), String(f.get("culture", GameState.culture)))
 	portrait.modulate = Color(0.55, 0.55, 0.6)
 	row.add_child(portrait)
 	var text := VBoxContainer.new()
@@ -220,10 +224,10 @@ func _memorial_row(f: Dictionary) -> Control:
 	return panel
 
 
-## A unit portrait, scaled up with hard pixel edges.
-func _portrait(type: String) -> TextureRect:
+## A unit portrait, scaled up with hard pixel edges, dressed as `culture` dresses it.
+func _portrait(type: String, culture: String) -> TextureRect:
 	var portrait := TextureRect.new()
-	portrait.texture = Art.icon(type)
+	portrait.texture = Art.icon(type, 0, culture)
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -234,7 +238,7 @@ func _portrait(type: String) -> TextureRect:
 func _on_battle() -> void:
 	if GameState.total_men() == 0:
 		return
-	get_tree().change_scene_to_file("res://scenes/battle.tscn")
+	Scenes.go("res://scenes/battle.tscn")
 
 
 func _on_reinforce() -> void:

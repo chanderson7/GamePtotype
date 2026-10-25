@@ -18,19 +18,32 @@ const ICON_SCALE := 2
 static var _cache := {}
 
 
-## Frame `index` (0 and 1 walk, 2 strike) of a troop type in a team's colors.
-static func frame(type: String, team: int, index: int) -> Texture2D:
-	var key := "%s/%d/%d" % [type, team, index]
+## Frame `index` (0 and 1 walk, 2 strike) of a troop type as `culture` dresses it, in
+## a team's colors. Bodies and arrows look the same for everyone.
+static func frame(type: String, team: int, index: int, culture: String = "vardish") -> Texture2D:
+	var name := sprite_name(type, culture)
+	var key := "%s/%d/%d" % [name, team, index]
 	if not _cache.has(key):
-		_cache[key] = ImageTexture.create_from_image(_image(type, team, index))
+		_cache[key] = ImageTexture.create_from_image(_image(name, team, index))
 	return _cache[key]
 
 
+## The sprite drawn for a troop type of a culture: "ryumon/archers", or "corpse".
+static func sprite_name(type: String, culture: String) -> String:
+	var name := "%s/%s" % [culture, type]
+	if Data.SPRITES.has(name):
+		return name
+	if Data.SPRITES.has(type):
+		return type
+	return "vardish/" + type
+
+
 ## A white silhouette of the same frame, drawn over a man for a moment when he's hit.
-static func flash(type: String, index: int) -> Texture2D:
-	var key := "%s/flash/%d" % [type, index]
+static func flash(type: String, index: int, culture: String = "vardish") -> Texture2D:
+	var name := sprite_name(type, culture)
+	var key := "%s/flash/%d" % [name, index]
 	if not _cache.has(key):
-		var img := _image(type, 0, index)
+		var img := _image(name, 0, index)
 		for y in img.get_height():
 			for x in img.get_width():
 				if img.get_pixel(x, y).a > 0.0:
@@ -40,20 +53,21 @@ static func flash(type: String, index: int) -> Texture2D:
 
 
 ## Where the man stands in his sprite, in sprite pixels.
-static func pivot(type: String) -> Vector2:
-	return Data.SPRITES[type]["pivot"]
+static func pivot(type: String, culture: String = "vardish") -> Vector2:
+	return Data.SPRITES[sprite_name(type, culture)]["pivot"]
 
 
 static func pixel_size(type: String) -> float:
 	return HORSE_PIXEL if type == "cavalry" or type == "corpse_horse" else FOOT_PIXEL
 
 
-## A square portrait of the troop type for cards and the camp roster.
-static func icon(type: String, team: int = 0) -> Texture2D:
-	var key := "%s/icon/%d" % [type, team]
+## A square portrait of the troop type, as `culture` dresses it, for cards and rosters.
+static func icon(type: String, team: int = 0, culture: String = "vardish") -> Texture2D:
+	var name := sprite_name(type, culture)
+	var key := "%s/icon/%d" % [name, team]
 	if not _cache.has(key):
-		var src := _image(type, team, 0)
-		var p := pivot(type)
+		var src := _image(name, team, 0)
+		var p := pivot(type, culture)
 		var img := Image.create_empty(ICON_SIZE, ICON_SIZE, false, Image.FORMAT_RGBA8)
 		var ox := int(p.x) - ICON_SIZE / 2
 		var oy := int(p.y) - ICON_SIZE / 2 - (2 if type == "cavalry" else 0)
@@ -63,14 +77,29 @@ static func icon(type: String, team: int = 0) -> Texture2D:
 	return _cache[key]
 
 
-## A tile of pixel-art grass: a quiet green with darker tufts.
-static func grass() -> Texture2D:
-	if not _cache.has("grass"):
+## The ground of a battlefield, by the land the fight is in: {base, tuft, light, speck,
+## specks}. Meadow in Vardmark with a few yellow flowers, dry steppe in Kharzan with
+## pebbles, deep moss on the Ryumon isles with fallen petals.
+const GROUND := {
+	"vardish": {"base": Color(0.322, 0.502, 0.235), "tuft": Color(0.278, 0.447, 0.204),
+		"light": Color(0.373, 0.565, 0.267), "speck": Color(0.93, 0.86, 0.47), "specks": 3},
+	"kharzani": {"base": Color(0.612, 0.522, 0.329), "tuft": Color(0.525, 0.459, 0.255),
+		"light": Color(0.69, 0.608, 0.408), "speck": Color(0.47, 0.45, 0.42), "specks": 7},
+	"ryumon": {"base": Color(0.247, 0.42, 0.263), "tuft": Color(0.196, 0.353, 0.212),
+		"light": Color(0.306, 0.49, 0.302), "speck": Color(0.94, 0.70, 0.78), "specks": 4},
+}
+
+
+## A tile of pixel-art ground for a culture's land: a quiet base with darker tufts.
+static func ground(biome: String = "vardish") -> Texture2D:
+	var key := "ground/" + biome
+	if not _cache.has(key):
+		var look: Dictionary = GROUND.get(biome, GROUND["vardish"])
 		var size := 48
 		var img := Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7
-		var base := Color(0.322, 0.502, 0.235)
+		var base: Color = look["base"]
 		for y in size:
 			for x in size:
 				var v := rng.randf_range(-0.018, 0.018)
@@ -78,12 +107,13 @@ static func grass() -> Texture2D:
 		for i in 14:
 			var x := rng.randi_range(0, size - 1)
 			var y := rng.randi_range(0, size - 1)
-			var tuft := Color(0.278, 0.447, 0.204)
-			img.set_pixel(x, y, tuft)
-			img.set_pixel((x + 1) % size, y, tuft)
-			img.set_pixel(x, (y + size - 1) % size, Color(0.373, 0.565, 0.267))
-		_cache["grass"] = ImageTexture.create_from_image(img)
-	return _cache["grass"]
+			img.set_pixel(x, y, look["tuft"])
+			img.set_pixel((x + 1) % size, y, look["tuft"])
+			img.set_pixel(x, (y + size - 1) % size, look["light"])
+		for i in int(look["specks"]):
+			img.set_pixel(rng.randi_range(0, size - 1), rng.randi_range(0, size - 1), look["speck"])
+		_cache[key] = ImageTexture.create_from_image(img)
+	return _cache[key]
 
 
 static func _image(type: String, team: int, index: int) -> Image:

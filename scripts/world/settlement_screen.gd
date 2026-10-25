@@ -26,6 +26,7 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn" if w != null else "res://scenes/title.tscn")
 		return
 	place = w.here()
+	Sound.play_music(WorldData.culture_of(WorldData.settlement(place)["faction"]))
 	_build()
 	if autoplay:
 		_autoplay.call_deferred()
@@ -134,7 +135,7 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	row.add_child(_portrait(type))
+	row.add_child(_portrait(type, culture))
 	var text := _text_column(row)
 	text.add_child(Style.label(Cultures.troop_name(culture, type), Style.BODY))
 	var people := String(Cultures.info(culture)["people"])
@@ -176,7 +177,7 @@ func _squad_row(s: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
-	row.add_child(_portrait(type))
+	row.add_child(_portrait(type, String(s.get("culture", GameState.culture))))
 	var text := _text_column(row)
 	var title := String(s.get("name", ""))
 	var name_label := Style.label(title if title != "" else Cultures.troop_name(String(s.get("culture", GameState.culture)), type), Style.BODY)
@@ -239,10 +240,10 @@ func _button(text: String, callback: Callable) -> Button:
 	return b
 
 
-## A unit portrait, scaled up with hard pixel edges.
-func _portrait(type: String) -> TextureRect:
+## A unit portrait, scaled up with hard pixel edges, dressed as `culture` dresses it.
+func _portrait(type: String, culture: String) -> TextureRect:
 	var portrait := TextureRect.new()
-	portrait.texture = Art.icon(type)
+	portrait.texture = Art.icon(type, 0, culture)
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
@@ -253,33 +254,35 @@ func _portrait(type: String) -> TextureRect:
 # ---------------------------------------------------------------- actions
 
 func _on_buy_food(rations: int) -> void:
-	GameState.buy_food(rations)
-	_build()
+	_paid(GameState.buy_food(rations))
 
 
 func _on_hire(index: int) -> void:
-	GameState.hire(place, index)
-	_build()
+	_paid(GameState.hire(place, index))
 
 
 func _on_reinforce(id: int) -> void:
-	GameState.reinforce_squad(id)
-	_build()
+	_paid(GameState.reinforce_squad(id))
 
 
 func _on_reinforce_all() -> void:
-	GameState.reinforce()
-	_build()
+	_paid(GameState.reinforce() > 0)
 
 
 func _on_train(id: int) -> void:
-	GameState.train_squad(id)
+	_paid(GameState.train_squad(id))
+
+
+## Silver changed hands, or didn't: the coins chink, and the screen shows the new state.
+func _paid(done: bool) -> void:
+	if done:
+		Sound.play("coins", 0.0, 0.08)
 	_build()
 
 
 func _on_leave() -> void:
 	GameState.save_game()
-	get_tree().change_scene_to_file("res://scenes/world_map.tscn")
+	Scenes.go("res://scenes/world_map.tscn")
 
 
 ## The smoke test: buy food, hire whoever's here, fill the ranks, then stop.

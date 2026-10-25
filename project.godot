@@ -19,6 +19,8 @@ config/icon="res://icon.svg"
 [autoload]
 
 GameState="*res://scripts/game_state.gd"
+Sound="*res://scripts/audio/sound.gd"
+Scenes="*res://scripts/ui/scenes.gd"
 
 [display]
 

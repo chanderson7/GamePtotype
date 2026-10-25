@@ -133,9 +133,64 @@ static func at_war(a: String, b: String) -> bool:
 ## The index of the coastline a point lies on, or -1 if it's at sea.
 static func land_at(p: Vector2) -> int:
 	for i in LAND.size():
-		if Geometry2D.is_point_in_polygon(p, PackedVector2Array(LAND[i])):
+		if Geometry2D.is_point_in_polygon(p, coast(i)):
 			return i
 	return -1
+
+
+## Coastline `i` as it really runs: LAND's corners joined by a ragged shore instead of
+## straight lines. Worked out once, the same every time.
+static func coast(i: int) -> PackedVector2Array:
+	if _coasts.is_empty():
+		for points in LAND:
+			_coasts.append(_ragged(points))
+	return _coasts[i]
+
+
+## A realm's land, for tinting the map: its outline, with the stretches it shares with a
+## coastline as ragged as the coast.
+static func realm_shape(faction: String) -> PackedVector2Array:
+	if not _realms.has(faction):
+		_realms[faction] = _ragged(REALM_TINT.get(faction, []))
+	return _realms[faction]
+
+
+static var _coasts: Array = []
+static var _realms := {}
+## How far the shore wanders from a straight line, in map units, and how finely.
+const SHORE_WANDER := 14.0
+const SHORE_STEP := 9.0
+
+
+## A closed outline with every edge broken into short steps that wander side to side.
+## The wander depends only on where a step lies, so two outlines sharing an edge share
+## its shore. Corners stay put, and so do edges along the map's border.
+static func _ragged(points: Array) -> PackedVector2Array:
+	var noise := FastNoiseLite.new()
+	noise.seed = 1166
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	noise.frequency = 0.022
+	noise.fractal_octaves = 3
+	var out := PackedVector2Array()
+	for k in points.size():
+		var a: Vector2 = points[k]
+		var b: Vector2 = points[(k + 1) % points.size()]
+		out.append(a)
+		if on_border(a, b):
+			continue
+		var steps := int(a.distance_to(b) / SHORE_STEP)
+		var side := (b - a).normalized().orthogonal()
+		for j in range(1, steps):
+			var t := float(j) / steps
+			var p := a.lerp(b, t)
+			out.append(p + side * noise.get_noise_2dv(p) * SHORE_WANDER * sin(PI * t))
+	return out
+
+
+## True for an edge that runs along the map's border, where the land goes on past it.
+static func on_border(a: Vector2, b: Vector2) -> bool:
+	return (a.x == 0.0 and b.x == 0.0) or (a.y == 0.0 and b.y == 0.0) \
+		or (a.x == SIZE.x and b.x == SIZE.x) or (a.y == SIZE.y and b.y == SIZE.y)
 
 
 static func villages_of(faction: String) -> Array:

@@ -41,6 +41,8 @@ const STANDARD_TAP := 30.0
 ## The death roll: the battle slows to ROLL_PACE while it plays out over ROLL_TIME seconds.
 const ROLL_TIME := 4.2
 const ROLL_PACE := 0.12
+## When the tumbling die lands.
+const ROLL_LANDS := 1.5
 ## A cavalry charge freezes the battle this long when it lands on or by your men.
 const HITSTOP := 0.06
 
@@ -82,6 +84,17 @@ var _roll_queue: Array = []
 var _cards: Array = []
 ## What the enemy's troops are called: their culture's words.
 var _enemy_culture := Cultures.VARDISH
+## The land the battle is fought in, which sets the ground and what grows on it, and
+## the rocks and bushes scattered over the field: [{name, pos, scale, flip}].
+var _biome := Cultures.VARDISH
+var _doodads: Array = []
+## Broad patches of lighter and darker ground: [{pos, r, light}].
+var _patches: Array = []
+## The culture each squad was raised in, by "team/roster id", which dresses its men.
+var _cultures := {}
+## When the next clash of steel sounds, and how many arrows were in the air last frame.
+var _clash_clock := 0.0
+var _flying := 0
 var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
@@ -130,6 +143,10 @@ func _ready() -> void:
 		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
 		sim.setup(GameState.army, pending["enemy"])
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
+	# Bandits fight in their own realm; a battle off the map is fought in yours.
+	_biome = _enemy_culture if not pending.is_empty() else GameState.culture
+	_scatter_doodads()
+	Sound.play_battle()
 	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY].deploy(sim)
 	_cards = sim.roster(Sim.PLAYER)
@@ -233,7 +250,13 @@ func _to_field(p: Vector2) -> Vector2:
 func _process(delta: float) -> void:
 	_clock += delta
 	if not _roll.is_empty():
-		_roll["t"] = float(_roll["t"]) + delta
+		var before := float(_roll["t"])
+		_roll["t"] = before + delta
+		# The die rattles as it tumbles; a bell tolls if it lands on death.
+		if before == 0.0:
+			Sound.play("dice")
+		if before < ROLL_LANDS and float(_roll["t"]) >= ROLL_LANDS and _roll["fate"] == "killed":
+			Sound.play("bell")
 		if float(_roll["t"]) >= ROLL_TIME:
 			_next_roll()
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused:
@@ -248,6 +271,7 @@ func _process(delta: float) -> void:
 			_accumulator -= Sim.STEP
 			steps += 1
 		_consume_events()
+		_battle_sounds(delta)
 		if selected_squad != null and not selected_squad.is_active():
 			selected_squad = null
 	elif sim.winner != -1 and not _result_shown and _roll.is_empty():
@@ -415,6 +439,7 @@ func _on_fight() -> void:
 
 func _start_battle() -> void:
 	sim.start_battle()
+	Sound.play("horn")
 	selected_id = -1
 	selected_squad = null
 	_hint("Your squads hold, braced, until ordered. A braced line wins the first clash. Tap a card or a standard to command one squad.")
@@ -583,6 +608,30 @@ func _scouting() -> String:
 	return String(Commander.SCOUTING.get(ai.temperament, "")) if ai != null else ""
 
 
+# ---------------------------------------------------------------- sound
+
+## The din of the fight: steel ringing faster the more squads are locked in melee, a
+## rush of air when a volley goes up, and the music swelling with the fighting.
+func _battle_sounds(delta: float) -> void:
+	var engaged := 0
+	var active := 0
+	for sq in sim.squads:
+		if sq.is_active():
+			active += 1
+			if sq.engaged:
+				engaged += 1
+	Sound.set_battle_intensity(float(engaged) / maxf(1.0, active) * 1.6)
+	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
+		_clash_clock -= delta * speed * (0.5 + engaged * 0.35)
+		if _clash_clock <= 0.0:
+			_clash_clock = randf_range(0.18, 0.4)
+			Sound.play("clash%d" % randi_range(1, 3), randf_range(-6.0, 0.0), 0.15)
+	var flying: int = sim.projectiles.size()
+	if flying - _flying >= 6:
+		Sound.play("arrows", 0.0, 0.08, 0.6)
+	_flying = flying
+
+
 # ---------------------------------------------------------------- events
 
 func _consume_events() -> void:
@@ -591,6 +640,7 @@ func _consume_events() -> void:
 			"rout":
 				var sq = e["squad"]
 				_broke_at[sq] = _clock
+				Sound.play("rout", 0.0, 0.1, 0.8)
 				var mine: bool = sq.team == Sim.PLAYER
 				_float_text("BROKEN", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT, 1.6)
 				if mine:
@@ -602,6 +652,7 @@ func _consume_events() -> void:
 				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
 					_charged_at[sq] = _clock
 					_float_text("CHARGE!", e["pos"], Style.BRASS)
+					Sound.play("charge", 0.0, 0.06, 0.6)
 					if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
 						_shake = maxf(_shake, 5.0)
 						_hitstop = HITSTOP
@@ -620,6 +671,8 @@ func _consume_events() -> void:
 			"ability":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
+				if sq.type == Troops.ARCHERS:
+					Sound.play("arrows", 2.0, 0.05, 0.3)
 				_float_text(String(e["name"]).to_upper(), sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
 				if not mine:
 					_tick("Their %s: %s." % [_name(sq.type, Sim.ENEMY).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
@@ -629,6 +682,7 @@ func _consume_events() -> void:
 			"flanked":
 				var sq = e["squad"]
 				var where := "REAR!" if e["rear"] else "FLANK!"
+				Sound.play("clash%d" % randi_range(1, 3), 3.0, 0.1, 0.3)
 				_float_text(where, e["pos"], Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
 				if sq.team == Sim.PLAYER and e["rear"]:
 					_tick("%s are hit from behind!" % _company_or_type(sq), Style.ENEMY_LIGHT)
@@ -733,6 +787,7 @@ func _show_result() -> void:
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
+	Sound.stinger("victory" if won else "defeat")
 	var text := "%s\nYou lost %d men and cut down %d." % [why, _pending_result["lost"], _pending_result["killed"]]
 	if won and GameState.has_campaign() and not GameState.pending_battle.is_empty():
 		var got := Economy.spoils(int(_pending_result["killed"]))
@@ -742,6 +797,7 @@ func _show_result() -> void:
 		text += "\n\n" + "\n".join(PackedStringArray(fates))
 	result_body.text = text
 	result_panel.visible = true
+	Style.ease_in(result_panel, Vector2(0.5, 0.5))
 	if autoplay:
 		get_tree().create_timer(0.8).timeout.connect(_back_to_camp)
 
@@ -766,9 +822,9 @@ func _back_to_camp() -> void:
 		GameState.autoplay_battles += 1
 	if campaign:
 		GameState.save_game()
-		get_tree().change_scene_to_file("res://scenes/world_map.tscn")
+		Scenes.go("res://scenes/world_map.tscn")
 	else:
-		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+		Scenes.go("res://scenes/main_menu.tscn")
 
 
 # ---------------------------------------------------------------- HUD
@@ -1132,7 +1188,7 @@ func _draw_roll() -> void:
 	# The die tumbles, slowing, then lands.
 	var needed: int = _roll["needed"]
 	var chance := needed - 1
-	var landed := t >= 1.5
+	var landed := t >= ROLL_LANDS
 	var shown: int = _roll["roll"]
 	if not landed:
 		var tick := int(pow(t * 6.0, 1.6))
@@ -1196,13 +1252,51 @@ func _draw() -> void:
 	_draw_ticker()
 
 
-## Pixel-art grass.
+## Pixel-art ground for the land the battle is in, and what grows on it.
 func _draw_field() -> void:
 	var px := Art.GRASS_PIXEL
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
-	draw_texture_rect(Art.grass(), Rect2(Vector2.ZERO, Sim.ARENA / px), true)
+	draw_texture_rect(Art.ground(_biome), Rect2(Vector2.ZERO, Sim.ARENA / px), true)
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	var look: Dictionary = Art.GROUND.get(_biome, Art.GROUND["vardish"])
+	for patch in _patches:
+		draw_set_transform(field_origin + Vector2(patch["pos"]) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.7))
+		draw_circle(Vector2.ZERO, patch["r"], Color(look["light"] if patch["light"] else look["tuft"], 0.22))
+	for d in _doodads:
+		var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
+		draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
+		draw_texture(Art.frame(d["name"], 0, 0, _biome), -Art.pivot(d["name"], _biome))
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
+
+
+## A few rocks and bushes, more scrub and stone in the desert, more green on the isles,
+## over broad patches of lighter and darker ground.
+## Only for looks: men walk over them.
+func _scatter_doodads() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var kinds: Array = {"kharzani": ["rock0", "rock1", "rock1", "bush", "bush"],
+		"ryumon": ["bush", "bush", "bush", "rock0", "rock1"]}.get(_biome, ["bush", "bush", "rock0", "rock1"])
+	for i in 18:
+		var pos := Vector2(rng.randf_range(20.0, Sim.ARENA.x - 20.0), rng.randf_range(20.0, Sim.ARENA.y - 20.0))
+		_doodads.append({"name": kinds[rng.randi_range(0, kinds.size() - 1)], "pos": pos,
+			"scale": rng.randf_range(1.4, 2.2), "flip": 1.0 if rng.randf() < 0.5 else -1.0})
+	for i in 12:
+		_patches.append({"pos": Vector2(rng.randf_range(0.0, Sim.ARENA.x), rng.randf_range(0.0, Sim.ARENA.y)),
+			"r": rng.randf_range(60.0, 150.0), "light": rng.randf() < 0.5})
+
+
+## The culture a squad's men are dressed in: the enemy's, or for one of yours, the
+## culture it was raised in.
+func _culture_of(sq) -> String:
+	var key := "%d/%d" % [sq.team, sq.roster_id]
+	if not _cultures.has(key):
+		var c := _enemy_culture
+		if sq.team == Sim.PLAYER:
+			c = String(_squad_record(sq.roster_id).get("culture", GameState.culture))
+		_cultures[key] = c
+	return _cultures[key]
 
 
 ## Trampled, bloodied ground where men fell, so the field remembers the fight.
@@ -1232,11 +1326,13 @@ func _draw_stuck_arrows() -> void:
 		draw_circle(p - d * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
 
 
-## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing up).
-func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE, grow: float = 1.0) -> void:
+## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing
+## up), dressed as `culture` dresses it.
+func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE, grow: float = 1.0,
+		culture: String = Cultures.VARDISH) -> void:
 	var s := field_scale * Art.pixel_size(name) * grow
 	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s, s))
-	draw_texture(Art.frame(name, team, index), -Art.pivot(name), tint)
+	draw_texture(Art.frame(name, team, index, culture), -Art.pivot(name, culture), tint)
 
 
 func _draw_orders() -> void:
@@ -1282,6 +1378,7 @@ func _draw_shadows() -> void:
 
 func _draw_men(sq) -> void:
 	var type: String = sq.type
+	var culture := _culture_of(sq)
 	var tint := Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE
 	for so in sq.soldiers:
 		if not so.alive:
@@ -1296,9 +1393,9 @@ func _draw_men(sq) -> void:
 			draw_set_transform(field_origin + so.pos * field_scale, 0.0, Vector2(px, px))
 			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
 			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
-		_sprite(type, sq.team, index, so.pos, angle, tint, grow)
+		_sprite(type, sq.team, index, so.pos, angle, tint, grow, culture)
 		if so.flash > 0.05:
-			draw_texture(Art.flash(type, index), -Art.pivot(type), Color(1, 1, 1, so.flash * 0.8))
+			draw_texture(Art.flash(type, index, culture), -Art.pivot(type, culture), Color(1, 1, 1, so.flash * 0.8))
 
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.

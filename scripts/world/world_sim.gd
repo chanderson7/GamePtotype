@@ -60,7 +60,9 @@ class Party:
 
 
 var rng := RandomNumberGenerator.new()
+## Hours since the campaign's first midnight. A campaign starts in the morning.
 var hour := 0.0
+const START_HOUR := 8.0
 var culture := Cultures.VARDISH
 var parties: Array = []
 ## Bands waiting to come back: [{faction, at}].
@@ -84,6 +86,7 @@ var _adjacent := {}
 func setup(seed_value: int, player_culture: String) -> void:
 	rng.seed = seed_value
 	culture = player_culture
+	hour = START_HOUR
 	_build_roads()
 	var p := Party.new()
 	p.id = _take_id()

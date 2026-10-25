@@ -1,12 +1,21 @@
-## The title screen: carry on a campaign, or start a new one.
+## The title screen: carry on a campaign, or start a new one, over the Glass Sea at
+## dawn, drifting slowly past.
 extends Control
 
 const Style = preload("res://scripts/ui/style.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
+const SoundToggles = preload("res://scripts/ui/sound_toggles.gd")
+const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
+const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
+## The light over the title's map: early morning.
+const DAWN := Color(1.0, 0.88, 0.76)
 
 var _restart_armed := 0.0
 var _new_button: Button
+var _backdrop
+var _sky: ColorRect
+var _drift := 0.0
 
 
 func _ready() -> void:
@@ -16,14 +25,27 @@ func _ready() -> void:
 		GameState.new_campaign(Cultures.VARDISH)
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn")
 		return
+	Sound.play_music("title")
 	_build()
 
 
 func _build() -> void:
-	var bg := ColorRect.new()
-	bg.color = Style.NIGHT
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
+	# The sea fills the screen; the land sits on it (both drawn below this screen's own
+	# controls).
+	_backdrop = MapBackdrop.new()
+	add_child(_backdrop)
+	_sky = ColorRect.new()
+	_sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sky.material = _backdrop.shader_material(SKY_SHADER)
+	(_sky.material as ShaderMaterial).set_shader_parameter("daylight", DAWN)
+	add_child(_sky)
+	# Darker toward the middle, where the words are.
+	var veil := ColorRect.new()
+	veil.color = Color(Style.NIGHT, 0.5)
+	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(veil)
+	_point_backdrop()
 	var margin := MarginContainer.new()
 	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var insets := Style.safe_insets(get_viewport())
@@ -58,6 +80,20 @@ func _build() -> void:
 	if not GameState.has_campaign():
 		Style.make_primary(_new_button)
 	col.add_child(_new_button)
+	col.add_child(SoundToggles.make())
+
+
+func _process(delta: float) -> void:
+	if _backdrop != null:
+		_drift += delta
+		_point_backdrop()
+
+
+## The camera drifts in a slow loop over the three realms.
+func _point_backdrop() -> void:
+	var vs := get_viewport_rect().size
+	var center := Vector2(500.0 + cos(_drift * 0.035) * 250.0, 800.0 + sin(_drift * 0.024) * 480.0)
+	_backdrop.point_camera(center, vs.x / 560.0, vs * 0.5, vs, [_sky])
 
 
 func _button(text: String, callback: Callable) -> Button:
@@ -71,7 +107,7 @@ func _button(text: String, callback: Callable) -> Button:
 
 
 func _on_continue() -> void:
-	get_tree().change_scene_to_file("res://scenes/world_map.tscn")
+	Scenes.go("res://scenes/world_map.tscn")
 
 
 ## Starting over throws away the campaign you have, so it takes a second tap.
@@ -81,4 +117,4 @@ func _on_new() -> void:
 		_restart_armed = now + 3.0
 		_new_button.text = "Tap again: your campaign will be lost"
 		return
-	get_tree().change_scene_to_file("res://scenes/new_campaign.tscn")
+	Scenes.go("res://scenes/new_campaign.tscn")

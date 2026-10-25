@@ -107,6 +107,17 @@ static func make_primary(button: Button) -> void:
 	button.add_theme_color_override("font_focus_color", BRASS_INK)
 
 
+## Ease a panel into view: it fades in and rises the last little way from `anchor`
+## (0.5, 1 grows from its bottom middle; 0.5, 0.5 from its center).
+static func ease_in(panel: Control, anchor: Vector2 = Vector2(0.5, 1.0)) -> void:
+	panel.pivot_offset = panel.size * anchor
+	panel.modulate.a = 0.0
+	panel.scale = Vector2(0.96, 0.92) if anchor.y > 0.9 else Vector2(0.9, 0.9)
+	var t := panel.create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(panel, "modulate:a", 1.0, 0.14)
+	t.tween_property(panel, "scale", Vector2.ONE, 0.22)
+
+
 static func label(text: String, size: int = 22, color: Color = TEXT) -> Label:
 	var l := Label.new()
 	l.text = text

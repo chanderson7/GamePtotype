@@ -41,7 +41,7 @@ func _ready() -> void:
 	back.text = "Back"
 	back.focus_mode = Control.FOCUS_NONE
 	back.custom_minimum_size = Vector2(0, Style.TOUCH)
-	back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/title.tscn"))
+	back.pressed.connect(func(): Scenes.go("res://scenes/title.tscn"))
 	col.add_child(back)
 
 
@@ -87,4 +87,4 @@ func _card(culture: String) -> Control:
 
 func _on_pick(culture: String) -> void:
 	GameState.new_campaign(culture)
-	get_tree().change_scene_to_file("res://scenes/world_map.tscn")
+	Scenes.go("res://scenes/world_map.tscn")

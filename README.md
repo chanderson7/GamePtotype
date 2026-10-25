@@ -11,6 +11,7 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 - **The Glass Sea.** An invented inland sea shared by three realms: the **Kingdom of Vardmark** on the northwest shore (stone keeps and armored knights), the **Sultanate of Kharzan** across the southern deserts (walled cities and swift riders), and the **Ryumon Shogunate** on the islands beyond the eastern strait (disciplined archers and spearmen). Twelve settlements, towns, castles and villages, joined by roads and three sea lanes.
 - **Choose your people.** A new campaign starts with a choice of culture. Your captains take its names, your companies its words ("Brann's Pikes", "Tariq's Spears", "Hideo's Yari"), your troops its names (Men-at-arms, Askari, Samurai), and you start at its capital. Cultures fight alike for now; their stats will differ later.
 - **Ride the roads.** Tap a settlement to see it and ride there. Time passes only while you ride or wait, an hour a second (two at 2x), and stops the moment anything needs you. Sea lanes are slower than roads. Drag to look around, pinch or scroll to zoom, double-tap to find your party.
+- **A living map.** A ragged coastline with beaches and surf breathing against it, turquoise shallows over a deep sea, hills shaded by the light, and each realm's own country: Vardmark's meadows, woods and grey peaks, Kharzan's sand, dunes, palms and red mesas, the Ryumon isles' pines, cherry blossom and snow-capped mountains, with fields, dry plots or paddies around every village. Each culture builds its own towns, castles and villages: Vardish stone keeps under slate and red tile, Kharzani sandstone walls, domes and minarets, Ryumon castles of stacked black roofs on stone bases. Your rider trots along the road under your banner, kicking up dust; bandit bands march under ragged ones. The light follows the clock, gold at dawn and dusk and blue at night, when the settlements' lamps are lit, and cloud shadows drift across land and sea. A campaign starts at eight in the morning.
 - **Bandits.** A band roams the villages of each realm. When one blocks your road you can lead the fight, in a full battle against an army led by captains of that realm; send your men in without you, settled on the spot at the cost of a few more men; or withdraw to the last settlement you passed. Your scouts size up the fight first: who's stronger, and about how many men you'd lose sending them in. A beaten band is gone; another rises in its realm a day later. If they beat you, your survivors regroup at your capital half a day later, and the band keeps only the men it had left.
 - **Silver, food and wages.** You start with 400 silver and five days of food. Every day costs each man a ration and his wages (more for archers, more again for horse, half again for each level of training). Men who go unpaid or hungry desert, about one in ten a day, fewer if you're only a little short, and the map tells you when it happens. The top bar shows your silver, how many days of food you have and your renown, in red when you're running short.
 - **Spoils and renown.** Beating a band pays a bounty plus silver and food for every man cut down, and wins renown. You can lead six squads at first, and one more for every 60 renown, up to twelve.
@@ -32,11 +33,18 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 - **Win by breaking their army.** The battle ends when one side has no squad left standing. After five minutes, the side with more of its army still fighting wins.
 - **Enemy commanders with a temperament**, which your scouts report while you deploy. *Reckless* comes straight at you. *Patient* holds a braced line, takes your charge, then sends in the rest. *Hammer* pins you with foot and holds its horse until the lines meet, then rides for your archers and flanks. All of them use their squads' abilities.
 - **A battle you can read on a phone.** The camera follows the fighting. Every squad carries a standard showing its type, morale and men, swallowtails for you and square flags for them; a squad's standard topples when it breaks. Select a squad and the enemy standards show which ones it beats and which beat it. A tray of squad cards along the bottom shows every squad's morale and whether its ability is ready. A strength bar replaces the clock. Pause any time (orders still work while paused), play at double speed, and the battle pauses itself if you leave the app.
-- **Pixel-art troops.** Original top-down sprites for each type in both team colors: sword and round shield, long spear, hooded bowman, and horseman with a lance he couches for the charge. Two walk frames and a strike pose each, a white flash when hit, shadows, fallen bodies, trampled and bloodied ground where they fell, arrows that arc in flight and stick in the turf where they miss, and a grass field. Charges shake the screen and land with a jolt.
+- **Pixel-art troops, dressed by culture.** Original top-down sprites for each type in both team colors, different for each people: Vardish men-at-arms with kite shields and steel helms, kettle-hatted pikemen, crossbowmen and barded knights; Kharzani askari in white turbans with round shields and scimitars, spear guard, recurve bowmen and faris on grey horses; Ryumon samurai in black lacquer with crested helmets and sashimono banners at their backs, ashigaru under wide straw hats, long-bowed yumi archers and mounted samurai on dark horses. A squad you hire abroad wears its own culture's gear. Two walk frames and a strike pose each, a white flash when hit, shadows, fallen bodies, trampled and bloodied ground where they fell, and arrows that arc in flight and stick in the turf where they miss. Charges shake the screen and land with a jolt.
+- **Fields by land.** A battle is fought on the ground of the realm it's in: Vardish meadow, Kharzani steppe with pebbles and scrub, Ryumon moss with fallen petals, with rocks, bushes and patches of lighter and darker ground.
 - **Captains who can die.** Every squad is led by a named captain ("Brann's Shields"), a tougher man at the heart of the formation marked by a gold ring, with a temperament (Vengeful, Steadfast, Fragile) and sometimes a quirk (Lucky, Mentor, Bold). The squad holds its nerve better under them and reels when they go down.
 - **The death roll.** A fallen captain rolls a d100 against a death chance of 45%, less 15 each if their own squad still has half its men, another squad is close enough to drag them clear, or they're Lucky. Over the chance: wounded, and they sit out the next two battles. At or under: dead. The battle all but stops while the die rolls on screen against the odds, with each modifier shown, then their fate and last words; the dead go on the memorial in camp while a veteran takes over the company.
 - **Bonds.** Captains who fight side by side build a bond, rank C, B then A. Bonded pairs fighting near each other regain nerve and, from B, hit harder. When one falls, the other reacts by temperament: fury, a steadied line, or a squad that starts to break.
 - **A persistent warband** with its bonds and the memorial of the fallen, on the Warband screen from the map.
+
+### Sound and feel
+
+- **Music for every place**, composed and synthesized for the game (`tools/music.py`): a horn theme over harp and strings on the title screen; on the map, the music of the realm you're riding through, crossfading as you cross a border: lute and recorder over a hurdy-gurdy drone in Vardmark, oud and ney over a frame drum's rhythm in Kharzan, koto and shakuhachi with taiko on the Ryumon isles. Battle music has two layers, war drums and a driving ostinato always, horns and snares swelling in as more of the field is fighting, and ends with a victory or defeat call.
+- **Sounds**: a horn to start the battle, steel ringing faster the more squads are locked in melee, the rush of a volley, hooves thundering into a charge, the shout of a breaking squad, the rattle of the death roll's die and a bell when it lands on death; on the map, hoofbeats on the road, an alarm horn when bandits block it, coins when you buy or hire.
+- **Feel**: screens fade into one another, every button clicks and gives under your finger, map sheets and the battle result ease into view, and the title screen drifts over the Glass Sea at dawn. Music and sound can each be switched off on the title and Warband screens; the choice is kept on the device.
 
 ## Run it
 
@@ -70,15 +78,23 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scripts/battle/commander_ai.gd` | The computer's commanders: how each temperament lines up, when it commits, and how it uses abilities. |
 | `scripts/battle/auto_resolve.gd` | Settles a fight without playing it, from each side's strength. Fitted to the battle sim; the tests check they still agree. |
 | `scripts/battle/battle_screen.gd` | Drawing, touch input and the HUD. Reads the sim; never changes the rules. |
-| `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and grass at startup. |
-| `scripts/art/sprite_data.gd` | The pixel art itself, as rows of palette letters. Generated: don't edit by hand. |
-| `tools/unit_sprites.py` | Where the pixel art is drawn. Edit this, then run `python3 tools/unit_sprites.py preview/` to regenerate `sprite_data.gd` and a preview sheet. |
+| `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and battlefield ground at startup, by culture. |
+| `scripts/art/sprite_data.gd` | The unit pixel art itself, as rows of palette letters. Generated: don't edit by hand. |
+| `tools/unit_sprites.py` | Where the unit pixel art is drawn, culture by culture, with the battlefield's rocks and bushes. Edit this, then run `python3 tools/unit_sprites.py preview/` to regenerate `sprite_data.gd` and a preview sheet. |
+| `scripts/art/map_art.gd`, `scripts/art/map_sprite_data.gd` | The same for the map: settlements by culture and type, terrain, and parties. |
+| `tools/map_sprites.py` | Where the map's pixel art is drawn. `python3 tools/map_sprites.py preview/`. |
+| `shaders/` | The map's sea, land and sky (the hour's light and cloud shadows). |
+| `tools/music.py` | Composes and synthesizes all the music and sound effects with numpy, and encodes them to Ogg Vorbis with ffmpeg into `assets/audio/`. `python3 tools/music.py` renders everything, or name one piece or `sfx`. |
+| `scripts/audio/sound.gd` | Music and sound (an autoload): crossfades, the battle's two layers, an effects pool, button clicks, and the music and sound switches. |
+| `scripts/ui/scenes.gd` | Changes screens with a quick fade (an autoload). |
 | `scripts/data/captains.gd` | Captain traits, the death roll and bond ranks. Tune the odds here. |
 | `scripts/data/economy.gd` | Prices, wages, food, desertion, spoils, renown and the squad cap. **Tune the campaign's pace here.** |
 | `scripts/data/cultures.gd` | The three cultures: names, colors, captain name pools, and what each calls its troops. |
-| `scripts/world/world_data.gd` | The map as data: factions, settlements, roads, sea lanes, coastlines and bandit bands. |
+| `scripts/world/world_data.gd` | The map as data: factions, settlements, roads, sea lanes, coastlines (with their ragged shores) and bandit bands. |
 | `scripts/world/world_sim.gd` | The world as pure logic: the clock, travel by road, bandits, encounters, saving. No drawing. |
-| `scripts/world/map_screen.gd` | Draws the map and turns taps into travel. Reads the world sim; never changes the rules. |
+| `scripts/world/map_screen.gd` | Draws the map's settlements, parties, light and names, and turns taps into travel. Reads the world sim; never changes the rules. |
+| `scripts/world/map_backdrop.gd` | The sea and the land under the map and the title screen. |
+| `scripts/world/map_terrain.gd` | Works out the map's look once: the land picture its shaders read, and where woods, peaks, dunes and fields stand. |
 | `scripts/world/settlement_screen.gd` | The settlement screen. Shows prices and passes taps to the campaign; never changes the rules. |
 | `scripts/ui/heraldry.gd` | Flags and troop glyphs, shared by the battle's standards and the map's pennants. |
 | `scripts/game_state.gd` | The campaign (an autoload): your culture, the warband, its purse, food and renown, hiring and training, daily upkeep, battle results and the save file. |
@@ -109,6 +125,7 @@ Add `-- --balance` to also fight three scripted players against every kind of co
 - [x] One battle that plays well on a phone
 - [x] A world to ride: three cultures around the Glass Sea, travel, bandits on the roads
 - [x] Reasons to ride: silver, food and wages, recruiting by culture, training, renown, auto-resolve
+- [x] A first look and sound: troops dressed by culture, a living map, music and sound for every place
 - [ ] War map: AI lords on the move, towns and castles that change hands
 - [ ] Kingdoms and diplomacy: war, peace, alliances, tribute
-- [ ] Sieges, an art and sound pass, then Steam early access and the App Store
+- [ ] Sieges, a second art and sound pass, then Steam early access and the App Store
