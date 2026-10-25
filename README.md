@@ -15,6 +15,7 @@ This first slice is one playable field battle plus a camp screen. Your warband c
 - **Two orders: Advance and Hold.** Squads hold their ground until ordered. *Advance* sends them at the enemy at marching pace, each going for the enemy it fights best, then charging when close. *Hold* stops them where they stand to fight whoever comes. The buttons command the whole army, or one squad once you tap it; with a squad selected you can also tap an enemy squad to attack it, or open ground to march there.
 - **Win by breaking their army.** The battle ends when one side has no squad left standing. After five minutes, the side with more of its army still fighting wins.
 - **An enemy commander** that lines up, holds for a few seconds, then advances with everything, sooner if you come close.
+- **Pixel-art troops.** Original top-down sprites for each type in both team colors: sword and round shield, long spear, hooded bowman, and horseman with a lance he couches for the charge. Two walk frames and a strike pose each, a white flash when hit, fallen bodies, arrows in flight and a grass field.
 - **A persistent warband** saved on the device (`user://warband.json`).
 
 ## Run it
@@ -44,6 +45,9 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scripts/battle/battle_sim.gd` | Battle rules as pure logic: deployment, orders, movement, combat, morale, win conditions. No drawing. |
 | `scripts/battle/commander_ai.gd` | How the computer lines up its army and when it advances. |
 | `scripts/battle/battle_screen.gd` | Drawing, touch input and the HUD. Reads the sim; never changes the rules. |
+| `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and grass at startup. |
+| `scripts/art/sprite_data.gd` | The pixel art itself, as rows of palette letters. Generated: don't edit by hand. |
+| `tools/unit_sprites.py` | Where the pixel art is drawn. Edit this, then run `python3 tools/unit_sprites.py preview/` to regenerate `sprite_data.gd` and a preview sheet. |
 | `scripts/game_state.gd` | The persistent warband (an autoload), battle results and the save file. |
 | `scripts/ui/style.gd` | Shared colors and UI theme. |
 | `tests/run_tests.gd` | Headless checks of the rules. |

@@ -14,13 +14,11 @@ const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const Art = preload("res://scripts/art/unit_art.gd")
 
 const TOP_BAR := 76.0
 const BOTTOM_PANEL := 256.0
 const CARD_COLUMNS := 5
-const ARROW_COLOR := Color("f4efe1")
-## Men are drawn bigger than their collision size so they read on a phone screen.
-const BODY_SCALE := 1.35
 const ORDER_WORDS := {"hold": "holding", "advance": "advancing", "attack": "attacking", "move": "marching"}
 
 var sim: Sim
@@ -64,6 +62,9 @@ var result_body: Label
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
+	# Pixel art: hard edges, and the grass tile repeats.
+	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	# `-- --autoplay` lets the computer fight both sides (used for headless smoke tests).
 	autoplay = OS.get_cmdline_user_args().has("--autoplay")
 	sim = Sim.new()
@@ -209,7 +210,9 @@ func _on_card(index: int) -> void:
 		return
 	selected_id = e["roster_id"]
 	var placed: bool = sim.placed_squad(Sim.PLAYER, selected_id) != null
-	_hint("%s %s" % [Troops.stats(e["type"])["blurb"],
+	var level: int = e["level"]
+	var veteran := "Level %d veterans. " % level if level > 1 else ""
+	_hint("%s%s %s" % [veteran, Troops.stats(e["type"])["blurb"],
 		"Tap the field to move them." if placed else "Tap the blue zone to place them."])
 
 
@@ -422,12 +425,16 @@ func _build_hud() -> void:
 	deploy_box.add_theme_constant_override("h_separation", 8)
 	deploy_box.add_theme_constant_override("v_separation", 8)
 	col.add_child(deploy_box)
-	var card_height := 78.0 if _cards.size() <= CARD_COLUMNS * 2 else 52.0
+	var roomy := _cards.size() <= CARD_COLUMNS * 2
 	for i in _cards.size():
-		var b := _button("", Vector2(0, card_height), _on_card.bind(i))
+		var b := _button("", Vector2(0, 84.0 if roomy else 52.0), _on_card.bind(i))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 17)
+		b.add_theme_font_size_override("font_size", 16)
 		b.clip_text = true
+		if roomy:
+			b.icon = Art.icon(_cards[i]["type"], Sim.PLAYER)
+			b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
 		deploy_box.add_child(b)
 		card_buttons.append(b)
 
@@ -523,7 +530,7 @@ func _refresh_deploy() -> void:
 		var b: Button = card_buttons[i]
 		var e: Dictionary = _cards[i]
 		var level: int = e["level"]
-		b.text = "%s\n%d men%s" % [_name(e["type"]), e["men"], "" if level <= 1 else " · Lv%d" % level]
+		b.text = "%s %d%s" % [_name(e["type"]), e["men"], "" if level <= 1 else " L%d" % level]
 		var picked: bool = e["roster_id"] == selected_id
 		var placed: bool = sim.placed_squad(Sim.PLAYER, e["roster_id"]) != null
 		var style: StyleBox = _card_styles["normal"]
@@ -536,6 +543,9 @@ func _refresh_deploy() -> void:
 		var ink := Style.MUTED if placed and not picked else Style.TEXT
 		b.add_theme_color_override("font_color", ink)
 		b.add_theme_color_override("font_hover_color", ink)
+		var faded := Color(1, 1, 1, 0.45) if placed and not picked else Color.WHITE
+		b.add_theme_color_override("icon_normal_color", faded)
+		b.add_theme_color_override("icon_hover_color", faded)
 
 
 func _refresh_battle() -> void:
@@ -582,33 +592,46 @@ func _order_summary() -> String:
 func _draw() -> void:
 	if sim == null:
 		return
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_field()
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_zones()
 	for c in sim.corpses:
-		var dark := Style.PLAYER_DARK if c["team"] == Sim.PLAYER else Style.ENEMY_DARK
-		draw_circle(c["pos"], 5.0, Color(dark, 0.5))
+		var horse: bool = c.get("type", "") == Troops.CAVALRY
+		var p: Vector2 = c["pos"]
+		# A steady, random-looking angle per body, so the dead don't spin between frames.
+		var angle := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
+		_sprite("corpse_horse" if horse else "corpse", c["team"], 0, p, angle, Color(1, 1, 1, 0.8))
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_orders()
 	for sq in sim.squads:
 		_draw_men(sq)
 	for p in sim.projectiles:
 		var to: Vector2 = p.aim - p.pos
 		if to.length() > 0.01:
-			draw_line(p.pos, p.pos - to.normalized() * 11.0, ARROW_COLOR, 2.0)
+			_sprite("arrow", 0, 0, p.pos, to.angle() + PI * 0.5)
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+## Pixel-art grass, with faint mown bands so distances still read at a glance.
 func _draw_field() -> void:
-	var w := Sim.ARENA.x
-	var h := Sim.ARENA.y
-	var band := 110.0
+	var px := Art.GRASS_PIXEL
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
+	draw_texture_rect(Art.grass(), Rect2(Vector2.ZERO, Sim.ARENA / px), true)
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	var band := 126.0
 	var y := 0.0
 	var i := 0
-	while y < h:
-		draw_rect(Rect2(0.0, y, w, minf(band, h - y)), Style.FIELD_A if i % 2 == 0 else Style.FIELD_B)
+	while y < Sim.ARENA.y:
+		if i % 2 == 1:
+			draw_rect(Rect2(0.0, y, Sim.ARENA.x, minf(band, Sim.ARENA.y - y)), Color(0, 0, 0, 0.06))
 		y += band
 		i += 1
-	draw_dashed_line(Vector2(0.0, Sim.MID_Y), Vector2(w, Sim.MID_Y), Color(1, 1, 1, 0.35), 3.0, 14.0)
+
+
+func _draw_zones() -> void:
+	draw_dashed_line(Vector2(0.0, Sim.MID_Y), Vector2(Sim.ARENA.x, Sim.MID_Y), Color(1, 1, 1, 0.35), 3.0, 14.0)
 	if sim.phase == Sim.PHASE_DEPLOY and sim.winner == -1:
 		var zone := sim.deploy_zone(Sim.PLAYER)
 		var picking := selected_id != -1
@@ -616,6 +639,13 @@ func _draw_field() -> void:
 		draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.85 if picking else 0.4), false, 3.0)
 		draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
 	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
+
+
+## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing up).
+func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE) -> void:
+	var s := field_scale * Art.pixel_size(name)
+	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s, s))
+	draw_texture(Art.frame(name, team, index), -Art.pivot(name), tint)
 
 
 func _draw_orders() -> void:
@@ -642,35 +672,23 @@ func _draw_orders() -> void:
 
 func _draw_men(sq) -> void:
 	var mine: bool = sq.team == Sim.PLAYER
-	var col := Style.PLAYER if mine else Style.ENEMY
-	var dark := Style.PLAYER_DARK if mine else Style.ENEMY_DARK
-	var light := Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT
-	if sq.routing:
-		col = col.lerp(Color(0.8, 0.8, 0.8), 0.55)
-	var r: float = float(sq.stats["radius"]) * BODY_SCALE
+	var type: String = sq.type
+	var tint := Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE
 	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
+	if selected:
+		draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		var r: float = float(sq.stats["radius"]) + 4.0
+		for so in sq.soldiers:
+			if so.alive:
+				draw_arc(so.pos, r, 0.0, TAU, 14, Style.BRASS, 2.5)
 	for so in sq.soldiers:
 		if not so.alive:
 			continue
-		var p: Vector2 = so.pos
-		var f: Vector2 = so.facing
-		var side := Vector2(-f.y, f.x)
-		var c := col.lerp(Color.WHITE, float(so.flash) * 0.7)
-		if sq.type == Troops.CAVALRY:
-			var body := PackedVector2Array([p + f * (r + 5.0), p + side * (r * 0.75), p - f * (r + 3.0), p - side * (r * 0.75)])
-			draw_colored_polygon(body, dark)
-			draw_circle(p, r * 0.62, c)
-		else:
-			draw_circle(p, r, dark)
-			draw_circle(p, r - 1.6, c)
-		if sq.type == Troops.SPEARMEN:
-			draw_line(p + f * 2.0, p + f * (r + 13.0), Style.TEXT, 2.0)
-		elif sq.type == Troops.INFANTRY:
-			draw_line(p + f * (r - 1.0) + side * 4.5, p + f * (r - 1.0) - side * 4.5, light, 3.0)
-		elif sq.type == Troops.ARCHERS:
-			draw_arc(p, r + 1.5, f.angle() - 0.9, f.angle() + 0.9, 8, light, 2.0)
-		if selected:
-			draw_arc(p, r + 3.5, 0.0, TAU, 16, Style.BRASS, 2.0)
+		var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
+		var angle: float = so.facing.angle() + PI * 0.5
+		_sprite(type, sq.team, index, so.pos, angle, tint)
+		if so.flash > 0.05:
+			draw_texture(Art.flash(type, index), -Art.pivot(type), Color(1, 1, 1, so.flash * 0.8))
 
 
 func _draw_floaters() -> void:

@@ -64,6 +64,10 @@ class Soldier:
 	var runup := 0.0
 	var slot := Vector2.ZERO
 	var push := Vector2.ZERO
+	# For the screen only: distance walked (drives the walk cycle) and time left on the
+	# strike pose.
+	var stride := 0.0
+	var swing := 0.0
 
 
 class Squad:
@@ -676,6 +680,7 @@ func _in_range(a, b, limit: float) -> bool:
 func _update_soldier(so, sq, dt: float) -> void:
 	so.cooldown = maxf(0.0, so.cooldown - dt)
 	so.flash = maxf(0.0, so.flash - dt * 5.0)
+	so.swing = maxf(0.0, so.swing - dt)
 	so.runup = maxf(0.0, so.runup - 30.0 * dt)
 	var speed: float = sq.speed
 
@@ -710,6 +715,7 @@ func _update_soldier(so, sq, dt: float) -> void:
 			so.runup += moved # only a real run-up counts toward a charge, not shuffling in the melee
 	elif so.cooldown <= 0.0:
 		_strike(so, sq, so.target, gap)
+		so.swing = 0.3
 		so.cooldown = sq.cooldown * rng.randf_range(0.85, 1.15)
 		so.runup = 0.0
 
@@ -717,7 +723,9 @@ func _update_soldier(so, sq, dt: float) -> void:
 func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 	var before: Vector2 = so.pos
 	so.pos = before.move_toward(dest, speed * dt)
-	return before.distance_to(so.pos)
+	var moved := before.distance_to(so.pos)
+	so.stride += moved
+	return moved
 
 
 func _target_ok(so, sq) -> bool:
@@ -822,7 +830,7 @@ func _damage(victim, dmg: float, attacker, charge: bool = false) -> void:
 		vs.morale -= 100.0 / float(vs.start_men) * 0.8 + 2.0
 		if attacker != null:
 			attacker.kills += 1
-		corpses.append({"pos": victim.pos, "team": vs.team})
+		corpses.append({"pos": victim.pos, "team": vs.team, "type": vs.type})
 		if corpses.size() > MAX_CORPSES:
 			corpses.pop_front()
 

@@ -4,6 +4,7 @@ extends Control
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const Art = preload("res://scripts/art/unit_art.gd")
 
 var _reset_armed := 0.0
 
@@ -111,10 +112,12 @@ func _squad_row(s: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	var chip := ColorRect.new()
-	chip.color = Style.PLAYER
-	chip.custom_minimum_size = Vector2(10, 40)
-	row.add_child(chip)
+	var portrait := TextureRect.new()
+	portrait.texture = Art.icon(type)
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	portrait.custom_minimum_size = Vector2(44, 44)
+	row.add_child(portrait)
 	var name_label := Style.label(Troops.display_name(type), 24)
 	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(name_label)
