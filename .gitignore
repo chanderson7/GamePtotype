@@ -1,0 +1,14 @@
+# Godot 4 cache and generated files
+.godot/
+/android/
+
+# Export output
+/build/
+*.ipa
+*.apk
+*.aab
+*.pck
+
+# OS clutter
+.DS_Store
+Thumbs.db
