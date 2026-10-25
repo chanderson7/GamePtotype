@@ -18,6 +18,8 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const Cultures = preload("res://scripts/data/cultures.gd")
+const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 const TOP_BAR := 96.0
 const CHIP_H := 84.0
@@ -77,6 +79,8 @@ var _roll := {}
 var _roll_queue: Array = []
 
 var _cards: Array = []
+## What the enemy's troops are called: their culture's words.
+var _enemy_culture := Cultures.VARDISH
 var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
@@ -116,9 +120,16 @@ func _ready() -> void:
 	# `-- --autoplay` lets the computer fight both sides (used for headless smoke tests).
 	autoplay = OS.get_cmdline_user_args().has("--autoplay")
 	sim = Sim.new()
-	sim.setup(GameState.army, GameState.enemy_army())
+	# A fight the map set up (bandits on the road), or one made up on the spot.
+	var pending: Dictionary = GameState.pending_battle
+	if pending.is_empty():
+		sim.setup(GameState.army, GameState.enemy_army())
+		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
+	else:
+		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
+		sim.setup(GameState.army, pending["enemy"])
+		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
 	# The enemy lines up first, so you can see what you're facing while you deploy.
-	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
 	sim.ai[Sim.ENEMY].deploy(sim)
 	_cards = sim.roster(Sim.PLAYER)
 	_build_hud()
@@ -487,8 +498,9 @@ func _hint(text: String) -> void:
 
 # ---------------------------------------------------------------- words
 
-func _name(type: String) -> String:
-	return Troops.display_name(type)
+## What a troop type is called on one side: in your culture's words, or the enemy's.
+func _name(type: String, team: int = Sim.PLAYER) -> String:
+	return Cultures.troop_name(GameState.culture if team == Sim.PLAYER else _enemy_culture, type)
 
 
 ## "Brann's Shields, led by Brann of Ostmark (Vengeful, Lucky). Bonds: Mira (B)."
@@ -543,11 +555,11 @@ func _company_or_type(sq) -> String:
 		if name != "":
 			return name
 		return "Your " + _name(sq.type).to_lower()
-	return "The enemy " + _name(sq.type).to_lower()
+	return "The enemy " + _name(sq.type, Sim.ENEMY).to_lower()
 
 
 func _describe(sq) -> String:
-	var text := "Enemy %s · %d men" % [_name(sq.type).to_lower(), sq.alive_count()]
+	var text := "Enemy %s · %d men" % [_name(sq.type, Sim.ENEMY).to_lower(), sq.alive_count()]
 	if not sq.info.is_empty():
 		text += " · Captain %s%s" % [sq.info["name"], "" if sq.captain != null else " (down)"]
 	if sq.level > 1:
@@ -579,7 +591,7 @@ func _consume_events() -> void:
 				if mine:
 					_tick("%s broke and run for the edge." % _company_or_type(sq), Style.ENEMY_LIGHT)
 				else:
-					_tick("Their %s break and run." % _name(sq.type).to_lower(), Style.PLAYER_LIGHT)
+					_tick("Their %s break and run." % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT)
 			"charge":
 				var sq = e["squad"]
 				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
@@ -605,7 +617,7 @@ func _consume_events() -> void:
 				var mine: bool = sq.team == Sim.PLAYER
 				_float_text(String(e["name"]).to_upper(), sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
 				if not mine:
-					_tick("Their %s: %s." % [_name(sq.type).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
+					_tick("Their %s: %s." % [_name(sq.type, Sim.ENEMY).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
 			"braced":
 				var sq = e["squad"]
 				_float_text("BRACED", sq.average_pos() + Vector2(0, -50), Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
@@ -623,7 +635,7 @@ func _captain_down(e: Dictionary) -> void:
 	var info: Dictionary = sq.info
 	if sq.team != Sim.PLAYER:
 		_float_text("%s CUT DOWN" % String(info.get("first", "Captain")).to_upper(), e["pos"], Style.PLAYER_LIGHT, 2.2)
-		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type).to_lower()], Style.PLAYER_LIGHT)
+		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type, Sim.ENEMY).to_lower()], Style.PLAYER_LIGHT)
 		return
 	_shake = maxf(_shake, 9.0)
 	Input.vibrate_handheld(120)
@@ -732,8 +744,15 @@ func _back_to_camp() -> void:
 	_left_battle = true
 	if _pending_result.is_empty():
 		_pending_result = sim.result_for(Sim.PLAYER)
+	var campaign: bool = GameState.has_campaign() and not GameState.pending_battle.is_empty()
 	GameState.apply_result(_pending_result)
-	get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
+	if autoplay:
+		GameState.autoplay_battles += 1
+	if campaign:
+		GameState.save_game()
+		get_tree().change_scene_to_file("res://scenes/world_map.tscn")
+	else:
+		get_tree().change_scene_to_file("res://scenes/main_menu.tscn")
 
 
 # ---------------------------------------------------------------- HUD
@@ -863,7 +882,7 @@ func _build_hud() -> void:
 	result_body.custom_minimum_size = Vector2(540, 0)
 	result_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rv.add_child(result_body)
-	var back := _button("Back to camp", Vector2(0, Style.TOUCH), _back_to_camp)
+	var back := _button("Back to the map" if not GameState.pending_battle.is_empty() else "Back to camp", Vector2(0, Style.TOUCH), _back_to_camp)
 	Style.make_primary(back)
 	rv.add_child(back)
 
@@ -1376,49 +1395,12 @@ func _draw_counter_hint(top: Vector2, type: String, ref_type: String) -> void:
 		draw_colored_polygon(PackedVector2Array([c + Vector2(0, 7), c + Vector2(9, -8), c + Vector2(-9, -8)]), Style.MORALE_LOW)
 
 
-## A flag on `ci` with its top-left at `at`: a swallowtail for you, square for them,
-## in the team's color with a glyph for the troop type. `lean` turns it about `at`.
-func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: String, grey: bool, lit: bool, lean: float, edge: Color = Color(0.06, 0.05, 0.08)) -> void:
+## A team's flag on `ci`: a swallowtail for you, square for them, with a glyph for the
+## troop type.
+func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: String, grey: bool, lit: bool, lean: float, edge: Color = Heraldry.EDGE) -> void:
 	var mine := team == Sim.PLAYER
-	var cloth := Style.PLAYER if mine else Style.ENEMY
-	var dark := Style.PLAYER_DARK if mine else Style.ENEMY_DARK
-	if grey:
-		cloth = cloth.lerp(Color(0.45, 0.45, 0.45), 0.6)
-		dark = dark.lerp(Color(0.2, 0.2, 0.2), 0.6)
-	ci.draw_set_transform(at, lean, Vector2.ONE)
-	var w := size.x
-	var h := size.y
-	var pts: PackedVector2Array
-	if mine:
-		pts = PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w - w * 0.26, h * 0.5), Vector2(w, h), Vector2(0, h)])
-	else:
-		pts = PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, h), Vector2(0, h)])
-	ci.draw_colored_polygon(pts, cloth)
-	ci.draw_rect(Rect2(0, h - 5.0, w - (w * 0.26 if mine else 0.0), 3.0), dark)
-	var outline := pts.duplicate()
-	outline.append(pts[0])
-	ci.draw_polyline(outline, edge, 3.0 if lit else 2.0)
-	_draw_glyph(ci, type, Vector2(w * 0.42, h * 0.48), size.y / 26.0, Style.TEXT if not grey else Color(0.85, 0.85, 0.85))
-	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-
-## Shield, spear, bow or horseshoe.
-func _draw_glyph(ci: CanvasItem, type: String, c: Vector2, k: float, ink: Color) -> void:
-	match type:
-		Troops.INFANTRY:
-			ci.draw_circle(c, 8.0 * k, ink)
-			ci.draw_circle(c, 5.5 * k, Color(0.15, 0.15, 0.2))
-			ci.draw_circle(c, 2.5 * k, ink)
-		Troops.SPEARMEN:
-			ci.draw_line(c + Vector2(0, 10) * k, c + Vector2(0, -4) * k, ink, 2.5 * k)
-			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -11) * k, c + Vector2(4, -4) * k, c + Vector2(-4, -4) * k]), ink)
-		Troops.ARCHERS:
-			ci.draw_arc(c + Vector2(-5, 0) * k, 10.0 * k, -1.1, 1.1, 12, ink, 2.5 * k)
-			ci.draw_line(c + Vector2(-1, -9) * k, c + Vector2(-1, 9) * k, ink, 1.0)
-			ci.draw_line(c + Vector2(-4, 0) * k, c + Vector2(9, 0) * k, ink, 2.0 * k)
-			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(11, 0) * k, c + Vector2(6, -3) * k, c + Vector2(6, 3) * k]), ink)
-		Troops.CAVALRY:
-			ci.draw_arc(c + Vector2(0, 1) * k, 7.0 * k, PI * 0.72, PI * 2.28, 18, ink, 3.5 * k)
+	Heraldry.flag(ci, at, size, Style.PLAYER if mine else Style.ENEMY, Style.PLAYER_DARK if mine else Style.ENEMY_DARK,
+		mine, type, grey, lit, lean, edge)
 
 
 func _draw_floaters() -> void:

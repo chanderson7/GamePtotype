@@ -1,5 +1,5 @@
-## The player's warband, carried between battles and saved on the device.
-## This is the seed of the campaign layer: the war map will read and change this roster.
+## The campaign: the player's warband, carried between battles, and the world map it
+## travels. Saved on the device after every change that matters.
 ##
 ## Every squad is led by a named captain. Captains who fall in battle roll for their
 ## fate: wounded ones sit out a couple of battles, dead ones go on the memorial and a
@@ -8,7 +8,11 @@ extends Node
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
-const SAVE_PATH := "user://warband.json"
+const Cultures = preload("res://scripts/data/cultures.gd")
+const WorldSim = preload("res://scripts/world/world_sim.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
+const SAVE_PATH := "user://campaign.json"
+const SAVE_VERSION := 2
 
 ## Each squad: {id, type, men, xp, name, captain}. A squad that loses every man is
 ## removed, unless its captain lived to raise it again.
@@ -18,6 +22,17 @@ var fallen: Array = []
 var battles := 0
 var wins := 0
 var last_result := {}
+## The player's culture: their captains' names and where they start.
+var culture := Cultures.VARDISH
+## The world map, or null before a campaign has started.
+var world = null
+## The fight the map has set up for the battle screen: {enemy, culture, temperament,
+## name}. Empty when the battle screen should make up its own enemy.
+var pending_battle := {}
+## What the map should tell the player when they get back from a battle, or "".
+var map_notice := ""
+## Battles the autoplay smoke test has fought this run.
+var autoplay_battles := 0
 ## Set false in tests so nothing touches the save file.
 var persist := true
 var rng := RandomNumberGenerator.new()
@@ -29,6 +44,21 @@ func _ready() -> void:
 	rng.randomize()
 	if not load_game():
 		new_warband()
+
+
+## Start over: a fresh warband of `culture_id` standing at its capital, in a new world.
+func new_campaign(culture_id: String) -> void:
+	culture = culture_id if Cultures.has(culture_id) else Cultures.VARDISH
+	world = null
+	pending_battle = {}
+	new_warband()
+	world = WorldSim.new()
+	world.setup(rng.randi(), culture)
+	save_game()
+
+
+func has_campaign() -> bool:
+	return world != null
 
 
 func new_warband() -> void:
@@ -57,7 +87,7 @@ func _new_captain(type: String) -> Dictionary:
 	for s in army:
 		if s.get("captain") != null:
 			taken.append(s["captain"]["first"])
-	var c := Captains.make(rng, _next_captain, type, taken)
+	var c := Captains.make(rng, _next_captain, type, taken, culture)
 	_next_captain += 1
 	return c
 
@@ -111,7 +141,19 @@ func bonds() -> Array:
 	return out
 
 
+## The army of the bandit band blocking the road, set up for the battle screen.
+func start_encounter_battle() -> void:
+	if world == null or world.encounter == -1:
+		return
+	var band = world.party(world.encounter)
+	pending_battle = {
+		"enemy": WorldSim.clean_army(band.army), "culture": WorldData.culture_of(band.faction),
+		"temperament": "Reckless", "name": band.name,
+	}
+
+
 ## A fresh enemy host that grows a little every other battle, led by its own captains.
+## Used when a battle starts without one set up by the map.
 func enemy_army() -> Array:
 	var erng := RandomNumberGenerator.new()
 	erng.randomize()
@@ -239,6 +281,19 @@ func apply_result(result: Dictionary) -> void:
 	army = army.filter(func(s): return int(s["men"]) > 0 or s.get("captain") != null)
 	if result.get("won", false):
 		wins += 1
+	if world != null and not pending_battle.is_empty():
+		var band := String(pending_battle.get("name", "The bandits"))
+		if result.get("won", false):
+			world.win_encounter()
+			map_notice = "%s are scattered. The road is clear." % band
+		else:
+			world.lose_encounter()
+			var home := String(WorldData.settlement(world.here())["name"])
+			if total_men() > 0:
+				map_notice = "%s beat you. The survivors regroup at %s, half a day later." % [band, home]
+			else:
+				map_notice = "%s cut down your whole warband." % band
+	pending_battle = {}
 	last_result = {
 		"won": bool(result.get("won", false)),
 		"lost": int(result.get("lost", 0)),
@@ -263,14 +318,20 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
 	}
 
 
+## Saves the campaign. Before one has started there's nothing worth keeping.
 func save_game() -> void:
-	if not persist:
+	if not persist or world == null:
 		return
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(JSON.stringify({"army": army, "fallen": fallen, "battles": battles, "wins": wins,
-		"next_id": _next_id, "next_captain": _next_captain}))
+	f.store_string(JSON.stringify(to_dict()))
+
+
+func to_dict() -> Dictionary:
+	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
+		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
+		"world": world.to_dict() if world != null else null}
 
 
 func load_game() -> bool:
@@ -279,6 +340,16 @@ func load_game() -> bool:
 	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
 	if typeof(data) != TYPE_DICTIONARY or not data.has("army"):
 		return false
+	return from_dict(data)
+
+
+## Restore a campaign saved with to_dict().
+func from_dict(data: Dictionary) -> bool:
+	culture = String(data.get("culture", Cultures.VARDISH))
+	world = null
+	if typeof(data.get("world")) == TYPE_DICTIONARY:
+		world = WorldSim.new()
+		world.from_dict(data["world"])
 	battles = int(data.get("battles", 0))
 	wins = int(data.get("wins", 0))
 	_next_id = int(data.get("next_id", 1))
@@ -316,7 +387,7 @@ func _clean_captain(c: Dictionary, type: String) -> Dictionary:
 			bonds[str(int(float(k)))] = float(raw[k])
 	return {
 		"id": int(c.get("id", 0)), "name": String(c.get("name", "Nameless")), "first": String(c.get("first", "Nameless")),
-		"type": type, "temperament": String(c.get("temperament", Captains.STEADFAST)), "quirk": String(c.get("quirk", "")),
+		"culture": String(c.get("culture", Cultures.VARDISH)), "type": type, "temperament": String(c.get("temperament", Captains.STEADFAST)), "quirk": String(c.get("quirk", "")),
 		"wounded": int(c.get("wounded", 0)), "battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0)),
 		"bonds": bonds,
 	}

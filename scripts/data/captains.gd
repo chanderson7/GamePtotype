@@ -2,6 +2,8 @@
 ## the battle (heroics, the death roll, grief, bonds) and the camp (names, memorial).
 extends RefCounted
 
+const Cultures = preload("res://scripts/data/cultures.gd")
+
 ## How a captain takes the fall of someone they're bonded to.
 const VENGEFUL := "Vengeful"   # fights harder and won't break for a while
 const STEADFAST := "Steadfast" # steadies the squad
@@ -62,19 +64,8 @@ const FURY_MORALE_FLOOR := 40.0
 const STEADY_MORALE := 15.0
 const SHAKEN_MORALE := 20.0
 
-const FIRST := [
-	"Brann", "Mira", "Aldric", "Tamsin", "Corwin", "Edda", "Rhys", "Isolde", "Garrick", "Wenna",
-	"Osric", "Liane", "Hale", "Briony", "Torvald", "Ysolde", "Cade", "Maren", "Doran", "Elspeth",
-	"Fenwick", "Gwen", "Ivo", "Jessa", "Kell", "Lorne", "Nell", "Piers", "Rowan", "Sabine",
-	"Tobin", "Una", "Varo", "Wyn", "Ansel", "Brisa", "Cato", "Dagny", "Emrys", "Freya",
-]
-const ORIGINS := [
-	"Ostmark", "the Fens", "Highcliff", "Ravensford", "the Marches", "Kettlebrook", "Saltmere",
-	"Thornwall", "Duncroft", "the Ash Hills", "Westerby", "Holloway", "Graymoor", "Brackenridge",
-]
-const COMPANY := {
-	"infantry": "Shields", "spearmen": "Pikes", "archers": "Bows", "cavalry": "Riders",
-}
+## Given names, places of origin and company names come from each captain's culture
+## (cultures.gd).
 
 const LAST_WORDS := [
 	"Tell them I held.", "Keep the line, lads.", "Not here... not yet.", "Finish it for me.",
@@ -87,18 +78,21 @@ const WOUNDED_WORDS := [
 ]
 
 
-## A new captain. `id` must be unique across the warband; `taken` lists first names
-## already in use, so two captains don't share one.
-static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array = []) -> Dictionary:
-	var first: String = FIRST[rng.randi_range(0, FIRST.size() - 1)]
+## A new captain of `culture`. `id` must be unique across the warband; `taken` lists
+## first names already in use, so two captains don't share one.
+static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array = [], culture: String = Cultures.VARDISH) -> Dictionary:
+	var names: Array = Cultures.info(culture)["first"]
+	var origins: Array = Cultures.info(culture)["origins"]
+	var first: String = names[rng.randi_range(0, names.size() - 1)]
 	for i in 12:
 		if not taken.has(first):
 			break
-		first = FIRST[rng.randi_range(0, FIRST.size() - 1)]
+		first = names[rng.randi_range(0, names.size() - 1)]
 	return {
 		"id": id,
-		"name": "%s of %s" % [first, ORIGINS[rng.randi_range(0, ORIGINS.size() - 1)]],
+		"name": "%s of %s" % [first, origins[rng.randi_range(0, origins.size() - 1)]],
 		"first": first,
+		"culture": culture,
 		"type": type,
 		"temperament": TEMPERAMENTS[rng.randi_range(0, TEMPERAMENTS.size() - 1)],
 		"quirk": QUIRKS[rng.randi_range(0, QUIRKS.size() - 1)],
@@ -109,8 +103,10 @@ static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array
 	}
 
 
+## "Brann's Pikes", in the captain's own culture's words.
 static func company_name(captain: Dictionary, type: String) -> String:
-	return "%s's %s" % [captain.get("first", "Nameless"), COMPANY.get(type, "Company")]
+	var culture := String(captain.get("culture", Cultures.VARDISH))
+	return "%s's %s" % [captain.get("first", "Nameless"), Cultures.company_noun(culture, type)]
 
 
 static func traits(captain: Dictionary) -> String:

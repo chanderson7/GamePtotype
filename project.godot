@@ -11,8 +11,8 @@ config_version=5
 [application]
 
 config/name="Bannerfall"
-config/description="Squad battles for phones, with a war map to come."
-run/main_scene="res://scenes/main_menu.tscn"
+config/description="Squad battles for phones in a sandbox campaign on the Glass Sea."
+run/main_scene="res://scenes/title.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.svg"
 

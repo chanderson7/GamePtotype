@@ -1,21 +1,18 @@
-## Camp: shows the warband that carries between battles and starts the next one.
-## The war map will take over as the game's hub; for now this is the space between fights.
+## The warband: the squads, captains, bonds and the fallen that carry between battles.
+## Opened from the map. Run on its own (no campaign yet), it can still start a battle.
 extends Control
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
-
-var _reset_armed := 0.0
+const Cultures = preload("res://scripts/data/cultures.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
 
 
 func _ready() -> void:
 	theme = Style.make_theme()
 	_build()
-	# Headless smoke test: `-- --autoplay` keeps fighting a couple of battles on its own.
-	if OS.get_cmdline_user_args().has("--autoplay") and GameState.battles < 2:
-		get_tree().create_timer(0.5).timeout.connect(_on_battle)
 
 
 func _build() -> void:
@@ -44,8 +41,14 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 
-	col.add_child(Style.label("Bannerfall", 72, Style.BRASS))
-	col.add_child(Style.label("Prototype · field battles", Style.BODY, Style.MUTED))
+	col.add_child(Style.label("Warband", 72, Style.BRASS))
+	var people := String(Cultures.info(GameState.culture)["people"])
+	var w = GameState.world
+	if w != null:
+		var where := String(WorldData.settlement(w.player().node)["name"])
+		col.add_child(Style.label("%s · day %d · near %s" % [people, int(w.hour) / 24 + 1, where], Style.BODY, Style.MUTED))
+	else:
+		col.add_child(Style.label(people, Style.BODY, Style.MUTED))
 
 	var last: Dictionary = GameState.last_result
 	if not last.is_empty():
@@ -78,30 +81,34 @@ func _build() -> void:
 		for i in range(GameState.fallen.size() - 1, -1, -1):
 			col.add_child(_memorial_row(GameState.fallen[i]))
 
-	var fight := Button.new()
-	fight.text = "To battle"
-	fight.custom_minimum_size = Vector2(0, 92)
-	fight.add_theme_font_size_override("font_size", Style.LARGE)
-	Style.make_primary(fight)
-	fight.disabled = GameState.total_men() == 0
-	fight.pressed.connect(_on_battle)
-	col.add_child(fight)
+	var back := Button.new()
+	back.custom_minimum_size = Vector2(0, 92)
+	back.add_theme_font_size_override("font_size", Style.LARGE)
+	Style.make_primary(back)
+	if w != null:
+		back.text = "Back to the map"
+		back.pressed.connect(func(): get_tree().change_scene_to_file("res://scenes/world_map.tscn"))
+	else:
+		back.text = "To battle"
+		back.disabled = GameState.total_men() == 0
+		back.pressed.connect(_on_battle)
+	col.add_child(back)
 
-	var rest := Button.new()
-	rest.text = "Rest and reinforce"
-	rest.custom_minimum_size = Vector2(0, Style.TOUCH)
-	rest.disabled = not GameState.is_wounded()
-	rest.pressed.connect(_on_reinforce)
-	col.add_child(rest)
+	# Fresh men are found in towns.
+	if w == null or w.player_in_town():
+		var rest := Button.new()
+		rest.text = "Rest and reinforce"
+		rest.custom_minimum_size = Vector2(0, Style.TOUCH)
+		rest.disabled = not GameState.is_wounded()
+		rest.pressed.connect(_on_reinforce)
+		col.add_child(rest)
+	else:
+		col.add_child(_note("Ride to a town to rest and reinforce."))
 
-	var fresh := Button.new()
-	fresh.text = "Raise a new warband"
-	fresh.custom_minimum_size = Vector2(0, Style.TOUCH)
-	fresh.pressed.connect(_on_new.bind(fresh))
-	col.add_child(fresh)
-
-	col.add_child(_section("How to fight"))
+	col.add_child(_section("How to play"))
 	var how := Style.label(
+		"On the map, tap a settlement to ride there. Time passes only while you ride or wait. " +
+		"Bandits roam each realm: when they block the road, fight them or withdraw.\n\n" +
 		"Before the fight, place your whole army in the blue zone: tap a card, then the field, " +
 		"or tap Auto-place. Your scouts tell you what kind of commander you face. Press Fight when you're ready.\n\n" +
 		"Your squads hold, braced, until ordered, and a braced line wins the first clash: often the " +
@@ -141,7 +148,7 @@ func _squad_row(s: Dictionary) -> Control:
 	text.add_theme_constant_override("separation", 2)
 	row.add_child(text)
 	var title := String(s.get("name", ""))
-	text.add_child(Style.label(title if title != "" else Troops.display_name(type), Style.BODY))
+	text.add_child(Style.label(title if title != "" else Cultures.troop_name(GameState.culture, type), Style.BODY))
 	var c = s.get("captain")
 	var who: Label
 	if c == null:
@@ -212,13 +219,3 @@ func _on_battle() -> void:
 func _on_reinforce() -> void:
 	GameState.reinforce()
 	_build()
-
-
-func _on_new(button: Button) -> void:
-	var now := Time.get_ticks_msec() / 1000.0
-	if now < _reset_armed or GameState.army.is_empty():
-		GameState.new_warband()
-		_build()
-		return
-	_reset_armed = now + 3.0
-	button.text = "Tap again to start over"

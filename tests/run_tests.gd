@@ -12,6 +12,9 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const GameStateScript = preload("res://scripts/game_state.gd")
 const Plans = preload("res://tests/plans.gd")
+const Cultures = preload("res://scripts/data/cultures.gd")
+const WorldSim = preload("res://scripts/world/world_sim.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
 
 const DUEL_SEEDS := 12
 const BATTLE_SEEDS := 6
@@ -41,6 +44,17 @@ func _init() -> void:
 
 	print("Commanders:")
 	_check_commanders()
+
+	print("Cultures:")
+	_check_cultures()
+
+	print("World:")
+	_check_map()
+	_check_travel()
+	_check_encounters()
+	_check_world_saves()
+	_check_long_run()
+	_check_campaign_battles()
 
 	print("Captains:")
 	_check_captains()
@@ -444,6 +458,222 @@ func _check_commanders() -> void:
 	_expect(moved[Commander.PATIENT] < 0.0, "a patient one waits for you to come")
 	_expect(moved[Commander.HAMMER] > 0.0 and not horse_early[Commander.HAMMER],
 		"a hammer-and-anvil commander sends its foot first and holds its horse until the lines meet")
+
+
+# ---------------------------------------------------------------- cultures
+
+func _check_cultures() -> void:
+	for c in Cultures.ORDER:
+		var gs = GameStateScript.new()
+		gs.persist = false
+		gs.new_campaign(c)
+		var names: Array = Cultures.info(c)["first"]
+		var origins: Array = Cultures.info(c)["origins"]
+		var own := true
+		for sq in gs.army:
+			var cap: Dictionary = sq["captain"]
+			var origin := String(cap["name"]).split(" of ", true, 1)[1]
+			if not names.has(cap["first"]) or not origins.has(origin) or cap["culture"] != c:
+				own = false
+			if String(sq["name"]) != "%s's %s" % [cap["first"], Cultures.company_noun(c, sq["type"])]:
+				own = false
+		var home: String = gs.world.player().node
+		_expect(own and home == WorldData.capital_of_culture(c),
+			"a %s warband has %s captains and companies, and starts at %s" % [
+				Cultures.info(c)["people"], Cultures.info(c)["people"], WorldData.settlement(home)["name"]])
+		gs.free()
+
+
+# ---------------------------------------------------------------- world
+
+## A world with no bandits in it, so travel checks aren't interrupted.
+func _quiet_world(seed_value: int) -> WorldSim:
+	var w := WorldSim.new()
+	w.setup(seed_value, Cultures.VARDISH)
+	w.parties = [w.player()]
+	return w
+
+
+func _check_map() -> void:
+	var w := _quiet_world(1)
+	var connected := true
+	for a in WorldData.SETTLEMENTS:
+		for b in WorldData.SETTLEMENTS:
+			if a != b and w.path(a, b).is_empty():
+				connected = false
+	_expect(connected, "every settlement can reach every other by road")
+	var on_land := true
+	for id in WorldData.SETTLEMENTS:
+		if WorldData.land_at(WorldData.pos(id)) == -1:
+			on_land = false
+	var roads_ok := true
+	for r in WorldData.ROADS:
+		var a := WorldData.pos(r[0])
+		var b := WorldData.pos(r[1])
+		if r[2]:
+			if WorldData.land_at(a) == WorldData.land_at(b):
+				roads_ok = false
+		else:
+			for i in 21:
+				if WorldData.land_at(a.lerp(b, i / 20.0)) == -1:
+					roads_ok = false
+	_expect(on_land and roads_ok, "every settlement and land road is on land, and every sea lane crosses water")
+	var realms_ok := true
+	for f in WorldData.FACTIONS:
+		if f == WorldData.BANDITS:
+			continue
+		var capital: String = WorldData.FACTIONS[f]["capital"]
+		if WorldData.settlement(capital)["faction"] != f or not Cultures.has(WorldData.culture_of(f)):
+			realms_ok = false
+	for id in WorldData.SETTLEMENTS:
+		if not WorldData.FACTIONS.has(WorldData.settlement(id)["faction"]):
+			realms_ok = false
+	_expect(realms_ok, "every settlement belongs to a realm of a known culture, and each realm holds its capital")
+
+
+func _check_travel() -> void:
+	var w := _quiet_world(2)
+	var hours := w.hours_to("khalun")
+	w.travel("khalun")
+	w.step(hours)
+	_expect(w.here() == "khalun" and absf(w.hour - hours) < 0.01,
+		"a ride from Highcliff to Khalun takes the time the map says (%.1f hours)" % hours)
+
+	w = _quiet_world(3)
+	var by_hand := WorldData.pos("highcliff").distance_to(WorldData.pos("kettlebrook")) / WorldSim.LAND_SPEED \
+		+ WorldData.pos("kettlebrook").distance_to(WorldData.pos("hamazaki")) / WorldSim.SEA_SPEED
+	hours = w.hours_to("hamazaki")
+	w.travel("hamazaki")
+	w.step(hours + 0.01)
+	_expect(absf(hours - by_hand) < 0.01 and w.here() == "hamazaki", "sea lanes are slower than roads (%.1f hours to Hamazaki)" % hours)
+
+	var before := w.hour
+	w.step(5.0)
+	_expect(w.hour == before, "the clock stands still while the warband does")
+	w.wait(8.0)
+	w.step(20.0)
+	_expect(absf(w.hour - before - 8.0) < 0.001, "waiting eight hours takes eight hours")
+
+
+func _check_encounters() -> void:
+	var w := WorldSim.new()
+	w.setup(4, Cultures.VARDISH)
+	var band = null
+	for b in w.bands():
+		if b.faction == "vardmark":
+			band = b
+	w.parties = [w.player(), band]
+	band.node = "thornwall"
+	band.next = ""
+	band.wait = 999.0
+	band.grace_until = -1.0
+	w.events.clear()
+	w.travel("thornwall")
+	w.step(30.0)
+	var found := w.events.filter(func(e): return e["type"] == "encounter")
+	var stopped := w.hour
+	w.step(5.0)
+	_expect(found.size() == 1 and w.encounter == band.id and w.hour == stopped,
+		"a band on the road stops the warband and the clock")
+	w.win_encounter()
+	_expect(w.bands().is_empty() and w.busy(), "a beaten band is gone and the warband rides on")
+	w.step(10.0)
+	w.wait(30.0)
+	w.step(40.0)
+	var back := w.bands()
+	_expect(back.size() == 1 and back[0].faction == "vardmark" and WorldData.settlement(back[0].node)["faction"] == "vardmark",
+		"a day later another band rises in the same realm")
+
+
+func _check_world_saves() -> void:
+	var w := WorldSim.new()
+	w.setup(5, Cultures.RYUMON)
+	w.travel("takamine")
+	w.step(3.3)
+	var saved := JSON.stringify(w.to_dict())
+	var copy := WorldSim.new()
+	copy.from_dict(JSON.parse_string(saved))
+	var same := JSON.stringify(copy.to_dict()) == saved
+	for world in [w, copy]:
+		world.step(40.0)
+		if world.encounter != -1:
+			world.withdraw()
+		world.travel("hamazaki")
+		world.step(40.0)
+	_expect(same and JSON.stringify(copy.to_dict()) == JSON.stringify(w.to_dict()),
+		"a saved world loads back exactly, and carries on exactly as the original")
+
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.new_campaign(Cultures.KHARZANI)
+	gs.world.travel("nahrabad")
+	gs.world.step(2.0)
+	var data := JSON.stringify(gs.to_dict())
+	var gs2 = GameStateScript.new()
+	gs2.persist = false
+	gs2.from_dict(JSON.parse_string(data))
+	_expect(JSON.stringify(gs2.to_dict()) == data, "a saved campaign loads back with its warband, place and hour")
+	gs.free()
+	gs2.free()
+
+
+func _check_long_run() -> void:
+	var w := WorldSim.new()
+	w.setup(6, Cultures.VARDISH)
+	var ids: Array = WorldData.SETTLEMENTS.keys()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6
+	var most := 0
+	var per_realm_ok := true
+	var outcome := 0
+	var guard := 0
+	while w.hour < 60.0 * 24.0 and guard < 20000:
+		guard += 1
+		if w.encounter != -1:
+			match outcome % 3:
+				0:
+					w.win_encounter()
+				1:
+					w.withdraw()
+				_:
+					w.lose_encounter()
+			outcome += 1
+		elif not w.busy():
+			if not w.travel(ids[rng.randi_range(0, ids.size() - 1)]):
+				w.wait(6.0)
+		w.step(1.0)
+		most = maxi(most, w.bands().size())
+		var seen := {}
+		for b in w.bands():
+			if seen.has(b.faction):
+				per_realm_ok = false
+			seen[b.faction] = true
+	_expect(w.hour >= 60.0 * 24.0 and most <= 3 and per_realm_ok and outcome > 3,
+		"sixty days of riding: never more than one band per realm (%d encounters)" % outcome)
+
+
+func _check_campaign_battles() -> void:
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.new_campaign(Cultures.VARDISH)
+	var band = gs.world.bands()[0]
+	gs.world.encounter = band.id
+	gs.start_encounter_battle()
+	var set_up: bool = gs.pending_battle.get("enemy", []).size() == band.army.size() and gs.pending_battle["name"] == band.name
+	gs.apply_result({"won": true, "squads": {}})
+	_expect(set_up and gs.world.party(band.id) == null and gs.pending_battle.is_empty(),
+		"bandits beaten in battle are gone from the map")
+
+	band = gs.world.bands()[0]
+	gs.world.travel("ravensford")
+	gs.world.step(1.0)
+	gs.world.encounter = band.id
+	var hour: float = gs.world.hour
+	gs.start_encounter_battle()
+	gs.apply_result({"won": false, "squads": {}})
+	_expect(gs.world.here() == "highcliff" and gs.world.hour >= hour + WorldSim.REGROUP_HOURS and gs.world.party(band.id) != null,
+		"a beaten warband regroups at its capital half a day later, and the bandits stay")
+	gs.free()
 
 
 # ---------------------------------------------------------------- captains
