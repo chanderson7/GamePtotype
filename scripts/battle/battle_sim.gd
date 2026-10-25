@@ -111,6 +111,11 @@ class Squad:
 	var goal := Vector2.ZERO
 	var order := "hold" # hold | advance | move | attack
 	var order_point := Vector2.ZERO
+	## The way the squad faces when it stands with no enemy close, set by a line the
+	## player drew. Zero: toward the enemy's end of the field.
+	var face := Vector2.ZERO
+	## Men abreast, set by a line the player drew. Zero: the usual width for its size.
+	var files := 0
 	var order_target = null
 	var focus = null
 	var engaged := false
@@ -316,7 +321,7 @@ func place(team: int, roster_id: int, at: Vector2):
 		return null
 	var sq = placed_squad(team, roster_id)
 	if sq != null:
-		var to = _free_spot(team, at, _footprint(sq.type, sq.start_men), sq)
+		var to = _free_spot(team, at, _footprint(sq.type, sq.start_men, sq.files), sq)
 		if to == null:
 			return null
 		_move_formation(sq, to)
@@ -481,8 +486,9 @@ func _files(men: int) -> int:
 	return mini(maxi(1, men), clampi(int(ceil(men / 3.0)), 4, 8))
 
 
-func _formation_slots(men: int, spacing: float) -> Array:
-	var cols := _files(men)
+## Slots for `men` in ranks `files` wide (or the usual width), the front rank first.
+func _formation_slots(men: int, spacing: float, files: int = 0) -> Array:
+	var cols := mini(maxi(1, men), files) if files > 0 else _files(men)
 	var rows := int(ceil(float(men) / cols))
 	var out := []
 	for i in men:
@@ -503,11 +509,12 @@ func _slot_world(slot: Vector2, facing: Vector2, team: int) -> Vector2:
 	return right * slot.x - facing * slot.y
 
 
-## Half the width and depth a squad covers in formation, with room for spears and bodies.
-func _footprint(type: String, men: int) -> Vector2:
+## Half the width and depth a squad covers in formation, with room for spears and
+## bodies, `files` men wide (or the usual width).
+func _footprint(type: String, men: int, files: int = 0) -> Vector2:
 	var r := float(Troops.stats(type)["radius"])
 	var spacing := r * 2.0 + 5.0
-	var cols := _files(men)
+	var cols := mini(maxi(1, men), files) if files > 0 else _files(men)
 	var rows := int(ceil(float(maxi(1, men)) / cols))
 	return Vector2((cols - 1) * spacing * 0.5 + r + 4.0, (rows - 1) * spacing * 0.5 + r + 4.0)
 
@@ -550,7 +557,7 @@ func _overlaps(team: int, at: Vector2, half: Vector2, ignore) -> bool:
 	for sq in squads:
 		if sq.team != team or sq == ignore:
 			continue
-		var other := _footprint(sq.type, sq.start_men)
+		var other := _footprint(sq.type, sq.start_men, sq.files)
 		if absf(at.x - sq.center.x) < half.x + other.x + SQUAD_GAP and absf(at.y - sq.center.y) < half.y + other.y + SQUAD_GAP:
 			return true
 	return false
@@ -576,6 +583,7 @@ func order_advance(sq) -> void:
 	if sq == null or not sq.is_active():
 		return
 	_break_off(sq)
+	sq.face = Vector2.ZERO
 	sq.order = "advance"
 	sq.order_target = null
 
@@ -585,15 +593,152 @@ func order_move(sq, point: Vector2) -> void:
 	if sq == null or not sq.is_active():
 		return
 	_break_off(sq)
+	sq.face = Vector2.ZERO
 	sq.order = "move"
 	sq.order_point = _clamp_to_arena(point)
 	sq.order_target = null
+
+
+# ---------------------------------------------------------------- lines
+
+## Ranks a squad keeps when a line spreads it out: never fewer than two.
+const LINE_MIN_RANKS := 2
+## The fewest men abreast in a line: two for a squad drawn on its own (a column), three
+## when squads share a line.
+const LINE_MIN_FILES := 2
+const SHARED_MIN_FILES := 3
+## Space between squads sharing a line.
+const LINE_GAP := SQUAD_GAP * 2.0
+
+
+## Where squads would stand along the line from `a` to `b`, in the order given, each
+## in its own stretch of it: [{squad, at, files, half}] (`half` is the half width and
+## depth it will cover). A squad alone fills the whole line, widening or deepening its
+## ranks to match; several share it in proportion to their usual width, with a gap
+## between. Where they can't fit, the line grows from its middle.
+func line_spots(line_squads: Array, a: Vector2, b: Vector2) -> Array:
+	var n := line_squads.size()
+	if n == 0:
+		return []
+	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
+	var widths := []
+	var total_usual := 0.0
+	for sq in line_squads:
+		var w := _footprint(sq.type, _men_of(sq)).x * 2.0
+		widths.append(w)
+		total_usual += w
+	var room := maxf(0.0, a.distance_to(b) - LINE_GAP * (n - 1))
+	var spots := []
+	var total := LINE_GAP * (n - 1)
+	for i in n:
+		var sq = line_squads[i]
+		var men := _men_of(sq)
+		var r := float(Troops.stats(sq.type)["radius"])
+		var spacing := r * 2.0 + 5.0
+		var share: float = room * widths[i] / maxf(1.0, total_usual)
+		var most := maxi(1, int(ceil(float(men) / LINE_MIN_RANKS)))
+		var fewest := mini(most, LINE_MIN_FILES if n == 1 else SHARED_MIN_FILES)
+		var files := clampi(int(round((share - 2.0 * r - 8.0) / spacing)) + 1, fewest, most)
+		var half := _footprint(sq.type, men, files)
+		spots.append({"squad": sq, "files": files, "half": half})
+		total += half.x * 2.0
+	var at := (a + b) * 0.5 - dir * total * 0.5
+	for s in spots:
+		var half: Vector2 = s["half"]
+		s["at"] = at + dir * half.x
+		at += dir * (half.x * 2.0 + LINE_GAP)
+	return spots
+
+
+## Form squads up along the line from `a` to `b`: the one squad given, or else every
+## squad of `team` still fighting (and, before the battle, any not yet placed). They
+## take their stretches in the order they already stand along the line, so their paths
+## don't cross, and face away from the line toward the enemy. Before the battle they're
+## placed there at once; during it they march there and hold. Returns the spots, as
+## line_spots does.
+func order_line(team: int, a: Vector2, b: Vector2, only = null) -> Array:
+	if winner != -1:
+		return []
+	var line_squads := []
+	if only != null:
+		if only.is_active():
+			line_squads.append(only)
+	else:
+		if phase == PHASE_DEPLOY:
+			# Anyone still in reserve joins the line; they start from its middle.
+			for entry in reserves[team].duplicate():
+				reserves[team].erase(entry)
+				_spawn(team, entry, _fit(deploy_zone(team), (a + b) * 0.5, _footprint(entry["type"], entry["men"])))
+		for sq in squads:
+			if sq.team == team and sq.is_active():
+				line_squads.append(sq)
+	if line_squads.is_empty():
+		return []
+	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
+	line_squads.sort_custom(func(x, y): return x.center.dot(dir) < y.center.dot(dir))
+	var spots := line_spots(line_squads, a, b)
+	var face := _line_face(team, a, b)
+	for s in spots:
+		var sq = s["squad"]
+		_reform(sq, int(s["files"]))
+		if phase == PHASE_DEPLOY:
+			sq.facing = face
+			_move_formation(sq, _fit(deploy_zone(team), s["at"], s["half"]))
+			s["at"] = sq.center
+		else:
+			order_move(sq, s["at"])
+		sq.face = face
+	return spots
+
+
+## Which way a line faces: square to it, toward the enemy's army (or its end of the field).
+func _line_face(team: int, a: Vector2, b: Vector2) -> Vector2:
+	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
+	var normal := Vector2(-dir.y, dir.x)
+	var enemy := Vector2(ARENA.x * 0.5, 0.0 if team == PLAYER else ARENA.y)
+	var sum := Vector2.ZERO
+	var n := 0
+	for sq in squads:
+		if sq.team != team and sq.is_active():
+			sum += sq.avg
+			n += 1
+	if n > 0:
+		enemy = sum / n
+	return normal if normal.dot(enemy - (a + b) * 0.5) >= 0.0 else -normal
+
+
+## The men a squad has to form up with: those still standing once the battle is on.
+func _men_of(sq) -> int:
+	return sq.alive_n if sq.alive_n > 0 else sq.start_men
+
+
+## Re-form a squad `files` men wide: its living men fill the new ranks from the front,
+## with the captain at the heart, and walk to their new places.
+func _reform(sq, files: int) -> void:
+	if files == sq.files:
+		return
+	sq.files = files
+	var living: Array = sq.soldiers.filter(func(so): return so.alive)
+	var slots := _formation_slots(living.size(), sq.radius * 2.0 + 5.0, files)
+	for i in living.size():
+		living[i].slot = slots[i]
+	if sq.captain != null and sq.captain.alive:
+		var heart = living[0]
+		for so in living:
+			if so.slot.length_squared() < heart.slot.length_squared() - 0.01:
+				heart = so
+		var keep: Vector2 = heart.slot
+		heart.slot = sq.captain.slot
+		sq.captain.slot = keep
+	if phase == PHASE_DEPLOY:
+		_move_formation(sq, sq.center)
 
 
 func order_attack(sq, foe) -> void:
 	if sq == null or not sq.is_active() or foe == null or not foe.is_active():
 		return
 	_break_off(sq)
+	sq.face = Vector2.ZERO
 	sq.order = "attack"
 	sq.order_target = foe
 
@@ -886,9 +1031,9 @@ func _update_squad(sq, dt: float) -> void:
 		if sq.order == "hold":
 			sq.still += dt
 		# Standing still: turn to meet an enemy squad that comes close, otherwise face
-		# the enemy's end of the field (so a squad that walked back to its post doesn't
-		# stand there facing its own lines).
-		var want := Vector2.UP if sq.team == PLAYER else Vector2.DOWN
+		# the way its line was drawn, or the enemy's end of the field (so a squad that
+		# walked back to its post doesn't stand there facing its own lines).
+		var want: Vector2 = sq.face if sq.face != Vector2.ZERO else (Vector2.UP if sq.team == PLAYER else Vector2.DOWN)
 		var threat = nearest_enemy_squad(sq.team, avg, FACE_RANGE)
 		if threat != null and threat.avg.distance_to(sq.center) > 1.0:
 			want = (threat.avg - sq.center).normalized()

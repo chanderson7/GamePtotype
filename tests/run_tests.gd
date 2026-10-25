@@ -36,6 +36,7 @@ func _init() -> void:
 	print("Orders:")
 	_check_orders()
 	_check_arrows()
+	_check_lines()
 
 	print("Tactics:")
 	_check_flanks()
@@ -208,6 +209,73 @@ func _check_orders() -> void:
 	for i in 240:
 		sim.step()
 	_expect(mine.order == "hold" and mine.center.distance_to(Vector2(150, 700)) < 8.0, "a march order ends holding the new ground")
+	sim.dispose()
+
+
+func _check_lines() -> void:
+	# Three squads standing left to right; a line drawn right to left, nearer the enemy.
+	var sim := Sim.new()
+	var army := [{"id": 1, "type": Troops.INFANTRY, "men": 20}, {"id": 2, "type": Troops.SPEARMEN, "men": 20},
+		{"id": 3, "type": Troops.ARCHERS, "men": 20}]
+	sim.setup(army, [{"id": 9, "type": Troops.INFANTRY, "men": 20}], 1)
+	for i in 3:
+		sim.place(Sim.PLAYER, i + 1, Vector2(150.0 + 270.0 * i, 1000.0))
+	sim.place(Sim.ENEMY, 9, Vector2(420.0, 100.0))
+	sim.start_battle()
+	var a := Vector2(700, 880)
+	var b := Vector2(140, 880)
+	var spots := sim.order_line(Sim.PLAYER, a, b)
+	var in_order := spots.size() == 3
+	var apart := true
+	for i in range(1, spots.size()):
+		var prev: Dictionary = spots[i - 1]
+		var cur: Dictionary = spots[i]
+		# The first spot is at the line's start (the right), and each squad keeps its place.
+		if prev["squad"].center.x < cur["squad"].center.x or Vector2(prev["at"]).x < Vector2(cur["at"]).x:
+			in_order = false
+		var need: float = Vector2(prev["half"]).x + Vector2(cur["half"]).x + Sim.LINE_GAP - 0.5
+		if Vector2(prev["at"]).distance_to(cur["at"]) < need:
+			apart = false
+	var mid: Vector2 = (Vector2(spots[0]["at"]) + Vector2(spots[2]["at"])) * 0.5
+	_expect(in_order and apart and mid.distance_to((a + b) * 0.5) < 30.0,
+		"a line shares itself out in the order the squads stand, without overlaps, centered where it was drawn")
+	for i in 30 * 25:
+		sim.step()
+	var formed := true
+	for spot in spots:
+		var sq = spot["squad"]
+		if sq.center.distance_to(spot["at"]) > 8.0 or sq.order != "hold" or sq.facing.dot(Vector2.UP) < 0.97:
+			formed = false
+	_expect(formed, "the squads march to their places on it and hold there, facing the enemy across it")
+	var inf = sim.placed_squad(Sim.PLAYER, 1)
+	var spacing: float = inf.radius * 2.0 + 5.0
+	var wide := sim.line_spots([inf], Vector2(100, 800), Vector2(280, 800))
+	var deep := sim.line_spots([inf], Vector2(100, 800), Vector2(125, 800))
+	var longest := sim.line_spots([inf], Vector2(0, 800), Vector2(800, 800))
+	var usual := sim._files(20)
+	_expect(int(wide[0]["files"]) > usual and absf(Vector2(wide[0]["half"]).x * 2.0 - 180.0) < spacing
+			and int(deep[0]["files"]) < usual and int(deep[0]["files"]) >= 2 and int(longest[0]["files"]) == 10,
+		"one squad alone fills the line: %d men wide for a long one, %d for a short one (usually %d), never under two ranks" % [
+			int(wide[0]["files"]), int(deep[0]["files"]), usual])
+	sim.order_line(Sim.PLAYER, Vector2(100, 800), Vector2(280, 800), inf)
+	var spread := 0.0
+	for so in inf.soldiers:
+		if so.alive:
+			spread = maxf(spread, absf(so.slot.x))
+	_expect(inf.files == int(wide[0]["files"]) and spread * 2.0 > (usual - 1) * spacing + spacing * 0.5,
+		"and its men re-form to that width")
+	sim.dispose()
+
+	# Before the battle, a line places the whole army at once, squads not yet placed too.
+	sim = Sim.new()
+	sim.setup(army, [{"id": 9, "type": Troops.INFANTRY, "men": 20}], 2)
+	sim.place(Sim.PLAYER, 2, Vector2(420.0, 1100.0))
+	spots = sim.order_line(Sim.PLAYER, Vector2(150, 950), Vector2(690, 950))
+	var placed := sim.all_placed(Sim.PLAYER) and spots.size() == 3
+	for spot in spots:
+		if absf(spot["squad"].center.y - 950.0) > 1.0 or not sim.deploy_zone(Sim.PLAYER).has_point(spot["squad"].center):
+			placed = false
+	_expect(placed, "before the battle, a line places the whole army on it at once")
 	sim.dispose()
 
 
