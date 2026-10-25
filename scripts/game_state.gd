@@ -65,7 +65,7 @@ func enemy_army() -> Array:
 	var types := [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.CAVALRY]
 	for i in mini(4, int(battles / 2.0) + 1):
 		types.append(Troops.ORDER[rng.randi_range(0, Troops.ORDER.size() - 1)])
-	var xp := mini(battles * 3, Troops.XP_PER_LEVEL * 2)
+	var xp := mini(battles * 6, Troops.XP_PER_LEVEL * 2)
 	var out := []
 	var id := 1000
 	for type in types:

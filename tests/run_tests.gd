@@ -1,14 +1,15 @@
 ## Headless checks for the battle rules. Run from the project folder:
 ##   godot --headless --script res://tests/run_tests.gd
-## Exits with code 1 if any check fails.
+## Add `-- --balance` to also see how one-button plans fare against the computer
+## (slower: it fights two dozen more battles). Exits with code 1 if any check fails.
 extends SceneTree
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 
-const DUEL_SEEDS := 20
-const BATTLE_SEEDS := 12
+const DUEL_SEEDS := 12
+const BATTLE_SEEDS := 6
 
 var failures := 0
 
@@ -19,6 +20,7 @@ func _init() -> void:
 
 	print("Orders:")
 	_check_orders()
+	_check_arrows()
 
 	print("Counter duels (one squad each, %d seeds):" % DUEL_SEEDS)
 	_check_counter(Troops.SPEARMEN, Troops.CAVALRY)
@@ -38,6 +40,7 @@ func _init() -> void:
 	print("Full battles, AI against AI (%d seeds):" % BATTLE_SEEDS)
 	var tally := [0, 0]
 	var timeouts := 0
+	var total_time := 0.0
 	for s in range(1, BATTLE_SEEDS + 1):
 		var r := _full_battle(s)
 		if r["winner"] == -1:
@@ -45,20 +48,24 @@ func _init() -> void:
 			print("  seed %2d  FAIL: no winner after %.0fs" % [s, r["time"]])
 			continue
 		tally[r["winner"]] += 1
+		total_time += r["time"]
 		if r["reason"] == "time":
 			timeouts += 1
 		print("  seed %2d  %s won by %-6s in %5.1fs  (blue lost %d men, red lost %d)" % [
 			s, "blue" if r["winner"] == Sim.PLAYER else "red ", r["reason"], r["time"], r["lost_blue"], r["lost_red"]])
 	print("  blue %d, red %d" % [tally[0], tally[1]])
 	_expect(timeouts <= BATTLE_SEEDS / 4, "battles end with an army breaking, not the clock (%d timed out)" % timeouts)
+	var avg_time := total_time / BATTLE_SEEDS
+	_expect(avg_time >= 40.0 and avg_time <= 150.0, "a battle lasts about a minute (%.0fs on average)" % avg_time)
 
-	print("Plain orders against the computer (%d seeds):" % BATTLE_SEEDS)
-	for plan in ["advance", "hold"]:
-		var wins := 0
-		for s in range(1, BATTLE_SEEDS + 1):
-			if _plain_battle(plan, s) == Sim.PLAYER:
-				wins += 1
-		print("  %-7s all battle long: won %2d/%d" % [plan.capitalize(), wins, BATTLE_SEEDS])
+	if OS.get_cmdline_user_args().has("--balance"):
+		print("Plain orders against the computer (12 seeds):")
+		for plan in ["advance", "hold"]:
+			var wins := 0
+			for s in range(1, 13):
+				if _plain_battle(plan, s) == Sim.PLAYER:
+					wins += 1
+			print("  %-7s all battle long: won %2d/12" % [plan.capitalize(), wins])
 
 	print("Campaign results add up:")
 	_check_results()
@@ -134,7 +141,7 @@ func _check_orders() -> void:
 		"squads hold where they were placed until ordered")
 
 	sim.order_all(Sim.PLAYER, "advance")
-	for i in 90:
+	for i in 120:
 		sim.step()
 	_expect(mine.order == "advance" and start.y - mine.center.y > 100.0, "Advance sends a squad at the enemy")
 
@@ -148,6 +155,21 @@ func _check_orders() -> void:
 	for i in 240:
 		sim.step()
 	_expect(mine.order == "hold" and mine.center.distance_to(Vector2(150, 700)) < 8.0, "a march order ends holding the new ground")
+	sim.dispose()
+
+
+func _check_arrows() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.ARCHERS, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 4)
+	var bows = sim.place(Sim.PLAYER, 1, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y + 200.0))
+	sim.place(Sim.ENEMY, 2, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y - 60.0))
+	sim.start_battle()
+	var full: int = bows.arrows
+	bows.arrows = 5 # a short quiver, so the check doesn't wait on a whole barrage
+	while sim.winner == -1 and sim.time < 30.0 and bows.arrows > 0:
+		sim.step()
+	_expect(full == 20 * int(Troops.stats(Troops.ARCHERS)["arrows"]) and bows.arrows == 0 and not bows.ranged,
+		"archers run out of arrows (%d) and draw their blades" % full)
 	sim.dispose()
 
 
@@ -173,14 +195,14 @@ func _check_counter(strong: String, weak: String, braced: bool = false) -> void:
 func _duel(a: String, b: String, seed_value: int, a_holds: bool = false) -> Dictionary:
 	var sim := Sim.new()
 	sim.setup([{"id": 1, "type": a, "men": Troops.full_size(a)}], [{"id": 2, "type": b, "men": Troops.full_size(b)}], seed_value)
-	var x := 360.0 + sim.rng.randf_range(-40.0, 40.0)
-	sim.place(Sim.PLAYER, 1, Vector2(x, 830.0))
-	sim.place(Sim.ENEMY, 2, Vector2(720.0 - x, 270.0))
+	var x := Sim.ARENA.x * 0.5 + sim.rng.randf_range(-40.0, 40.0)
+	sim.place(Sim.PLAYER, 1, Vector2(x, Sim.MID_Y + 280.0))
+	sim.place(Sim.ENEMY, 2, Vector2(Sim.ARENA.x - x, Sim.MID_Y - 280.0))
 	sim.start_battle()
 	if not a_holds:
 		sim.order_all(Sim.PLAYER, "advance")
 	sim.order_all(Sim.ENEMY, "advance")
-	while sim.winner == -1 and sim.time < 120.0:
+	while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
 		sim.step()
 	var left := 0
 	for sq in sim.squads:

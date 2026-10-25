@@ -10,14 +10,14 @@ extends RefCounted
 
 const Troops = preload("res://scripts/data/troops.gd")
 
-const ARENA := Vector2(720.0, 1100.0)
-const MID_Y := 550.0
+const ARENA := Vector2(840.0, 1260.0)
+const MID_Y := 630.0
 const PLAYER := 0
 const ENEMY := 1
 const PHASE_DEPLOY := 0
 const PHASE_BATTLE := 1
 const STEP := 1.0 / 30.0
-const TIME_LIMIT := 180.0
+const TIME_LIMIT := 300.0
 ## Distance from the midline to the front edge of each side's deployment zone.
 const DEPLOY_GAP := 70.0
 ## Room kept between squads placed side by side.
@@ -26,25 +26,33 @@ const ROUT_MORALE := 30.0
 ## Routers run faster than they march and nobody chases them, so a broken squad
 ## brings some men home. Without this, a lost battle wipes out the whole warband.
 const ROUT_SPEED := 1.4
+## Morale a squad loses in all when every one of its men takes a charging horseman's hit.
+const CHARGE_SHOCK := 30.0
 const ENGAGE_RANGE := 60.0
 ## A squad standing still turns to face enemy squads this close.
-const FACE_RANGE := 260.0
+const FACE_RANGE := 280.0
 ## How far out of its way (in arena units) an advancing squad goes to fight a squad it
 ## counters, and how much closer a squad that counters it must be before it takes that fight.
-const COUNTER_PULL := 260.0
+const COUNTER_PULL := 140.0
 ## An advancing squad only switches targets for one this much more attractive.
 const RETARGET_MARGIN := 80.0
 ## Advancing squads keep to marching pace, so the army arrives together, until their
 ## target is this close; then they charge at full speed.
-const MARCH_SPEED := 48.0
+const MARCH_SPEED := 38.0
 const CHARGE_DISTANCE := 180.0
-const ARROW_SPEED := 460.0
+const ARROW_SPEED := 420.0
+const MAX_CORPSES := 500
+## Crowding and nearby-enemy lookups use a grid of CELL-sized squares over the field.
+## A cell must be wider than the closest two men can stand, so neighbors are always in
+## the same or an adjacent cell.
 const CELL := 32.0
-const MAX_CORPSES := 260
+const GRID_W := int(ARENA.x / CELL) + 1
+const GRID_H := int(ARENA.y / CELL) + 1
 
 
 class Soldier:
 	var squad = null
+	var radius := 7.0
 	var pos := Vector2.ZERO
 	var facing := Vector2.UP
 	var hp := 100.0
@@ -80,25 +88,45 @@ class Squad:
 	var routing := false
 	var escaped := 0
 	var kills := 0
+	# Copied from the troop stats at spawn, since the hot loops read them every tick.
+	var radius := 7.0
+	var speed := 40.0
+	var reach := 14.0
+	var ranged := false
+	var cooldown := 1.0
+	var damage := 10.0
+	var bonus := {}
+	## Arrows left for the whole squad; -1 for troops that don't shoot.
+	var arrows := -1
+	# Kept up to date as men fall, and refreshed once a tick, because nearly every
+	# decision in the battle asks for them.
+	var alive_n := 0
+	var avg := Vector2.ZERO
+	var extent := 0.0
 
 	func alive_count() -> int:
-		var n := 0
-		for s in soldiers:
-			if s.alive:
-				n += 1
-		return n
+		return alive_n
 
 	func is_active() -> bool:
-		return not routing and alive_count() > 0
+		return not routing and alive_n > 0
 
+	## Where the squad's living men are on average, as of the start of this tick.
 	func average_pos() -> Vector2:
+		return avg
+
+	func refresh() -> void:
 		var sum := Vector2.ZERO
 		var n := 0
 		for s in soldiers:
 			if s.alive:
 				sum += s.pos
 				n += 1
-		return center if n == 0 else sum / n
+		avg = center if n == 0 else sum / n
+		var far := 0.0
+		for s in soldiers:
+			if s.alive:
+				far = maxf(far, avg.distance_squared_to(s.pos))
+		extent = sqrt(far)
 
 
 class Projectile:
@@ -127,7 +155,8 @@ var ai: Array = [null, null]
 var winner := -1
 var end_reason := ""
 var _next_id := 1
-var _grid := {}
+var _cells: Array = []
+var _used_cells: Array = []
 
 
 # ---------------------------------------------------------------- setup
@@ -239,11 +268,12 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 			line.append(spr[i])
 	var cav: Array = by_type[Troops.CAVALRY]
 	var spots := [] # [entry, depth from the midline, x]
-	_add_rows(spots, line, 150.0, Vector2(150.0, 570.0) if not cav.is_empty() else Vector2(90.0, 630.0))
-	_add_rows(spots, by_type[Troops.ARCHERS], 290.0, Vector2(150.0, 570.0))
+	var front := 120.0
+	var back := _add_rows(spots, line, front, Vector2(110.0, ARENA.x - 110.0))
+	back = _add_rows(spots, by_type[Troops.ARCHERS], back + 24.0, Vector2(200.0, ARENA.x - 200.0))
 	for i in mini(2, cav.size()):
-		spots.append([cav[i], 230.0, 85.0 if i == 0 else ARENA.x - 85.0])
-	_add_rows(spots, cav.slice(2), 380.0, Vector2(250.0, 470.0))
+		spots.append([cav[i], front + 110.0, 100.0 if i == 0 else ARENA.x - 100.0])
+	_add_rows(spots, cav.slice(2), back + 24.0, Vector2(300.0, ARENA.x - 300.0))
 	for s in spots:
 		var depth: float = s[1]
 		var x: float = s[2]
@@ -253,23 +283,32 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 		place(team, s[0]["roster_id"], Vector2(x, MID_Y + depth if team == PLAYER else MID_Y - depth))
 
 
-## Lay squads out in rows across `span` (min x, max x), adding more rows when crowded.
-func _add_rows(spots: Array, entries: Array, depth: float, span: Vector2) -> void:
+## Lay squads out in rows across `span` (min x, max x), the first row's front edge
+## `front` units behind the midline. Returns how far back the last row reaches.
+func _add_rows(spots: Array, entries: Array, front: float, span: Vector2) -> float:
 	if entries.is_empty():
-		return
-	var per_row := int((span.y - span.x) / 110.0) + 1
+		return front
+	var widest := 0.0
+	var deepest := 0.0
+	for e in entries:
+		var half := _footprint(e["type"], e["men"])
+		widest = maxf(widest, half.x * 2.0)
+		deepest = maxf(deepest, half.y * 2.0)
+	var step := widest + SQUAD_GAP + 8.0
+	var per_row := maxi(1, int((span.y - span.x) / step) + 1)
 	var rows := int(ceil(float(entries.size()) / per_row))
 	var per := int(ceil(float(entries.size()) / rows))
+	var mid := (span.x + span.y) * 0.5
+	var depth := front + deepest * 0.5
 	var i := 0
-	var row := 0
 	while i < entries.size():
 		var count := mini(per, entries.size() - i)
-		var mid := (span.x + span.y) * 0.5
-		var gap := 0.0 if count <= 1 else minf(125.0, (span.y - span.x) / (count - 1))
 		for k in count:
-			spots.append([entries[i + k], depth + row * 70.0, mid + (k - (count - 1) * 0.5) * gap])
+			spots.append([entries[i + k], depth, mid + (k - (count - 1) * 0.5) * step])
 		i += count
-		row += 1
+		if i < entries.size():
+			depth += deepest + SQUAD_GAP + 8.0
+	return depth + deepest * 0.5
 
 
 ## Ends deployment. Anything still unplaced is put in the battle line first.
@@ -292,14 +331,24 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.stats = Troops.stats(type)
 	sq.level = entry["level"]
 	sq.power = Troops.power_for(sq.level)
+	sq.radius = float(sq.stats["radius"])
+	sq.speed = float(sq.stats["speed"])
+	sq.ranged = bool(sq.stats["ranged"])
+	sq.reach = float(sq.stats["range"]) if sq.ranged else float(sq.stats["reach"])
+	sq.cooldown = float(sq.stats["cooldown"])
+	sq.damage = float(sq.stats["damage"]) * sq.power
+	sq.bonus = sq.stats["bonus"]
 	sq.facing = Vector2.UP if team == PLAYER else Vector2.DOWN
 	var men: int = entry["men"]
 	sq.start_men = men
-	var spacing: float = float(sq.stats["radius"]) * 2.0 + 5.0
-	var slots := _formation_slots(men, spacing)
+	sq.alive_n = men
+	if sq.ranged:
+		sq.arrows = men * int(sq.stats["arrows"])
+	var slots := _formation_slots(men, sq.radius * 2.0 + 5.0)
 	for i in men:
 		var so := Soldier.new()
 		so.squad = sq
+		so.radius = sq.radius
 		so.slot = slots[i]
 		so.facing = sq.facing
 		so.max_hp = float(sq.stats["hp"]) * sq.power
@@ -318,10 +367,16 @@ func _move_formation(sq, at: Vector2) -> void:
 	sq.order_point = at
 	for so in sq.soldiers:
 		so.pos = at + _slot_world(so.slot, sq.facing)
+	sq.refresh()
+
+
+## Squads stand three ranks deep, four to eight men wide.
+func _files(men: int) -> int:
+	return mini(maxi(1, men), clampi(int(ceil(men / 3.0)), 4, 8))
 
 
 func _formation_slots(men: int, spacing: float) -> Array:
-	var cols := mini(5, men)
+	var cols := _files(men)
 	var rows := int(ceil(float(men) / cols))
 	var out := []
 	for i in men:
@@ -342,8 +397,8 @@ func _slot_world(slot: Vector2, facing: Vector2) -> Vector2:
 func _footprint(type: String, men: int) -> Vector2:
 	var r := float(Troops.stats(type)["radius"])
 	var spacing := r * 2.0 + 5.0
-	var cols := mini(5, maxi(1, men))
-	var rows := int(ceil(float(men) / cols))
+	var cols := _files(men)
+	var rows := int(ceil(float(maxi(1, men)) / cols))
 	return Vector2((cols - 1) * spacing * 0.5 + r + 4.0, (rows - 1) * spacing * 0.5 + r + 4.0)
 
 
@@ -356,7 +411,7 @@ func _free_spot(team: int, at: Vector2, half: Vector2, ignore):
 	# Search in each side's own frame (+y is toward its rear), so ties between equally
 	# good spots break the same way for both armies.
 	var back := 1.0 if team == PLAYER else -1.0
-	for ring in range(1, 14):
+	for ring in range(1, 16):
 		var radius := ring * 22.0
 		var steps := 8 + ring * 2
 		var best = null
@@ -447,7 +502,7 @@ func squad_at(team: int, point: Vector2, radius: float = 40.0):
 	var best = null
 	var best_d := radius * radius
 	for sq in squads:
-		if sq.team != team or sq.alive_count() == 0:
+		if sq.team != team or sq.alive_n == 0:
 			continue
 		for so in sq.soldiers:
 			if so.alive:
@@ -464,6 +519,8 @@ func step(dt: float = STEP) -> void:
 	if winner != -1 or phase != PHASE_BATTLE:
 		return
 	time += dt
+	for sq in squads:
+		sq.refresh()
 	# Who acts first each tick is a coin flip. Acting first or second breaks ties, like
 	# which archer looses the first arrow when two lines come into range on the same
 	# tick, so a fixed order, or even a strict alternation, quietly favors one side.
@@ -487,14 +544,10 @@ func step(dt: float = STEP) -> void:
 	_check_end()
 
 
-func _reach(sq) -> float:
-	return float(sq.stats["range"]) if sq.stats["ranged"] else float(sq.stats["reach"])
-
-
 func _update_squad(sq, dt: float) -> void:
-	if sq.alive_count() == 0:
+	if sq.alive_n == 0:
 		return
-	var avg: Vector2 = sq.average_pos()
+	var avg: Vector2 = sq.avg
 	if not sq.routing and sq.morale <= ROUT_MORALE:
 		sq.routing = true
 		sq.focus = null
@@ -504,7 +557,7 @@ func _update_squad(sq, dt: float) -> void:
 	if sq.order == "attack" and (sq.order_target == null or not sq.order_target.is_active()):
 		order_advance(sq)
 
-	var reach := _reach(sq)
+	var reach: float = sq.reach
 	var foe = null
 	match sq.order:
 		"attack":
@@ -525,7 +578,7 @@ func _update_squad(sq, dt: float) -> void:
 	elif sq.order == "hold":
 		sq.goal = sq.order_point
 	elif foe != null:
-		sq.goal = foe.average_pos()
+		sq.goal = foe.avg
 		chasing = true
 	else:
 		sq.goal = sq.center
@@ -533,18 +586,18 @@ func _update_squad(sq, dt: float) -> void:
 	# Engaged squads break formation and fight man to man.
 	sq.engaged = false
 	if foe != null:
-		var slack := 20.0 if sq.stats["ranged"] else ENGAGE_RANGE
-		sq.engaged = _squad_gap(sq, foe) <= reach + slack
+		var slack := 20.0 if sq.ranged else ENGAGE_RANGE
+		sq.engaged = _in_range(sq, foe, reach + slack)
 	if sq.engaged:
 		sq.center = sq.center.lerp(avg, 0.15)
 		return
 
 	var to: Vector2 = sq.goal - sq.center
-	var stop := reach * 0.85 if chasing and sq.stats["ranged"] else 0.0 # archers halt at bow range
+	var stop := reach * 0.85 if chasing and sq.ranged else 0.0 # archers halt at bow range
 	var dist := to.length()
 	if dist > stop + 2.0:
 		var dir := to / dist
-		var pace: float = sq.stats["speed"]
+		var pace: float = sq.speed
 		if sq.order == "advance" and dist - stop > CHARGE_DISTANCE:
 			pace = minf(pace, MARCH_SPEED)
 		sq.center += dir * minf(dist - stop, pace * dt)
@@ -555,8 +608,8 @@ func _update_squad(sq, dt: float) -> void:
 		# stand there facing its own lines).
 		var want := Vector2.UP if sq.team == PLAYER else Vector2.DOWN
 		var threat = nearest_enemy_squad(sq.team, avg, FACE_RANGE)
-		if threat != null and threat.average_pos().distance_to(sq.center) > 1.0:
-			want = (threat.average_pos() - sq.center).normalized()
+		if threat != null and threat.avg.distance_to(sq.center) > 1.0:
+			want = (threat.avg - sq.center).normalized()
 		if sq.facing.dot(want) < 0.995:
 			sq.facing = sq.facing.slerp(want, minf(1.0, dt * 2.5)).normalized()
 
@@ -581,8 +634,10 @@ func _advance_focus(sq, avg: Vector2):
 ## Distance, less a pull toward squads it counters and squads already shaken, plus a
 ## push away from the squads that counter it.
 func target_score(sq, foe, from: Vector2) -> float:
-	var score: float = from.distance_to(foe.average_pos())
-	if Troops.COUNTERED_BY[foe.type] == sq.type:
+	var score: float = from.distance_to(foe.avg)
+	# Archers with no arrows left have lost what made them dangerous to infantry.
+	var armed: bool = sq.ranged or not sq.stats["ranged"]
+	if Troops.COUNTERED_BY[foe.type] == sq.type and armed:
 		score -= COUNTER_PULL
 	elif Troops.COUNTERED_BY[sq.type] == foe.type:
 		score += COUNTER_PULL
@@ -603,33 +658,32 @@ func best_target(sq, from: Vector2):
 	return best
 
 
-func _squad_gap(a, b) -> float:
-	var best := INF
+## True if some man of `a` is within `limit` (the gap between bodies) of some man of `b`.
+func _in_range(a, b, limit: float) -> bool:
+	var lim: float = limit + a.radius + b.radius
+	if a.avg.distance_to(b.avg) - a.extent - b.extent > lim:
+		return false
+	var lim2 := lim * lim
 	for s in a.soldiers:
 		if not s.alive:
 			continue
 		for o in b.soldiers:
-			if not o.alive:
-				continue
-			var d: float = s.pos.distance_squared_to(o.pos)
-			if d < best:
-				best = d
-	if best == INF:
-		return INF
-	return sqrt(best) - float(a.stats["radius"]) - float(b.stats["radius"])
+			if o.alive and s.pos.distance_squared_to(o.pos) <= lim2:
+				return true
+	return false
 
 
 func _update_soldier(so, sq, dt: float) -> void:
 	so.cooldown = maxf(0.0, so.cooldown - dt)
 	so.flash = maxf(0.0, so.flash - dt * 5.0)
 	so.runup = maxf(0.0, so.runup - 30.0 * dt)
-	var speed: float = sq.stats["speed"]
+	var speed: float = sq.speed
 
 	if sq.routing:
 		var exit_y := ARENA.y + 40.0 if sq.team == PLAYER else -40.0
 		_walk(so, Vector2(so.pos.x, exit_y), speed * ROUT_SPEED, dt)
 		if (sq.team == PLAYER and so.pos.y >= ARENA.y + 20.0) or (sq.team == ENEMY and so.pos.y <= -20.0):
-			so.alive = false
+			_remove(so)
 			sq.escaped += 1
 		return
 
@@ -646,17 +700,17 @@ func _update_soldier(so, sq, dt: float) -> void:
 		return
 
 	var tpos: Vector2 = so.target.pos
-	var gap: float = so.pos.distance_to(tpos) - float(so.target.squad.stats["radius"]) - float(sq.stats["radius"])
+	var gap: float = so.pos.distance_to(tpos) - so.target.radius - so.radius
 	if tpos != so.pos:
 		so.facing = (tpos - so.pos).normalized()
-	var reach := _reach(sq)
+	var reach: float = sq.reach
 	if gap > reach:
 		var moved := _walk(so, tpos, speed, dt)
 		if gap > reach + 20.0:
 			so.runup += moved # only a real run-up counts toward a charge, not shuffling in the melee
 	elif so.cooldown <= 0.0:
 		_strike(so, sq, so.target, gap)
-		so.cooldown = float(sq.stats["cooldown"]) * rng.randf_range(0.85, 1.15)
+		so.cooldown = sq.cooldown * rng.randf_range(0.85, 1.15)
 		so.runup = 0.0
 
 
@@ -696,21 +750,35 @@ func _pick_target(so, sq):
 
 
 func _strike(so, sq, target, gap: float) -> void:
-	var dmg: float = float(sq.stats["damage"]) * sq.power * rng.randf_range(0.8, 1.2)
+	var dmg: float = sq.damage * rng.randf_range(0.8, 1.2)
 	var target_type: String = target.squad.type
-	dmg *= float(sq.stats["bonus"].get(target_type, 1.0))
+	dmg *= float(sq.bonus.get(target_type, 1.0))
 	var charge := false
 	if sq.type == Troops.CAVALRY and so.runup >= Troops.CHARGE_RUNUP and target_type != Troops.SPEARMEN:
 		dmg *= Troops.CHARGE_MULTIPLIER
 		charge = true
-	if sq.stats["ranged"]:
+	if sq.ranged:
 		if gap < 30.0:
-			dmg *= 0.5 # point-blank shots are rushed
+			dmg *= Troops.POINT_BLANK
 		_shoot(so, sq, target, dmg)
+		sq.arrows -= 1
+		if sq.arrows <= 0:
+			_draw_blades(sq)
 	else:
 		_damage(target, dmg, sq, charge)
 		if charge:
 			events.append({"type": "charge", "pos": target.pos})
+
+
+## Out of arrows: the squad fights on with short blades, as weak foot soldiers.
+func _draw_blades(sq) -> void:
+	sq.arrows = 0
+	sq.ranged = false
+	sq.reach = float(Troops.SIDEARM["reach"])
+	sq.damage = float(Troops.SIDEARM["damage"]) * sq.power
+	sq.cooldown = float(Troops.SIDEARM["cooldown"])
+	sq.bonus = {}
+	events.append({"type": "out_of_arrows", "squad": sq})
 
 
 func _shoot(so, sq, target, dmg: float) -> void:
@@ -732,6 +800,9 @@ func _update_projectiles(dt: float) -> void:
 		if to.length() <= travel:
 			p.done = true
 			if p.target != null and p.target.alive:
+				var friends: int = p.source.team if p.source != null else -1
+				if friends != -1 and _fighters_near(p.target.pos, friends, 40.0) and rng.randf() < Troops.MELEE_MISS:
+					continue # shot wide to spare their own men in the press
 				_damage(p.target, p.damage, p.source)
 		else:
 			p.pos += to.normalized() * travel
@@ -745,9 +816,9 @@ func _damage(victim, dmg: float, attacker, charge: bool = false) -> void:
 	victim.flash = 1.0
 	var vs = victim.squad
 	if charge:
-		vs.morale -= 3.0
+		vs.morale -= CHARGE_SHOCK / float(vs.start_men)
 	if victim.hp <= 0.0:
-		victim.alive = false
+		_remove(victim)
 		vs.morale -= 100.0 / float(vs.start_men) * 0.8 + 2.0
 		if attacker != null:
 			attacker.kills += 1
@@ -756,59 +827,110 @@ func _damage(victim, dmg: float, attacker, charge: bool = false) -> void:
 			corpses.pop_front()
 
 
+func _remove(so) -> void:
+	if so.alive:
+		so.alive = false
+		so.squad.alive_n -= 1
+
+
 # ---------------------------------------------------------------- crowding
 
+func _cell_of(p: Vector2) -> int:
+	return clampi(floori(p.x / CELL), 0, GRID_W - 1) + clampi(floori(p.y / CELL), 0, GRID_H - 1) * GRID_W
+
+
+## Sort living men into grid cells. Men off the field (routers leaving) count in the edge cells.
 func _build_grid() -> void:
-	_grid.clear()
+	if _cells.is_empty():
+		_cells.resize(GRID_W * GRID_H)
+		for i in _cells.size():
+			_cells[i] = []
+	for c in _used_cells:
+		_cells[c].clear()
+	_used_cells.clear()
 	for sq in squads:
 		for so in sq.soldiers:
 			if so.alive:
-				var c := Vector2i(floori(so.pos.x / CELL), floori(so.pos.y / CELL))
-				if _grid.has(c):
-					_grid[c].append(so)
-				else:
-					_grid[c] = [so]
+				var c := _cell_of(so.pos)
+				var cell: Array = _cells[c]
+				if cell.is_empty():
+					_used_cells.append(c)
+				cell.append(so)
 
 
 func _nearby(pos: Vector2, radius: float) -> Array:
 	var out := []
-	var c0 := Vector2i(floori((pos.x - radius) / CELL), floori((pos.y - radius) / CELL))
-	var c1 := Vector2i(floori((pos.x + radius) / CELL), floori((pos.y + radius) / CELL))
+	var x0 := clampi(floori((pos.x - radius) / CELL), 0, GRID_W - 1)
+	var x1 := clampi(floori((pos.x + radius) / CELL), 0, GRID_W - 1)
+	var y0 := clampi(floori((pos.y - radius) / CELL), 0, GRID_H - 1)
+	var y1 := clampi(floori((pos.y + radius) / CELL), 0, GRID_H - 1)
 	var r2 := radius * radius
-	for cy in range(c0.y, c1.y + 1):
-		for cx in range(c0.x, c1.x + 1):
-			var cell = _grid.get(Vector2i(cx, cy))
-			if cell == null:
-				continue
-			for so in cell:
+	for cy in range(y0, y1 + 1):
+		for cx in range(x0, x1 + 1):
+			for so in _cells[cx + cy * GRID_W]:
 				if so.alive and pos.distance_squared_to(so.pos) <= r2:
 					out.append(so)
 	return out
 
 
-## Push overlapping men apart. Each pair is resolved once and both move half the
-## overlap. Pushes are summed first and applied together, so the result doesn't depend
-## on who happens to be processed first and neither side is quietly favored.
+## True if a living foot or horse soldier (not an archer) of `team` stands within
+## `radius` of `pos`: someone an arrow aimed there could hit by mistake.
+func _fighters_near(pos: Vector2, team: int, radius: float) -> bool:
+	var x0 := clampi(floori((pos.x - radius) / CELL), 0, GRID_W - 1)
+	var x1 := clampi(floori((pos.x + radius) / CELL), 0, GRID_W - 1)
+	var y0 := clampi(floori((pos.y - radius) / CELL), 0, GRID_H - 1)
+	var y1 := clampi(floori((pos.y + radius) / CELL), 0, GRID_H - 1)
+	var r2 := radius * radius
+	for cy in range(y0, y1 + 1):
+		for cx in range(x0, x1 + 1):
+			for so in _cells[cx + cy * GRID_W]:
+				if so.alive and so.squad.team == team and not so.squad.ranged and pos.distance_squared_to(so.pos) <= r2:
+					return true
+	return false
+
+
+## Push overlapping men apart. Each touching pair is found exactly once (within a cell,
+## and between a cell and the four cells after it) and both men move half the overlap.
+## Pushes are summed first and applied together, so the result doesn't depend on who
+## happens to be processed first and neither side is quietly favored.
 func _separate() -> void:
-	for sq in squads:
-		var r: float = sq.stats["radius"]
-		for so in sq.soldiers:
-			if not so.alive:
-				continue
-			var my_id: int = so.get_instance_id()
-			for o in _nearby(so.pos, 22.0):
-				if o.get_instance_id() <= my_id:
-					continue
-				var min_d: float = r + float(o.squad.stats["radius"]) - 1.0
-				var diff: Vector2 = so.pos - o.pos
-				var d := diff.length()
-				if d < 0.01:
-					diff = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0))
-					d = maxf(diff.length(), 0.01)
-				if d < min_d:
-					var push := diff / d * (min_d - d) * 0.5
-					so.push += push
-					o.push -= push
+	_build_grid() # where everyone stands after this tick's moves
+	for c in _used_cells:
+		var cell: Array = _cells[c]
+		var cx: int = c % GRID_W
+		var cy: int = int(c / GRID_W)
+		var later: Array = []
+		if cx + 1 < GRID_W:
+			later.append_array(_cells[c + 1])
+		if cy + 1 < GRID_H:
+			var below: int = c + GRID_W
+			if cx > 0:
+				later.append_array(_cells[below - 1])
+			later.append_array(_cells[below])
+			if cx + 1 < GRID_W:
+				later.append_array(_cells[below + 1])
+		var n := cell.size()
+		for i in n:
+			var a = cell[i]
+			var ap: Vector2 = a.pos
+			var ar: float = a.radius - 1.0
+			for j in range(i + 1, n):
+				var b = cell[j]
+				var diff: Vector2 = ap - b.pos
+				var min_d: float = ar + b.radius
+				var d2 := diff.length_squared()
+				if d2 < min_d * min_d:
+					var push := _push_for(diff, d2, min_d)
+					a.push += push
+					b.push -= push
+			for b in later:
+				var diff: Vector2 = ap - b.pos
+				var min_d: float = ar + b.radius
+				var d2 := diff.length_squared()
+				if d2 < min_d * min_d:
+					var push := _push_for(diff, d2, min_d)
+					a.push += push
+					b.push -= push
 	for sq in squads:
 		for so in sq.soldiers:
 			if not so.alive:
@@ -819,6 +941,15 @@ func _separate() -> void:
 				so.pos = Vector2(clampf(so.pos.x, 8.0, ARENA.x - 8.0), clampf(so.pos.y, 8.0, ARENA.y - 8.0))
 
 
+## Half of the overlap between two men `diff` apart who should be `min_d` apart.
+func _push_for(diff: Vector2, d2: float, min_d: float) -> Vector2:
+	var d := sqrt(d2)
+	if d < 0.01:
+		diff = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0))
+		d = maxf(diff.length(), 0.01)
+	return diff / d * (min_d - d) * 0.5
+
+
 # ---------------------------------------------------------------- queries
 
 func nearest_enemy_squad(team: int, from: Vector2, max_dist: float):
@@ -827,7 +958,7 @@ func nearest_enemy_squad(team: int, from: Vector2, max_dist: float):
 	for sq in squads:
 		if sq.team == team or not sq.is_active():
 			continue
-		var d: float = from.distance_to(sq.average_pos())
+		var d: float = from.distance_to(sq.avg)
 		if d < best_d:
 			best_d = d
 			best = sq
@@ -846,7 +977,7 @@ func men_on_field(team: int) -> int:
 	var n := 0
 	for sq in squads:
 		if sq.team == team and sq.is_active():
-			n += sq.alive_count()
+			n += sq.alive_n
 	return n
 
 
@@ -875,7 +1006,7 @@ func _check_end() -> void:
 	# Both armies broke on the same tick: whoever has more men left alive holds the field.
 	var alive := [0, 0]
 	for sq in squads:
-		alive[sq.team] += sq.alive_count()
+		alive[sq.team] += sq.alive_n
 	_finish(_more(alive[PLAYER], alive[ENEMY]), "rout")
 
 
@@ -924,7 +1055,7 @@ func result_for(team: int) -> Dictionary:
 	for sq in squads:
 		if sq.team != team:
 			continue
-		var survivors: int = sq.alive_count() + sq.escaped
+		var survivors: int = sq.alive_n + sq.escaped
 		by_id[sq.roster_id] = {"men": survivors, "kills": sq.kills}
 		lost += sq.start_men - survivors
 		killed += sq.kills

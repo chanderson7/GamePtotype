@@ -20,46 +20,57 @@ const COUNTERED_BY := {
 	ARCHERS: CAVALRY,
 }
 
-## Per-soldier stats. Distances are in arena units (the field is 720 x 1100).
+## Per-soldier stats. Distances are in arena units (the field is 840 x 1260), speeds in
+## units a second, cooldown in seconds between blows or shots.
 ## size: soldiers in a full squad.
 ## reach: melee distance (gap between bodies). range: bow range for ranged troops.
+## Hit points are high next to damage on purpose: a melee between two even squads takes
+## the best part of a minute, which leaves time to see it coming and send help.
 const TYPES := {
 	INFANTRY: {
-		"name": "Infantry", "size": 10,
-		"hp": 100.0, "damage": 13.0, "cooldown": 1.0, "reach": 14.0, "range": 0.0,
-		"speed": 50.0, "radius": 7.0, "ranged": false,
+		"name": "Infantry", "size": 20,
+		"hp": 600.0, "damage": 13.0, "cooldown": 1.0, "reach": 14.0, "range": 0.0,
+		"speed": 40.0, "radius": 7.0, "ranged": false,
 		"bonus": {SPEARMEN: 1.45},
 		"blurb": "Swords and shields. Cuts through spear lines.",
 	},
 	SPEARMEN: {
-		"name": "Spearmen", "size": 10,
-		"hp": 90.0, "damage": 11.0, "cooldown": 1.1, "reach": 24.0, "range": 0.0,
-		"speed": 48.0, "radius": 7.0, "ranged": false,
+		"name": "Spearmen", "size": 20,
+		"hp": 540.0, "damage": 11.0, "cooldown": 1.1, "reach": 24.0, "range": 0.0,
+		"speed": 38.0, "radius": 7.0, "ranged": false,
 		"bonus": {CAVALRY: 2.3},
 		"blurb": "Long reach. Braced spears stop a charge cold.",
 	},
 	ARCHERS: {
-		"name": "Archers", "size": 10,
-		"hp": 65.0, "damage": 11.0, "cooldown": 1.4, "reach": 0.0, "range": 230.0,
-		"speed": 50.0, "radius": 6.0, "ranged": true,
+		"name": "Archers", "size": 20,
+		"hp": 360.0, "damage": 40.0, "cooldown": 1.5, "reach": 0.0, "range": 250.0,
+		"speed": 40.0, "radius": 6.0, "ranged": true, "arrows": 8,
 		"bonus": {INFANTRY: 1.6, CAVALRY: 0.75},
-		"blurb": "Shred slow infantry from range. Helpless when caught.",
+		"blurb": "Shred slow infantry from range, until the arrows run out. Helpless when caught.",
 	},
 	CAVALRY: {
-		"name": "Cavalry", "size": 8,
-		"hp": 130.0, "damage": 15.0, "cooldown": 1.0, "reach": 14.0, "range": 0.0,
-		"speed": 120.0, "radius": 9.0, "ranged": false,
+		"name": "Cavalry", "size": 16,
+		"hp": 780.0, "damage": 15.0, "cooldown": 1.0, "reach": 14.0, "range": 0.0,
+		"speed": 100.0, "radius": 9.0, "ranged": false,
 		"bonus": {ARCHERS: 1.8},
 		"blurb": "Fast and heavy. Charges hit hard, except into spears.",
 	},
 }
 
 ## Extra damage on a cavalry strike after a run-up (not against braced spearmen).
-const CHARGE_MULTIPLIER := 2.5
+const CHARGE_MULTIPLIER := 6.0
 const CHARGE_RUNUP := 60.0
+## Archers caught in melee shoot rushed, at this fraction of their damage.
+const POINT_BLANK := 0.15
+## Archers out of arrows draw short blades: this damage, reach and pace, no bonuses.
+const SIDEARM := {"damage": 7.0, "reach": 12.0, "cooldown": 1.2}
+## Arrows aimed at a man locked in melee with your own troops miss this often: archers
+## shoot wide rather than hit their own side. Volleys into troops still on the move
+## land in full.
+const MELEE_MISS := 0.65
 
 ## Veterancy: experience is kills carried over between battles.
-const XP_PER_LEVEL := 8
+const XP_PER_LEVEL := 20
 const MAX_LEVEL := 3
 
 

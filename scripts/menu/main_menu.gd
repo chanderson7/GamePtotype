@@ -92,8 +92,8 @@ func _build() -> void:
 		"Your squads hold their ground until ordered. Advance sends them at the enemy; Hold stops " +
 		"them where they stand. Tap a squad to order it alone, then tap an enemy squad to attack it " +
 		"or open ground to march there.\n\n" +
-		"Spearmen stop cavalry. Cavalry ride down archers. Archers shred infantry. " +
-		"Infantry cut through spear lines. Break their army to win.", 20, Style.MUTED)
+		"Spearmen stop cavalry. Cavalry ride down archers. Archers shred infantry, until their " +
+		"arrows run out. Infantry cut through spear lines. Break their army to win.", 20, Style.MUTED)
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(how)
 

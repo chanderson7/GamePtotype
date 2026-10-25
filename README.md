@@ -7,11 +7,13 @@ This first slice is one playable field battle plus a camp screen. Your warband c
 ## What's in it
 
 - **Four troop types with a counter loop.** Spearmen stop cavalry, cavalry ride down archers, archers shred infantry, infantry cut through spear lines.
-- **Squads of live soldiers.** Each man fights on his own, keeps formation on the march, and breaks ranks when the lines meet. Cavalry hit hard on the charge, except into braced spears.
+- **Squads of live soldiers.** Twenty men to a squad (sixteen horse), three ranks deep. Each man fights on his own, keeps formation on the march, and breaks ranks when the lines meet. Cavalry hit hard on the charge, except into braced spears.
+- **Battles that take their time.** Two even squads grind at each other for the best part of a minute, and a full battle runs a minute or two, so there's time to see a fight turning and send help.
+- **Archers with a quiver.** Eight arrows a man: deadly against troops marching at them, but they run dry, and then they're poor fighters. Arrows aimed into a melee with your own men mostly go wide.
 - **Morale and routing.** A squad that takes heavy losses breaks and runs for its own edge. Men who escape survive the battle.
 - **Deploy your whole army.** Every squad in your warband is a card. Before the fight, place each one anywhere in your half of the field, with the enemy's line in plain view. Tap a placed squad to move it, or tap *Auto-place* for a battle line (swords and spears in front, bows behind, horse on the wings). Time stands still until you press *Fight*.
 - **Two orders: Advance and Hold.** Squads hold their ground until ordered. *Advance* sends them at the enemy at marching pace, each going for the enemy it fights best, then charging when close. *Hold* stops them where they stand to fight whoever comes. The buttons command the whole army, or one squad once you tap it; with a squad selected you can also tap an enemy squad to attack it, or open ground to march there.
-- **Win by breaking their army.** The battle ends when one side has no squad left standing. After three minutes, the side with more of its army still fighting wins.
+- **Win by breaking their army.** The battle ends when one side has no squad left standing. After five minutes, the side with more of its army still fighting wins.
 - **An enemy commander** that lines up, holds for a few seconds, then advances with everything, sooner if you come close.
 - **A persistent warband** saved on the device (`user://warband.json`).
 
@@ -60,7 +62,9 @@ On a Mac, `godot` is the binary inside the app: `/Applications/Godot.app/Content
 
 To watch the computer fight both sides (useful when tuning), run the game with `-- --autoplay`.
 
-It checks the deployment rules (no placing in the enemy half, squads dropped on each other get nudged apart, Auto-place fits everyone, the clock waits for *Fight*), that *Hold* keeps a squad in place and *Advance* sends it forward, that each counter wins its duel at least 80% of the time, that mirror matches are close to even, that full AI-vs-AI battles finish with an army breaking, and that every man is accounted for in the battle result. It also prints how a player who only ever presses *Advance all* or *Hold all* fares against the computer. It exits with code 1 if anything fails.
+It checks the deployment rules (no placing in the enemy half, squads dropped on each other get nudged apart, Auto-place fits everyone, the clock waits for *Fight*), that *Hold* keeps a squad in place and *Advance* sends it forward, that archers run out of arrows, that each counter wins its duel at least 80% of the time, that mirror matches are close to even, that full AI-vs-AI battles finish with an army breaking and last about a minute, and that every man is accounted for in the battle result. It takes a few minutes and exits with code 1 if anything fails.
+
+Add `-- --balance` to also see how a player who only ever presses *Advance all* or *Hold all* fares against the computer (a few minutes more).
 
 ## Roadmap
 

@@ -293,6 +293,8 @@ func _describe(sq) -> String:
 	var text := "Enemy %s · %d men" % [_name(sq.type).to_lower(), sq.alive_count()]
 	if sq.level > 1:
 		text += " · Lv%d" % sq.level
+	if sq.arrows == 0:
+		text += " · out of arrows"
 	if sq.routing:
 		text += " · running"
 	elif sim.phase == Sim.PHASE_BATTLE:
@@ -313,6 +315,12 @@ func _consume_events() -> void:
 					_hint("One of your squads broke and is running for the edge. Men who escape live to fight again.")
 			"charge":
 				_float_text("CHARGE", e["pos"], Style.BRASS)
+			"out_of_arrows":
+				var sq = e["squad"]
+				var mine: bool = sq.team == Sim.PLAYER
+				_float_text("OUT OF ARROWS", sq.average_pos() + Vector2(0, -56), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+				if mine:
+					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.")
 	sim.events.clear()
 
 
@@ -386,6 +394,8 @@ func _build_hud() -> void:
 	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	top_row.add_child(status_label)
+	strength_label = Style.label("", 20, Style.MUTED)
+	top_row.add_child(strength_label)
 	auto_button = _button("Auto-place", Vector2(140, 56), _on_auto)
 	top_row.add_child(auto_button)
 	fight_button = _button("Fight", Vector2(120, 56), _on_fight)
@@ -425,15 +435,9 @@ func _build_hud() -> void:
 	battle_box = VBoxContainer.new()
 	battle_box.add_theme_constant_override("separation", 10)
 	col.add_child(battle_box)
-	var orders_row := HBoxContainer.new()
-	orders_row.add_theme_constant_override("separation", 12)
-	battle_box.add_child(orders_row)
 	orders_label = Style.label("", 20)
-	orders_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	orders_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	orders_row.add_child(orders_label)
-	strength_label = Style.label("", 20, Style.MUTED)
-	orders_row.add_child(strength_label)
+	battle_box.add_child(orders_label)
 	var buttons_row := HBoxContainer.new()
 	buttons_row.add_theme_constant_override("separation", 10)
 	battle_box.add_child(buttons_row)
@@ -501,6 +505,7 @@ func _refresh_hud() -> void:
 	auto_button.visible = deploying
 	fight_button.visible = deploying
 	battle_box.visible = not deploying
+	strength_label.visible = not deploying
 	retreat_button.disabled = sim.winner != -1
 	if deploying:
 		_refresh_deploy()
@@ -540,8 +545,13 @@ func _refresh_battle() -> void:
 	strength_label.text = "You %d · Them %d" % [sim.men_on_field(Sim.PLAYER), sim.men_on_field(Sim.ENEMY)]
 	var sq = selected_squad
 	if sq != null:
-		orders_label.text = "%s · %d men · %d%% morale · %s" % [
-			_name(sq.type), sq.alive_count(), maxi(0, int(sq.morale)), ORDER_WORDS.get(sq.order, sq.order)]
+		var arrows := ""
+		if sq.arrows > 0:
+			arrows = " · %d arrows" % sq.arrows
+		elif sq.arrows == 0:
+			arrows = " · no arrows"
+		orders_label.text = "%s · %d men · %d%% morale%s · %s" % [
+			_name(sq.type), sq.alive_count(), maxi(0, int(sq.morale)), arrows, ORDER_WORDS.get(sq.order, sq.order)]
 		advance_button.text = "Advance"
 		hold_button.text = "Hold"
 	else:
