@@ -7,17 +7,21 @@ This first slice is one playable field battle plus a camp screen. Your warband c
 ## What's in it
 
 - **Four troop types with a counter loop.** Spearmen stop cavalry, cavalry ride down archers, archers shred infantry, infantry cut through spear lines.
-- **Squads of live soldiers.** Twenty men to a squad (sixteen horse), three ranks deep. Each man fights on his own, keeps formation on the march, and breaks ranks when the lines meet. Cavalry hit hard on the charge, except into braced spears.
+- **Squads of live soldiers.** Twenty men to a squad (sixteen horse), three ranks deep. Each man fights on his own, keeps formation on the march, and breaks ranks when the lines meet. Cavalry hit hard on the charge, except into spears.
 - **Battles that take their time.** Two even squads grind at each other for the best part of a minute, and a full battle runs a minute or two, so there's time to see a fight turning and send help.
 - **Archers with a quiver.** Eight arrows a man: deadly against troops marching at them, but they run dry, and then they're poor fighters. Arrows aimed into a melee with your own men mostly go wide.
 - **Morale and routing.** A squad that takes heavy losses breaks and runs for its own edge. Men who escape survive the battle.
 - **Deploy your whole army.** Every squad in your warband is a card. Before the fight, place each one anywhere in your half of the field, with the enemy's line in plain view. Tap a placed squad to move it, or tap *Auto-place* for a battle line (swords and spears in front, bows behind, horse on the wings). Time stands still until you press *Fight*.
-- **Two orders: Advance and Hold.** Squads hold their ground until ordered. *Advance* sends them at the enemy at marching pace, each going for the enemy it fights best, then charging when close. *Hold* stops them where they stand to fight whoever comes. The buttons command the whole army, or one squad once you tap it; with a squad selected you can also tap an enemy squad to attack it, or open ground to march there.
+- **Two orders: Advance and Hold.** Squads hold their ground until ordered. *Advance* sends them at the enemy at marching pace, each going for the enemy it fights best, then charging when close. *Hold* stops them where they stand to fight whoever comes. The buttons command the whole army, or one squad once you select it (tap its card, its standard or its men); with a squad selected you can also tap an enemy squad to attack it, or open ground to march there. Squads on the march go around enemy squads in their way instead of through them.
+- **Braced lines.** A squad that has stood its ground on *Hold* for two seconds is braced, and hits a third harder for the first six seconds of the fight that reaches it. Letting the enemy come is often the right call; *Advance* gives up the brace.
+- **Flanks and rear.** A squad locked in one fight can't turn to meet a second enemy. Blows from beside or behind it land harder and shake its nerve, and horse that take spearmen from behind land their charge. Pin them with foot, then send in the horse.
+- **One ability per squad.** Infantry raise a *Shield wall* (arrows and blows from the front barely land, but they move at half pace). Spearmen form a *Schiltron* (a ring of spears with no flank or rear, and no charge lands). Archers loose a *Volley* (every bow at once, harder, and it shakes the target's nerve). Cavalry *Wheel* (break off, ride clear, charge the same enemy again). Each has a cooldown.
 - **Win by breaking their army.** The battle ends when one side has no squad left standing. After five minutes, the side with more of its army still fighting wins.
-- **An enemy commander** that lines up, holds for a few seconds, then advances with everything, sooner if you come close.
-- **Pixel-art troops.** Original top-down sprites for each type in both team colors: sword and round shield, long spear, hooded bowman, and horseman with a lance he couches for the charge. Two walk frames and a strike pose each, a white flash when hit, fallen bodies, arrows in flight and a grass field.
+- **Enemy commanders with a temperament**, which your scouts report while you deploy. *Reckless* comes straight at you. *Patient* holds a braced line, takes your charge, then sends in the rest. *Hammer* pins you with foot and holds its horse until the lines meet, then rides for your archers and flanks. All of them use their squads' abilities.
+- **A battle you can read on a phone.** The camera follows the fighting. Every squad carries a standard showing its type, morale and men, swallowtails for you and square flags for them; a squad's standard topples when it breaks. Select a squad and the enemy standards show which ones it beats and which beat it. A tray of squad cards along the bottom shows every squad's morale and whether its ability is ready. A strength bar replaces the clock. Pause any time (orders still work while paused), play at double speed, and the battle pauses itself if you leave the app.
+- **Pixel-art troops.** Original top-down sprites for each type in both team colors: sword and round shield, long spear, hooded bowman, and horseman with a lance he couches for the charge. Two walk frames and a strike pose each, a white flash when hit, shadows, fallen bodies, trampled and bloodied ground where they fell, arrows that arc in flight and stick in the turf where they miss, and a grass field. Charges shake the screen and land with a jolt.
 - **Captains who can die.** Every squad is led by a named captain ("Brann's Shields"), a tougher man at the heart of the formation marked by a gold ring, with a temperament (Vengeful, Steadfast, Fragile) and sometimes a quirk (Lucky, Mentor, Bold). The squad holds its nerve better under them and reels when they go down.
-- **The death roll.** A fallen captain rolls a d100 against a death chance of 45%, less 15 each if their own squad still has half its men, another squad is close enough to drag them clear, or they're Lucky. Over the chance: wounded, and they sit out the next two battles. At or under: dead. The battle slows for their last words, the roll is shown, and the dead go on the memorial in camp while a veteran takes over the company.
+- **The death roll.** A fallen captain rolls a d100 against a death chance of 45%, less 15 each if their own squad still has half its men, another squad is close enough to drag them clear, or they're Lucky. Over the chance: wounded, and they sit out the next two battles. At or under: dead. The battle all but stops while the die rolls on screen against the odds, with each modifier shown, then their fate and last words; the dead go on the memorial in camp while a veteran takes over the company.
 - **Bonds.** Captains who fight side by side build a bond, rank C, B then A. Bonded pairs fighting near each other regain nerve and, from B, hit harder. When one falls, the other reacts by temperament: fury, a steadied line, or a squad that starts to break.
 - **A persistent warband** saved on the device (`user://warband.json`).
 
@@ -44,9 +48,9 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | --- | --- |
 | `scenes/main_menu.tscn` | Camp screen: the warband, reinforcing, starting a battle. Becomes the war map later. |
 | `scenes/battle.tscn` | The battle screen. |
-| `scripts/data/troops.gd` | Troop stats, the counter bonuses and veterancy. **Tune the game here.** |
+| `scripts/data/troops.gd` | Troop stats, the counter bonuses, abilities and veterancy. **Tune the game here.** |
 | `scripts/battle/battle_sim.gd` | Battle rules as pure logic: deployment, orders, movement, combat, morale, win conditions. No drawing. |
-| `scripts/battle/commander_ai.gd` | How the computer lines up its army and when it advances. |
+| `scripts/battle/commander_ai.gd` | The computer's commanders: how each temperament lines up, when it commits, and how it uses abilities. |
 | `scripts/battle/battle_screen.gd` | Drawing, touch input and the HUD. Reads the sim; never changes the rules. |
 | `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and grass at startup. |
 | `scripts/art/sprite_data.gd` | The pixel art itself, as rows of palette letters. Generated: don't edit by hand. |
@@ -55,6 +59,7 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scripts/game_state.gd` | The persistent warband (an autoload), battle results and the save file. |
 | `scripts/ui/style.gd` | Shared colors and UI theme. |
 | `tests/run_tests.gd` | Headless checks of the rules. |
+| `tests/plans.gd` | Scripted players for the balance check. |
 
 The rules don't touch the screen, so the sim can be tested headless and reused when the war map auto-resolves small fights. Battles take and return plain data: an army goes in as `[{id, type, men, xp}]`, and `result_for()` hands back survivors and kills per squad.
 
@@ -70,9 +75,9 @@ On a Mac, `godot` is the binary inside the app: `/Applications/Godot.app/Content
 
 To watch the computer fight both sides (useful when tuning), run the game with `-- --autoplay`.
 
-It checks the deployment rules (no placing in the enemy half, squads dropped on each other get nudged apart, Auto-place fits everyone, the clock waits for *Fight*), that *Hold* keeps a squad in place and *Advance* sends it forward, that archers run out of arrows, that each counter wins its duel at least 80% of the time, that mirror matches are close to even, that full AI-vs-AI battles finish with an army breaking and last about a minute, and that every man is accounted for in the battle result. It takes a few minutes and exits with code 1 if anything fails.
+It checks the deployment rules (no placing in the enemy half, squads dropped on each other get nudged apart, Auto-place fits everyone, the clock waits for *Fight*), that *Hold* keeps a squad in place and *Advance* sends it forward, that archers run out of arrows, the tactics (only a pinned squad can be flanked; horse in the rear of a pinned squad break it sooner and lose fewer riders; a braced line wins the even fight it receives; horse sent at archers ride around the spears in front of them), each ability, that each kind of enemy commander behaves as its scouts say, that each counter wins its duel at least 80% of the time, that mirror matches are close to even, that full AI-vs-AI battles finish with an army breaking and last about a minute, and that every man is accounted for in the battle result. It takes a few minutes and exits with code 1 if anything fails.
 
-Add `-- --balance` to also see how a player who only ever presses *Advance all* or *Hold all* fares against the computer (a few minutes more).
+Add `-- --balance` to also fight three scripted players against every kind of commander, twelve battles each (`tests/plans.gd`): one who presses *Advance all* and nothing else, one who holds all battle, and a tactician who receives the charge braced, uses volleys and shield walls, and sends the horse into flanks. It checks that skill pays: *Advance all* wins about half the time at most, the tactician at least 70% (it takes about five minutes more).
 
 ## Roadmap
 

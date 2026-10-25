@@ -121,8 +121,14 @@ func enemy_army() -> Array:
 	var xp := mini(battles * 6, Troops.XP_PER_LEVEL * 2)
 	var out := []
 	var id := 1000
+	# No enemy captain shares a name with one of yours.
+	var taken := []
+	for s in army:
+		if s.get("captain") != null:
+			taken.append(s["captain"]["first"])
 	for type in types:
-		var captain := Captains.make(erng, 100000 + id, type)
+		var captain := Captains.make(erng, 100000 + id, type, taken)
+		taken.append(captain["first"])
 		out.append({"id": id, "type": type, "men": Troops.full_size(type), "xp": xp,
 			"name": Captains.company_name(captain, type), "captain": captain})
 		id += 1
@@ -150,8 +156,14 @@ func describe_result(result: Dictionary) -> Array:
 			"wounded":
 				lines.append("%s was wounded (rolled %d, needed %d) and will sit out %d battles." % [
 					c["name"], cr["roll"], cr["needed"], Captains.WOUND_BATTLES])
+	# Bonds on one line, so a first battle that bonds half the army doesn't fill the screen.
+	var pairs := PackedStringArray()
 	for change in _bond_changes(result):
-		lines.append("%s and %s grew closer: bond %s." % [change["a"]["first"], change["b"]["first"], change["rank"]])
+		pairs.append("%s & %s (%s)" % [change["a"]["first"], change["b"]["first"], change["rank"]])
+	if pairs.size() > 3:
+		lines.append("New bonds: %s and %d more." % [", ".join(pairs.slice(0, 3)), pairs.size() - 3])
+	elif not pairs.is_empty():
+		lines.append("New bonds: %s." % ", ".join(pairs))
 	return lines
 
 

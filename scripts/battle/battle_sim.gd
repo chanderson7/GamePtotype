@@ -43,6 +43,26 @@ const MARCH_SPEED := 38.0
 const CHARGE_DISTANCE := 180.0
 const ARROW_SPEED := 420.0
 const MAX_CORPSES := 500
+## Spent arrows left sticking out of the ground, for the screen.
+const MAX_STUCK_ARROWS := 240
+## Which side of a squad a blow lands on, by its facing. A squad can't be flanked by the
+## squad it's already fighting, only by someone else coming from beside or behind.
+const FRONT := 0
+const FLANK := 1
+const REAR := 2
+const FLANK_DOT := 0.3
+const REAR_DOT := -0.35
+const FLANK_POWER := 1.15
+const REAR_POWER := 1.4
+## Morale a squad loses in all if every one of its men takes a blow from behind.
+const REAR_SHOCK := 6.0
+## A squad on Hold that has stood still this long is braced: for its first seconds of
+## melee it hits harder, so a line that waits wins the first clash.
+const BRACE_SET := 2.0
+const BRACE_SECONDS := 6.0
+const BRACE_POWER := 1.35
+## Room kept between a marching squad and an enemy squad it goes around.
+const STEER_MARGIN := 55.0
 ## Crowding and nearby-enemy lookups use a grid of CELL-sized squares over the field.
 ## A cell must be wider than the closest two men can stand, so neighbors are always in
 ## the same or an adjacent cell.
@@ -69,6 +89,8 @@ class Soldier:
 	# strike pose.
 	var stride := 0.0
 	var swing := 0.0
+	## Set by a volley: his next arrow goes at the volley's target, harder.
+	var volley := false
 	## The squad's named captain: hardier, hits harder, and the squad's nerve rests on him.
 	var captain := false
 	var might := 1.0
@@ -128,12 +150,36 @@ class Squad:
 	## From bonded captains fighting close by: morale regained a second, extra damage.
 	var bond_regen := 0.0
 	var bond_power := 0.0
+	## Seconds stood still on Hold (braced at BRACE_SET), and seconds of braced fighting left.
+	var still := 0.0
+	var brace := 0.0
+	var engaged_for := 0.0
+	## Seconds since an arrow last hit one of its men, counting down from 2.
+	var under_fire := 0.0
+	var flanked_at := -99.0
+	# The squad's ability: seconds until it can be used again and seconds it still runs.
+	var ability_cd := 0.0
+	var ability_left := 0.0
+	var volley_target = null
+	var volley_left := 0.0
+	var wheeling := false
+	var wheel_point := Vector2.ZERO
+	var wheel_target = null
 
 	func alive_count() -> int:
 		return alive_n
 
 	func is_active() -> bool:
 		return not routing and alive_n > 0
+
+	func braced() -> bool:
+		return order == "hold" and still >= BRACE_SET and not engaged
+
+	func shield_wall() -> bool:
+		return type == Troops.INFANTRY and ability_left > 0.0
+
+	func schiltron() -> bool:
+		return type == Troops.SPEARMEN and ability_left > 0.0
 
 	## Where the squad's living men are on average, as of the start of this tick.
 	func average_pos() -> Vector2:
@@ -156,11 +202,13 @@ class Squad:
 
 class Projectile:
 	var pos := Vector2.ZERO
+	var origin := Vector2.ZERO
 	var target = null
 	var aim := Vector2.ZERO
 	var damage := 0.0
 	var source = null
 	var shooter = null
+	var volley := false
 	var done := false
 
 
@@ -174,6 +222,8 @@ var armies: Array = [[], []]
 var reserves: Array = [[], []]
 var projectiles: Array = []
 var corpses: Array = []
+## Arrows that missed and stuck in the ground: {pos, angle}. Only the screen reads these.
+var stuck_arrows: Array = []
 var events: Array = []
 ## Commanders that give orders for a side once the battle starts. null means a human
 ## plays that side.
@@ -284,7 +334,8 @@ func place(team: int, roster_id: int, at: Vector2):
 
 
 ## Place every squad a side has left in a battle line: swords and spears in front,
-## bows behind them, horse on the wings. `jitter` shuffles positions a little.
+## bows behind them, horse on the wings. `jitter` shifts squads sideways a little. It
+## never staggers the line front to back: a ragged line meets the enemy a squad at a time.
 func auto_deploy(team: int, jitter: float = 0.0) -> void:
 	if phase != PHASE_DEPLOY or reserves[team].is_empty():
 		return
@@ -314,7 +365,6 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 		var depth: float = s[1]
 		var x: float = s[2]
 		if jitter > 0.0:
-			depth += rng.randf_range(-jitter, jitter) * 0.6
 			x += rng.randf_range(-jitter, jitter)
 		place(team, s[0]["roster_id"], Vector2(x, MID_Y + depth if team == PLAYER else MID_Y - depth))
 
@@ -422,7 +472,7 @@ func _move_formation(sq, at: Vector2) -> void:
 	sq.order = "hold"
 	sq.order_point = at
 	for so in sq.soldiers:
-		so.pos = at + _slot_world(so.slot, sq.facing)
+		so.pos = at + _slot_world(so.slot, sq.facing, sq.team)
 	sq.refresh()
 
 
@@ -443,9 +493,13 @@ func _formation_slots(men: int, spacing: float) -> Array:
 	return out
 
 
-## Slot offsets are in squad space: x to the right, y toward the rear.
-func _slot_world(slot: Vector2, facing: Vector2) -> Vector2:
-	var right := Vector2(-facing.y, facing.x)
+## Slot offsets are in squad space: x to the right, y toward the rear. The two armies
+## face each other across the field as mirror images, so the enemy's formations are
+## mirrored too, not turned around: man for man, both sides stand the same way. Turned
+## formations broke ties (two enemies equally close) toward each army's own right, which
+## added up to a lean that favored one side.
+func _slot_world(slot: Vector2, facing: Vector2, team: int) -> Vector2:
+	var right := Vector2(-facing.y, facing.x) if team == PLAYER else Vector2(facing.y, -facing.x)
 	return right * slot.x - facing * slot.y
 
 
@@ -504,10 +558,13 @@ func _overlaps(team: int, at: Vector2, half: Vector2, ignore) -> bool:
 
 # ---------------------------------------------------------------- orders
 
-## Stand where you are and fight anyone who comes close.
+## Stand where you are and fight anyone who comes close. A schiltron keeps its ring.
 func order_hold(sq) -> void:
 	if sq == null or not sq.is_active():
 		return
+	sq.wheeling = false
+	if sq.order != "hold":
+		sq.still = 0.0
 	sq.order = "hold"
 	sq.order_point = _clamp_to_arena(sq.center)
 	sq.order_target = null
@@ -518,14 +575,16 @@ func order_hold(sq) -> void:
 func order_advance(sq) -> void:
 	if sq == null or not sq.is_active():
 		return
+	_break_off(sq)
 	sq.order = "advance"
 	sq.order_target = null
 
 
-## March to a point, ignoring enemies on the way, then hold there.
+## March to a point, going around enemy squads on the way, then hold there.
 func order_move(sq, point: Vector2) -> void:
 	if sq == null or not sq.is_active():
 		return
+	_break_off(sq)
 	sq.order = "move"
 	sq.order_point = _clamp_to_arena(point)
 	sq.order_target = null
@@ -534,8 +593,104 @@ func order_move(sq, point: Vector2) -> void:
 func order_attack(sq, foe) -> void:
 	if sq == null or not sq.is_active() or foe == null or not foe.is_active():
 		return
+	_break_off(sq)
 	sq.order = "attack"
 	sq.order_target = foe
+
+
+## Any order to move ends a wheel and breaks a schiltron.
+func _break_off(sq) -> void:
+	sq.wheeling = false
+	if sq.schiltron():
+		sq.ability_left = 0.0
+
+
+## True if the squad's ability can be used now: it's off cooldown, the squad is still
+## fighting, and (for a volley) it has arrows and an enemy in bow range.
+func ability_ready(sq) -> bool:
+	if sq == null or not sq.is_active() or phase != PHASE_BATTLE or winner != -1:
+		return false
+	if sq.ability_cd > 0.0 or sq.ability_left > 0.0 or sq.wheeling:
+		return false
+	if sq.type == Troops.ARCHERS:
+		return _volley_target(sq, null) != null
+	return true
+
+
+## Use the squad's ability. `target` is the enemy squad a volley should hit; without
+## one it shoots at what it's already shooting at, or the nearest squad in range.
+## Returns true if it went off.
+func use_ability(sq, target = null) -> bool:
+	if not ability_ready(sq):
+		return false
+	var ab := Troops.ability(sq.type)
+	match sq.type:
+		Troops.ARCHERS:
+			var foe = _volley_target(sq, target)
+			sq.volley_target = foe
+			sq.volley_left = 1.5
+			for so in sq.soldiers:
+				if so.alive:
+					so.volley = true
+					so.target = null
+					so.cooldown = rng.randf_range(0.0, 0.3)
+		Troops.CAVALRY:
+			_start_wheel(sq)
+		Troops.SPEARMEN:
+			sq.ability_left = float(ab["seconds"])
+			sq.wheeling = false
+			if sq.order != "hold":
+				order_hold(sq)
+		_:
+			sq.ability_left = float(ab["seconds"])
+	sq.ability_cd = float(ab["cooldown"])
+	events.append({"type": "ability", "squad": sq, "name": String(ab["name"])})
+	return true
+
+
+func _volley_target(sq, wanted):
+	if not sq.ranged or sq.arrows <= 0:
+		return null
+	for foe in [wanted, sq.focus]:
+		if foe != null and foe.team != sq.team and foe.is_active() and _in_range(sq, foe, sq.reach):
+			return foe
+	var best = null
+	var best_d := INF
+	for foe in squads:
+		if foe.team == sq.team or not foe.is_active():
+			continue
+		var d: float = sq.avg.distance_to(foe.avg)
+		if d < best_d and _in_range(sq, foe, sq.reach):
+			best_d = d
+			best = foe
+	return best
+
+
+## Cavalry break off from whoever they're fighting, ride clear, then charge them again.
+func _start_wheel(sq) -> void:
+	var from = sq.focus
+	if from == null or not from.is_active():
+		from = nearest_enemy_squad(sq.team, sq.avg, INF)
+	var away := Vector2.DOWN if sq.team == PLAYER else Vector2.UP
+	if from != null and from.avg.distance_to(sq.avg) > 1.0:
+		away = (sq.avg - from.avg).normalized()
+	var to: Vector2 = sq.avg + away * Troops.WHEEL_DISTANCE
+	sq.wheel_point = Vector2(clampf(to.x, 40.0, ARENA.x - 40.0), clampf(to.y, 40.0, ARENA.y - 40.0))
+	sq.wheel_target = from
+	sq.wheeling = true
+	sq.engaged = false
+	for so in sq.soldiers:
+		so.target = null
+
+
+func _end_wheel(sq) -> void:
+	sq.wheeling = false
+	var foe = sq.wheel_target
+	sq.wheel_target = null
+	if foe != null and foe.is_active():
+		order_attack(sq, foe)
+	else:
+		order_advance(sq)
 
 
 ## "advance" or "hold" for every squad a side still has fighting.
@@ -641,6 +796,10 @@ func _update_squad(sq, dt: float) -> void:
 	if sq.alive_n == 0:
 		return
 	var avg: Vector2 = sq.avg
+	sq.ability_cd = maxf(0.0, sq.ability_cd - dt)
+	sq.ability_left = maxf(0.0, sq.ability_left - dt)
+	sq.under_fire = maxf(0.0, sq.under_fire - dt)
+	sq.volley_left = maxf(0.0, sq.volley_left - dt)
 	if sq.fury > 0.0:
 		sq.fury = maxf(0.0, sq.fury - dt)
 		sq.morale = maxf(sq.morale, Captains.FURY_MORALE_FLOOR)
@@ -649,6 +808,8 @@ func _update_squad(sq, dt: float) -> void:
 	if not sq.routing and sq.morale <= ROUT_MORALE:
 		sq.routing = true
 		sq.focus = null
+		sq.wheeling = false
+		sq.ability_left = 0.0
 		events.append({"type": "rout", "squad": sq})
 	if sq.routing:
 		return
@@ -657,19 +818,28 @@ func _update_squad(sq, dt: float) -> void:
 
 	var reach: float = sq.reach
 	var foe = null
-	match sq.order:
-		"attack":
-			foe = sq.order_target
-		"advance":
-			foe = _advance_focus(sq, avg)
-		"hold":
-			foe = nearest_enemy_squad(sq.team, avg, reach + ENGAGE_RANGE + 50.0)
-		_:
-			foe = null # marching to a point ignores enemies until it arrives
+	if sq.wheeling:
+		foe = null # riding clear, not fighting
+	elif sq.volley_left > 0.0 and sq.volley_target != null and sq.volley_target.is_active():
+		foe = sq.volley_target
+	else:
+		match sq.order:
+			"attack":
+				foe = sq.order_target
+			"advance":
+				foe = _advance_focus(sq, avg)
+			"hold":
+				foe = nearest_enemy_squad(sq.team, avg, reach + ENGAGE_RANGE + 50.0)
+			_:
+				foe = null # marching to a point ignores enemies until it arrives
 	sq.focus = foe
 
 	var chasing := false
-	if sq.order == "move":
+	if sq.wheeling:
+		sq.goal = sq.wheel_point
+		if sq.center.distance_to(sq.wheel_point) < 10.0:
+			_end_wheel(sq)
+	elif sq.order == "move":
 		sq.goal = sq.order_point
 		if sq.center.distance_to(sq.order_point) < 6.0:
 			sq.order = "hold"
@@ -681,26 +851,40 @@ func _update_squad(sq, dt: float) -> void:
 	else:
 		sq.goal = sq.center
 
-	# Engaged squads break formation and fight man to man.
+	# Engaged squads break formation and fight man to man. A braced line that the enemy
+	# reaches gets the first few seconds of the fight on its side.
+	var was_engaged: bool = sq.engaged
 	sq.engaged = false
 	if foe != null:
 		var slack := 20.0 if sq.ranged else ENGAGE_RANGE
 		sq.engaged = _in_range(sq, foe, reach + slack)
 	if sq.engaged:
+		if not was_engaged:
+			sq.brace = BRACE_SECONDS if sq.order == "hold" and sq.still >= BRACE_SET and not sq.ranged else 0.0
+			if sq.brace > 0.0:
+				events.append({"type": "braced", "squad": sq})
+		sq.brace = maxf(0.0, sq.brace - dt)
+		sq.engaged_for += dt
+		sq.still = 0.0
 		sq.center = sq.center.lerp(avg, 0.15)
 		return
+	sq.engaged_for = 0.0
+	sq.brace = 0.0
 
-	var to: Vector2 = sq.goal - sq.center
+	var to: Vector2 = Vector2.ZERO if sq.schiltron() else sq.goal - sq.center
 	var stop := reach * 0.85 if chasing and sq.ranged else 0.0 # archers halt at bow range
 	var dist := to.length()
 	if dist > stop + 2.0:
-		var dir := to / dist
-		var pace: float = sq.speed
-		if sq.order == "advance" and dist - stop > CHARGE_DISTANCE:
+		var dir := _steer(sq, to / dist, dist, foe)
+		var pace := _pace(sq)
+		if sq.order == "advance" and not sq.wheeling and dist - stop > CHARGE_DISTANCE:
 			pace = minf(pace, MARCH_SPEED)
 		sq.center += dir * minf(dist - stop, pace * dt)
 		sq.facing = dir
+		sq.still = 0.0
 	else:
+		if sq.order == "hold":
+			sq.still += dt
 		# Standing still: turn to meet an enemy squad that comes close, otherwise face
 		# the enemy's end of the field (so a squad that walked back to its post doesn't
 		# stand there facing its own lines).
@@ -710,6 +894,47 @@ func _update_squad(sq, dt: float) -> void:
 			want = (threat.avg - sq.center).normalized()
 		if sq.facing.dot(want) < 0.995:
 			sq.facing = sq.facing.slerp(want, minf(1.0, dt * 2.5)).normalized()
+
+
+## Marching pace: a shield wall shuffles forward at half speed.
+func _pace(sq) -> float:
+	var pace: float = sq.speed
+	if sq.shield_wall():
+		pace *= Troops.SHIELD_WALL_SPEED
+	return pace
+
+
+## Where to head, given the straight way `dir` to a goal `dist` away: around the first
+## enemy squad standing in the way, unless that squad is the one it's going for.
+func _steer(sq, dir: Vector2, dist: float, foe) -> Vector2:
+	var block = null
+	var block_t := dist
+	var lateral := 0.0
+	for o in squads:
+		if o.team == sq.team or o == foe or not o.is_active():
+			continue
+		var rel: Vector2 = o.avg - sq.center
+		var t := rel.dot(dir)
+		if t <= 0.0 or t >= block_t:
+			continue
+		var off := rel.cross(dir)
+		if absf(off) < o.extent + sq.extent * 0.5 + STEER_MARGIN:
+			block = o
+			block_t = t
+			lateral = off
+	if block == null:
+		return dir
+	# Pass it on whichever side is nearer the straight line. When it stands dead ahead,
+	# take the side with more open field, so both armies break the tie the same way.
+	var side := Vector2(-dir.y, dir.x)
+	if absf(lateral) < 4.0:
+		if side.x * (ARENA.x * 0.5 - block.avg.x) < 0.0:
+			side = -side
+	elif lateral < 0.0:
+		side = -side
+	var waypoint: Vector2 = _clamp_to_arena(block.avg + side * (block.extent + sq.extent + STEER_MARGIN))
+	var to: Vector2 = waypoint - sq.center
+	return dir if to.length_squared() < 1.0 else to.normalized()
 
 
 ## An advancing squad finishes the fight it is in, and otherwise only changes targets
@@ -776,7 +1001,7 @@ func _update_soldier(so, sq, dt: float) -> void:
 	so.flash = maxf(0.0, so.flash - dt * 5.0)
 	so.swing = maxf(0.0, so.swing - dt)
 	so.runup = maxf(0.0, so.runup - 30.0 * dt)
-	var speed: float = sq.speed
+	var speed := _pace(sq)
 
 	if sq.routing:
 		var exit_y := ARENA.y + 40.0 if sq.team == PLAYER else -40.0
@@ -789,7 +1014,7 @@ func _update_soldier(so, sq, dt: float) -> void:
 	if not sq.engaged:
 		so.target = null
 		so.facing = sq.facing
-		so.runup += _walk(so, sq.center + _slot_world(so.slot, sq.facing), speed * 1.25, dt)
+		so.runup += _walk(so, sq.center + _slot_world(so.slot, sq.facing, sq.team), speed * 1.25, dt)
 		return
 
 	if not _target_ok(so, sq):
@@ -853,24 +1078,56 @@ func _pick_target(so, sq):
 
 func _strike(so, sq, target, gap: float) -> void:
 	var boost: float = 1.0 + sq.bond_power + (Captains.FURY_POWER if sq.fury > 0.0 else 0.0)
+	if sq.brace > 0.0:
+		boost += BRACE_POWER - 1.0
 	var dmg: float = sq.damage * so.might * boost * rng.randf_range(0.8, 1.2)
 	var target_type: String = target.squad.type
 	dmg *= float(sq.bonus.get(target_type, 1.0))
-	var charge := false
-	if sq.type == Troops.CAVALRY and so.runup >= Troops.CHARGE_RUNUP and target_type != Troops.SPEARMEN:
-		dmg *= Troops.CHARGE_MULTIPLIER
-		charge = true
 	if sq.ranged:
 		if gap < 30.0:
 			dmg *= Troops.POINT_BLANK
-		_shoot(so, sq, target, dmg)
+		var volley: bool = so.volley and sq.volley_left > 0.0
+		so.volley = false
+		if volley:
+			dmg *= Troops.VOLLEY_POWER
+		_shoot(so, sq, target, dmg, volley)
 		sq.arrows -= 1
 		if sq.arrows <= 0:
 			_draw_blades(sq)
-	else:
-		_damage(target, dmg, sq, charge, so)
-		if charge:
-			events.append({"type": "charge", "pos": target.pos})
+		return
+	# Spears stop a charge unless it takes them from behind while they're pinned.
+	var side := _side_of(target, so.pos, sq)
+	var charge := false
+	if sq.type == Troops.CAVALRY and so.runup >= Troops.CHARGE_RUNUP and (target_type != Troops.SPEARMEN or side == REAR):
+		dmg *= Troops.CHARGE_MULTIPLIER
+		charge = true
+	if side == FLANK:
+		dmg *= FLANK_POWER
+	elif side == REAR:
+		dmg *= REAR_POWER
+	elif target.squad.shield_wall():
+		dmg *= Troops.SHIELD_WALL_MELEE
+	_damage(target, dmg, sq, charge, so, side)
+	if charge:
+		events.append({"type": "charge", "pos": target.pos, "squad": sq, "victim": target.squad})
+
+
+## Which side of his squad a blow from `from` lands on. A squad that isn't pinned in a
+## fight turns to meet whoever comes, so only a squad already fighting another can be
+## caught in the flank or rear, and only by someone else. A schiltron has neither.
+func _side_of(victim, from: Vector2, attacker) -> int:
+	var vs = victim.squad
+	if vs.schiltron() or not vs.engaged or attacker == vs.focus:
+		return FRONT
+	var to: Vector2 = from - victim.pos
+	if to.length_squared() < 0.01:
+		return FRONT
+	var d: float = vs.facing.dot(to.normalized())
+	if d < REAR_DOT:
+		return REAR
+	if d < FLANK_DOT:
+		return FLANK
+	return FRONT
 
 
 ## Out of arrows: the squad fights on with short blades, as weak foot soldiers.
@@ -884,14 +1141,16 @@ func _draw_blades(sq) -> void:
 	events.append({"type": "out_of_arrows", "squad": sq})
 
 
-func _shoot(so, sq, target, dmg: float) -> void:
+func _shoot(so, sq, target, dmg: float, volley: bool = false) -> void:
 	var p := Projectile.new()
 	p.pos = so.pos
+	p.origin = so.pos
 	p.target = target
 	p.aim = target.pos
 	p.damage = dmg
 	p.source = sq
 	p.shooter = so
+	p.volley = volley
 	projectiles.append(p)
 
 
@@ -903,17 +1162,34 @@ func _update_projectiles(dt: float) -> void:
 		var to: Vector2 = p.aim - p.pos
 		if to.length() <= travel:
 			p.done = true
-			if p.target != null and p.target.alive:
-				var friends: int = p.source.team if p.source != null else -1
-				if friends != -1 and _fighters_near(p.target.pos, friends, 40.0) and rng.randf() < Troops.MELEE_MISS:
-					continue # shot wide to spare their own men in the press
-				_damage(p.target, p.damage, p.source, false, p.shooter)
+			if p.target == null or not p.target.alive:
+				_stick(p, p.aim)
+				continue
+			var friends: int = p.source.team if p.source != null else -1
+			if friends != -1 and _fighters_near(p.target.pos, friends, 40.0) and rng.randf() < Troops.MELEE_MISS:
+				# shot wide to spare their own men in the press
+				_stick(p, p.target.pos + Vector2(rng.randf_range(-14.0, 14.0), rng.randf_range(-14.0, 14.0)))
+				continue
+			var vs = p.target.squad
+			var dmg: float = p.damage
+			if vs.shield_wall() and vs.facing.dot((p.origin - p.target.pos).normalized()) > FLANK_DOT:
+				dmg *= Troops.SHIELD_WALL_ARROWS
+			vs.under_fire = 2.0
+			if p.volley:
+				vs.morale -= Troops.VOLLEY_SHOCK / float(vs.start_men)
+			_damage(p.target, dmg, p.source, false, p.shooter)
 		else:
 			p.pos += to.normalized() * travel
 	projectiles = projectiles.filter(func(p): return not p.done)
 
 
-func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null) -> void:
+func _stick(p, at: Vector2) -> void:
+	stuck_arrows.append({"pos": at, "angle": (p.aim - p.origin).angle()})
+	if stuck_arrows.size() > MAX_STUCK_ARROWS:
+		stuck_arrows.pop_front()
+
+
+func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, side: int = FRONT) -> void:
 	if not victim.alive:
 		return
 	victim.hp -= dmg
@@ -921,6 +1197,11 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null) 
 	var vs = victim.squad
 	if charge:
 		vs.morale -= CHARGE_SHOCK / float(vs.start_men)
+	if side != FRONT:
+		vs.morale -= REAR_SHOCK / float(vs.start_men) * (1.0 if side == REAR else 0.5)
+		if time - vs.flanked_at > 4.0:
+			vs.flanked_at = time
+			events.append({"type": "flanked", "squad": vs, "pos": victim.pos, "rear": side == REAR})
 	if victim.hp <= 0.0:
 		_remove(victim)
 		vs.morale -= (100.0 / float(vs.start_men) * 0.8 + 2.0) * vs.led
@@ -955,7 +1236,8 @@ func _captain_falls(sq, victim) -> void:
 	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
 	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
 	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
-		"roll": roll, "needed": chance + 1, "rescued": holding or friends})
+		"roll": roll, "needed": chance + 1, "rescued": holding or friends,
+		"holding": holding, "friends": friends, "lucky": sq.info.get("quirk", "") == Captains.LUCKY})
 	for other in squads:
 		if other.team != sq.team or other.captain == null or other.info.is_empty():
 			continue
@@ -1183,6 +1465,8 @@ func dispose() -> void:
 		sq.soldiers.clear()
 		sq.focus = null
 		sq.order_target = null
+		sq.volley_target = null
+		sq.wheel_target = null
 		sq.captain = null
 	squads.clear()
 	projectiles.clear()

@@ -1,7 +1,9 @@
 ## Headless checks for the battle rules. Run from the project folder:
 ##   godot --headless --script res://tests/run_tests.gd
-## Add `-- --balance` to also see how one-button plans fare against the computer
-## (slower: it fights two dozen more battles). Exits with code 1 if any check fails.
+## Add `-- --balance` to also fight scripted plans against every kind of computer
+## commander and check that skill pays: pressing Advance all and nothing else should win
+## about half the time, a player who uses the tools far more often (slower: a hundred
+## more battles). Exits with code 1 if any check fails.
 extends SceneTree
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
@@ -9,9 +11,11 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const GameStateScript = preload("res://scripts/game_state.gd")
+const Plans = preload("res://tests/plans.gd")
 
 const DUEL_SEEDS := 12
 const BATTLE_SEEDS := 6
+const BALANCE_SEEDS := 12
 
 var failures := 0
 
@@ -23,6 +27,20 @@ func _init() -> void:
 	print("Orders:")
 	_check_orders()
 	_check_arrows()
+
+	print("Tactics:")
+	_check_flanks()
+	_check_brace()
+	_check_steering()
+
+	print("Abilities:")
+	_check_shield_wall()
+	_check_schiltron()
+	_check_volley()
+	_check_wheel()
+
+	print("Commanders:")
+	_check_commanders()
 
 	print("Captains:")
 	_check_captains()
@@ -67,13 +85,7 @@ func _init() -> void:
 	_expect(avg_time >= 40.0 and avg_time <= 150.0, "a battle lasts about a minute (%.0fs on average)" % avg_time)
 
 	if OS.get_cmdline_user_args().has("--balance"):
-		print("Plain orders against the computer (12 seeds):")
-		for plan in ["advance", "hold"]:
-			var wins := 0
-			for s in range(1, 13):
-				if _plain_battle(plan, s) == Sim.PLAYER:
-					wins += 1
-			print("  %-7s all battle long: won %2d/12" % [plan.capitalize(), wins])
+		_check_balance()
 
 	print("Campaign results add up:")
 	_check_results()
@@ -179,6 +191,259 @@ func _check_arrows() -> void:
 	_expect(full == 20 * int(Troops.stats(Troops.ARCHERS)["arrows"]) and bows.arrows == 0 and not bows.ranged,
 		"archers run out of arrows (%d) and draw their blades" % full)
 	sim.dispose()
+
+
+# ---------------------------------------------------------------- tactics
+
+func _check_flanks() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}],
+		[{"id": 2, "type": Troops.INFANTRY, "men": 20}, {"id": 3, "type": Troops.INFANTRY, "men": 20}], 7)
+	var mine = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+	var front = sim.place(Sim.ENEMY, 2, Vector2(420, 520))
+	var other = sim.place(Sim.ENEMY, 3, Vector2(200, 300))
+	sim.start_battle()
+	var man = mine.soldiers[0]
+	var behind: Vector2 = man.pos + Vector2(0, 60)
+	var free: int = sim._side_of(man, behind, other)
+	mine.engaged = true
+	mine.focus = front
+	var rear: int = sim._side_of(man, behind, other)
+	var side: int = sim._side_of(man, man.pos + Vector2(60, 0), other)
+	var own_fight: int = sim._side_of(man, behind, front)
+	_expect(free == Sim.FRONT and rear == Sim.REAR and side == Sim.FLANK and own_fight == Sim.FRONT,
+		"only a squad pinned in a fight can be caught in the flank or rear, and only by someone else")
+	sim.dispose()
+
+	# Hammer and anvil: the same horse, sent into the back of a squad already pinned by
+	# foot, breaks it sooner after it strikes and loses fewer riders than when it rides
+	# in from the front alongside the foot.
+	var head_on := [0.0, 0]
+	var in_rear := [0.0, 0]
+	for s in range(1, 7):
+		var a := _hammer(s, false)
+		var b := _hammer(s, true)
+		head_on[0] += a[0]
+		head_on[1] += a[1]
+		in_rear[0] += b[0]
+		in_rear[1] += b[1]
+	_expect(in_rear[0] < head_on[0] * 0.9 and in_rear[1] < head_on[1],
+		"horse in the rear of a pinned squad breaks it sooner (%.0fs after striking, against %.0fs head-on) and loses fewer riders (%d against %d)" % [
+			in_rear[0] / 6.0, head_on[0] / 6.0, in_rear[1], head_on[1]])
+
+
+## Our infantry, pinned by enemy infantry, charged by enemy horse from behind (or from
+## the front, alongside the foot). Returns [seconds from the horse's first blow until our
+## squad breaks, riders lost].
+func _hammer(seed_value: int, from_behind: bool) -> Array:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}],
+		[{"id": 2, "type": Troops.INFANTRY, "men": 20}, {"id": 3, "type": Troops.CAVALRY, "men": 16}], seed_value)
+	var mine = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+	var anvil = sim.place(Sim.ENEMY, 2, Vector2(420, 480))
+	var hammer = sim.place(Sim.ENEMY, 3, Vector2(600, 480))
+	sim.start_battle()
+	if from_behind:
+		sim._move_formation(hammer, Vector2(420, 1080))
+	sim.order_attack(anvil, mine)
+	var sent := false
+	var struck := -1.0
+	while sim.winner == -1 and sim.time < 150.0:
+		if not sent and (mine.engaged or not from_behind):
+			sent = true
+			sim.order_attack(hammer, mine)
+		sim.step()
+		if struck < 0.0 and hammer.engaged:
+			struck = sim.time
+	var out := [sim.time - maxf(struck, 0.0), 16 - hammer.alive_count()]
+	sim.dispose()
+	return out
+
+
+func _check_brace() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 3)
+	var mine = sim.place(Sim.PLAYER, 1, Vector2(420, 800))
+	sim.place(Sim.ENEMY, 2, Vector2(420, 300))
+	sim.start_battle()
+	for i in 90:
+		sim.step()
+	var braced: bool = mine.braced()
+	sim.order_advance(mine)
+	sim.step()
+	_expect(braced and not mine.braced(), "a squad that holds its ground is braced; one on the move isn't")
+	sim.dispose()
+
+	var wins := 0
+	for s in range(1, DUEL_SEEDS + 1):
+		if _duel(Troops.INFANTRY, Troops.INFANTRY, s, true)["winner"] == Sim.PLAYER:
+			wins += 1
+	_expect(wins >= int(DUEL_SEEDS * 0.7), "a braced line wins the even fight it receives (%d/%d)" % [wins, DUEL_SEEDS])
+
+
+func _check_steering() -> void:
+	var lost := 0
+	var reached := 0
+	for s in range(1, 5):
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.CAVALRY, "men": 16}],
+			[{"id": 2, "type": Troops.SPEARMEN, "men": 20}, {"id": 3, "type": Troops.ARCHERS, "men": 20}], s)
+		var horse = sim.place(Sim.PLAYER, 1, Vector2(420, 1000))
+		sim.place(Sim.ENEMY, 2, Vector2(420, 470))
+		var bows = sim.place(Sim.ENEMY, 3, Vector2(420, 330))
+		sim.start_battle()
+		sim.order_attack(horse, bows)
+		while sim.time < 30.0 and not horse.engaged and horse.is_active():
+			sim.step()
+		if horse.engaged and horse.focus == bows:
+			reached += 1
+		lost += 16 - horse.alive_count()
+		sim.dispose()
+	_expect(reached == 4 and lost <= 8, "horse sent at archers behind a spear line ride around it (%d/4 got there, %d men lost)" % [reached, lost])
+
+
+# ---------------------------------------------------------------- abilities
+
+func _check_shield_wall() -> void:
+	var hurt := [0.0, 0.0]
+	var pace := [0.0, 0.0]
+	for walled in [0, 1]:
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.ARCHERS, "men": 20}], 5)
+		var wall = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+		sim.place(Sim.ENEMY, 2, Vector2(420, 545))
+		sim.start_battle()
+		if walled == 1:
+			sim.use_ability(wall)
+		for i in 240:
+			sim.step()
+		for so in wall.soldiers:
+			hurt[walled] += so.max_hp - (so.hp if so.alive else 0.0)
+		var from: Vector2 = wall.center
+		sim.order_move(wall, from + Vector2(0, 200))
+		for i in 30:
+			sim.step()
+		pace[walled] = wall.center.distance_to(from)
+		sim.dispose()
+	_expect(hurt[1] < hurt[0] * 0.5, "a shield wall takes the sting out of arrows from the front (%.0f damage against %.0f)" % [hurt[1], hurt[0]])
+	_expect(pace[1] < pace[0] * 0.65, "and moves at half pace")
+
+
+func _check_schiltron() -> void:
+	var landed := [false, false]
+	var side := [-1, -1]
+	for ring in [0, 1]:
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.SPEARMEN, "men": 20}],
+			[{"id": 2, "type": Troops.INFANTRY, "men": 20}, {"id": 3, "type": Troops.CAVALRY, "men": 16}], 6)
+		var spears = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+		var foot = sim.place(Sim.ENEMY, 2, Vector2(420, 520))
+		var horse = sim.place(Sim.ENEMY, 3, Vector2(620, 300))
+		sim.start_battle()
+		for s in sim.squads:
+			s.refresh()
+		if ring == 1:
+			sim.use_ability(spears)
+		spears.engaged = true
+		spears.focus = foot
+		var rider = horse.soldiers[0]
+		var victim = spears.soldiers[0]
+		rider.pos = victim.pos + Vector2(0, 30)
+		rider.runup = 200.0
+		side[ring] = sim._side_of(victim, rider.pos, horse)
+		sim._strike(rider, horse, victim, 10.0)
+		for e in sim.events:
+			if e["type"] == "charge":
+				landed[ring] = true
+		sim.dispose()
+	_expect(landed[0] and side[0] == Sim.REAR, "horse charging pinned spearmen from behind lands the charge")
+	_expect(not landed[1] and side[1] == Sim.FRONT, "a schiltron has no rear, and the charge breaks on it")
+
+
+func _check_volley() -> void:
+	var shock := [0.0, 0.0]
+	var quick := 0
+	for v in [0, 1]:
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.ARCHERS, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 8)
+		var bows = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+		var foot = sim.place(Sim.ENEMY, 2, Vector2(420, 545))
+		sim.start_battle()
+		for i in 45:
+			sim.step()
+		var arrows: int = bows.arrows
+		var morale: float = foot.morale
+		var men: int = foot.alive_count()
+		if v == 1:
+			_expect(sim.use_ability(bows) and not sim.ability_ready(bows), "a volley goes off, then has to wait for its cooldown")
+		for i in 15:
+			sim.step()
+		if v == 1:
+			quick = arrows - bows.arrows
+		for i in 45:
+			sim.step()
+		# Morale lost beyond what the dead alone cost.
+		shock[v] = morale - foot.morale - (men - foot.alive_count()) * (100.0 / 20.0 * 0.8 + 2.0)
+		sim.dispose()
+	_expect(quick >= 18, "every bow looses within half a second (%d arrows)" % quick)
+	_expect(shock[1] > shock[0] + 3.0, "and the volley shakes the target's nerve")
+
+
+func _check_wheel() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.CAVALRY, "men": 16}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 9)
+	var horse = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+	var foot = sim.place(Sim.ENEMY, 2, Vector2(420, 520))
+	sim.start_battle()
+	sim.order_attack(horse, foot)
+	while sim.time < 30.0 and horse.engaged_for < 3.0:
+		sim.step()
+	sim.events.clear()
+	var stuck: Vector2 = horse.avg
+	_expect(sim.use_ability(horse) and horse.wheeling, "horse stuck in a melee can wheel away")
+	var far := 0.0
+	var charged := false
+	while sim.time < 60.0 and not charged and horse.is_active():
+		sim.step()
+		far = maxf(far, horse.avg.distance_to(stuck))
+		for e in sim.events:
+			if e["type"] == "charge" and e["squad"] == horse:
+				charged = true
+		sim.events.clear()
+	_expect(far > 90.0 and charged, "they ride clear (%.0f units) and charge the same enemy again" % far)
+	sim.dispose()
+
+
+# ---------------------------------------------------------------- commanders
+
+func _check_commanders() -> void:
+	var moved := {}
+	var horse_early := {}
+	for temp in Commander.TEMPERAMENTS:
+		var sim := Sim.new()
+		sim.setup(_army(4), _army(5), 4)
+		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, temp)
+		sim.ai[Sim.ENEMY].deploy(sim)
+		sim.auto_deploy(Sim.PLAYER)
+		sim.start_battle()
+		moved[temp] = -1.0
+		horse_early[temp] = false
+		var ai = sim.ai[Sim.ENEMY]
+		while sim.time < 25.0:
+			sim.step()
+			for sq in sim.squads:
+				if sq.team != Sim.ENEMY:
+					continue
+				if moved[temp] < 0.0 and sq.type != Troops.CAVALRY and sq.order == "advance":
+					moved[temp] = sim.time
+				if sq.type == Troops.CAVALRY and sq.order != "hold" and ai.contact_at < 0.0:
+					horse_early[temp] = true
+		sim.dispose()
+	_expect(moved[Commander.RECKLESS] > 0.0 and moved[Commander.RECKLESS] < 9.0,
+		"a reckless commander comes straight at you (moved at %.0fs)" % moved[Commander.RECKLESS])
+	_expect(moved[Commander.PATIENT] < 0.0, "a patient one waits for you to come")
+	_expect(moved[Commander.HAMMER] > 0.0 and not horse_early[Commander.HAMMER],
+		"a hammer-and-anvil commander sends its foot first and holds its horse until the lines meet")
 
 
 # ---------------------------------------------------------------- captains
@@ -346,7 +611,7 @@ func _duel(a: String, b: String, seed_value: int, a_holds: bool = false) -> Dict
 	sim.setup([{"id": 1, "type": a, "men": Troops.full_size(a)}], [{"id": 2, "type": b, "men": Troops.full_size(b)}], seed_value)
 	var x := Sim.ARENA.x * 0.5 + sim.rng.randf_range(-40.0, 40.0)
 	sim.place(Sim.PLAYER, 1, Vector2(x, Sim.MID_Y + 280.0))
-	sim.place(Sim.ENEMY, 2, Vector2(Sim.ARENA.x - x, Sim.MID_Y - 280.0))
+	sim.place(Sim.ENEMY, 2, Vector2(x, Sim.MID_Y - 280.0))
 	sim.start_battle()
 	if not a_holds:
 		sim.order_all(Sim.PLAYER, "advance")
@@ -365,21 +630,7 @@ func _duel(a: String, b: String, seed_value: int, a_holds: bool = false) -> Dict
 # ---------------------------------------------------------------- full battles
 
 func _army(seed_value: int) -> Array:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = seed_value * 7919
-	var out := []
-	var id := 1
-	for type in [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.SPEARMEN, Troops.ARCHERS, Troops.ARCHERS, Troops.CAVALRY]:
-		out.append({"id": id, "type": type, "men": Troops.full_size(type), "xp": 0,
-			"captain": Captains.make(rng, seed_value * 100 + id, type)})
-		id += 1
-	# shuffle so roster order differs between seeds
-	for i in range(out.size() - 1, 0, -1):
-		var j := rng.randi_range(0, i)
-		var tmp = out[i]
-		out[i] = out[j]
-		out[j] = tmp
-	return out
+	return Plans.army(seed_value)
 
 
 func _ai_battle(player_army: Array, enemy_army: Array, seed_value: int) -> Sim:
@@ -394,21 +645,26 @@ func _ai_battle(player_army: Array, enemy_army: Array, seed_value: int) -> Sim:
 	return sim
 
 
-## A player who lines up with Auto-place and gives one order for the whole battle,
-## against the computer's commander. Returns the winner.
-func _plain_battle(plan: String, seed_value: int) -> int:
-	var sim := Sim.new()
-	sim.setup(_army(seed_value), _army(seed_value + 1000), seed_value)
-	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
-	sim.ai[Sim.ENEMY].deploy(sim)
-	sim.auto_deploy(Sim.PLAYER)
-	sim.start_battle()
-	sim.order_all(Sim.PLAYER, plan)
-	while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
-		sim.step()
-	var winner := sim.winner
-	sim.dispose()
-	return winner
+## Every scripted plan against every kind of commander, and the targets that say skill
+## pays off: a player who only ever presses Advance all should win about half the time,
+## one who uses the tools far more often.
+func _check_balance() -> void:
+	print("Plans against each kind of commander (%d seeds each):" % BALANCE_SEEDS)
+	var rates := {}
+	for plan in Plans.PLANS:
+		var line := "  %-9s" % plan
+		var won := 0
+		for temp in Commander.TEMPERAMENTS:
+			var w := 0
+			for s in range(1, BALANCE_SEEDS + 1):
+				if Plans.battle(plan, temp, s)["winner"] == Sim.PLAYER:
+					w += 1
+			won += w
+			line += "  %s %2d/%d" % [temp, w, BALANCE_SEEDS]
+		rates[plan] = float(won) / (BALANCE_SEEDS * Commander.TEMPERAMENTS.size())
+		print("%s   %3.0f%%" % [line, rates[plan] * 100.0])
+	_expect(rates["advance"] <= 0.55, "pressing Advance all and nothing else wins about half the time at most (%.0f%%)" % (rates["advance"] * 100.0))
+	_expect(rates["tactician"] >= 0.7, "a player who uses the tools wins at least 70%% of the time (%.0f%%)" % (rates["tactician"] * 100.0))
 
 
 func _full_battle(seed_value: int) -> Dictionary:

@@ -69,6 +69,29 @@ const SIDEARM := {"damage": 7.0, "reach": 12.0, "cooldown": 1.2}
 ## land in full.
 const MELEE_MISS := 0.65
 
+## Each troop type has one ability, used from the squad's ability button. `seconds` is
+## how long it lasts (0 for an instant one); `cooldown` is the wait before it can be used
+## again, counted from when it was used.
+const ABILITIES := {
+	INFANTRY: {"name": "Shield wall", "seconds": 15.0, "cooldown": 30.0,
+		"blurb": "Shields locked. Arrows and blows from the front barely land, but they move at half pace."},
+	SPEARMEN: {"name": "Schiltron", "seconds": 15.0, "cooldown": 35.0,
+		"blurb": "A ring of spears with no flank or rear to hit, and no charge lands. They stand fast."},
+	ARCHERS: {"name": "Volley", "seconds": 0.0, "cooldown": 20.0,
+		"blurb": "Every bow looses at once into one squad, harder, and shakes its nerve."},
+	CAVALRY: {"name": "Wheel", "seconds": 0.0, "cooldown": 15.0,
+		"blurb": "Break off, ride clear, and charge the same enemy again."},
+}
+## Shield wall: what's left of arrow and melee damage from the front, and the pace.
+const SHIELD_WALL_ARROWS := 0.35
+const SHIELD_WALL_MELEE := 0.75
+const SHIELD_WALL_SPEED := 0.5
+## Volley: extra damage per arrow, and morale the target loses in all if every man is hit.
+const VOLLEY_POWER := 1.3
+const VOLLEY_SHOCK := 8.0
+## Wheel: how far the horse rides clear before turning to charge again.
+const WHEEL_DISTANCE := 160.0
+
 ## Veterancy: experience is kills carried over between battles.
 const XP_PER_LEVEL := 20
 const MAX_LEVEL := 3
@@ -84,6 +107,10 @@ static func full_size(type: String) -> int:
 
 static func display_name(type: String) -> String:
 	return String(TYPES[type]["name"])
+
+
+static func ability(type: String) -> Dictionary:
+	return ABILITIES[type]
 
 
 static func level_for(xp: int) -> int:

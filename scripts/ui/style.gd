@@ -20,6 +20,42 @@ const ENEMY_LIGHT := Color("ffb7ae")
 const FIELD_A := Color("4d7a37")
 const FIELD_B := Color("548341")
 
+## Morale, from steady to breaking.
+const MORALE_HIGH := Color("6fcf5a")
+const MORALE_MID := Color("e8c547")
+const MORALE_LOW := Color("e2553f")
+
+## Type sizes, in viewport units (720 wide, so one unit is about 0.55 pt on a phone).
+## Nothing a player needs to read goes below SMALL, about 12 pt.
+const SMALL := 22
+const BODY := 26
+const LARGE := 30
+
+## Touch targets: a button is never shorter than this, about 44 pt.
+const TOUCH := 80.0
+
+
+## The phone's safe area, as insets in viewport units: {top, bottom}. Zero on desktop,
+## where the window isn't under a notch or a home indicator.
+static func safe_insets(vp: Viewport) -> Dictionary:
+	var out := {"top": 0.0, "bottom": 0.0}
+	if not OS.has_feature("mobile"):
+		return out
+	var win := Vector2(DisplayServer.window_get_size())
+	if win.x <= 0.0 or win.y <= 0.0:
+		return out
+	var safe := DisplayServer.get_display_safe_area()
+	var scale := vp.get_visible_rect().size.y / win.y
+	out["top"] = maxf(0.0, float(safe.position.y)) * scale
+	out["bottom"] = maxf(0.0, win.y - float(safe.end.y)) * scale
+	return out
+
+
+static func morale_color(morale: float) -> Color:
+	if morale > 60.0:
+		return MORALE_HIGH
+	return MORALE_MID if morale > 42.0 else MORALE_LOW
+
 
 static func box(bg: Color, border: Color = Color(0, 0, 0, 0), border_width: int = 0, radius: int = 10) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
@@ -36,7 +72,7 @@ static func box(bg: Color, border: Color = Color(0, 0, 0, 0), border_width: int 
 
 static func make_theme() -> Theme:
 	var t := Theme.new()
-	t.default_font_size = 22
+	t.default_font_size = BODY
 	t.set_color("font_color", "Label", TEXT)
 
 	t.set_stylebox("normal", "Button", box(RAISED, RULE, 2))

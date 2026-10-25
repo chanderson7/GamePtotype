@@ -1,13 +1,15 @@
 ## The battle screen: draws the simulation, turns taps into placements and orders,
 ## and runs the HUD. All rules live in battle_sim.gd.
 ##
-## Deployment: every squad in the warband is a card. Tap a card, then tap the blue zone
-## to place it; tap a placed squad, then somewhere else to move it. Auto-place lines up
-## whatever is left. Fight starts the battle once every squad is on the field.
+## Deployment: every squad in the warband is a card in the tray. Tap a card, then tap
+## the blue zone to place it; tap a placed squad, then somewhere else to move it.
+## Auto-place lines up whatever is left. Fight starts the battle once every squad is on
+## the field.
 ##
 ## Battle: squads hold their ground until ordered. Advance and Hold command the whole
-## army, or only the selected squad. With a squad selected, tap an enemy squad to attack
-## it, or open ground to march there and hold.
+## army, or only the selected squad. Select a squad by tapping its card, its standard or
+## its men; then tap an enemy squad to attack it, open ground to march there, or its
+## ability button. The camera follows the fighting.
 extends Node2D
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
@@ -16,50 +18,91 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
-## When one of your captains goes down the battle slows to this pace for a moment.
-const SLOWMO_PACE := 0.25
-const SLOWMO_SECONDS := 1.4
 
-const TOP_BAR := 76.0
-const BOTTOM_PANEL := 256.0
-const CARD_COLUMNS := 5
+const TOP_BAR := 96.0
+const CHIP_H := 84.0
+const CHIP_GAP := 8.0
+const MAX_CHIPS_PER_ROW := 8
 const ORDER_WORDS := {"hold": "holding", "advance": "advancing", "attack": "attacking", "move": "marching"}
+
+## The camera frames every squad still fighting, with this much room around them, and
+## zooms in up to MAX_ZOOM over the whole-field view.
+const CAMERA_MARGIN := 110.0
+const MAX_ZOOM := 1.8
+const CAMERA_EASE := 1.6
+## Standards: pole length, flag size, in screen units.
+const POLE := 46.0
+const FLAG := Vector2(34.0, 26.0)
+## A tap this close (screen units) to a standard selects its squad.
+const STANDARD_TAP := 30.0
+## The death roll: the battle slows to ROLL_PACE while it plays out over ROLL_TIME seconds.
+const ROLL_TIME := 4.2
+const ROLL_PACE := 0.12
+## A cavalry charge freezes the battle this long when it lands on or by your men.
+const HITSTOP := 0.06
 
 var sim: Sim
 var field_origin := Vector2.ZERO
 var field_scale := 1.0
 ## Deployment: the roster id of the squad the next tap on the field puts down, or -1.
 var selected_id := -1
-## Battle: the squad Advance and Hold apply to. null means the whole army.
+## Battle: the squad Advance, Hold and the ability button apply to. null means the
+## whole army.
 var selected_squad = null
 var speed := 1.0
+var paused := false
 var autoplay := false
-var floaters: Array = []
-var _slowmo := 0.0
 var font: Font
 
+var floaters: Array = []
+var ticker: Array = []
+var _view := Rect2()
+var _fit_scale := 1.0
+var cam_zoom := 1.0
+var cam_center := Sim.ARENA * 0.5
+var _insets := {"top": 0.0, "bottom": 0.0}
+var _clock := 0.0
+var _hitstop := 0.0
+var _shake := 0.0
+var _shake_offset := Vector2.ZERO
+## When each squad broke (for the toppling standard), last charged (to space out
+## callouts) and was last ordered (for the standard's dip).
+var _broke_at := {}
+var _charged_at := {}
+var _ordered_at := {}
+var _std_x := {}
+var _std_tops := {}
+## The death roll on screen, and any waiting their turn.
+var _roll := {}
+var _roll_queue: Array = []
+
 var _cards: Array = []
-var _card_styles := {}
 var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
 var _pending_result := {}
 var _retreat_armed := 0.0
 
+var top_panel: PanelContainer
+var bottom_panel: PanelContainer
+var menu_button: Button
 var title_label: Label
 var status_label: Label
+var power_bar: Control
+var speed_button: Button
+var tray: GridContainer
+var chip_buttons: Array = []
+var info_label: Label
 var auto_button: Button
 var fight_button: Button
-var retreat_button: Button
-var deploy_box: GridContainer
-var card_buttons: Array = []
-var battle_box: VBoxContainer
-var orders_label: Label
-var strength_label: Label
 var advance_button: Button
 var hold_button: Button
-var army_button: Button
+var ability_button: Button
 var hint_label: Label
+var roll_layer: Control
+var pause_panel: PanelContainer
+var pause_note: Label
+var retreat_button: Button
 var result_panel: PanelContainer
 var result_title: Label
 var result_body: Label
@@ -96,19 +139,96 @@ func _exit_tree() -> void:
 		sim.dispose()
 
 
+func _notification(what: int) -> void:
+	# A phone call or a swipe home pauses the battle.
+	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		if sim != null and sim.phase == Sim.PHASE_BATTLE and sim.winner == -1 and not autoplay:
+			_set_paused(true)
+
+
 func _layout() -> void:
 	var vs := get_viewport_rect().size
-	var avail := Vector2(vs.x - 16.0, vs.y - TOP_BAR - BOTTOM_PANEL - 16.0)
-	field_scale = maxf(0.1, minf(avail.x / Sim.ARENA.x, avail.y / Sim.ARENA.y))
-	var drawn := Sim.ARENA * field_scale
-	field_origin = Vector2((vs.x - drawn.x) * 0.5, TOP_BAR + 8.0 + (avail.y - drawn.y) * 0.5)
+	_insets = Style.safe_insets(get_viewport())
+	var top_h: float = TOP_BAR + _insets["top"]
+	var bottom_h: float = _bottom_height() + _insets["bottom"]
+	if top_panel != null:
+		top_panel.add_theme_stylebox_override("panel", _bar_box(true))
+		bottom_panel.add_theme_stylebox_override("panel", _bar_box(false))
+		top_panel.offset_bottom = top_h
+		bottom_panel.offset_top = -bottom_h
+	_view = Rect2(Vector2(8.0, top_h + 8.0), Vector2(vs.x - 16.0, vs.y - top_h - bottom_h - 16.0))
+	_fit_scale = maxf(0.1, minf(_view.size.x / Sim.ARENA.x, _view.size.y / Sim.ARENA.y))
+	_apply_camera()
 	queue_redraw()
 
 
+func _bottom_height() -> float:
+	var rows := _tray_rows()
+	return 14.0 + rows * CHIP_H + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + Style.TOUCH + 8.0 + 64.0 + 14.0
+
+
+func _tray_rows() -> int:
+	return 1 if _cards.size() <= MAX_CHIPS_PER_ROW else 2
+
+
+# ---------------------------------------------------------------- camera
+
+func _apply_camera() -> void:
+	field_scale = _fit_scale * cam_zoom
+	var half := _view.size / field_scale * 0.5
+	var c := cam_center
+	c.x = clampf(c.x, half.x, Sim.ARENA.x - half.x) if half.x * 2.0 < Sim.ARENA.x else Sim.ARENA.x * 0.5
+	c.y = clampf(c.y, half.y, Sim.ARENA.y - half.y) if half.y * 2.0 < Sim.ARENA.y else Sim.ARENA.y * 0.5
+	cam_center = c
+	field_origin = _view.get_center() - c * field_scale + _shake_offset
+
+
+## The whole field while deploying; once the battle is on, every squad still fighting.
+func _update_camera(delta: float) -> void:
+	var want_zoom := 1.0
+	var want_center := Sim.ARENA * 0.5
+	if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
+		var box := Rect2()
+		var first := true
+		for sq in sim.squads:
+			if not sq.is_active():
+				continue
+			var half: Vector2 = Vector2.ONE * (sq.extent + CAMERA_MARGIN)
+			var r := Rect2(sq.avg - half, half * 2.0)
+			box = r if first else box.merge(r)
+			first = false
+		if not first:
+			want_center = box.get_center()
+			want_zoom = clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0, MAX_ZOOM)
+	var k := 1.0 - exp(-delta * CAMERA_EASE)
+	cam_zoom = lerpf(cam_zoom, want_zoom, k)
+	cam_center = cam_center.lerp(want_center, k)
+	_shake = maxf(0.0, _shake - delta * 30.0)
+	_shake_offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake if _shake > 0.0 else Vector2.ZERO
+	_apply_camera()
+
+
+func _to_screen(p: Vector2) -> Vector2:
+	return field_origin + p * field_scale
+
+
+func _to_field(p: Vector2) -> Vector2:
+	return (p - field_origin) / field_scale
+
+
+# ---------------------------------------------------------------- frame
+
 func _process(delta: float) -> void:
-	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE:
-		var pace := SLOWMO_PACE if _slowmo > 0.0 else 1.0
-		_slowmo = maxf(0.0, _slowmo - delta)
+	_clock += delta
+	if not _roll.is_empty():
+		_roll["t"] = float(_roll["t"]) + delta
+		if float(_roll["t"]) >= ROLL_TIME:
+			_next_roll()
+	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused:
+		var pace := ROLL_PACE if not _roll.is_empty() else 1.0
+		if _hitstop > 0.0:
+			_hitstop -= delta
+			pace = 0.0
 		_accumulator += minf(delta, 0.1) * speed * pace
 		var steps := 0
 		while _accumulator >= Sim.STEP and steps < 16:
@@ -118,12 +238,17 @@ func _process(delta: float) -> void:
 		_consume_events()
 		if selected_squad != null and not selected_squad.is_active():
 			selected_squad = null
-	elif sim.winner != -1 and not _result_shown:
+	elif sim.winner != -1 and not _result_shown and _roll.is_empty():
 		_consume_events()
-		_show_result()
+		if _roll.is_empty():
+			_show_result()
+	_update_camera(delta)
 	for f in floaters:
 		f["age"] += delta
 	floaters = floaters.filter(func(f): return f["age"] < f["life"])
+	for t in ticker:
+		t["age"] += delta
+	ticker = ticker.filter(func(t): return t["age"] < t["life"])
 	_refresh_hud()
 	queue_redraw()
 
@@ -134,28 +259,46 @@ func _unhandled_input(event: InputEvent) -> void:
 	var mb := event as InputEventMouseButton
 	if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
 		return
-	if sim.winner != -1:
+	if not _roll.is_empty():
+		get_viewport().set_input_as_handled()
+		_next_roll()
 		return
-	var p := (mb.position - field_origin) / field_scale
-	if p.x < 0.0 or p.y < 0.0 or p.x > Sim.ARENA.x or p.y > Sim.ARENA.y:
+	if sim.winner != -1 or paused:
+		return
+	if not _view.has_point(mb.position):
 		return
 	get_viewport().set_input_as_handled()
+	var tapped = _standard_at(mb.position)
+	var p := _to_field(mb.position)
 	if sim.phase == Sim.PHASE_DEPLOY:
-		_tap_deploy(p)
+		_tap_deploy(p, tapped)
 	else:
-		_tap_battle(p)
+		_tap_battle(p, tapped)
 
 
-func _tap_deploy(p: Vector2) -> void:
-	var mine = sim.squad_at(Sim.PLAYER, p)
+## The squad whose standard is under a tap, or null.
+func _standard_at(at: Vector2):
+	var best = null
+	var best_d := STANDARD_TAP
+	for sq in _std_tops:
+		var top: Vector2 = _std_tops[sq]
+		var d := at.distance_to(top + FLAG * 0.5)
+		if d < best_d:
+			best_d = d
+			best = sq
+	return best
+
+
+func _tap_deploy(p: Vector2, tapped) -> void:
+	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
 	if mine != null:
 		if mine.roster_id == selected_id:
 			_select_next_card() # tapping the picked-up squad again leaves it where it is
 		else:
 			selected_id = mine.roster_id
-			_hint("Tap where you want your %s to stand." % _name(mine.type).to_lower())
+			_hint("Tap where you want %s to stand." % _company_or_type(mine))
 		return
-	var foe = sim.squad_at(Sim.ENEMY, p, 52.0)
+	var foe = tapped if tapped != null and tapped.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
 	if foe != null:
 		_hint(_describe(foe))
 		return
@@ -180,37 +323,56 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_hint("Tap the blue zone to place your %s (%d men)." % [_name(e["type"]).to_lower(), e["men"]])
+			_hint("Tap the blue zone to place %s, %d %s." % [_card_name(e), e["men"], _name(e["type"]).to_lower()])
 			return
 	_hint("Your whole army is on the field. Tap a squad to move it, then press Fight.")
 
 
-func _tap_battle(p: Vector2) -> void:
-	var mine = sim.squad_at(Sim.PLAYER, p)
+func _tap_battle(p: Vector2, tapped) -> void:
+	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
 	if mine != null and mine.is_active():
-		selected_squad = null if mine == selected_squad else mine
-		if selected_squad != null:
-			_hint("%s Orders now go to this squad only: tap an enemy squad to attack it, or open ground to march there." % _led_by(mine))
-		else:
-			_hint("Orders go to the whole army.")
+		_select(null if mine == selected_squad else mine)
 		return
-	var foe = sim.squad_at(Sim.ENEMY, p, 52.0)
+	var foe = tapped if tapped != null and tapped.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
 	if selected_squad == null:
 		if foe != null:
 			_hint(_describe(foe))
+		else:
+			_hint("Tap a card or a standard to command one squad.")
 		return
 	if foe != null and foe.is_active():
 		sim.order_attack(selected_squad, foe)
-		_hint("Your %s attack the enemy %s." % [_name(selected_squad.type).to_lower(), _name(foe.type).to_lower()])
+		_ordered_at[selected_squad] = _clock
+		_hint("%s attack the enemy %s." % [_company_or_type(selected_squad), _name(foe.type).to_lower()])
 	else:
 		sim.order_move(selected_squad, p)
-		_hint("Your %s march there and hold." % _name(selected_squad.type).to_lower())
+		_ordered_at[selected_squad] = _clock
+		_hint("%s march there and hold." % _company_or_type(selected_squad))
 
 
-func _on_card(index: int) -> void:
-	if sim.winner != -1 or sim.phase != Sim.PHASE_DEPLOY:
+func _select(sq) -> void:
+	selected_squad = sq
+	if sq == null:
+		_hint("Orders go to the whole army.")
+		return
+	var ab := Troops.ability(sq.type)
+	var who := _company_or_type(sq)
+	if not sq.info.is_empty():
+		who += ", led by %s (%s)" % [sq.info["first"], Captains.traits(sq.info)]
+	_hint("%s. %s: %s" % [who, ab["name"], ab["blurb"]])
+
+
+func _on_chip(index: int) -> void:
+	if sim.winner != -1:
 		return
 	var e: Dictionary = _cards[index]
+	if sim.phase == Sim.PHASE_BATTLE:
+		var sq = sim.placed_squad(Sim.PLAYER, e["roster_id"])
+		if sq == null or not sq.is_active():
+			_hint("%s are out of the fight." % _card_name(e))
+			return
+		_select(null if sq == selected_squad else sq)
+		return
 	if selected_id == e["roster_id"]:
 		selected_id = -1
 		_hint("Tap a card to place or move that squad.")
@@ -243,7 +405,7 @@ func _start_battle() -> void:
 	sim.start_battle()
 	selected_id = -1
 	selected_squad = null
-	_hint("Your squads hold their ground until ordered. Advance to attack, or Hold and let them come to you.")
+	_hint("Your squads hold, braced, until ordered. A braced line wins the first clash. Tap a card or a standard to command one squad.")
 
 
 func _on_advance() -> void:
@@ -251,9 +413,13 @@ func _on_advance() -> void:
 		return
 	if selected_squad != null:
 		sim.order_advance(selected_squad)
-		_hint("Your %s advance on the enemy they fight best." % _name(selected_squad.type).to_lower())
+		_ordered_at[selected_squad] = _clock
+		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad))
 	else:
 		sim.order_all(Sim.PLAYER, "advance")
+		for sq in sim.squads:
+			if sq.team == Sim.PLAYER:
+				_ordered_at[sq] = _clock
 		_hint("The whole army advances. Each squad goes for the enemy it fights best.")
 
 
@@ -262,15 +428,44 @@ func _on_hold() -> void:
 		return
 	if selected_squad != null:
 		sim.order_hold(selected_squad)
-		_hint("Your %s hold where they stand." % _name(selected_squad.type).to_lower())
+		_ordered_at[selected_squad] = _clock
+		_hint("%s hold where they stand, and brace." % _company_or_type(selected_squad))
 	else:
 		sim.order_all(Sim.PLAYER, "hold")
-		_hint("The whole army holds. Squads fight anyone who comes close.")
+		for sq in sim.squads:
+			if sq.team == Sim.PLAYER:
+				_ordered_at[sq] = _clock
+		_hint("The whole army holds and braces. Squads fight anyone who comes close.")
 
 
-func _on_army() -> void:
-	selected_squad = null
-	_hint("Orders go to the whole army.")
+func _on_ability() -> void:
+	var sq = selected_squad
+	if sq == null or sim.winner != -1:
+		return
+	var ab := Troops.ability(sq.type)
+	if sim.use_ability(sq):
+		_hint("%s: %s" % [ab["name"], ab["blurb"]])
+	elif sq.ability_cd > 0.0:
+		_hint("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
+	elif sq.type == Troops.ARCHERS:
+		_hint("No enemy in bow range." if sq.arrows > 0 else "Out of arrows.")
+
+
+func _on_menu() -> void:
+	if sim.winner != -1:
+		return
+	_set_paused(not paused)
+
+
+func _set_paused(on: bool) -> void:
+	paused = on and sim.winner == -1
+	pause_panel.visible = paused
+	retreat_button.text = "Retreat"
+	_retreat_armed = 0.0
+
+
+func _on_speed() -> void:
+	speed = 2.0 if speed < 1.5 else 1.0
 
 
 func _on_retreat() -> void:
@@ -278,22 +473,19 @@ func _on_retreat() -> void:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
 	if now < _retreat_armed:
+		_set_paused(false)
 		sim.concede(Sim.PLAYER)
 		return
 	_retreat_armed = now + 3.0
-	retreat_button.text = "Sure?"
-	get_tree().create_timer(3.0).timeout.connect(_reset_retreat_label)
-
-
-func _reset_retreat_label() -> void:
-	if is_instance_valid(retreat_button):
-		retreat_button.text = "Retreat"
+	retreat_button.text = "Tap again to retreat"
 
 
 func _hint(text: String) -> void:
 	if hint_label != null:
 		hint_label.text = text
 
+
+# ---------------------------------------------------------------- words
 
 func _name(type: String) -> String:
 	return Troops.display_name(type)
@@ -302,7 +494,7 @@ func _name(type: String) -> String:
 ## "Brann's Shields, led by Brann of Ostmark (Vengeful, Lucky). Bonds: Mira (B)."
 func _led_by(sq) -> String:
 	if sq.info.is_empty():
-		return "%s, without a captain." % (_company(sq.roster_id) if sq.team == Sim.PLAYER else _name(sq.type))
+		return "%s, without a captain." % _company_or_type(sq)
 	var who := "%s, led by %s (%s)" % [_company(sq.roster_id), sq.info["name"], Captains.traits(sq.info)]
 	if sq.captain == null:
 		who = "%s. %s is down" % [_company(sq.roster_id), sq.info["name"]]
@@ -317,6 +509,11 @@ func _card_story(e: Dictionary) -> String:
 	if int(c.get("wounded", 0)) > 0:
 		return "%s is wounded and sits this one out (%d more). %s fight without a captain." % [c["name"], c["wounded"], squad["name"]]
 	return "%s, led by %s (%s)%s." % [squad["name"], c["name"], Captains.traits(c), _bond_text(c)]
+
+
+func _card_name(e: Dictionary) -> String:
+	var name := String(_squad_record(e["roster_id"]).get("name", ""))
+	return name if name != "" else "your " + _name(e["type"]).to_lower()
 
 
 func _bond_text(c: Dictionary) -> String:
@@ -340,6 +537,15 @@ func _company(roster_id: int) -> String:
 	return String(_squad_record(roster_id).get("name", ""))
 
 
+func _company_or_type(sq) -> String:
+	if sq.team == Sim.PLAYER:
+		var name := _company(sq.roster_id)
+		if name != "":
+			return name
+		return "Your " + _name(sq.type).to_lower()
+	return "The enemy " + _name(sq.type).to_lower()
+
+
 func _describe(sq) -> String:
 	var text := "Enemy %s · %d men" % [_name(sq.type).to_lower(), sq.alive_count()]
 	if not sq.info.is_empty():
@@ -355,48 +561,94 @@ func _describe(sq) -> String:
 	return "%s. %s" % [text, Troops.stats(sq.type)["blurb"]]
 
 
-# ---------------------------------------------------------------- results
+func _scouting() -> String:
+	var ai = sim.ai[Sim.ENEMY]
+	return String(Commander.SCOUTING.get(ai.temperament, "")) if ai != null else ""
+
+
+# ---------------------------------------------------------------- events
 
 func _consume_events() -> void:
 	for e in sim.events:
 		match e["type"]:
 			"rout":
 				var sq = e["squad"]
+				_broke_at[sq] = _clock
 				var mine: bool = sq.team == Sim.PLAYER
-				_float_text("ROUTED", sq.average_pos() + Vector2(0, -56), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT)
+				_float_text("BROKEN", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT, 1.6)
 				if mine:
-					_hint("One of your squads broke and is running for the edge. Men who escape live to fight again.")
+					_tick("%s broke and run for the edge." % _company_or_type(sq), Style.ENEMY_LIGHT)
+				else:
+					_tick("Their %s break and run." % _name(sq.type).to_lower(), Style.PLAYER_LIGHT)
 			"charge":
-				_float_text("CHARGE", e["pos"], Style.BRASS)
+				var sq = e["squad"]
+				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
+					_charged_at[sq] = _clock
+					_float_text("CHARGE!", e["pos"], Style.BRASS)
+					if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
+						_shake = maxf(_shake, 5.0)
+						_hitstop = HITSTOP
+						if e["victim"].team == Sim.PLAYER:
+							Input.vibrate_handheld(30)
 			"out_of_arrows":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
-				_float_text("OUT OF ARROWS", sq.average_pos() + Vector2(0, -56), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+				_float_text("OUT OF ARROWS", sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
 				if mine:
 					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.")
 			"captain_down":
 				_captain_down(e)
 			"grief":
 				_grief(e)
+			"ability":
+				var sq = e["squad"]
+				var mine: bool = sq.team == Sim.PLAYER
+				_float_text(String(e["name"]).to_upper(), sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+				if not mine:
+					_tick("Their %s: %s." % [_name(sq.type).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
+			"braced":
+				var sq = e["squad"]
+				_float_text("BRACED", sq.average_pos() + Vector2(0, -50), Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
+			"flanked":
+				var sq = e["squad"]
+				var where := "REAR!" if e["rear"] else "FLANK!"
+				_float_text(where, e["pos"], Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
+				if sq.team == Sim.PLAYER and e["rear"]:
+					_tick("%s are hit from behind!" % _company_or_type(sq), Style.ENEMY_LIGHT)
 	sim.events.clear()
 
 
 func _captain_down(e: Dictionary) -> void:
 	var sq = e["squad"]
 	var info: Dictionary = sq.info
-	var first := String(info.get("first", "Captain")).to_upper()
 	if sq.team != Sim.PLAYER:
-		_float_text("%s CUT DOWN" % first, e["pos"], Style.PLAYER_LIGHT, 2.2)
-		_hint("You cut down %s, captain of the enemy %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type).to_lower()])
+		_float_text("%s CUT DOWN" % String(info.get("first", "Captain")).to_upper(), e["pos"], Style.PLAYER_LIGHT, 2.2)
+		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type).to_lower()], Style.PLAYER_LIGHT)
 		return
-	_slowmo = SLOWMO_SECONDS
-	var killed: bool = e["fate"] == "killed"
-	_float_text("%s FALLS" % first if killed else "%s WOUNDED" % first, e["pos"], Style.ENEMY_LIGHT if killed else Style.BRASS, 3.0)
-	if killed:
-		_hint("\"%s\" %s is dead. Death roll %d; needed %d or more to live." % [sq.last_words, info["name"], e["roll"], e["needed"]])
+	_shake = maxf(_shake, 9.0)
+	Input.vibrate_handheld(120)
+	var roll := {
+		"t": 0.0, "name": String(info.get("name", "")), "company": _company(sq.roster_id),
+		"roll": int(e["roll"]), "needed": int(e["needed"]), "fate": String(e["fate"]),
+		"words": String(sq.last_words), "holding": bool(e.get("holding", false)),
+		"friends": bool(e.get("friends", false)), "lucky": bool(e.get("lucky", false)),
+	}
+	if _roll.is_empty():
+		_roll = roll
 	else:
-		_hint("\"%s\" %s is down but alive. Death roll %d; needed %d or more. Out for %d battles." % [
-			sq.last_words, info["name"], e["roll"], e["needed"], Captains.WOUND_BATTLES])
+		_roll_queue.append(roll)
+
+
+## The roll on screen is done (or skipped): its outcome goes to the hint line, and the
+## next captain's roll, if any, takes its place.
+func _next_roll() -> void:
+	if not _roll.is_empty():
+		if _roll["fate"] == "killed":
+			_hint("\"%s\" %s is dead. Death roll %d; needed %d or more to live." % [_roll["words"], _roll["name"], _roll["roll"], _roll["needed"]])
+		else:
+			_hint("\"%s\" %s is down but alive. Death roll %d; needed %d or more. Out for %d battles." % [
+				_roll["words"], _roll["name"], _roll["roll"], _roll["needed"], Captains.WOUND_BATTLES])
+	_roll = {} if _roll_queue.is_empty() else _roll_queue.pop_front()
 
 
 func _grief(e: Dictionary) -> void:
@@ -407,25 +659,51 @@ func _grief(e: Dictionary) -> void:
 	var lost := String(e["for"].info.get("first", ""))
 	match String(e["temperament"]):
 		Captains.VENGEFUL:
-			_float_text("FURY", sq.average_pos() + Vector2(0, -56), Style.ENEMY_LIGHT, 2.0)
-			_hint("%s saw %s fall and is consumed by fury: harder blows, and no retreat for %d seconds." % [who, lost, int(Captains.FURY_SECONDS)])
+			_float_text("FURY", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT, 2.0)
+			_tick("%s saw %s fall: fury, harder blows and no retreat for %d seconds." % [who, lost, int(Captains.FURY_SECONDS)], Style.BRASS)
 		Captains.STEADFAST:
-			_float_text("STEADY", sq.average_pos() + Vector2(0, -56), Style.BRASS, 2.0)
-			_hint("%s saw %s fall, and steadies the line." % [who, lost])
+			_float_text("STEADY", sq.average_pos() + Vector2(0, -50), Style.BRASS, 2.0)
+			_tick("%s saw %s fall, and steadies the line." % [who, lost], Style.BRASS)
 		Captains.FRAGILE:
-			_float_text("SHAKEN", sq.average_pos() + Vector2(0, -56), Style.MUTED, 2.0)
-			_hint("%s saw %s fall and is shaken. Their squad's nerve is slipping." % [who, lost])
+			_float_text("SHAKEN", sq.average_pos() + Vector2(0, -50), Style.MUTED, 2.0)
+			_tick("%s saw %s fall and is shaken. Their squad's nerve is slipping." % [who, lost], Style.ENEMY_LIGHT)
 
 
+## A callout over the field. Callouts that would land on one another stack upward.
 func _float_text(text: String, at: Vector2, color: Color, life: float = 1.3) -> void:
 	for f in floaters:
 		if f["text"] == text and at.distance_to(f["pos"]) < 70.0 and f["age"] < 0.6:
 			return
-	floaters.append({"text": text, "pos": at, "color": color, "age": 0.0, "life": life})
+	var pos := at
+	for i in 6:
+		var clear := true
+		for f in floaters:
+			var fp: Vector2 = f["pos"]
+			if f["age"] < 1.0 and absf(fp.x - pos.x) < 150.0 and absf(fp.y - pos.y) < 30.0:
+				clear = false
+				break
+		if clear:
+			break
+		pos.y -= 32.0
+	floaters.append({"text": text, "pos": pos, "color": color, "age": 0.0, "life": life})
 
+
+## A line in the ticker along the top of the field, for what's happening in the story.
+func _tick(text: String, color: Color) -> void:
+	for t in ticker:
+		if t["text"] == text:
+			return
+	ticker.append({"text": text, "color": color, "age": 0.0, "life": 4.5})
+	if ticker.size() > 3:
+		ticker.pop_front()
+
+
+# ---------------------------------------------------------------- results
 
 func _show_result() -> void:
 	_result_shown = true
+	paused = false
+	pause_panel.visible = false
 	selected_id = -1
 	selected_squad = null
 	_pending_result = sim.result_for(Sim.PLAYER)
@@ -468,119 +746,148 @@ func _build_hud() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.theme = Style.make_theme()
 	layer.add_child(hud)
-	_card_styles = {
-		"normal": _card_box(Style.RAISED, Style.RULE, 2),
-		"hover": _card_box(Style.RAISED.lightened(0.06), Style.MUTED, 2),
-		"selected": _card_box(Style.RAISED.lightened(0.12), Style.BRASS, 3),
-		"placed": _card_box(Style.PANEL, Style.PLAYER_DARK, 2),
-	}
 
-	var top := PanelContainer.new()
-	top.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Color(0, 0, 0, 0), 0, 0))
-	top.anchor_right = 1.0
-	top.offset_bottom = TOP_BAR
-	hud.add_child(top)
+	# Top bar: the menu, then deployment progress or the battle's balance of strength.
+	top_panel = PanelContainer.new()
+	top_panel.add_theme_stylebox_override("panel", _bar_box(true))
+	top_panel.anchor_right = 1.0
+	top_panel.offset_bottom = TOP_BAR
+	hud.add_child(top_panel)
 	var top_row := HBoxContainer.new()
-	top_row.add_theme_constant_override("separation", 10)
-	top.add_child(top_row)
-	title_label = Style.label("Deploy", 24, Style.BRASS)
+	top_row.add_theme_constant_override("separation", 12)
+	top_panel.add_child(top_row)
+	menu_button = _button("II", Vector2(Style.TOUCH + 16.0, Style.TOUCH), _on_menu)
+	menu_button.add_theme_font_size_override("font_size", Style.SMALL)
+	top_row.add_child(menu_button)
+	title_label = Style.label("Deploy", Style.LARGE, Style.BRASS)
+	title_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top_row.add_child(title_label)
-	status_label = Style.label("", 22)
+	status_label = Style.label("", Style.BODY)
 	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	top_row.add_child(status_label)
-	strength_label = Style.label("", 20, Style.MUTED)
-	top_row.add_child(strength_label)
-	auto_button = _button("Auto-place", Vector2(140, 56), _on_auto)
-	top_row.add_child(auto_button)
-	fight_button = _button("Fight", Vector2(120, 56), _on_fight)
-	Style.make_primary(fight_button)
-	top_row.add_child(fight_button)
-	retreat_button = _button("Retreat", Vector2(110, 56), _on_retreat)
-	top_row.add_child(retreat_button)
+	power_bar = Control.new()
+	power_bar.custom_minimum_size = Vector2(0, 44)
+	power_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	power_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	power_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	power_bar.draw.connect(_draw_power)
+	top_row.add_child(power_bar)
+	speed_button = _button("1×", Vector2(Style.TOUCH, Style.TOUCH), _on_speed)
+	top_row.add_child(speed_button)
 
-	var bottom := PanelContainer.new()
-	bottom.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Color(0, 0, 0, 0), 0, 0))
-	bottom.anchor_top = 1.0
-	bottom.anchor_bottom = 1.0
-	bottom.anchor_right = 1.0
-	bottom.offset_top = -BOTTOM_PANEL
-	bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	hud.add_child(bottom)
+	# Bottom panel: the squad tray, a line about the selection, the orders, and a hint.
+	bottom_panel = PanelContainer.new()
+	bottom_panel.add_theme_stylebox_override("panel", _bar_box(false))
+	bottom_panel.anchor_top = 1.0
+	bottom_panel.anchor_bottom = 1.0
+	bottom_panel.anchor_right = 1.0
+	bottom_panel.offset_top = -_bottom_height()
+	bottom_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hud.add_child(bottom_panel)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)
-	bottom.add_child(col)
+	bottom_panel.add_child(col)
 
-	# Deployment: one card per squad in the warband.
-	deploy_box = GridContainer.new()
-	deploy_box.columns = CARD_COLUMNS
-	deploy_box.add_theme_constant_override("h_separation", 8)
-	deploy_box.add_theme_constant_override("v_separation", 8)
-	col.add_child(deploy_box)
-	var roomy := _cards.size() <= CARD_COLUMNS * 2
+	tray = GridContainer.new()
+	tray.columns = mini(maxi(1, _cards.size()), MAX_CHIPS_PER_ROW) if _tray_rows() == 1 else ceili(_cards.size() / 2.0)
+	tray.add_theme_constant_override("h_separation", int(CHIP_GAP))
+	tray.add_theme_constant_override("v_separation", int(CHIP_GAP))
+	col.add_child(tray)
 	for i in _cards.size():
-		var b := _button("", Vector2(0, 84.0 if roomy else 52.0), _on_card.bind(i))
+		var b := _button("", Vector2(0, CHIP_H), _on_chip.bind(i))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 16)
-		b.clip_text = true
-		if roomy:
-			b.icon = Art.icon(_cards[i]["type"], Sim.PLAYER)
-			b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
-		deploy_box.add_child(b)
-		card_buttons.append(b)
+		b.draw.connect(_draw_chip.bind(i))
+		tray.add_child(b)
+		chip_buttons.append(b)
 
-	# Battle: who the orders go to, and the two orders.
-	battle_box = VBoxContainer.new()
-	battle_box.add_theme_constant_override("separation", 10)
-	col.add_child(battle_box)
-	orders_label = Style.label("", 20)
-	orders_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	battle_box.add_child(orders_label)
+	info_label = Style.label("", Style.SMALL, Style.TEXT)
+	info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	info_label.custom_minimum_size = Vector2(10, 34)
+	col.add_child(info_label)
+
 	var buttons_row := HBoxContainer.new()
 	buttons_row.add_theme_constant_override("separation", 10)
-	battle_box.add_child(buttons_row)
-	advance_button = _button("Advance all", Vector2(0, 84), _on_advance)
-	advance_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	advance_button.add_theme_font_size_override("font_size", 26)
+	col.add_child(buttons_row)
+	auto_button = _wide_button("Auto-place", _on_auto, buttons_row)
+	fight_button = _wide_button("Fight", _on_fight, buttons_row)
+	Style.make_primary(fight_button)
+	advance_button = _wide_button("Advance all", _on_advance, buttons_row)
 	Style.make_primary(advance_button)
-	buttons_row.add_child(advance_button)
-	hold_button = _button("Hold all", Vector2(0, 84), _on_hold)
-	hold_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hold_button.add_theme_font_size_override("font_size", 26)
-	buttons_row.add_child(hold_button)
-	army_button = _button("Whole army", Vector2(150, 84), _on_army)
-	army_button.add_theme_font_size_override("font_size", 20)
-	buttons_row.add_child(army_button)
+	hold_button = _wide_button("Hold all", _on_hold, buttons_row)
+	ability_button = _wide_button("", _on_ability, buttons_row)
+	ability_button.draw.connect(_draw_ability_cooldown)
 
-	hint_label = Style.label("", 18, Style.MUTED)
+	hint_label = Style.label("", Style.SMALL, Style.MUTED)
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint_label.custom_minimum_size = Vector2(10, 64)
+	hint_label.max_lines_visible = 2
+	hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	col.add_child(hint_label)
 
-	result_panel = PanelContainer.new()
-	result_panel.anchor_left = 0.5
-	result_panel.anchor_right = 0.5
-	result_panel.anchor_top = 0.5
-	result_panel.anchor_bottom = 0.5
-	result_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	result_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	result_panel.visible = false
-	hud.add_child(result_panel)
+	# The death roll plays over the field.
+	roll_layer = Control.new()
+	roll_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	roll_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	roll_layer.draw.connect(_draw_roll)
+	hud.add_child(roll_layer)
+
+	pause_panel = _centered_panel(hud)
+	var pv := VBoxContainer.new()
+	pv.add_theme_constant_override("separation", 16)
+	pause_panel.add_child(pv)
+	var paused_title := Style.label("Paused", 48, Style.BRASS)
+	paused_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pv.add_child(paused_title)
+	pause_note = Style.label("", Style.SMALL, Style.MUTED)
+	pause_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pause_note.custom_minimum_size = Vector2(480, 0)
+	pause_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	pv.add_child(pause_note)
+	var resume := _button("Resume", Vector2(0, Style.TOUCH), _on_menu)
+	Style.make_primary(resume)
+	pv.add_child(resume)
+	retreat_button = _button("Retreat", Vector2(0, Style.TOUCH), _on_retreat)
+	pv.add_child(retreat_button)
+
+	result_panel = _centered_panel(hud)
 	var rv := VBoxContainer.new()
 	rv.add_theme_constant_override("separation", 18)
 	result_panel.add_child(rv)
 	result_title = Style.label("Victory", 64, Style.BRASS)
 	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rv.add_child(result_title)
-	result_body = Style.label("", 20)
+	result_body = Style.label("", Style.BODY)
 	result_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	result_body.custom_minimum_size = Vector2(520, 0)
+	result_body.custom_minimum_size = Vector2(540, 0)
 	result_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rv.add_child(result_body)
-	var back := _button("Back to camp", Vector2(0, 72), _back_to_camp)
+	var back := _button("Back to camp", Vector2(0, Style.TOUCH), _back_to_camp)
 	Style.make_primary(back)
 	rv.add_child(back)
+
+
+func _bar_box(top: bool) -> StyleBoxFlat:
+	var sb := Style.box(Style.NIGHT, Color(0, 0, 0, 0), 0, 0)
+	sb.content_margin_left = 12.0
+	sb.content_margin_right = 12.0
+	sb.content_margin_top = 8.0 + (float(_insets["top"]) if top else 6.0)
+	sb.content_margin_bottom = 8.0 if top else 8.0 + float(_insets["bottom"])
+	return sb
+
+
+func _centered_panel(parent: Control) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.anchor_left = 0.5
+	p.anchor_right = 0.5
+	p.anchor_top = 0.5
+	p.anchor_bottom = 0.5
+	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	p.grow_vertical = Control.GROW_DIRECTION_BOTH
+	p.visible = false
+	parent.add_child(p)
+	return p
 
 
 func _button(text: String, min_size: Vector2, callback: Callable) -> Button:
@@ -592,84 +899,82 @@ func _button(text: String, min_size: Vector2, callback: Callable) -> Button:
 	return b
 
 
-func _card_box(bg: Color, border: Color, width: int) -> StyleBoxFlat:
-	var sb := Style.box(bg, border, width)
-	sb.content_margin_left = 6.0
-	sb.content_margin_right = 6.0
-	return sb
+func _wide_button(text: String, callback: Callable, row: HBoxContainer) -> Button:
+	var b := _button(text, Vector2(0, Style.TOUCH), callback)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", Style.BODY)
+	b.clip_text = true
+	row.add_child(b)
+	return b
 
 
 func _refresh_hud() -> void:
 	var deploying := sim.phase == Sim.PHASE_DEPLOY
-	deploy_box.visible = deploying
+	title_label.visible = deploying
+	status_label.visible = deploying
+	power_bar.visible = not deploying
+	speed_button.visible = not deploying
 	auto_button.visible = deploying
 	fight_button.visible = deploying
-	battle_box.visible = not deploying
-	strength_label.visible = not deploying
-	retreat_button.disabled = sim.winner != -1
+	advance_button.visible = not deploying
+	hold_button.visible = not deploying
+	menu_button.disabled = sim.winner != -1
+	menu_button.text = "Menu" if deploying else "II"
+	speed_button.text = "2×" if speed > 1.5 else "1×"
+	pause_note.text = _scouting()
 	if deploying:
 		_refresh_deploy()
 	else:
 		_refresh_battle()
+	for b in chip_buttons:
+		b.queue_redraw()
+	power_bar.queue_redraw()
+	roll_layer.queue_redraw()
 
 
 func _refresh_deploy() -> void:
 	var left: int = sim.reserves[Sim.PLAYER].size()
-	title_label.text = "Deploy"
 	status_label.text = "%d of %d placed" % [_cards.size() - left, _cards.size()]
 	auto_button.disabled = left == 0 or sim.winner != -1
 	fight_button.disabled = left > 0 or sim.winner != -1
-	for i in card_buttons.size():
-		var b: Button = card_buttons[i]
-		var e: Dictionary = _cards[i]
-		var level: int = e["level"]
-		var c = _squad_record(e["roster_id"]).get("captain")
-		var who := _name(e["type"])
-		if c != null:
-			who = String(c["first"]) + ("*" if int(c.get("wounded", 0)) > 0 else "")
-		b.text = "%s %d%s" % [who, e["men"], "" if level <= 1 else " L%d" % level]
-		var picked: bool = e["roster_id"] == selected_id
-		var placed: bool = sim.placed_squad(Sim.PLAYER, e["roster_id"]) != null
-		var style: StyleBox = _card_styles["normal"]
-		if picked:
-			style = _card_styles["selected"]
-		elif placed:
-			style = _card_styles["placed"]
-		b.add_theme_stylebox_override("normal", style)
-		b.add_theme_stylebox_override("hover", style if picked else _card_styles["hover"])
-		var ink := Style.MUTED if placed and not picked else Style.TEXT
-		b.add_theme_color_override("font_color", ink)
-		b.add_theme_color_override("font_hover_color", ink)
-		var faded := Color(1, 1, 1, 0.45) if placed and not picked else Color.WHITE
-		b.add_theme_color_override("icon_normal_color", faded)
-		b.add_theme_color_override("icon_hover_color", faded)
+	ability_button.visible = false
+	info_label.text = _scouting()
+	info_label.add_theme_color_override("font_color", Style.BRASS)
 
 
 func _refresh_battle() -> void:
-	title_label.text = "Battle"
-	var left := maxf(0.0, Sim.TIME_LIMIT - sim.time)
-	status_label.text = "%d:%02d" % [floori(left / 60.0), int(left) % 60]
-	strength_label.text = "You %d · Them %d" % [sim.men_on_field(Sim.PLAYER), sim.men_on_field(Sim.ENEMY)]
+	info_label.add_theme_color_override("font_color", Style.TEXT)
 	var sq = selected_squad
+	ability_button.visible = sq != null
 	if sq != null:
+		var title := _company(sq.roster_id)
+		if title == "":
+			title = _name(sq.type)
+		var state: String = ORDER_WORDS.get(sq.order, sq.order)
+		if sq.wheeling:
+			state = "wheeling"
+		elif sq.braced():
+			state = "braced"
+		elif sq.engaged:
+			state = "fighting"
 		var arrows := ""
 		if sq.arrows > 0:
 			arrows = " · %d arrows" % sq.arrows
 		elif sq.arrows == 0:
 			arrows = " · no arrows"
-		var title := _company(sq.roster_id)
-		if title == "":
-			title = _name(sq.type)
 		var mood := " · fury" if sq.fury > 0.0 else ""
-		orders_label.text = "%s · %d men · %d%% morale%s%s · %s" % [
-			title, sq.alive_count(), maxi(0, int(sq.morale)), mood, arrows, ORDER_WORDS.get(sq.order, sq.order)]
+		info_label.text = "%s · %d men · %d%% morale%s%s · %s" % [
+			title, sq.alive_count(), maxi(0, int(sq.morale)), mood, arrows, state]
 		advance_button.text = "Advance"
 		hold_button.text = "Hold"
+		var ab := Troops.ability(sq.type)
+		ability_button.text = String(ab["name"])
+		ability_button.modulate = Color(1, 1, 1, 1.0 if sim.ability_ready(sq) else 0.55)
+		ability_button.queue_redraw()
 	else:
-		orders_label.text = "Whole army · " + _order_summary()
+		info_label.text = "Whole army · " + _order_summary()
 		advance_button.text = "Advance all"
 		hold_button.text = "Hold all"
-	army_button.visible = sq != null
 	advance_button.disabled = sim.winner != -1
 	hold_button.disabled = sim.winner != -1
 
@@ -688,6 +993,144 @@ func _order_summary() -> String:
 	return "none left" if parts.is_empty() else " · ".join(parts)
 
 
+## The tug of war: how much of each army is still fighting. The clock only shows in
+## the last minute.
+func _draw_power() -> void:
+	var w := power_bar.size.x
+	var h := 26.0
+	var y := (power_bar.size.y - h) * 0.5
+	var mine := float(sim.men_on_field(Sim.PLAYER))
+	var theirs := float(sim.men_on_field(Sim.ENEMY))
+	var split := w * (mine / maxf(1.0, mine + theirs))
+	power_bar.draw_rect(Rect2(0, y, w, h), Style.RULE)
+	power_bar.draw_rect(Rect2(0, y, split, h), Style.PLAYER)
+	power_bar.draw_rect(Rect2(split, y, w - split, h), Style.ENEMY)
+	power_bar.draw_rect(Rect2(split - 2.0, y - 5.0, 4.0, h + 10.0), Style.TEXT)
+	power_bar.draw_string(font, Vector2(8, y + h - 5.0), str(int(mine)), HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL, Style.TEXT)
+	power_bar.draw_string(font, Vector2(w - 68.0, y + h - 5.0), str(int(theirs)), HORIZONTAL_ALIGNMENT_RIGHT, 60.0, Style.SMALL, Style.TEXT)
+	var left := Sim.TIME_LIMIT - sim.time
+	if left < 60.0 and sim.winner == -1:
+		var clock := "%d:%02d" % [floori(left / 60.0), int(left) % 60]
+		power_bar.draw_string_outline(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, 5, Style.NIGHT)
+		power_bar.draw_string(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Style.TEXT)
+
+
+## A card in the tray: the squad's standard, its captain, its men, and in battle its
+## morale and whether its ability is ready.
+func _draw_chip(i: int) -> void:
+	var b: Button = chip_buttons[i]
+	var e: Dictionary = _cards[i]
+	var sq = sim.placed_squad(Sim.PLAYER, e["roster_id"])
+	var battle := sim.phase == Sim.PHASE_BATTLE
+	var out: bool = battle and (sq == null or not sq.is_active())
+	var picked: bool = (not battle and e["roster_id"] == selected_id) or (battle and sq != null and sq == selected_squad)
+	var placed: bool = sq != null
+	var size := b.size
+	var bg := Style.RAISED
+	if picked:
+		bg = Style.RAISED.lightened(0.14)
+	elif out or (not battle and placed):
+		bg = Style.PANEL
+	b.draw_rect(Rect2(Vector2.ZERO, size), bg)
+	b.draw_rect(Rect2(Vector2.ZERO, size), Style.BRASS if picked else Style.RULE, false, 3.0 if picked else 2.0)
+	var dim := 0.45 if out else 1.0
+	_draw_flag(b, Vector2(8, 8), Vector2(28, 21), Sim.PLAYER, String(e["type"]), out, false, 0.0)
+	var c = _squad_record(e["roster_id"]).get("captain")
+	var who := _name(e["type"])
+	if c != null:
+		who = String(c["first"]) + ("*" if int(c.get("wounded", 0)) > 0 else "")
+	var men: int = e["men"] if sq == null else sq.alive_count()
+	b.draw_string(font, Vector2(size.x - 6.0 - 40.0, 27), str(men), HORIZONTAL_ALIGNMENT_RIGHT, 40.0, Style.SMALL, Color(Style.TEXT, dim))
+	var fit := 21
+	while fit > 16 and font.get_string_size(who, HORIZONTAL_ALIGNMENT_LEFT, -1, fit).x > size.x - 12.0:
+		fit -= 1
+	b.draw_string(font, Vector2(6, 58), who, HORIZONTAL_ALIGNMENT_LEFT, size.x - 12.0, fit, Color(Style.TEXT if not (placed and not battle and not picked) else Style.MUTED, dim))
+	if battle and sq != null:
+		if sq.is_active():
+			var bar := Rect2(6, size.y - 14.0, size.x - 12.0, 7)
+			var m := clampf(sq.morale / 100.0, 0.0, 1.0)
+			b.draw_rect(bar, Style.NIGHT)
+			b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
+			if sim.ability_ready(sq):
+				b.draw_circle(Vector2(size.x - 12.0, size.y - 26.0), 5.0, Style.BRASS)
+		else:
+			b.draw_string(font, Vector2(6, size.y - 6.0), "out", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.MUTED)
+	elif int(e["level"]) > 1:
+		for l in int(e["level"]) - 1:
+			b.draw_circle(Vector2(10 + l * 12, size.y - 12.0), 4.0, Style.BRASS)
+
+
+## A fill over the ability button that drains as its cooldown runs down.
+func _draw_ability_cooldown() -> void:
+	var sq = selected_squad
+	if sq == null:
+		return
+	var total := float(Troops.ability(sq.type)["cooldown"])
+	if sq.ability_left > 0.0:
+		var run := float(Troops.ability(sq.type)["seconds"])
+		var f: float = sq.ability_left / maxf(0.01, run)
+		ability_button.draw_rect(Rect2(0, ability_button.size.y - 8.0, ability_button.size.x * f, 8.0), Style.BRASS)
+	elif sq.ability_cd > 0.0:
+		var f: float = sq.ability_cd / maxf(0.01, total)
+		ability_button.draw_rect(Rect2(0, 0, ability_button.size.x * f, ability_button.size.y), Color(0, 0, 0, 0.35))
+
+
+# ---------------------------------------------------------------- the death roll
+
+func _draw_roll() -> void:
+	if _roll.is_empty():
+		return
+	var ci := roll_layer
+	var t: float = _roll["t"]
+	var a := clampf(t / 0.25, 0.0, 1.0) * clampf((ROLL_TIME - t) / 0.35, 0.0, 1.0)
+	ci.draw_rect(Rect2(_view.position, _view.size), Color(0, 0, 0, 0.5 * a))
+	var w := minf(600.0, _view.size.x - 24.0)
+	var box := Rect2(Vector2(_view.get_center().x - w * 0.5, _view.position.y + _view.size.y * 0.14), Vector2(w, 440))
+	ci.draw_rect(box, Color(Style.PANEL, 0.97 * a))
+	ci.draw_rect(box, Color(Style.BRASS, a), false, 3.0)
+	var x := box.position.x
+	var y := box.position.y
+	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, 34, Color(Style.TEXT, a))
+	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+
+	# The die tumbles, slowing, then lands.
+	var needed: int = _roll["needed"]
+	var chance := needed - 1
+	var landed := t >= 1.5
+	var shown: int = _roll["roll"]
+	if not landed:
+		var tick := int(pow(t * 6.0, 1.6))
+		shown = 1 + int(posmod(tick * 7919 + 13, 100))
+	var die := Rect2(Vector2(box.get_center().x - 64, y + 140), Vector2(128, 96))
+	ci.draw_rect(die, Color(Style.RAISED, a))
+	ci.draw_rect(die, Color(Style.TEXT if not landed else (Style.ENEMY_LIGHT if _roll["fate"] == "killed" else Style.BRASS), a), false, 3.0)
+	ci.draw_string(font, Vector2(die.position.x, die.position.y + 72), str(shown), HORIZONTAL_ALIGNMENT_CENTER, die.size.x, 60, Color(Style.TEXT, a))
+
+	# The odds: dies at or under the chance.
+	var bar := Rect2(Vector2(x + 30, y + 258), Vector2(w - 60, 18))
+	ci.draw_rect(bar, Color(Style.RAISED, a))
+	ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * chance / 100.0, bar.size.y)), Color(Style.ENEMY, 0.85 * a))
+	if landed:
+		var mx: float = bar.position.x + bar.size.x * float(_roll["roll"]) / 100.0
+		ci.draw_rect(Rect2(mx - 2.0, bar.position.y - 6.0, 4.0, bar.size.y + 12.0), Color(Style.TEXT, a))
+	ci.draw_string(font, Vector2(x, y + 312), "Needs %d or more to live" % needed, HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.TEXT, a))
+	var mods := PackedStringArray(["base %d%%" % Captains.DEATH_CHANCE])
+	if _roll["holding"]:
+		mods.append("squad holding -%d" % Captains.RESCUED_BY_SQUAD)
+	if _roll["friends"]:
+		mods.append("friends near -%d" % Captains.RESCUED_BY_FRIENDS)
+	if _roll["lucky"]:
+		mods.append("lucky -%d" % Captains.LUCK)
+	ci.draw_string(font, Vector2(x, y + 342), " · ".join(mods), HORIZONTAL_ALIGNMENT_CENTER, w, 20, Color(Style.MUTED, a))
+
+	if landed:
+		var killed: bool = _roll["fate"] == "killed"
+		var verdict := "FALLEN" if killed else "WOUNDED · OUT FOR %d BATTLES" % Captains.WOUND_BATTLES
+		ci.draw_string(font, Vector2(x, y + 388), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, Style.LARGE, Color(Style.ENEMY_LIGHT if killed else Style.BRASS, a))
+		ci.draw_string(font, Vector2(x + 16, y + 424), "\"%s\"" % _roll["words"], HORIZONTAL_ALIGNMENT_CENTER, w - 32.0, Style.SMALL, Color(Style.TEXT, a))
+
+
 # ---------------------------------------------------------------- drawing
 
 func _draw() -> void:
@@ -695,6 +1138,7 @@ func _draw() -> void:
 		return
 	_draw_field()
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_scars()
 	_draw_zones()
 	for c in sim.corpses:
 		var horse: bool = c.get("type", "") == Troops.CAVALRY
@@ -703,43 +1147,54 @@ func _draw() -> void:
 		var angle := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
 		_sprite("corpse_horse" if horse else "corpse", c["team"], 0, p, angle, Color(1, 1, 1, 0.8))
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_stuck_arrows()
 	_draw_orders()
+	_draw_shadows()
 	for sq in sim.squads:
 		_draw_men(sq)
-	for p in sim.projectiles:
-		var to: Vector2 = p.aim - p.pos
-		if to.length() > 0.01:
-			_sprite("arrow", 0, 0, p.pos, to.angle() + PI * 0.5)
+	_draw_arrows()
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_standards()
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_ticker()
 
 
-## Pixel-art grass, with faint mown bands so distances still read at a glance.
+## Pixel-art grass.
 func _draw_field() -> void:
 	var px := Art.GRASS_PIXEL
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
 	draw_texture_rect(Art.grass(), Rect2(Vector2.ZERO, Sim.ARENA / px), true)
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	var band := 126.0
-	var y := 0.0
-	var i := 0
-	while y < Sim.ARENA.y:
-		if i % 2 == 1:
-			draw_rect(Rect2(0.0, y, Sim.ARENA.x, minf(band, Sim.ARENA.y - y)), Color(0, 0, 0, 0.06))
-		y += band
-		i += 1
+	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
+
+
+## Trampled, bloodied ground where men fell, so the field remembers the fight.
+func _draw_scars() -> void:
+	for c in sim.corpses:
+		var p: Vector2 = c["pos"]
+		draw_circle(p + Vector2(2, 3), 11.0, Color(0.27, 0.19, 0.09, 0.16))
+		draw_circle(p, 5.0, Color(0.36, 0.08, 0.06, 0.18))
 
 
 func _draw_zones() -> void:
+	if sim.phase != Sim.PHASE_DEPLOY or sim.winner != -1:
+		return
 	draw_dashed_line(Vector2(0.0, Sim.MID_Y), Vector2(Sim.ARENA.x, Sim.MID_Y), Color(1, 1, 1, 0.35), 3.0, 14.0)
-	if sim.phase == Sim.PHASE_DEPLOY and sim.winner == -1:
-		var zone := sim.deploy_zone(Sim.PLAYER)
-		var picking := selected_id != -1
-		draw_rect(zone, Color(Style.PLAYER, 0.22 if picking else 0.12))
-		draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.85 if picking else 0.4), false, 3.0)
-		draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
-	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
+	var zone := sim.deploy_zone(Sim.PLAYER)
+	var picking := selected_id != -1
+	draw_rect(zone, Color(Style.PLAYER, 0.22 if picking else 0.12))
+	draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.85 if picking else 0.4), false, 3.0)
+	draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
+
+
+func _draw_stuck_arrows() -> void:
+	for a in sim.stuck_arrows:
+		var p: Vector2 = a["pos"]
+		var d := Vector2.from_angle(float(a["angle"]))
+		draw_line(p - d * 5.0, p + d * 1.5, Color(0.29, 0.2, 0.12, 0.85), 1.4)
+		draw_circle(p - d * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
 
 
 ## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing up).
@@ -750,17 +1205,24 @@ func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tin
 
 
 func _draw_orders() -> void:
-	if sim.phase != Sim.PHASE_BATTLE:
-		return
-	# A faint ring marks the ground each of your holding squads is keeping.
-	for sq in sim.squads:
-		if sq.team == Sim.PLAYER and sq.is_active() and sq.order == "hold" and sq != selected_squad:
-			draw_arc(sq.order_point, 12.0, 0.0, TAU, 20, Color(Style.BRASS, 0.45), 2.0)
 	var sel = selected_squad
+	# While deploying, the picked squad's bow range.
+	if sim.phase == Sim.PHASE_DEPLOY:
+		var picked = sim.placed_squad(Sim.PLAYER, selected_id)
+		if picked != null and picked.ranged:
+			draw_arc(picked.center, picked.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.35), 2.0)
+		return
 	if sel == null or not sel.is_active():
 		return
 	var from: Vector2 = sel.average_pos()
-	if sel.order == "move" or sel.order == "hold":
+	var ring: float = minf(sel.extent, 70.0) + 16.0
+	draw_circle(from, ring, Color(Style.BRASS, 0.12))
+	draw_arc(from, ring, 0.0, TAU, 48, Color(Style.BRASS, 0.9), 3.0)
+	if sel.ranged:
+		draw_arc(from, sel.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.3), 2.0)
+	if sel.wheeling:
+		draw_dashed_line(from, sel.wheel_point, Color(Style.BRASS, 0.7), 2.0, 10.0)
+	elif sel.order == "move" or sel.order == "hold":
 		var to: Vector2 = sel.order_point
 		if from.distance_to(to) > 20.0:
 			draw_dashed_line(from, to, Style.BRASS, 3.0, 12.0)
@@ -771,17 +1233,21 @@ func _draw_orders() -> void:
 		draw_dashed_line(from, sel.focus.average_pos(), Color(Style.ENEMY_LIGHT, 0.6), 2.0, 10.0)
 
 
+## Soft shadows lift the men off the grass.
+func _draw_shadows() -> void:
+	for sq in sim.squads:
+		var big: float = 5.0 if sq.type == Troops.CAVALRY else 1.5
+		for so in sq.soldiers:
+			if not so.alive:
+				continue
+			draw_set_transform(field_origin + (so.pos + Vector2(1.5, 3.0)) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.62))
+			draw_circle(Vector2.ZERO, so.radius + big, Color(0.05, 0.08, 0.02, 0.32))
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+
+
 func _draw_men(sq) -> void:
-	var mine: bool = sq.team == Sim.PLAYER
 	var type: String = sq.type
 	var tint := Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE
-	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
-	if selected:
-		draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-		var r: float = float(sq.stats["radius"]) + 4.0
-		for so in sq.soldiers:
-			if so.alive:
-				draw_arc(so.pos, r, 0.0, TAU, 14, Style.BRASS, 2.5)
 	for so in sq.soldiers:
 		if not so.alive:
 			continue
@@ -800,11 +1266,179 @@ func _draw_men(sq) -> void:
 			draw_texture(Art.flash(type, index), -Art.pivot(type), Color(1, 1, 1, so.flash * 0.8))
 
 
+## Arrows rise and fall on their way, with a shadow on the ground beneath them.
+func _draw_arrows() -> void:
+	for p in sim.projectiles:
+		var to: Vector2 = p.aim - p.pos
+		if to.length() < 0.01:
+			continue
+		var done: float = p.origin.distance_to(p.pos)
+		var total: float = done + to.length()
+		var t: float = done / maxf(1.0, total)
+		var rise := minf(70.0, total * 0.2)
+		var height := 4.0 * rise * t * (1.0 - t)
+		var dir := to.normalized()
+		draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
+		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
+		var screen_dir := (dir - Vector2(0, slope)).normalized()
+		_sprite("arrow", 0, 0, p.pos - Vector2(0, height), screen_dir.angle() + PI * 0.5)
+
+
+## Every squad carries a standard over it: its type, a morale bar and a head count. A
+## squad's standard topples when it breaks. Standards that would overlap fan out.
+func _draw_standards() -> void:
+	_std_tops.clear()
+	var ref_type := ""
+	if selected_squad != null:
+		ref_type = selected_squad.type
+	elif sim.phase == Sim.PHASE_DEPLOY and selected_id != -1:
+		for e in _cards:
+			if e["roster_id"] == selected_id:
+				ref_type = e["type"]
+	var shown: Array = []
+	for sq in sim.squads:
+		if sq.alive_n > 0:
+			shown.append(sq)
+	# Fan out: start from the squad's own spot, then push overlapping flags apart.
+	var want := {}
+	for sq in shown:
+		want[sq] = _to_screen(sq.avg).x
+	for pass_i in 6:
+		for i in shown.size():
+			for j in range(i + 1, shown.size()):
+				var a = shown[i]
+				var b = shown[j]
+				var ya: float = _to_screen(a.avg).y
+				var yb: float = _to_screen(b.avg).y
+				if absf(ya - yb) > FLAG.y + 22.0:
+					continue
+				var gap: float = want[b] - want[a]
+				var need := FLAG.x + 8.0
+				if absf(gap) < need:
+					var push := (need - absf(gap)) * 0.5 * (1.0 if gap >= 0.0 else -1.0)
+					if absf(gap) < 0.01:
+						push = need * 0.5
+					want[a] -= push
+					want[b] += push
+	for sq in shown:
+		var x: float = want[sq]
+		_std_x[sq] = lerpf(float(_std_x.get(sq, x)), x, 0.25)
+		_draw_standard(sq, float(_std_x[sq]), ref_type)
+
+
+func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
+	var mine: bool = sq.team == Sim.PLAYER
+	var base := _to_screen(sq.avg)
+	var fall := 0.0
+	if sq.routing:
+		fall = clampf((_clock - float(_broke_at.get(sq, _clock - 1.0))) / 0.7, 0.0, 1.0)
+		fall = 1.0 - pow(1.0 - fall, 3.0)
+	# Dip forward for a moment when ordered.
+	var dip := 0.0
+	var since: float = _clock - float(_ordered_at.get(sq, -9.0))
+	if since < 0.5:
+		dip = sin(since / 0.5 * PI) * 0.35
+	var lean := deg_to_rad(68.0) * fall * (1.0 if mine else -1.0) + dip * (1.0 if sq.facing.x >= 0.0 else -1.0)
+	var top := Vector2(flag_x, base.y) + Vector2(sin(lean), -cos(lean)) * POLE
+	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
+	draw_line(base + Vector2(1, 1), top + Vector2(1, 1), Color(0, 0, 0, 0.5), 4.0)
+	draw_line(base, top, Color("6b4a2a"), 3.0)
+	var ready: bool = mine and sim.ability_ready(sq)
+	draw_circle(top, 5.0 if ready else 3.5, Style.BRASS if ready or not sq.routing else Color(0.5, 0.5, 0.5))
+	if not sq.routing:
+		_std_tops[sq] = top
+	var edge := Style.BRASS if selected or sq.braced() else Color(0.06, 0.05, 0.08)
+	_draw_flag(self, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
+	if sq.routing or sim.phase != Sim.PHASE_BATTLE:
+		if not mine and ref_type != "":
+			_draw_counter_hint(top, sq.type, ref_type)
+		return
+	var bar := Rect2(top + Vector2(-2, FLAG.y + 9.0), Vector2(36, 6))
+	var m := clampf(sq.morale / 100.0, 0.0, 1.0)
+	draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
+	draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
+	var count := str(sq.alive_n)
+	draw_string_outline(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 4, Color(0, 0, 0, 0.9))
+	draw_string(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.TEXT)
+	if sq.ability_left > 0.0 or sq.wheeling:
+		draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
+	if not mine and ref_type != "":
+		_draw_counter_hint(top, sq.type, ref_type)
+
+
+## ▲ over an enemy your selected squad beats; ▼ over one that beats it.
+func _draw_counter_hint(top: Vector2, type: String, ref_type: String) -> void:
+	var c := top + Vector2(FLAG.x * 0.5, -12.0)
+	if Troops.COUNTERED_BY[type] == ref_type:
+		draw_colored_polygon(PackedVector2Array([c + Vector2(0, -9), c + Vector2(9, 6), c + Vector2(-9, 6)]), Style.MORALE_HIGH)
+	elif Troops.COUNTERED_BY[ref_type] == type:
+		draw_colored_polygon(PackedVector2Array([c + Vector2(0, 7), c + Vector2(9, -8), c + Vector2(-9, -8)]), Style.MORALE_LOW)
+
+
+## A flag on `ci` with its top-left at `at`: a swallowtail for you, square for them,
+## in the team's color with a glyph for the troop type. `lean` turns it about `at`.
+func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: String, grey: bool, lit: bool, lean: float, edge: Color = Color(0.06, 0.05, 0.08)) -> void:
+	var mine := team == Sim.PLAYER
+	var cloth := Style.PLAYER if mine else Style.ENEMY
+	var dark := Style.PLAYER_DARK if mine else Style.ENEMY_DARK
+	if grey:
+		cloth = cloth.lerp(Color(0.45, 0.45, 0.45), 0.6)
+		dark = dark.lerp(Color(0.2, 0.2, 0.2), 0.6)
+	ci.draw_set_transform(at, lean, Vector2.ONE)
+	var w := size.x
+	var h := size.y
+	var pts: PackedVector2Array
+	if mine:
+		pts = PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w - w * 0.26, h * 0.5), Vector2(w, h), Vector2(0, h)])
+	else:
+		pts = PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, h), Vector2(0, h)])
+	ci.draw_colored_polygon(pts, cloth)
+	ci.draw_rect(Rect2(0, h - 5.0, w - (w * 0.26 if mine else 0.0), 3.0), dark)
+	var outline := pts.duplicate()
+	outline.append(pts[0])
+	ci.draw_polyline(outline, edge, 3.0 if lit else 2.0)
+	_draw_glyph(ci, type, Vector2(w * 0.42, h * 0.48), size.y / 26.0, Style.TEXT if not grey else Color(0.85, 0.85, 0.85))
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Shield, spear, bow or horseshoe.
+func _draw_glyph(ci: CanvasItem, type: String, c: Vector2, k: float, ink: Color) -> void:
+	match type:
+		Troops.INFANTRY:
+			ci.draw_circle(c, 8.0 * k, ink)
+			ci.draw_circle(c, 5.5 * k, Color(0.15, 0.15, 0.2))
+			ci.draw_circle(c, 2.5 * k, ink)
+		Troops.SPEARMEN:
+			ci.draw_line(c + Vector2(0, 10) * k, c + Vector2(0, -4) * k, ink, 2.5 * k)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -11) * k, c + Vector2(4, -4) * k, c + Vector2(-4, -4) * k]), ink)
+		Troops.ARCHERS:
+			ci.draw_arc(c + Vector2(-5, 0) * k, 10.0 * k, -1.1, 1.1, 12, ink, 2.5 * k)
+			ci.draw_line(c + Vector2(-1, -9) * k, c + Vector2(-1, 9) * k, ink, 1.0)
+			ci.draw_line(c + Vector2(-4, 0) * k, c + Vector2(9, 0) * k, ink, 2.0 * k)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(11, 0) * k, c + Vector2(6, -3) * k, c + Vector2(6, 3) * k]), ink)
+		Troops.CAVALRY:
+			ci.draw_arc(c + Vector2(0, 1) * k, 7.0 * k, PI * 0.72, PI * 2.28, 18, ink, 3.5 * k)
+
+
 func _draw_floaters() -> void:
 	for f in floaters:
 		var age: float = f["age"]
 		var a := clampf(float(f["life"]) - age, 0.0, 1.0)
-		var pos: Vector2 = f["pos"] + Vector2(-200.0, -minf(age, 1.3) * 40.0)
+		var pos: Vector2 = f["pos"] + Vector2(-200.0, -minf(age, 1.3) * 34.0)
 		var color: Color = f["color"]
-		draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, 26, 6, Color(0, 0, 0, a))
-		draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, 26, Color(color, a))
+		var size := int(28.0 / maxf(0.1, field_scale))
+		draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, size, 6, Color(0, 0, 0, a))
+		draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, size, Color(color, a))
+
+
+## The story so far, along the top of the field.
+func _draw_ticker() -> void:
+	var y := _view.position.y + 30.0
+	for t in ticker:
+		var age: float = t["age"]
+		var a := clampf(float(t["life"]) - age, 0.0, 1.0) * clampf(age / 0.2, 0.0, 1.0)
+		var color: Color = t["color"]
+		draw_string_outline(font, Vector2(_view.position.x + 12.0, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
+		draw_string(font, Vector2(_view.position.x + 12.0, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
+		y += 30.0

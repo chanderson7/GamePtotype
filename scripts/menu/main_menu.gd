@@ -36,34 +36,35 @@ func _build() -> void:
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_theme_constant_override("margin_left", 36)
 	margin.add_theme_constant_override("margin_right", 36)
-	margin.add_theme_constant_override("margin_top", 64)
-	margin.add_theme_constant_override("margin_bottom", 40)
+	var insets := Style.safe_insets(get_viewport())
+	margin.add_theme_constant_override("margin_top", 64 + int(insets["top"]))
+	margin.add_theme_constant_override("margin_bottom", 40 + int(insets["bottom"]))
 	scroll.add_child(margin)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 
 	col.add_child(Style.label("Bannerfall", 72, Style.BRASS))
-	col.add_child(Style.label("Prototype · field battles", 22, Style.MUTED))
+	col.add_child(Style.label("Prototype · field battles", Style.BODY, Style.MUTED))
 
 	var last: Dictionary = GameState.last_result
 	if not last.is_empty():
 		var won: bool = last["won"]
 		var line := "Last battle: %s. Lost %d men, cut down %d." % ["Victory" if won else "Defeat", last["lost"], last["killed"]]
-		var last_label := Style.label(line, 22, Style.BRASS if won else Style.ENEMY_LIGHT)
+		var last_label := Style.label(line, Style.BODY, Style.BRASS if won else Style.ENEMY_LIGHT)
 		last_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		col.add_child(last_label)
 
 	col.add_child(_section("Your warband"))
 	col.add_child(Style.label("%d men in %d squads · %d battles, %d won" % [
-		GameState.total_men(), GameState.army.size(), GameState.battles, GameState.wins], 20, Style.MUTED))
+		GameState.total_men(), GameState.army.size(), GameState.battles, GameState.wins], Style.SMALL, Style.MUTED))
 	var roster := VBoxContainer.new()
 	roster.add_theme_constant_override("separation", 8)
 	col.add_child(roster)
 	for s in GameState.army:
 		roster.add_child(_squad_row(s))
 	if GameState.army.is_empty():
-		roster.add_child(Style.label("Your warband is gone. Raise a new one.", 22, Style.ENEMY_LIGHT))
+		roster.add_child(Style.label("Your warband is gone. Raise a new one.", Style.BODY, Style.ENEMY_LIGHT))
 
 	col.add_child(_section("Bonds"))
 	var bonds: Array = GameState.bonds()
@@ -79,8 +80,8 @@ func _build() -> void:
 
 	var fight := Button.new()
 	fight.text = "To battle"
-	fight.custom_minimum_size = Vector2(0, 84)
-	fight.add_theme_font_size_override("font_size", 28)
+	fight.custom_minimum_size = Vector2(0, 92)
+	fight.add_theme_font_size_override("font_size", Style.LARGE)
 	Style.make_primary(fight)
 	fight.disabled = GameState.total_men() == 0
 	fight.pressed.connect(_on_battle)
@@ -88,35 +89,41 @@ func _build() -> void:
 
 	var rest := Button.new()
 	rest.text = "Rest and reinforce"
-	rest.custom_minimum_size = Vector2(0, 64)
+	rest.custom_minimum_size = Vector2(0, Style.TOUCH)
 	rest.disabled = not GameState.is_wounded()
 	rest.pressed.connect(_on_reinforce)
 	col.add_child(rest)
 
 	var fresh := Button.new()
 	fresh.text = "Raise a new warband"
-	fresh.custom_minimum_size = Vector2(0, 64)
+	fresh.custom_minimum_size = Vector2(0, Style.TOUCH)
 	fresh.pressed.connect(_on_new.bind(fresh))
 	col.add_child(fresh)
 
 	col.add_child(_section("How to fight"))
 	var how := Style.label(
 		"Before the fight, place your whole army in the blue zone: tap a card, then the field, " +
-		"or tap Auto-place. Press Fight when you're ready.\n\n" +
-		"Your squads hold their ground until ordered. Advance sends them at the enemy; Hold stops " +
-		"them where they stand. Tap a squad to order it alone, then tap an enemy squad to attack it " +
-		"or open ground to march there.\n\n" +
+		"or tap Auto-place. Your scouts tell you what kind of commander you face. Press Fight when you're ready.\n\n" +
+		"Your squads hold, braced, until ordered, and a braced line wins the first clash: often the " +
+		"best move is to let them come. Advance sends each squad at the enemy it fights best; Hold " +
+		"stops them and braces them again. Tap a card or a standard to command one squad, then tap " +
+		"an enemy to attack it, open ground to march there, or its ability button.\n\n" +
 		"Spearmen stop cavalry. Cavalry ride down archers. Archers shred infantry, until their " +
-		"arrows run out. Infantry cut through spear lines. Break their army to win.\n\n" +
+		"arrows run out. Infantry cut through spear lines. A squad locked in one fight can be hit " +
+		"in the flank or rear by another, which hurts and shakes it: pin them with foot, then send in the horse.\n\n" +
+		"Infantry raise a Shield wall against arrows. Spearmen form a Schiltron no charge can break. " +
+		"Archers loose a Volley that shakes a squad's nerve. Cavalry Wheel away to charge again.\n\n" +
 		"Every squad has a captain, marked by a gold ring. If a captain falls, a d100 decides: " +
 		"roll over the death chance and they're wounded and sit out two battles; at or under it, " +
-		"they're gone. Their own squad, a friendly squad nearby or plain luck improves the odds.", 20, Style.MUTED)
+		"they're gone. Their own squad, a friendly squad nearby or plain luck improves the odds.", Style.SMALL, Style.MUTED)
 	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(how)
 
 
 func _section(text: String) -> Label:
-	return Style.label(text.to_upper(), 18, Style.MUTED)
+	var l := Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
+	l.add_theme_constant_override("line_spacing", 2)
+	return l
 
 
 func _squad_row(s: Dictionary) -> Control:
@@ -128,37 +135,32 @@ func _squad_row(s: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	var portrait := TextureRect.new()
-	portrait.texture = Art.icon(type)
-	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-	portrait.custom_minimum_size = Vector2(44, 44)
-	row.add_child(portrait)
+	row.add_child(_portrait(type))
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.add_theme_constant_override("separation", 2)
 	row.add_child(text)
 	var title := String(s.get("name", ""))
-	text.add_child(Style.label(title if title != "" else Troops.display_name(type), 22))
+	text.add_child(Style.label(title if title != "" else Troops.display_name(type), Style.BODY))
 	var c = s.get("captain")
 	var who: Label
 	if c == null:
-		who = Style.label("No captain", 16, Style.ENEMY_LIGHT)
+		who = Style.label("No captain", Style.SMALL, Style.ENEMY_LIGHT)
 	elif int(c.get("wounded", 0)) > 0:
-		who = Style.label("%s · wounded, back in %d" % [c["name"], c["wounded"]], 16, Style.ENEMY_LIGHT)
+		who = Style.label("%s · wounded, back in %d" % [c["name"], c["wounded"]], Style.SMALL, Style.ENEMY_LIGHT)
 	else:
-		who = Style.label("%s · %s" % [c["name"], Captains.traits(c)], 16, Style.MUTED)
+		who = Style.label("%s · %s" % [c["name"], Captains.traits(c)], Style.SMALL, Style.MUTED)
 	who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who.custom_minimum_size = Vector2(10, 0)
 	text.add_child(who)
 	if level > 1:
-		row.add_child(Style.label("Lv%d" % level, 20, Style.BRASS))
-	row.add_child(Style.label("%d / %d men" % [men, full], 22, Style.TEXT if men >= full else Style.ENEMY_LIGHT))
+		row.add_child(Style.label("Lv%d" % level, Style.SMALL, Style.BRASS))
+	row.add_child(Style.label("%d/%d" % [men, full], Style.BODY, Style.TEXT if men >= full else Style.ENEMY_LIGHT))
 	return panel
 
 
 func _note(text: String, color: Color = Style.MUTED) -> Label:
-	var l := Style.label(text, 18, color)
+	var l := Style.label(text, Style.SMALL, color)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return l
 
@@ -168,30 +170,37 @@ func _memorial_row(f: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	var portrait := TextureRect.new()
-	portrait.texture = Art.icon(String(f.get("type", "infantry")))
-	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-	portrait.custom_minimum_size = Vector2(44, 44)
+	var portrait := _portrait(String(f.get("type", "infantry")))
 	portrait.modulate = Color(0.55, 0.55, 0.6)
 	row.add_child(portrait)
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(text)
-	text.add_child(Style.label(String(f.get("name", "")), 20))
+	text.add_child(Style.label(String(f.get("name", "")), Style.BODY))
 	var deeds := "%s · fell in battle %d · fought %d, felled %d" % [f.get("company", ""), int(f.get("battle", 0)),
 		int(f.get("battles", 0)), int(f.get("kills", 0))]
 	var bonds: Array = f.get("bonds", [])
 	if not bonds.is_empty():
 		deeds += " · mourned by " + ", ".join(PackedStringArray(bonds))
-	var d := Style.label(deeds, 16, Style.MUTED)
+	var d := Style.label(deeds, Style.SMALL, Style.MUTED)
 	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text.add_child(d)
 	if String(f.get("words", "")) != "":
-		var w := Style.label("\"%s\"" % f["words"], 16, Style.BRASS)
+		var w := Style.label("\"%s\"" % f["words"], Style.SMALL, Style.BRASS)
 		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text.add_child(w)
 	return panel
+
+
+## A unit portrait, scaled up with hard pixel edges.
+func _portrait(type: String) -> TextureRect:
+	var portrait := TextureRect.new()
+	portrait.texture = Art.icon(type)
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	portrait.custom_minimum_size = Vector2(64, 64)
+	return portrait
 
 
 func _on_battle() -> void:
