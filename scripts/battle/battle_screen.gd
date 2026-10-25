@@ -1,9 +1,13 @@
-## The battle screen: draws the simulation, turns taps into deployments and orders,
+## The battle screen: draws the simulation, turns taps into placements and orders,
 ## and runs the HUD. All rules live in battle_sim.gd.
 ##
-## Controls: tap a card, then tap your half of the field to deploy that squad.
-## Tap one of your squads to select it, then tap an enemy squad to attack it or
-## open ground to march there and hold. "Advance" sends it back on the offensive.
+## Deployment: every squad in the warband is a card. Tap a card, then tap the blue zone
+## to place it; tap a placed squad, then somewhere else to move it. Auto-place lines up
+## whatever is left. Fight starts the battle once every squad is on the field.
+##
+## Battle: squads hold their ground until ordered. Advance and Hold command the whole
+## army, or only the selected squad. With a squad selected, tap an enemy squad to attack
+## it, or open ground to march there and hold.
 extends Node2D
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
@@ -11,37 +15,48 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 
-const TOP_BAR := 72.0
-const BOTTOM_PANEL := 244.0
+const TOP_BAR := 76.0
+const BOTTOM_PANEL := 256.0
+const CARD_COLUMNS := 5
 const ARROW_COLOR := Color("f4efe1")
 ## Men are drawn bigger than their collision size so they read on a phone screen.
 const BODY_SCALE := 1.35
+const ORDER_WORDS := {"hold": "holding", "advance": "advancing", "attack": "attacking", "move": "marching"}
 
 var sim: Sim
 var field_origin := Vector2.ZERO
 var field_scale := 1.0
-var selected_card := -1
+## Deployment: the roster id of the squad the next tap on the field puts down, or -1.
+var selected_id := -1
+## Battle: the squad Advance and Hold apply to. null means the whole army.
 var selected_squad = null
 var speed := 1.0
 var autoplay := false
 var floaters: Array = []
 var font: Font
 
+var _cards: Array = []
+var _card_styles := {}
 var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
 var _pending_result := {}
 var _retreat_armed := 0.0
-var _card_selected_box: StyleBoxFlat
 
-var timer_label: Label
-var meter_bar: ProgressBar
-var meter_label: Label
-var card_buttons: Array = []
-var reserve_label: Label
-var hint_label: Label
-var advance_button: Button
+var title_label: Label
+var status_label: Label
+var auto_button: Button
+var fight_button: Button
 var retreat_button: Button
+var deploy_box: GridContainer
+var card_buttons: Array = []
+var battle_box: VBoxContainer
+var orders_label: Label
+var strength_label: Label
+var advance_button: Button
+var hold_button: Button
+var army_button: Button
+var hint_label: Label
 var result_panel: PanelContainer
 var result_title: Label
 var result_body: Label
@@ -53,13 +68,20 @@ func _ready() -> void:
 	autoplay = OS.get_cmdline_user_args().has("--autoplay")
 	sim = Sim.new()
 	sim.setup(GameState.army, GameState.enemy_army())
+	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
-	if autoplay:
-		sim.ai[Sim.PLAYER] = Commander.new(Sim.PLAYER)
-		speed = 4.0
+	sim.ai[Sim.ENEMY].deploy(sim)
+	_cards = sim.roster(Sim.PLAYER)
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
+	if autoplay:
+		sim.ai[Sim.PLAYER] = Commander.new(Sim.PLAYER)
+		sim.ai[Sim.PLAYER].deploy(sim)
+		speed = 4.0
+		_start_battle()
+	else:
+		_select_next_card()
 	_refresh_hud()
 
 
@@ -78,7 +100,7 @@ func _layout() -> void:
 
 
 func _process(delta: float) -> void:
-	if sim.winner == -1:
+	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE:
 		_accumulator += minf(delta, 0.1) * speed
 		var steps := 0
 		while _accumulator >= Sim.STEP and steps < 16:
@@ -88,7 +110,7 @@ func _process(delta: float) -> void:
 		_consume_events()
 		if selected_squad != null and not selected_squad.is_active():
 			selected_squad = null
-	elif not _result_shown:
+	elif sim.winner != -1 and not _result_shown:
 		_consume_events()
 		_show_result()
 	for f in floaters:
@@ -110,59 +132,135 @@ func _unhandled_input(event: InputEvent) -> void:
 	if p.x < 0.0 or p.y < 0.0 or p.x > Sim.ARENA.x or p.y > Sim.ARENA.y:
 		return
 	get_viewport().set_input_as_handled()
-	_tap_field(p)
+	if sim.phase == Sim.PHASE_DEPLOY:
+		_tap_deploy(p)
+	else:
+		_tap_battle(p)
 
 
-func _tap_field(p: Vector2) -> void:
-	# A card is selected: deploy it here.
-	if selected_card != -1:
-		if not sim.in_deploy_zone(Sim.PLAYER, p):
-			_hint("Deploy in your half of the field, below the line.")
-		elif not sim.can_afford(Sim.PLAYER, selected_card):
-			_hint("Not enough command yet. The meter refills over time.")
-		elif sim.deploy(Sim.PLAYER, selected_card, p) != null:
-			selected_card = -1
-			_hint("Deployed. It will advance on its own; tap it to give orders.")
+func _tap_deploy(p: Vector2) -> void:
+	var mine = sim.squad_at(Sim.PLAYER, p)
+	if mine != null:
+		if mine.roster_id == selected_id:
+			_select_next_card() # tapping the picked-up squad again leaves it where it is
+		else:
+			selected_id = mine.roster_id
+			_hint("Tap where you want your %s to stand." % _name(mine.type).to_lower())
 		return
+	var foe = sim.squad_at(Sim.ENEMY, p, 52.0)
+	if foe != null:
+		_hint(_describe(foe))
+		return
+	if selected_id == -1:
+		if sim.all_placed(Sim.PLAYER):
+			_hint("Tap one of your squads to move it, or press Fight.")
+		else:
+			_hint("Tap a card first.")
+		return
+	if not sim.in_deploy_zone(Sim.PLAYER, p):
+		_hint("Place your squads in the blue zone, your half of the field.")
+		return
+	if sim.place(Sim.PLAYER, selected_id, p) == null:
+		_hint("No room there. Try a more open spot.")
+		return
+	_select_next_card()
 
-	# Tapped one of your squads: select it, or deselect it.
+
+## Pick the first card not yet on the field, so placing a whole army is one tap per squad.
+func _select_next_card() -> void:
+	selected_id = -1
+	for e in _cards:
+		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
+			selected_id = e["roster_id"]
+			_hint("Tap the blue zone to place your %s (%d men)." % [_name(e["type"]).to_lower(), e["men"]])
+			return
+	_hint("Your whole army is on the field. Tap a squad to move it, then press Fight.")
+
+
+func _tap_battle(p: Vector2) -> void:
 	var mine = sim.squad_at(Sim.PLAYER, p)
 	if mine != null and mine.is_active():
 		selected_squad = null if mine == selected_squad else mine
 		if selected_squad != null:
-			_hint("%s selected. Tap an enemy squad to attack, or open ground to march and hold." % Troops.display_name(mine.type))
+			_hint("Orders now go to this squad only. Tap an enemy squad to attack it, or open ground to march there.")
+		else:
+			_hint("Orders go to the whole army.")
 		return
-	if selected_squad == null:
-		return
-
-	# A squad is selected: an enemy squad means attack, anything else means march there.
 	var foe = sim.squad_at(Sim.ENEMY, p, 52.0)
+	if selected_squad == null:
+		if foe != null:
+			_hint(_describe(foe))
+		return
 	if foe != null and foe.is_active():
 		sim.order_attack(selected_squad, foe)
-		_hint("Attacking the enemy %s." % Troops.display_name(foe.type).to_lower())
+		_hint("Your %s attack the enemy %s." % [_name(selected_squad.type).to_lower(), _name(foe.type).to_lower()])
 	else:
 		sim.order_move(selected_squad, p)
-		_hint("Marching. They will hold that ground and fight anyone who comes close.")
-	selected_squad = null
+		_hint("Your %s march there and hold." % _name(selected_squad.type).to_lower())
 
 
 func _on_card(index: int) -> void:
-	if sim.winner != -1:
+	if sim.winner != -1 or sim.phase != Sim.PHASE_DEPLOY:
 		return
+	var e: Dictionary = _cards[index]
+	if selected_id == e["roster_id"]:
+		selected_id = -1
+		_hint("Tap a card to place or move that squad.")
+		return
+	selected_id = e["roster_id"]
+	var placed: bool = sim.placed_squad(Sim.PLAYER, selected_id) != null
+	_hint("%s %s" % [Troops.stats(e["type"])["blurb"],
+		"Tap the field to move them." if placed else "Tap the blue zone to place them."])
+
+
+func _on_auto() -> void:
+	sim.auto_deploy(Sim.PLAYER)
+	_select_next_card()
+	if sim.all_placed(Sim.PLAYER):
+		_hint("Your army is in a battle line. Tap any squad to move it, then press Fight.")
+
+
+func _on_fight() -> void:
+	if sim.phase != Sim.PHASE_DEPLOY or sim.winner != -1:
+		return
+	if not sim.all_placed(Sim.PLAYER):
+		_hint("Place every squad first, or tap Auto-place.")
+		return
+	_start_battle()
+
+
+func _start_battle() -> void:
+	sim.start_battle()
+	selected_id = -1
 	selected_squad = null
-	selected_card = -1 if selected_card == index else index
-	if selected_card != -1:
-		var entry: Dictionary = sim.hand(Sim.PLAYER)[index]
-		var type: String = entry["type"]
-		_hint("%s: %s" % [Troops.display_name(type), Troops.stats(type)["blurb"]])
-	queue_redraw()
+	_hint("Your squads hold their ground until ordered. Advance to attack, or Hold and let them come to you.")
 
 
 func _on_advance() -> void:
+	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
+		return
 	if selected_squad != null:
 		sim.order_advance(selected_squad)
-		_hint("Advancing on the nearest enemy.")
-		selected_squad = null
+		_hint("Your %s advance on the enemy they fight best." % _name(selected_squad.type).to_lower())
+	else:
+		sim.order_all(Sim.PLAYER, "advance")
+		_hint("The whole army advances. Each squad goes for the enemy it fights best.")
+
+
+func _on_hold() -> void:
+	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
+		return
+	if selected_squad != null:
+		sim.order_hold(selected_squad)
+		_hint("Your %s hold where they stand." % _name(selected_squad.type).to_lower())
+	else:
+		sim.order_all(Sim.PLAYER, "hold")
+		_hint("The whole army holds. Squads fight anyone who comes close.")
+
+
+func _on_army() -> void:
+	selected_squad = null
+	_hint("Orders go to the whole army.")
 
 
 func _on_retreat() -> void:
@@ -185,6 +283,21 @@ func _reset_retreat_label() -> void:
 func _hint(text: String) -> void:
 	if hint_label != null:
 		hint_label.text = text
+
+
+func _name(type: String) -> String:
+	return Troops.display_name(type)
+
+
+func _describe(sq) -> String:
+	var text := "Enemy %s · %d men" % [_name(sq.type).to_lower(), sq.alive_count()]
+	if sq.level > 1:
+		text += " · Lv%d" % sq.level
+	if sq.routing:
+		text += " · running"
+	elif sim.phase == Sim.PHASE_BATTLE:
+		text += " · %d%% morale" % maxi(0, int(sq.morale))
+	return "%s. %s" % [text, Troops.stats(sq.type)["blurb"]]
 
 
 # ---------------------------------------------------------------- results
@@ -212,14 +325,13 @@ func _float_text(text: String, at: Vector2, color: Color) -> void:
 
 func _show_result() -> void:
 	_result_shown = true
-	selected_card = -1
+	selected_id = -1
 	selected_squad = null
 	_pending_result = sim.result_for(Sim.PLAYER)
 	var won: bool = _pending_result["won"]
 	var reasons := {
-		"banner": ["The enemy banner has fallen.", "Your banner has fallen."],
 		"rout": ["Their army broke and fled.", "Your army broke and fled."],
-		"time": ["Time ran out with you holding more of the field.", "Time ran out with them holding more of the field."],
+		"time": ["Time ran out with more of your army still standing.", "Time ran out with more of theirs still standing."],
 		"retreat": ["The enemy withdrew.", "You pulled your army off the field."],
 	}
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
@@ -252,7 +364,12 @@ func _build_hud() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.theme = Style.make_theme()
 	layer.add_child(hud)
-	_card_selected_box = Style.box(Style.RAISED.lightened(0.12), Style.BRASS, 3)
+	_card_styles = {
+		"normal": _card_box(Style.RAISED, Style.RULE, 2),
+		"hover": _card_box(Style.RAISED.lightened(0.06), Style.MUTED, 2),
+		"selected": _card_box(Style.RAISED.lightened(0.12), Style.BRASS, 3),
+		"placed": _card_box(Style.PANEL, Style.PLAYER_DARK, 2),
+	}
 
 	var top := PanelContainer.new()
 	top.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Color(0, 0, 0, 0), 0, 0))
@@ -262,20 +379,19 @@ func _build_hud() -> void:
 	var top_row := HBoxContainer.new()
 	top_row.add_theme_constant_override("separation", 10)
 	top.add_child(top_row)
-	top_row.add_child(Style.label("Field battle", 24, Style.BRASS))
-	timer_label = Style.label("3:00", 28)
-	timer_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	timer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	top_row.add_child(timer_label)
-	advance_button = Button.new()
-	advance_button.text = "Advance"
-	advance_button.custom_minimum_size = Vector2(130, 52)
-	advance_button.pressed.connect(_on_advance)
-	top_row.add_child(advance_button)
-	retreat_button = Button.new()
-	retreat_button.text = "Retreat"
-	retreat_button.custom_minimum_size = Vector2(120, 52)
-	retreat_button.pressed.connect(_on_retreat)
+	title_label = Style.label("Deploy", 24, Style.BRASS)
+	top_row.add_child(title_label)
+	status_label = Style.label("", 22)
+	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	top_row.add_child(status_label)
+	auto_button = _button("Auto-place", Vector2(140, 56), _on_auto)
+	top_row.add_child(auto_button)
+	fight_button = _button("Fight", Vector2(120, 56), _on_fight)
+	Style.make_primary(fight_button)
+	top_row.add_child(fight_button)
+	retreat_button = _button("Retreat", Vector2(110, 56), _on_retreat)
 	top_row.add_child(retreat_button)
 
 	var bottom := PanelContainer.new()
@@ -284,49 +400,59 @@ func _build_hud() -> void:
 	bottom.anchor_bottom = 1.0
 	bottom.anchor_right = 1.0
 	bottom.offset_top = -BOTTOM_PANEL
+	bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	hud.add_child(bottom)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)
 	bottom.add_child(col)
 
-	var meter_row := HBoxContainer.new()
-	meter_row.add_theme_constant_override("separation", 12)
-	col.add_child(meter_row)
-	meter_row.add_child(Style.label("Command", 20, Style.MUTED))
-	meter_bar = ProgressBar.new()
-	meter_bar.max_value = Sim.MAX_POINTS
-	meter_bar.show_percentage = false
-	meter_bar.custom_minimum_size = Vector2(0, 24)
-	meter_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	meter_bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	meter_row.add_child(meter_bar)
-	meter_label = Style.label("5 / 10", 20)
-	meter_label.custom_minimum_size = Vector2(72, 0)
-	meter_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	meter_row.add_child(meter_label)
-
-	var cards_row := HBoxContainer.new()
-	cards_row.add_theme_constant_override("separation", 8)
-	col.add_child(cards_row)
-	for i in Sim.HAND_SIZE:
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(0, 116)
+	# Deployment: one card per squad in the warband.
+	deploy_box = GridContainer.new()
+	deploy_box.columns = CARD_COLUMNS
+	deploy_box.add_theme_constant_override("h_separation", 8)
+	deploy_box.add_theme_constant_override("v_separation", 8)
+	col.add_child(deploy_box)
+	var card_height := 78.0 if _cards.size() <= CARD_COLUMNS * 2 else 52.0
+	for i in _cards.size():
+		var b := _button("", Vector2(0, card_height), _on_card.bind(i))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.add_theme_font_size_override("font_size", 19)
+		b.add_theme_font_size_override("font_size", 17)
 		b.clip_text = true
-		b.pressed.connect(_on_card.bind(i))
-		cards_row.add_child(b)
+		deploy_box.add_child(b)
 		card_buttons.append(b)
 
-	var info_row := HBoxContainer.new()
-	info_row.add_theme_constant_override("separation", 12)
-	col.add_child(info_row)
-	hint_label = Style.label("Tap a card, then tap your half of the field to deploy it.", 18, Style.MUTED)
+	# Battle: who the orders go to, and the two orders.
+	battle_box = VBoxContainer.new()
+	battle_box.add_theme_constant_override("separation", 10)
+	col.add_child(battle_box)
+	var orders_row := HBoxContainer.new()
+	orders_row.add_theme_constant_override("separation", 12)
+	battle_box.add_child(orders_row)
+	orders_label = Style.label("", 20)
+	orders_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	orders_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	orders_row.add_child(orders_label)
+	strength_label = Style.label("", 20, Style.MUTED)
+	orders_row.add_child(strength_label)
+	var buttons_row := HBoxContainer.new()
+	buttons_row.add_theme_constant_override("separation", 10)
+	battle_box.add_child(buttons_row)
+	advance_button = _button("Advance all", Vector2(0, 84), _on_advance)
+	advance_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	advance_button.add_theme_font_size_override("font_size", 26)
+	Style.make_primary(advance_button)
+	buttons_row.add_child(advance_button)
+	hold_button = _button("Hold all", Vector2(0, 84), _on_hold)
+	hold_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hold_button.add_theme_font_size_override("font_size", 26)
+	buttons_row.add_child(hold_button)
+	army_button = _button("Whole army", Vector2(150, 84), _on_army)
+	army_button.add_theme_font_size_override("font_size", 20)
+	buttons_row.add_child(army_button)
+
+	hint_label = Style.label("", 18, Style.MUTED)
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	info_row.add_child(hint_label)
-	reserve_label = Style.label("", 18, Style.MUTED)
-	info_row.add_child(reserve_label)
+	col.add_child(hint_label)
 
 	result_panel = PanelContainer.new()
 	result_panel.anchor_left = 0.5
@@ -348,51 +474,97 @@ func _build_hud() -> void:
 	result_body.custom_minimum_size = Vector2(520, 0)
 	result_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rv.add_child(result_body)
-	var back := Button.new()
-	back.text = "Back to camp"
-	back.custom_minimum_size = Vector2(0, 72)
+	var back := _button("Back to camp", Vector2(0, 72), _back_to_camp)
 	Style.make_primary(back)
-	back.pressed.connect(_back_to_camp)
 	rv.add_child(back)
 
 
-func _refresh_hud() -> void:
-	var left := maxf(0.0, Sim.TIME_LIMIT - sim.time)
-	timer_label.text = "%d:%02d" % [floori(left / 60.0), int(left) % 60]
-	var pts: float = sim.points[Sim.PLAYER]
-	meter_bar.value = pts
-	meter_label.text = "%d / %d" % [floori(pts), int(Sim.MAX_POINTS)]
+func _button(text: String, min_size: Vector2, callback: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = min_size
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(callback)
+	return b
 
-	var cards: Array = sim.hand(Sim.PLAYER)
-	if selected_card >= cards.size():
-		selected_card = -1
+
+func _card_box(bg: Color, border: Color, width: int) -> StyleBoxFlat:
+	var sb := Style.box(bg, border, width)
+	sb.content_margin_left = 6.0
+	sb.content_margin_right = 6.0
+	return sb
+
+
+func _refresh_hud() -> void:
+	var deploying := sim.phase == Sim.PHASE_DEPLOY
+	deploy_box.visible = deploying
+	auto_button.visible = deploying
+	fight_button.visible = deploying
+	battle_box.visible = not deploying
+	retreat_button.disabled = sim.winner != -1
+	if deploying:
+		_refresh_deploy()
+	else:
+		_refresh_battle()
+
+
+func _refresh_deploy() -> void:
+	var left: int = sim.reserves[Sim.PLAYER].size()
+	title_label.text = "Deploy"
+	status_label.text = "%d of %d placed" % [_cards.size() - left, _cards.size()]
+	auto_button.disabled = left == 0 or sim.winner != -1
+	fight_button.disabled = left > 0 or sim.winner != -1
 	for i in card_buttons.size():
 		var b: Button = card_buttons[i]
-		if i >= cards.size():
-			b.visible = false
-			continue
-		var e: Dictionary = cards[i]
-		var type: String = e["type"]
+		var e: Dictionary = _cards[i]
 		var level: int = e["level"]
-		b.visible = true
-		b.text = "%s\n%d men%s\nCost %d" % [Troops.display_name(type), e["men"], "" if level <= 1 else " · Lv%d" % level, Troops.cost(type)]
-		b.modulate = Color(1, 1, 1, 1) if sim.can_afford(Sim.PLAYER, i) else Color(1, 1, 1, 0.5)
-		if i == selected_card:
-			b.add_theme_stylebox_override("normal", _card_selected_box)
-			b.add_theme_stylebox_override("hover", _card_selected_box)
-		else:
-			b.remove_theme_stylebox_override("normal")
-			b.remove_theme_stylebox_override("hover")
+		b.text = "%s\n%d men%s" % [_name(e["type"]), e["men"], "" if level <= 1 else " · Lv%d" % level]
+		var picked: bool = e["roster_id"] == selected_id
+		var placed: bool = sim.placed_squad(Sim.PLAYER, e["roster_id"]) != null
+		var style: StyleBox = _card_styles["normal"]
+		if picked:
+			style = _card_styles["selected"]
+		elif placed:
+			style = _card_styles["placed"]
+		b.add_theme_stylebox_override("normal", style)
+		b.add_theme_stylebox_override("hover", style if picked else _card_styles["hover"])
+		var ink := Style.MUTED if placed and not picked else Style.TEXT
+		b.add_theme_color_override("font_color", ink)
+		b.add_theme_color_override("font_hover_color", ink)
 
-	var extra: int = sim.reserves[Sim.PLAYER].size() - cards.size()
-	if extra > 0:
-		reserve_label.text = "+%d in reserve" % extra
-	elif cards.size() > 0:
-		reserve_label.text = "Last squads"
+
+func _refresh_battle() -> void:
+	title_label.text = "Battle"
+	var left := maxf(0.0, Sim.TIME_LIMIT - sim.time)
+	status_label.text = "%d:%02d" % [floori(left / 60.0), int(left) % 60]
+	strength_label.text = "You %d · Them %d" % [sim.men_on_field(Sim.PLAYER), sim.men_on_field(Sim.ENEMY)]
+	var sq = selected_squad
+	if sq != null:
+		orders_label.text = "%s · %d men · %d%% morale · %s" % [
+			_name(sq.type), sq.alive_count(), maxi(0, int(sq.morale)), ORDER_WORDS.get(sq.order, sq.order)]
+		advance_button.text = "Advance"
+		hold_button.text = "Hold"
 	else:
-		reserve_label.text = "All deployed"
-	advance_button.visible = selected_squad != null
-	retreat_button.disabled = sim.winner != -1
+		orders_label.text = "Whole army · " + _order_summary()
+		advance_button.text = "Advance all"
+		hold_button.text = "Hold all"
+	army_button.visible = sq != null
+	advance_button.disabled = sim.winner != -1
+	hold_button.disabled = sim.winner != -1
+
+
+## "5 holding · 2 advancing" for the squads you still have fighting.
+func _order_summary() -> String:
+	var counts := {}
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active():
+			var word: String = ORDER_WORDS.get(sq.order, sq.order)
+			counts[word] = int(counts.get(word, 0)) + 1
+	var parts := PackedStringArray()
+	for word in ORDER_WORDS.values():
+		if counts.has(word):
+			parts.append("%d %s" % [counts[word], word])
+	return "none left" if parts.is_empty() else " · ".join(parts)
 
 
 # ---------------------------------------------------------------- drawing
@@ -405,8 +577,6 @@ func _draw() -> void:
 	for c in sim.corpses:
 		var dark := Style.PLAYER_DARK if c["team"] == Sim.PLAYER else Style.ENEMY_DARK
 		draw_circle(c["pos"], 5.0, Color(dark, 0.5))
-	_draw_banner(sim.banners[Sim.PLAYER])
-	_draw_banner(sim.banners[Sim.ENEMY])
 	_draw_orders()
 	for sq in sim.squads:
 		_draw_men(sq)
@@ -414,9 +584,6 @@ func _draw() -> void:
 		var to: Vector2 = p.aim - p.pos
 		if to.length() > 0.01:
 			draw_line(p.pos, p.pos - to.normalized() * 11.0, ARROW_COLOR, 2.0)
-	var placed: Array = []
-	for sq in sim.squads:
-		_draw_flag(sq, placed)
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -432,46 +599,35 @@ func _draw_field() -> void:
 		y += band
 		i += 1
 	draw_dashed_line(Vector2(0.0, Sim.MID_Y), Vector2(w, Sim.MID_Y), Color(1, 1, 1, 0.35), 3.0, 14.0)
-	if selected_card != -1:
-		var zone := Rect2(30.0, Sim.MID_Y + 50.0, w - 60.0, Sim.ARENA.y - 100.0 - (Sim.MID_Y + 50.0))
-		draw_rect(zone, Color(Style.PLAYER, 0.2))
-		draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.8), false, 3.0)
+	if sim.phase == Sim.PHASE_DEPLOY and sim.winner == -1:
+		var zone := sim.deploy_zone(Sim.PLAYER)
+		var picking := selected_id != -1
+		draw_rect(zone, Color(Style.PLAYER, 0.22 if picking else 0.12))
+		draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.85 if picking else 0.4), false, 3.0)
+		draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
 	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
 
 
-func _draw_banner(b) -> void:
-	var base: Vector2 = b.pos
-	var mine: bool = b.team == Sim.PLAYER
-	var col := Style.PLAYER if mine else Style.ENEMY
-	var light := Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT
-	draw_circle(base + Vector2(0, 8), 34.0, Color(0, 0, 0, 0.2))
-	if b.alive:
-		draw_line(base + Vector2(0, 16), base + Vector2(0, -50), Style.BRASS, 4.0)
-		var flag := PackedVector2Array([
-			base + Vector2(2, -50), base + Vector2(46, -44), base + Vector2(32, -32),
-			base + Vector2(46, -20), base + Vector2(2, -24)])
-		draw_colored_polygon(flag, col.lerp(Color.WHITE, b.flash * 0.6))
-		flag.append(flag[0])
-		draw_polyline(flag, light, 2.0)
-	else:
-		draw_line(base + Vector2(-30, 12), base + Vector2(30, 2), Style.BRASS.darkened(0.4), 4.0)
-	var bw := 120.0
-	var bar := Rect2(base.x - bw * 0.5, base.y + 22.0, bw, 8.0)
-	draw_rect(bar, Color(0, 0, 0, 0.6))
-	draw_rect(Rect2(bar.position, Vector2(bw * b.hp / b.max_hp, 8.0)), light)
-
-
 func _draw_orders() -> void:
-	var sq = selected_squad
-	if sq == null or not sq.is_active():
+	if sim.phase != Sim.PHASE_BATTLE:
 		return
-	var from: Vector2 = sq.average_pos()
-	if sq.order == "move" or sq.order == "hold":
-		var to: Vector2 = sq.order_point
-		draw_dashed_line(from, to, Style.BRASS, 3.0, 12.0)
+	# A faint ring marks the ground each of your holding squads is keeping.
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active() and sq.order == "hold" and sq != selected_squad:
+			draw_arc(sq.order_point, 12.0, 0.0, TAU, 20, Color(Style.BRASS, 0.45), 2.0)
+	var sel = selected_squad
+	if sel == null or not sel.is_active():
+		return
+	var from: Vector2 = sel.average_pos()
+	if sel.order == "move" or sel.order == "hold":
+		var to: Vector2 = sel.order_point
+		if from.distance_to(to) > 20.0:
+			draw_dashed_line(from, to, Style.BRASS, 3.0, 12.0)
 		draw_arc(to, 16.0, 0.0, TAU, 24, Style.BRASS, 3.0)
-	elif sq.order == "attack" and sq.order_target != null and sq.order_target.is_active():
-		draw_dashed_line(from, sq.order_target.average_pos(), Style.ENEMY_LIGHT, 3.0, 12.0)
+	elif sel.order == "attack" and sel.order_target != null and sel.order_target.is_active():
+		draw_dashed_line(from, sel.order_target.average_pos(), Style.ENEMY_LIGHT, 3.0, 12.0)
+	elif sel.order == "advance" and sel.focus != null and sel.focus.is_active():
+		draw_dashed_line(from, sel.focus.average_pos(), Color(Style.ENEMY_LIGHT, 0.6), 2.0, 10.0)
 
 
 func _draw_men(sq) -> void:
@@ -482,7 +638,7 @@ func _draw_men(sq) -> void:
 	if sq.routing:
 		col = col.lerp(Color(0.8, 0.8, 0.8), 0.55)
 	var r: float = float(sq.stats["radius"]) * BODY_SCALE
-	var selected: bool = sq == selected_squad
+	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
 	for so in sq.soldiers:
 		if not so.alive:
 			continue
@@ -505,36 +661,6 @@ func _draw_men(sq) -> void:
 			draw_arc(p, r + 1.5, f.angle() - 0.9, f.angle() + 0.9, 8, light, 2.0)
 		if selected:
 			draw_arc(p, r + 3.5, 0.0, TAU, 16, Style.BRASS, 2.0)
-
-
-## Flags stack upward instead of covering each other when squads crowd together.
-func _draw_flag(sq, placed: Array) -> void:
-	if sq.alive_count() == 0:
-		return
-	var mine: bool = sq.team == Sim.PLAYER
-	var p: Vector2 = sq.average_pos() + Vector2(0, -46)
-	var w := 78.0
-	var h := 28.0
-	var rect := Rect2(p.x - w * 0.5, p.y - h * 0.5, w, h)
-	for attempt in 6:
-		var clear := true
-		for other in placed:
-			if other.intersects(rect.grow(3.0)):
-				clear = false
-				break
-		if clear:
-			break
-		rect.position.y -= h + 8.0
-	placed.append(rect)
-	draw_rect(rect, Color(Style.NIGHT, 0.85))
-	draw_rect(Rect2(rect.position, Vector2(6, h)), Style.PLAYER if mine else Style.ENEMY)
-	if sq == selected_squad:
-		draw_rect(rect, Style.BRASS, false, 2.0)
-	var label := "%s %d" % [String(sq.stats["short"]), sq.alive_count()]
-	draw_string(font, Vector2(rect.position.x + 11.0, rect.position.y + 21.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.TEXT)
-	var m := clampf(float(sq.morale) / 100.0, 0.0, 1.0)
-	draw_rect(Rect2(rect.position.x, rect.end.y + 2.0, w, 4.0), Color(0, 0, 0, 0.6))
-	draw_rect(Rect2(rect.position.x, rect.end.y + 2.0, w * m, 4.0), Style.ENEMY_LIGHT if sq.routing else Style.BRASS)
 
 
 func _draw_floaters() -> void:
