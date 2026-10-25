@@ -101,6 +101,17 @@ static func culture_of(faction: String) -> String:
 	return String(FACTIONS[faction]["culture"])
 
 
+## "Capital of the Kingdom of Vardmark, seat of King Aldwin · Vardish": what a place is,
+## whose it is, and who lives there.
+static func describe(id: String) -> String:
+	var s := settlement(id)
+	var faction: Dictionary = FACTIONS[s["faction"]]
+	var line := "%s of the %s" % [String(s["type"]).capitalize(), faction["name"]]
+	if s["type"] == TOWN and faction["capital"] == id:
+		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
+	return "%s · %s" % [line, Cultures.info(culture_of(s["faction"]))["people"]]
+
+
 static func capital_of_culture(culture: String) -> String:
 	for f in FACTIONS:
 		if FACTIONS[f]["culture"] == culture:

@@ -12,6 +12,9 @@ const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const Cultures = preload("res://scripts/data/cultures.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
+const Economy = preload("res://scripts/data/economy.gd")
 
 const PLANS := ["advance", "hold", "tactician"]
 ## The tactician's line fights braced this long after the first clash before the rest go
@@ -156,3 +159,93 @@ static func _horse_near(sim, sq, dist: float) -> bool:
 		if foe.team != sq.team and foe.is_active() and foe.type == Troops.CAVALRY and foe.avg.distance_to(sq.avg) < dist:
 			return true
 	return false
+
+
+# ---------------------------------------------------------------- campaigns
+
+## A scripted campaign of `days` days, settling every fight with auto-resolve: ride at
+## the nearest bandit band; in towns, reinforce, train, and hire while under the squad
+## cap with silver to spare; buy food anywhere when it runs low. Returns how it went:
+## {silver, men, squads, renown, fights, won, desertion_days, broke_days}.
+static func campaign(seed_value: int, days: int) -> Dictionary:
+	const GameStateScript = preload("res://scripts/game_state.gd")
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.rng.seed = seed_value
+	gs.new_campaign(Cultures.ORDER[seed_value % 3])
+	var w = gs.world
+	var fights := 0
+	var won := 0
+	var desertion_days := 0
+	var broke_days := 0
+	var lowest_men := gs.total_men()
+	var guard := 0
+	while w.hour < days * 24.0 and guard < 50000 and gs.total_men() > 0:
+		guard += 1
+		gs.map_notice = ""
+		if w.encounter != -1:
+			fights += 1
+			if gs.auto_resolve_encounter().get("won", false):
+				won += 1
+		elif not w.busy():
+			var here: String = w.here()
+			if here != "":
+				_shop(gs, here)
+			var target := ""
+			var best := INF
+			for b in w.bands():
+				var at: String = b.next if b.moving() else b.node
+				var h: float = w.hours_to(at)
+				if at != here and h < best:
+					best = h
+					target = at
+			# Short of men or food: stop at the nearest town first.
+			if gs.food_days() < 2 or (gs.is_wounded() and gs.silver > gs.daily_wages() * 2 + 100 and not w.player_in_town()):
+				target = _nearest_town(w)
+			if target == "" or target == here or not w.travel(target):
+				w.wait(4.0)
+		var day_before: int = int(w.hour / 24.0)
+		gs.advance(1.0)
+		if gs.map_notice.contains("left the warband"):
+			desertion_days += 1
+		if int(w.hour / 24.0) != day_before and gs.silver < 20:
+			broke_days += 1
+		lowest_men = mini(lowest_men, gs.total_men())
+	var out := {"silver": gs.silver, "men": gs.total_men(), "squads": gs.army.size(), "renown": gs.renown,
+		"fights": fights, "won": won, "desertion_days": desertion_days, "broke_days": broke_days,
+		"lowest_men": lowest_men, "cap": gs.squad_cap()}
+	gs.free()
+	return out
+
+
+static func _shop(gs, here: String) -> void:
+	var w = gs.world
+	# Keep two days' wages in hand; spend the rest.
+	var reserve: int = gs.daily_wages() * 2
+	if gs.food_days() < 4:
+		var want: int = gs.total_men() * 5 - gs.food
+		while want > 0 and not gs.buy_food(want):
+			want /= 2
+	# A new squad when renown allows one and there's silver to keep it.
+	var offers: Array = w.offers_at(here)
+	if gs.army.size() < gs.squad_cap() and not offers.is_empty():
+		var cost := Economy.recruit_cost(offers[0]["type"], Troops.full_size(offers[0]["type"]))
+		if gs.silver - reserve - cost > 250:
+			gs.hire(here, 0)
+	if w.player_in_town():
+		for s in gs.army.duplicate():
+			if gs.can_train(s) and gs.silver - reserve > 300:
+				gs.train_squad(int(s["id"]))
+		gs.reinforce(maxi(0, gs.silver - reserve))
+
+
+static func _nearest_town(w) -> String:
+	var best := ""
+	var best_h := INF
+	for id in WorldData.SETTLEMENTS:
+		if WorldData.SETTLEMENTS[id]["type"] == WorldData.TOWN:
+			var h: float = 0.0 if id == w.here() else w.hours_to(id)
+			if h < best_h:
+				best_h = h
+				best = id
+	return best

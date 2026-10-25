@@ -2,7 +2,7 @@
 
 *Working title.* Real-time squad battles sized for a phone, inside a sandbox campaign in the spirit of Mount & Blade, set in an invented world. Built with **Godot 4.7** in GDScript, targeting iPhone first, with Steam and Android from the same project.
 
-This slice is the start of a campaign: pick a people, ride the map of the Glass Sea, and fight the bandits on its roads in real-time battles. Your warband carries over between battles: the men you lose stay lost until you reinforce in a town, and squads that kill earn levels.
+This slice is the start of a campaign: pick a people, ride the map of the Glass Sea, and fight the bandits on its roads in real-time battles, or send your men in without you. Your warband carries over between battles and has to be paid and fed: the men you lose stay lost until you pay to reinforce them in a town, bandit bounties and spoils keep the purse full, squads that kill can be trained, and renown lets you lead more squads.
 
 ## What's in it
 
@@ -11,8 +11,10 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 - **The Glass Sea.** An invented inland sea shared by three realms: the **Kingdom of Vardmark** on the northwest shore (stone keeps and armored knights), the **Sultanate of Kharzan** across the southern deserts (walled cities and swift riders), and the **Ryumon Shogunate** on the islands beyond the eastern strait (disciplined archers and spearmen). Twelve settlements, towns, castles and villages, joined by roads and three sea lanes.
 - **Choose your people.** A new campaign starts with a choice of culture. Your captains take its names, your companies its words ("Brann's Pikes", "Tariq's Spears", "Hideo's Yari"), your troops its names (Men-at-arms, Askari, Samurai), and you start at its capital. Cultures fight alike for now; their stats will differ later.
 - **Ride the roads.** Tap a settlement to see it and ride there. Time passes only while you ride or wait, an hour a second (two at 2x), and stops the moment anything needs you. Sea lanes are slower than roads. Drag to look around, pinch or scroll to zoom, double-tap to find your party.
-- **Bandits.** A band roams the villages of each realm. When one blocks your road you can fight, in a full battle against an army led by captains of that realm, or withdraw to the last settlement you passed. A beaten band is gone; another rises in its realm a day later. If they beat you, your survivors regroup at your capital half a day later.
-- **Settlements.** Wait for a few hours anywhere; rest and reinforce in towns.
+- **Bandits.** A band roams the villages of each realm. When one blocks your road you can lead the fight, in a full battle against an army led by captains of that realm; send your men in without you, settled on the spot at the cost of a few more men; or withdraw to the last settlement you passed. Your scouts size up the fight first: who's stronger, and about how many men you'd lose sending them in. A beaten band is gone; another rises in its realm a day later. If they beat you, your survivors regroup at your capital half a day later, and the band keeps only the men it had left.
+- **Silver, food and wages.** You start with 400 silver and five days of food. Every day costs each man a ration and his wages (more for archers, more again for horse, half again for each level of training). Men who go unpaid or hungry desert, about one in ten a day, fewer if you're only a little short, and the map tells you when it happens. The top bar shows your silver, how many days of food you have and your renown, in red when you're running short.
+- **Spoils and renown.** Beating a band pays a bounty plus silver and food for every man cut down, and wins renown. You can lead six squads at first, and one more for every 60 renown, up to twelve.
+- **Settlements.** Enter any settlement to buy food (cheapest in villages) and hire the recruits looking for work: a full squad of fresh men of that place's own culture under a captain of their own, so a Vardish warband can field Ryumon archers. Villages raise foot and bows, castles spears and horse, towns anything; recruits taken come back three days later. In a town you can also refill your squads (fresh men water down a squad's experience) and train squads that have earned it to the next level, which makes their men tougher and deadlier and raises their wages. Wait for a few hours anywhere.
 - **Saved as you go**, on the device (`user://campaign.json`): after every arrival, encounter and battle, and every few seconds on the road. Continue from the title screen.
 
 ### The battles
@@ -60,27 +62,31 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scenes/title.tscn` | The title screen: Continue or New campaign. The main scene. |
 | `scenes/new_campaign.tscn` | Choose your people. |
 | `scenes/world_map.tscn` | The map of the Glass Sea: travel, settlements, encounters. |
-| `scenes/main_menu.tscn` | The Warband screen: squads, captains, bonds, the fallen, reinforcing. |
+| `scenes/settlement.tscn` | A settlement: buy food, hire recruits, reinforce and train. |
+| `scenes/main_menu.tscn` | The Warband screen: purse, squads, captains, bonds, the fallen, reinforcing. |
 | `scenes/battle.tscn` | The battle screen. |
 | `scripts/data/troops.gd` | Troop stats, the counter bonuses, abilities and veterancy. **Tune the game here.** |
 | `scripts/battle/battle_sim.gd` | Battle rules as pure logic: deployment, orders, movement, combat, morale, win conditions. No drawing. |
 | `scripts/battle/commander_ai.gd` | The computer's commanders: how each temperament lines up, when it commits, and how it uses abilities. |
+| `scripts/battle/auto_resolve.gd` | Settles a fight without playing it, from each side's strength. Fitted to the battle sim; the tests check they still agree. |
 | `scripts/battle/battle_screen.gd` | Drawing, touch input and the HUD. Reads the sim; never changes the rules. |
 | `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and grass at startup. |
 | `scripts/art/sprite_data.gd` | The pixel art itself, as rows of palette letters. Generated: don't edit by hand. |
 | `tools/unit_sprites.py` | Where the pixel art is drawn. Edit this, then run `python3 tools/unit_sprites.py preview/` to regenerate `sprite_data.gd` and a preview sheet. |
 | `scripts/data/captains.gd` | Captain traits, the death roll and bond ranks. Tune the odds here. |
+| `scripts/data/economy.gd` | Prices, wages, food, desertion, spoils, renown and the squad cap. **Tune the campaign's pace here.** |
 | `scripts/data/cultures.gd` | The three cultures: names, colors, captain name pools, and what each calls its troops. |
 | `scripts/world/world_data.gd` | The map as data: factions, settlements, roads, sea lanes, coastlines and bandit bands. |
 | `scripts/world/world_sim.gd` | The world as pure logic: the clock, travel by road, bandits, encounters, saving. No drawing. |
 | `scripts/world/map_screen.gd` | Draws the map and turns taps into travel. Reads the world sim; never changes the rules. |
+| `scripts/world/settlement_screen.gd` | The settlement screen. Shows prices and passes taps to the campaign; never changes the rules. |
 | `scripts/ui/heraldry.gd` | Flags and troop glyphs, shared by the battle's standards and the map's pennants. |
-| `scripts/game_state.gd` | The campaign (an autoload): your culture, the warband, the world, battle results and the save file. |
+| `scripts/game_state.gd` | The campaign (an autoload): your culture, the warband, its purse, food and renown, hiring and training, daily upkeep, battle results and the save file. |
 | `scripts/ui/style.gd` | Shared colors and UI theme. |
 | `tests/run_tests.gd` | Headless checks of the rules. |
-| `tests/plans.gd` | Scripted players for the balance check. |
+| `tests/plans.gd` | Scripted players for the balance check, and a scripted campaign for the economy check. |
 
-The rules don't touch the screen, in battles and on the map alike, so both sims can be tested headless, and the battle sim can be reused when the map auto-resolves small fights. Battles take and return plain data: an army goes in as `[{id, type, men, xp}]`, and `result_for()` hands back survivors and kills per squad.
+The rules don't touch the screen, in battles and on the map alike, so both sims can be tested headless. Battles take and return plain data: an army goes in as `[{id, type, men, xp, level}]`, and `result_for()` hands back survivors and kills per squad. Auto-resolve returns the same shape, so a fight you send your men into lands on the warband exactly like one you led.
 
 ## Tests
 
@@ -92,16 +98,17 @@ godot --headless --script res://tests/run_tests.gd
 
 On a Mac, `godot` is the binary inside the app: `/Applications/Godot.app/Contents/MacOS/Godot`.
 
-To smoke-test the whole loop, run the game with `-- --autoplay`: it starts a Vardish campaign, rides at the nearest bandits, lets the computer fight both sides of the battle, returns to the map, does that twice, and quits.
+To smoke-test the whole loop, run the game with `-- --autoplay`: it starts a Vardish campaign, rides at the nearest bandits, lets the computer fight both sides of the battle, returns to the map, sends the men in against the next band, then enters the next settlement it reaches, buys food, hires and reinforces, and quits.
 
-It checks the deployment rules (no placing in the enemy half, squads dropped on each other get nudged apart, Auto-place fits everyone, the clock waits for *Fight*), that *Hold* keeps a squad in place and *Advance* sends it forward, that archers run out of arrows, the tactics (only a pinned squad can be flanked; horse in the rear of a pinned squad break it sooner and lose fewer riders; a braced line wins the even fight it receives; horse sent at archers ride around the spears in front of them), each ability, that each kind of enemy commander behaves as its scouts say, the cultures (each warband's captains and companies come from its own culture, and it starts at its capital), the world (every settlement reaches every other by road, settlements and roads lie on land and sea lanes cross water, travel takes exactly the time the map says, the clock stands still when you do, a band on the road stops you and the clock, a beaten band comes back a day later in its own realm, a saved world loads back exactly and carries on exactly as the original, sixty days of riding never puts two bands in one realm, and battle results reach the map), that each counter wins its duel at least 80% of the time, that mirror matches are close to even, that full AI-vs-AI battles finish with an army breaking and last about a minute, and that every man is accounted for in the battle result. It takes a few minutes and exits with code 1 if anything fails.
+It checks the deployment rules (no placing in the enemy half, squads dropped on each other get nudged apart, Auto-place fits everyone, the clock waits for *Fight*), that *Hold* keeps a squad in place and *Advance* sends it forward, that archers run out of arrows, the tactics (only a pinned squad can be flanked; horse in the rear of a pinned squad break it sooner and lose fewer riders; a braced line wins the even fight it receives; horse sent at archers ride around the spears in front of them), each ability, that each kind of enemy commander behaves as its scouts say, the cultures (each warband's captains and companies come from its own culture, and it starts at its capital), the world (every settlement reaches every other by road, settlements and roads lie on land and sea lanes cross water, travel takes exactly the time the map says, the clock stands still when you do, a band on the road stops you and the clock, a beaten band comes back a day later in its own realm, a saved world loads back exactly and carries on exactly as the original, sixty days of riding never puts two bands in one realm, and battle results reach the map), the economy (a day costs a day's wages and a ration a man; hungry or unpaid men desert in proportion to the shortfall; hiring brings a full squad of the offering place's culture, only where you stand and only under the squad cap, which renown raises; offers come back after three days; reinforcing costs silver and waters down experience; training raises level and wages; spoils and renown are paid; a band that beats you keeps only its survivors), auto-resolve (the side it reckons stronger wins the full battle at least 85% of the time over sixteen random battles, with about the same losses; every man is accounted for; men sent in without you lose more; captains can fall), six scripted 30-day campaigns that settle every fight unled (`Plans.campaign`: every warband lasts the month without dropping below 50 men, rarely deserts or goes broke, makes a name, and most grow), that each counter wins its duel at least 80% of the time, that mirror matches are close to even, that full AI-vs-AI battles finish with an army breaking and last about a minute, and that every man is accounted for in the battle result. It takes a few minutes and exits with code 1 if anything fails.
 
 Add `-- --balance` to also fight three scripted players against every kind of commander, twelve battles each (`tests/plans.gd`): one who presses *Advance all* and nothing else, one who holds all battle, and a tactician who receives the charge braced, uses volleys and shield walls, and sends the horse into flanks. It checks that skill pays: *Advance all* wins about half the time at most, the tactician at least 70% (it takes about five minutes more).
 
 ## Roadmap
 
 - [x] One battle that plays well on a phone
-- [ ] Persistent army depth: recruiting in towns, wounded, upgrades, a cost to reinforce
-- [ ] War map: towns and castles, AI lords on the move, auto-resolve for minor fights
+- [x] A world to ride: three cultures around the Glass Sea, travel, bandits on the roads
+- [x] Reasons to ride: silver, food and wages, recruiting by culture, training, renown, auto-resolve
+- [ ] War map: AI lords on the move, towns and castles that change hands
 - [ ] Kingdoms and diplomacy: war, peace, alliances, tribute
 - [ ] Sieges, an art and sound pass, then Steam early access and the App Store

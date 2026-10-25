@@ -20,6 +20,7 @@ const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
+const Economy = preload("res://scripts/data/economy.gd")
 
 const TOP_BAR := 96.0
 const CHIP_H := 84.0
@@ -334,7 +335,7 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_hint("Tap the blue zone to place %s, %d %s." % [_card_name(e), e["men"], _name(e["type"]).to_lower()])
+			_hint("Tap the blue zone to place %s, %d %s." % [_card_name(e), e["men"], _name(e["type"], Sim.PLAYER, e["roster_id"]).to_lower()])
 			return
 	_hint("Your whole army is on the field. Tap a squad to move it, then press Fight.")
 
@@ -498,9 +499,13 @@ func _hint(text: String) -> void:
 
 # ---------------------------------------------------------------- words
 
-## What a troop type is called on one side: in your culture's words, or the enemy's.
-func _name(type: String, team: int = Sim.PLAYER) -> String:
-	return Cultures.troop_name(GameState.culture if team == Sim.PLAYER else _enemy_culture, type)
+## What a troop type is called on one side: in the enemy's words, or for one of your
+## squads in the words of the culture it was raised in (yours unless you hired it abroad).
+func _name(type: String, team: int = Sim.PLAYER, roster_id: int = -1) -> String:
+	if team != Sim.PLAYER:
+		return Cultures.troop_name(_enemy_culture, type)
+	var culture := String(_squad_record(roster_id).get("culture", GameState.culture))
+	return Cultures.troop_name(culture, type)
 
 
 ## "Brann's Shields, led by Brann of Ostmark (Vengeful, Lucky). Bonds: Mira (B)."
@@ -517,7 +522,7 @@ func _card_story(e: Dictionary) -> String:
 	var squad := _squad_record(e["roster_id"])
 	var c = squad.get("captain")
 	if c == null:
-		return "%s have no captain." % squad.get("name", _name(e["type"]))
+		return "%s have no captain." % squad.get("name", _name(e["type"], Sim.PLAYER, e["roster_id"]))
 	if int(c.get("wounded", 0)) > 0:
 		return "%s is wounded and sits this one out (%d more). %s fight without a captain." % [c["name"], c["wounded"], squad["name"]]
 	return "%s, led by %s (%s)%s." % [squad["name"], c["name"], Captains.traits(c), _bond_text(c)]
@@ -525,7 +530,7 @@ func _card_story(e: Dictionary) -> String:
 
 func _card_name(e: Dictionary) -> String:
 	var name := String(_squad_record(e["roster_id"]).get("name", ""))
-	return name if name != "" else "your " + _name(e["type"]).to_lower()
+	return name if name != "" else "your " + _name(e["type"], Sim.PLAYER, e["roster_id"]).to_lower()
 
 
 func _bond_text(c: Dictionary) -> String:
@@ -554,7 +559,7 @@ func _company_or_type(sq) -> String:
 		var name := _company(sq.roster_id)
 		if name != "":
 			return name
-		return "Your " + _name(sq.type).to_lower()
+		return "Your " + _name(sq.type, Sim.PLAYER, sq.roster_id).to_lower()
 	return "The enemy " + _name(sq.type, Sim.ENEMY).to_lower()
 
 
@@ -718,7 +723,7 @@ func _show_result() -> void:
 	pause_panel.visible = false
 	selected_id = -1
 	selected_squad = null
-	_pending_result = sim.result_for(Sim.PLAYER)
+	_pending_result = _result()
 	var won: bool = _pending_result["won"]
 	var reasons := {
 		"rout": ["Their army broke and fled.", "Your army broke and fled."],
@@ -729,6 +734,9 @@ func _show_result() -> void:
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
 	var text := "%s\nYou lost %d men and cut down %d." % [why, _pending_result["lost"], _pending_result["killed"]]
+	if won and GameState.has_campaign() and not GameState.pending_battle.is_empty():
+		var got := Economy.spoils(int(_pending_result["killed"]))
+		text += "\nSpoils: %d silver, %d rations, %d renown." % [got["silver"], got["food"], got["renown"]]
 	var fates: Array = GameState.describe_result(_pending_result)
 	if not fates.is_empty():
 		text += "\n\n" + "\n".join(PackedStringArray(fates))
@@ -738,12 +746,20 @@ func _show_result() -> void:
 		get_tree().create_timer(0.8).timeout.connect(_back_to_camp)
 
 
+## Your side's result, plus what's left of the enemy, so a band that beats you stays
+## weakened on the map.
+func _result() -> Dictionary:
+	var r := sim.result_for(Sim.PLAYER)
+	r["enemy_squads"] = sim.result_for(Sim.ENEMY)["squads"]
+	return r
+
+
 func _back_to_camp() -> void:
 	if _left_battle:
 		return
 	_left_battle = true
 	if _pending_result.is_empty():
-		_pending_result = sim.result_for(Sim.PLAYER)
+		_pending_result = _result()
 	var campaign: bool = GameState.has_campaign() and not GameState.pending_battle.is_empty()
 	GameState.apply_result(_pending_result)
 	if autoplay:
@@ -968,7 +984,7 @@ func _refresh_battle() -> void:
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
-			title = _name(sq.type)
+			title = _name(sq.type, Sim.PLAYER, sq.roster_id)
 		var state: String = ORDER_WORDS.get(sq.order, sq.order)
 		if sq.wheeling:
 			state = "wheeling"
@@ -1055,7 +1071,7 @@ func _draw_chip(i: int) -> void:
 	var dim := 0.45 if out else 1.0
 	_draw_flag(b, Vector2(8, 8), Vector2(28, 21), Sim.PLAYER, String(e["type"]), out, false, 0.0)
 	var c = _squad_record(e["roster_id"]).get("captain")
-	var who := _name(e["type"])
+	var who := _name(e["type"], Sim.PLAYER, e["roster_id"])
 	if c != null:
 		who = String(c["first"]) + ("*" if int(c.get("wounded", 0)) > 0 else "")
 	var men: int = e["men"] if sq == null else sq.alive_count()

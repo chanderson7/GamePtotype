@@ -273,7 +273,7 @@ func _to_entries(army: Array) -> Array:
 			"roster_id": id,
 			"type": String(entry["type"]),
 			"men": men,
-			"level": Troops.level_for(int(entry.get("xp", 0))),
+			"level": int(entry.get("level", Troops.level_for(int(entry.get("xp", 0))))),
 			"name": String(entry.get("name", "")),
 			"captain": captain,
 		})

@@ -49,6 +49,11 @@ func _build() -> void:
 		col.add_child(Style.label("%s · day %d · near %s" % [people, int(w.hour) / 24 + 1, where], Style.BODY, Style.MUTED))
 	else:
 		col.add_child(Style.label(people, Style.BODY, Style.MUTED))
+	var days := GameState.food_days()
+	var purse := Style.label("%d silver · food for %s · %d renown" % [GameState.silver,
+		"1 day" if days == 1 else "%d days" % days, GameState.renown], Style.BODY, Style.TEXT)
+	purse.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(purse)
 
 	var last: Dictionary = GameState.last_result
 	if not last.is_empty():
@@ -59,8 +64,9 @@ func _build() -> void:
 		col.add_child(last_label)
 
 	col.add_child(_section("Your warband"))
-	col.add_child(Style.label("%d men in %d squads · %d battles, %d won" % [
-		GameState.total_men(), GameState.army.size(), GameState.battles, GameState.wins], Style.SMALL, Style.MUTED))
+	col.add_child(_note("%d men in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
+		GameState.total_men(), GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
+		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]))
 	var roster := VBoxContainer.new()
 	roster.add_theme_constant_override("separation", 8)
 	col.add_child(roster)
@@ -95,20 +101,33 @@ func _build() -> void:
 	col.add_child(back)
 
 	# Fresh men are found in towns.
-	if w == null or w.player_in_town():
+	if GameState.in_town():
+		var total := 0
+		var cheapest := 0
+		for s in GameState.army:
+			var cost := GameState.reinforce_cost(s)
+			total += cost
+			if cost > 0 and (cheapest == 0 or cost < cheapest):
+				cheapest = cost
 		var rest := Button.new()
-		rest.text = "Rest and reinforce"
+		rest.text = "Reinforce all · %d silver" % total if total > 0 else "Every squad is at full strength"
 		rest.custom_minimum_size = Vector2(0, Style.TOUCH)
-		rest.disabled = not GameState.is_wounded()
+		rest.disabled = total == 0 or cheapest > GameState.silver
 		rest.pressed.connect(_on_reinforce)
 		col.add_child(rest)
 	else:
-		col.add_child(_note("Ride to a town to rest and reinforce."))
+		col.add_child(_note("Ride to a town to reinforce and train."))
 
 	col.add_child(_section("How to play"))
 	var how := Style.label(
 		"On the map, tap a settlement to ride there. Time passes only while you ride or wait. " +
-		"Bandits roam each realm: when they block the road, fight them or withdraw.\n\n" +
+		"Bandits roam each realm: when they block the road, lead the fight, send your men in without " +
+		"you (quicker, but it costs more men), or withdraw.\n\n" +
+		"Every day costs wages and a ration a man. Men who go unpaid or hungry desert. Beating a band " +
+		"pays a bounty and spoils and wins renown, and renown lets you lead more squads. Buy food " +
+		"anywhere, cheapest in villages. Hire the recruits each place offers: a town's are of every " +
+		"kind, and foreign recruits fight just as well under their own captains. In a town, refill " +
+		"your squads and train the ones that have earned it.\n\n" +
 		"Before the fight, place your whole army in the blue zone: tap a card, then the field, " +
 		"or tap Auto-place. Your scouts tell you what kind of commander you face. Press Fight when you're ready.\n\n" +
 		"Your squads hold, braced, until ordered, and a braced line wins the first clash: often the " +
@@ -137,7 +156,7 @@ func _squad_row(s: Dictionary) -> Control:
 	var type: String = s["type"]
 	var full := Troops.full_size(type)
 	var men: int = s["men"]
-	var level := Troops.level_for(int(s["xp"]))
+	var level := int(s.get("level", 1))
 	var panel := PanelContainer.new()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -148,7 +167,7 @@ func _squad_row(s: Dictionary) -> Control:
 	text.add_theme_constant_override("separation", 2)
 	row.add_child(text)
 	var title := String(s.get("name", ""))
-	text.add_child(Style.label(title if title != "" else Cultures.troop_name(GameState.culture, type), Style.BODY))
+	text.add_child(Style.label(title if title != "" else Cultures.troop_name(String(s.get("culture", GameState.culture)), type), Style.BODY))
 	var c = s.get("captain")
 	var who: Label
 	if c == null:
@@ -160,7 +179,9 @@ func _squad_row(s: Dictionary) -> Control:
 	who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who.custom_minimum_size = Vector2(10, 0)
 	text.add_child(who)
-	if level > 1:
+	if GameState.can_train(s):
+		row.add_child(Style.label("Lv%d+" % level, Style.SMALL, Style.BRASS))
+	elif level > 1:
 		row.add_child(Style.label("Lv%d" % level, Style.SMALL, Style.BRASS))
 	row.add_child(Style.label("%d/%d" % [men, full], Style.BODY, Style.TEXT if men >= full else Style.ENEMY_LIGHT))
 	return panel

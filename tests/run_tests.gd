@@ -15,10 +15,16 @@ const Plans = preload("res://tests/plans.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
+const Economy = preload("res://scripts/data/economy.gd")
+const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 
 const DUEL_SEEDS := 12
 const BATTLE_SEEDS := 6
 const BALANCE_SEEDS := 12
+## Battles of the full sim that auto-resolve is checked against, and scripted campaigns.
+const CALIBRATION_BATTLES := 16
+const CAMPAIGN_SEEDS := 6
+const CAMPAIGN_DAYS := 30
 
 var failures := 0
 
@@ -61,6 +67,19 @@ func _init() -> void:
 	_check_death_roll()
 	_check_bonds_and_grief()
 	_check_camp_memory()
+
+	print("Economy:")
+	_check_upkeep()
+	_check_hiring()
+	_check_drill()
+	_check_spoils()
+
+	print("Auto-resolve:")
+	_check_auto_resolve()
+	_check_auto_encounter()
+
+	print("Scripted campaigns, settling every fight unled (%d days, %d seeds):" % [CAMPAIGN_DAYS, CAMPAIGN_SEEDS])
+	_check_campaigns()
 
 	print("Counter duels (one squad each, %d seeds):" % DUEL_SEEDS)
 	_check_counter(Troops.SPEARMEN, Troops.CAVALRY)
@@ -815,6 +834,257 @@ func _check_camp_memory() -> void:
 	_expect(is_equal_approx(float(c3["bonds"][str(c4["id"])]), float(c4["bonds"][str(c3["id"])])) and float(c3["bonds"][str(c4["id"])]) > 0.0,
 		"bond points are shared by both captains")
 	gs.free()
+
+
+# ---------------------------------------------------------------- economy
+
+## A new campaign at the capital, with the bandits cleared off the roads.
+func _economy_campaign(seed_value: int):
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.rng.seed = seed_value
+	gs.new_campaign(Cultures.VARDISH)
+	gs.world.parties = [gs.world.player()]
+	return gs
+
+
+## A day standing still.
+func _pass_day(gs) -> void:
+	gs.map_notice = ""
+	gs.world.wait(24.0)
+	gs.advance(24.0)
+
+
+func _check_upkeep() -> void:
+	var gs = _economy_campaign(21)
+	var men: int = gs.total_men()
+	_expect(gs.silver == Economy.START_SILVER and gs.food_days() == Economy.START_FOOD_DAYS and gs.army.size() == 5 \
+			and gs.squad_cap() == Economy.SQUADS_BASE,
+		"a new warband has %d silver, %d days of food and five squads, and may lead %d" % [gs.silver, gs.food_days(), gs.squad_cap()])
+	var wages: int = gs.daily_wages()
+	var silver: int = gs.silver
+	var food: int = gs.food
+	_pass_day(gs)
+	_expect(gs.silver == silver - wages and gs.food == food - men and gs.total_men() == men and gs.map_notice == "",
+		"a day costs a day's wages (%d silver) and a ration a man, and nobody leaves" % wages)
+	gs.food = 0
+	_pass_day(gs)
+	var left: int = men - gs.total_men()
+	_expect(left >= int(men * Economy.DESERTION * 0.5) and left <= int(ceil(men * Economy.DESERTION * 1.5)) \
+			and gs.map_notice.contains("hungry"),
+		"with nothing to eat about one man in ten deserts a day (%d of %d), and the map says so" % [left, men])
+	men = gs.total_men()
+	gs.food = men * 10
+	gs.silver = gs.daily_wages() / 2
+	_pass_day(gs)
+	var short: int = men - gs.total_men()
+	_expect(short > 0 and short < left and gs.silver == 0 and gs.map_notice.contains("unpaid"),
+		"half a day's wages loses fewer men (%d)" % short)
+	gs.free()
+
+
+func _check_hiring() -> void:
+	var gs = _economy_campaign(22)
+	gs.silver = 5000
+	var here: String = gs.world.here()
+	gs.world.offers[here] = [{"type": Troops.CAVALRY, "culture": Cultures.RYUMON}, {"type": Troops.ARCHERS, "culture": Cultures.VARDISH}]
+	var price := Economy.recruit_cost(Troops.CAVALRY, Troops.full_size(Troops.CAVALRY))
+	var hired: bool = gs.hire(here, 0)
+	var s: Dictionary = gs.army.back()
+	_expect(hired and gs.army.size() == 6 and s["type"] == Troops.CAVALRY and s["culture"] == Cultures.RYUMON \
+			and s["captain"]["culture"] == Cultures.RYUMON and int(s["men"]) == Troops.full_size(Troops.CAVALRY) and gs.silver == 5000 - price,
+		"hiring abroad brings a full squad of that land's men under a captain of their own, for %d silver" % price)
+	_expect(gs.world.offers_at(here).size() == 1 and not gs.hire(here, 0) and gs.army.size() == Economy.SQUADS_BASE,
+		"with no renown you lead %d squads and no more" % Economy.SQUADS_BASE)
+	gs.renown = Economy.RENOWN_PER_SQUAD
+	_expect(gs.squad_cap() == Economy.SQUADS_BASE + 1 and gs.hire(here, 0) and Economy.squad_cap(100000) == Economy.MAX_SQUADS,
+		"renown raises the cap, a squad for every %d, up to %d" % [Economy.RENOWN_PER_SQUAD, Economy.MAX_SQUADS])
+	gs.renown = 100000
+	gs.world.offers["khalun"] = [{"type": Troops.ARCHERS, "culture": Cultures.KHARZANI}]
+	_expect(gs.world.offers_at(here).is_empty() and not gs.hire(here, 0) and not gs.hire("khalun", 0),
+		"an offer taken is gone, and you hire only where you stand")
+	gs.world.wait(Economy.OFFER_REFRESH_HOURS + 1.0)
+	gs.advance(Economy.OFFER_REFRESH_HOURS + 1.0)
+	_expect(not gs.world.offers_at(here).is_empty(), "new recruits turn up %d hours later" % int(Economy.OFFER_REFRESH_HOURS))
+	gs.free()
+
+
+func _check_drill() -> void:
+	var gs = _economy_campaign(23)
+	gs.silver = 5000
+	var s: Dictionary = gs.army[0]
+	var full := Troops.full_size(s["type"])
+	s["men"] = full / 2
+	s["xp"] = Troops.XP_PER_LEVEL
+	var cost: int = gs.reinforce_cost(s)
+	_expect(cost == Economy.recruit_cost(s["type"], full - full / 2) and gs.reinforce() == cost and gs.silver == 5000 - cost \
+			and int(s["men"]) == full and int(s["xp"]) == Troops.XP_PER_LEVEL / 2,
+		"reinforcing pays %d silver for %d fresh men, who water down the squad's experience" % [cost, full - full / 2])
+	s["xp"] = Troops.XP_PER_LEVEL
+	var wage := Economy.daily_wage(s)
+	var price := Economy.train_cost(s)
+	var silver: int = gs.silver
+	_expect(gs.can_train(s) and gs.train_squad(int(s["id"])) and int(s["level"]) == 2 and gs.silver == silver - price \
+			and is_equal_approx(Economy.daily_wage(s), wage * (1.0 + Economy.WAGE_PER_LEVEL)),
+		"training to level 2 costs %d silver, and half again in wages" % price)
+	s["xp"] = Troops.XP_PER_LEVEL * 2
+	_expect(gs.can_train(s) and absi(Economy.train_cost(s) - price * 2) <= 1 and not gs.can_train(gs.army[1]),
+		"the next level costs twice as much, and needs the experience")
+	var hours: float = gs.world.hours_to("kettlebrook")
+	gs.world.travel("kettlebrook")
+	gs.advance(hours + 0.01)
+	s["men"] = full - 2
+	_expect(gs.world.here() == "kettlebrook" and not gs.reinforce_squad(int(s["id"])) and not gs.train_squad(int(s["id"])),
+		"in a village there's nobody to reinforce or drill you")
+	gs.free()
+
+
+func _check_spoils() -> void:
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.rng.seed = 24
+	gs.new_campaign(Cultures.VARDISH)
+	var band = gs.world.bands()[0]
+	gs.world.encounter = band.id
+	gs.start_encounter_battle()
+	var silver: int = gs.silver
+	var food: int = gs.food
+	var got := Economy.spoils(30)
+	gs.apply_result({"won": true, "killed": 30, "squads": {}})
+	_expect(gs.silver == silver + got["silver"] and gs.food == food + got["food"] and gs.renown == got["renown"] \
+			and gs.map_notice.contains("Spoils"),
+		"beating a band of 30 pays %d silver, %d rations and %d renown" % [got["silver"], got["food"], got["renown"]])
+
+	band = gs.world.bands()[0]
+	gs.world.encounter = band.id
+	gs.start_encounter_battle()
+	var survivors := {}
+	for sq in band.army:
+		survivors[int(sq["id"])] = {"men": 0}
+	survivors[int(band.army[0]["id"])] = {"men": 3}
+	gs.apply_result({"won": false, "squads": {}, "enemy_squads": survivors})
+	_expect(gs.world.party(band.id) != null and band.army.size() == 1 and int(band.army[0]["men"]) == 3,
+		"a band that beats you keeps only the men it had left")
+	gs.free()
+
+
+# ---------------------------------------------------------------- auto-resolve
+
+## A random army for checking auto-resolve against the full sim: up to eight squads,
+## some worn down, some veteran. Small ones are bandit-sized.
+func _random_army(rng: RandomNumberGenerator, base_id: int, small: bool) -> Array:
+	var out := []
+	var n := rng.randi_range(3, 5) if small else rng.randi_range(2, 8)
+	for i in n:
+		var type: String = Troops.ORDER[rng.randi_range(0, 3)]
+		var men := rng.randi_range(8, 14) if small else maxi(4, int(Troops.full_size(type) * rng.randf_range(0.4, 1.0)))
+		var level: int = 1 if small else [1, 1, 1, 2, 2, 3][rng.randi_range(0, 5)]
+		out.append({"id": base_id + i, "type": type, "men": men, "xp": (level - 1) * Troops.XP_PER_LEVEL, "level": level,
+			"captain": Captains.make(rng, base_id * 100 + i, type)})
+	return out
+
+
+func _men(army: Array) -> int:
+	var n := 0
+	for s in army:
+		n += int(s["men"])
+	return n
+
+
+func _check_auto_resolve() -> void:
+	var agree := 0
+	# The share of its men the winner and the loser lost, summed: the full sim, auto-resolve.
+	var winner_lost := [0.0, 0.0]
+	var loser_lost := [0.0, 0.0]
+	var shape_ok := true
+	for i in CALIBRATION_BATTLES:
+		var seed_value := 9000 + i
+		var rng := RandomNumberGenerator.new()
+		rng.seed = seed_value * 977
+		var pa := _random_army(rng, 1, false)
+		var ea := _random_army(rng, 500, rng.randf() < 0.5)
+		var sim := Sim.new()
+		sim.setup(pa, ea, seed_value)
+		sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY, "Reckless")]
+		sim.ai[Sim.PLAYER].deploy(sim)
+		sim.ai[Sim.ENEMY].deploy(sim)
+		sim.start_battle()
+		while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
+			sim.step()
+		var sim_won := sim.winner == Sim.PLAYER
+		var mine := float(sim.result_for(Sim.PLAYER)["lost"]) / _men(pa)
+		var theirs := float(sim.result_for(Sim.ENEMY)["lost"]) / _men(ea)
+		sim.dispose()
+		winner_lost[0] += mine if sim_won else theirs
+		loser_lost[0] += theirs if sim_won else mine
+		var r := AutoResolve.resolve(pa, ea, rng, true)
+		var auto_mine := float(r["lost"]) / _men(pa)
+		var auto_theirs := float(r["killed"]) / _men(ea)
+		winner_lost[1] += auto_mine if r["won"] else auto_theirs
+		loser_lost[1] += auto_theirs if r["won"] else auto_mine
+		if AutoResolve.odds(pa, ea)["player_wins"] == sim_won:
+			agree += 1
+		var back := 0
+		for id in r["squads"]:
+			back += int(r["squads"][id]["men"])
+		if back + int(r["lost"]) != _men(pa) or r["squads"].size() != pa.size() or r["enemy_squads"].size() != ea.size():
+			shape_ok = false
+	var n := float(CALIBRATION_BATTLES)
+	_expect(agree >= int(ceil(n * 0.85)), "the stronger side by auto-resolve's reckoning wins the full battle (%d of %d)" % [agree, CALIBRATION_BATTLES])
+	_expect(absf(winner_lost[0] - winner_lost[1]) / n < 0.06 and absf(loser_lost[0] - loser_lost[1]) / n < 0.1,
+		"and the losses come out about the same: winners lose %.0f%% in battle, %.0f%% settled; losers %.0f%% and %.0f%%" % [
+			winner_lost[0] / n * 100.0, winner_lost[1] / n * 100.0, loser_lost[0] / n * 100.0, loser_lost[1] / n * 100.0])
+	_expect(shape_ok, "a settled fight accounts for every man, and every squad on both sides")
+
+	var mine_army := Plans.army(5)
+	var foes := Plans.army(6)
+	var led := 0
+	var unled := 0
+	var fell := 0
+	for k in 40:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = k
+		led += int(AutoResolve.resolve(mine_army, foes, rng, true)["lost"])
+		rng.seed = k
+		var r := AutoResolve.resolve(mine_army, foes, rng, false)
+		unled += int(r["lost"])
+		for id in r["squads"]:
+			if String(r["squads"][id].get("captain", {}).get("fate", "fine")) != "fine":
+				fell += 1
+	_expect(unled > led, "men sent in without you lose more (%d against %d over 40 even fights)" % [unled, led])
+	_expect(fell > 0, "captains can fall in a settled fight too (%d times in 40)" % fell)
+
+
+func _check_auto_encounter() -> void:
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.rng.seed = 25
+	gs.new_campaign(Cultures.KHARZANI)
+	var band = gs.world.bands()[0]
+	for sq in band.army:
+		sq["men"] = 2
+	gs.world.encounter = band.id
+	var silver: int = gs.silver
+	var r: Dictionary = gs.auto_resolve_encounter()
+	_expect(r.get("won", false) and gs.world.party(band.id) == null and gs.world.encounter == -1 and gs.silver > silver \
+			and gs.renown > 0 and gs.battles == 1,
+		"sending the men in against a broken band scatters it and pays the spoils")
+	gs.free()
+
+
+func _check_campaigns() -> void:
+	var all_ok := true
+	var grew := 0
+	for s in range(1, CAMPAIGN_SEEDS + 1):
+		var r := Plans.campaign(s, CAMPAIGN_DAYS)
+		print("  seed %d  %3d men in %d squads (cap %d), %3d silver, %3d renown; won %d of %d; deserters on %d days, broke on %d" % [
+			s, r["men"], r["squads"], r["cap"], r["silver"], r["renown"], r["won"], r["fights"], r["desertion_days"], r["broke_days"]])
+		if r["men"] == 0 or r["lowest_men"] < 50 or r["desertion_days"] > 4 or r["broke_days"] > 5 or r["renown"] < 200:
+			all_ok = false
+		if r["squads"] > 5:
+			grew += 1
+	_expect(all_ok, "every warband lasts the month, never below 50 men, rarely short of pay or food, and makes a name")
+	_expect(grew >= CAMPAIGN_SEEDS - 1, "and most grow (%d of %d lead more squads than they started with)" % [grew, CAMPAIGN_SEEDS])
 
 
 # ---------------------------------------------------------------- duels

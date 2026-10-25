@@ -2,8 +2,9 @@
 ## All rules live in world_sim.gd; this screen never moves anyone itself.
 ##
 ## Tap a settlement to see it and ride there. Time passes while you ride or wait: one
-## hour a second, or two at 2x. A bandit band on the road stops you; fight it or
-## withdraw. Drag to look around, pinch or scroll to zoom, double-tap to find your party.
+## hour a second, or two at 2x, and every day costs wages and food. A bandit band on the
+## road stops you: lead the fight, send your men in without you, or withdraw. Drag to
+## look around, pinch or scroll to zoom, double-tap to find your party.
 extends Node2D
 
 const WorldSim = preload("res://scripts/world/world_sim.gd")
@@ -11,8 +12,9 @@ const Data = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
+const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 
-const TOP_BAR := 96.0
+const TOP_BAR := 122.0
 ## Game hours that pass each real second at 1x.
 const HOURS_PER_SECOND := 1.0
 ## How far you can zoom: map units across the screen, most and fewest.
@@ -57,6 +59,7 @@ var _save_clock := 0.0
 
 var top_panel: PanelContainer
 var clock_label: Label
+var purse_label: Label
 var status_label: Label
 var speed_button: Button
 var warband_button: Button
@@ -75,9 +78,6 @@ func _ready() -> void:
 		return
 	if autoplay:
 		speed = 8.0
-		if GameState.autoplay_battles >= 2:
-			get_tree().quit.call_deferred()
-			return
 	_build_decor()
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
@@ -130,7 +130,7 @@ func _process(delta: float) -> void:
 		_autoplay()
 	# An encounter or a note about the last battle holds the clock until it's answered.
 	if world.busy() and _sheet != "encounter" and _sheet != "notice":
-		world.step(delta * speed * HOURS_PER_SECOND)
+		GameState.advance(delta * speed * HOURS_PER_SECOND)
 		_save_clock += delta
 		if _save_clock > 5.0:
 			_save_clock = 0.0
@@ -144,14 +144,26 @@ func _process(delta: float) -> void:
 				GameState.save_game()
 				_open_encounter()
 	world.events.clear()
+	# Men deserting on the road: say so, and hold the clock while the player reads it.
+	if GameState.map_notice != "" and _sheet != "encounter" and _sheet != "notice":
+		_open_notice(GameState.map_notice, "On the road")
+		GameState.map_notice = ""
 	_refresh_hud()
 	queue_redraw()
 
 
-## The smoke test: ride at the nearest band, fight it, twice.
+## The smoke test: ride at the nearest band and fight it, send the men in against the
+## next, then go into the next settlement you reach and spend there.
 func _autoplay() -> void:
 	if _sheet == "encounter":
-		_on_fight()
+		if GameState.autoplay_battles == 0:
+			_on_fight()
+		else:
+			GameState.autoplay_battles += 1
+			_on_send_in()
+		return
+	if _sheet == "here" and GameState.autoplay_battles >= 2:
+		_on_enter()
 		return
 	if _sheet == "notice" or _sheet == "here":
 		_close_sheet()
@@ -302,6 +314,10 @@ func _build_hud() -> void:
 	row.add_child(col)
 	clock_label = Style.label("", Style.BODY, Style.BRASS)
 	col.add_child(clock_label)
+	purse_label = Style.label("", Style.SMALL, Style.TEXT)
+	purse_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	purse_label.custom_minimum_size = Vector2(10, 0)
+	col.add_child(purse_label)
 	status_label = Style.label("", Style.SMALL, Style.MUTED)
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.custom_minimum_size = Vector2(10, 0)
@@ -375,17 +391,6 @@ func _close_sheet() -> void:
 	sheet_panel.visible = false
 
 
-func _describe_place(id: String) -> String:
-	var s := Data.settlement(id)
-	var faction: Dictionary = Data.FACTIONS[s["faction"]]
-	var kind := String(s["type"]).capitalize()
-	var line := "%s of the %s" % [kind, faction["name"]]
-	if s["type"] == Data.TOWN and faction["capital"] == id:
-		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
-	var people := String(Cultures.info(Data.culture_of(s["faction"]))["people"])
-	return "%s · %s" % [line, people]
-
-
 func _open_preview(id: String) -> void:
 	var hours: float = world.hours_to(id)
 	var sea := ""
@@ -395,7 +400,7 @@ func _open_preview(id: String) -> void:
 		if world.is_sea(a, b):
 			sea = ", partly by sea"
 		a = b
-	var body := "%s\n%s away%s." % [_describe_place(id), _hours_text(hours), sea]
+	var body := "%s\n%s away%s." % [Data.describe(id), _hours_text(hours), sea]
 	_show_sheet("preview", String(Data.settlement(id)["name"]), body,
 		[["Ride there", _on_travel.bind(id), true], ["Close", _close_sheet]])
 
@@ -406,14 +411,15 @@ func _open_here() -> void:
 		_close_sheet()
 		return
 	_selected = id
-	var buttons := [["Wait 8 hours", _on_wait]]
-	if world.player_in_town() and GameState.is_wounded():
-		buttons.append(["Rest and reinforce", _on_reinforce])
-	buttons.append(["Warband", _on_warband])
-	buttons.append(["Close", _close_sheet])
-	var body := "%s\nYou are here." % _describe_place(id)
-	if world.player_in_town() and not GameState.is_wounded():
-		body += " Your warband is at full strength."
+	var buttons := [["Enter", _on_enter, true], ["Wait", _on_wait], ["Warband", _on_warband], ["Close", _close_sheet]]
+	var offers: Array = world.offers_at(id)
+	var body := "%s\nYou are here. " % Data.describe(id)
+	if offers.is_empty():
+		body += "Nobody here is looking for work."
+	else:
+		body += "%d %s looking for work." % [offers.size(), "squad is" if offers.size() == 1 else "squads are"]
+	if world.player_in_town():
+		body += " Reinforce and train in town."
 	_show_sheet("here", String(Data.settlement(id)["name"]), body, buttons)
 
 
@@ -439,18 +445,35 @@ func _open_encounter() -> void:
 	var parts := PackedStringArray()
 	for k in kinds:
 		parts.append("%s (%d %s)" % [k, kinds[k], "squad" if kinds[k] == 1 else "squads"])
+	var fighters := []
+	for s in GameState.army:
+		if int(s["men"]) > 0:
+			fighters.append(s)
 	_show_sheet("encounter", "%s block the road" % b.name,
-		"%d squads, %d men: %s. Fight them, or withdraw to %s and lose the hours it takes." % [
-			b.army.size(), men, ", ".join(parts), Data.settlement(world.player().node)["name"]],
-		[["Fight", _on_fight, true], ["Withdraw", _on_withdraw]])
+		"%d squads, %d men: %s.\n%s\nLead the fight, send your men in without you, or withdraw to %s and lose the hours it takes." % [
+			b.army.size(), men, ", ".join(parts), _odds_text(AutoResolve.odds(fighters, b.army)),
+			Data.settlement(world.player().node)["name"]],
+		[["Fight", _on_fight, true], ["Send in", _on_send_in], ["Withdraw", _on_withdraw]])
 
 
-func _open_notice(text: String) -> void:
+## What your scouts make of a fight, from auto-resolve's reckoning.
+func _odds_text(odds: Dictionary) -> String:
+	var r: float = odds["ratio"]
+	var call: String
+	if odds["player_wins"]:
+		call = "they're no match for you" if r < 0.5 else ("you have the stronger force" if r < 0.85 else "it's close, with the edge to you")
+	else:
+		call = "you're badly outmatched" if r < 0.5 else ("they have the stronger force" if r < 0.85 else "it's close, with the edge to them")
+	var lost: int = odds["lost"]
+	return "Your scouts say %s. Sent in without you, you'd lose about %d %s." % [call, lost, "man" if lost == 1 else "men"]
+
+
+func _open_notice(text: String, title: String = "After the battle") -> void:
 	if GameState.total_men() == 0:
 		_show_sheet("notice", "Your warband is gone", text + " Raise a new one to ride again.",
 			[["New campaign", _on_new_campaign, true]])
 		return
-	_show_sheet("notice", "After the battle", text, [["Carry on", _on_notice_done, true]])
+	_show_sheet("notice", title, text, [["Carry on", _on_notice_done, true]])
 
 
 func _on_notice_done() -> void:
@@ -462,7 +485,8 @@ func _on_notice_done() -> void:
 func _hours_text(hours: float) -> String:
 	var h := int(ceil(hours))
 	if h >= 24:
-		return "%d days %d hours" % [h / 24, h % 24] if h % 24 != 0 else "%d days" % (h / 24)
+		var days := "1 day" if h / 24 == 1 else "%d days" % (h / 24)
+		return days if h % 24 == 0 else "%s %s" % [days, _hours_text(h % 24)]
 	return "%d hours" % h if h != 1 else "1 hour"
 
 
@@ -479,9 +503,9 @@ func _on_wait() -> void:
 		_close_sheet()
 
 
-func _on_reinforce() -> void:
-	GameState.reinforce()
-	_open_here()
+func _on_enter() -> void:
+	GameState.save_game()
+	get_tree().change_scene_to_file("res://scenes/settlement.tscn")
 
 
 func _on_warband() -> void:
@@ -495,8 +519,18 @@ func _on_fight() -> void:
 	get_tree().change_scene_to_file("res://scenes/battle.tscn")
 
 
+## Settle the fight at once, without the battle screen.
+func _on_send_in() -> void:
+	GameState.auto_resolve_encounter()
+	_close_sheet()
+	_open_notice(GameState.map_notice)
+	GameState.map_notice = ""
+
+
 func _on_withdraw() -> void:
 	world.withdraw()
+	# Riding back takes hours: pay for any day that ended on the way.
+	GameState.settle()
 	GameState.save_game()
 	_close_sheet()
 	_open_here()
@@ -514,6 +548,11 @@ func _refresh_hud() -> void:
 	var h := int(world.hour)
 	clock_label.text = "Day %d · %02d:00" % [h / 24 + 1, h % 24]
 	speed_button.text = "2×" if speed > 1.5 else "1×"
+	var days: int = GameState.food_days()
+	purse_label.text = "%d silver · food for %s · %d renown" % [GameState.silver,
+		"1 day" if days == 1 else "%d days" % days, GameState.renown]
+	var short: bool = days < 2 or GameState.silver < GameState.daily_wages()
+	purse_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if short else Style.TEXT)
 	var p = world.player()
 	if world.encounter != -1:
 		status_label.text = "Bandits block the road"

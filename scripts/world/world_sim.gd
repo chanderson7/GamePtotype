@@ -11,6 +11,7 @@ const Data = preload("res://scripts/world/world_data.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Troops = preload("res://scripts/data/troops.gd")
+const Economy = preload("res://scripts/data/economy.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -68,6 +69,10 @@ var respawns: Array = []
 var events: Array = []
 ## The id of the band blocking the player's road, or -1.
 var encounter := -1
+## Recruits each settlement offers: {settlement id: [{type, culture}]}, and the hour each
+## settlement's offers come back after any are taken.
+var offers := {}
+var offers_back := {}
 var _next_id := 1
 var _adjacent := {}
 
@@ -88,6 +93,8 @@ func setup(seed_value: int, player_culture: String) -> void:
 	parties.append(p)
 	for faction in Data.BANDIT_BANDS:
 		_spawn_band(faction)
+	for id in Data.SETTLEMENTS:
+		offers[id] = _new_offers(id)
 
 
 func _build_roads() -> void:
@@ -397,6 +404,50 @@ func _band_army(band_id: int, band_culture: String) -> Array:
 	return out
 
 
+# ---------------------------------------------------------------- recruits
+
+## Who will join you at `id`: squads of fresh recruits of the settlement's own culture.
+## Villages raise foot and bows, castles spears and horse, towns any of them. Offers that
+## were taken come back OFFER_REFRESH_HOURS later.
+func offers_at(id: String) -> Array:
+	if not offers.has(id) or hour >= float(offers_back.get(id, INF)):
+		offers[id] = _new_offers(id)
+		offers_back.erase(id)
+	return offers[id]
+
+
+func take_offer(id: String, index: int) -> Dictionary:
+	var list := offers_at(id)
+	if index < 0 or index >= list.size():
+		return {}
+	var offer: Dictionary = list[index]
+	list.remove_at(index)
+	if not offers_back.has(id):
+		offers_back[id] = hour + Economy.OFFER_REFRESH_HOURS
+	return offer
+
+
+func _new_offers(id: String) -> Array:
+	var s := Data.settlement(id)
+	var place_culture := Data.culture_of(s["faction"])
+	var kinds: Array
+	var count: int
+	match String(s["type"]):
+		Data.VILLAGE:
+			kinds = [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS]
+			count = rng.randi_range(1, 2)
+		Data.CASTLE:
+			kinds = [Troops.SPEARMEN, Troops.CAVALRY]
+			count = 1
+		_:
+			kinds = Troops.ORDER
+			count = rng.randi_range(2, 3)
+	var out := []
+	for i in count:
+		out.append({"type": kinds[rng.randi_range(0, kinds.size() - 1)], "culture": place_culture})
+	return out
+
+
 # ---------------------------------------------------------------- encounters
 
 ## You beat the band: it's gone, and another rises in its realm a day later. The player
@@ -426,6 +477,22 @@ func withdraw() -> void:
 		b.grace_until = hour + GRACE_HOURS
 
 
+## The band blocking the road takes its losses: `survivors` maps squad ids to the men
+## left ({id: {men}}). A band with nobody left is gone.
+func hurt_band(survivors: Dictionary) -> void:
+	var b := party(encounter)
+	if b == null or survivors.is_empty():
+		return
+	for sq in b.army:
+		var left = survivors.get(int(sq["id"]))
+		if left != null:
+			sq["men"] = int(left["men"])
+	b.army = b.army.filter(func(sq): return int(sq["men"]) > 0)
+	if b.army.is_empty():
+		parties.erase(b)
+		respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
+
+
 ## The band beat you: the survivors regroup at your culture's capital, half a day later.
 func lose_encounter() -> void:
 	var b := party(encounter)
@@ -453,6 +520,7 @@ func to_dict() -> Dictionary:
 		"hour": hour, "culture": culture, "encounter": encounter, "next_id": _next_id,
 		"seed": str(rng.seed), "state": str(rng.state),
 		"respawns": respawns.duplicate(true), "parties": ps,
+		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
 	}
 
 
@@ -466,6 +534,17 @@ func from_dict(d: Dictionary) -> void:
 	_next_id = int(d.get("next_id", 1))
 	rng.seed = int(String(d.get("seed", "0")))
 	rng.state = int(String(d.get("state", "0")))
+	offers = {}
+	var raw_offers = d.get("offers", {})
+	for id in raw_offers:
+		var list := []
+		for o in raw_offers[id]:
+			list.append({"type": String(o["type"]), "culture": String(o["culture"])})
+		offers[String(id)] = list
+	offers_back = {}
+	var raw_back = d.get("offers_back", {})
+	for id in raw_back:
+		offers_back[String(id)] = float(raw_back[id])
 	respawns = []
 	for r in d.get("respawns", []):
 		respawns.append({"faction": String(r["faction"]), "at": float(r["at"])})

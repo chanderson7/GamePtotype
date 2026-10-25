@@ -11,10 +11,14 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
+const Economy = preload("res://scripts/data/economy.gd")
+const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const SAVE_PATH := "user://campaign.json"
-const SAVE_VERSION := 2
+const SAVE_VERSION := 3
 
-## Each squad: {id, type, men, xp, name, captain}. A squad that loses every man is
+## Each squad: {id, type, men, xp, level, culture, name, captain}. Kills earn xp; xp
+## lets a squad be trained to the next level in a town. A squad's culture is where it
+## was raised, which names its men and its captain. A squad that loses every man is
 ## removed, unless its captain lived to raise it again.
 var army: Array = []
 ## The dead, newest last: {name, company, type, battles, kills, battle, words, bonds}.
@@ -22,6 +26,12 @@ var fallen: Array = []
 var battles := 0
 var wins := 0
 var last_result := {}
+## Coin, rations (one per man per day) and renown, which lets you lead more squads.
+var silver := 0
+var food := 0
+var renown := 0
+## The last day whose wages and food have been settled.
+var _paid_day := 0
 ## The player's culture: their captains' names and where they start.
 var culture := Cultures.VARDISH
 ## The world map, or null before a campaign has started.
@@ -69,25 +79,32 @@ func new_warband() -> void:
 	last_result = {}
 	_next_id = 1
 	_next_captain = 1
-	for type in [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.SPEARMEN, Troops.ARCHERS, Troops.ARCHERS, Troops.CAVALRY]:
+	renown = 0
+	_paid_day = 0
+	for type in [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.CAVALRY]:
 		army.append(_new_squad(type))
+	silver = Economy.START_SILVER
+	food = Economy.START_FOOD_DAYS * total_men()
 	save_game()
 
 
-func _new_squad(type: String) -> Dictionary:
-	var captain := _new_captain(type)
-	var squad := {"id": _next_id, "type": type, "men": Troops.full_size(type), "xp": 0,
-		"name": Captains.company_name(captain, type), "captain": captain}
+## A full squad of fresh recruits raised among `squad_culture` (yours by default), with
+## a captain of that culture.
+func _new_squad(type: String, squad_culture: String = "") -> Dictionary:
+	var c := squad_culture if squad_culture != "" else culture
+	var captain := _new_captain(type, c)
+	var squad := {"id": _next_id, "type": type, "men": Troops.full_size(type), "xp": 0, "level": 1,
+		"culture": c, "name": Captains.company_name(captain, type), "captain": captain}
 	_next_id += 1
 	return squad
 
 
-func _new_captain(type: String) -> Dictionary:
+func _new_captain(type: String, captain_culture: String = "") -> Dictionary:
 	var taken := []
 	for s in army:
 		if s.get("captain") != null:
 			taken.append(s["captain"]["first"])
-	var c := Captains.make(rng, _next_captain, type, taken, culture)
+	var c := Captains.make(rng, _next_captain, type, taken, captain_culture if captain_culture != "" else culture)
 	_next_captain += 1
 	return c
 
@@ -103,16 +120,185 @@ func is_wounded() -> bool:
 	for s in army:
 		if int(s["men"]) < Troops.full_size(s["type"]):
 			return true
-	return army.size() < 4
+	return false
 
 
-## Refill every squad. A placeholder for recruiting in towns on the war map.
-func reinforce() -> void:
+func squad_by_id(id: int) -> Dictionary:
 	for s in army:
-		s["men"] = Troops.full_size(s["type"])
-	while army.size() < 4:
-		army.append(_new_squad(Troops.ORDER[army.size() % Troops.ORDER.size()]))
+		if int(s["id"]) == id:
+			return s
+	return {}
+
+
+# ---------------------------------------------------------------- economy
+
+func squad_cap() -> int:
+	return Economy.squad_cap(renown)
+
+
+## Fresh men and drill masters are found in towns. Before a campaign starts there's no
+## map, and the warband can always refill.
+func in_town() -> bool:
+	return world == null or world.player_in_town()
+
+
+## Silver a day for the whole warband.
+func daily_wages() -> int:
+	var total := 0.0
+	for s in army:
+		total += Economy.daily_wage(s)
+	return int(ceil(total))
+
+
+## Days the food lasts at one ration per man.
+func food_days() -> int:
+	return food / maxi(1, total_men())
+
+
+## Silver to bring one squad back to full strength.
+func reinforce_cost(squad: Dictionary) -> int:
+	return Economy.recruit_cost(squad["type"], Troops.full_size(squad["type"]) - int(squad["men"]))
+
+
+## Refill one squad with fresh recruits, in a town, if you can pay. Fresh men water down
+## the squad's experience toward its next level, but never undo training it has paid for.
+func reinforce_squad(id: int) -> bool:
+	var s := squad_by_id(id)
+	if s.is_empty() or not in_town():
+		return false
+	var full := Troops.full_size(s["type"])
+	var cost := reinforce_cost(s)
+	if cost <= 0 or cost > silver:
+		return false
+	silver -= cost
+	s["xp"] = int(int(s["xp"]) * int(s["men"]) / float(full))
+	s["men"] = full
 	save_game()
+	return true
+
+
+## Refill every squad you can afford, in roster order, spending no more than `budget`
+## (all your silver if it's negative). Returns the silver spent.
+func reinforce(budget: int = -1) -> int:
+	var cap := silver if budget < 0 else mini(budget, silver)
+	var spent := 0
+	for s in army:
+		var cost := reinforce_cost(s)
+		if cost > 0 and spent + cost <= cap and reinforce_squad(int(s["id"])):
+			spent += cost
+	return spent
+
+
+## True if a squad has the experience for its next level and isn't at the top.
+func can_train(squad: Dictionary) -> bool:
+	var level := int(squad.get("level", 1))
+	return level < Troops.MAX_LEVEL and Troops.level_for(int(squad["xp"])) > level
+
+
+## Train a squad up a level, in a town. Each level makes its men tougher and deadlier,
+## and costs more in wages.
+func train_squad(id: int) -> bool:
+	var s := squad_by_id(id)
+	if s.is_empty() or not can_train(s) or not in_town():
+		return false
+	var cost := Economy.train_cost(s)
+	if cost > silver:
+		return false
+	silver -= cost
+	s["level"] = int(s.get("level", 1)) + 1
+	save_game()
+	return true
+
+
+## Hire the recruits offered where you stand, offer number `index`. Fails if you can't
+## pay or already lead as many squads as your renown allows.
+func hire(place: String, index: int) -> bool:
+	if world == null or world.here() != place or army.size() >= squad_cap():
+		return false
+	var offers: Array = world.offers_at(place)
+	if index < 0 or index >= offers.size():
+		return false
+	var offer: Dictionary = offers[index]
+	var cost := Economy.recruit_cost(offer["type"], Troops.full_size(offer["type"]))
+	if cost > silver:
+		return false
+	silver -= cost
+	world.take_offer(place, index)
+	army.append(_new_squad(String(offer["type"]), String(offer["culture"])))
+	save_game()
+	return true
+
+
+## Buy `rations` of food at the settlement you're in.
+func buy_food(rations: int) -> bool:
+	if world == null or world.here() == "":
+		return false
+	var cost := food_cost(rations)
+	if cost > silver or rations <= 0:
+		return false
+	silver -= cost
+	food += rations
+	save_game()
+	return true
+
+
+func food_cost(rations: int) -> int:
+	var kind := String(WorldData.settlement(world.here())["type"]) if world != null and world.here() != "" else "town"
+	return int(ceil(rations * float(Economy.FOOD_PRICE.get(kind, 0.3))))
+
+
+## Let time pass on the map, then settle wages and food for every day that ended.
+func advance(hours: float) -> void:
+	if world == null:
+		return
+	world.step(hours)
+	settle()
+
+
+## Pay wages and feed the men for each day that has ended since the last settling. Men
+## who go unpaid or hungry desert. Leaves a note for the map when that happens.
+func settle() -> void:
+	if world == null:
+		return
+	var today := int(world.hour / 24.0)
+	while _paid_day < today:
+		_paid_day += 1
+		_upkeep()
+
+
+## One day's wages and food. Whatever can't be paid or fed is a share of the men going
+## without, and up to DESERTION of them leave: a short day costs a few men, an empty
+## purse costs one man in ten.
+func _upkeep() -> void:
+	var men := total_men()
+	if men == 0:
+		return
+	var eaten := mini(food, men)
+	food -= eaten
+	var wages := daily_wages()
+	var paid := mini(silver, wages)
+	silver -= paid
+	var hungry := 1.0 - float(eaten) / men
+	var unpaid := 1.0 - float(paid) / maxf(1.0, wages)
+	var share := Economy.DESERTION * maxf(hungry, unpaid)
+	if share <= 0.0:
+		return
+	var left := 0
+	for s in army:
+		var m := int(s["men"])
+		var gone := mini(m - 1, int(round(m * share)))
+		if gone > 0:
+			s["men"] = m - gone
+			left += gone
+	if left == 0:
+		return
+	var why := "unpaid and hungry" if hungry > 0.0 and unpaid > 0.0 else ("unpaid" if unpaid > 0.0 else "hungry")
+	var fix := "Buy food in any settlement." if hungry > 0.0 else "Beat bandits for their spoils to pay the rest."
+	_note("End of day %d: %d men left the warband, %s. %s" % [_paid_day, left, why, fix])
+
+
+func _note(text: String) -> void:
+	map_notice = text if map_notice == "" else map_notice + "\n" + text
 
 
 func captain_by_id(id: int) -> Variant:
@@ -150,6 +336,21 @@ func start_encounter_battle() -> void:
 		"enemy": WorldSim.clean_army(band.army), "culture": WorldData.culture_of(band.faction),
 		"temperament": "Reckless", "name": band.name,
 	}
+
+
+## Send your men in without commanding them. The fight is settled at once, at the cost
+## of a few more men than a battle you lead well.
+func auto_resolve_encounter() -> Dictionary:
+	if world == null or world.encounter == -1:
+		return {}
+	start_encounter_battle()
+	var fighters := []
+	for s in army:
+		if int(s["men"]) > 0:
+			fighters.append(s)
+	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false)
+	apply_result(result)
+	return result
 
 
 ## A fresh enemy host that grows a little every other battle, led by its own captains.
@@ -234,6 +435,8 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 
 ## Apply a battle result from BattleSim.result_for(PLAYER).
 func apply_result(result: Dictionary) -> void:
+	# What became of each captain, in words, while the roster still names them.
+	var fates := describe_result(result)
 	battles += 1
 	var by_id: Dictionary = result.get("squads", {})
 	# Bonds first, while every captain who fought is still on the roster.
@@ -283,16 +486,26 @@ func apply_result(result: Dictionary) -> void:
 		wins += 1
 	if world != null and not pending_battle.is_empty():
 		var band := String(pending_battle.get("name", "The bandits"))
+		var how := "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
 		if result.get("won", false):
 			world.win_encounter()
-			map_notice = "%s are scattered. The road is clear." % band
+			var got := Economy.spoils(int(result.get("killed", 0)))
+			silver += int(got["silver"])
+			food += int(got["food"])
+			renown += int(got["renown"])
+			_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
+				band, how, got["silver"], got["food"], got["renown"]])
 		else:
+			world.hurt_band(result.get("enemy_squads", {}))
 			world.lose_encounter()
 			var home := String(WorldData.settlement(world.here())["name"])
 			if total_men() > 0:
-				map_notice = "%s beat you. The survivors regroup at %s, half a day later." % [band, home]
+				_note("%s beat you. %s The survivors regroup at %s, half a day later." % [band, how, home])
 			else:
-				map_notice = "%s cut down your whole warband." % band
+				_note("%s cut down your whole warband." % band)
+		for line in fates:
+			_note(line)
+		settle()
 	pending_battle = {}
 	last_result = {
 		"won": bool(result.get("won", false)),
@@ -331,6 +544,7 @@ func save_game() -> void:
 func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
 		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
+		"silver": silver, "food": food, "renown": renown, "paid_day": _paid_day,
 		"world": world.to_dict() if world != null else null}
 
 
@@ -351,6 +565,10 @@ func from_dict(data: Dictionary) -> bool:
 		world = WorldSim.new()
 		world.from_dict(data["world"])
 	battles = int(data.get("battles", 0))
+	silver = int(data.get("silver", Economy.START_SILVER))
+	food = int(data.get("food", -1))
+	renown = int(data.get("renown", 0))
+	_paid_day = int(data.get("paid_day", int(world.hour / 24.0) if world != null else 0))
 	wins = int(data.get("wins", 0))
 	_next_id = int(data.get("next_id", 1))
 	_next_captain = int(data.get("next_captain", 1))
@@ -360,7 +578,9 @@ func from_dict(data: Dictionary) -> bool:
 		if typeof(s) != TYPE_DICTIONARY or not Troops.TYPES.has(String(s.get("type", ""))):
 			continue
 		# JSON stores numbers as floats; keep ids and counts as ints so results match by key.
-		var squad := {"id": int(s.get("id", 0)), "type": String(s["type"]), "men": int(s.get("men", 0)), "xp": int(s.get("xp", 0)),
+		var xp := int(s.get("xp", 0))
+		var squad := {"id": int(s.get("id", 0)), "type": String(s["type"]), "men": int(s.get("men", 0)), "xp": xp,
+			"level": int(s.get("level", Troops.level_for(xp))), "culture": String(s.get("culture", culture)),
 			"name": String(s.get("name", "")), "captain": null}
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY:
@@ -376,6 +596,9 @@ func from_dict(data: Dictionary) -> bool:
 			s["captain"] = _new_captain(s["type"])
 		if s["name"] == "" and s["captain"] != null:
 			s["name"] = Captains.company_name(s["captain"], s["type"])
+	# And those saved before they needed feeding start with a new warband's rations.
+	if food < 0:
+		food = Economy.START_FOOD_DAYS * total_men()
 	return true
 
 
