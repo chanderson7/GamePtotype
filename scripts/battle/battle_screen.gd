@@ -172,12 +172,24 @@ func _ready() -> void:
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
 	else:
 		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
-		sim.setup(GameState.army, pending["enemy"], 0, site)
+		var obj: String = String(pending.get("objective", Sim.OBJECTIVE_ROUT))
+		sim.setup(GameState.army, pending["enemy"], 0, site, obj)
+		if pending.has("chief_name") and pending["chief_name"] != "":
+			sim.chief_name = String(pending["chief_name"])
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
 	# Bandits fight in their own realm; a battle off the map is fought in yours.
 	_biome = _enemy_culture if not pending.is_empty() else GameState.culture
 	_setup_terrain_visuals()
 	_scatter_doodads()
+	match sim.objective:
+		Sim.OBJECTIVE_CHIEF:
+			_push_ticker("OBJECTIVE: Slay the Bandit Chief (%s)!" % (sim.chief_name if sim.chief_name != "" else "Bandit Chief"), Style.GOLD)
+		Sim.OBJECTIVE_VILLAGE:
+			_push_ticker("OBJECTIVE: Hold the village square for 2 minutes!", Style.GOLD)
+		Sim.OBJECTIVE_AMBUSH:
+			_push_ticker("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
+		_:
+			_push_ticker("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	Sound.play_battle()
 	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY].deploy(sim)
@@ -1370,6 +1382,7 @@ func _draw() -> void:
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_scars()
 	_draw_zones()
+	_draw_objectives()
 	for c in sim.corpses:
 		var horse: bool = c.get("type", "") == Troops.CAVALRY
 		var p: Vector2 = c["pos"]
@@ -1640,6 +1653,48 @@ func _draw_zones() -> void:
 	draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
 
 
+func _draw_objectives() -> void:
+	if sim == null:
+		return
+	if sim.objective == Sim.OBJECTIVE_VILLAGE:
+		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
+		draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
+		draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, 0.0, TAU, 48, Color(Style.PLAYER_LIGHT, 0.75), 3.0)
+		if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
+			var remain := maxf(0.0, Sim.VILLAGE_DURATION - sim.time)
+			var mins := int(remain) / 60
+			var secs := int(remain) % 60
+			var time_str := "%d:%02d" % [mins, secs]
+			draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.MEDIUM, Style.GOLD)
+	if sim.objective == Sim.OBJECTIVE_CHIEF:
+		for sq in sim.squads:
+			if (sq.is_bodyguard or sq.is_chief) and sq.is_active():
+				var pulse := 0.5 + 0.5 * sin(_clock * 4.0)
+				var r := minf(sq.extent, 65.0) + 14.0 + pulse * 4.0
+				draw_arc(sq.average_pos(), r, 0.0, TAU, 36, Color(Style.GOLD, 0.7 + pulse * 0.3), 3.5)
+	for r in sim.scheduled_reinforcements:
+		if not r.get("spawned", false) and sim.time >= float(r.get("at_time", 0.0)) - 10.0:
+			var edge: String = String(r.get("edge", "north"))
+			var pt := Vector2(Sim.ARENA.x * 0.5, 40.0)
+			var dir := Vector2.DOWN
+			match edge:
+				"north":
+					pt = Vector2(Sim.ARENA.x * 0.5, 40.0)
+					dir = Vector2.DOWN
+				"south":
+					pt = Vector2(Sim.ARENA.x * 0.5, Sim.ARENA.y - 40.0)
+					dir = Vector2.UP
+				"east":
+					pt = Vector2(Sim.ARENA.x - 40.0, Sim.MID_Y)
+					dir = Vector2.LEFT
+				"west":
+					pt = Vector2(40.0, Sim.MID_Y)
+					dir = Vector2.RIGHT
+			var right := Vector2(-dir.y, dir.x)
+			var tip := pt + dir * 20.0
+			draw_colored_polygon(PackedVector2Array([tip, pt + right * 14.0, pt - right * 14.0]), Color(Style.ENEMY_LIGHT, 0.85))
+
+
 func _draw_stuck_arrows() -> void:
 	for a in sim.stuck_arrows:
 		var p: Vector2 = a["pos"]
@@ -1807,6 +1862,13 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		_std_tops[sq] = top
 	var edge := Style.BRASS if selected or sq.braced() else Color(0.06, 0.05, 0.08)
 	_draw_flag(self, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
+	if sq.is_bodyguard or sq.is_chief:
+		var crown_c := top + Vector2(FLAG.x * 0.5, -16.0)
+		draw_colored_polygon(PackedVector2Array([
+			crown_c + Vector2(-9, 5), crown_c + Vector2(-9, -4), crown_c + Vector2(-5, 0),
+			crown_c + Vector2(0, -7), crown_c + Vector2(5, 0), crown_c + Vector2(9, -4),
+			crown_c + Vector2(9, 5)
+		]), Style.GOLD)
 	if sq.routing or sim.phase != Sim.PHASE_BATTLE:
 		if not mine and ref_type != "":
 			_draw_counter_hint(top, sq.type, ref_type)

@@ -43,6 +43,15 @@ const FACE_RANGE := 280.0
 const COUNTER_PULL := 140.0
 ## An advancing squad only switches targets for one this much more attractive.
 const RETARGET_MARGIN := 80.0
+
+const OBJECTIVE_ROUT := "rout"
+const OBJECTIVE_CHIEF := "chief"
+const OBJECTIVE_AMBUSH := "ambush"
+const OBJECTIVE_VILLAGE := "village"
+
+const VILLAGE_ZONE_CENTER := Vector2(420.0, 630.0)
+const VILLAGE_ZONE_RADIUS := 160.0
+const VILLAGE_DURATION := 120.0
 ## Advancing squads keep to marching pace, so the army arrives together, until their
 ## target is this close; then they charge at full speed.
 const MARCH_SPEED := 38.0
@@ -116,6 +125,9 @@ class Squad:
 	var piercing := 0.0
 	var level := 1
 	var power := 1.0
+	var is_bodyguard := false
+	var is_chief := false
+	var chief_name := ""
 	var soldiers: Array = []
 	var start_men := 0
 	var center := Vector2.ZERO
@@ -261,6 +273,14 @@ var events: Array = []
 var ai: Array = [null, null]
 var winner := -1
 var end_reason := ""
+## Objective of this battle: "rout", "chief", "ambush", or "village".
+var objective := OBJECTIVE_ROUT
+var chief_name := ""
+var chief_killed := false
+var chief_escaped := false
+var chief_broken := false
+## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
+var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
 var terrain: RefCounted = null
 ## Seconds each pair of captains (key "id|id") spent fighting side by side.
@@ -276,11 +296,16 @@ var _used_cells: Array = []
 
 ## Armies are arrays of {id, type, men, xp}, the same shape GameState keeps.
 ## site_or_terrain can be a site Dictionary {type, seed, ...}, a Terrain object, or null.
-func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_terrain = null) -> void:
+func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_terrain = null, obj: String = OBJECTIVE_ROUT) -> void:
 	if seed_value != 0:
 		rng.seed = seed_value
 	else:
 		rng.randomize()
+	objective = obj
+	chief_killed = false
+	chief_escaped = false
+	chief_broken = false
+	scheduled_reinforcements.clear()
 	if site_or_terrain is Dictionary:
 		terrain = BattleSite.generate(site_or_terrain)
 	elif site_or_terrain != null:
@@ -289,10 +314,122 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 		terrain = Terrain.new()
 	armies = [_to_entries(player_army), _to_entries(enemy_army)]
 	reserves = [armies[PLAYER].duplicate(), armies[ENEMY].duplicate()]
+	if objective == OBJECTIVE_CHIEF:
+		_setup_chief()
+	elif objective == OBJECTIVE_VILLAGE:
+		_setup_village_waves()
+
+
+func set_objective(obj: String, c_name: String = "") -> void:
+	objective = obj
+	if c_name != "":
+		chief_name = c_name
+	if objective == OBJECTIVE_CHIEF:
+		_setup_chief()
+	elif objective == OBJECTIVE_VILLAGE:
+		_setup_village_waves()
 
 
 func set_terrain(t: RefCounted) -> void:
 	terrain = t
+
+
+func _setup_chief() -> void:
+	var found := false
+	for e in armies[ENEMY]:
+		if e.get("is_bodyguard", false) or e.get("is_chief", false):
+			found = true
+			if chief_name == "":
+				chief_name = String(e.get("chief_name", "Bandit Chief"))
+			break
+	if not found and not armies[ENEMY].is_empty():
+		var chief_entry: Dictionary = armies[ENEMY][0]
+		chief_entry["is_bodyguard"] = true
+		chief_entry["is_chief"] = true
+		if chief_name == "":
+			chief_name = "Rask the Red"
+		chief_entry["chief_name"] = chief_name
+		for r in reserves[ENEMY]:
+			if r["roster_id"] == chief_entry["roster_id"]:
+				r["is_bodyguard"] = true
+				r["is_chief"] = true
+				r["chief_name"] = chief_name
+
+
+func _setup_village_waves() -> void:
+	if not scheduled_reinforcements.is_empty():
+		return
+	if armies[ENEMY].size() >= 3:
+		var total: int = armies[ENEMY].size()
+		var wave2_count := 1
+		var wave1_count := 1
+		if total >= 5:
+			wave1_count = 2
+		var wave2_entries: Array = armies[ENEMY].slice(total - wave2_count)
+		var wave1_entries: Array = armies[ENEMY].slice(total - wave2_count - wave1_count, total - wave2_count)
+		var initial_entries: Array = armies[ENEMY].slice(0, total - wave2_count - wave1_count)
+		armies[ENEMY] = initial_entries
+		reserves[ENEMY] = initial_entries.duplicate()
+		add_reinforcements(ENEMY, wave1_entries, 30.0, "north")
+		add_reinforcements(ENEMY, wave2_entries, 60.0, "east")
+
+
+func add_reinforcements(team: int, p_entries: Array, at_time: float, edge: String) -> void:
+	var processed := _to_entries(p_entries)
+	scheduled_reinforcements.append({
+		"team": team,
+		"entries": processed,
+		"at_time": at_time,
+		"edge": edge,
+		"spawned": false,
+	})
+
+
+func _has_pending_reinforcements(team: int) -> bool:
+	for r in scheduled_reinforcements:
+		if not r.get("spawned", false) and int(r.get("team", -1)) == team:
+			return true
+	return false
+
+
+func _spawn_reinforcements(team: int, p_entries: Array, edge: String) -> void:
+	var n: int = p_entries.size()
+	if n == 0:
+		return
+	var spacing := 65.0
+	for i in n:
+		var entry: Dictionary = p_entries[i]
+		armies[team].append(entry)
+		var offset := (float(i) - float(n - 1) * 0.5) * spacing
+		var pos := Vector2.ZERO
+		var face := Vector2.DOWN
+		match edge:
+			"north":
+				pos = Vector2(clampf(ARENA.x * 0.5 + offset, 80.0, ARENA.x - 80.0), 60.0)
+				face = Vector2.DOWN
+			"south":
+				pos = Vector2(clampf(ARENA.x * 0.5 + offset, 80.0, ARENA.x - 80.0), ARENA.y - 60.0)
+				face = Vector2.UP
+			"east":
+				pos = Vector2(ARENA.x - 60.0, clampf(MID_Y + offset, 80.0, ARENA.y - 80.0))
+				face = Vector2.LEFT
+			"west":
+				pos = Vector2(60.0, clampf(MID_Y + offset, 80.0, ARENA.y - 80.0))
+				face = Vector2.RIGHT
+			_:
+				pos = Vector2(clampf(ARENA.x * 0.5 + offset, 80.0, ARENA.x - 80.0), 60.0)
+				face = Vector2.DOWN
+		if terrain != null and not terrain.passable(pos):
+			pos = _passable_slot(Vector2(ARENA.x * 0.5, MID_Y), pos)
+		var sq = _spawn(team, entry, pos)
+		if sq != null:
+			sq.facing = face
+			if objective == OBJECTIVE_VILLAGE and team == ENEMY:
+				sq.order = "move"
+				sq.order_point = VILLAGE_ZONE_CENTER
+			else:
+				sq.order = "advance"
+	events.append({"type": "reinforcements", "team": team, "edge": edge, "count": n})
 
 
 func _to_entries(army: Array) -> Array:
@@ -317,6 +454,9 @@ func _to_entries(army: Array) -> Array:
 		if unit_id == "" and entry.has("type"):
 			var cult: String = String(entry.get("culture", Cultures.VARDISH))
 			unit_id = Units.recruit(cult, String(entry["type"]))
+		var is_bodyguard: bool = bool(entry.get("is_bodyguard", false))
+		var is_chief: bool = bool(entry.get("is_chief", false))
+		var c_name: String = String(entry.get("chief_name", ""))
 		out.append({
 			"roster_id": id,
 			"type": String(entry["type"]),
@@ -325,6 +465,9 @@ func _to_entries(army: Array) -> Array:
 			"level": int(entry.get("level", Troops.level_for(int(entry.get("xp", 0))))),
 			"name": String(entry.get("name", "")),
 			"captain": captain,
+			"is_bodyguard": is_bodyguard,
+			"is_chief": is_chief,
+			"chief_name": c_name,
 		})
 	return out
 
@@ -388,6 +531,9 @@ func place(team: int, roster_id: int, at: Vector2):
 func auto_deploy(team: int, jitter: float = 0.0) -> void:
 	if phase != PHASE_DEPLOY or reserves[team].is_empty():
 		return
+	if objective == OBJECTIVE_AMBUSH:
+		_auto_deploy_ambush(team, jitter)
+		return
 	var by_type := {}
 	for type in Troops.ORDER:
 		by_type[type] = []
@@ -416,6 +562,49 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 		if jitter > 0.0:
 			x += rng.randf_range(-jitter, jitter)
 		place(team, s[0]["roster_id"], Vector2(x, MID_Y + depth if team == PLAYER else MID_Y - depth))
+
+
+func _auto_deploy_ambush(team: int, jitter: float = 0.0) -> void:
+	if reserves[team].is_empty():
+		return
+	if team == PLAYER:
+		var to_deploy: Array = reserves[team].duplicate()
+		var n: int = to_deploy.size()
+		var spacing := 75.0
+		var start_y: float = MID_Y - float(n - 1) * spacing * 0.5
+		for i in n:
+			var e: Dictionary = to_deploy[i]
+			var spot := Vector2(ARENA.x * 0.5, start_y + float(i) * spacing)
+			if jitter > 0.0:
+				spot.x += rng.randf_range(-jitter, jitter)
+			reserves[team].erase(e)
+			var sq = _spawn(team, e, spot)
+			if sq != null:
+				sq.files = 2
+				sq.still = 0.0
+				sq.facing = Vector2.UP
+				sq.order = "hold"
+				sq.order_point = spot
+	else:
+		var to_deploy: Array = reserves[team].duplicate()
+		var n: int = to_deploy.size()
+		var north_n := maxi(1, int(ceil(float(n) * 0.5)))
+		var step := 90.0
+		for i in n:
+			var e: Dictionary = to_deploy[i]
+			reserves[team].erase(e)
+			var is_north := i < north_n
+			var idx := i if is_north else i - north_n
+			var count_in_group := north_n if is_north else n - north_n
+			var x := ARENA.x * 0.5 + (float(idx) - float(count_in_group - 1) * 0.5) * step
+			var y := 100.0 if is_north else ARENA.y - 100.0
+			var spot := Vector2(x, y)
+			if jitter > 0.0:
+				spot.x += rng.randf_range(-jitter, jitter)
+			var sq = _spawn(team, e, spot)
+			if sq != null:
+				sq.facing = Vector2.DOWN if is_north else Vector2.UP
+				sq.order = "advance"
 
 
 ## Lay squads out in rows across `span` (min x, max x), the first row's front edge
@@ -452,6 +641,10 @@ func start_battle() -> void:
 		return
 	for t in 2:
 		auto_deploy(t)
+	if objective == OBJECTIVE_AMBUSH:
+		for sq in squads:
+			if sq.team == ENEMY:
+				order_advance(sq)
 	# Bond ranks between captains on the same side, from the points they've built up.
 	for a in squads:
 		for b in squads:
@@ -473,6 +666,9 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.unit = unit_id
 	sq.level = entry["level"]
 	sq.power = Troops.power_for(sq.level)
+	sq.is_bodyguard = bool(entry.get("is_bodyguard", false))
+	sq.is_chief = bool(entry.get("is_chief", false))
+	sq.chief_name = String(entry.get("chief_name", ""))
 
 	if unit_id != "" and Units.has(unit_id):
 		sq.stats = Units.stats(unit_id, sq.level)
@@ -1003,6 +1199,10 @@ func step(dt: float = STEP) -> void:
 	if winner != -1 or phase != PHASE_BATTLE:
 		return
 	time += dt
+	for r in scheduled_reinforcements:
+		if not r.get("spawned", false) and time >= float(r.get("at_time", 0.0)):
+			r["spawned"] = true
+			_spawn_reinforcements(int(r.get("team", ENEMY)), r.get("entries", []), String(r.get("edge", "north")))
 	for sq in squads:
 		sq.refresh()
 	# Who acts first each tick is a coin flip. Acting first or second breaks ties, like
@@ -1084,6 +1284,8 @@ func _update_squad(sq, dt: float) -> void:
 		sq.wheeling = false
 		sq.ability_left = 0.0
 		events.append({"type": "rout", "squad": sq})
+		if sq.is_bodyguard or sq.is_chief:
+			_trigger_chief_shock(sq)
 	if sq.routing:
 		return
 	if sq.order == "attack" and (sq.order_target == null or not sq.order_target.is_active()):
@@ -1342,6 +1544,8 @@ func _update_soldier(so, sq, dt: float) -> void:
 		if (sq.team == PLAYER and so.pos.y >= ARENA.y + 20.0) or (sq.team == ENEMY and so.pos.y <= -20.0):
 			_remove(so)
 			sq.escaped += 1
+			if (sq.is_bodyguard or sq.is_chief) and not chief_killed:
+				chief_escaped = true
 		return
 
 	if terrain != null and not terrain.passable(so.pos):
@@ -1670,6 +1874,11 @@ func _captain_falls(sq, victim) -> void:
 	sq.captain_fate = "killed" if roll <= chance else "wounded"
 	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
 	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
+	if sq.is_bodyguard or sq.is_chief:
+		_trigger_chief_shock(sq)
+		if sq.captain_fate == "killed":
+			chief_killed = true
+			events.append({"type": "chief_slain", "squad": sq, "chief_name": sq.chief_name})
 	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
 		"roll": roll, "needed": chance + 1, "rescued": holding or friends,
 		"holding": holding, "friends": friends, "lucky": sq.info.get("quirk", "") == Captains.LUCKY})
@@ -1721,34 +1930,16 @@ func _nearest_enemy_foot(sq, max_dist: float):
 				best_d = d
 				best = foe
 	return best
-	var holding: bool = sq.alive_n >= sq.start_men * 0.5
-	var friends := false
+
+
+func _trigger_chief_shock(sq) -> void:
+	if chief_broken:
+		return
+	chief_broken = true
+	events.append({"type": "chief_broken", "squad": sq, "chief_name": sq.chief_name})
 	for other in squads:
-		if other != sq and other.team == sq.team and other.is_active() and other.avg.distance_to(victim.pos) < Captains.RESCUE_RANGE:
-			friends = true
-	var chance := Captains.death_chance(sq.info, holding, friends)
-	var roll := rng.randi_range(1, 100)
-	sq.death_roll = roll
-	sq.death_needed = chance + 1
-	sq.captain_fate = "killed" if roll <= chance else "wounded"
-	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
-	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
-	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
-		"roll": roll, "needed": chance + 1, "rescued": holding or friends,
-		"holding": holding, "friends": friends, "lucky": sq.info.get("quirk", "") == Captains.LUCKY})
-	for other in squads:
-		if other.team != sq.team or other.captain == null or other.info.is_empty():
-			continue
-		if _ranks.get(_bond_key(sq, other), 0) <= 0:
-			continue
-		match String(other.info.get("temperament", "")):
-			Captains.VENGEFUL:
-				other.fury = Captains.FURY_SECONDS
-			Captains.STEADFAST:
-				other.morale = minf(100.0, other.morale + Captains.STEADY_MORALE)
-			Captains.FRAGILE:
-				other.morale -= Captains.SHAKEN_MORALE
-		events.append({"type": "grief", "squad": other, "for": sq, "temperament": other.info.get("temperament", "")})
+		if other != sq and other.team == sq.team and other.is_active():
+			other.drop_morale(35.0)
 
 
 func _remove(so) -> void:
@@ -1914,7 +2105,24 @@ func strength(team: int) -> float:
 
 
 func _check_end() -> void:
-	var standing := [has_active(PLAYER), has_active(ENEMY)]
+	if objective == OBJECTIVE_VILLAGE and time >= VILLAGE_DURATION:
+		var p_count := 0
+		var e_count := 0
+		for sq in squads:
+			for so in sq.soldiers:
+				if so.alive and so.pos.distance_to(VILLAGE_ZONE_CENTER) <= VILLAGE_ZONE_RADIUS:
+					if sq.team == PLAYER:
+						p_count += 1
+					else:
+						e_count += 1
+		if p_count > e_count:
+			_finish(PLAYER, "village_held")
+		else:
+			_finish(ENEMY, "village_lost")
+		return
+
+	var standing := [has_active(PLAYER) or _has_pending_reinforcements(PLAYER),
+		has_active(ENEMY) or _has_pending_reinforcements(ENEMY)]
 	if standing[PLAYER] and standing[ENEMY]:
 		if time >= TIME_LIMIT:
 			var mine := strength(PLAYER)
@@ -1950,6 +2158,13 @@ func concede(team: int) -> void:
 func _finish(team: int, reason: String) -> void:
 	winner = team
 	end_reason = reason
+	if objective == OBJECTIVE_CHIEF:
+		for sq in squads:
+			if (sq.is_bodyguard or sq.is_chief) and sq.team == ENEMY:
+				if sq.alive_n == 0 and not chief_escaped:
+					chief_killed = true
+				elif (sq.routing or winner == PLAYER) and not chief_killed:
+					chief_escaped = true
 	events.append({"type": "end", "winner": team})
 
 
@@ -2001,4 +2216,5 @@ func result_for(team: int) -> Dictionary:
 			if sq.team == team and not sq.info.is_empty() and String(key).split("|").has(str(sq.info["id"])):
 				bonds[key] = bond_time[key]
 				break
-	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds}
+	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
+		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped}

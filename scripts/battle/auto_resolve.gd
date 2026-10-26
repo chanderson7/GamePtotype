@@ -100,9 +100,13 @@ static func strength(army: Array, foes: Array, site = null, is_player: bool = tr
 ## The expected outcome with no luck: {player_wins, ratio, lost} where ratio is the
 ## weaker side's strength over the stronger's, and lost about how many men you'd lose
 ## sending them in without you.
-static func odds(player: Array, enemy: Array, site = null) -> Dictionary:
+static func odds(player: Array, enemy: Array, site = null, objective: String = "rout") -> Dictionary:
 	var a := strength(player, enemy, site, true)
 	var b := strength(enemy, player, site, false)
+	if objective == "ambush":
+		b *= 1.25
+	elif objective == "village":
+		b *= 1.20
 	var r := minf(a, b) / maxf(1.0, maxf(a, b))
 	var shares := _loss_shares(r)
 	var men := 0
@@ -116,9 +120,13 @@ static func odds(player: Array, enemy: Array, site = null) -> Dictionary:
 ## Settle the fight. `led` is false when the player sends their men in without
 ## commanding them, which costs extra men. Returns the same shape as
 ## BattleSim.result_for(PLAYER), plus "enemy_squads" with the enemy's survivors.
-static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led: bool = false, site = null) -> Dictionary:
+static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led: bool = false, site = null, objective: String = "rout") -> Dictionary:
 	var a := strength(player, enemy, site, true) * (1.0 + rng.randf_range(-LUCK, LUCK))
 	var b := strength(enemy, player, site, false) * (1.0 + rng.randf_range(-LUCK, LUCK))
+	if objective == "ambush":
+		b *= 1.25
+	elif objective == "village":
+		b *= 1.20
 	var won := a >= b
 	var loss := _loss_shares(minf(a, b) / maxf(1.0, maxf(a, b)))
 	var mine: float = loss[0] if won else loss[1]
@@ -155,8 +163,19 @@ static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led
 		if typeof(c) == TYPE_DICTIONARY and int(c.get("wounded", 0)) == 0:
 			entry["captain"] = _captain_fate(c, men, dead, rng)
 		squads[int(s["id"])] = entry
+	var chief_killed := false
+	var chief_escaped := false
+	if objective == "chief":
+		if won:
+			if rng.randf() < 0.70:
+				chief_killed = true
+			else:
+				chief_escaped = true
+		else:
+			chief_escaped = true
 	return {"won": won, "reason": "auto", "squads": squads, "lost": lost, "killed": enemy_lost,
-		"time": 0.0, "bonds": {}, "enemy_squads": enemy_squads}
+		"time": 0.0, "bonds": {}, "enemy_squads": enemy_squads, "objective": objective,
+		"chief_killed": chief_killed, "chief_escaped": chief_escaped}
 
 
 ## [winner's, loser's] share of men lost when the weaker side has `r` of the stronger's

@@ -480,11 +480,30 @@ func _open_encounter() -> void:
 	for s in GameState.army:
 		if int(s["men"]) > 0:
 			fighters.append(s)
-	_show_sheet("encounter", "%s block the road" % b.name,
-		"%d squads, %d men: %s.\n%s\nLead the fight, send your men in without you, or withdraw to %s and lose the hours it takes." % [
-			b.army.size(), men, ", ".join(parts), _odds_text(AutoResolve.odds(fighters, b.army)),
-			Data.settlement(world.player().node)["name"]],
-		[["Fight", _on_fight, true], ["Send in", _on_send_in], ["Withdraw", _on_withdraw]])
+	var ppos: Vector2 = world.party_pos(world.player())
+	var is_ambush: bool = terrain != null and terrain.woods_at(ppos) > 0.45 and not world.is_sea(b.node, b.next)
+	var title := "%s block the road" % b.name
+	if b.raiding and b.raid_village != "":
+		title = "%s are raiding %s!" % [b.name, Data.settlement(b.raid_village)["name"]]
+	elif is_ambush:
+		title = "AMBUSH! %s attack from the woods" % b.name
+	elif b.is_chief_band:
+		title = "%s confronts you" % b.name
+
+	var buttons := [["Fight", _on_fight, true], ["Send in", _on_send_in]]
+	var withdraw_text := ""
+	if is_ambush:
+		withdraw_text = "\nYou cannot withdraw from an ambush!"
+	else:
+		buttons.append(["Withdraw", _on_withdraw])
+		withdraw_text = "\nLead the fight, send your men in without you, or withdraw to %s and lose the hours it takes." % Data.settlement(world.player().node)["name"]
+
+	var obj_type := "ambush" if is_ambush else ("village" if b.raiding else ("chief" if b.is_chief_band else "rout"))
+	_show_sheet("encounter", title,
+		"%d squads, %d men: %s.\n%s%s" % [
+			b.army.size(), men, ", ".join(parts), _odds_text(AutoResolve.odds(fighters, b.army, null, obj_type)),
+			withdraw_text],
+		buttons)
 	Sound.play("alarm")
 
 

@@ -59,6 +59,9 @@ func _init(side: int = Sim.ENEMY, kind: String = "") -> void:
 func deploy(sim) -> void:
 	if temperament == "":
 		temperament = TEMPERAMENTS[sim.rng.randi_range(0, TEMPERAMENTS.size() - 1)]
+	if sim.objective == Sim.OBJECTIVE_AMBUSH:
+		committed = true
+		patience = 0.0
 	if sim.terrain != null and not sim.terrain.features.is_empty():
 		_deploy_terrain(sim)
 	if not sim.all_placed(team):
@@ -163,18 +166,44 @@ func update(sim, dt: float) -> void:
 	if _think > 0.0:
 		return
 	_think = sim.rng.randf_range(0.3, 0.6)
+
+	# In chief objective, chief flees early when hurt
+	for sq in sim.squads:
+		if sq.team == team and (sq.is_bodyguard or sq.is_chief) and sq.is_active():
+			if sq.alive_n < sq.start_men * 0.45 or sq.morale < 45.0:
+				if not sq.routing:
+					sq.routing = true
+					sq.focus = null
+					sq.wheeling = false
+					sq.ability_left = 0.0
+					sim.events.append({"type": "rout", "squad": sq})
+					sim._trigger_chief_shock(sq)
+
 	_use_abilities(sim)
 	if contact_at < 0.0 and _in_contact(sim):
 		contact_at = sim.time
 	if not committed:
-		if temperament == PATIENT:
+		if sim.objective == Sim.OBJECTIVE_AMBUSH:
+			committed = true
+		elif temperament == PATIENT:
 			committed = patience <= 0.0 or _losing(sim) or (contact_at >= 0.0 and sim.time - contact_at > RECEIVE_SECONDS)
 		else:
 			committed = patience <= 0.0 or _enemy_close(sim)
 		if not committed:
 			return
+
+	# In village objective, attackers advance toward the village circle
+	if sim.objective == Sim.OBJECTIVE_VILLAGE and team == Sim.ENEMY:
+		for sq in sim.squads:
+			if sq.team == team and sq.is_active() and not sq.routing and not sq.engaged:
+				if sq.order != "attack" and sq.center.distance_to(Sim.VILLAGE_ZONE_CENTER) > 50.0:
+					sq.order = "move"
+					sq.order_point = Sim.VILLAGE_ZONE_CENTER
+
 	for sq in sim.squads:
 		if sq.team != team or not sq.is_active() or sq.wheeling:
+			continue
+		if (sq.is_bodyguard or sq.is_chief) and not committed and not sq.engaged:
 			continue
 		if sq.type == Troops.CAVALRY and temperament != RECKLESS:
 			_ride(sim, sq)

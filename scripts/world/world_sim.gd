@@ -51,6 +51,11 @@ class Party:
 	var path: Array = []
 	## Hours left to wait where it stands.
 	var wait := 0.0
+	## Whether this band is currently raiding a village.
+	var raiding := false
+	var raid_village := ""
+	var is_chief_band := false
+	var chief_name := ""
 	## A band's fighters, in the battle sim's army format.
 	var army: Array = []
 	## Until this hour, this band won't block the player's road again.
@@ -68,6 +73,10 @@ var culture := Cultures.VARDISH
 var parties: Array = []
 ## Bands waiting to come back: [{faction, at}].
 var respawns: Array = []
+## Registry of escaped bandit chiefs: [{name, culture, grudge, escaped_at, times_beaten}].
+var escaped_chiefs: Array = []
+## Track villages successfully defended from raids: {village_id: count}.
+var saved_villages: Dictionary = {}
 ## What happened since the screen last looked: arrived, waited, encounter, respawn.
 var events: Array = []
 ## The id of the band blocking the player's road, or -1.
@@ -333,10 +342,18 @@ func _move_band(b: Party, dt: float) -> void:
 	if b.moving():
 		if _move(b, dt):
 			b.wait = rng.randf_range(BANDIT_WAIT_MIN, BANDIT_WAIT_MAX)
+			if Data.is_village(b.node) and rng.randf() < 0.35:
+				b.raiding = true
+				b.raid_village = b.node
+				b.wait = rng.randf_range(4.0, 8.0)
+				events.append({"type": "raid_started", "party": b.id, "village": b.node, "hours": b.wait})
 		return
 	if b.wait > 0.0:
 		b.wait = maxf(0.0, b.wait - dt)
 		return
+	if b.raiding:
+		b.raiding = false
+		b.raid_village = ""
 	var choices: Array = Data.villages_of(b.faction).filter(func(v): return v != b.node)
 	if choices.is_empty():
 		b.wait = BANDIT_WAIT_MAX
@@ -366,6 +383,19 @@ func _respawn() -> void:
 			_spawn_band(String(r["faction"]))
 
 
+func _generate_chief_name(cult: String) -> String:
+	match cult:
+		Cultures.KHARZANI:
+			var names := ["Tariq the Scarred", "Malik the Swift", "Kadir Bone-breaker", "Jamil the Falcon", "Bashir Red-hand"]
+			return names[rng.randi_range(0, names.size() - 1)]
+		Cultures.RYUMON:
+			var names := ["Kenji the Demon", "Raiden the Exile", "Hidetora Kuro", "Masaru the Wolf", "Kojiro Iron-will"]
+			return names[rng.randi_range(0, names.size() - 1)]
+		_:
+			var names := ["Rask the Red", "Torvald Iron-hand", "Brand the Wolf", "Gunnar the Reaver", "Erik Blood-axe"]
+			return names[rng.randi_range(0, names.size() - 1)]
+
+
 func _spawn_band(faction: String) -> void:
 	for b in bands():
 		if b.faction == faction:
@@ -375,25 +405,54 @@ func _spawn_band(faction: String) -> void:
 	b.id = _take_id()
 	b.kind = BAND
 	b.faction = faction
-	b.name = String(Data.BANDIT_BANDS[faction])
+	var band_cult := Data.culture_of(faction)
 	b.node = villages[rng.randi_range(0, villages.size() - 1)]
 	b.wait = rng.randf_range(BANDIT_WAIT_MIN, BANDIT_WAIT_MAX)
 	b.grace_until = hour + 1.0
-	b.army = _band_army(b.id, Data.culture_of(faction))
+
+	var chief_to_return = null
+	for i in escaped_chiefs.size():
+		var ec: Dictionary = escaped_chiefs[i]
+		if ec.get("culture", "") == band_cult and hour >= float(ec.get("escaped_at", 0.0)) + 48.0:
+			chief_to_return = ec
+			escaped_chiefs.remove_at(i)
+			break
+
+	if chief_to_return != null:
+		b.is_chief_band = true
+		b.chief_name = String(chief_to_return["name"])
+		b.name = "%s's Host" % b.chief_name
+		b.army = _band_army(b.id, band_cult, true, chief_to_return)
+		events.append({"type": "chief_returned", "party": b.id, "chief": chief_to_return})
+	else:
+		var day := int(hour / 24.0)
+		var chief_chance := clampf(0.15 + float(day) * 0.015, 0.15, 0.40)
+		if rng.randf() < chief_chance:
+			b.is_chief_band = true
+			b.chief_name = _generate_chief_name(band_cult)
+			b.name = "%s's Band" % b.chief_name
+			b.army = _band_army(b.id, band_cult, true, {"name": b.chief_name, "grudge": 0})
+		else:
+			b.name = String(Data.BANDIT_BANDS[faction])
+			b.army = _band_army(b.id, band_cult)
+
 	parties.append(b)
 	events.append({"type": "respawn", "party": b.id})
 
 
 ## Three to five squads of eight to fourteen men, mostly foot and bows, never more than
 ## one squad of horse, led by captains of the realm's culture. As days pass, bands
-## field tier-2 units more often.
-func _band_army(band_id: int, band_culture: String) -> Array:
+## field tier-2 units more often. If led by a chief, fields a tier-2 bodyguard.
+func _band_army(band_id: int, band_culture: String, with_chief: bool = false, chief_data: Dictionary = {}) -> Array:
 	var out := []
 	var taken := []
 	var horse := false
 	var day := int(hour / 24.0)
 	var tier2_chance := clampf(float(day) * 0.02, 0.0, 0.40)
-	for i in rng.randi_range(3, 5):
+	var squad_count := rng.randi_range(3, 5)
+	if with_chief:
+		squad_count = maxi(4, squad_count + 1)
+	for i in squad_count:
 		var roll := rng.randf()
 		var type := Troops.INFANTRY
 		if roll > 0.9 and not horse:
@@ -409,15 +468,34 @@ func _band_army(band_id: int, band_culture: String) -> Array:
 		var unit_id := Units.recruit(band_culture, type)
 		var level := 1
 		var xp := 0
-		if rng.randf() < tier2_chance:
+		var is_bg := false
+		var is_ch := false
+		var c_name := ""
+		if with_chief and i == 0:
+			is_bg = true
+			is_ch = true
+			c_name = String(chief_data.get("name", "Bandit Chief"))
+			captain["name"] = c_name
+			captain["first"] = c_name.split(" ")[0]
+			level = 2
+			xp = Troops.XP_PER_LEVEL
+			var branch_options := Units.branches(unit_id)
+			if not branch_options.is_empty():
+				unit_id = branch_options[0]
+		elif rng.randf() < tier2_chance:
 			var branch_options := Units.branches(unit_id)
 			if not branch_options.is_empty():
 				unit_id = branch_options[rng.randi_range(0, branch_options.size() - 1)]
 				level = 2
 				xp = Troops.XP_PER_LEVEL
+		var men := rng.randi_range(8, 14)
+		if is_bg:
+			men = rng.randi_range(12, 16)
 		out.append({"id": id, "type": type, "unit": unit_id, "level": level, "xp": xp,
-			"men": rng.randi_range(8, 14), "culture": band_culture,
-			"name": Captains.company_name(captain, type), "captain": captain})
+			"men": men, "culture": band_culture,
+			"name": ("%s's Bodyguard" % c_name) if is_bg else Captains.company_name(captain, type),
+			"captain": captain,
+			"is_bodyguard": is_bg, "is_chief": is_ch, "chief_name": c_name})
 	return out
 
 
@@ -532,12 +610,16 @@ func to_dict() -> Dictionary:
 	for p in parties:
 		ps.append({"id": p.id, "kind": p.kind, "name": p.name, "faction": p.faction, "node": p.node,
 			"next": p.next, "along": p.along, "path": p.path.duplicate(), "wait": p.wait,
-			"army": p.army.duplicate(true), "grace_until": p.grace_until})
+			"army": p.army.duplicate(true), "grace_until": p.grace_until,
+			"raiding": p.raiding, "raid_village": p.raid_village,
+			"is_chief_band": p.is_chief_band, "chief_name": p.chief_name})
 	return {
 		"hour": hour, "culture": culture, "encounter": encounter, "next_id": _next_id,
 		"seed": str(rng.seed), "state": str(rng.state),
 		"respawns": respawns.duplicate(true), "parties": ps,
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
+		"escaped_chiefs": escaped_chiefs.duplicate(true),
+		"saved_villages": saved_villages.duplicate(),
 	}
 
 
@@ -565,6 +647,15 @@ func from_dict(d: Dictionary) -> void:
 	respawns = []
 	for r in d.get("respawns", []):
 		respawns.append({"faction": String(r["faction"]), "at": float(r["at"])})
+	escaped_chiefs = []
+	for ec in d.get("escaped_chiefs", []):
+		escaped_chiefs.append({"name": String(ec.get("name", "")), "culture": String(ec.get("culture", "")),
+			"grudge": int(ec.get("grudge", 0)), "escaped_at": float(ec.get("escaped_at", 0.0)),
+			"times_beaten": int(ec.get("times_beaten", 0))})
+	saved_villages = {}
+	var raw_saved = d.get("saved_villages", {})
+	for k in raw_saved:
+		saved_villages[String(k)] = int(raw_saved[k])
 	parties = []
 	for e in d.get("parties", []):
 		var p := Party.new()
@@ -580,6 +671,10 @@ func from_dict(d: Dictionary) -> void:
 			p.path.append(String(s))
 		p.wait = float(e["wait"])
 		p.grace_until = float(e["grace_until"])
+		p.raiding = bool(e.get("raiding", false))
+		p.raid_village = String(e.get("raid_village", ""))
+		p.is_chief_band = bool(e.get("is_chief_band", false))
+		p.chief_name = String(e.get("chief_name", ""))
 		p.army = clean_army(e["army"])
 		parties.append(p)
 
@@ -590,6 +685,16 @@ static func clean_army(raw: Array) -> Array:
 	for s in raw:
 		var squad := {"id": int(s["id"]), "type": String(s["type"]), "men": int(s["men"]), "xp": int(s.get("xp", 0)),
 			"name": String(s.get("name", "")), "captain": null}
+		if s.has("unit"):
+			squad["unit"] = String(s["unit"])
+		if s.has("level"):
+			squad["level"] = int(s["level"])
+		if s.has("is_bodyguard"):
+			squad["is_bodyguard"] = bool(s["is_bodyguard"])
+		if s.has("is_chief"):
+			squad["is_chief"] = bool(s["is_chief"])
+		if s.has("chief_name"):
+			squad["chief_name"] = String(s["chief_name"])
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY:
 			var cap: Dictionary = c.duplicate(true)

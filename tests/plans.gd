@@ -70,9 +70,9 @@ static func culture_army(cult: String, seed_value: int) -> Array:
 
 ## One battle of `plan` against a commander of `temperament`. Returns
 ## {winner, time, margin} where margin is your men still fighting less theirs.
-static func battle(plan: String, temperament: String, seed_value: int, site = null) -> Dictionary:
+static func battle(plan: String, temperament: String, seed_value: int, site = null, objective: String = "rout") -> Dictionary:
 	var sim := Sim.new()
-	sim.setup(army(seed_value), army(seed_value + 1000), seed_value, site)
+	sim.setup(army(seed_value), army(seed_value + 1000), seed_value, site, objective)
 	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, temperament)
 	sim.ai[Sim.ENEMY].deploy(sim)
 	if plan == "terrain" and sim.terrain != null and not sim.terrain.features.is_empty():

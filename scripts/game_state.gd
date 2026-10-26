@@ -375,11 +375,27 @@ func start_encounter_battle() -> void:
 	if world == null or world.encounter == -1:
 		return
 	var band = world.party(world.encounter)
-	var site = BattleSite.pick(world, world.player_pos, "rout")
+	var objective := "rout"
+	var chief_name := ""
+	var ppos: Vector2 = world.party_pos(world.player())
+	var mt = MapTerrain.shared()
+
+	if band.raiding and band.raid_village != "":
+		objective = "village"
+	elif mt != null and mt.woods_at(ppos) > 0.45 and not world.is_sea(band.node, band.next):
+		objective = "ambush"
+	elif band.is_chief_band or band.name.find("'s") != -1:
+		objective = "chief"
+		chief_name = band.chief_name if band.chief_name != "" else band.name.split("'s")[0]
+
+	var site = BattleSite.pick(world, ppos, objective)
 	pending_battle = {
 		"enemy": WorldSim.clean_army(band.army), "culture": WorldData.culture_of(band.faction),
 		"temperament": "Reckless", "name": band.name,
 		"site": site,
+		"objective": objective,
+		"chief_name": chief_name,
+		"raid_village": band.raid_village,
 	}
 
 
@@ -393,7 +409,7 @@ func auto_resolve_encounter() -> Dictionary:
 	for s in army:
 		if int(s["men"]) > 0:
 			fighters.append(s)
-	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, pending_battle.get("site"))
+	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, pending_battle.get("site"), pending_battle.get("objective", "rout"))
 	apply_result(result)
 	return result
 
@@ -532,15 +548,34 @@ func apply_result(result: Dictionary) -> void:
 	if world != null and not pending_battle.is_empty():
 		var band := String(pending_battle.get("name", "The bandits"))
 		var how := "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
+		var obj: String = String(pending_battle.get("objective", "rout"))
+		var c_name: String = String(pending_battle.get("chief_name", ""))
+		var r_village: String = String(pending_battle.get("raid_village", ""))
 		if result.get("won", false):
 			world.win_encounter()
 			var got := Economy.spoils(int(result.get("killed", 0)))
+			if obj == "chief":
+				if result.get("chief_killed", false):
+					got["silver"] = int(got["silver"]) * 2
+					got["renown"] = int(got["renown"]) + 10
+					_note("The bandit chief %s was slain! Claimed a double bounty and +10 renown." % c_name)
+				elif result.get("chief_escaped", false):
+					world.escaped_chiefs.append({"name": c_name, "culture": pending_battle.get("culture", Cultures.VARDISH), "grudge": 1, "escaped_at": world.hour, "times_beaten": 1})
+					_note("The bandit chief %s escaped into the hills!" % c_name)
+			elif obj == "village" and r_village != "":
+				var v_name := String(WorldData.settlement(r_village)["name"])
+				got["food"] = int(got["food"]) + 15
+				world.saved_villages[r_village] = int(world.saved_villages.get(r_village, 0)) + 1
+				world.offers[r_village] = world._new_offers(r_village)
+				_note("%s was saved from the raid! The villagers gave 15 rations and offered fresh recruits." % v_name)
 			silver += int(got["silver"])
 			food += int(got["food"])
 			renown += int(got["renown"])
 			_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
 				band, how, got["silver"], got["food"], got["renown"]])
 		else:
+			if obj == "chief" and c_name != "":
+				world.escaped_chiefs.append({"name": c_name, "culture": pending_battle.get("culture", Cultures.VARDISH), "grudge": 1, "escaped_at": world.hour, "times_beaten": 0})
 			world.hurt_band(result.get("enemy_squads", {}))
 			world.lose_encounter()
 			var home := String(WorldData.settlement(world.here())["name"])

@@ -66,6 +66,9 @@ func _init() -> void:
 	print("Units & Troop Trees:")
 	_check_units()
 
+	print("Objectives & Encounter Variety:")
+	_check_objectives()
+
 	print("World:")
 	_check_map()
 	_check_travel()
@@ -1734,3 +1737,131 @@ func _check_results() -> void:
 		survivors += int(r["squads"][id]["men"])
 	_expect(survivors + int(r["lost"]) == start_men and r["squads"].size() == army.size(),
 		"%d men went in, %d came back, %d lost" % [start_men, survivors, r["lost"]])
+
+
+func _check_objectives() -> void:
+	# 1. Reinforcements pipeline
+	var sim := Sim.new()
+	var p_army := [{"id": 1, "type": Troops.INFANTRY, "men": 20}]
+	var e_army := [{"id": 2, "type": Troops.INFANTRY, "men": 20}]
+	sim.setup(p_army, e_army, 1, null, Sim.OBJECTIVE_ROUT)
+	var wave := [{"id": 3, "type": Troops.ARCHERS, "men": 15}]
+	sim.add_reinforcements(Sim.ENEMY, wave, 2.0, "north")
+	sim.auto_deploy(Sim.PLAYER)
+	sim.auto_deploy(Sim.ENEMY)
+	sim.start_battle()
+	_expect(sim.squads.size() == 2, "initial battle has 2 squads before reinforcement time")
+	for i in 65:
+		sim.step(Sim.STEP)
+	_expect(sim.squads.size() == 3, "reinforcement squad arrived on time (3 squads total)")
+	var arrived_sq = sim.squads[2]
+	_expect(arrived_sq.team == Sim.ENEMY and arrived_sq.type == Troops.ARCHERS and arrived_sq.center.y <= 120.0,
+		"reinforcements spawned from north edge facing into field")
+	sim.dispose()
+
+	# 2. Chief objective & morale shock
+	var chief_sim := Sim.new()
+	var p_army2 := [{"id": 1, "type": Troops.INFANTRY, "men": 20}, {"id": 2, "type": Troops.ARCHERS, "men": 20}]
+	var e_army2 := [
+		{"id": 10, "type": Troops.INFANTRY, "men": 16, "is_bodyguard": true, "is_chief": true, "chief_name": "Rask the Red"},
+		{"id": 11, "type": Troops.INFANTRY, "men": 20},
+		{"id": 12, "type": Troops.SPEARMEN, "men": 20}
+	]
+	chief_sim.setup(p_army2, e_army2, 1, null, Sim.OBJECTIVE_CHIEF)
+	chief_sim.auto_deploy(Sim.PLAYER)
+	chief_sim.auto_deploy(Sim.ENEMY)
+	chief_sim.start_battle()
+	var bg_sq = null
+	for sq in chief_sim.squads:
+		if sq.is_bodyguard:
+			bg_sq = sq
+			break
+	_expect(bg_sq != null, "bodyguard squad designated in chief objective")
+	var other_sq = chief_sim.squads[2]
+	if other_sq == bg_sq:
+		other_sq = chief_sim.squads[3]
+	var morale_before: float = other_sq.morale
+	bg_sq.drop_morale(80.0)
+	chief_sim._update_squad(bg_sq, Sim.STEP)
+	_expect(bg_sq.routing, "bodyguard squad broke")
+	_expect(other_sq.morale <= morale_before - 35.0, "other squads lost 35 morale on chief shock")
+	chief_sim.dispose()
+
+	# 3. Chief escape and grudge return
+	var world := WorldSim.new()
+	world.setup(42, Cultures.VARDISH)
+	world.escaped_chiefs.append({"name": "Rask the Red", "culture": Cultures.VARDISH, "grudge": 0, "escaped_at": 10.0, "times_beaten": 1})
+	world.hour = 60.0
+	world._spawn_band("vardmark_bandits")
+	var chief_band = null
+	for b in world.bands():
+		if b.is_chief_band and b.chief_name == "Rask the Red":
+			chief_band = b
+			break
+	_expect(chief_band != null, "escaped chief returned with his own band after days passed")
+	_expect(chief_band != null and chief_band.army[0].get("is_bodyguard", false), "chief leads bodyguard squad on return")
+
+	# 4. Ambush deployment
+	var ambush_sim := Sim.new()
+	ambush_sim.setup(p_army2, e_army2, 1, null, Sim.OBJECTIVE_AMBUSH)
+	ambush_sim.auto_deploy(Sim.PLAYER)
+	ambush_sim.auto_deploy(Sim.ENEMY)
+	var p_sq = ambush_sim.squads[0]
+	_expect(p_sq.files == 2 and p_sq.still == 0.0, "player deployed in narrow column (files=2) unbraced")
+	var enemy_north := false
+	var enemy_south := false
+	for sq in ambush_sim.squads:
+		if sq.team == Sim.ENEMY:
+			if sq.center.y < 300.0:
+				enemy_north = true
+			elif sq.center.y > 900.0:
+				enemy_south = true
+	_expect(enemy_north and enemy_south, "ambushers deployed at both north and south ends")
+	ambush_sim.dispose()
+
+	# 5. Village defense zone and countdown
+	var village_sim := Sim.new()
+	village_sim.setup(p_army2, e_army2, 1, null, Sim.OBJECTIVE_VILLAGE)
+	village_sim.auto_deploy(Sim.PLAYER)
+	village_sim.auto_deploy(Sim.ENEMY)
+	village_sim.start_battle()
+	_expect(village_sim.scheduled_reinforcements.size() == 2, "village defense scheduled 2 waves of reinforcements")
+	village_sim.time = Sim.VILLAGE_DURATION + 0.1
+	for sq in village_sim.squads:
+		if sq.team == Sim.PLAYER:
+			for so in sq.soldiers:
+				so.pos = Sim.VILLAGE_ZONE_CENTER
+		else:
+			for so in sq.soldiers:
+				so.pos = Vector2(50.0, 50.0)
+	village_sim._check_end()
+	_expect(village_sim.winner == Sim.PLAYER and village_sim.end_reason == "village_held",
+		"village defense won by player controlling circle at 120s timer expiration")
+	village_sim.dispose()
+
+	# 6. Village loss condition
+	var village_sim2 := Sim.new()
+	village_sim2.setup(p_army2, e_army2, 1, null, Sim.OBJECTIVE_VILLAGE)
+	village_sim2.auto_deploy(Sim.PLAYER)
+	village_sim2.auto_deploy(Sim.ENEMY)
+	village_sim2.start_battle()
+	village_sim2.time = Sim.VILLAGE_DURATION + 0.1
+	for sq in village_sim2.squads:
+		if sq.team == Sim.PLAYER:
+			for so in sq.soldiers:
+				so.pos = Vector2(50.0, 50.0)
+		else:
+			for so in sq.soldiers:
+				so.pos = Sim.VILLAGE_ZONE_CENTER
+	village_sim2._check_end()
+	_expect(village_sim2.winner == Sim.ENEMY and village_sim2.end_reason == "village_lost",
+		"village defense lost when enemy holds circle at timer expiration")
+	village_sim2.dispose()
+
+	# 7. Auto-resolve objectives
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 123
+	var auto_ambush := AutoResolve.resolve(p_army2, e_army2, rng, true, null, "ambush")
+	_expect(auto_ambush.has("won"), "auto-resolve settles ambush fights")
+	var auto_chief := AutoResolve.resolve(p_army2, e_army2, rng, true, null, "chief")
+	_expect(auto_chief.has("chief_killed") and auto_chief.has("chief_escaped"), "auto-resolve resolves chief fate")
