@@ -11,9 +11,9 @@ troops, on varied ground.
 | 3.2 | Battlefield terrain | ~2 weeks | **Done** (`5b65a41`) |
 | 3.3 | Culture troop trees | ~2 weeks | **Done** (`800568b`) |
 | 3.4 | Objectives and encounter variety | ~1.5 weeks | **Done** (`6fa0973`) |
-| 3.5 | Integration and polish | ~1 week | Next |
+| 3.5 | Integration and polish | ~1 week | **Done** (`e9049f5`) |
 
-**Total remaining: about 7 weeks.** A cut line for a 3-week core is at the end.
+**Phase 3 Complete.**
 
 ---
 
