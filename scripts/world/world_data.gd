@@ -117,11 +117,11 @@ const REALM_TINT := {
 	],
 }
 
-## A bandit band roams each realm.
+## The bandit bands that roam each realm, one name for each band at large there.
 const BANDIT_BANDS := {
-	"vardmark": "Ash Hill brigands",
-	"kharzan": "Red Waste reavers",
-	"ryumon": "Ronin band",
+	"vardmark": ["Ash Hill brigands", "Fenland cutthroats"],
+	"kharzan": ["Red Waste reavers", "Sand Viper raiders"],
+	"ryumon": ["Ronin band", "Wako pirates"],
 }
 
 

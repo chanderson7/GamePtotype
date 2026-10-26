@@ -14,8 +14,8 @@ and their fights are fought on Phase 3's ground with its objectives.
 | | Workstream | Size (solo) | Status |
 |---|---|---|---|
 | 4.1 | A world that can change: owners, wars, a bigger map, save v5 | ~1.5 weeks | **Done** |
-| 4.2 | Lords on the map | ~2.5 weeks | Next |
-| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | |
+| 4.2 | Lords on the map | ~2.5 weeks | **Done** |
+| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | Next |
 | 4.4 | War and peace | ~1 week | |
 | 4.5 | You in the war: lord encounters, contracts, battles bigger than your warband | ~2 weeks | |
 | 4.6 | Prisoners, ransom, and lords who remember | ~1 week | |
@@ -127,7 +127,36 @@ a single siege deciding everything. Each realm gains one castle and two villages
 
 ---
 
-## 4.2 Lords on the map (~2.5 weeks)
+## 4.2 Lords on the map (~2.5 weeks): done
+
+**As built:** `scripts/data/lords.gd` holds the tunables. Each realm has its ruler (at its
+capital) and four lords; two hold its castles, the others ride out from the capital. Lords
+are `LORD` parties with warbands of 5–9 squads by renown, more of them trained as it grows.
+Every three hours a lord weighs, by his bearing: going home when under half strength,
+defending a village of his realm that an enemy lord is burning, driving off bandits raiding
+one of his villages, raiding an enemy village (6 hours; then it burns for 7 days, paying
+nothing and offering no recruits), or patrolling his realm. Lords of realms at war who meet
+fight it out by `AutoResolve`; the loser regroups at his seat a day later with what's left.
+
+Changed from the plan, and why:
+
+- **Money comes from a realm treasury**, not from each lord's own fief. With fiefs paying
+  their holders, rulers piled up silver while landless lords went broke and sat at home. A
+  treasury takes in every place's dues (town 220, castle 90, village 40 a day), pays its
+  lords' wages at half what you'd pay, and funds their recruits while it keeps 2,000 back.
+  In a year no lord goes broke, and lords are out of their seats about 80% of the time.
+- **Lords drive bandits off instead of destroying them,** and only bandits raiding their
+  own villages. Lords who fought every band they met beat about 570 bands a year and left
+  your warband nothing to hunt; the scripted campaigns lost half their warbands.
+- **Two bandit bands roam each realm,** and the scripted campaign withdraws from fights its
+  scouts say it would lose and rides only for bands it can beat, as a player reading the
+  encounter would. The bigger map of 4.1 spread one band a realm too thin: about 14 fights
+  a month instead of 21, and warbands went broke.
+- A world hour costs about 0.6–1.3 ms with every lord riding (gate: 2 ms). Travel times
+  between places are worked out once, and meetings are checked with each party's place
+  worked out once per tick.
+
+### The plan
 
 ### What the player gets
 

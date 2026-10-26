@@ -650,7 +650,8 @@ func save_game() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
 		return
-	f.store_string(JSON.stringify(to_dict()))
+	# Every digit of every number, so a loaded world carries on exactly as it was.
+	f.store_string(JSON.stringify(to_dict(), "", true, true))
 
 
 func to_dict() -> Dictionary:

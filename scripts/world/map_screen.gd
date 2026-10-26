@@ -15,6 +15,7 @@ const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 122.0
@@ -34,6 +35,9 @@ const NIGHT_LIGHT := Color(0.46, 0.5, 0.78)
 const DAWN_LIGHT := Color(1.0, 0.84, 0.72)
 const DUSK_LIGHT := Color(1.0, 0.75, 0.58)
 const LAMP := Color(1.0, 0.76, 0.42)
+## A burned village, drawn charred; lords' names show from this sprite size up.
+const BURNT := Color(0.42, 0.36, 0.32)
+const LORD_NAMES_PX := 2.5
 
 var world
 var font: Font
@@ -314,6 +318,10 @@ func _tap(at: Vector2) -> void:
 		if at.distance_to(_to_screen(world.party_pos(b)) + Vector2(0, -14) * _sprite_px()) < TAP_RADIUS:
 			_open_band(b)
 			return
+	for lp in world.lord_parties():
+		if at.distance_to(_to_screen(world.party_pos(lp)) + Vector2(0, -16) * _sprite_px()) < TAP_RADIUS:
+			_open_lord(lp)
+			return
 	_selected = ""
 	if _sheet != "notice":
 		_close_sheet()
@@ -460,6 +468,39 @@ func _open_band(b) -> void:
 		men += int(sq["men"])
 	_show_sheet("band", b.name, "Bandits roaming the %s: %d squads, %d men. Ride into them to fight." % [
 		Data.FACTIONS[b.faction]["name"], b.army.size(), men], [["Close", _close_sheet]])
+
+
+## A lord on the road: who he is, how strong, and what he's about.
+func _open_lord(lp) -> void:
+	var l: Dictionary = world.lord_of(lp)
+	var men := 0
+	for sq in lp.army:
+		men += int(sq["men"])
+	var realm: String = Data.FACTIONS[lp.faction]["name"]
+	var who := "Ruler of the %s" % realm if l.get("ruler", false) else "A lord of the %s" % realm
+	var fief := String(l.get("fief", ""))
+	if fief != "" and not l.get("ruler", false):
+		who += ", holding %s" % Data.settlement(fief)["name"]
+	var bearing := String(l.get("bearing", ""))
+	var body := "%s. %s: %s.\nAbout %d men in %d squads. %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
+		int(round(men / 10.0)) * 10, lp.army.size(), _lord_doing(l, lp)]
+	_show_sheet("lord", lp.name, body, [["Close", _close_sheet]])
+
+
+func _lord_doing(l: Dictionary, lp) -> String:
+	var target := String(l.get("target", ""))
+	var place := String(Data.settlement(target)["name"]) if Data.SETTLEMENTS.has(target) else ""
+	match String(l.get("job", "")):
+		"raid":
+			return "Burning %s" % place if String(l.get("raiding", "")) != "" else "Riding to raid %s" % place
+		"defend":
+			return "Riding to defend %s" % place
+		"hunt":
+			return "Hunting bandits near %s" % place
+		"home":
+			return "Resting at %s, raising men" % place if not lp.moving() else "Riding home to %s" % place
+		_:
+			return "Riding to %s" % place if lp.moving() and place != "" else "Keeping watch on his lands"
 
 
 func _open_encounter() -> void:
@@ -714,6 +755,8 @@ func _draw() -> void:
 		things.append({"y": Data.pos(id).y, "settlement": id})
 	for b in world.bands():
 		things.append({"y": world.party_pos(b).y, "band": b})
+	for lp in world.lord_parties():
+		things.append({"y": world.party_pos(lp).y, "lord": lp})
 	things.append({"y": world.party_pos(world.player()).y + 0.5, "player": true})
 	things.sort_custom(func(a, b): return a["y"] < b["y"])
 	for t in things:
@@ -721,6 +764,8 @@ func _draw() -> void:
 			_draw_settlement(t["settlement"], px)
 		elif t.has("band"):
 			_draw_party(t["band"], "bandits", Color.WHITE, px)
+		elif t.has("lord"):
+			_draw_party(t["lord"], "lord", Cultures.color(Data.culture_of(t["lord"].faction)), px)
 		else:
 			_draw_party(world.player(), "rider", Cultures.color(world.culture), px)
 
@@ -738,7 +783,13 @@ func _draw_settlement(id: String, px: float) -> void:
 	if id == _selected:
 		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Style.BRASS, 3.0 / 0.32)
 	draw_set_transform(c, 0.0, Vector2(px, px))
-	draw_texture(MapArt.texture(sprite, 0, colors), -MapArt.pivot(sprite))
+	var burnt: bool = world.is_burned(id)
+	draw_texture(MapArt.texture(sprite, 0, colors), -MapArt.pivot(sprite), BURNT if burnt else Color.WHITE)
+	if burnt:
+		# Smoke still rising from the ruins.
+		for k in 3:
+			var rise := fmod(_clock * 0.6 + k * 0.33, 1.0)
+			draw_circle(Vector2(-3.0 + k * 3.0, -10.0 - rise * 14.0), 2.0 + rise * 3.0, Color(0.25, 0.23, 0.22, 0.45 * (1.0 - rise)))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -779,6 +830,11 @@ func _draw_labels() -> void:
 			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
 	for b in world.bands():
 		_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -17.0 * px - 6.0), b.name, 17, Color("e8d9c0"))
+	# Lords' names only once you're looking closely, or the map drowns in them.
+	if px >= LORD_NAMES_PX:
+		for lp in world.lord_parties():
+			_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), lp.name, 15,
+				Cultures.color(Data.culture_of(lp.faction)).lightened(0.45))
 
 
 ## A name on a dark plate, centered on `at` (the plate's top edge).

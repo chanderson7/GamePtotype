@@ -410,6 +410,53 @@ def bandits(frame):
     return g
 
 
+def lord(frame):
+    """A lord's warband: a mounted lord under a tall banner in his realm's colors, a
+    rider at his side and a spearman on foot."""
+    g = Grid(26, 22)
+    lift = 1 if frame == 1 else 0
+    # a second rider behind, smaller
+    g.rect(1, 13 - lift, 8, 15 - lift, "R")
+    g.rect(8, 11 - lift, 9, 13 - lift, "R")
+    g.rect(4, 10 - lift, 5, 12 - lift, "t")
+    g.disc(4.5, 9.0 - lift, 1.1, "s")
+    for x in (2, 7):
+        g.rect(x, 16 - lift, x, 18 - (frame + x) % 2, "n")
+    # a spearman on foot
+    g.rect(20, 14, 21, 17, "h")
+    g.disc(20.5, 12.5, 1.2, "S")
+    g.rect(20, 18, 20, 19 - frame, "n")
+    g.rect(21, 18 - frame, 21, 19, "n")
+    g.line(23, 6, 23, 18, "w")
+    g.set(23, 5, "m")
+    # the lord's tall banner, swallowtailed
+    g.line(10, 0, 10, 13, "W")
+    g.rect(11, 0, 17, 5, "T")
+    g.rect(11, 5, 17, 5, "t")
+    g.set(17, 1, ".")
+    g.set(17, 4, ".")
+    g.set(16, 2, "L")
+    g.set(12, 2, "g")
+    # the lord's horse, barded in his colors
+    g.rect(8, 15 - lift, 18, 17 - lift, "r")
+    g.rect(8, 17 - lift, 18, 17 - lift, "R")
+    g.rect(9, 15 - lift, 16, 16 - lift, "T")
+    g.rect(18, 12 - lift, 20, 15 - lift, "r")
+    g.set(20, 12 - lift, "R")
+    g.set(21, 13 - lift, "r")
+    for x, up in ((9, 0), (11, 1), (15, 1), (17, 0)):
+        down = (up + frame) % 2
+        g.rect(x, 18 - lift, x, 20 - down, "n")
+    # the lord: steel and his colors, a gold circlet
+    g.rect(12, 11 - lift, 14, 14 - lift, "T")
+    g.set(14, 12 - lift, "t")
+    g.disc(13.5, 10.0 - lift, 1.3, "m", shade="M")
+    g.set(13, 9 - lift, "g")
+    g.set(14, 9 - lift, "g")
+    g.outline()
+    return g
+
+
 SETTLEMENTS = {
     "vardish/town": vardish_town, "vardish/castle": vardish_castle, "vardish/village": vardish_village,
     "kharzani/town": kharzani_town, "kharzani/castle": kharzani_castle, "kharzani/village": kharzani_village,
@@ -428,7 +475,7 @@ def build_all():
         g = fn()
         # Settlements and terrain stand on the bottom middle of their sprite.
         out[name] = {"frames": [g.rows()], "pivot": (g.w / 2.0, g.h - 1.0)}
-    for name, fn in (("rider", rider), ("bandits", bandits)):
+    for name, fn in (("rider", rider), ("bandits", bandits), ("lord", lord)):
         frames = [fn(f) for f in range(2)]
         out[name] = {"frames": [f.rows() for f in frames], "pivot": (frames[0].w / 2.0, frames[0].h - 1.0)}
     return out

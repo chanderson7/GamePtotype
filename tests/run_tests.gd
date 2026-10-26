@@ -20,6 +20,7 @@ const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
 const Units = preload("res://scripts/data/units.gd")
 const UnitArt = preload("res://scripts/art/unit_art.gd")
@@ -89,6 +90,7 @@ func _init() -> void:
 	_check_encounters()
 	_check_world_saves()
 	_check_realms()
+	_check_lords()
 	_check_long_run()
 	_check_campaign_battles()
 
@@ -1051,7 +1053,8 @@ func _check_branches() -> void:
 func _quiet_world(seed_value: int) -> WorldSim:
 	var w := WorldSim.new()
 	w.setup(seed_value, Cultures.VARDISH)
-	w.parties = [w.player()]
+	# No bandits on the roads; the lords still ride.
+	w.parties = w.parties.filter(func(p): return p.kind != WorldSim.BAND)
 	return w
 
 
@@ -1288,6 +1291,146 @@ func _check_realms() -> void:
 	gs.free()
 
 
+## Lords ride the map with warbands of their own, choose what to do by their realm's needs
+## and their bearing, fight each other and the bandits, and pay their way.
+func _check_lords() -> void:
+	var w := _quiet_world(4)
+	var sized := w.lords.size() == 15
+	for realm in w.realms:
+		var mine := w.lords.filter(func(l): return l["realm"] == realm)
+		var rulers := mine.filter(func(l): return l["ruler"])
+		sized = sized and mine.size() == 5 and rulers.size() == 1 and w.party(int(rulers[0]["party"])).node == w.capital_of(realm)
+		for c in w.holdings_of(realm, WorldData.CASTLE):
+			sized = sized and mine.filter(func(l): return l["fief"] == c).size() == 1
+	for l in w.lords:
+		var lp := w.party(int(l["party"]))
+		sized = sized and lp != null and lp.kind == WorldSim.LORD and lp.army.size() >= Lords.SQUADS_MIN \
+			and lp.army.size() <= Lords.SQUADS_MAX and w.men_of(lp.army) == int(l["full"])
+	_expect(sized, "each realm has a ruler at its capital and four lords, two holding its castles, all in the field")
+
+	# What a lord chooses. Vardmark and Kharzan are at war.
+	var v: Dictionary = w.lords.filter(func(l): return l["realm"] == "vardmark" and not l["ruler"])[0]
+	var k: Dictionary = w.lords.filter(func(l): return l["realm"] == "kharzan" and not l["ruler"])[0]
+	var vp := w.party(int(v["party"]))
+	var kp := w.party(int(k["party"]))
+	for sq in vp.army:
+		sq["men"] = 2
+	w._think_lord(v, vp)
+	var home_ok: bool = v["job"] == "home" and v["target"] == w.seat_of(v)
+	for sq in vp.army:
+		sq["men"] = 20
+	v["job"] = ""
+	# A Kharzani lord burning Thornwall: the Vardish lord at Ravensford rides to save it.
+	kp.node = "thornwall"
+	kp.next = ""
+	kp.path = []
+	k["raiding"] = "thornwall"
+	vp.node = "ravensford"
+	vp.next = ""
+	vp.path = []
+	vp.wait = 0.0
+	v["bearing"] = Lords.HONORABLE
+	w._think_lord(v, vp)
+	var defend_ok: bool = v["job"] == "defend" and v["target"] == "thornwall"
+	k["raiding"] = ""
+	# A cruel lord at full strength goes raiding over the border.
+	kp.node = "zeyra"
+	k["bearing"] = Lords.CRUEL
+	k["job"] = ""
+	w._think_lord(k, kp)
+	var raid_ok: bool = k["job"] == "raid" and w.owner_of(String(k["target"])) == "vardmark"
+	_expect(home_ok and defend_ok and raid_ok,
+		"a spent lord goes home to refill, a lord rides to defend his realm's burning village, a cruel one raids the enemy")
+
+	# Two lords at war who meet fight it out, settled as a fight sent in; the loser regroups.
+	for lp in w.lord_parties():
+		if lp != vp and lp != kp:
+			lp.node = w.capital_of(lp.faction)
+			lp.next = ""
+			lp.path = []
+	for lp in [vp, kp]:
+		lp.node = "thornwall"
+		lp.next = ""
+		lp.path = []
+	w._lord_fights()
+	var beaten: Dictionary = v if int(v["party"]) == -1 else k
+	var fought: bool = (int(v["party"]) == -1) != (int(k["party"]) == -1) and beaten["state"] == "regroup"
+	w.hour = float(beaten["back_at"]) + 0.1
+	w._step_lords(0.0)
+	_expect(fought and beaten["state"] == "field" and w.party(int(beaten["party"])).node == w.seat_of(beaten),
+		"lords at war who meet fight it out, and the loser regroups at his seat a day later")
+
+	# A raid left alone burns the village: no dues, no recruits, until it's rebuilt.
+	var raider: Dictionary = w.lords.filter(func(l): return l["realm"] == "kharzan" and l["state"] == "field")[0]
+	var rp := w.party(int(raider["party"]))
+	rp.node = "kettlebrook"
+	rp.next = ""
+	rp.path = []
+	raider["job"] = "raid"
+	raider["target"] = "kettlebrook"
+	w._lord_arrives(raider, rp)
+	var started: bool = raider["raiding"] == "kettlebrook"
+	rp.wait = 0.01
+	w._step_lords(0.05)
+	var burnt: bool = w.is_burned("kettlebrook") and w.offers_at("kettlebrook").is_empty() and w.describe("kettlebrook").contains("burned")
+	w.hour += Lords.BURNED_DAYS * 24.0 + 1.0
+	_expect(started and burnt and not w.is_burned("kettlebrook"),
+		"a raid left alone burns the village: no dues and no recruits until it's rebuilt %d days later" % Lords.BURNED_DAYS)
+
+	# A year of the world, nobody touching it.
+	var year := WorldSim.new()
+	year.setup(11, Cultures.RYUMON)
+	var samples := 0
+	var in_field := 0.0
+	var worst_broke := 0
+	var fights := 0
+	var burned := 0
+	var t0 := Time.get_ticks_usec()
+	for day in 365:
+		if year.encounter != -1:
+			year.withdraw()
+		year.wait(24.0)
+		year.step(24.0)
+		var field := 0
+		for l in year.lords:
+			if l["state"] == "field" and l["job"] != "home":
+				field += 1
+			worst_broke = maxi(worst_broke, int(l["broke_days"]))
+		in_field += float(field) / year.lords.size()
+		samples += 1
+		for e in year.events:
+			fights += 1 if e["type"] == "fight" else 0
+			burned += 1 if e["type"] == "burned" else 0
+		year.events.clear()
+	var ms_per_hour := (Time.get_ticks_usec() - t0) / 1000.0 / (365.0 * 24.0)
+	_expect(worst_broke <= 7 and in_field / samples >= 0.6 and fights > 0 and burned > 0,
+		"a year on: lords are out in the field %.0f%% of the time, none broke over a week (worst %d days); %d fights, %d villages burned" % [
+			in_field * 100.0 / samples, worst_broke, fights, burned])
+	_expect(ms_per_hour <= 2.0, "a world hour with every lord riding costs at most 2 ms (%.2f ms)" % ms_per_hour)
+
+	# Godot's JSON doesn't read every float back to the last bit, so a loaded world is the
+	# saved one to 14 digits: it loads back exactly as saved, two loads carry on exactly
+	# alike, and the original and a load still agree on where everyone is and what every
+	# lord is doing two days on.
+	var saved := JSON.stringify(year.to_dict())
+	var copy := WorldSim.new()
+	copy.from_dict(JSON.parse_string(saved))
+	var again := WorldSim.new()
+	again.from_dict(JSON.parse_string(saved))
+	var loads_back := JSON.stringify(copy.to_dict()) == saved
+	for world in [year, copy, again]:
+		world.wait(48.0)
+		world.step(48.0)
+	var agree := true
+	for i in year.lords.size():
+		for key in ["state", "job", "target", "raiding", "party"]:
+			agree = agree and year.lords[i][key] == copy.lords[i][key]
+	for i in year.parties.size():
+		agree = agree and year.parties[i].node == copy.parties[i].node and year.parties[i].next == copy.parties[i].next
+	_expect(loads_back and JSON.stringify(copy.to_dict()) == JSON.stringify(again.to_dict()) and agree,
+		"lords, their purses and what they're doing are saved, and the world carries on as it would have")
+
+
 func _check_long_run() -> void:
 	var w := WorldSim.new()
 	w.setup(6, Cultures.VARDISH)
@@ -1316,11 +1459,11 @@ func _check_long_run() -> void:
 		most = maxi(most, w.bands().size())
 		var seen := {}
 		for b in w.bands():
-			if seen.has(b.faction):
+			seen[b.faction] = int(seen.get(b.faction, 0)) + 1
+			if int(seen[b.faction]) > WorldData.BANDIT_BANDS[b.faction].size():
 				per_realm_ok = false
-			seen[b.faction] = true
-	_expect(w.hour >= 60.0 * 24.0 and most <= 3 and per_realm_ok and outcome > 3,
-		"sixty days of riding: never more than one band per realm (%d encounters)" % outcome)
+	_expect(w.hour >= 60.0 * 24.0 and most <= 6 and per_realm_ok and outcome > 3,
+		"sixty days of riding: never more than two bands per realm (%d encounters)" % outcome)
 
 
 func _check_campaign_battles() -> void:

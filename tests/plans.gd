@@ -17,6 +17,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
+const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 
 const PLANS := ["advance", "hold", "tactician", "terrain"]
 ## The tactician's line fights braced this long after the first clash before the rest go
@@ -336,6 +337,7 @@ static func campaign(seed_value: int, days: int) -> Dictionary:
 	var w = gs.world
 	var fights := 0
 	var won := 0
+	var avoided := 0
 	var desertion_days := 0
 	var broke_days := 0
 	var lowest_men := gs.total_men()
@@ -344,18 +346,32 @@ static func campaign(seed_value: int, days: int) -> Dictionary:
 		guard += 1
 		gs.map_notice = ""
 		if w.encounter != -1:
-			fights += 1
-			if gs.auto_resolve_encounter().get("won", false):
-				won += 1
+			# Like a player reading the scouts' report: withdraw from a fight the odds say
+			# you'd lose, unless it's an ambush and there's no getting away.
+			var band = w.party(w.encounter)
+			var plan: Dictionary = gs.encounter_plan(band)
+			var fighters: Array = gs.army.filter(func(s): return int(s["men"]) > 0)
+			var odds: Dictionary = AutoResolve.odds(fighters, band.army, plan["site"], plan["objective"])
+			if not odds["player_wins"] and plan["objective"] != "ambush":
+				w.withdraw()
+				avoided += 1
+			else:
+				fights += 1
+				if gs.auto_resolve_encounter().get("won", false):
+					won += 1
 		elif not w.busy():
 			var here: String = w.here()
 			if here != "":
 				_shop(gs, here)
 			var target := ""
 			var best := INF
+			var strong: Array = gs.army.filter(func(s): return int(s["men"]) > 0)
 			for b in w.bands():
 				var at: String = b.next if b.moving() else b.node
 				var h: float = w.hours_to(at)
+				# Ride for bands you can beat; leave the rest be.
+				if not AutoResolve.odds(strong, b.army)["player_wins"]:
+					continue
 				if at != here and h < best:
 					best = h
 					target = at
@@ -372,7 +388,7 @@ static func campaign(seed_value: int, days: int) -> Dictionary:
 			broke_days += 1
 		lowest_men = mini(lowest_men, gs.total_men())
 	var out := {"silver": gs.silver, "men": gs.total_men(), "squads": gs.army.size(), "renown": gs.renown,
-		"fights": fights, "won": won, "desertion_days": desertion_days, "broke_days": broke_days,
+		"fights": fights, "won": won, "avoided": avoided, "desertion_days": desertion_days, "broke_days": broke_days,
 		"lowest_men": lowest_men, "cap": gs.squad_cap()}
 	gs.free()
 	return out

@@ -17,6 +17,8 @@ const Cultures = preload("res://scripts/data/cultures.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
+const Lords = preload("res://scripts/data/lords.gd")
+const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -43,6 +45,7 @@ const REGROUP_HOURS := 12.0
 const TICK := 0.25
 const PLAYER := "player"
 const BAND := "bandit"
+const LORD := "lord"
 
 
 class Party:
@@ -70,6 +73,8 @@ class Party:
 	var army: Array = []
 	## Until this hour, this band won't block the player's road again.
 	var grace_until := -1.0
+	## The lord riding with this party (its id in `lords`), or -1.
+	var lord := -1
 
 	func moving() -> bool:
 		return next != ""
@@ -101,10 +106,21 @@ var owners := {}
 ## Realms at war, by pair ("kharzan|vardmark") → {since: hour}. Everyone is at war with
 ## bandits besides.
 var wars := {}
-## Each realm's seat: realm → {capital}. A realm that loses its capital moves it.
+## Each realm's seat and purse: realm → {capital, treasury}. A realm that loses its
+## capital moves it.
 var realms := {}
+## The lords of the realms, rulers among them: [{id, name, realm, culture, bearing, ruler,
+## renown, silver, fief, party, state, back_at, job, target, think_at, raiding, broke_days,
+## full, army}]. `party` is the id of his party on the map, or -1 while he regroups (his
+## surviving squads wait in `army`).
+var lords: Array = []
+## Villages raiders have burned: id → the hour they're rebuilt.
+var burned := {}
+## The last day the lords' purses were settled.
+var _lord_day := 0
 var _next_id := 1
 var _adjacent := {}
+var _lord_hours := {}
 
 
 # ---------------------------------------------------------------- setup
@@ -124,9 +140,12 @@ func setup(seed_value: int, player_culture: String) -> void:
 	p.node = Data.capital_of_culture(culture)
 	parties.append(p)
 	for faction in Data.BANDIT_BANDS:
-		_spawn_band(faction)
+		for k in Data.BANDIT_BANDS[faction].size():
+			_spawn_band(faction)
 	for id in Data.SETTLEMENTS:
 		offers[id] = _new_offers(id)
+	_spawn_lords()
+	_lord_day = int(hour / 24.0)
 
 
 ## The map as it stands at the start of a campaign: every place in its first owner's
@@ -141,7 +160,7 @@ func _start_realms() -> void:
 	realms = {}
 	for f in Data.FACTIONS:
 		if f != Data.BANDITS:
-			realms[f] = {"capital": String(Data.FACTIONS[f]["capital"])}
+			realms[f] = {"capital": String(Data.FACTIONS[f]["capital"]), "treasury": Lords.TREASURY_START}
 
 
 func _build_roads() -> void:
@@ -237,7 +256,10 @@ func describe(id: String) -> String:
 	var line := "%s of the %s" % [String(s["type"]).capitalize(), faction["name"]]
 	if capital_of(realm) == id:
 		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
-	return "%s · %s" % [line, Cultures.info(Data.culture_of(s["faction"]))["people"]]
+	var people: String = Cultures.info(Data.culture_of(s["faction"]))["people"]
+	if is_burned(id):
+		return "%s · %s · burned by raiders, rebuilding" % [line, people]
+	return "%s · %s" % [line, people]
 
 
 # ---------------------------------------------------------------- queries
@@ -255,6 +277,15 @@ func party(id: int) -> Party:
 
 func bands() -> Array:
 	return parties.filter(func(p): return p.kind == BAND)
+
+
+## The lords' parties on the map.
+func lord_parties() -> Array:
+	return parties.filter(func(p): return p.kind == LORD)
+
+
+func lord_of(p: Party) -> Dictionary:
+	return lords[p.lord] if p != null and p.lord >= 0 and p.lord < lords.size() else {}
 
 
 ## Where a party is on the map.
@@ -304,7 +335,9 @@ func road_length(a: String, b: String) -> float:
 func _speed(p: Party, a: String, b: String) -> float:
 	if p.kind == BAND:
 		return BANDIT_SPEED
-	return SEA_SPEED if is_sea(a, b) else LAND_SPEED
+	if is_sea(a, b):
+		return SEA_SPEED
+	return Lords.SPEED if p.kind == LORD else LAND_SPEED
 
 
 ## The quickest way from `from` to `to` by road, as the settlements to pass through
@@ -422,6 +455,7 @@ func step(hours: float) -> void:
 		_move_player(dt)
 		for b in bands():
 			_move_band(b, dt)
+		_step_lords(dt)
 		_respawn()
 		_check_encounter()
 
@@ -512,9 +546,14 @@ func _generate_chief_name(cult: String) -> String:
 
 
 func _spawn_band(faction: String) -> void:
+	var names: Array = Data.BANDIT_BANDS[faction].duplicate()
+	var at_large := 0
 	for b in bands():
 		if b.faction == faction:
-			return
+			at_large += 1
+			names.erase(b.name)
+	if at_large >= Data.BANDIT_BANDS[faction].size():
+		return
 	var villages := villages_of(faction)
 	if villages.is_empty():
 		# A realm with no villages left has no band either, until it wins one back.
@@ -552,7 +591,7 @@ func _spawn_band(faction: String) -> void:
 			b.name = "%s's Band" % b.chief_name
 			b.army = _band_army(b.id, band_cult, true, {"name": b.chief_name, "grudge": 0})
 		else:
-			b.name = String(Data.BANDIT_BANDS[faction])
+			b.name = String(names[0])
 			b.army = _band_army(b.id, band_cult)
 
 	parties.append(b)
@@ -618,12 +657,442 @@ func _band_army(band_id: int, band_culture: String, with_chief: bool = false, ch
 	return out
 
 
+# ---------------------------------------------------------------- lords
+
+## Each realm's ruler, at its capital, and its lords: the first two hold its castles, the
+## rest serve for a stipend and ride out from the capital.
+func _spawn_lords() -> void:
+	lords = []
+	for realm in realms:
+		var cult := Data.culture_of(realm)
+		var firsts: Array = Cultures.info(cult)["first"].duplicate()
+		var houses: Array = Lords.HOUSES[cult].duplicate()
+		var castles := holdings_of(realm, Data.CASTLE)
+		var ruler := String(Data.FACTIONS[realm]["ruler"])
+		_add_lord(realm, cult, ruler, true, 200, capital_of(realm))
+		for i in Lords.PER_REALM:
+			var first: String = firsts.pop_at(rng.randi_range(0, firsts.size() - 1))
+			var house: String = houses.pop_at(rng.randi_range(0, houses.size() - 1))
+			var fief: String = castles[i] if i < castles.size() else ""
+			_add_lord(realm, cult, "%s %s %s" % [Lords.title(cult), first, house], false,
+				int(Lords.START_RENOWN[i % Lords.START_RENOWN.size()]), fief)
+
+
+func _add_lord(realm: String, cult: String, name: String, ruler: bool, renown: int, fief: String) -> void:
+	var l := {"id": lords.size(), "name": name, "realm": realm, "culture": cult,
+		"bearing": Lords.BEARINGS[rng.randi_range(0, Lords.BEARINGS.size() - 1)], "ruler": ruler,
+		"renown": renown, "silver": Lords.START_SILVER, "fief": fief, "party": -1, "state": "field",
+		"back_at": 0.0, "job": "", "target": "", "think_at": hour + rng.randf_range(0.0, Lords.THINK_HOURS),
+		"raiding": "", "broke_days": 0, "full": 0, "army": []}
+	lords.append(l)
+	l["army"] = _lord_army(l)
+	for sq in l["army"]:
+		l["full"] = int(l["full"]) + int(sq["men"])
+	_lord_takes_field(l, seat_of(l))
+
+
+## Where a lord rests and refills: his fief while his realm holds it, else its capital.
+func seat_of(l: Dictionary) -> String:
+	var fief := String(l["fief"])
+	if fief != "" and owner_of(fief) == l["realm"]:
+		return fief
+	return capital_of(String(l["realm"]))
+
+
+## A lord's warband at full strength: squads by his renown, more of them trained as his
+## renown grows, under captains of his people.
+func _lord_army(l: Dictionary) -> Array:
+	var out := []
+	var cult := String(l["culture"])
+	var taken := []
+	var trained := Lords.trained_share(int(l["renown"]))
+	for i in Lords.squads_for(int(l["renown"])):
+		var roll := rng.randf()
+		var type := Troops.INFANTRY
+		if roll > 0.8:
+			type = Troops.CAVALRY
+		elif roll > 0.55:
+			type = Troops.ARCHERS
+		elif roll > 0.3:
+			type = Troops.SPEARMEN
+		var unit := Units.recruit(cult, type)
+		var level := 1
+		if rng.randf() < trained:
+			var options := Units.branches(unit)
+			if not options.is_empty():
+				unit = options[rng.randi_range(0, options.size() - 1)]
+				level = 2
+		var id := 7000000 + int(l["id"]) * 100 + i
+		var captain := Captains.make(rng, id, type, taken, cult)
+		taken.append(captain["first"])
+		out.append({"id": id, "type": type, "unit": unit, "level": level,
+			"xp": Troops.XP_PER_LEVEL if level > 1 else 0, "men": Units.full_size(unit), "culture": cult,
+			"name": Captains.company_name(captain, type), "captain": captain})
+	return out
+
+
+## The lord rides out from `at` with his warband.
+func _lord_takes_field(l: Dictionary, at: String) -> void:
+	if at == "":
+		return
+	var p := Party.new()
+	p.id = _take_id()
+	p.kind = LORD
+	p.name = String(l["name"])
+	p.faction = String(l["realm"])
+	p.node = at
+	p.lord = int(l["id"])
+	p.army = l["army"]
+	parties.append(p)
+	l["party"] = p.id
+	l["state"] = "field"
+	l["job"] = ""
+	l["raiding"] = ""
+	l["think_at"] = hour
+
+
+func men_of(army: Array) -> int:
+	var men := 0
+	for sq in army:
+		men += int(sq["men"])
+	return men
+
+
+func is_burned(id: String) -> bool:
+	return hour < float(burned.get(id, -1.0))
+
+
+func _step_lords(dt: float) -> void:
+	var day := int(hour / 24.0)
+	while _lord_day < day:
+		_lord_day += 1
+		_lords_day()
+	for l in lords:
+		if l["state"] == "regroup":
+			if hour >= float(l["back_at"]):
+				_lord_takes_field(l, seat_of(l))
+			continue
+		var p := party(int(l["party"]))
+		if p == null:
+			continue
+		if p.moving():
+			if _move(p, dt):
+				_lord_arrives(l, p)
+		elif p.wait > 0.0:
+			p.wait = maxf(0.0, p.wait - dt)
+			if p.wait <= 0.0 and String(l["raiding"]) != "":
+				_burn(l, String(l["raiding"]))
+		if hour >= float(l["think_at"]) or (not p.moving() and p.wait <= 0.0 and l["job"] != "home"):
+			l["think_at"] = hour + Lords.THINK_HOURS
+			_think_lord(l, p)
+	_lord_fights()
+
+
+## What a lord does next. He goes home when his warband is spent or his purse is empty;
+## otherwise he weighs defending his realm's villages, hunting bandits, raiding the enemy
+## and patrolling, by his bearing.
+func _think_lord(l: Dictionary, p: Party) -> void:
+	var bearing := String(l["bearing"])
+	var men := men_of(p.army)
+	var full := maxi(1, int(l["full"]))
+	var seat := seat_of(l)
+	if l["job"] == "home" and p.node == seat and not p.moving():
+		if men >= full * Lords.REFILLED:
+			l["job"] = ""
+		else:
+			p.wait = Lords.THINK_HOURS
+			return
+	var low := Lords.REFILL_BELOW + (0.1 if bearing == Lords.CAUTIOUS else 0.0)
+	if men < full * low and seat != "":
+		_set_job(l, p, "home", seat)
+		return
+	if String(l["raiding"]) != "":
+		return
+	var from: String = p.next if p.moving() else p.node
+	var best := ["patrol", "", 1.0]
+	# Defend: a village of his realm that raiders are burning.
+	for other in lords:
+		var v := String(other["raiding"])
+		if v != "" and owner_of(v) == l["realm"] and at_war(String(other["realm"]), String(l["realm"])):
+			var h := _hours(p, from, v)
+			if h <= Lords.DEFEND_HOURS:
+				var score := 5.0 + (1.0 if bearing in [Lords.CAUTIOUS, Lords.HONORABLE] else 0.0) - h * 0.05
+				if score > float(best[2]):
+					best = ["defend", v, score]
+	# Hunt: bandits raiding a village of his realm, within reach. Bands on the road he
+	# leaves to the likes of you.
+	for b in bands():
+		var at: String = b.next if b.moving() else b.node
+		if not b.raiding or owner_of(b.raid_village) != l["realm"]:
+			continue
+		var h := _hours(p, from, at)
+		if h <= Lords.HUNT_HOURS:
+			var score := 3.0 + (2.0 if bearing == Lords.HONORABLE else 0.0) - h * 0.05
+			if score > float(best[2]):
+				best = ["hunt", str(b.id), score]
+	# Raid: an enemy village not yet burned, if his warband is strong enough.
+	if men >= full * 0.7:
+		var reach := Lords.RAID_HOURS_AWAY * (1.5 if bearing == Lords.DARING else (0.4 if bearing == Lords.CAUTIOUS else 1.0))
+		for v in Data.SETTLEMENTS:
+			if not Data.is_village(v) or is_burned(v) or not at_war(owner_of(v), String(l["realm"])) or owner_of(v) == Data.BANDITS:
+				continue
+			var h := _hours(p, from, v)
+			if h <= reach:
+				var score := 2.0 + (2.0 if bearing == Lords.CRUEL else 0.0) + (1.0 if bearing == Lords.DARING else 0.0) \
+					- (1.0 if bearing == Lords.HONORABLE else 0.0) - h * 0.03 + rng.randf() * 0.5
+				if score > float(best[2]):
+					best = ["raid", v, score]
+	if best[0] == "patrol":
+		if l["job"] == "patrol" and (p.moving() or p.wait > 0.0):
+			return
+		var own := holdings_of(String(l["realm"])).filter(func(id): return id != p.node)
+		if own.is_empty():
+			return
+		_set_job(l, p, "patrol", own[rng.randi_range(0, own.size() - 1)])
+	elif best[0] == "hunt":
+		var b := party(int(best[1]))
+		_set_job(l, p, "hunt", b.next if b.moving() else b.node)
+	else:
+		_set_job(l, p, best[0], best[1])
+
+
+## Hours for lord's party `p` to ride from `from` to `to`. The roads never change, so
+## every pair is worked out once.
+func _hours(p: Party, from: String, to: String) -> float:
+	if from == to:
+		return 0.0
+	if _lord_hours.is_empty():
+		for a in Data.SETTLEMENTS:
+			for b in Data.SETTLEMENTS:
+				var route := path(a, b) if a != b else []
+				var h := 0.0 if a == b else INF
+				if not route.is_empty():
+					h = 0.0
+					var at: String = a
+					for nxt in route:
+						h += road_length(at, nxt) / _speed(p, at, nxt)
+						at = nxt
+				_lord_hours["%s>%s" % [a, b]] = h
+	return float(_lord_hours.get("%s>%s" % [from, to], INF))
+
+
+func _set_job(l: Dictionary, p: Party, job: String, target: String) -> void:
+	l["job"] = job
+	l["target"] = target
+	p.wait = 0.0
+	var from: String = p.node
+	if p.moving():
+		# Finish the road he's on first.
+		from = p.next
+	var route := path(from, target) if from != target else []
+	if p.moving():
+		p.path = route
+	elif route.is_empty():
+		_lord_arrives(l, p)
+	else:
+		p.next = route.pop_front()
+		p.along = 0.0
+		p.path = route
+
+
+func _lord_arrives(l: Dictionary, p: Party) -> void:
+	if p.moving() or p.node != String(l["target"]):
+		return
+	match String(l["job"]):
+		"raid":
+			if Data.is_village(p.node) and not is_burned(p.node) and at_war(owner_of(p.node), String(l["realm"])):
+				l["raiding"] = p.node
+				p.wait = Lords.RAID_HOURS
+				events.append({"type": "raid_started", "party": p.id, "village": p.node, "hours": Lords.RAID_HOURS})
+			else:
+				l["job"] = ""
+		"home":
+			p.wait = Lords.THINK_HOURS
+		_:
+			p.wait = rng.randf_range(Lords.LINGER_MIN, Lords.LINGER_MAX)
+			l["job"] = "patrol"
+
+
+func _burn(l: Dictionary, village: String) -> void:
+	l["raiding"] = ""
+	l["job"] = ""
+	if is_burned(village):
+		return
+	burned[village] = hour + Lords.BURNED_DAYS * 24.0
+	l["silver"] = int(l["silver"]) + Lords.RAID_LOOT
+	events.append({"type": "burned", "village": village, "by": String(l["name"])})
+
+
+## A day's money. Each realm takes in its places' dues and pays its lords' wages; a lord
+## whose realm can't pay him pays from his own purse, and one who can't pay at all loses
+## men, as your warband does. A lord resting at his seat refills his squads.
+func _lords_day() -> void:
+	for realm in realms:
+		var income := 0
+		for id in holdings_of(realm):
+			if not is_burned(id):
+				income += int(Lords.INCOME[Data.settlement(id)["type"]])
+		realms[realm]["treasury"] = int(realms[realm]["treasury"]) + income
+	for l in lords:
+		var p := party(int(l["party"]))
+		var army: Array = p.army if p != null else l["army"]
+		var wages := 0.0
+		for sq in army:
+			wages += Economy.daily_wage(sq)
+		var owed := int(ceil(wages * Lords.WAGE_SHARE))
+		var realm: Dictionary = realms[l["realm"]]
+		var from_realm := mini(owed, maxi(0, int(realm["treasury"])))
+		realm["treasury"] = int(realm["treasury"]) - from_realm
+		owed -= from_realm
+		var from_lord := mini(owed, maxi(0, int(l["silver"])))
+		l["silver"] = int(l["silver"]) - from_lord
+		owed -= from_lord
+		if owed > 0:
+			l["broke_days"] = int(l["broke_days"]) + 1
+			for sq in army:
+				sq["men"] = int(sq["men"]) - int(ceil(int(sq["men"]) * Economy.DESERTION))
+		else:
+			l["broke_days"] = 0
+		if p != null and not p.moving() and p.node == seat_of(l):
+			_refill(l, army)
+		army = army.filter(func(sq): return int(sq["men"]) > 0)
+		if p != null:
+			p.army = army
+		l["army"] = army
+
+
+## A day's recruits for a lord at his seat, as many as his purse allows, up to his
+## warband's full strength. Squads cut down to nothing are raised again.
+func _refill(l: Dictionary, army: Array) -> void:
+	var budget := int(ceil(int(l["full"]) * Lords.REFILL_PER_DAY))
+	if men_of(army) < int(l["full"]) * 0.5 and army.size() < Lords.squads_for(int(l["renown"])):
+		for sq in _lord_army(l):
+			if army.size() >= Lords.squads_for(int(l["renown"])):
+				break
+			var used := false
+			for have in army:
+				if int(have["id"]) == int(sq["id"]):
+					used = true
+			if not used:
+				sq["men"] = 0
+				army.append(sq)
+	for sq in army:
+		if budget <= 0:
+			break
+		var unit := String(sq.get("unit", ""))
+		var full := Units.full_size(unit) if Units.has(unit) else Troops.full_size(String(sq["type"]))
+		var add := mini(full - int(sq["men"]), budget)
+		if add <= 0:
+			continue
+		var cost := Economy.recruit_cost(unit if unit != "" else String(sq["type"]), add)
+		var realm: Dictionary = realms[l["realm"]]
+		if cost > int(l["silver"]) + maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE):
+			break
+		var own := mini(cost, int(l["silver"]))
+		l["silver"] = int(l["silver"]) - own
+		realm["treasury"] = int(realm["treasury"]) - (cost - own)
+		sq["men"] = int(sq["men"]) + add
+		budget -= add
+
+
+## Lords who meet their enemies on the road fight it out, settled as a fight you send
+## your men into would be: lords of realms at war. The loser's party is gone, to regroup
+## at his seat with whoever got away. Bandits a hunting lord catches are driven off.
+func _lord_fights() -> void:
+	var ps: Array = parties.filter(func(p): return p.kind != PLAYER)
+	var at := []
+	for p in ps:
+		at.append(party_pos(p))
+	var gone := {}
+	var reach := ENCOUNTER_RADIUS * ENCOUNTER_RADIUS
+	for i in ps.size():
+		var a: Party = ps[i]
+		if a.kind != LORD or gone.has(a.id):
+			continue
+		# Bands keep out of a lord's way unless he's out hunting them.
+		var hunting: bool = lord_of(a).get("job", "") == "hunt"
+		for j in ps.size():
+			var b: Party = ps[j]
+			if j == i or gone.has(b.id):
+				continue
+			if b.kind == LORD:
+				if j < i or not at_war(a.faction, b.faction):
+					continue
+			elif not hunting:
+				continue
+			if (at[i] as Vector2).distance_squared_to(at[j]) > reach:
+				continue
+			if b.kind == BAND:
+				_drive_off(a, b)
+				continue
+			var loser := _ai_fight(a, b)
+			gone[loser.id] = true
+			if loser == a:
+				break
+
+
+## Bandits caught raiding by a lord don't stand and fight: they break off and run for
+## another village, and the lord turns back to his own business.
+func _drive_off(l_party: Party, band: Party) -> void:
+	if band.raiding:
+		events.append({"type": "driven_off", "party": band.id, "village": band.raid_village, "by": l_party.name})
+	band.raiding = false
+	band.raid_village = ""
+	band.wait = 0.0
+	var l := lord_of(l_party)
+	l["job"] = ""
+	l["think_at"] = hour
+
+
+## Two parties fight it out; returns the loser.
+func _ai_fight(a: Party, b: Party) -> Party:
+	var r := AutoResolve.resolve(a.army, b.army, rng, true, null, "rout")
+	_take_losses(a, r["squads"])
+	_take_losses(b, r["enemy_squads"])
+	var winner := a if r["won"] else b
+	var loser := b if r["won"] else a
+	var killed := int(r["killed"]) if r["won"] else int(r["lost"])
+	var wl := lord_of(winner)
+	if not wl.is_empty():
+		wl["silver"] = int(wl["silver"]) + Economy.SILVER_PER_KILL * killed
+		wl["renown"] = mini(Lords.RENOWN_MAX, int(wl["renown"]) + 1 + killed / 10)
+	events.append({"type": "fight", "winner": winner.name, "loser": loser.name, "at": loser.node})
+	_routed(loser)
+	return loser
+
+
+func _take_losses(p: Party, survivors: Dictionary) -> void:
+	for sq in p.army:
+		var left = survivors.get(int(sq["id"]))
+		if left != null:
+			sq["men"] = int(left["men"])
+	p.army = p.army.filter(func(sq): return int(sq["men"]) > 0)
+
+
+## A beaten party leaves the map: a band for good (another rises later), a lord to his
+## seat to regroup.
+func _routed(p: Party) -> void:
+	parties.erase(p)
+	if p.kind == BAND:
+		respawns.append({"faction": p.faction, "at": hour + RESPAWN_HOURS})
+		return
+	var l := lord_of(p)
+	l["army"] = p.army
+	l["party"] = -1
+	l["state"] = "regroup"
+	l["raiding"] = ""
+	l["job"] = ""
+	l["back_at"] = hour + Lords.REGROUP_HOURS
+
+
 # ---------------------------------------------------------------- recruits
 
 ## Who will join you at `id`: squads of fresh recruits of the settlement's own culture.
 ## Villages raise foot and bows, castles spears and horse, towns any of them. Offers that
 ## were taken come back OFFER_REFRESH_HOURS later.
 func offers_at(id: String) -> Array:
+	if is_burned(id):
+		return []
 	if not offers.has(id) or hour >= float(offers_back.get(id, INF)):
 		offers[id] = _new_offers(id)
 		offers_back.erase(id)
@@ -743,7 +1212,7 @@ func to_dict() -> Dictionary:
 			"next": p.next, "along": p.along, "path": p.path.duplicate(), "wait": p.wait,
 			"army": p.army.duplicate(true), "grace_until": p.grace_until,
 			"raiding": p.raiding, "raid_village": p.raid_village,
-			"is_chief_band": p.is_chief_band, "chief_name": p.chief_name})
+			"is_chief_band": p.is_chief_band, "chief_name": p.chief_name, "lord": p.lord})
 	return {
 		"hour": hour, "culture": culture, "encounter": encounter, "next_id": _next_id,
 		"seed": str(rng.seed), "state": str(rng.state),
@@ -752,7 +1221,16 @@ func to_dict() -> Dictionary:
 		"escaped_chiefs": escaped_chiefs.duplicate(true),
 		"saved_villages": saved_villages.duplicate(),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
+		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "lord_day": _lord_day,
 	}
+
+
+## A lord as saved: his squads only while he regroups (on the map they ride with his party).
+func _lord_for_save(l: Dictionary) -> Dictionary:
+	var out := l.duplicate(true)
+	if int(l["party"]) >= 0:
+		out["army"] = []
+	return out
 
 
 ## Restore a world saved with to_dict(). JSON turns every number into a float, so counts
@@ -774,6 +1252,7 @@ func from_dict(d: Dictionary) -> void:
 	for f in raw_realms:
 		if realms.has(String(f)):
 			realms[String(f)]["capital"] = String(raw_realms[f].get("capital", ""))
+			realms[String(f)]["treasury"] = int(raw_realms[f].get("treasury", Lords.TREASURY_START))
 	hour = float(d.get("hour", 0.0))
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))
@@ -822,8 +1301,44 @@ func from_dict(d: Dictionary) -> void:
 		p.raid_village = String(e.get("raid_village", ""))
 		p.is_chief_band = bool(e.get("is_chief_band", false))
 		p.chief_name = String(e.get("chief_name", ""))
+		p.lord = int(e.get("lord", -1))
 		p.army = clean_army(e["army"])
 		parties.append(p)
+	burned = {}
+	var raw_burned = d.get("burned", {})
+	for k in raw_burned:
+		burned[String(k)] = float(raw_burned[k])
+	lords = []
+	if d.has("lords"):
+		for e in d["lords"]:
+			lords.append(_clean_lord(e))
+		for l in lords:
+			var lp := party(int(l["party"]))
+			if lp != null:
+				l["army"] = lp.army
+		_lord_day = int(d.get("lord_day", int(hour / 24.0)))
+	else:
+		# A world saved before there were lords gets its lords now.
+		_spawn_lords()
+		_lord_day = int(hour / 24.0)
+
+
+## A lord read back from JSON, with his counts as ints again.
+static func _clean_lord(e: Dictionary) -> Dictionary:
+	var l := {}
+	for k in ["name", "realm", "culture", "bearing", "fief", "state", "job", "target", "raiding"]:
+		l[k] = String(e.get(k, ""))
+	for k in ["id", "renown", "silver", "party", "broke_days", "full"]:
+		l[k] = int(e.get(k, 0))
+	l["ruler"] = bool(e.get("ruler", false))
+	l["back_at"] = float(e.get("back_at", 0.0))
+	l["think_at"] = float(e.get("think_at", 0.0))
+	l["army"] = clean_army(e.get("army", []))
+	var ordered := {}
+	for k in ["id", "name", "realm", "culture", "bearing", "ruler", "renown", "silver", "fief", "party", "state",
+			"back_at", "job", "target", "think_at", "raiding", "broke_days", "full", "army"]:
+		ordered[k] = l[k]
+	return ordered
 
 
 ## Squads read back from JSON, with ids and counts as ints again.
