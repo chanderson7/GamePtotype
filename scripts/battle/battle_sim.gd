@@ -116,6 +116,9 @@ class Squad:
 	var face := Vector2.ZERO
 	## Men abreast, set by a line the player drew. Zero: the usual width for its size.
 	var files := 0
+	## Archers told to hold fire keep their arrows: they loose none, and fight anyone who
+	## reaches them with their blades.
+	var hold_fire := false
 	var order_target = null
 	var focus = null
 	var engaged := false
@@ -565,6 +568,23 @@ func _overlaps(team: int, at: Vector2, half: Vector2, ignore) -> bool:
 
 # ---------------------------------------------------------------- orders
 
+## Archers keep their arrows (`on`), or loose at will again. Others ignore it.
+func set_hold_fire(sq, on: bool) -> void:
+	if sq == null or not sq.is_active() or not sq.ranged:
+		return
+	sq.hold_fire = on
+	for so in sq.soldiers:
+		so.target = null
+
+
+## How close a squad has to be to fight: bow range, or arm's length for archers holding
+## their fire (and for everyone who fights hand to hand).
+func _fighting_reach(sq) -> float:
+	if sq.ranged and sq.hold_fire:
+		return float(Troops.SIDEARM["reach"])
+	return sq.reach
+
+
 ## Stand where you are and fight anyone who comes close. A schiltron keeps its ring.
 func order_hold(sq) -> void:
 	if sq == null or not sq.is_active():
@@ -659,40 +679,59 @@ func line_spots(line_squads: Array, a: Vector2, b: Vector2) -> Array:
 func order_line(team: int, a: Vector2, b: Vector2, only = null) -> Array:
 	if winner != -1:
 		return []
-	var line_squads := []
-	if only != null:
-		if only.is_active():
-			line_squads.append(only)
-	else:
-		if phase == PHASE_DEPLOY:
-			# Anyone still in reserve joins the line; they start from its middle.
-			for entry in reserves[team].duplicate():
-				reserves[team].erase(entry)
-				_spawn(team, entry, _fit(deploy_zone(team), (a + b) * 0.5, _footprint(entry["type"], entry["men"])))
-		for sq in squads:
-			if sq.team == team and sq.is_active():
-				line_squads.append(sq)
-	if line_squads.is_empty():
-		return []
-	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
-	line_squads.sort_custom(func(x, y): return x.center.dot(dir) < y.center.dot(dir))
-	var spots := line_spots(line_squads, a, b)
-	var face := _line_face(team, a, b)
+	if only == null and phase == PHASE_DEPLOY:
+		# Anyone still in reserve joins the line; they start from its middle.
+		for entry in reserves[team].duplicate():
+			reserves[team].erase(entry)
+			_spawn(team, entry, _fit(deploy_zone(team), (a + b) * 0.5, _footprint(entry["type"], entry["men"])))
+	var spots := line_preview(team, a, b, only)
+	var face := line_face(team, a, b)
 	for s in spots:
 		var sq = s["squad"]
 		_reform(sq, int(s["files"]))
 		if phase == PHASE_DEPLOY:
 			sq.facing = face
-			_move_formation(sq, _fit(deploy_zone(team), s["at"], s["half"]))
-			s["at"] = sq.center
+			_move_formation(sq, s["at"])
 		else:
 			order_move(sq, s["at"])
 		sq.face = face
 	return spots
 
 
+## Where order_line would put everyone, without moving anyone: for showing the line
+## while it's being drawn. Squads not yet placed stand in for themselves from the
+## line's middle; before the battle, spots are kept inside the deployment zone.
+func line_preview(team: int, a: Vector2, b: Vector2, only = null) -> Array:
+	if winner != -1:
+		return []
+	var line_squads := []
+	if only != null:
+		if only.is_active():
+			line_squads.append(only)
+	else:
+		for sq in squads:
+			if sq.team == team and sq.is_active():
+				line_squads.append(sq)
+		if phase == PHASE_DEPLOY:
+			for entry in reserves[team]:
+				var stand_in := Squad.new()
+				stand_in.type = entry["type"]
+				stand_in.start_men = int(entry["men"])
+				stand_in.center = (a + b) * 0.5
+				line_squads.append(stand_in)
+	if line_squads.is_empty():
+		return []
+	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
+	line_squads.sort_custom(func(x, y): return x.center.dot(dir) < y.center.dot(dir))
+	var spots := line_spots(line_squads, a, b)
+	if phase == PHASE_DEPLOY:
+		for s in spots:
+			s["at"] = _fit(deploy_zone(team), s["at"], s["half"])
+	return spots
+
+
 ## Which way a line faces: square to it, toward the enemy's army (or its end of the field).
-func _line_face(team: int, a: Vector2, b: Vector2) -> Vector2:
+func line_face(team: int, a: Vector2, b: Vector2) -> Vector2:
 	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
 	var normal := Vector2(-dir.y, dir.x)
 	var enemy := Vector2(ARENA.x * 0.5, 0.0 if team == PLAYER else ARENA.y)
@@ -772,6 +811,7 @@ func use_ability(sq, target = null) -> bool:
 	match sq.type:
 		Troops.ARCHERS:
 			var foe = _volley_target(sq, target)
+			sq.hold_fire = false
 			sq.volley_target = foe
 			sq.volley_left = 1.5
 			for so in sq.soldiers:
@@ -961,7 +1001,7 @@ func _update_squad(sq, dt: float) -> void:
 	if sq.order == "attack" and (sq.order_target == null or not sq.order_target.is_active()):
 		order_advance(sq)
 
-	var reach: float = sq.reach
+	var reach := _fighting_reach(sq)
 	var foe = null
 	if sq.wheeling:
 		foe = null # riding clear, not fighting
@@ -1001,7 +1041,7 @@ func _update_squad(sq, dt: float) -> void:
 	var was_engaged: bool = sq.engaged
 	sq.engaged = false
 	if foe != null:
-		var slack := 20.0 if sq.ranged else ENGAGE_RANGE
+		var slack := 20.0 if sq.ranged and not sq.hold_fire else ENGAGE_RANGE
 		sq.engaged = _in_range(sq, foe, reach + slack)
 	if sq.engaged:
 		if not was_engaged:
@@ -1172,7 +1212,7 @@ func _update_soldier(so, sq, dt: float) -> void:
 	var gap: float = so.pos.distance_to(tpos) - so.target.radius - so.radius
 	if tpos != so.pos:
 		so.facing = (tpos - so.pos).normalized()
-	var reach: float = sq.reach
+	var reach := _fighting_reach(sq)
 	if gap > reach:
 		var moved := _walk(so, tpos, speed, dt)
 		if gap > reach + 20.0:
@@ -1228,7 +1268,10 @@ func _strike(so, sq, target, gap: float) -> void:
 	var dmg: float = sq.damage * so.might * boost * rng.randf_range(0.8, 1.2)
 	var target_type: String = target.squad.type
 	dmg *= float(sq.bonus.get(target_type, 1.0))
-	if sq.ranged:
+	if sq.ranged and sq.hold_fire:
+		# Holding fire: a short blade, no arrow spent.
+		dmg = float(Troops.SIDEARM["damage"]) * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
+	elif sq.ranged:
 		if gap < 30.0:
 			dmg *= Troops.POINT_BLANK
 		var volley: bool = so.volley and sq.volley_left > 0.0
@@ -1279,6 +1322,7 @@ func _side_of(victim, from: Vector2, attacker) -> int:
 func _draw_blades(sq) -> void:
 	sq.arrows = 0
 	sq.ranged = false
+	sq.hold_fire = false
 	sq.reach = float(Troops.SIDEARM["reach"])
 	sq.damage = float(Troops.SIDEARM["damage"]) * sq.power
 	sq.cooldown = float(Troops.SIDEARM["cooldown"])

@@ -37,6 +37,7 @@ func _init() -> void:
 	_check_orders()
 	_check_arrows()
 	_check_lines()
+	_check_hold_fire()
 
 	print("Tactics:")
 	_check_flanks()
@@ -266,16 +267,73 @@ func _check_lines() -> void:
 		"and its men re-form to that width")
 	sim.dispose()
 
-	# Before the battle, a line places the whole army at once, squads not yet placed too.
+	# Before the battle, a line places the whole army at once, squads not yet placed too,
+	# just where the preview drawn while dragging showed them.
 	sim = Sim.new()
 	sim.setup(army, [{"id": 9, "type": Troops.INFANTRY, "men": 20}], 2)
 	sim.place(Sim.PLAYER, 2, Vector2(420.0, 1100.0))
+	var shown := sim.line_preview(Sim.PLAYER, Vector2(150, 950), Vector2(690, 950))
+	var still: bool = sim.placed_squad(Sim.PLAYER, 2).center == Vector2(420.0, 1100.0) and not sim.all_placed(Sim.PLAYER)
 	spots = sim.order_line(Sim.PLAYER, Vector2(150, 950), Vector2(690, 950))
-	var placed := sim.all_placed(Sim.PLAYER) and spots.size() == 3
-	for spot in spots:
+	var placed: bool = sim.all_placed(Sim.PLAYER) and spots.size() == 3 and shown.size() == 3 and still
+	for i in spots.size():
+		var spot: Dictionary = spots[i]
 		if absf(spot["squad"].center.y - 950.0) > 1.0 or not sim.deploy_zone(Sim.PLAYER).has_point(spot["squad"].center):
 			placed = false
-	_expect(placed, "before the battle, a line places the whole army on it at once")
+		if Vector2(shown[i]["at"]).distance_to(spot["squad"].center) > 0.5:
+			placed = false
+	_expect(placed, "before the battle, a line places the whole army on it at once, where the preview showed")
+	# A line drawn in the enemy's half is kept to your own.
+	spots = sim.order_line(Sim.PLAYER, Vector2(150, 300), Vector2(690, 300))
+	var kept := true
+	for spot in spots:
+		if not sim.deploy_zone(Sim.PLAYER).has_point(spot["squad"].center):
+			kept = false
+	_expect(kept, "and a line drawn in the enemy's half stays in yours")
+	sim.dispose()
+
+
+func _check_hold_fire() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.ARCHERS, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 3)
+	sim.place(Sim.PLAYER, 1, Vector2(420, 1000))
+	sim.place(Sim.ENEMY, 2, Vector2(420, 520))
+	sim.start_battle()
+	var bows = sim.placed_squad(Sim.PLAYER, 1)
+	var foot = sim.placed_squad(Sim.ENEMY, 2)
+	var arrows: int = bows.arrows
+	sim.set_hold_fire(bows, true)
+	sim.order_advance(foot)
+	var met := false
+	for i in 30 * 30:
+		sim.step()
+		met = met or bows.engaged
+		if sim.winner != -1:
+			break
+	var hurt := 0.0
+	for so in foot.soldiers:
+		hurt += so.max_hp - maxf(0.0, so.hp) if so.alive else so.max_hp
+	_expect(bows.arrows == arrows and met and hurt > 0.0,
+		"archers holding fire keep every arrow, and fight with blades when the enemy reaches them")
+	sim.dispose()
+
+	sim = Sim.new()
+	sim.setup([{"id": 1, "type": Troops.ARCHERS, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 4)
+	sim.place(Sim.PLAYER, 1, Vector2(420, 1000))
+	sim.place(Sim.ENEMY, 2, Vector2(420, 560))
+	sim.start_battle()
+	bows = sim.placed_squad(Sim.PLAYER, 1)
+	sim.placed_squad(Sim.ENEMY, 2).center = Vector2(420, 800)
+	sim._move_formation(sim.placed_squad(Sim.ENEMY, 2), Vector2(420, 800))
+	sim.set_hold_fire(bows, true)
+	for i in 30:
+		sim.step()
+	var kept: int = bows.arrows
+	var loosed := sim.use_ability(bows)
+	for i in 60:
+		sim.step()
+	_expect(kept == arrows and loosed and not bows.hold_fire and bows.arrows < kept,
+		"a volley ends the hold: the bows loose at once")
 	sim.dispose()
 
 

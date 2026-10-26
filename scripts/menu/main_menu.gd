@@ -137,7 +137,11 @@ func _build() -> void:
 		"Your squads hold, braced, until ordered, and a braced line wins the first clash: often the " +
 		"best move is to let them come. Advance sends each squad at the enemy it fights best; Hold " +
 		"stops them and braces them again. Tap a card or a standard to command one squad, then tap " +
-		"an enemy to attack it, open ground to march there, or its ability button.\n\n" +
+		"an enemy to attack it (crossed swords mark its target, and it stays on them), open ground to " +
+		"march there, or its ability button. Archers can hold fire to keep their arrows.\n\n" +
+		"Drag across the field to draw a line: the whole army, or the squad you've picked, forms up " +
+		"along it, each squad to its own stretch, facing the enemy. A squad on its own widens or " +
+		"deepens its ranks to fill the line. Before the battle, a line places the whole army at once.\n\n" +
 		"Spearmen stop cavalry. Cavalry ride down archers. Archers shred infantry, until their " +
 		"arrows run out. Infantry cut through spear lines. A squad locked in one fight can be hit " +
 		"in the flank or rear by another, which hurts and shakes it: pin them with foot, then send in the horse.\n\n" +

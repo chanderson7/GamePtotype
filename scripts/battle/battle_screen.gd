@@ -45,6 +45,12 @@ const ROLL_PACE := 0.12
 const ROLL_LANDS := 1.5
 ## A cavalry charge freezes the battle this long when it lands on or by your men.
 const HITSTOP := 0.06
+## A press on the field that moves this far (screen pixels) draws a line instead of tapping.
+const DRAG_START := 24.0
+## Seconds the line just ordered stays on the field.
+const LINE_SHOWN := 1.4
+## The ring and blades over an enemy squad you've sent someone to attack.
+const TARGET_RED := Color(0.93, 0.28, 0.22)
 
 var sim: Sim
 var field_origin := Vector2.ZERO
@@ -95,6 +101,17 @@ var _cultures := {}
 ## When the next clash of steel sounds, and how many arrows were in the air last frame.
 var _clash_clock := 0.0
 var _flying := 0
+## A press on the field: where it went down (on screen and on the field), where it is
+## now, and whether it has become a line.
+var _pressing := false
+var _drawing := false
+var _press_at := Vector2.ZERO
+var _press_field := Vector2.ZERO
+var _drag_to := Vector2.ZERO
+## The line just ordered, fading: {spots, face, at}.
+var _line_shown := {}
+## Whether the hint has shown how to command one squad yet this battle.
+var _taught := false
 var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
@@ -116,6 +133,7 @@ var fight_button: Button
 var advance_button: Button
 var hold_button: Button
 var ability_button: Button
+var hold_fire_button: Button
 var hint_label: Label
 var roll_layer: Control
 var pause_panel: PanelContainer
@@ -304,12 +322,62 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not _view.has_point(mb.position):
 		return
 	get_viewport().set_input_as_handled()
-	var tapped = _standard_at(mb.position)
-	var p := _to_field(mb.position)
+	# A press on the field is a tap when it's let go, or a line if it's dragged.
+	_pressing = true
+	_drawing = false
+	_press_at = mb.position
+	_press_field = _to_field(mb.position)
+	_drag_to = mb.position
+
+
+## Follows a press on the field until it's let go, wherever the finger goes.
+func _input(event: InputEvent) -> void:
+	if not _pressing:
+		return
+	var mm := event as InputEventMouseMotion
+	if mm != null:
+		_drag_to = mm.position
+		if not _drawing and mm.position.distance_to(_press_at) >= DRAG_START:
+			_drawing = true
+		get_viewport().set_input_as_handled()
+		return
+	var mb := event as InputEventMouseButton
+	if mb == null or mb.button_index != MOUSE_BUTTON_LEFT or mb.pressed:
+		return
+	get_viewport().set_input_as_handled()
+	_pressing = false
+	var drew := _drawing
+	_drawing = false
+	if sim.winner != -1 or paused:
+		return
+	if drew:
+		_order_line(_press_field, _to_field(mb.position))
+		return
+	var tapped = _standard_at(_press_at)
 	if sim.phase == Sim.PHASE_DEPLOY:
-		_tap_deploy(p, tapped)
+		_tap_deploy(_press_field, tapped)
 	else:
-		_tap_battle(p, tapped)
+		_tap_battle(_press_field, tapped)
+
+
+## Form up along a line drawn from `a` to `b`: the selected squad alone, or the whole
+## army (before the battle, the whole army always: it's placed there at once).
+func _order_line(a: Vector2, b: Vector2) -> void:
+	var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
+	var spots := sim.order_line(Sim.PLAYER, a, b, only)
+	if spots.is_empty():
+		return
+	for spot in spots:
+		_ordered_at[spot["squad"]] = _clock
+	_line_shown = {"spots": spots, "face": sim.line_face(Sim.PLAYER, a, b), "at": _clock}
+	Sound.play("page", 0.0, 0.05)
+	if sim.phase == Sim.PHASE_DEPLOY:
+		selected_id = -1
+		_hint("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.")
+	elif only != null:
+		_hint("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])])
+	else:
+		_hint("The army forms up along the line, each squad to its own stretch of it, and holds there.")
 
 
 ## The squad whose standard is under a tap, or null.
@@ -359,9 +427,10 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_hint("Tap the blue zone to place %s, %d %s." % [_card_name(e), e["men"], _name(e["type"], Sim.PLAYER, e["roster_id"]).to_lower()])
+			_hint("Tap the blue zone to place %s, %d %s, or drag a line to place everyone." % [
+				_card_name(e), e["men"], _name(e["type"], Sim.PLAYER, e["roster_id"]).to_lower()])
 			return
-	_hint("Your whole army is on the field. Tap a squad to move it, then press Fight.")
+	_hint("Your whole army is on the field. Tap a squad to move it, or drag a new line, then press Fight.")
 
 
 func _tap_battle(p: Vector2, tapped) -> void:
@@ -374,12 +443,15 @@ func _tap_battle(p: Vector2, tapped) -> void:
 		if foe != null:
 			_hint(_describe(foe))
 		else:
-			_hint("Tap a card or a standard to command one squad.")
+			_hint("Tap a squad to command it, or drag across the field to give the army a new line.")
 		return
 	if foe != null and foe.is_active():
 		sim.order_attack(selected_squad, foe)
 		_ordered_at[selected_squad] = _clock
-		_hint("%s attack the enemy %s." % [_company_or_type(selected_squad), _name(foe.type).to_lower()])
+		_ordered_at[foe] = _clock
+		_float_text("TARGET", foe.average_pos() + Vector2(0, -60), Style.ENEMY_LIGHT)
+		Sound.play("clash2", -6.0, 0.05)
+		_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(selected_squad), _name(foe.type, Sim.ENEMY).to_lower()])
 	else:
 		sim.order_move(selected_squad, p)
 		_ordered_at[selected_squad] = _clock
@@ -390,6 +462,10 @@ func _select(sq) -> void:
 	selected_squad = sq
 	if sq == null:
 		_hint("Orders go to the whole army.")
+		return
+	if not _taught:
+		_taught = true
+		_hint("%s: tap an enemy to attack it, open ground to march there, or drag a line to form them up along it." % _company_or_type(sq))
 		return
 	var ab := Troops.ability(sq.type)
 	var who := _company_or_type(sq)
@@ -442,7 +518,7 @@ func _start_battle() -> void:
 	Sound.play("horn")
 	selected_id = -1
 	selected_squad = null
-	_hint("Your squads hold, braced, until ordered. A braced line wins the first clash. Tap a card or a standard to command one squad.")
+	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.")
 
 
 func _on_advance() -> void:
@@ -486,6 +562,19 @@ func _on_ability() -> void:
 		_hint("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
 	elif sq.type == Troops.ARCHERS:
 		_hint("No enemy in bow range." if sq.arrows > 0 else "Out of arrows.")
+
+
+## Archers keep their arrows, or loose at will again.
+func _on_hold_fire() -> void:
+	var sq = selected_squad
+	if sq == null or sim.winner != -1 or not sq.ranged:
+		return
+	sim.set_hold_fire(sq, not sq.hold_fire)
+	_ordered_at[sq] = _clock
+	if sq.hold_fire:
+		_hint("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq))
+	else:
+		_hint("%s loose at will." % _company_or_type(sq))
 
 
 func _on_menu() -> void:
@@ -909,6 +998,8 @@ func _build_hud() -> void:
 	hold_button = _wide_button("Hold all", _on_hold, buttons_row)
 	ability_button = _wide_button("", _on_ability, buttons_row)
 	ability_button.draw.connect(_draw_ability_cooldown)
+	hold_fire_button = _wide_button("Hold fire", _on_hold_fire, buttons_row)
+	hold_fire_button.add_theme_font_size_override("font_size", Style.SMALL)
 
 	hint_label = Style.label("", Style.SMALL, Style.MUTED)
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1029,6 +1120,7 @@ func _refresh_deploy() -> void:
 	auto_button.disabled = left == 0 or sim.winner != -1
 	fight_button.disabled = left > 0 or sim.winner != -1
 	ability_button.visible = false
+	hold_fire_button.visible = false
 	info_label.text = _scouting()
 	info_label.add_theme_color_override("font_color", Style.BRASS)
 
@@ -1037,6 +1129,7 @@ func _refresh_battle() -> void:
 	info_label.add_theme_color_override("font_color", Style.TEXT)
 	var sq = selected_squad
 	ability_button.visible = sq != null
+	hold_fire_button.visible = sq != null and sq.ranged
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
@@ -1048,6 +1141,8 @@ func _refresh_battle() -> void:
 			state = "braced"
 		elif sq.engaged:
 			state = "fighting"
+		if sq.hold_fire:
+			state = "holding fire" if sq.order == "hold" else state + ", holding fire"
 		var arrows := ""
 		if sq.arrows > 0:
 			arrows = " · %d arrows" % sq.arrows
@@ -1062,6 +1157,7 @@ func _refresh_battle() -> void:
 		ability_button.text = String(ab["name"])
 		ability_button.modulate = Color(1, 1, 1, 1.0 if sim.ability_ready(sq) else 0.55)
 		ability_button.queue_redraw()
+		hold_fire_button.text = "Fire at will" if sq.hold_fire else "Hold fire"
 	else:
 		info_label.text = "Whole army · " + _order_summary()
 		advance_button.text = "Advance all"
@@ -1240,6 +1336,8 @@ func _draw() -> void:
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_stuck_arrows()
 	_draw_orders()
+	_draw_targets()
+	_draw_line_order()
 	_draw_shadows()
 	for sq in sim.squads:
 		_draw_men(sq)
@@ -1457,6 +1555,9 @@ func _draw_standards() -> void:
 		var x: float = want[sq]
 		_std_x[sq] = lerpf(float(_std_x.get(sq, x)), x, 0.25)
 		_draw_standard(sq, float(_std_x[sq]), ref_type)
+	for foe in _targeted():
+		if _std_tops.has(foe):
+			_draw_crossed_swords(_std_tops[foe] + Vector2(FLAG.x * 0.5, -40.0))
 
 
 func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
@@ -1497,6 +1598,78 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
 	if not mine and ref_type != "":
 		_draw_counter_hint(top, sq.type, ref_type)
+
+
+## Enemy squads one of yours has been ordered to attack, still fighting.
+func _targeted() -> Array:
+	var out := []
+	if sim.phase != Sim.PHASE_BATTLE:
+		return out
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active() and sq.order == "attack" and sq.order_target != null \
+				and sq.order_target.is_active() and not out.has(sq.order_target):
+			out.append(sq.order_target)
+	return out
+
+
+## A pulsing red ring around every enemy squad you've sent someone to attack.
+func _draw_targets() -> void:
+	var pulse := 0.5 + 0.5 * sin(_clock * 5.0)
+	for foe in _targeted():
+		var r: float = minf(foe.extent, 70.0) + 18.0 + pulse * 5.0
+		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0)
+		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(TARGET_RED, 0.75 + 0.25 * pulse), 4.5)
+
+
+## Two blades crossed over a standard: this squad is someone's target.
+func _draw_crossed_swords(c: Vector2) -> void:
+	for side in [-1.0, 1.0]:
+		var tip := c + Vector2(-13.0 * side, -13.0)
+		var hilt := c + Vector2(10.0 * side, 10.0)
+		var guard := (hilt - tip).normalized().orthogonal() * 6.0
+		for pass_i in 2:
+			var w := 7.0 if pass_i == 0 else 3.5
+			var col := Color(0.06, 0.05, 0.08, 0.95) if pass_i == 0 else TARGET_RED.lightened(0.25)
+			draw_line(tip, hilt, col, w)
+			draw_line(hilt - (hilt - tip).normalized() * 3.0 + guard, hilt - (hilt - tip).normalized() * 3.0 - guard, col, w)
+
+
+## The line being drawn, with where each squad will stand on it and which way it will
+## face; then, for a moment, the line just ordered.
+func _draw_line_order() -> void:
+	if _drawing:
+		var b := _to_field(_drag_to)
+		var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
+		var spots := sim.line_preview(Sim.PLAYER, _press_field, b, only)
+		draw_line(_press_field, b, Color(0, 0, 0, 0.5), 7.0)
+		draw_line(_press_field, b, Style.BRASS, 3.0)
+		_draw_spots(spots, sim.line_face(Sim.PLAYER, _press_field, b), 1.0, true)
+	elif not _line_shown.is_empty():
+		var age: float = _clock - float(_line_shown["at"])
+		if age > LINE_SHOWN:
+			_line_shown = {}
+			return
+		_draw_spots(_line_shown["spots"], _line_shown["face"], 1.0 - age / LINE_SHOWN, false)
+
+
+## Each squad's place on a line: the ground it will cover and an arrow the way it faces,
+## and while drawing, a thread from where it stands now.
+func _draw_spots(spots: Array, face: Vector2, alpha: float, live: bool) -> void:
+	var right := Vector2(-face.y, face.x)
+	for spot in spots:
+		var at: Vector2 = spot["at"]
+		var half: Vector2 = spot["half"]
+		var sq = spot["squad"]
+		if live and sq.alive_n > 0:
+			draw_dashed_line(sq.average_pos(), at, Color(Style.BRASS, 0.45 * alpha), 2.0, 8.0)
+		var box := PackedVector2Array([at - right * half.x - face * half.y, at + right * half.x - face * half.y,
+			at + right * half.x + face * half.y, at - right * half.x + face * half.y])
+		draw_colored_polygon(box, Color(Style.BRASS, 0.16 * alpha))
+		box.append(box[0])
+		draw_polyline(box, Color(Style.BRASS, 0.9 * alpha), 2.0)
+		var tip := at + face * (half.y + 16.0)
+		draw_colored_polygon(PackedVector2Array([tip, tip - face * 10.0 + right * 7.0, tip - face * 10.0 - right * 7.0]),
+			Color(Style.BRASS, 0.9 * alpha))
 
 
 ## ▲ over an enemy your selected squad beats; ▼ over one that beats it.
