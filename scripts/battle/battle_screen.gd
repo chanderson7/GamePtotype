@@ -1564,17 +1564,37 @@ func _setup_terrain_visuals() -> void:
 
 
 func _maybe_show_terrain_hint() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(Sound.SETTINGS_PATH)
+
+	# 1. Objective hint cards
+	var obj_key := sim.objective if sim != null else "rout"
+	if obj_key != "rout" and not bool(cfg.get_value("objective_hints", obj_key, false)):
+		var obj_texts := {
+			"chief": ["Slay the Chief", "The enemy host is led by a named chieftain at the head of an elite bodyguard squad. Break or fell the bodyguard and the rest of the host suffers a catastrophic -35 morale shock. Slay the chief for double bounty and renown; do not let him flee the field!"],
+			"ambush": ["Ambushed in the Woods!", "You have been caught marching down a road in dense woods. Your warband starts unbraced in a vulnerable narrow column, while enemy pincers strike simultaneously from both ends. You cannot withdraw; fight to the last man!"],
+			"village": ["Village Defense", "Bandits are raiding the village! Hold the central village square for 2 minutes against arriving waves of reinforcements. Win by routing the attackers or holding the square when time expires."],
+		}
+		var o_card: Array = obj_texts.get(obj_key, [])
+		if not o_card.is_empty():
+			terrain_hint_title.text = o_card[0]
+			terrain_hint_body.text = o_card[1]
+			terrain_hint_panel.visible = true
+			cfg.set_value("objective_hints", obj_key, true)
+			cfg.save(Sound.SETTINGS_PATH)
+			return
+
+	# 2. Terrain hint cards
 	if _terrain_site_type == "" or _terrain_site_type == "open":
 		return
-	var cfg := ConfigFile.new()
-	if cfg.load(Sound.SETTINGS_PATH) == OK and bool(cfg.get_value("terrain_hints", _terrain_site_type, false)):
+	if bool(cfg.get_value("terrain_hints", _terrain_site_type, false)):
 		return
 	var texts := {
 		"hills": ["Hills & Ridges", "High ground grants archers up to +25% range and downhill fighters a 25% damage advantage. Charging uphill grants no charge shock or bonus."],
 		"woods": ["Woods & Forests", "Dense stands slow foot troops by 25% and cavalry by 50%. Tree cover intercepts 50% of incoming arrows, cuts volley shock in half, and prevents cavalry charges."],
 		"river": ["River Fords", "Deep river water is impassable; troops must cross at shallow fords. Soldiers fighting in shallow water take +25% damage and cannot brace."],
 		"pass": ["Rocky Pass", "Impassable stone narrows the center of the field into a bottleneck. Arrows fly freely over the rocks."],
-		"village": ["Village Defense", "Buildings and walls divide the combat zone into tight streets."],
+		"village": ["Village Streets", "Buildings and walls divide the combat zone into tight streets and chokepoints."],
 	}
 	var card_data: Array = texts.get(_terrain_site_type, [])
 	if card_data.is_empty():

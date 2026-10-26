@@ -728,12 +728,58 @@ def sfx_page():
     return band(rng.standard_normal(n), 1500, 8000) * np.sin(np.pi * t / t[-1]) ** 2 * 0.5
 
 
+def sfx_crossbow():
+    """A mechanical latch release, tensioned twang and sharp thunk."""
+    rng = rng_for("crossbow")
+    n = int(0.4 * SR)
+    t = np.arange(n) / SR
+    click = band(rng.standard_normal(n), 2000, 7000) * np.exp(-t / 0.006)
+    twang = np.sin(2 * np.pi * 380.0 * np.exp(-t * 8.0) * t) * np.exp(-t / 0.08)
+    thunk = drum(140.0, 0.03, noise=0.5, rng=rng)[:n]
+    x = click * 0.8 + twang * 0.6 + thunk * 0.7
+    return fade_out(x, int(0.05 * SR))
+
+
+def sfx_water():
+    """A soft, rushing water ripple for river fords."""
+    rng = rng_for("water")
+    n = int(1.2 * SR)
+    t = np.arange(n) / SR
+    noise = rng.standard_normal(n)
+    hiss = band(noise, 400, 3200)
+    swell = 0.6 + 0.4 * np.sin(2 * np.pi * 1.5 * t)
+    return lowpass(hiss * swell, 2400) * 0.5
+
+
+def sfx_birds():
+    """Gentle birds chirping in the canopy."""
+    rng = rng_for("birds")
+    n = int(1.5 * SR)
+    t = np.arange(n) / SR
+    out = np.zeros(n)
+    for at in (0.1, 0.35, 0.8, 1.05):
+        m = int(0.12 * SR)
+        chirp_t = np.arange(m) / SR
+        f = np.linspace(rng.uniform(2800, 3600), rng.uniform(4200, 5200), m)
+        sine = np.sin(2 * np.pi * f * chirp_t) * np.sin(np.pi * chirp_t / chirp_t[-1]) ** 2
+        s = int(at * SR)
+        e = min(n, s + m)
+        out[s:e] += sine[:e - s] * 0.4
+    return out
+
+
+def sfx_objective():
+    """A clear brass fanfare cue announcing an objective."""
+    return sfx_horn(((62, 0.25), (65, 0.25), (69, 0.6)))
+
+
 SFX = {
     "click": sfx_click, "coins": sfx_coins, "horn": sfx_horn,
     "alarm": lambda: sfx_horn(((57, 0.22), (57, 0.22), (62, 0.7))),
     "clash1": lambda: sfx_clash(1), "clash2": lambda: sfx_clash(2), "clash3": lambda: sfx_clash(3),
     "arrows": sfx_arrows, "charge": sfx_charge, "rout": sfx_rout, "dice": sfx_dice, "bell": sfx_bell,
     "hooves": sfx_hooves, "page": sfx_page,
+    "crossbow": sfx_crossbow, "water": sfx_water, "birds": sfx_birds, "objective": sfx_objective,
 }
 MUSIC = {
     "title": title, "vardish": vardish, "kharzani": kharzani, "ryumon": ryumon,

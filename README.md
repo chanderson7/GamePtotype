@@ -15,6 +15,17 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 - **Bandits.** A band roams the villages of each realm. When one blocks your road you can lead the fight, in a full battle against an army led by captains of that realm; send your men in without you, settled on the spot at the cost of a few more men; or withdraw to the last settlement you passed. Your scouts size up the fight first: who's stronger, and about how many men you'd lose sending them in. A beaten band is gone; another rises in its realm a day later. If they beat you, your survivors regroup at your capital half a day later, and the band keeps only the men it had left.
 - **Silver, food and wages.** You start with 400 silver and five days of food. Every day costs each man a ration and his wages (more for archers, more again for horse, half again for each level of training). Men who go unpaid or hungry desert, about one in ten a day, fewer if you're only a little short, and the map tells you when it happens. The top bar shows your silver, how many days of food you have and your renown, in red when you're running short.
 - **Spoils and renown.** Beating a band pays a bounty plus silver and food for every man cut down, and wins renown. You can lead six squads at first, and one more for every 60 renown, up to twelve.
+- **Culture troop trees and training.** Training a squad to level 2 in any town presents a two-card choice between two distinct branches for that troop type and culture (e.g., Vardish Men-at-arms vs Sergeants, Knights vs Mounted Sergeants; Kharzani Javelin Askari vs Guard Askari, Horse Archers vs Faris Lancers; Ryumon Hatamoto vs Ronin, Naginata vs Yari Ashigaru). Level 3 strengthens the chosen branch. Six specialized mechanics: armor and piercing, pre-contact javelins, horse archer skirmishing and saddle-shooting, melee sweeps hitting secondary foes, and steady morale.
+- **Varied encounter objectives.** Not every battle is an open field rout:
+  - *Slay the Bandit Chief*: Led by a named chieftain at the head of a tier-2 bodyguard squad. Felling or routing the bodyguard drops the entire host's morale by 35. Slaying the chief yields double bounty and +10 renown; chiefs that flee the field escape and return days later with bigger bands.
+  - *Ambush*: Caught on a wooded road, your warband deploys in a narrow, unbraced column with enemies attacking simultaneously from both ends. You cannot withdraw.
+  - *Village Defense*: Arriving at a village being raided by bandits triggers a timed defense: hold the village square for 2 minutes against arriving reinforcement waves.
+- **Battlefield terrain.** The ground comes from where the fight happens on the world map:
+  - *Hills & Ridges*: Vantage grants archers up to +25% range; fighting downhill grants +25% damage; uphill charges yield no bonus.
+  - *Woods & Forests*: Slows foot by 25% and horse by 50%. Treetops deflect 50% of incoming arrows, halve volley shock, and prevent charges.
+  - *River Fords*: Impassable deep water forces armies through shallow fords where troops are slowed, take +25% damage, and cannot brace.
+  - *Rocky Passes*: Natural bottlenecks with rock formations that block movement while letting arrows arc over.
+  - *Village Streets*: Buildings and walls channel combat into tight streets and defense perimeters.
 - **Settlements.** Enter any settlement to buy food (cheapest in villages) and hire the recruits looking for work: a full squad of fresh men of that place's own culture under a captain of their own, so a Vardish warband can field Ryumon archers. Villages raise foot and bows, castles spears and horse, towns anything; recruits taken come back three days later. In a town you can also refill your squads (fresh men water down a squad's experience) and train squads that have earned it to the next level, which makes their men tougher and deadlier and raises their wages. Wait for a few hours anywhere.
 - **Saved as you go**, on the device (`user://campaign.json`): after every arrival, encounter and battle, and every few seconds on the road. Continue from the title screen.
 
@@ -76,8 +87,13 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scenes/main_menu.tscn` | The Warband screen: purse, squads, captains, bonds, the fallen, reinforcing. |
 | `scenes/battle.tscn` | The battle screen. |
 | `scripts/data/troops.gd` | Troop stats, the counter bonuses, abilities and veterancy. **Tune the game here.** |
-| `scripts/battle/battle_sim.gd` | Battle rules as pure logic: deployment, orders, movement, combat, morale, win conditions. No drawing. |
-| `scripts/battle/commander_ai.gd` | The computer's commanders: how each temperament lines up, when it commits, and how it uses abilities. |
+| `scripts/data/units.gd` | Culture unit upgrade trees (24 tier-2 branch options), mechanics (armor, piercing, javelins, horse archers, sweep, steady), stats and wages. |
+| `scripts/data/terrain_rules.gd` | Movement and combat modifiers across height, woods, water, and obstacles. |
+| `scripts/battle/terrain.gd` | Battlefield ground representations: elevations, forests, rivers, shallow fords, and rocks. |
+| `scripts/battle/battle_site.gd` | Battlefield site generation based on world map location, biome, and encounter objective. |
+| `scripts/battle/pathing.gd` | Grid A* formation pathfinding navigating around rocks, deep water, and across fords. |
+| `scripts/battle/battle_sim.gd` | Battle rules as pure logic: deployment, orders, movement, combat, morale, objectives, reinforcements, win conditions. No drawing. |
+| `scripts/battle/commander_ai.gd` | The computer's commanders: how each temperament lines up, when it commits, uses abilities, handles terrain, and reacts to objectives. |
 | `scripts/battle/auto_resolve.gd` | Settles a fight without playing it, from each side's strength. Fitted to the battle sim; the tests check they still agree. |
 | `scripts/battle/battle_screen.gd` | Drawing, touch input and the HUD. Reads the sim; never changes the rules. |
 | `scripts/art/unit_art.gd` | Builds the sprite textures, unit portraits and battlefield ground at startup, by culture. |
@@ -128,6 +144,7 @@ Add `-- --balance` to also fight three scripted players against every kind of co
 - [x] A world to ride: three cultures around the Glass Sea, travel, bandits on the roads
 - [x] Reasons to ride: silver, food and wages, recruiting by culture, training, renown, auto-resolve
 - [x] A first look and sound: troops dressed by culture, a living map, music and sound for every place
-- [ ] War map: AI lords on the move, towns and castles that change hands
-- [ ] Kingdoms and diplomacy: war, peace, alliances, tribute
-- [ ] Sieges, a second art and sound pass, then Steam early access and the App Store
+- [x] Phase 3: Battlefield terrain, culture troop trees, objectives and encounter variety
+- [ ] War map: AI lords on the move, towns and castles that change hands (Phase 4)
+- [ ] Kingdoms and diplomacy: war, peace, alliances, tribute (Phase 4)
+- [ ] Sieges, a second art and sound pass, then Steam early access and the App Store (Phase 6)

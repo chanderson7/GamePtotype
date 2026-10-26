@@ -20,6 +20,14 @@ const SFX_DB := {
 	"click": -14.0, "page": -16.0, "coins": -8.0, "horn": -5.0, "alarm": -6.0,
 	"clash1": -15.0, "clash2": -15.0, "clash3": -15.0, "arrows": -11.0, "charge": -7.0,
 	"rout": -11.0, "dice": -5.0, "bell": -6.0, "hooves": -15.0,
+	"crossbow": -10.0, "javelin": -11.0, "water": -14.0, "birds": -16.0, "objective": -6.0,
+}
+const SFX_FALLBACKS := {
+	"crossbow": "arrows",
+	"javelin": "arrows",
+	"objective": "horn",
+	"water": "hooves",
+	"birds": "page",
 }
 const POOL := 10
 
@@ -121,6 +129,8 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 		return
 	_last[name] = now
 	var stream := _stream(SFX_PATH % name, false)
+	if stream == null and SFX_FALLBACKS.has(name):
+		stream = _stream(SFX_PATH % SFX_FALLBACKS[name], false)
 	if stream == null:
 		return
 	var p: AudioStreamPlayer = null
@@ -178,6 +188,20 @@ func _save_settings() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("audio", "music", music_on)
 	cfg.set_value("audio", "sounds", sounds_on)
+	cfg.save(SETTINGS_PATH)
+
+
+func has_seen_hint(section: String, key: String) -> bool:
+	var cfg := ConfigFile.new()
+	if cfg.load(SETTINGS_PATH) == OK:
+		return bool(cfg.get_value(section, key, false))
+	return false
+
+
+func mark_hint_seen(section: String, key: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(SETTINGS_PATH)
+	cfg.set_value(section, key, true)
 	cfg.save(SETTINGS_PATH)
 
 
