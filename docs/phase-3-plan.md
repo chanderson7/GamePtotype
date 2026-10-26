@@ -8,8 +8,8 @@ troops, on varied ground.
 | | Workstream | Size (solo) | Status |
 |---|---|---|---|
 | 3.1 | Orders and readability | 3–4 days | **Done** (`965d729`) |
-| 3.2 | Battlefield terrain | ~2 weeks | Next |
-| 3.3 | Culture troop trees | ~2 weeks | |
+| 3.2 | Battlefield terrain | ~2 weeks | **Done** (`5b65a41`) |
+| 3.3 | Culture troop trees | ~2 weeks | Next |
 | 3.4 | Objectives and encounter variety | ~1.5 weeks | |
 | 3.5 | Integration and polish | ~1 week | |
 
