@@ -25,6 +25,12 @@ const RESPAWN_HOURS := 24.0
 ## Hours a band lingers at a village before moving on.
 const BANDIT_WAIT_MIN := 2.0
 const BANDIT_WAIT_MAX := 6.0
+## A chief who got away from you comes back at the head of a new band this long after.
+const CHIEF_RETURN_HOURS := 120.0
+## The chance a new band is led by a chief: a few at first, more as the weeks go by.
+const CHIEF_CHANCE_START := 0.1
+const CHIEF_CHANCE_PER_DAY := 0.01
+const CHIEF_CHANCE_MAX := 0.3
 ## After you withdraw from a band, or it beats you, it leaves you alone this long.
 const GRACE_HOURS := 2.0
 ## Hours lost when your warband is beaten and regroups at your capital.
@@ -413,7 +419,7 @@ func _spawn_band(faction: String) -> void:
 	var chief_to_return = null
 	for i in escaped_chiefs.size():
 		var ec: Dictionary = escaped_chiefs[i]
-		if ec.get("culture", "") == band_cult and hour >= float(ec.get("escaped_at", 0.0)) + 48.0:
+		if ec.get("culture", "") == band_cult and hour >= float(ec.get("escaped_at", 0.0)) + CHIEF_RETURN_HOURS:
 			chief_to_return = ec
 			escaped_chiefs.remove_at(i)
 			break
@@ -426,7 +432,7 @@ func _spawn_band(faction: String) -> void:
 		events.append({"type": "chief_returned", "party": b.id, "chief": chief_to_return})
 	else:
 		var day := int(hour / 24.0)
-		var chief_chance := clampf(0.15 + float(day) * 0.015, 0.15, 0.40)
+		var chief_chance := minf(CHIEF_CHANCE_MAX, CHIEF_CHANCE_START + float(day) * CHIEF_CHANCE_PER_DAY)
 		if rng.randf() < chief_chance:
 			b.is_chief_band = true
 			b.chief_name = _generate_chief_name(band_cult)
@@ -689,6 +695,10 @@ static func clean_army(raw: Array) -> Array:
 			squad["unit"] = String(s["unit"])
 		if s.has("level"):
 			squad["level"] = int(s["level"])
+		if s.has("culture"):
+			squad["culture"] = String(s["culture"])
+		if s.has("pending_branch"):
+			squad["pending_branch"] = bool(s["pending_branch"])
 		if s.has("is_bodyguard"):
 			squad["is_bodyguard"] = bool(s["is_bodyguard"])
 		if s.has("is_chief"):

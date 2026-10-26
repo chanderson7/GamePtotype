@@ -7,6 +7,7 @@ const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const Units = preload("res://scripts/data/units.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const SoundToggles = preload("res://scripts/ui/sound_toggles.gd")
 
@@ -175,7 +176,7 @@ func _squad_row(s: Dictionary) -> Control:
 	text.add_theme_constant_override("separation", 2)
 	row.add_child(text)
 	var title := String(s.get("name", ""))
-	text.add_child(Style.label(title if title != "" else Cultures.troop_name(String(s.get("culture", GameState.culture)), type), Style.BODY))
+	text.add_child(Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY))
 	var c = s.get("captain")
 	var who: Label
 	if c == null:
@@ -184,6 +185,8 @@ func _squad_row(s: Dictionary) -> Control:
 		who = Style.label("%s · wounded, back in %d" % [c["name"], c["wounded"]], Style.SMALL, Style.ENEMY_LIGHT)
 	else:
 		who = Style.label("%s · %s" % [c["name"], Captains.traits(c)], Style.SMALL, Style.MUTED)
+	if Units.tier(String(s.get("unit", ""))) >= 2:
+		who.text = "%s · %s" % [Units.troop_name(s, GameState.culture), who.text]
 	who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who.custom_minimum_size = Vector2(10, 0)
 	text.add_child(who)

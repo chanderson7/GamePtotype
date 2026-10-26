@@ -8,12 +8,80 @@ troops, on varied ground.
 | | Workstream | Size (solo) | Status |
 |---|---|---|---|
 | 3.1 | Orders and readability | 3–4 days | **Done** (`965d729`) |
-| 3.2 | Battlefield terrain | ~2 weeks | **Done** (`5b65a41`) |
-| 3.3 | Culture troop trees | ~2 weeks | **Done** (`800568b`) |
-| 3.4 | Objectives and encounter variety | ~1.5 weeks | **Done** (`6fa0973`) |
-| 3.5 | Integration and polish | ~1 week | **Done** (`e9049f5`) |
+| 3.2 | Battlefield terrain | ~2 weeks | **Mostly done**: see [Where Phase 3 stands](#where-phase-3-stands) |
+| 3.3 | Culture troop trees | ~2 weeks | **Mostly done**: no per-unit art or sounds yet |
+| 3.4 | Objectives and encounter variety | ~1.5 weeks | **Mostly done**: objective gates not yet tested |
+| 3.5 | Integration and polish | ~1 week | **Partly done** |
 
-**Phase 3 Complete.**
+Phase 3 is **not** complete. The first drafts of 3.2–3.5 (`5b65a41`…`e9049f5`) didn't load:
+about 36 parse errors, so no test had run against them. The fix-up commit after them makes
+everything load and pass, fixes the bugs that running it turned up, and lists below what is
+still missing.
+
+## Where Phase 3 stands
+
+**Working, with tests:**
+
+- **Terrain** (hills, woods, river fords, rocky passes, villages):
+  - Effects: height, woods cover, fords, charges.
+  - Pathing through fords and around rock. Men slide along banks and rock faces and never
+    stand in deep water or on rock. Routers still leave the field.
+  - The enemy AI deploys on the ground.
+  - Hint cards for each kind of ground.
+- **Troop trees.** 24 tier-2 branches, chosen when training to level 2. The squad's branch
+  name shows on the battle cards, the warband screen and the town screen.
+  - Mechanics: armor, piercing, javelins (only before the lines meet), horse archers,
+    sweep, steady.
+  - Saves migrate from version 3 to 4.
+- **Objectives** (the matching fights on the map):
+  - **Chief.** A named bandit chief leads the band. Killed or escaped are now one fate, never
+    both. An escaped chief returns 5 days later.
+  - **Ambush.** On roads through the woods the map draws, never in the desert. You start
+    strung out in a 2-wide column and can't re-form; the ambushers come from both ends.
+  - **Village defence.** Hold the circle against reinforcement waves.
+- **Fair maps are fair.** Rivers and woods on a "fair" field are now mirrored, as hills
+  already were. The AI also picks its deployment spots in its own frame. Before, the bottom
+  side won 29% of mirrored river battles; with these fixes it is about 48%.
+- **Performance.** On open ground a sim step costs what it did before Phase 3; on the four
+  kinds of rough ground, 8–21% more (gate: ≤ 25%).
+
+**Changed from the plan, and why:**
+
+- **"Branch choices are real"** is measured against every kind of recruit (`--balance`),
+  not head to head. A head-to-head duel between, say, crossbowmen and longbowmen is decided
+  by range alone, and one side wins 12 of 12 whatever the tuning.
+- **Terrain fairness** plays each seed both ways round, 48 battles per map, and allows
+  35–65%. With 24 battles one way round, chance alone moves the result about 10 points, so a
+  40–60% window failed fair maps about a third of the time.
+- **Halberdiers** still lose to footmen, because footmen counter spearmen. The test checks
+  that the sweep makes footmen pay for it instead.
+- **Crossbowmen** were retuned (damage 60, reload 1.8 s, range 230, piercing 0.8). As
+  drafted they hit for less per second than plain bowmen and lost every duel with
+  men-at-arms.
+- **Recruits renamed where they clashed with branch names:**
+  - Vardish Men-at-arms, Pikemen, Crossbowmen and Knights became Footmen, Spearmen, Bowmen
+    and Horsemen.
+  - Kharzani Spear guard became Spearmen.
+  - Ryumon Mounted samurai became Riders.
+
+**Still to do:**
+
+- **Terrain doesn't pay off over a whole battle.** Each rule wins its own duel, but a
+  scripted player who uses the ground wins no more often than the tactician who ignores it.
+  The gate stays in `--balance`, and fails, until it does.
+- **No rivers on the world map**, so river battles are picked at random (15%).
+- **No per-unit sprites or portraits** in `tools/unit_sprites.py`. Branches look like their
+  recruits.
+- **No new sounds.** Crossbow, javelin, horse archers, river and birds fall back to existing
+  sounds.
+- **Send in hasn't been re-fitted** for terrain and tier-2 units. Its calibration test still
+  uses recruit armies on open ground.
+- **The culture balance gate doesn't test anything yet.** It fights recruit armies, and
+  recruits have the same stats in every culture, so all three pairings come out the same.
+  It should field each culture's tier-2 branches.
+- **The objective gates aren't tested:** tactician ≥ 60% on each objective, and Advance-all
+  doing worse than on a plain rout.
+- **Woods are hard to see on the battlefield:** small, faint tree sprites.
 
 ---
 
@@ -26,13 +94,13 @@ troops, on varied ground.
   new data files, with a comment saying what each one does.
 - **Every step is gated.** Run the tests and the balance check before committing:
   ```
-  godot --headless --path . --script res://tests/run_tests.gd               # ~1.5 min
-  godot --headless --path . --script res://tests/run_tests.gd -- --balance  # ~7 min
+  godot --headless --path . --script res://tests/run_tests.gd               # ~6 min
+  godot --headless --path . --script res://tests/run_tests.gd -- --balance  # ~45 min
   godot --headless --path . -- --autoplay                                    # smoke test
   ```
 - **Pixel art comes from tools.** Edit `tools/unit_sprites.py` or `tools/map_sprites.py` and
   re-run them. Don't hand-edit the generated `scripts/art/*_data.gd` files.
-- **Saves must keep loading.** Bump `SAVE_VERSION` in `scripts/game_state.gd` (now 3) and give
+- **Saves must keep loading.** Bump `SAVE_VERSION` in `scripts/game_state.gd` (now 4) and give
   every new field a default in `from_dict`.
 - **Don't commit generated `.uid` or `.import` files.**
 
@@ -45,7 +113,7 @@ All automated, in `tests/run_tests.gd` (with `--balance` where noted).
 | Gate | Target |
 |---|---|
 | Existing balance holds on open ground and on each terrain type (`--balance`) | Advance-all-only ≤ 55%, scripted tactician ≥ 70% |
-| Terrain is fair: AI vs AI on mirrored maps, 24 seeds per type | Each side wins 40–60% |
+| Terrain is fair: AI vs AI on mirrored maps, 24 seeds per type, each fought both ways round | Each side wins 35–65% |
 | Terrain matters: a scripted player that uses terrain vs one that ignores it, on hill, wood and ford maps | ≥ 15 points better |
 | Cultures are balanced: each culture's standard army vs each other's, AI both sides, 24 seeds | 35–65% |
 | Every new unit wins its intended matchup duel | ≥ 80% |

@@ -193,6 +193,10 @@ static func on_border(a: Vector2, b: Vector2) -> bool:
 		or (a.x == SIZE.x and b.x == SIZE.x) or (a.y == SIZE.y and b.y == SIZE.y)
 
 
+static func is_village(id: String) -> bool:
+	return SETTLEMENTS.has(id) and SETTLEMENTS[id]["type"] == VILLAGE
+
+
 static func villages_of(faction: String) -> Array:
 	var out := []
 	for id in SETTLEMENTS:

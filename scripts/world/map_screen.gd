@@ -480,15 +480,16 @@ func _open_encounter() -> void:
 	for s in GameState.army:
 		if int(s["men"]) > 0:
 			fighters.append(s)
-	var ppos: Vector2 = world.party_pos(world.player())
-	var is_ambush: bool = terrain != null and terrain.woods_at(ppos) > 0.45 and not world.is_sea(b.node, b.next)
+	var objective: String = GameState.encounter_objective(b)
+	var is_ambush := objective == "ambush"
 	var title := "%s block the road" % b.name
-	if b.raiding and b.raid_village != "":
-		title = "%s are raiding %s!" % [b.name, Data.settlement(b.raid_village)["name"]]
-	elif is_ambush:
-		title = "AMBUSH! %s attack from the woods" % b.name
-	elif b.is_chief_band:
-		title = "%s confronts you" % b.name
+	match objective:
+		"village":
+			title = "%s are raiding %s!" % [b.name, Data.settlement(b.raid_village)["name"]]
+		"chief":
+			title = "%s confronts you" % b.name
+		"ambush":
+			title = "AMBUSH! %s attack from the woods" % b.name
 
 	var buttons := [["Fight", _on_fight, true], ["Send in", _on_send_in]]
 	var withdraw_text := ""

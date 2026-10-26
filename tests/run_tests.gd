@@ -23,6 +23,11 @@ const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
 const Units = preload("res://scripts/data/units.gd")
 
 const DUEL_SEEDS := 12
+const BRANCH_SEEDS := 4
+## Using the ground: battles per map type and commander, and how many points more often it
+## should win.
+const TERRAIN_SEEDS := 4
+const TERRAIN_POINTS := 15.0
 const BATTLE_SEEDS := 6
 const BALANCE_SEEDS := 12
 ## Battles of the full sim that auto-resolve is checked against, and scripted campaigns.
@@ -134,6 +139,8 @@ func _init() -> void:
 
 	if OS.get_cmdline_user_args().has("--balance"):
 		_check_balance()
+		_check_terrain_matters()
+		_check_branches()
 
 	print("Campaign results add up:")
 	_check_results()
@@ -568,7 +575,7 @@ func _check_terrain() -> void:
 	open_sim.place(Sim.PLAYER, 1, Vector2(420.0, 800.0))
 	open_sim.place(Sim.ENEMY, 2, Vector2(420.0, 460.0))
 	open_sim.start_battle()
-	open_sim.order_all(Sim.PLAYER, "move", Vector2(420.0, 630.0))
+	open_sim.order_move(open_sim.squads[0], Vector2(420.0, 630.0))
 	while open_sim.squads[0].center.y > 640.0 and open_sim.time < 30.0:
 		open_sim.step()
 	var time_open := open_sim.time
@@ -579,35 +586,36 @@ func _check_terrain() -> void:
 	ford_sim.place(Sim.PLAYER, 1, Vector2(420.0, 800.0))
 	ford_sim.place(Sim.ENEMY, 2, Vector2(420.0, 460.0))
 	ford_sim.start_battle()
-	ford_sim.order_all(Sim.PLAYER, "move", Vector2(420.0, 630.0))
+	ford_sim.order_move(ford_sim.squads[0], Vector2(420.0, 630.0))
 	while ford_sim.squads[0].center.y > 640.0 and ford_sim.time < 30.0:
 		ford_sim.step()
 	var time_ford := ford_sim.time
 	ford_sim.dispose()
 	_expect(time_ford > time_open * 1.25, "fords slow crossing troops (%.1fs vs %.1fs)" % [time_ford, time_open])
 
-	# 5. Men in fords take more damage
+	# 5. Men in fords take more damage: the same braced defence, on dry ground and with the
+	# defenders standing in a ford.
 	var ford_vuln_t := Terrain.new()
 	ford_vuln_t.reset()
-	for cy in range(18, 26):
+	for cy in range(22, 30):
 		for cx in Terrain.COLS:
 			ford_vuln_t.water[cy * Terrain.COLS + cx] = Terrain.WATER_SHALLOW
-
-	var water_defender_wins := 0
-	for s in range(1, 13):
-		var sim := Sim.new()
-		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], s, ford_vuln_t)
-		sim.place(Sim.PLAYER, 1, Vector2(420.0, 630.0))
-		sim.place(Sim.ENEMY, 2, Vector2(420.0, 510.0))
-		sim.start_battle()
-		sim.order_all(Sim.PLAYER, "hold")
-		sim.order_all(Sim.ENEMY, "advance")
-		while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
-			sim.step()
-		if sim.winner == Sim.PLAYER:
-			water_defender_wins += 1
-		sim.dispose()
-	_expect(water_defender_wins <= 3, "men fighting in shallow water take more damage (%d/12 wins)" % water_defender_wins)
+	var held := [0, 0]
+	for wet in [0, 1]:
+		for s in range(1, 13):
+			var sim := Sim.new()
+			sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], s,
+				ford_vuln_t if wet == 1 else null)
+			sim.place(Sim.PLAYER, 1, Vector2(420.0, 720.0))
+			sim.place(Sim.ENEMY, 2, Vector2(420.0, 480.0))
+			sim.start_battle()
+			sim.order_all(Sim.ENEMY, "advance")
+			while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
+				sim.step()
+			if sim.winner == Sim.PLAYER:
+				held[wet] += 1
+			sim.dispose()
+	_expect(held[1] <= held[0] - 6, "men fighting in a ford take more damage (a braced line holds %d/12 on dry ground, %d/12 in the water)" % [held[0], held[1]])
 
 	# 6. Pathing: A squad crosses a river only at a ford and arrives
 	var river_path_t := Terrain.new()
@@ -626,7 +634,7 @@ func _check_terrain() -> void:
 	path_sim.place(Sim.PLAYER, 1, Vector2(180.0, 850.0))
 	path_sim.place(Sim.ENEMY, 2, Vector2(180.0, 400.0))
 	path_sim.start_battle()
-	path_sim.order_all(Sim.PLAYER, "move", Vector2(180.0, 400.0))
+	path_sim.order_move(path_sim.squads[0], Vector2(180.0, 400.0))
 	path_sim.order_all(Sim.ENEMY, "hold")
 
 	var stepped_in_deep_water := false
@@ -636,12 +644,16 @@ func _check_terrain() -> void:
 			if so.alive and river_path_t.water_at(so.pos) == Terrain.WATER_DEEP:
 				stepped_in_deep_water = true
 
-	var arrived := path_sim.squads[0].center.y <= 440.0
+	var arrived: bool = path_sim.squads[0].center.y <= 440.0
 	path_sim.dispose()
 	_expect(arrived and not stepped_in_deep_water, "squad routes through the river ford to destination without entering deep water")
 
-	# 7. Pathing: Nothing ever stands in deep water or rock across varied battles
+	# 7. Pathing: Nothing ever stands in deep water or rock across varied battles, and
+	# routers still get off the field.
 	var any_impassable_stand := false
+	var fought := 0
+	var fled := 0
+	var field := Rect2(Vector2.ZERO, Sim.ARENA)
 	for site_type in [BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS, BattleSite.TYPE_VILLAGE]:
 		for s in range(1, 4):
 			var site_t := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
@@ -652,68 +664,62 @@ func _check_terrain() -> void:
 				s,
 				site_t
 			)
+			test_sim.auto_deploy(Sim.PLAYER)
+			test_sim.auto_deploy(Sim.ENEMY)
 			test_sim.start_battle()
 			test_sim.order_all(Sim.PLAYER, "advance")
 			test_sim.order_all(Sim.ENEMY, "advance")
-			for tick in 300:
+			while test_sim.winner == -1 and test_sim.time < Sim.TIME_LIMIT:
 				test_sim.step()
 				for sq in test_sim.squads:
 					for so in sq.soldiers:
-						if so.alive and not site_t.passable(so.pos):
+						if so.alive and field.has_point(so.pos) and not site_t.passable(so.pos):
 							any_impassable_stand = true
-				if test_sim.winner != -1:
-					break
+			for i in 300:
+				test_sim.step()
+			for sq in test_sim.squads:
+				fought += sq.start_men
+				fled += sq.escaped
 			test_sim.dispose()
-	_expect(not any_impassable_stand, "no soldier stands on impassable rock or deep water")
+	_expect(fought > 0 and not any_impassable_stand, "no soldier stands on impassable rock or deep water (%d men fought)" % fought)
+	_expect(fled > 0, "and men who rout still get off the field (%d fled)" % fled)
 
-	# 8. Terrain matters: scripted player using terrain beats tactician plan on hill, wood, and ford maps
-	var terrain_matters_diff := 0.0
-	var terrain_test_count := 0
-	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER]:
-		for s in range(1, 7):
-			var site_dict := {"type": site_type, "seed": s, "fair": true}
-			var site_obj := BattleSite.generate(site_dict)
-			var r_terrain = Plans.battle("terrain", "Patient", s, site_obj)
-			var r_tactician = Plans.battle("tactician", "Patient", s, site_obj)
-			terrain_matters_diff += float(r_terrain["margin"] - r_tactician["margin"])
-			terrain_test_count += 1
-	var avg_terrain_advantage := terrain_matters_diff / float(terrain_test_count)
-	_expect(avg_terrain_advantage >= 15.0,
-		"terrain-aware player wins by >= 15 points better margin on terrain maps (avg +%.1f margin)" % avg_terrain_advantage)
+	# 8. Terrain matters: see _check_terrain_matters, with --balance.
 
-	# 9. Performance: time 6 full battles per type against an open-field baseline
-	var baseline_start := Time.get_ticks_usec()
+	# 9. Performance: a sim step in the first 30 seconds of 6 battles on each kind of ground,
+	# against the same battles on open ground. The kinds take turns battle by battle, so the
+	# machine speeding up or slowing down partway through doesn't count against one of them.
+	var grounds := ["", BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS]
+	var usec := {}
+	var steps := {}
+	for g in grounds:
+		usec[g] = 0
+		steps[g] = 0
 	for s in range(1, 7):
-		var sim := Sim.new()
-		sim.setup(Plans.army(s), Plans.army(s + 1000), s)
-		sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
-		sim.ai[Sim.PLAYER].deploy(sim)
-		sim.ai[Sim.ENEMY].deploy(sim)
-		sim.start_battle()
-		while sim.winner == -1 and sim.time < 30.0:
-			sim.step()
-		sim.dispose()
-	var baseline_duration := Time.get_ticks_usec() - baseline_start
-
-	var max_terrain_overhead := 0.0
-	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS]:
-		var t_start := Time.get_ticks_usec()
-		for s in range(1, 7):
-			var site_obj := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
+		for g in grounds:
 			var sim := Sim.new()
-			sim.setup(Plans.army(s), Plans.army(s + 1000), s, site_obj)
+			sim.setup(Plans.army(s), Plans.army(s + 1000), s, BattleSite.generate({"type": g, "seed": s, "fair": true}) if g != "" else null)
 			sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
 			sim.ai[Sim.PLAYER].deploy(sim)
 			sim.ai[Sim.ENEMY].deploy(sim)
 			sim.start_battle()
+			var t0 := Time.get_ticks_usec()
 			while sim.winner == -1 and sim.time < 30.0:
 				sim.step()
+				steps[g] += 1
+			usec[g] += Time.get_ticks_usec() - t0
 			sim.dispose()
-		var t_duration := Time.get_ticks_usec() - t_start
-		var overhead := (float(t_duration) - float(baseline_duration)) / float(maxi(1, baseline_duration))
-		max_terrain_overhead = maxf(max_terrain_overhead, overhead)
-	_expect(max_terrain_overhead <= 0.25,
-		"sim step performance on terrain is within 25%% of open ground (max overhead: %.1f%%)" % (max_terrain_overhead * 100.0))
+	var open_step := float(usec[""]) / maxi(1, steps[""])
+	var worst := 0.0
+	var each := PackedStringArray()
+	for g in grounds:
+		if g == "":
+			continue
+		var over := (float(usec[g]) / maxi(1, steps[g])) / open_step - 1.0
+		worst = maxf(worst, over)
+		each.append("%s %+.0f%%" % [g, over * 100.0])
+	_expect(worst <= 0.25, "a sim step on rough ground costs at most 25%% more than on open ground (%.2f ms open; %s)" % [
+		open_step / 1000.0, ", ".join(each)])
 
 
 # ---------------------------------------------------------------- abilities
@@ -887,12 +893,11 @@ func _check_cultures() -> void:
 # ---------------------------------------------------------------- units & troop trees
 
 func _check_units() -> void:
-	# 1. Matchup duels
+	# 1. Matchup duels: each new unit wins the fight it was made for.
 	var matchups := [
 		["vardish_crossbowmen", "vardish_men_at_arms", false, "crossbowmen pierce armored men-at-arms"],
 		["vardish_knights", "vardish_infantry", false, "knights charge crushes standard infantry"],
 		["vardish_pikemen", "vardish_knights", true, "braced pikemen stop knights cold"],
-		["vardish_halberdiers", "vardish_infantry", false, "halberdiers sweep cuts through footmen"],
 		["kharzani_horse_archers", "vardish_infantry", false, "horse archers skirmish down footmen"],
 		["kharzani_javelin_askari", "kharzani_spearmen", false, "javelin askari weaken and break spearmen"],
 		["ryumon_hatamoto", "vardish_infantry", false, "elite hatamoto best standard footmen"],
@@ -903,24 +908,19 @@ func _check_units() -> void:
 		for s in range(1, DUEL_SEEDS + 1):
 			if _unit_duel(m[0], m[1], s, m[2])["winner"] == Sim.PLAYER:
 				wins += 1
-		_expect(wins >= int(DUEL_SEEDS * 0.75), "%s (%d/%d)" % [m[3], wins, DUEL_SEEDS])
+		_expect(wins >= int(DUEL_SEEDS * 0.8), "%s (%d/%d)" % [m[3], wins, DUEL_SEEDS])
 
-	# 2. Branch choices balance (neither tier-2 option beats the other by more than 65/35)
-	for cult in Cultures.ORDER:
-		for role in Troops.ORDER:
-			var tier1: String = Units.recruit(cult, role)
-			var branches: Array = Units.branches(tier1)
-			if branches.size() == 2:
-				var a: String = branches[0]
-				var b: String = branches[1]
-				var a_wins := 0
-				for s in range(1, 21):
-					if _unit_duel(a, b, s)["winner"] == Sim.PLAYER:
-						a_wins += 1
-				var a_rate := float(a_wins) / 20.0
-				_expect(a_rate >= 0.30 and a_rate <= 0.70,
-					"branches %s vs %s are balanced (%.0f%% - %.0f%%)" % [
-						Units.display_name(a), Units.display_name(b), a_rate * 100.0, (1.0 - a_rate) * 100.0])
+	# Halberdiers are still spearmen, and footmen still beat spearmen, but the sweep makes
+	# them pay for it.
+	var standing := [0, 0]
+	for s in range(1, DUEL_SEEDS + 1):
+		standing[0] += _unit_duel("vardish_spearmen", "vardish_infantry", s)["foe_left"]
+		standing[1] += _unit_duel("vardish_halberdiers", "vardish_infantry", s)["foe_left"]
+	_expect(standing[1] <= standing[0] * 0.7,
+		"halberdiers' sweep cuts through footmen (%.1f footmen left standing, against %.1f facing plain spearmen)" % [
+			float(standing[1]) / DUEL_SEEDS, float(standing[0]) / DUEL_SEEDS])
+
+	# 2. Branch choices balance: see _check_branches, with --balance.
 
 	# 3. Save migration (version 3 to 4)
 	var gs := GameStateScript.new()
@@ -976,12 +976,36 @@ func _unit_duel(a: String, b: String, seed_value: int, a_holds: bool = false) ->
 	while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
 		sim.step()
 	var left := 0
+	var foe_left := 0
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER:
 			left = sq.alive_count()
+		else:
+			foe_left = sq.alive_count()
 	var winner := sim.winner
 	sim.dispose()
-	return {"winner": winner, "left": left}
+	return {"winner": winner, "left": left, "foe_left": foe_left}
+
+
+## Each pair of tier-2 branches against every kind of recruit. A branch that wins far more
+## of these fights than its twin would make the choice between them no choice at all.
+func _check_branches() -> void:
+	print("Troop tree branches against every kind of recruit (%d seeds each):" % BRANCH_SEEDS)
+	for cult in Cultures.ORDER:
+		for role in Troops.ORDER:
+			var branches: Array = Units.branches(Units.recruit(cult, role))
+			if branches.size() != 2:
+				continue
+			var won := [0, 0]
+			for i in 2:
+				for foe in Troops.ORDER:
+					for s in range(1, BRANCH_SEEDS + 1):
+						if _unit_duel(branches[i], Units.recruit(cult, foe), s)["winner"] == Sim.PLAYER:
+							won[i] += 1
+			var share := float(won[0]) / maxf(1.0, float(won[0] + won[1]))
+			_expect(share >= 0.35 and share <= 0.65, "%s (%d of %d fights won) and %s (%d) are both real choices" % [
+				Units.display_name(branches[0]), won[0], Troops.ORDER.size() * BRANCH_SEEDS,
+				Units.display_name(branches[1]), won[1]])
 
 
 # ---------------------------------------------------------------- world
@@ -1404,11 +1428,12 @@ func _check_drill() -> void:
 		"reinforcing pays %d silver for %d fresh men, who water down the squad's experience" % [cost, full - full / 2])
 	s["xp"] = Troops.XP_PER_LEVEL
 	var wage := Economy.daily_wage(s)
-	var price := Economy.train_cost(s)
+	var branch: String = Units.branches(s["unit"])[0]
+	var price := Economy.train_cost(s, branch)
 	var silver: int = gs.silver
-	_expect(gs.can_train(s) and gs.train_squad(int(s["id"])) and int(s["level"]) == 2 and gs.silver == silver - price \
-			and is_equal_approx(Economy.daily_wage(s), wage * (1.0 + Economy.WAGE_PER_LEVEL)),
-		"training to level 2 costs %d silver, and half again in wages" % price)
+	_expect(gs.can_train(s) and gs.train_squad(int(s["id"]), branch) and int(s["level"]) == 2 and gs.silver == silver - price \
+			and is_equal_approx(Economy.daily_wage(s), wage * (1.0 + Economy.WAGE_PER_LEVEL) * Units.wage_mult(branch)),
+		"training to level 2 as %s costs %d silver, and half again in wages (times the branch's pay)" % [Units.display_name(branch), price])
 	s["xp"] = Troops.XP_PER_LEVEL * 2
 	_expect(gs.can_train(s) and absi(Economy.train_cost(s) - price * 2) <= 1 and not gs.can_train(gs.army[1]),
 		"the next level costs twice as much, and needs the experience")
@@ -1672,26 +1697,63 @@ func _check_balance() -> void:
 	_expect(rates["advance"] <= 0.55, "pressing Advance all and nothing else wins about half the time at most (%.0f%%)" % (rates["advance"] * 100.0))
 	_expect(rates["tactician"] >= 0.7, "a player who uses the tools wins at least 70%% of the time (%.0f%%)" % (rates["tactician"] * 100.0))
 
-	print("Terrain fairness (mirrored maps, AI vs AI, 24 seeds per type):")
+	print("Terrain fairness (mirrored maps, AI vs AI, 24 seeds per type, each fought both ways round):")
+	_check_terrain_fairness()
+	_check_cultures_balance()
+
+
+## The tactician, and the same player using the ground (archers up high, the line waiting
+## on hills, in woods and behind fords), on hill, wood and ford maps against every kind of
+## commander. Using the ground should win clearly more often.
+func _check_terrain_matters() -> void:
+	print("Using the ground against ignoring it (%d seeds per map and commander):" % TERRAIN_SEEDS)
+	var won := {"terrain": 0, "tactician": 0}
+	var margin := 0.0
+	var fights := 0
+	for temp in Commander.TEMPERAMENTS:
+		for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER]:
+			for s in range(1, TERRAIN_SEEDS + 1):
+				var site_obj := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
+				for plan in won:
+					var r := Plans.battle(plan, temp, s, site_obj)
+					if r["winner"] == Sim.PLAYER:
+						won[plan] += 1
+					margin += float(r["margin"]) * (1.0 if plan == "terrain" else -1.0)
+				fights += 1
+	var points := 100.0 * float(won["terrain"] - won["tactician"]) / fights
+	print("  terrain %d/%d, tactician %d/%d, %+.1f men a battle" % [won["terrain"], fights, won["tactician"], fights, margin / fights])
+	_expect(points >= TERRAIN_POINTS, "a player who uses the ground wins %.0f points more often than one who ignores it" % points)
+
+
+## Each map is fought twice, with the armies swapped between the sides, so a stronger army
+## drawn for one side doesn't pass for the ground favoring it. 48 battles leave about 7
+## points of chance either way, so the window is two of those wide: a fair map seldom
+## fails it, and one that tilts the fight (as rivers did, about 30%) still does.
+func _check_terrain_fairness() -> void:
 	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS]:
 		var player_wins := 0
 		for s in range(1, 25):
 			var site_obj := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
-			var sim := Sim.new()
-			sim.setup(Plans.army(s), Plans.army(s + 1000), s, site_obj)
-			sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
-			sim.ai[Sim.PLAYER].deploy(sim)
-			sim.ai[Sim.ENEMY].deploy(sim)
-			sim.start_battle()
-			while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
-				sim.step()
-			if sim.winner == Sim.PLAYER:
-				player_wins += 1
-			sim.dispose()
-		var win_pct := float(player_wins) / 24.0
-		_expect(win_pct >= 0.40 and win_pct <= 0.60,
+			for swap in [false, true]:
+				var sim := Sim.new()
+				var a := Plans.army(s)
+				var b := Plans.army(s + 1000)
+				sim.setup(b if swap else a, a if swap else b, s, site_obj)
+				sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
+				sim.ai[Sim.PLAYER].deploy(sim)
+				sim.ai[Sim.ENEMY].deploy(sim)
+				sim.start_battle()
+				while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
+					sim.step()
+				if sim.winner == Sim.PLAYER:
+					player_wins += 1
+				sim.dispose()
+		var win_pct := float(player_wins) / 48.0
+		_expect(win_pct >= 0.35 and win_pct <= 0.65,
 			"mirrored %s map is fair (player win rate: %.0f%%)" % [site_type, win_pct * 100.0])
 
+
+func _check_cultures_balance() -> void:
 	print("Culture vs Culture balance (24 seeds each):")
 	for pair in [[Cultures.VARDISH, Cultures.KHARZANI], [Cultures.KHARZANI, Cultures.RYUMON], [Cultures.RYUMON, Cultures.VARDISH]]:
 		var cult_a: String = pair[0]
@@ -1787,12 +1849,38 @@ func _check_objectives() -> void:
 	_expect(other_sq.morale <= morale_before - 35.0, "other squads lost 35 morale on chief shock")
 	chief_sim.dispose()
 
+	# A chief is cut down or gets away when you win, and keeps his band when you lose: one
+	# fate, never both.
+	var fates_ok := true
+	var fates := {"killed": 0, "escaped": 0, "kept": 0}
+	for s in range(1, 9):
+		var fate_sim := Sim.new()
+		fate_sim.setup(Plans.army(s), e_army2, s, null, Sim.OBJECTIVE_CHIEF)
+		fate_sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
+		fate_sim.ai[Sim.ENEMY].deploy(fate_sim)
+		fate_sim.auto_deploy(Sim.PLAYER)
+		fate_sim.start_battle()
+		fate_sim.order_all(Sim.PLAYER, "advance")
+		while fate_sim.winner == -1 and fate_sim.time < Sim.TIME_LIMIT + 5.0:
+			fate_sim.step()
+		var r: Dictionary = fate_sim.result_for(Sim.PLAYER)
+		if fate_sim.winner == Sim.PLAYER:
+			fates_ok = fates_ok and r["chief_killed"] != r["chief_escaped"]
+			fates["killed" if r["chief_killed"] else "escaped"] += 1
+		else:
+			fates_ok = fates_ok and not r["chief_killed"] and not r["chief_escaped"]
+			fates["kept"] += 1
+		fate_sim.dispose()
+	_expect(fates_ok, "a chief meets one fate: cut down %d, got away %d, kept his band %d" % [fates["killed"], fates["escaped"], fates["kept"]])
+
 	# 3. Chief escape and grudge return
 	var world := WorldSim.new()
 	world.setup(42, Cultures.VARDISH)
 	world.escaped_chiefs.append({"name": "Rask the Red", "culture": Cultures.VARDISH, "grudge": 0, "escaped_at": 10.0, "times_beaten": 1})
-	world.hour = 60.0
-	world._spawn_band("vardmark_bandits")
+	world.hour = 10.0 + WorldSim.CHIEF_RETURN_HOURS
+	# Clear the realm's band so a new one can rise there.
+	world.parties = world.parties.filter(func(p): return not (p.kind == WorldSim.BAND and p.faction == "vardmark"))
+	world._spawn_band("vardmark")
 	var chief_band = null
 	for b in world.bands():
 		if b.is_chief_band and b.chief_name == "Rask the Red":
@@ -1807,7 +1895,18 @@ func _check_objectives() -> void:
 	ambush_sim.auto_deploy(Sim.PLAYER)
 	ambush_sim.auto_deploy(Sim.ENEMY)
 	var p_sq = ambush_sim.squads[0]
-	_expect(p_sq.files == 2 and p_sq.still == 0.0, "player deployed in narrow column (files=2) unbraced")
+	var column_ok := true
+	for sq in ambush_sim.squads:
+		if sq.team != Sim.PLAYER:
+			continue
+		var abreast := {}
+		for so in sq.soldiers:
+			abreast[snappedf(so.slot.x, 0.1)] = true
+		var half: Vector2 = ambush_sim._footprint(sq.type, sq.start_men, sq.files)
+		column_ok = column_ok and sq.files == Sim.AMBUSH_FILES and abreast.size() <= Sim.AMBUSH_FILES \
+			and sq.still == 0.0 and not ambush_sim._overlaps(Sim.PLAYER, sq.center, half, sq)
+	_expect(column_ok and p_sq.files == Sim.AMBUSH_FILES,
+		"player caught on the march: squads %d abreast, strung out without overlapping, unbraced" % Sim.AMBUSH_FILES)
 	var enemy_north := false
 	var enemy_south := false
 	for sq in ambush_sim.squads:
@@ -1817,6 +1916,10 @@ func _check_objectives() -> void:
 			elif sq.center.y > 900.0:
 				enemy_south = true
 	_expect(enemy_north and enemy_south, "ambushers deployed at both north and south ends")
+	var before: Vector2 = p_sq.center
+	var moved = ambush_sim.place(Sim.PLAYER, p_sq.roster_id, before + Vector2(200.0, 0.0))
+	var redrawn := ambush_sim.order_line(Sim.PLAYER, Vector2(150.0, 900.0), Vector2(690.0, 900.0))
+	_expect(moved == null and redrawn.is_empty() and p_sq.center == before, "and there's no time to form up: the column can't be moved or redrawn")
 	ambush_sim.dispose()
 
 	# 5. Village defense zone and countdown

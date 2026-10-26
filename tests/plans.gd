@@ -154,70 +154,31 @@ static func _tactician(sim, state: Dictionary) -> void:
 					sim.order_advance(sq)
 
 
+## The usual line, then each company of archers climbs the highest ground near its place
+## in it.
 static func _deploy_terrain_player(sim) -> void:
+	sim.auto_deploy(Sim.PLAYER)
 	var zone: Rect2 = sim.deploy_zone(Sim.PLAYER)
 	var terrain = sim.terrain
-	var reserves_copy := sim.reserves[Sim.PLAYER].duplicate()
-
-	reserves_copy.sort_custom(func(a, b):
-		var priority := {Troops.ARCHERS: 0, Troops.SPEARMEN: 1, Troops.INFANTRY: 2, Troops.CAVALRY: 3}
-		return priority.get(a["type"], 4) < priority.get(b["type"], 4)
-	)
-
-	var candidates: Array = []
-	var y := zone.position.y + 20.0
-	while y < zone.position.y + zone.size.y - 20.0:
-		var x := zone.position.x + 30.0
-		while x < zone.position.x + zone.size.x - 30.0:
-			var pt := Vector2(x, y)
-			if terrain.passable(pt):
-				candidates.append(pt)
-			x += 45.0
-		y += 45.0
-
-	for entry in reserves_copy:
-		var type: String = entry["type"]
-		var best_spot = null
-		var best_score := -INF
-		var half := sim._footprint(type, entry["men"])
-
-		for pt in candidates:
-			var h: float = terrain.height_at(pt)
-			var in_w: bool = terrain.in_woods(pt)
-			var dist_to_mid := absf(pt.y - sim.MID_Y)
-			var score := 0.0
-
-			match type:
-				Troops.ARCHERS:
-					score += h * 350.0
-					score += dist_to_mid * 0.4
-					if in_w:
-						score += 60.0
-				Troops.INFANTRY, Troops.SPEARMEN:
-					score += h * 200.0
-					score -= dist_to_mid * 0.6
-					for feat in terrain.features:
-						if feat.get("type") == "river":
-							for fx in feat.get("fords", []):
-								if absf(pt.x - fx) < 70.0 and dist_to_mid < 140.0:
-									score += 200.0
-				Troops.CAVALRY:
-					if in_w or terrain.water_at(pt) != Terrain.WATER_NONE:
-						score -= 700.0
-					var flank := minf(pt.x, sim.ARENA.x - pt.x)
-					if flank < 200.0:
-						score += 150.0
-
-			if score > best_score and not sim._overlaps(Sim.PLAYER, pt, half, null) and terrain.passable(pt):
-				best_score = score
-				best_spot = pt
-
-		if best_spot != null:
-			sim.place(Sim.PLAYER, entry["roster_id"], best_spot)
-
-	sim.auto_deploy(Sim.PLAYER)
+	for sq in sim.squads:
+		if sq.team != Sim.PLAYER or sq.type != Troops.ARCHERS:
+			continue
+		var half: Vector2 = sim._footprint(sq.type, sq.alive_count())
+		var best: Vector2 = sq.center
+		var best_h: float = terrain.height_at(best) + 0.05
+		for dy in [-80.0, -40.0, 0.0, 40.0, 80.0]:
+			for dx in [-120.0, -80.0, -40.0, 0.0, 40.0, 80.0, 120.0]:
+				var pt: Vector2 = sq.center + Vector2(dx, dy)
+				var h: float = terrain.height_at(pt)
+				if h > best_h and zone.has_point(pt) and terrain.passable(pt) and not sim._overlaps(Sim.PLAYER, pt, half, sq):
+					best = pt
+					best_h = h
+		if best != sq.center:
+			sim.place(Sim.PLAYER, sq.roster_id, best)
 
 
+## The tactician, but it waits on the high ground, in the woods and behind the fords for
+## the enemy to come to it, until the tactician would go in anyway.
 static func _terrain_plan(sim, state: Dictionary) -> void:
 	_tactician(sim, state)
 	var terrain = sim.terrain
@@ -225,6 +186,8 @@ static func _terrain_plan(sim, state: Dictionary) -> void:
 		return
 	for sq in sim.squads:
 		if sq.team != Sim.PLAYER or not sq.is_active():
+			continue
+		if state["released"] and sq.type != Troops.CAVALRY:
 			continue
 		if sq.type == Troops.ARCHERS:
 			if (terrain.height_at(sq.avg) > 0.4 or terrain.in_woods(sq.avg)):

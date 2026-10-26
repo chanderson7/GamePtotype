@@ -165,12 +165,10 @@ static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led
 		squads[int(s["id"])] = entry
 	var chief_killed := false
 	var chief_escaped := false
-	if objective == "chief":
-		if won:
-			if rng.randf() < 0.70:
-				chief_killed = true
-			else:
-				chief_escaped = true
+	# Win, and the chief is cut down or gets away; lose, and he stays at the head of his band.
+	if objective == "chief" and won:
+		if rng.randf() < 0.70:
+			chief_killed = true
 		else:
 			chief_escaped = true
 	return {"won": won, "reason": "auto", "squads": squads, "lost": lost, "killed": enemy_lost,

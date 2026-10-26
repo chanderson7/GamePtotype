@@ -14,6 +14,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
+const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 4
@@ -98,7 +99,7 @@ func _new_squad(type: String, squad_culture: String = "") -> Dictionary:
 	var unit_id := Units.recruit(c, type)
 	var full := Units.full_size(unit_id)
 	var squad := {"id": _next_id, "type": type, "unit": unit_id, "men": full, "xp": 0, "level": 1,
-		"culture": c, "name": Captains.company_name(captain, type), "captain": captain}
+		"pending_branch": false, "culture": c, "name": Captains.company_name(captain, type), "captain": captain}
 	_next_id += 1
 	return squad
 
@@ -222,6 +223,7 @@ func train_squad(id: int, branch_unit_id: String = "") -> bool:
 				target = s.get("unit", "")
 		s["unit"] = target
 		s["pending_branch"] = false
+		_fit_to_unit(s)
 		save_game()
 		return true
 
@@ -240,6 +242,7 @@ func train_squad(id: int, branch_unit_id: String = "") -> bool:
 		silver -= cost
 		s["unit"] = target
 		s["level"] = 2
+		_fit_to_unit(s)
 	else:
 		var cost := Economy.train_cost(s)
 		if cost > silver:
@@ -249,6 +252,12 @@ func train_squad(id: int, branch_unit_id: String = "") -> bool:
 
 	save_game()
 	return true
+
+
+## A squad trained into a smaller branch keeps its best men and sends the rest home.
+func _fit_to_unit(s: Dictionary) -> void:
+	if Units.has(String(s.get("unit", ""))):
+		s["men"] = mini(int(s["men"]), Units.full_size(String(s["unit"])))
 
 
 ## Hire the recruits offered where you stand, offer number `index`. Fails if you can't
@@ -370,22 +379,29 @@ func bonds() -> Array:
 	return out
 
 
+## What kind of fight `band` makes of it: "village" if you catch it raiding one, "chief"
+## if a chief leads it, "ambush" if it falls on you on a road through the woods, and
+## otherwise "rout".
+func encounter_objective(band) -> String:
+	if band.raiding and band.raid_village != "":
+		return "village"
+	if band.is_chief_band:
+		return "chief"
+	var ppos: Vector2 = world.party_pos(world.player())
+	if MapTerrain.shared().wooded(ppos) and not world.is_sea(band.node, band.next):
+		return "ambush"
+	return "rout"
+
+
 ## The army of the bandit band blocking the road, set up for the battle screen.
 func start_encounter_battle() -> void:
 	if world == null or world.encounter == -1:
 		return
 	var band = world.party(world.encounter)
-	var objective := "rout"
+	var objective := encounter_objective(band)
 	var chief_name := ""
 	var ppos: Vector2 = world.party_pos(world.player())
-	var mt = MapTerrain.shared()
-
-	if band.raiding and band.raid_village != "":
-		objective = "village"
-	elif mt != null and mt.woods_at(ppos) > 0.45 and not world.is_sea(band.node, band.next):
-		objective = "ambush"
-	elif band.is_chief_band or band.name.find("'s") != -1:
-		objective = "chief"
+	if objective == "chief":
 		chief_name = band.chief_name if band.chief_name != "" else band.name.split("'s")[0]
 
 	var site = BattleSite.pick(world, ppos, objective)
@@ -574,8 +590,6 @@ func apply_result(result: Dictionary) -> void:
 			_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
 				band, how, got["silver"], got["food"], got["renown"]])
 		else:
-			if obj == "chief" and c_name != "":
-				world.escaped_chiefs.append({"name": c_name, "culture": pending_battle.get("culture", Cultures.VARDISH), "grudge": 1, "escaped_at": world.hour, "times_beaten": 0})
 			world.hurt_band(result.get("enemy_squads", {}))
 			world.lose_encounter()
 			var home := String(WorldData.settlement(world.here())["name"])

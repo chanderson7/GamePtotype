@@ -170,7 +170,8 @@ func _add_squads(col: VBoxContainer) -> void:
 
 func _squad_row(s: Dictionary) -> Control:
 	var type := String(s["type"])
-	var full := Troops.full_size(type)
+	var unit_id := String(s.get("unit", ""))
+	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(type)
 	var men := int(s["men"])
 	var level := int(s.get("level", 1))
 	var xp := int(s["xp"])
@@ -181,7 +182,7 @@ func _squad_row(s: Dictionary) -> Control:
 	row.add_child(_portrait(type, String(s.get("culture", GameState.culture))))
 	var text := _text_column(row)
 	var title := String(s.get("name", ""))
-	var name_label := Style.label(title if title != "" else Cultures.troop_name(String(s.get("culture", GameState.culture)), type), Style.BODY)
+	var name_label := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_label.custom_minimum_size = Vector2(10, 0)
 	text.add_child(name_label)
@@ -190,15 +191,24 @@ func _squad_row(s: Dictionary) -> Control:
 		drill = "ready to train"
 	elif level < Troops.MAX_LEVEL:
 		drill = "%d/%d xp" % [xp, level * Troops.XP_PER_LEVEL]
-	text.add_child(_small("%d/%d men · level %d · %s" % [men, full, level, drill], Style.TEXT if men >= full else Style.ENEMY_LIGHT))
+	text.add_child(_small("%s · %d/%d men · level %d · %s" % [Units.troop_name(s, GameState.culture), men, full, level, drill],
+		Style.TEXT if men >= full else Style.ENEMY_LIGHT))
 	var refill := GameState.reinforce_cost(s)
 	if refill > 0:
 		var b := _button("Refill · %d" % refill, _on_reinforce.bind(int(s["id"])))
 		b.disabled = refill > GameState.silver
 		row.add_child(b)
 	if GameState.can_train(s):
-		var price := Economy.train_cost(s)
-		var t := _button("Train · %d" % price, _on_train.bind(int(s["id"])))
+		# Training a recruit squad makes it one of two branches, each with its own price.
+		var branches := Units.branches(unit_id)
+		var choosing: bool = (level == 1 or bool(s.get("pending_branch", false))) and not branches.is_empty()
+		var price: int = 0 if bool(s.get("pending_branch", false)) else Economy.train_cost(s)
+		if choosing and not s.get("pending_branch", false):
+			price = Economy.train_cost(s, branches[0])
+			for b in branches:
+				price = mini(price, Economy.train_cost(s, b))
+		var label: String = "Train · free" if price == 0 else ("Train · from %d" if choosing else "Train · %d") % price
+		var t := _button(label, _on_train.bind(int(s["id"])))
 		t.disabled = price > GameState.silver
 		row.add_child(t)
 	return panel
@@ -311,7 +321,7 @@ func _show_branch_choice(id: int, branches: Array) -> void:
 	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
 
-	var heading := Style.label("Choose Upgrade Path", Style.TITLE)
+	var heading := Style.label("Choose Upgrade Path", Style.LARGE)
 	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(heading)
 
@@ -331,7 +341,7 @@ func _show_branch_choice(id: int, branches: Array) -> void:
 		c_box.add_theme_constant_override("separation", 8)
 		card.add_child(c_box)
 
-		var b_title := Style.label(Units.display_name(b_id), Style.HEADING)
+		var b_title := Style.label(Units.display_name(b_id), Style.BODY)
 		b_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		c_box.add_child(b_title)
 

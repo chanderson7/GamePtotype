@@ -8,51 +8,59 @@ const Terrain = preload("res://scripts/battle/terrain.gd")
 
 
 class MinHeap:
-	var data: Array = []
+	var idx := PackedInt32Array()
+	var f := PackedFloat32Array()
 
-	func push(idx: int, f: float) -> void:
-		data.append({"idx": idx, "f": f})
-		_up(data.size() - 1)
+	func push(i: int, score: float) -> void:
+		idx.append(i)
+		f.append(score)
+		_up(idx.size() - 1)
 
 	func pop() -> int:
-		var top: int = data[0]["idx"]
-		var last = data.pop_back()
-		if not data.is_empty():
-			data[0] = last
+		var top := idx[0]
+		var last := idx.size() - 1
+		idx[0] = idx[last]
+		f[0] = f[last]
+		idx.resize(last)
+		f.resize(last)
+		if last > 0:
 			_down(0)
 		return top
 
 	func is_empty() -> bool:
-		return data.is_empty()
+		return idx.is_empty()
+
+	func _swap(a: int, b: int) -> void:
+		var ti := idx[a]
+		idx[a] = idx[b]
+		idx[b] = ti
+		var tf := f[a]
+		f[a] = f[b]
+		f[b] = tf
 
 	func _up(i: int) -> void:
 		while i > 0:
 			var p := (i - 1) >> 1
-			if data[i]["f"] < data[p]["f"]:
-				var tmp = data[i]
-				data[i] = data[p]
-				data[p] = tmp
+			if f[i] < f[p]:
+				_swap(i, p)
 				i = p
 			else:
 				break
 
 	func _down(i: int) -> void:
-		var n := data.size()
+		var n := idx.size()
 		while true:
 			var l := (i << 1) + 1
 			var r := l + 1
 			var best := i
-			if l < n and data[l]["f"] < data[best]["f"]:
+			if l < n and f[l] < f[best]:
 				best = l
-			if r < n and data[r]["f"] < data[best]["f"]:
+			if r < n and f[r] < f[best]:
 				best = r
-			if best != i:
-				var tmp = data[i]
-				data[i] = data[best]
-				data[best] = tmp
-				i = best
-			else:
+			if best == i:
 				break
+			_swap(i, best)
+			i = best
 
 
 ## Find a sequence of world waypoints from `start` to `goal`.
@@ -74,6 +82,8 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 
 	if c_start == c_goal:
 		return [goal]
+	if terrain.foot_speed.is_empty():
+		terrain.bake()
 
 	var total_cells := Terrain.TOTAL_CELLS
 	var g_score := PackedFloat32Array()
@@ -117,11 +127,11 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 		var cost_curr := _cell_cost(terrain, cx, cy, mounted)
 
 		for d in dirs:
-			var nx := cx + d.x
-			var ny := cy + d.y
+			var nx: int = cx + d.x
+			var ny: int = cy + d.y
 			if nx < 0 or nx >= Terrain.COLS or ny < 0 or ny >= Terrain.ROWS:
 				continue
-			var n_idx := ny * Terrain.COLS + nx
+			var n_idx: int = ny * Terrain.COLS + nx
 			if closed[n_idx] == 1:
 				continue
 			if not terrain.passable_cell(nx, ny):
@@ -162,16 +172,15 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 
 	raw_points.reverse()
 
-	# String pulling: smooth waypoints using line-of-sight checks
+	# String pulling: from each corner, walk on along the path for as long as the way from
+	# the corner stays clear, and turn only where it doesn't.
 	var waypoints: Array = []
 	var check_from := start
 	var i := 0
 	while i < raw_points.size():
 		var furthest := i
-		for j in range(raw_points.size() - 1, i, -1):
-			if has_line_of_sight(terrain, check_from, raw_points[j]):
-				furthest = j
-				break
+		while furthest + 1 < raw_points.size() and has_line_of_sight(terrain, check_from, raw_points[furthest + 1]):
+			furthest += 1
 		var pt: Vector2 = raw_points[furthest]
 		waypoints.append(pt)
 		check_from = pt
@@ -199,10 +208,8 @@ static func has_line_of_sight(terrain: Terrain, p0: Vector2, p1: Vector2) -> boo
 
 
 static func _cell_cost(terrain: Terrain, cx: int, cy: int, mounted: bool) -> float:
-	if not terrain.passable_cell(cx, cy):
-		return INF
-	var p := terrain.cell_pos(cx, cy)
-	var sf := terrain.speed_factor(p, mounted)
+	var i := cy * Terrain.COLS + cx
+	var sf: float = terrain.horse_speed[i] if mounted else terrain.foot_speed[i]
 	if sf <= 0.01:
 		return INF
 	return 1.0 / sf

@@ -19,6 +19,7 @@ const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const Units = preload("res://scripts/data/units.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
@@ -183,16 +184,18 @@ func _ready() -> void:
 	_scatter_doodads()
 	match sim.objective:
 		Sim.OBJECTIVE_CHIEF:
-			_push_ticker("OBJECTIVE: Slay the Bandit Chief (%s)!" % (sim.chief_name if sim.chief_name != "" else "Bandit Chief"), Style.GOLD)
+			_tick("OBJECTIVE: Slay the Bandit Chief (%s)!" % (sim.chief_name if sim.chief_name != "" else "Bandit Chief"), Style.BRASS)
 		Sim.OBJECTIVE_VILLAGE:
-			_push_ticker("OBJECTIVE: Hold the village square for 2 minutes!", Style.GOLD)
+			_tick("OBJECTIVE: Hold the village square for 2 minutes!", Style.BRASS)
 		Sim.OBJECTIVE_AMBUSH:
-			_push_ticker("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
+			_tick("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
 		_:
-			_push_ticker("OBJECTIVE: Rout the enemy host!", Style.TEXT)
+			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	Sound.play_battle()
 	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY].deploy(sim)
+	if sim.caught_on_march(Sim.PLAYER):
+		sim.auto_deploy(Sim.PLAYER)
 	_cards = sim.roster(Sim.PLAYER)
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
@@ -446,6 +449,9 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 	if not sim.in_deploy_zone(Sim.PLAYER, p):
 		_hint("Place your squads in the blue zone, your half of the field.")
 		return
+	if sim.caught_on_march(Sim.PLAYER):
+		_hint("No time to form up: they're on you from both ends. Press Fight.")
+		return
 	if sim.place(Sim.PLAYER, selected_id, p) == null:
 		_hint("No room there. Try a more open spot.")
 		return
@@ -461,6 +467,9 @@ func _select_next_card() -> void:
 			_hint("Tap the blue zone to place %s, %d %s, or drag a line to place everyone." % [
 				_card_name(e), e["men"], _name(e["type"], Sim.PLAYER, e["roster_id"]).to_lower()])
 			return
+	if sim.caught_on_march(Sim.PLAYER):
+		_hint("Ambushed on the march, strung out along the road! No time to form up. Press Fight.")
+		return
 	_hint("Your whole army is on the field. Tap a squad to move it, or drag a new line, then press Fight.")
 
 
@@ -656,9 +665,12 @@ func _hint(text: String) -> void:
 ## squads in the words of the culture it was raised in (yours unless you hired it abroad).
 func _name(type: String, team: int = Sim.PLAYER, roster_id: int = -1) -> String:
 	if team != Sim.PLAYER:
-		return Cultures.troop_name(_enemy_culture, type)
-	var culture := String(_squad_record(roster_id).get("culture", GameState.culture))
-	return Cultures.troop_name(culture, type)
+		var foe = sim.placed_squad(Sim.ENEMY, roster_id) if roster_id != -1 else null
+		return Units.troop_name({"unit": foe.unit if foe != null else "", "type": type}, _enemy_culture)
+	var record := _squad_record(roster_id)
+	if record.is_empty():
+		record = {"type": type}
+	return Units.troop_name(record, GameState.culture)
 
 
 ## "Brann's Shields, led by Brann of Ostmark (Vengeful, Lucky). Bonds: Mira (B)."
@@ -1397,6 +1409,7 @@ func _draw() -> void:
 	_draw_shadows()
 	for sq in sim.squads:
 		_draw_men(sq)
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_treetops()
 	_draw_arrows()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -1523,11 +1536,11 @@ func _setup_terrain_visuals() -> void:
 	# Populate woods trees
 	var tree_name := "tree"
 	match _biome:
-		"vardmark":
+		Cultures.VARDISH:
 			tree_name = "tree"
-		"kharzan":
+		Cultures.KHARZANI:
 			tree_name = "palm"
-		"ryumon":
+		Cultures.RYUMON:
 			tree_name = "blossom"
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 999
@@ -1540,7 +1553,7 @@ func _setup_terrain_visuals() -> void:
 				for k in 2:
 					var p := cp + Vector2(rng.randf_range(-10.0, 10.0), rng.randf_range(-10.0, 10.0))
 					var kind := tree_name
-					if _biome == "vardmark" and t.height_at(p) > 0.4:
+					if _biome == Cultures.VARDISH and t.height_at(p) > 0.4:
 						kind = "pine"
 					_trees.append({
 						"pos": p,
@@ -1685,13 +1698,13 @@ func _draw_objectives() -> void:
 			var mins := int(remain) / 60
 			var secs := int(remain) % 60
 			var time_str := "%d:%02d" % [mins, secs]
-			draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.MEDIUM, Style.GOLD)
+			draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.BODY, Style.BRASS)
 	if sim.objective == Sim.OBJECTIVE_CHIEF:
 		for sq in sim.squads:
 			if (sq.is_bodyguard or sq.is_chief) and sq.is_active():
 				var pulse := 0.5 + 0.5 * sin(_clock * 4.0)
 				var r := minf(sq.extent, 65.0) + 14.0 + pulse * 4.0
-				draw_arc(sq.average_pos(), r, 0.0, TAU, 36, Color(Style.GOLD, 0.7 + pulse * 0.3), 3.5)
+				draw_arc(sq.average_pos(), r, 0.0, TAU, 36, Color(Style.BRASS, 0.7 + pulse * 0.3), 3.5)
 	for r in sim.scheduled_reinforcements:
 		if not r.get("spawned", false) and sim.time >= float(r.get("at_time", 0.0)) - 10.0:
 			var edge: String = String(r.get("edge", "north"))
@@ -1888,7 +1901,7 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 			crown_c + Vector2(-9, 5), crown_c + Vector2(-9, -4), crown_c + Vector2(-5, 0),
 			crown_c + Vector2(0, -7), crown_c + Vector2(5, 0), crown_c + Vector2(9, -4),
 			crown_c + Vector2(9, 5)
-		]), Style.GOLD)
+		]), Style.BRASS)
 	if sq.routing or sim.phase != Sim.PHASE_BATTLE:
 		if not mine and ref_type != "":
 			_draw_counter_hint(top, sq.type, ref_type)

@@ -62,7 +62,7 @@ func deploy(sim) -> void:
 	if sim.objective == Sim.OBJECTIVE_AMBUSH:
 		committed = true
 		patience = 0.0
-	if sim.terrain != null and not sim.terrain.features.is_empty():
+	elif sim.terrain != null and not sim.terrain.features.is_empty():
 		_deploy_terrain(sim)
 	if not sim.all_placed(team):
 		sim.auto_deploy(team, 26.0)
@@ -79,7 +79,7 @@ func deploy(sim) -> void:
 func _deploy_terrain(sim) -> void:
 	var zone: Rect2 = sim.deploy_zone(team)
 	var terrain = sim.terrain
-	var reserves_copy := sim.reserves[team].duplicate()
+	var reserves_copy: Array = sim.reserves[team].duplicate()
 
 	# Archers first for best vantage, foot next, cavalry on open flanks
 	reserves_copy.sort_custom(func(a, b):
@@ -87,23 +87,26 @@ func _deploy_terrain(sim) -> void:
 		return priority.get(a["type"], 4) < priority.get(b["type"], 4)
 	)
 
+	# Spots on a grid laid out from the front of the zone and the middle of the field, in
+	# the side's own frame, so both sides of a mirrored field see the same spots in the
+	# same order.
 	var step := 50.0
+	var side := 1.0 if team == Sim.PLAYER else -1.0
+	var front: float = zone.position.y if team == Sim.PLAYER else zone.end.y
 	var candidates: Array = []
-	var y := zone.position.y + 20.0
-	while y < zone.position.y + zone.size.y - 20.0:
-		var x := zone.position.x + 30.0
-		while x < zone.position.x + zone.size.x - 30.0:
-			var pt := Vector2(x, y)
-			if terrain.passable(pt):
+	var d := 20.0
+	while d < zone.size.y - 20.0:
+		for k in range(-7, 8):
+			var pt := Vector2(Sim.ARENA.x * 0.5 + side * k * step, front + side * d)
+			if zone.has_point(pt) and terrain.passable(pt):
 				candidates.append(pt)
-			x += step
-		y += step
+		d += step
 
 	for entry in reserves_copy:
 		var type: String = entry["type"]
 		var best_spot = null
 		var best_score := -INF
-		var half := sim._footprint(type, entry["men"])
+		var half: Vector2 = sim._footprint(type, entry["men"])
 
 		for pt in candidates:
 			var score := _score_spot(sim, terrain, pt, type)
@@ -121,7 +124,7 @@ func _score_spot(sim, terrain, pt: Vector2, type: String) -> float:
 	var in_w: bool = terrain.in_woods(pt)
 	var score := 0.0
 
-	var front_y := sim.MID_Y - sim.DEPLOY_GAP if team == Sim.ENEMY else sim.MID_Y + sim.DEPLOY_GAP
+	var front_y: float = Sim.MID_Y - Sim.DEPLOY_GAP if team == Sim.ENEMY else Sim.MID_Y + Sim.DEPLOY_GAP
 	var dist_to_front := absf(pt.y - front_y)
 
 	match type:

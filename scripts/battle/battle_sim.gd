@@ -52,6 +52,11 @@ const OBJECTIVE_VILLAGE := "village"
 const VILLAGE_ZONE_CENTER := Vector2(420.0, 630.0)
 const VILLAGE_ZONE_RADIUS := 160.0
 const VILLAGE_DURATION := 120.0
+## Ambushed: men abreast in the marching column, how long a file of squads may run down
+## the middle of the field, and how far apart the files march.
+const AMBUSH_FILES := 2
+const AMBUSH_COLUMN := 760.0
+const AMBUSH_LANE_GAP := 90.0
 ## Advancing squads keep to marching pace, so the army arrives together, until their
 ## target is this close; then they charge at full speed.
 const MARCH_SPEED := 38.0
@@ -143,6 +148,8 @@ class Squad:
 	## Archers told to hold fire keep their arrows: they loose none, and fight anyone who
 	## reaches them with their blades.
 	var hold_fire := false
+	## How much further its bows carry from where it stands at whoever it's shooting at.
+	var range_mult := 1.0
 	var order_target = null
 	var focus = null
 	var engaged := false
@@ -201,6 +208,10 @@ class Squad:
 	var waypoints: Array = []
 	var path_timer := 0.0
 	var last_path_goal := Vector2.INF
+	## Horse only: whether it has a clear run at each enemy squad, by squad id, and when
+	## that was last looked at.
+	var clear_run := {}
+	var clear_run_at := -INF
 
 	func alive_count() -> int:
 		return alive_n
@@ -283,6 +294,11 @@ var chief_broken := false
 var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
 var terrain: RefCounted = null
+## Anything on the ground at all. On an open, level field the terrain rules all come to
+## nothing, so the battle skips them.
+var _rough := false
+## A rise of the ground per unit of distance, as the slope TerrainRules works in.
+const SLOPE_SCALE := TerrainRules.SLOPE_SAMPLE_DIST / TerrainRules.SLOPE_MAX_RISE
 ## Seconds each pair of captains (key "id|id") spent fighting side by side.
 var bond_time := {}
 var _ranks := {}
@@ -312,6 +328,7 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 		terrain = site_or_terrain
 	elif terrain == null:
 		terrain = Terrain.new()
+	set_terrain(terrain)
 	armies = [_to_entries(player_army), _to_entries(enemy_army)]
 	reserves = [armies[PLAYER].duplicate(), armies[ENEMY].duplicate()]
 	if objective == OBJECTIVE_CHIEF:
@@ -332,6 +349,8 @@ func set_objective(obj: String, c_name: String = "") -> void:
 
 func set_terrain(t: RefCounted) -> void:
 	terrain = t
+	terrain.bake()
+	_rough = not terrain.flat
 
 
 func _setup_chief() -> void:
@@ -419,7 +438,7 @@ func _spawn_reinforcements(team: int, p_entries: Array, edge: String) -> void:
 			_:
 				pos = Vector2(clampf(ARENA.x * 0.5 + offset, 80.0, ARENA.x - 80.0), 60.0)
 				face = Vector2.DOWN
-		if terrain != null and not terrain.passable(pos):
+		if _rough and not terrain.passable(pos):
 			pos = _passable_slot(Vector2(ARENA.x * 0.5, MID_Y), pos)
 		var sq = _spawn(team, entry, pos)
 		if sq != null:
@@ -504,7 +523,7 @@ func all_placed(team: int) -> bool:
 ## Put a squad on the field, or move one already placed. Squads dropped on top of each
 ## other are nudged to the nearest free spot. Returns the squad, or null if it can't go there.
 func place(team: int, roster_id: int, at: Vector2):
-	if phase != PHASE_DEPLOY or winner != -1 or not in_deploy_zone(team, at):
+	if phase != PHASE_DEPLOY or winner != -1 or not in_deploy_zone(team, at) or caught_on_march(team):
 		return null
 	var sq = placed_squad(team, roster_id)
 	if sq != null:
@@ -564,27 +583,48 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 		place(team, s[0]["roster_id"], Vector2(x, MID_Y + depth if team == PLAYER else MID_Y - depth))
 
 
+## Ambushed: the player's warband stands in its marching column, with no time to form up
+## until the fighting starts.
+func caught_on_march(team: int) -> bool:
+	return objective == OBJECTIVE_AMBUSH and team == PLAYER
+
+
 func _auto_deploy_ambush(team: int, jitter: float = 0.0) -> void:
 	if reserves[team].is_empty():
 		return
 	if team == PLAYER:
+		# Caught on the march: the warband strung out along the road, two men abreast, in
+		# as many files of squads as it takes to fit between the ambushers, nobody braced.
 		var to_deploy: Array = reserves[team].duplicate()
 		var n: int = to_deploy.size()
-		var spacing := 75.0
-		var start_y: float = MID_Y - float(n - 1) * spacing * 0.5
-		for i in n:
-			var e: Dictionary = to_deploy[i]
-			var spot := Vector2(ARENA.x * 0.5, start_y + float(i) * spacing)
+		var depths := []
+		var total := 0.0
+		for e in to_deploy:
+			var depth: float = _footprint(e["type"], e["men"], AMBUSH_FILES).y * 2.0
+			depths.append(depth)
+			total += depth + SQUAD_GAP
+		var lanes := clampi(int(ceil(total / AMBUSH_COLUMN)), 1, 3)
+		var per_lane := int(ceil(float(n) / lanes))
+		for lane in lanes:
+			var first := lane * per_lane
+			var last := mini(n, first + per_lane)
+			var length := -SQUAD_GAP
+			for i in range(first, last):
+				length += depths[i] + SQUAD_GAP
+			var x := ARENA.x * 0.5 + (float(lane) - float(lanes - 1) * 0.5) * AMBUSH_LANE_GAP
 			if jitter > 0.0:
-				spot.x += rng.randf_range(-jitter, jitter)
-			reserves[team].erase(e)
-			var sq = _spawn(team, e, spot)
-			if sq != null:
-				sq.files = 2
-				sq.still = 0.0
-				sq.facing = Vector2.UP
-				sq.order = "hold"
-				sq.order_point = spot
+				x += rng.randf_range(-jitter, jitter)
+			var y := MID_Y - length * 0.5
+			for i in range(first, last):
+				var e: Dictionary = to_deploy[i]
+				var spot := Vector2(x, y + depths[i] * 0.5)
+				y += depths[i] + SQUAD_GAP
+				reserves[team].erase(e)
+				var sq = _spawn(team, e, spot)
+				if sq != null:
+					_reform(sq, AMBUSH_FILES)
+					sq.still = 0.0
+					sq.facing = Vector2.UP
 	else:
 		var to_deploy: Array = reserves[team].duplicate()
 		var n: int = to_deploy.size()
@@ -733,7 +773,7 @@ func _move_formation(sq, at: Vector2) -> void:
 	sq.last_path_goal = at
 	for so in sq.soldiers:
 		var slot_dest := at + _slot_world(so.slot, sq.facing, sq.team)
-		if terrain != null and not terrain.passable(slot_dest):
+		if _rough and not terrain.passable(slot_dest):
 			slot_dest = _passable_slot(at, slot_dest)
 		so.pos = slot_dest
 	sq.refresh()
@@ -741,17 +781,20 @@ func _move_formation(sq, at: Vector2) -> void:
 
 ## Nudge a formation slot back toward the squad center until it lands on passable ground.
 func _passable_slot(center: Vector2, slot_dest: Vector2) -> Vector2:
-	if terrain == null or terrain.passable(slot_dest):
+	if not _rough or terrain.passable(slot_dest):
 		return slot_dest
 	var dist := slot_dest.distance_to(center)
 	if dist < 0.01:
 		return center
-	var step := 6.0
-	var cur := slot_dest
-	while dist > 0.0:
-		cur = cur.move_toward(center, step)
-		dist -= step
-		if terrain.passable(cur):
+	# Half a cell at a time toward the middle of the squad, looking the ground up directly:
+	# while a squad crosses a ford, many of its men do this every tick.
+	var dir := (center - slot_dest) / dist
+	var walked := 0.0
+	while walked < dist:
+		walked = minf(dist, walked + 12.0)
+		var cur := slot_dest + dir * walked
+		if cur.x >= 0.0 and cur.x < ARENA.x and cur.y >= 0.0 and cur.y < ARENA.y \
+				and terrain.foot_speed[int(cur.y / Terrain.CELL) * Terrain.COLS + int(cur.x / Terrain.CELL)] > 0.0:
 			return cur
 	return center
 
@@ -798,7 +841,7 @@ func _footprint(type: String, men: int, files: int = 0) -> Vector2:
 func _free_spot(team: int, at: Vector2, half: Vector2, ignore):
 	var zone := deploy_zone(team)
 	var first := _fit(zone, at, half)
-	if not _overlaps(team, first, half, ignore) and (terrain == null or terrain.passable(first)):
+	if not _overlaps(team, first, half, ignore) and (not _rough or terrain.passable(first)):
 		return first
 	# Search in each side's own frame (+y is toward its rear), so ties between equally
 	# good spots break the same way for both armies.
@@ -811,7 +854,7 @@ func _free_spot(team: int, at: Vector2, half: Vector2, ignore):
 		for k in steps:
 			var a := TAU * float(k) / steps
 			var c := _fit(zone, at + Vector2(cos(a), sin(a) * back) * radius, half)
-			if _overlaps(team, c, half, ignore) or (terrain != null and not terrain.passable(c)):
+			if _overlaps(team, c, half, ignore) or (_rough and not terrain.passable(c)):
 				continue
 			var d := c.distance_squared_to(at)
 			if d < best_d:
@@ -951,7 +994,7 @@ func line_spots(line_squads: Array, a: Vector2, b: Vector2) -> Array:
 ## placed there at once; during it they march there and hold. Returns the spots, as
 ## line_spots does.
 func order_line(team: int, a: Vector2, b: Vector2, only = null) -> Array:
-	if winner != -1:
+	if winner != -1 or (phase == PHASE_DEPLOY and caught_on_march(team)):
 		return []
 	if only == null and phase == PHASE_DEPLOY:
 		# Anyone still in reserve joins the line; they start from its middle.
@@ -1308,8 +1351,10 @@ func _update_squad(sq, dt: float) -> void:
 			_:
 				foe = null # marching to a point ignores enemies until it arrives
 	sq.focus = foe
-	if sq.ranged and not sq.hold_fire and foe != null and terrain != null:
-		reach *= TerrainRules.height_range_mult(terrain.height_at(sq.avg) - terrain.height_at(foe.avg))
+	sq.range_mult = 1.0
+	if sq.ranged and not sq.hold_fire and foe != null and _rough:
+		sq.range_mult = TerrainRules.height_range_mult(terrain.height_at(sq.avg) - terrain.height_at(foe.avg))
+		reach *= sq.range_mult
 
 	var chasing := false
 	if sq.wheeling:
@@ -1333,7 +1378,7 @@ func _update_squad(sq, dt: float) -> void:
 	if is_skirmisher and not sq.wheeling:
 		var threat = _nearest_enemy_foot(sq, 130.0)
 		if threat != null and not sq.engaged:
-			var away := (sq.center - threat.avg).normalized()
+			var away: Vector2 = (sq.center - threat.avg).normalized()
 			if away == Vector2.ZERO:
 				away = Vector2.DOWN if sq.team == PLAYER else Vector2.UP
 			sq.goal = sq.center + away * 90.0
@@ -1353,7 +1398,7 @@ func _update_squad(sq, dt: float) -> void:
 			return
 		if not was_engaged:
 			var can_brace: bool = sq.order == "hold" and sq.still >= BRACE_SET and not sq.ranged
-			if can_brace and terrain != null and terrain.water_at(sq.center) == Terrain.WATER_SHALLOW:
+			if can_brace and _rough and terrain.water_at(sq.center) == Terrain.WATER_SHALLOW:
 				can_brace = false
 			sq.brace = BRACE_SECONDS if can_brace else 0.0
 			if sq.brace > 0.0:
@@ -1368,10 +1413,10 @@ func _update_squad(sq, dt: float) -> void:
 
 	# Pathfinding update: re-plan route every 1.0s or when goal shifts significantly
 	sq.path_timer += dt
-	if sq.last_path_goal.distance_squared_to(sq.goal) > 400.0 or sq.path_timer >= 1.0:
+	if sq.last_path_goal.distance_squared_to(sq.goal) > 3600.0 or sq.path_timer >= 1.0:
 		sq.path_timer = 0.0
 		sq.last_path_goal = sq.goal
-		if terrain != null and not sq.schiltron() and sq.goal.distance_squared_to(sq.center) > 100.0:
+		if _rough and not sq.schiltron() and sq.goal.distance_squared_to(sq.center) > 100.0:
 			sq.waypoints = Pathing.find_path(terrain, sq.center, sq.goal, sq.type == Troops.CAVALRY)
 		else:
 			sq.waypoints.clear()
@@ -1384,7 +1429,7 @@ func _update_squad(sq, dt: float) -> void:
 			target_pt = sq.waypoints[0]
 
 	var to: Vector2 = Vector2.ZERO if sq.schiltron() else target_pt - sq.center
-	var is_final_leg := sq.waypoints.is_empty()
+	var is_final_leg: bool = sq.waypoints.is_empty()
 	var stop := reach * 0.85 if chasing and sq.ranged and is_final_leg else 0.0 # archers halt at bow range on final leg
 	var dist := to.length()
 	if dist > stop + 2.0:
@@ -1393,17 +1438,14 @@ func _update_squad(sq, dt: float) -> void:
 		if sq.order == "advance" and not sq.wheeling and dist - stop > CHARGE_DISTANCE:
 			pace = minf(pace, MARCH_SPEED)
 		var s_factor := 1.0
-		if terrain != null:
-			s_factor = terrain.speed_factor(sq.center, sq.type == Troops.CAVALRY, dir)
-		var next_center: Vector2 = sq.center + dir * minf(dist - stop, pace * s_factor * dt)
-		if terrain != null and not terrain.passable(next_center):
-			next_center = sq.center
-		sq.center = next_center
+		if _rough:
+			s_factor = _ground_pace(sq.center, sq.type == Troops.CAVALRY, dir)
+		sq.center = _slide(sq.center, sq.center + dir * minf(dist - stop, pace * s_factor * dt))
 		sq.facing = dir
 		sq.still = 0.0
 	else:
 		if sq.order == "hold":
-			if terrain == null or terrain.water_at(sq.center) != Terrain.WATER_SHALLOW:
+			if not _rough or terrain.water_at(sq.center) != Terrain.WATER_SHALLOW:
 				sq.still += dt
 			else:
 				sq.still = 0.0
@@ -1488,14 +1530,25 @@ func target_score(sq, foe, from: Vector2) -> float:
 		score += COUNTER_PULL
 	score -= (100.0 - float(foe.morale)) * 0.8
 	# Terrain: Cavalry don't choose targets across water or through woods
-	if sq.type == Troops.CAVALRY and terrain != null:
+	if sq.type == Troops.CAVALRY and _rough:
 		if terrain.in_woods(foe.avg) or terrain.in_woods(from):
 			score += 300.0
 		if terrain.water_at(foe.avg) != Terrain.WATER_NONE:
 			score += 400.0
-		elif not Pathing.has_line_of_sight(terrain, from, foe.avg):
+		elif not _clear_run(sq, foe, from):
 			score += 200.0
 	return score
+
+
+## Whether horse at `from` can ride straight at `foe` without deep water or rock in the
+## way. Worked out afresh every half second; squads don't move far in between.
+func _clear_run(sq, foe, from: Vector2) -> bool:
+	if time - sq.clear_run_at >= 0.5:
+		sq.clear_run.clear()
+		sq.clear_run_at = time
+	if not sq.clear_run.has(foe.id):
+		sq.clear_run[foe.id] = Pathing.has_line_of_sight(terrain, from, foe.avg)
+	return sq.clear_run[foe.id]
 
 
 ## The enemy squad an advancing squad goes for.
@@ -1515,8 +1568,8 @@ func best_target(sq, from: Vector2):
 ## True if some man of `a` is within `limit` (the gap between bodies) of some man of `b`.
 func _in_range(a, b, limit: float) -> bool:
 	var lim: float = limit
-	if a.ranged and not a.hold_fire and terrain != null:
-		var diff := terrain.height_at(a.avg) - terrain.height_at(b.avg)
+	if a.ranged and not a.hold_fire and _rough:
+		var diff: float = terrain.height_at(a.avg) - terrain.height_at(b.avg)
 		lim *= TerrainRules.height_range_mult(diff)
 	lim += a.radius + b.radius
 	if a.avg.distance_to(b.avg) - a.extent - b.extent > lim:
@@ -1544,15 +1597,10 @@ func _update_soldier(so, sq, dt: float) -> void:
 		if (sq.team == PLAYER and so.pos.y >= ARENA.y + 20.0) or (sq.team == ENEMY and so.pos.y <= -20.0):
 			_remove(so)
 			sq.escaped += 1
-			if (sq.is_bodyguard or sq.is_chief) and not chief_killed:
-				chief_escaped = true
 		return
 
-	if terrain != null and not terrain.passable(so.pos):
-		so.pos = _passable_slot(sq.center, so.pos)
-
-	# Javelins: thrown before contact when an enemy comes within 90 units
-	if so.javelins > 0 and so.cooldown <= 0.0:
+	# Javelins: thrown as the enemy closes to within 90 units, before the lines meet.
+	if so.javelins > 0 and so.cooldown <= 0.0 and not sq.engaged:
 		var j_target = _find_javelin_target(so, sq, 90.0)
 		if j_target != null:
 			_throw_javelin(so, sq, j_target)
@@ -1563,8 +1611,8 @@ func _update_soldier(so, sq, dt: float) -> void:
 	if not sq.engaged:
 		so.target = null
 		so.facing = sq.facing
-		var slot_dest := sq.center + _slot_world(so.slot, sq.facing, sq.team)
-		if terrain != null and not terrain.passable(slot_dest):
+		var slot_dest: Vector2 = sq.center + _slot_world(so.slot, sq.facing, sq.team)
+		if not _open_ground(slot_dest):
 			slot_dest = _passable_slot(sq.center, slot_dest)
 		so.runup += _walk(so, slot_dest, speed * 1.25, dt)
 		return
@@ -1572,8 +1620,8 @@ func _update_soldier(so, sq, dt: float) -> void:
 	if not _target_ok(so, sq):
 		so.target = _pick_target(so, sq)
 	if so.target == null:
-		var goal_dest := sq.goal
-		if terrain != null and not terrain.passable(goal_dest):
+		var goal_dest: Vector2 = sq.goal
+		if not _open_ground(goal_dest):
 			goal_dest = _passable_slot(sq.center, goal_dest)
 		so.runup += _walk(so, goal_dest, speed, dt)
 		return
@@ -1582,10 +1630,7 @@ func _update_soldier(so, sq, dt: float) -> void:
 	var gap: float = so.pos.distance_to(tpos) - so.target.radius - so.radius
 	if tpos != so.pos:
 		so.facing = (tpos - so.pos).normalized()
-	var reach := _fighting_reach(sq)
-	if sq.ranged and not sq.hold_fire and terrain != null:
-		var diff := terrain.height_at(so.pos) - terrain.height_at(tpos)
-		reach *= TerrainRules.height_range_mult(diff)
+	var reach: float = _fighting_reach(sq) * sq.range_mult
 	if gap > reach:
 		var moved := _walk(so, tpos, speed, dt)
 		if gap > reach + 20.0:
@@ -1599,17 +1644,69 @@ func _update_soldier(so, sq, dt: float) -> void:
 
 func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 	var before: Vector2 = so.pos
-	var s_factor := 1.0
-	var dir := (dest - before).normalized() if dest != before else Vector2.ZERO
-	if terrain != null:
-		s_factor = terrain.speed_factor(before, so.squad.type == Troops.CAVALRY, dir)
-	var new_pos := before.move_toward(dest, speed * s_factor * dt)
-	if terrain != null and not terrain.passable(new_pos):
-		new_pos = before
-	so.pos = new_pos
+	if _rough:
+		so.pos = _rough_step(before, dest, speed * dt, so.squad.type == Troops.CAVALRY)
+	else:
+		so.pos = before.move_toward(dest, speed * dt)
 	var moved := before.distance_to(so.pos)
 	so.stride += moved
 	return moved
+
+
+## Where a man at `from` heading for `dest` ends up after a step of `step` on level open
+## ground, with the ground he stands on speeding or slowing him, kept off deep water and
+## rock. _ground_pace and _open_ground in one, since every man takes a step every tick.
+## One who somehow stands on rock or in deep water walks straight out of it.
+func _rough_step(from: Vector2, dest: Vector2, step: float, mounted: bool) -> Vector2:
+	if from.x >= 0.0 and from.x < ARENA.x and from.y >= 0.0 and from.y < ARENA.y:
+		var i := int(from.y / Terrain.CELL) * Terrain.COLS + int(from.x / Terrain.CELL)
+		var pace: float = terrain.horse_speed[i] if mounted else terrain.foot_speed[i]
+		if pace <= 0.0:
+			return from.move_toward(dest, step)
+		step *= pace
+		var up: float = terrain.rise[i].dot(from.direction_to(dest))
+		if up != 0.0:
+			step *= TerrainRules.slope_speed_mult(clampf(up * SLOPE_SCALE, -1.0, 1.0))
+	var to := from.move_toward(dest, step)
+	if to.x < 0.0 or to.x >= ARENA.x or to.y < 0.0 or to.y >= ARENA.y \
+			or terrain.foot_speed[int(to.y / Terrain.CELL) * Terrain.COLS + int(to.x / Terrain.CELL)] > 0.0:
+		return to
+	return _slide(from, to)
+
+
+## How the ground at `p` speeds or slows a man heading `dir` (a unit vector): woods and
+## fords slow him, climbing slows him, going downhill speeds him a little. Off the field
+## nothing does.
+func _ground_pace(p: Vector2, mounted: bool, dir: Vector2) -> float:
+	if p.x < 0.0 or p.x >= ARENA.x or p.y < 0.0 or p.y >= ARENA.y:
+		return 1.0
+	var i := int(p.y / Terrain.CELL) * Terrain.COLS + int(p.x / Terrain.CELL)
+	var pace: float = terrain.horse_speed[i] if mounted else terrain.foot_speed[i]
+	var up: float = terrain.rise[i].dot(dir)
+	if up != 0.0:
+		pace *= TerrainRules.slope_speed_mult(clampf(up * SLOPE_SCALE, -1.0, 1.0))
+	return pace
+
+
+## Where a man stepping from `from` toward `to` ends up: all the way on open ground, else
+## along the bank or the rock face, else where he stood.
+func _slide(from: Vector2, to: Vector2) -> Vector2:
+	if _open_ground(to):
+		return to
+	var along_x := Vector2(to.x, from.y)
+	if _open_ground(along_x):
+		return along_x
+	var along_y := Vector2(from.x, to.y)
+	if _open_ground(along_y):
+		return along_y
+	return from
+
+
+## Whether a man can stand at `p`. Off the field counts as open: routers leave by it.
+func _open_ground(p: Vector2) -> bool:
+	if not _rough or p.x < 0.0 or p.x >= ARENA.x or p.y < 0.0 or p.y >= ARENA.y:
+		return true
+	return terrain.foot_speed[int(p.y / Terrain.CELL) * Terrain.COLS + int(p.x / Terrain.CELL)] > 0.0
 
 
 func _target_ok(so, sq) -> bool:
@@ -1671,8 +1768,8 @@ func _strike(so, sq, target, gap: float) -> void:
 	# Spears stop a charge unless it takes them from behind while they're pinned.
 	var side := _side_of(target, so.pos, sq)
 	var charge := false
-	var can_charge := sq.type == Troops.CAVALRY and so.runup >= Troops.CHARGE_RUNUP and (target_type != Troops.SPEARMEN or side == REAR)
-	if can_charge and terrain != null:
+	var can_charge: bool = sq.type == Troops.CAVALRY and so.runup >= Troops.CHARGE_RUNUP and (target_type != Troops.SPEARMEN or side == REAR)
+	if can_charge and _rough:
 		# No charge bonus when charging uphill
 		if terrain.height_at(so.pos) < terrain.height_at(target.pos):
 			can_charge = false
@@ -1697,10 +1794,10 @@ func _strike(so, sq, target, gap: float) -> void:
 	# Melee armor and piercing
 	var eff_armor := maxf(0.0, target.squad.armor * (1.0 - sq.piercing))
 	dmg *= (1.0 - minf(0.5, eff_armor * 0.5))
-	if terrain != null:
+	if _rough:
 		# Height advantage / penalty
-		var att_h := terrain.height_at(so.pos)
-		var def_h := terrain.height_at(target.pos)
+		var att_h: float = terrain.height_at(so.pos)
+		var def_h: float = terrain.height_at(target.pos)
 		dmg *= TerrainRules.height_damage_mult(att_h, def_h)
 		# Men in water take +25% damage
 		if terrain.water_at(target.pos) == Terrain.WATER_SHALLOW:
@@ -1794,7 +1891,7 @@ func _update_projectiles(dt: float) -> void:
 				_stick(p, p.target.pos + Vector2(rng.randf_range(-14.0, 14.0), rng.randf_range(-14.0, 14.0)))
 				continue
 			# Arrows into woods: 50% hit trees (they stick there)
-			if terrain != null and terrain.in_woods(p.target.pos) and rng.randf() < TerrainRules.WOODS_ARROW_BLOCK:
+			if _rough and terrain.in_woods(p.target.pos) and rng.randf() < TerrainRules.WOODS_ARROW_BLOCK:
 				_stick(p, p.target.pos + Vector2(rng.randf_range(-10.0, 10.0), rng.randf_range(-10.0, 10.0)))
 				continue
 			var vs = p.target.squad
@@ -1811,7 +1908,7 @@ func _update_projectiles(dt: float) -> void:
 			vs.under_fire = 2.0
 			if p.volley:
 				var shock: float = Troops.VOLLEY_SHOCK / float(vs.start_men)
-				if terrain != null and terrain.in_woods(p.target.pos):
+				if _rough and terrain.in_woods(p.target.pos):
 					shock *= TerrainRules.WOODS_VOLLEY_SHOCK
 				vs.drop_morale(shock)
 			_damage(p.target, dmg, p.source, false, p.shooter)
@@ -1878,6 +1975,7 @@ func _captain_falls(sq, victim) -> void:
 		_trigger_chief_shock(sq)
 		if sq.captain_fate == "killed":
 			chief_killed = true
+			chief_escaped = false
 			events.append({"type": "chief_slain", "squad": sq, "chief_name": sq.chief_name})
 	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
 		"roll": roll, "needed": chance + 1, "rescued": holding or friends,
@@ -1902,7 +2000,7 @@ func _find_javelin_target(so, sq, max_dist: float):
 	var best_d := INF
 	for e in _nearby(so.pos, max_dist):
 		if e.squad.team != sq.team and not e.squad.routing:
-			var d := so.pos.distance_to(e.pos)
+			var d: float = so.pos.distance_to(e.pos)
 			if d < best_d:
 				best_d = d
 				best = e
@@ -2050,8 +2148,15 @@ func _separate() -> void:
 		for so in sq.soldiers:
 			if not so.alive:
 				continue
-			so.pos += so.push.limit_length(4.0)
-			so.push = Vector2.ZERO
+			if so.push != Vector2.ZERO:
+				var to: Vector2 = so.pos + so.push.limit_length(4.0)
+				# _open_ground(to), written out: this runs for most men every tick.
+				if not _rough or to.x < 0.0 or to.x >= ARENA.x or to.y < 0.0 or to.y >= ARENA.y \
+						or terrain.foot_speed[int(to.y / Terrain.CELL) * Terrain.COLS + int(to.x / Terrain.CELL)] > 0.0:
+					so.pos = to
+				else:
+					so.pos = _slide(so.pos, to)
+				so.push = Vector2.ZERO
 			if not sq.routing:
 				so.pos = Vector2(clampf(so.pos.x, 8.0, ARENA.x - 8.0), clampf(so.pos.y, 8.0, ARENA.y - 8.0))
 
@@ -2158,13 +2263,10 @@ func concede(team: int) -> void:
 func _finish(team: int, reason: String) -> void:
 	winner = team
 	end_reason = reason
+	# A chief who wasn't cut down gets away from a lost field, hurt or not. One who won it
+	# stays at the head of his band.
 	if objective == OBJECTIVE_CHIEF:
-		for sq in squads:
-			if (sq.is_bodyguard or sq.is_chief) and sq.team == ENEMY:
-				if sq.alive_n == 0 and not chief_escaped:
-					chief_killed = true
-				elif (sq.routing or winner == PLAYER) and not chief_killed:
-					chief_escaped = true
+		chief_escaped = winner == PLAYER and not chief_killed
 	events.append({"type": "end", "winner": team})
 
 

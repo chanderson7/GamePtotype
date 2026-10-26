@@ -29,22 +29,22 @@ const UNITS := {
 	# --- Tier 1 ---
 	"vardish_infantry": {
 		"role": Troops.INFANTRY, "culture": Cultures.VARDISH, "tier": 1, "branch_of": "",
-		"name": "Vardish Footmen", "blurb": "Sturdy levy footmen with arming swords and kites.",
+		"name": "Footmen", "blurb": "Sturdy levy footmen with arming swords and kites.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 	"vardish_spearmen": {
 		"role": Troops.SPEARMEN, "culture": Cultures.VARDISH, "tier": 1, "branch_of": "",
-		"name": "Vardish Spearmen", "blurb": "Common levies bearing spears and shields.",
+		"name": "Spearmen", "blurb": "Common levies bearing spears and shields.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 	"vardish_archers": {
 		"role": Troops.ARCHERS, "culture": Cultures.VARDISH, "tier": 1, "branch_of": "",
-		"name": "Vardish Bowmen", "blurb": "Hunters and yeomen armed with self bows.",
+		"name": "Bowmen", "blurb": "Hunters and yeomen armed with self bows.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 	"vardish_cavalry": {
 		"role": Troops.CAVALRY, "culture": Cultures.VARDISH, "tier": 1, "branch_of": "",
-		"name": "Vardish Horsemen", "blurb": "Mounted retainers in chain shirts with lances.",
+		"name": "Horsemen", "blurb": "Mounted retainers in chain shirts with lances.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 
@@ -85,8 +85,8 @@ const UNITS := {
 	"vardish_crossbowmen": {
 		"role": Troops.ARCHERS, "culture": Cultures.VARDISH, "tier": 2, "branch_of": "vardish_archers",
 		"name": "Crossbowmen", "blurb": "Heavy steel crossbows that punch through shields and armor.",
-		"stats": {"damage": 52.0, "cooldown": 2.1, "range": 210.0},
-		"mechanics": {"piercing": 0.7},
+		"stats": {"damage": 60.0, "cooldown": 1.8, "range": 230.0},
+		"mechanics": {"piercing": 0.8},
 		"cost_mult": 1.25, "wage_mult": 1.2,
 	},
 	# Archers B: Longbowmen (range 290, reload -10%)
@@ -126,17 +126,17 @@ const UNITS := {
 	},
 	"kharzani_spearmen": {
 		"role": Troops.SPEARMEN, "culture": Cultures.KHARZANI, "tier": 1, "branch_of": "",
-		"name": "Kharzani Spearmen", "blurb": "Desert footmen bearing cane spears.",
+		"name": "Spearmen", "blurb": "Desert footmen bearing cane spears.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 	"kharzani_archers": {
 		"role": Troops.ARCHERS, "culture": Cultures.KHARZANI, "tier": 1, "branch_of": "",
-		"name": "Desert Bowmen", "blurb": "Skilled oasis bowmen armed with short recurves.",
+		"name": "Bowmen", "blurb": "Skilled oasis bowmen armed with short recurves.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 	"kharzani_cavalry": {
 		"role": Troops.CAVALRY, "culture": Cultures.KHARZANI, "tier": 1, "branch_of": "",
-		"name": "Faris Riders", "blurb": "Swift desert horsemen riding purebred steeds.",
+		"name": "Faris", "blurb": "Swift desert horsemen riding purebred steeds.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 
@@ -228,7 +228,7 @@ const UNITS := {
 	},
 	"ryumon_cavalry": {
 		"role": Troops.CAVALRY, "culture": Cultures.RYUMON, "tier": 1, "branch_of": "",
-		"name": "Ryumon Riders", "blurb": "Armored samurai mounted on sturdy warhorses.",
+		"name": "Riders", "blurb": "Armored samurai mounted on sturdy warhorses.",
 		"stats": {}, "mechanics": {}, "cost_mult": 1.0, "wage_mult": 1.0,
 	},
 
@@ -331,6 +331,15 @@ static func display_name(unit_id: String) -> String:
 	if u.is_empty():
 		return unit_id.capitalize()
 	return String(u.get("name", unit_id.capitalize()))
+
+
+## What a squad's men are called: the branch it trained into, or for recruits, its culture's
+## word for its kind of troops.
+static func troop_name(squad: Dictionary, fallback_culture: String) -> String:
+	var unit_id := String(squad.get("unit", ""))
+	if tier(unit_id) >= 2 and has(unit_id):
+		return display_name(unit_id)
+	return Cultures.troop_name(String(squad.get("culture", fallback_culture)), String(squad.get("type", Troops.INFANTRY)))
 
 
 ## Returns the default recruit unit_id for culture and role.

@@ -97,6 +97,7 @@ static func generate(site: Dictionary) -> Terrain:
 		_:
 			pass
 
+	t.bake()
 	return t
 
 
@@ -175,9 +176,21 @@ static func _build_woods(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 		Vector2(rng.randf_range(600.0, 740.0), rng.randf_range(300.0, 480.0)), # Right upper
 	]
 
-	for i in count:
-		var c: Vector2 = slots[i]
-		var r := rng.randf_range(90.0, 135.0)
+	var placed := []
+	if fair:
+		# In pairs, each stand matched by one where the field turned half round puts it, so
+		# each side has the same woods in the same places.
+		for i in (2 if count > 2 else 1):
+			var c: Vector2 = slots[i * 3] # upper left, then upper right: the enemy's half
+			var r := rng.randf_range(90.0, 135.0)
+			placed.append([c, r])
+			placed.append([Terrain.ARENA - c, r])
+	else:
+		for i in count:
+			placed.append([slots[i], rng.randf_range(90.0, 135.0)])
+	for stand in placed:
+		var c: Vector2 = stand[0]
+		var r: float = stand[1]
 		stands.append({"type": "woods", "center": c, "radius": r})
 
 		for cy in Terrain.ROWS:
@@ -189,21 +202,25 @@ static func _build_woods(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 	t.features = stands
 
 
-static func _build_river(t: Terrain, rng: RandomNumberGenerator, _fair: bool) -> void:
+static func _build_river(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> void:
 	var river_features := []
 	var half_w := 38.0
 	var phase := rng.randf_range(0.0, TAU)
+	if fair:
+		# Bends that turn the field into itself when it's spun half round, so each side
+		# faces the same river: crossing the middle of the field at its middle.
+		phase = -0.007 * Terrain.ARENA.x * 0.5 + (PI if rng.randf() < 0.5 else 0.0)
 
-	# 2 or 3 fords
+	# 2 or 3 fords, placed alike from each side's point of view on a fair field.
 	var ford_count := rng.randi_range(2, 3)
 	var fords := []
 	if ford_count == 2:
 		fords.append(rng.randf_range(180.0, 300.0))
-		fords.append(rng.randf_range(540.0, 660.0))
+		fords.append(Terrain.ARENA.x - fords[0] if fair else rng.randf_range(540.0, 660.0))
 	else:
 		fords.append(rng.randf_range(140.0, 240.0))
-		fords.append(rng.randf_range(370.0, 470.0))
-		fords.append(rng.randf_range(600.0, 700.0))
+		fords.append(Terrain.ARENA.x * 0.5 if fair else rng.randf_range(370.0, 470.0))
+		fords.append(Terrain.ARENA.x - fords[0] if fair else rng.randf_range(600.0, 700.0))
 
 	var ford_half_w := 45.0 # 90 units wide ford
 

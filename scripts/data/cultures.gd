@@ -13,8 +13,8 @@ const DATA := {
 		"realm": "Kingdom of Vardmark", "people": "Vardish", "faction": "vardmark",
 		"color": Color("4a74d1"),
 		"blurb": "A feudal kingdom of stone keeps and armored knights on the northwest shore of the Glass Sea.",
-		"troops": {"infantry": "Men-at-arms", "spearmen": "Pikemen", "archers": "Crossbowmen", "cavalry": "Knights"},
-		"company": {"infantry": "Shields", "spearmen": "Pikes", "archers": "Crossbows", "cavalry": "Lances"},
+		"troops": {"infantry": "Footmen", "spearmen": "Spearmen", "archers": "Bowmen", "cavalry": "Horsemen"},
+		"company": {"infantry": "Shields", "spearmen": "Pikes", "archers": "Bows", "cavalry": "Lances"},
 		"first": [
 			"Brann", "Mira", "Aldric", "Tamsin", "Corwin", "Edda", "Rhys", "Isolde", "Garrick", "Wenna",
 			"Osric", "Liane", "Hale", "Briony", "Torvald", "Ysolde", "Cade", "Maren", "Doran", "Elspeth",
@@ -30,7 +30,7 @@ const DATA := {
 		"realm": "Sultanate of Kharzan", "people": "Kharzani", "faction": "kharzan",
 		"color": Color("d9962b"),
 		"blurb": "A sultanate of walled cities and swift riders across the southern deserts.",
-		"troops": {"infantry": "Askari", "spearmen": "Spear guard", "archers": "Bowmen", "cavalry": "Faris"},
+		"troops": {"infantry": "Askari", "spearmen": "Spearmen", "archers": "Bowmen", "cavalry": "Faris"},
 		"company": {"infantry": "Blades", "spearmen": "Spears", "archers": "Bows", "cavalry": "Riders"},
 		"first": [
 			"Tariq", "Layla", "Rustam", "Nasrin", "Kamal", "Selim", "Yasmin", "Farid", "Leyla", "Orhan",
@@ -45,7 +45,7 @@ const DATA := {
 		"realm": "Ryumon Shogunate", "people": "Ryumon", "faction": "ryumon",
 		"color": Color("c9473d"),
 		"blurb": "An island shogunate of disciplined archers and spearmen beyond the eastern strait.",
-		"troops": {"infantry": "Samurai", "spearmen": "Ashigaru", "archers": "Yumi archers", "cavalry": "Mounted samurai"},
+		"troops": {"infantry": "Samurai", "spearmen": "Ashigaru", "archers": "Yumi archers", "cavalry": "Riders"},
 		"company": {"infantry": "Swords", "spearmen": "Yari", "archers": "Yumi", "cavalry": "Riders"},
 		"first": [
 			"Hideo", "Aiko", "Kenji", "Sayo", "Takeshi", "Haru", "Masaru", "Emi", "Ryota", "Chiyo",

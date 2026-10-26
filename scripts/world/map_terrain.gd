@@ -16,6 +16,9 @@ const CLEAR_OF_ROADS := 12.0
 ## What stands on the high ground and in the woods of each realm.
 const PEAK := {"vardmark": "mountain", "kharzan": "mesa", "ryumon": "mountain_snow"}
 const FIELDS := {"vardmark": "fields", "kharzan": "fields_dry", "ryumon": "paddy"}
+## Wood noise above which the forests of Vardmark and Ryumon grow.
+const WOODS_VARDMARK := 0.32
+const WOODS_RYUMON := 0.25
 
 ## R: land with a soft shore, G: land blurred over a few dozen map units, B: blurred
 ## wider still, A: how high the ground lies (0 at the shore, 1 on the peaks).
@@ -58,6 +61,17 @@ func height_at(p: Vector2) -> float:
 ## How thick the woods run at map point `p`, from 0 to 1.
 func woods_at(p: Vector2) -> float:
 	return clampf(_woods.get_noise_2dv(p) * 0.5 + 0.5, 0.0, 1.0)
+
+
+## Whether `p` lies in the woods the map draws: the thick of the wood noise in the realms
+## that grow forests (Kharzan's high noise is dunes, not trees).
+func wooded(p: Vector2) -> bool:
+	match realm_at(p):
+		"vardmark":
+			return _woods.get_noise_2dv(p) > WOODS_VARDMARK
+		"ryumon":
+			return _woods.get_noise_2dv(p) > WOODS_RYUMON
+	return false
 
 
 ## How far inland `p` lies, from 0 out at sea to 1 well inland.
@@ -154,7 +168,7 @@ func _place_decor() -> void:
 func _growth(realm: String, woods: float, height: float, rng: RandomNumberGenerator) -> String:
 	match realm:
 		"vardmark":
-			if woods > 0.32 and rng.randf() < 0.75:
+			if woods > WOODS_VARDMARK and rng.randf() < 0.75:
 				return "pine" if height > 0.62 else "tree"
 			return "tree" if rng.randf() < 0.02 else ""
 		"kharzan":
@@ -162,7 +176,7 @@ func _growth(realm: String, woods: float, height: float, rng: RandomNumberGenera
 				return "dune"
 			return "palm" if rng.randf() < 0.008 else ""
 		_:
-			if woods > 0.25 and rng.randf() < 0.7:
+			if woods > WOODS_RYUMON and rng.randf() < 0.7:
 				return "blossom" if rng.randf() < 0.16 else "pine"
 			return "pine" if rng.randf() < 0.03 else ""
 

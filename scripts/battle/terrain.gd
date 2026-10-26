@@ -33,6 +33,13 @@ var water: PackedByteArray
 var rock: PackedByteArray
 ## High-level descriptors for screen rendering and replay [{type, ...}].
 var features: Array = []
+## Worked out from the grids by bake(), for lookups every soldier makes every step: the
+## pace through each cell on foot and on horse (0 where nobody can stand), how the ground
+## rises across it per unit of distance, and whether the whole field is open and level.
+var foot_speed: PackedFloat32Array
+var horse_speed: PackedFloat32Array
+var rise: PackedVector2Array
+var flat := true
 
 
 func _init() -> void:
@@ -50,6 +57,39 @@ func reset() -> void:
 	rock.resize(TOTAL_CELLS)
 	rock.fill(ROCK_NONE)
 	features.clear()
+	foot_speed.clear()
+
+
+## Work out the paces, slopes and flatness from the grids. Run it again after changing
+## them; the battle runs it when it starts.
+func bake() -> void:
+	foot_speed.resize(TOTAL_CELLS)
+	horse_speed.resize(TOTAL_CELLS)
+	rise.resize(TOTAL_CELLS)
+	flat = true
+	for i in TOTAL_CELLS:
+		var foot := 1.0
+		var horse := 1.0
+		if water[i] == WATER_DEEP or rock[i] != ROCK_NONE:
+			foot = 0.0
+			horse = 0.0
+		else:
+			if water[i] == WATER_SHALLOW:
+				foot *= TerrainRules.FORD_SPEED
+				horse *= TerrainRules.FORD_SPEED
+			if woods[i] == WOODS_TREES:
+				foot *= TerrainRules.WOODS_SPEED_FOOT
+				horse *= TerrainRules.WOODS_SPEED_HORSE
+		foot_speed[i] = foot
+		horse_speed[i] = horse
+		if foot != 1.0 or woods[i] != WOODS_NONE or height[i] != 0.0:
+			flat = false
+	for cy in ROWS:
+		for cx in COLS:
+			var c := cell_pos(cx, cy)
+			var dx := height_at(c + Vector2(CELL, 0.0)) - height_at(c - Vector2(CELL, 0.0))
+			var dy := height_at(c + Vector2(0.0, CELL)) - height_at(c - Vector2(0.0, CELL))
+			rise[cy * COLS + cx] = Vector2(dx, dy) / (2.0 * CELL)
 
 
 ## Grid coordinates (cx, cy) containing point `p`. Clamped to valid cells.
@@ -115,9 +155,7 @@ func rock_at(p: Vector2) -> int:
 func passable(p: Vector2) -> bool:
 	if p.x < 0.0 or p.x > ARENA.x or p.y < 0.0 or p.y > ARENA.y:
 		return false
-	var idx := cell_index(p)
-	if idx < 0 or idx >= TOTAL_CELLS:
-		return false
+	var idx := mini(int(p.y / CELL), ROWS - 1) * COLS + mini(int(p.x / CELL), COLS - 1)
 	return water[idx] != WATER_DEEP and rock[idx] == ROCK_NONE
 
 
@@ -134,11 +172,10 @@ func passable_cell(cx: int, cy: int) -> bool:
 func slope_at(p: Vector2, dir: Vector2) -> float:
 	if dir.is_zero_approx():
 		return 0.0
-	var sample_p: Vector2 = p + dir.normalized() * TerrainRules.SLOPE_SAMPLE_DIST
-	sample_p.x = clampf(sample_p.x, 0.0, ARENA.x)
-	sample_p.y = clampf(sample_p.y, 0.0, ARENA.y)
-	var dh := height_at(sample_p) - height_at(p)
-	return clampf(dh / TerrainRules.SLOPE_MAX_RISE, -1.0, 1.0)
+	if foot_speed.is_empty():
+		bake()
+	var per_unit: float = rise[cell_index(p)].dot(dir.normalized())
+	return clampf(per_unit * TerrainRules.SLOPE_SAMPLE_DIST / TerrainRules.SLOPE_MAX_RISE, -1.0, 1.0)
 
 
 ## Overall speed factor at `p` accounting for woods, shallow water, and directional slope.
@@ -146,14 +183,11 @@ func slope_at(p: Vector2, dir: Vector2) -> float:
 func speed_factor(p: Vector2, mounted: bool = false, dir: Vector2 = Vector2.ZERO) -> float:
 	if not passable(p):
 		return 0.0
-	var factor := 1.0
-	if water_at(p) == WATER_SHALLOW:
-		factor *= TerrainRules.FORD_SPEED
-	if in_woods(p):
-		factor *= (TerrainRules.WOODS_SPEED_HORSE if mounted else TerrainRules.WOODS_SPEED_FOOT)
+	if foot_speed.is_empty():
+		bake()
+	var factor: float = horse_speed[cell_index(p)] if mounted else foot_speed[cell_index(p)]
 	if not dir.is_zero_approx():
-		var s := slope_at(p, dir)
-		factor *= TerrainRules.slope_speed_mult(s)
+		factor *= TerrainRules.slope_speed_mult(slope_at(p, dir))
 	return factor
 
 
@@ -181,4 +215,5 @@ static func from_dict(d: Dictionary) -> RefCounted:
 		t.rock = PackedByteArray(d["rock"])
 	if d.has("features"):
 		t.features = d["features"].duplicate(true)
+	t.bake()
 	return t
