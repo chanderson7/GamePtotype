@@ -149,10 +149,17 @@ def feet(g, cx, cy, frame, c="H"):
         g.rect(int(x), int(y), int(x) + 1, int(y) + 1, c)
 
 
-def torso(g, cx, cy, culture):
-    """Shoulders and chest: a surcoat, a kaftan, or lacquered plates laced in the team color."""
+def torso(g, cx, cy, culture, plain=False):
+    """Shoulders and chest: a surcoat, a kaftan, or lacquered plates laced in the team color.
+    A plain torso is an unarmored kimono with a crossed collar."""
     g.ellipse(cx, cy, 5.3, 3.7, "k")
-    if culture == RYUMON:
+    if plain:
+        g.ellipse(cx, cy, 4.6, 3.0, "T", shade="t", light="L")
+        g.set(cx - 1, cy - 2, "f")
+        g.set(cx, cy - 1, "f")
+        g.set(cx + 1, cy - 2, "f")
+        g.line(cx - 3, cy + 1, cx + 3, cy + 1, "b")   # the obi
+    elif culture == RYUMON:
         g.ellipse(cx, cy, 4.6, 3.0, "b", shade="k", light="B")
         # rows of lacing across the plates
         for dy in (-1, 1):
@@ -193,20 +200,68 @@ def turban(g, cx, cy, spike=False):
         g.set(cx, cy - 1.5, "m")
 
 
-def kabuto(g, cx, cy):
-    """A lacquered helmet with a flared neck guard and a gold crest in front."""
+def kabuto(g, cx, cy, horns=False):
+    """A lacquered helmet with a flared neck guard and a gold crest in front; a bannerman's
+    crest spreads into tall horns."""
     g.ellipse(cx, cy + 0.6, 3.0, 1.6, "k")
     g.ellipse(cx, cy + 0.6, 2.4, 1.0, "b", light="B")
     ringed_disc(g, cx, cy - 0.5, 1.6, "b", light="B")
     g.set(cx - 1, cy - 2.5, "g")
     g.set(cx + 1, cy - 2.5, "g")
     g.set(cx, cy - 2.5, "k")
+    if horns:
+        g.set(cx - 2, cy - 3.5, "g")
+        g.set(cx + 2, cy - 3.5, "g")
+        g.set(cx - 2, cy - 2.5, "g")
+        g.set(cx + 2, cy - 2.5, "g")
 
 
-def jingasa(g, cx, cy):
-    """The wide, flat straw hat of the ashigaru."""
+def jingasa(g, cx, cy, lacquer=False):
+    """The wide, flat hat of the ashigaru: straw, or for the better-kept, black lacquer
+    with a gold crest."""
+    if lacquer:
+        ringed_disc(g, cx, cy - 0.5, 2.7, "b", light="B")
+        g.set(cx, cy - 0.5, "g")
+        return
     ringed_disc(g, cx, cy - 0.5, 2.7, "y", shade="Y", light="f")
     g.set(cx, cy - 0.5, "Y")
+
+
+def great_helm(g, cx, cy):
+    """A flat-topped steel helm with a dark eye-slit across its front."""
+    ringed_disc(g, cx, cy - 0.5, 2.0, "m", shade="M")
+    g.line(cx - 1, cy - 2, cx + 1, cy - 2, "k")
+
+
+def plume(g, cx, cy):
+    """A feather in the team color, trailing back from the crown."""
+    g.line(cx, cy - 0.5, cx, cy + 2, "L")
+    g.set(cx, cy + 3, "T")
+
+
+def pauldrons(g, cx, cy, c="m", shade="M"):
+    """Steel plates over both shoulders."""
+    for side in (-1, 1):
+        g.disc(cx + side * 3.7, cy, 1.5, c, shade=shade)
+
+
+def gilded(g, cx, cy):
+    """Rows of gilt lamellae across the chest."""
+    for dy in (-1, 1):
+        g.line(cx - 3, cy + dy, cx + 3, cy + dy, "g")
+
+
+def veil(g, cx, cy):
+    """A desert wrap over the head and face, a slit left for the eyes."""
+    ringed_disc(g, cx, cy - 0.5, 1.9, "C", shade="Z", light="c")
+    g.line(cx - 1, cy - 2, cx + 1, cy - 2, "s")
+
+
+def topknot(g, cx, cy):
+    """A bare head in a white headband, the topknot laid forward."""
+    ringed_disc(g, cx, cy - 0.5, 1.8, "f")
+    g.disc(cx, cy - 0.5, 1.1, "b", light="B")
+    g.line(cx, cy - 1.5, cx, cy - 0.5, "n")
 
 
 def hood(g, cx, cy):
@@ -239,13 +294,20 @@ def round_shield(g, cx, cy, r=2.8):
     g.set(cx, cy, "g")
 
 
-def infantry(frame, culture=VARDISH):
+def infantry(frame, culture=VARDISH, unit=None):
     g = Grid(16, 18)
     cx, cy = 8.0, 8.5
-    if culture == RYUMON:
-        sashimono(g, cx - 1, cy + 1)
+    if culture == RYUMON and unit != "ryumon_ronin":
+        # masterless ronin carry no lord's banner; the hatamoto's bears a gold crest
+        sashimono(g, cx - 1, cy + 1, tall=7 if unit == "ryumon_hatamoto" else 6)
+        if unit == "ryumon_hatamoto":
+            g.set(cx - 3, cy + 6, "g")
     feet(g, cx, cy, frame if frame < 2 else 0, "b" if culture == RYUMON else "H")
-    torso(g, cx, cy, culture)
+    torso(g, cx, cy, culture, plain=unit == "ryumon_ronin")
+    if unit == "vardish_men_at_arms":
+        pauldrons(g, cx, cy)
+    elif unit == "kharzani_guard_askari":
+        gilded(g, cx, cy)
     if culture == RYUMON:
         # katana held two-handed before the body; the cut sweeps it out to the right
         if frame == 2:
@@ -259,22 +321,50 @@ def infantry(frame, culture=VARDISH):
             g.set(cx + 1, cy - 2, "g")
             g.set(cx, cy - 2, "s")
             g.set(cx + 2, cy - 2, "s")
-        kabuto(g, cx, cy)
-    elif culture == KHARZANI:
-        # a curved scimitar at the right shoulder
-        if frame == 2:
-            for i, (dx, dy) in enumerate(((3, -2), (4, -3), (5, -4), (6, -4), (7, -5))):
-                g.set(cx + dx, cy + dy, "m" if i < 4 else "f")
+        if unit == "ryumon_ronin":
+            topknot(g, cx, cy)
         else:
-            for i, (dx, dy) in enumerate(((4, -3), (4, -4), (4, -5), (5, -6), (5, -7))):
-                g.set(cx + dx, cy + dy, "m" if i < 4 else "f")
-        g.set(cx + 3, cy - 2, "g")
-        g.set(cx + 4, cy - 1, "s")
-        sy = cy - 2.0 if frame == 2 else cy - 1.0
-        round_shield(g, cx - 3.6, sy, 2.9)
-        turban(g, cx, cy)
+            kabuto(g, cx, cy, horns=unit == "ryumon_hatamoto")
+    elif culture == KHARZANI:
+        if unit == "kharzani_javelin_askari":
+            # a pair of javelins in the right hand; the throw sends one out ahead
+            if frame == 2:
+                g.line(cx + 3, cy - 3, cx + 6, cy - 8, "w")
+                g.set(cx + 6, cy - 9, "m")
+            else:
+                for jx, top in ((cx + 4, cy - 8), (cx + 5, cy - 7)):
+                    g.line(jx, cy - 1, jx, top, "w")
+                    g.set(jx, top - 1, "m")
+            g.set(cx + 4, cy - 1, "s")
+            round_shield(g, cx - 3.6, cy - 1.0, 2.3)
+            turban(g, cx, cy)
+        else:
+            # a curved scimitar at the right shoulder
+            if frame == 2:
+                for i, (dx, dy) in enumerate(((3, -2), (4, -3), (5, -4), (6, -4), (7, -5))):
+                    g.set(cx + dx, cy + dy, "m" if i < 4 else "f")
+            else:
+                for i, (dx, dy) in enumerate(((4, -3), (4, -4), (4, -5), (5, -6), (5, -7))):
+                    g.set(cx + dx, cy + dy, "m" if i < 4 else "f")
+            g.set(cx + 3, cy - 2, "g")
+            g.set(cx + 4, cy - 1, "s")
+            sy = cy - 2.0 if frame == 2 else cy - 1.0
+            guard = unit == "kharzani_guard_askari"
+            round_shield(g, cx - 3.6, sy, 3.2 if guard else 2.9)
+            turban(g, cx, cy, spike=guard)
+            if guard:
+                g.set(cx - 1, cy - 1.5, "g")
+                g.set(cx + 1, cy + 0.5, "g")
     else:
-        if frame == 2:   # cut: blade sweeps out across the front
+        if unit == "vardish_sergeants":   # a flanged mace, at the shoulder or swung
+            if frame == 2:
+                g.line(cx + 3, cy - 2, cx + 5, cy - 4, "W")
+                g.disc(cx + 6, cy - 5.5, 1.5, "m", shade="M")
+            else:
+                g.line(cx + 4, cy - 2, cx + 4, cy - 5, "W")
+                g.disc(cx + 4.5, cy - 6.5, 1.5, "m", shade="M")
+            g.set(cx + 4, cy - 1, "s")
+        elif frame == 2:   # cut: blade sweeps out across the front
             g.line(cx + 3, cy - 2, cx + 6, cy - 6, "m")
             g.set(cx + 6, cy - 6, "f")
             g.rect(int(cx + 2), int(cy - 2), int(cx + 3), int(cy - 2), "g")
@@ -286,49 +376,97 @@ def infantry(frame, culture=VARDISH):
             g.set(cx + 4, cy - 1, "s")
         sy = cy - 2.5 if frame == 2 else cy - 1.5
         kite_shield(g, cx - 4.4, sy)
-        steel_helm(g, cx, cy)
+        if unit == "vardish_men_at_arms":
+            great_helm(g, cx, cy)
+        else:
+            steel_helm(g, cx, cy)
+            if unit == "vardish_sergeants":
+                plume(g, cx, cy)
     g.outline()
     return g, (cx, cy)
 
 
-def spearmen(frame, culture=VARDISH):
+def spearmen(frame, culture=VARDISH, unit=None):
     g = Grid(16, 24)
     cx, cy = 8.0, 15.5
     if culture == RYUMON:
         sashimono(g, cx - 1, cy + 1)
     feet(g, cx, cy, frame if frame < 2 else 0, "b" if culture == RYUMON else "H")
     torso(g, cx, cy, culture)
+    if unit == "kharzani_spear_guard":
+        pauldrons(g, cx, cy, "M", "k")
     thrust = 3 if frame == 2 else 0
     x = cx + 3
     if culture == VARDISH:
-        # a long pike, point far out in front
-        g.line(x, cy + 6 - thrust, x, cy - 12 - thrust, "w")
-        g.set(x, cy + 6 - thrust, "W")
-        g.line(x, cy - 13 - thrust, x, cy - 14 - thrust, "m")
-        g.set(x, cy - 15 - thrust, "f")
+        if unit == "vardish_pikemen":
+            # a long pike, point far out in front
+            g.line(x, cy + 6 - thrust, x, cy - 12 - thrust, "w")
+            g.set(x, cy + 6 - thrust, "W")
+            g.line(x, cy - 13 - thrust, x, cy - 14 - thrust, "m")
+            g.set(x, cy - 15 - thrust, "f")
+        elif unit == "vardish_halberdiers":
+            # a poleaxe: an axe blade to the left of the head, a hook behind, a spike on top
+            g.line(x, cy + 5 - thrust, x, cy - 10 - thrust, "w")
+            g.set(x, cy + 5 - thrust, "W")
+            g.rect(int(x - 2), int(cy - 12 - thrust), int(x - 1), int(cy - 10 - thrust), "m")
+            g.set(x - 2, cy - 10 - thrust, "M")
+            g.set(x + 1, cy - 11 - thrust, "M")
+            g.line(x, cy - 11 - thrust, x, cy - 13 - thrust, "m")
+            g.set(x, cy - 14 - thrust, "f")
+        else:
+            # a levy's spear, shorter than a pike, with a shield on the other arm
+            g.line(x, cy + 4 - thrust, x, cy - 9 - thrust, "w")
+            g.set(x, cy + 4 - thrust, "W")
+            g.line(x, cy - 10 - thrust, x, cy - 11 - thrust, "m")
+            g.set(x, cy - 12 - thrust, "f")
     elif culture == KHARZANI:
-        # a spear with a broad blade and a tassel below it
         g.line(x, cy + 4 - thrust, x, cy - 9 - thrust, "w")
         g.set(x, cy + 4 - thrust, "W")
-        g.line(x, cy - 10 - thrust, x, cy - 12 - thrust, "m")
-        g.set(x - 1, cy - 10 - thrust, "m")
-        g.set(x + 1, cy - 10 - thrust, "M")
-        g.set(x - 1, cy - 9 - thrust, "L")
-        g.set(x + 1, cy - 9 - thrust, "T")
+        if unit == "kharzani_levy_spears":
+            # a plain cane spear
+            g.line(x, cy - 10 - thrust, x, cy - 11 - thrust, "m")
+        else:
+            # a spear with a broad blade and a tassel below it
+            g.line(x, cy - 10 - thrust, x, cy - 12 - thrust, "m")
+            g.set(x - 1, cy - 10 - thrust, "m")
+            g.set(x + 1, cy - 10 - thrust, "M")
+            g.set(x - 1, cy - 9 - thrust, "L")
+            g.set(x + 1, cy - 9 - thrust, "T")
+    elif unit == "ryumon_naginata":
+        # a naginata: a curved blade on a long shaft
+        g.line(x, cy + 5 - thrust, x, cy - 9 - thrust, "W")
+        g.set(x, cy - 10 - thrust, "g")
+        g.line(x, cy - 11 - thrust, x, cy - 12 - thrust, "m")
+        g.set(x + 1, cy - 13 - thrust, "m")
+        g.set(x + 1, cy - 14 - thrust, "f")
     else:
-        # a yari: long shaft, slim straight blade
-        g.line(x, cy + 5 - thrust, x, cy - 11 - thrust, "W")
-        g.line(x, cy - 12 - thrust, x, cy - 14 - thrust, "m")
-        g.set(x, cy - 14 - thrust, "f")
+        # a yari: long shaft, slim straight blade; the yari ashigaru's is longer still
+        top = 15 if unit == "ryumon_yari_ashigaru" else 14
+        g.line(x, cy + 5 - thrust, x, cy - (top - 3) - thrust, "W")
+        g.line(x, cy - (top - 2) - thrust, x, cy - top - thrust, "m")
+        g.set(x, cy - top - thrust, "f")
     g.set(x, cy - 2 - thrust // 2, "s")
     g.set(x - 1, cy + 1, "s")
     if culture == VARDISH:
-        kettle_hat(g, cx, cy)
+        if unit == "vardish_halberdiers":
+            steel_helm(g, cx, cy, point=True)
+        else:
+            if unit != "vardish_pikemen":
+                kite_shield(g, cx - 4.2, cy - 0.5)
+            kettle_hat(g, cx, cy)
     elif culture == KHARZANI:
-        round_shield(g, cx - 3.8, cy - 0.5, 2.2)
-        turban(g, cx, cy, spike=True)
+        if unit == "kharzani_levy_spears":
+            turban(g, cx, cy)
+        elif unit == "kharzani_spear_guard":
+            round_shield(g, cx - 3.8, cy - 0.5, 2.7)
+            steel_helm(g, cx, cy, point=True)
+        else:
+            round_shield(g, cx - 3.8, cy - 0.5, 2.2)
+            turban(g, cx, cy, spike=True)
+    elif unit == "ryumon_naginata":
+        kabuto(g, cx, cy)
     else:
-        jingasa(g, cx, cy)
+        jingasa(g, cx, cy, lacquer=unit == "ryumon_yari_ashigaru")
     g.outline()
     return g, (cx, cy)
 
@@ -355,11 +493,20 @@ def _bow(g, cx, cy, half, depth, draw, culture):
         g.line(pts[0][0], pts[0][1], pts[-1][0], pts[-1][1], "f")
 
 
-def archers(frame, culture=VARDISH):
+def archers(frame, culture=VARDISH, unit=None):
     g = Grid(18, 18)
     cx, cy = 9.0, 9.5
     if culture == RYUMON:
         sashimono(g, cx - 1, cy + 1, tall=5)
+    if unit == "vardish_crossbowmen":
+        # a pavise slung on the back, to shelter behind while he spans the bow
+        g.rect(int(cx - 5), int(cy + 3), int(cx - 1), int(cy + 7), "T")
+        g.line(cx - 5, cy + 7, cx - 1, cy + 7, "t")
+        g.line(cx - 3, cy + 4, cx - 3, cy + 6, "L")
+    if unit == "ryumon_yumi_samurai":
+        # a katana at the hip, for when the enemy comes close
+        g.line(cx - 4, cy + 1, cx - 6, cy + 5, "b")
+        g.set(cx - 4, cy + 1, "g")
     feet(g, cx, cy, frame if frame < 2 else 0, "b" if culture == RYUMON else "H")
     # quiver on the back, fletchings showing
     g.rect(int(cx + 2), int(cy + 1), int(cx + 3), int(cy + 3), "h")
@@ -367,7 +514,7 @@ def archers(frame, culture=VARDISH):
     g.set(cx + 3, cy + 4, "f")
     torso(g, cx, cy, culture)
     draw = 2 if frame == 2 else 0
-    if culture == VARDISH:
+    if unit == "vardish_crossbowmen":
         # a crossbow: stock pointing ahead, steel prod across it
         g.line(cx, cy - 1, cx, cy - 7, "w")
         g.line(cx - 3, cy - 6, cx + 3, cy - 6, "M")
@@ -380,31 +527,49 @@ def archers(frame, culture=VARDISH):
         g.set(cx - 1, cy - 2, "s")
         g.set(cx + 1, cy - 2, "s")
         steel_helm(g, cx, cy)
-    elif culture == KHARZANI:
-        _bow(g, cx, cy, 5, 2.6, draw, culture)
-        if frame == 2:
-            g.line(cx, cy - 7, cx, cy - 2, "w")
-            g.set(cx, cy - 8, "m")
-        g.set(cx, cy - 6, "s")
-        turban(g, cx, cy)
     else:
-        _bow(g, cx, cy, 7, 2.6, draw, culture)
+        # a self bow, a long warbow, a recurve, or the tall yumi
+        half, depth = 5, 2.2
+        if unit == "vardish_longbowmen":
+            half, depth = 8, 2.8
+        elif culture == KHARZANI:
+            half, depth = (6 if unit == "kharzani_composite_bowmen" else 5), 2.6
+        elif culture == RYUMON:
+            half, depth = 7, 2.6
+        _bow(g, cx, cy, half, depth, draw, culture)
         if frame == 2:
             g.line(cx, cy - 7, cx, cy - 2, "w")
             g.set(cx, cy - 8, "m")
         g.set(cx, cy - 6, "s")
-        jingasa(g, cx, cy)
+        if culture == VARDISH:
+            if unit == "vardish_longbowmen":
+                kettle_hat(g, cx, cy)
+            else:
+                hood(g, cx, cy)
+        elif culture == KHARZANI:
+            if unit == "kharzani_desert_archers":
+                veil(g, cx, cy)
+            else:
+                turban(g, cx, cy, spike=unit == "kharzani_composite_bowmen")
+        elif unit == "ryumon_yumi_samurai":
+            kabuto(g, cx, cy)
+        else:
+            jingasa(g, cx, cy, lacquer=unit == "ryumon_ashigaru_archers")
     g.outline()
     return g, (cx, cy)
 
 
 HORSES = {VARDISH: ("r", "R"), KHARZANI: ("x", "X"), RYUMON: ("q", "Q")}
+## Riders who shoot from the saddle instead of charging.
+HORSE_BOWS = ("kharzani_horse_archers", "ryumon_mounted_archers")
 
 
-def cavalry(frame, culture=VARDISH):
+def cavalry(frame, culture=VARDISH, unit=None):
     g = Grid(16, 28)
     cx, cy = 8.0, 14.0
     coat, shade = HORSES[culture]
+    if unit == "vardish_mounted_sergeants":
+        coat, shade = "q", "Q"
     a = 1 if frame == 1 else -1
     # legs: front and back pairs stride on alternate frames
     for lx in (cx - 3.5, cx + 2.5):
@@ -419,11 +584,15 @@ def cavalry(frame, culture=VARDISH):
     g.line(cx - 0.5, cy - 10.5, cx - 0.5, cy - 5, "n" if culture != KHARZANI else "C")
     g.set(cx - 1.5, cy - 11.5, shade)
     g.set(cx + 0.5, cy - 11.5, shade)
-    if culture == VARDISH:
+    if unit == "vardish_knights":
         # a knight's barding: team cloth down over the flanks and the neck
         g.ellipse(cx - 0.5, cy + 1.5, 3.7, 5.6, "T", shade="t", light="L")
         g.rect(int(cx - 1), int(cy - 7), int(cx), int(cy - 5), "T")
         g.rect(int(cx - 4), int(cy + 6), int(cx + 3), int(cy + 6), "g")
+    elif culture == VARDISH:
+        # a saddle cloth, gold-edged for the retainers
+        g.ellipse(cx - 0.5, cy + 2.0, 3.4, 3.0, "T", shade="t", light="L")
+        g.rect(int(cx - 4), int(cy + 4), int(cx + 3), int(cy + 4), "t" if unit else "g")
     elif culture == KHARZANI:
         # a short saddle cloth with tassels
         g.ellipse(cx - 0.5, cy + 2.0, 3.2, 2.6, "T", shade="t", light="L")
@@ -432,7 +601,18 @@ def cavalry(frame, culture=VARDISH):
     else:
         g.ellipse(cx - 0.5, cy + 2.0, 3.4, 3.0, "T", shade="t", light="L")
         g.rect(int(cx - 4), int(cy + 4), int(cx + 3), int(cy + 4), "b")
-        sashimono(g, cx - 1, cy + 0.5, tall=5)
+        if unit == "ryumon_mounted_samurai":
+            # the horo: a cloak bellying out behind the rider
+            g.ellipse(cx - 0.5, cy + 4.5, 3.6, 3.0, "k")
+            g.ellipse(cx - 0.5, cy + 4.5, 3.0, 2.4, "L", shade="T")
+            g.line(cx - 0.5, cy + 2.5, cx - 0.5, cy + 6.5, "f")
+        else:
+            sashimono(g, cx - 1, cy + 0.5, tall=5)
+    if unit in HORSE_BOWS:
+        # a quiver hung at the saddle
+        g.rect(int(cx + 2), int(cy + 3), int(cx + 3), int(cy + 6), "h")
+        g.set(cx + 2, cy + 7, "f")
+        g.set(cx + 3, cy + 7, "f")
     # rider
     g.ellipse(cx - 0.5, cy - 1.0, 3.6, 2.3, "k")
     if culture == RYUMON:
@@ -440,7 +620,24 @@ def cavalry(frame, culture=VARDISH):
         g.line(cx - 3, cy - 1, cx + 2, cy - 1, "T")
     else:
         g.ellipse(cx - 0.5, cy - 1.0, 3.0, 1.7, "T", shade="t", light="L")
-    if frame == 2:   # lance couched forward for the charge
+    if unit in HORSE_BOWS:
+        # a short bow out over the horse's neck, drawn to loose
+        _bow(g, cx - 0.5, cy - 1.0, 4 if culture == KHARZANI else 5, 2.0, 2 if frame == 2 else 0, culture)
+        if frame == 2:
+            g.line(cx - 0.5, cy - 8, cx - 0.5, cy - 3, "w")
+            g.set(cx - 0.5, cy - 9, "m")
+        g.set(cx - 0.5, cy - 6.5, "s")
+    elif unit in ("kharzani_faris_lancers", "ryumon_mounted_samurai"):
+        # a lance or yari carried at all times, levelled further for the charge
+        reach = 3 if frame == 2 else 0
+        wood = "W" if culture == RYUMON else "w"
+        g.line(cx + 3, cy + 3 - reach, cx + 3, cy - 10 - reach, wood)
+        g.set(cx + 3, cy - 11 - reach, "m")
+        g.set(cx + 3, cy - 12 - reach, "m" if culture == RYUMON else "f")
+        if culture == KHARZANI:   # a pennon on the lance
+            g.set(cx + 4, cy - 9 - reach, "T")
+            g.set(cx + 4, cy - 8 - reach, "L")
+    elif frame == 2:   # lance couched forward for the charge
         g.line(cx + 3, cy + 2, cx + 3, cy - 12, "w" if culture != RYUMON else "W")
         g.set(cx + 3, cy - 12, "m")
         g.set(cx + 3, cy - 11, "m")
@@ -452,21 +649,35 @@ def cavalry(frame, culture=VARDISH):
         g.set(cx + 3, cy - 1, "g")
     g.set(cx + 3, cy - 0.5, "s")
     if culture == VARDISH:
-        # great helm with a crest, and a kite shield on the left
         kite_shield(g, cx - 4.0, cy - 0.5)
-        g.disc(cx - 0.5, cy - 1.5, 1.9, "m", shade="M")
-        g.set(cx - 0.5, cy - 2.5, "L")
-        g.set(cx - 0.5, cy - 1.5, "T")
-        g.set(cx - 1.5, cy - 2.5, "f")
+        if unit == "vardish_knights":
+            # great helm with a crest
+            g.disc(cx - 0.5, cy - 1.5, 1.9, "m", shade="M")
+            g.set(cx - 0.5, cy - 2.5, "L")
+            g.set(cx - 0.5, cy - 1.5, "T")
+            g.set(cx - 1.5, cy - 2.5, "f")
+        elif unit == "vardish_mounted_sergeants":
+            kettle_hat(g, cx - 0.5, cy - 1.0)
+        else:
+            steel_helm(g, cx - 0.5, cy - 1.0)
     elif culture == KHARZANI:
-        round_shield(g, cx - 4.0, cy - 0.5, 2.0)
-        g.disc(cx - 0.5, cy - 1.5, 1.9, "c", shade="C")
-        g.set(cx - 0.5, cy - 1.5, "m")
+        if unit not in HORSE_BOWS:
+            round_shield(g, cx - 4.0, cy - 0.5, 2.0)
+        if unit == "kharzani_faris_lancers":
+            g.disc(cx - 0.5, cy - 1.5, 1.9, "m", shade="M")
+            g.set(cx - 0.5, cy - 1.5, "g")
+            g.set(cx - 1.5, cy - 2.5, "f")
+        else:
+            g.disc(cx - 0.5, cy - 1.5, 1.9, "c", shade="C")
+            g.set(cx - 0.5, cy - 1.5, "m")
     else:
         g.ellipse(cx - 0.5, cy - 0.9, 2.6, 1.4, "b", light="B")
         g.disc(cx - 0.5, cy - 1.7, 1.6, "b", light="B")
         g.set(cx - 1.5, cy - 3.2, "g")
         g.set(cx + 0.5, cy - 3.2, "g")
+        if unit == "ryumon_mounted_samurai":
+            g.set(cx - 2.5, cy - 4.2, "g")
+            g.set(cx + 1.5, cy - 4.2, "g")
     g.outline()
     return g, (cx, cy)
 
@@ -533,14 +744,38 @@ def arrow():
 
 BUILDERS = {"infantry": infantry, "spearmen": spearmen, "archers": archers, "cavalry": cavalry}
 
+# The trained branches, by the unit id the game knows them by: (culture, role). Each is
+# its recruit's figure with its own kit, so a squad's training shows on the field.
+BRANCHES = {
+    "vardish_men_at_arms": (VARDISH, "infantry"), "vardish_sergeants": (VARDISH, "infantry"),
+    "vardish_pikemen": (VARDISH, "spearmen"), "vardish_halberdiers": (VARDISH, "spearmen"),
+    "vardish_crossbowmen": (VARDISH, "archers"), "vardish_longbowmen": (VARDISH, "archers"),
+    "vardish_knights": (VARDISH, "cavalry"), "vardish_mounted_sergeants": (VARDISH, "cavalry"),
+    "kharzani_javelin_askari": (KHARZANI, "infantry"), "kharzani_guard_askari": (KHARZANI, "infantry"),
+    "kharzani_spear_guard": (KHARZANI, "spearmen"), "kharzani_levy_spears": (KHARZANI, "spearmen"),
+    "kharzani_composite_bowmen": (KHARZANI, "archers"), "kharzani_desert_archers": (KHARZANI, "archers"),
+    "kharzani_horse_archers": (KHARZANI, "cavalry"), "kharzani_faris_lancers": (KHARZANI, "cavalry"),
+    "ryumon_hatamoto": (RYUMON, "infantry"), "ryumon_ronin": (RYUMON, "infantry"),
+    "ryumon_yari_ashigaru": (RYUMON, "spearmen"), "ryumon_naginata": (RYUMON, "spearmen"),
+    "ryumon_yumi_samurai": (RYUMON, "archers"), "ryumon_ashigaru_archers": (RYUMON, "archers"),
+    "ryumon_mounted_samurai": (RYUMON, "cavalry"), "ryumon_mounted_archers": (RYUMON, "cavalry"),
+}
+
+
+def _frames(fn, culture, unit=None):
+    frames = [fn(f, culture, unit) for f in range(3)]   # walk 1, walk 2, strike
+    return {"frames": [f[0].rows() for f in frames], "pivot": frames[0][1]}
+
 
 def build_all():
-    """Every culture's four types as "culture/type", plus the bodies and the arrow."""
+    """Every culture's four recruits as "culture/type", each trained branch by its unit
+    id, plus the bodies and the arrow."""
     out = {}
     for culture in CULTURES:
         for name, fn in BUILDERS.items():
-            frames = [fn(f, culture) for f in range(3)]   # walk 1, walk 2, strike
-            out["%s/%s" % (culture, name)] = {"frames": [f[0].rows() for f in frames], "pivot": frames[0][1]}
+            out["%s/%s" % (culture, name)] = _frames(fn, culture)
+    for unit, (culture, role) in BRANCHES.items():
+        out[unit] = _frames(BUILDERS[role], culture, unit)
     out["corpse"] = {"frames": [corpse(0)[0].rows()], "pivot": corpse(0)[1]}
     out["corpse_horse"] = {"frames": [corpse(1)[0].rows()], "pivot": corpse(1)[1]}
     out["arrow"] = {"frames": [arrow()[0].rows()], "pivot": arrow()[1]}
@@ -595,10 +830,14 @@ def write_gd(sprites, path):
 
 
 def preview(sprites, out_dir, scale=6):
-    """A sheet of every unit: one row per culture and type, walk-walk-strike in blue then red."""
+    """A sheet of every unit: one row per recruit and branch, walk-walk-strike in blue then red."""
     from PIL import Image
     os.makedirs(out_dir, exist_ok=True)
-    names = ["%s/%s" % (c, n) for c in CULTURES for n in BUILDERS]
+    names = []
+    for c in CULTURES:
+        for n in BUILDERS:
+            names.append("%s/%s" % (c, n))
+            names += [u for u, cr in BRANCHES.items() if cr == (c, n)]
     cell_w = 20 * scale
     cell_h = 30 * scale
     gap = scale * 4

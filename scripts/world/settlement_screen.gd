@@ -179,7 +179,7 @@ func _squad_row(s: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
-	row.add_child(_portrait(type, String(s.get("culture", GameState.culture))))
+	row.add_child(_portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture))))
 	var text := _text_column(row)
 	var title := String(s.get("name", ""))
 	var name_label := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)
@@ -340,6 +340,10 @@ func _show_branch_choice(id: int, branches: Array) -> void:
 		var c_box := VBoxContainer.new()
 		c_box.add_theme_constant_override("separation", 8)
 		card.add_child(c_box)
+
+		var b_portrait := _portrait(b_id, Units.culture(b_id))
+		b_portrait.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		c_box.add_child(b_portrait)
 
 		var b_title := Style.label(Units.display_name(b_id), Style.BODY)
 		b_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

@@ -28,6 +28,26 @@ const SCOUTING := {
 const REACT_RANGE := 260.0
 ## Seconds a Patient commander will wait for you.
 const PATIENT_WAIT := 30.0
+## A chief flees when his bodyguard is down to this share of its men; he keeps it out of
+## the fight unless an enemy squad comes this close.
+const CHIEF_FLEES_AT := 0.45
+const CHIEF_GUARD_RANGE := 160.0
+const CHIEF_BEHIND := 70.0
+## Lining up on rough ground: the least rise, summed over the foot squads, worth moving the
+## line for; what each unit of the move costs against that; and what cover is worth to
+## archers in height.
+const LINE_GAIN_MIN := 0.05
+const LINE_SHIFT_COST := 0.0005
+const WOODS_VANTAGE := 0.0
+const WOODS_FOOTING := 0.3
+## How far in front of a man in a wood the open ground must start for him to be at its edge.
+const WOODS_EDGE := 45.0
+const BROW_LOOK := 90.0
+## A drop in the ground ahead this big makes a brow worth holding; and how long into the
+## battle a commander waits on good ground before going in anyway.
+const BROW_DROP := 0.1
+const KEEP_GROUND_TIME := 90.0
+const BROW_WEIGHT := 2.0
 ## A Patient commander goes in once its share of the army still fighting falls this far
 ## behind yours.
 const PATIENT_LOSING := 0.08
@@ -54,18 +74,17 @@ func _init(side: int = Sim.ENEMY, kind: String = "") -> void:
 	temperament = kind
 
 
-## Place the whole army using terrain scoring (high ground and woods for archers,
-## hills/edges for foot, keeping horse clear of woods), falling back to auto_deploy.
+## Line up: the usual battle line, moved onto the best ground the field offers.
 func deploy(sim) -> void:
 	if temperament == "":
 		temperament = TEMPERAMENTS[sim.rng.randi_range(0, TEMPERAMENTS.size() - 1)]
 	if sim.objective == Sim.OBJECTIVE_AMBUSH:
 		committed = true
 		patience = 0.0
-	elif sim.terrain != null and not sim.terrain.features.is_empty():
-		_deploy_terrain(sim)
-	if not sim.all_placed(team):
-		sim.auto_deploy(team, 26.0)
+	sim.auto_deploy(team, 26.0)
+	if sim.objective != Sim.OBJECTIVE_AMBUSH:
+		fit_line_to_ground(sim, team)
+	_guard_the_chief(sim)
 
 	match temperament:
 		PATIENT:
@@ -76,92 +95,96 @@ func deploy(sim) -> void:
 			patience = sim.rng.randf_range(3.0, 8.0)
 
 
-func _deploy_terrain(sim) -> void:
-	var zone: Rect2 = sim.deploy_zone(team)
+## A chief stands behind his line with his bodyguard, in the middle.
+func _guard_the_chief(sim) -> void:
+	var back := -1.0 if team == Sim.ENEMY else 1.0
+	for sq in sim.squads:
+		if sq.team == team and (sq.is_bodyguard or sq.is_chief):
+			var rear := 0.0
+			for other in sim.squads:
+				if other.team == team and other != sq:
+					rear = maxf(rear, (other.center.y - Sim.MID_Y) * back)
+			sim.place(team, sq.roster_id, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y + back * (rear + CHIEF_BEHIND)))
+
+
+## Move a side's whole battle line, together so it keeps its shape, to where its foot
+## stand highest, or under trees, without leaving the deployment zone; then each company of archers climbs
+## the highest ground near its place, or takes to a wood. Shifts forward and back are
+## counted from the side's own front, left and right as the field lies (both sides line up
+## from the same end), so on a field mirrored across its middle both make the same choice.
+static func fit_line_to_ground(sim, team: int) -> void:
 	var terrain = sim.terrain
-	var reserves_copy: Array = sim.reserves[team].duplicate()
-
-	# Archers first for best vantage, foot next, cavalry on open flanks
-	reserves_copy.sort_custom(func(a, b):
-		var priority := {Troops.ARCHERS: 0, Troops.SPEARMEN: 1, Troops.INFANTRY: 2, Troops.CAVALRY: 3}
-		return priority.get(a["type"], 4) < priority.get(b["type"], 4)
-	)
-
-	# Spots on a grid laid out from the front of the zone and the middle of the field, in
-	# the side's own frame, so both sides of a mirrored field see the same spots in the
-	# same order.
-	var step := 50.0
+	if terrain == null or terrain.features.is_empty():
+		return
+	var zone: Rect2 = sim.deploy_zone(team)
 	var side := 1.0 if team == Sim.PLAYER else -1.0
-	var front: float = zone.position.y if team == Sim.PLAYER else zone.end.y
-	var candidates: Array = []
-	var d := 20.0
-	while d < zone.size.y - 20.0:
-		for k in range(-7, 8):
-			var pt := Vector2(Sim.ARENA.x * 0.5 + side * k * step, front + side * d)
-			if zone.has_point(pt) and terrain.passable(pt):
-				candidates.append(pt)
-		d += step
-
-	for entry in reserves_copy:
-		var type: String = entry["type"]
-		var best_spot = null
-		var best_score := -INF
-		var half: Vector2 = sim._footprint(type, entry["men"])
-
-		for pt in candidates:
-			var score := _score_spot(sim, terrain, pt, type)
-			if score > best_score:
-				if not sim._overlaps(team, pt, half, null) and terrain.passable(pt):
+	var line: Array = sim.squads.filter(func(sq): return sq.team == team)
+	var best_off := Vector2.ZERO
+	var best_gain := LINE_GAIN_MIN
+	for dy in [-80.0, -40.0, 0.0, 40.0, 80.0, 120.0, 160.0]:
+		for dx in [0.0, -40.0, 40.0, -80.0, 80.0, -120.0, 120.0, -160.0, 160.0, -200.0, 200.0, -240.0, 240.0]:
+			var off := Vector2(dx, dy * side)
+			var gain := 0.0
+			var fits := true
+			for sq in line:
+				var to: Vector2 = sq.center + off
+				if not zone.has_point(to) or not terrain.passable(to):
+					fits = false
+					break
+				if sq.type == Troops.INFANTRY or sq.type == Troops.SPEARMEN:
+					gain += _footing(terrain, to, side) - _footing(terrain, sq.center, side)
+				elif sq.type == Troops.CAVALRY and (terrain.in_woods(_own(to, side)) or terrain.water_at(_own(to, side)) != Terrain.WATER_NONE):
+					fits = false
+					break
+			gain -= off.length() * LINE_SHIFT_COST
+			if fits and gain > best_gain:
+				best_gain = gain
+				best_off = off
+	if best_off != Vector2.ZERO:
+		for sq in line:
+			sim._move_formation(sq, sq.center + best_off)
+	for sq in line:
+		if sq.type != Troops.ARCHERS:
+			continue
+		var half: Vector2 = sim._footprint(sq.type, sq.alive_count())
+		var best: Vector2 = sq.center
+		var best_score: float = _vantage(terrain, best) + 0.05
+		for dy in [0.0, -40.0, 40.0, -80.0, 80.0, 120.0]:
+			for dx in [0.0, -40.0, 40.0, -80.0, 80.0, -120.0, 120.0, -160.0, 160.0]:
+				var pt: Vector2 = sq.center + Vector2(dx, dy * side)
+				var score := _vantage(terrain, pt)
+				if score > best_score and zone.has_point(pt) and terrain.passable(pt) and not sim._overlaps(team, pt, half, sq):
+					best = pt
 					best_score = score
-					best_spot = pt
-
-		if best_spot != null:
-			sim.place(team, entry["roster_id"], best_spot)
+		if best != sq.center:
+			sim.place(team, sq.roster_id, best)
 
 
-func _score_spot(sim, terrain, pt: Vector2, type: String) -> float:
-	var h: float = terrain.height_at(pt)
-	var in_w: bool = terrain.in_woods(pt)
-	var score := 0.0
+## How good a spot is for a line of foot to receive an attack: high, with the ground
+## falling away in front of it so the enemy has to come up a slope (the brow of a hill, not
+## its flat top), or just inside the edge of a wood, so the enemy attacks into the trees
+## from open ground and the trees stop arrows and charges. `side` is 1 for the player,
+## whose enemy comes from -y.
+static func _footing(terrain, p: Vector2, side: float) -> float:
+	p = _own(p, side)
+	var ahead := p + Vector2(0.0, -BROW_LOOK * side)
+	var drop: float = terrain.height_at(p) - terrain.height_at(ahead)
+	var cover := 0.0
+	if terrain.in_woods(p):
+		cover = WOODS_FOOTING if not terrain.in_woods(p + Vector2(0.0, -WOODS_EDGE * side)) else WOODS_FOOTING * 0.3
+	return terrain.height_at(p) + maxf(0.0, drop) * BROW_WEIGHT + cover
 
-	var front_y: float = Sim.MID_Y - Sim.DEPLOY_GAP if team == Sim.ENEMY else Sim.MID_Y + Sim.DEPLOY_GAP
-	var dist_to_front := absf(pt.y - front_y)
 
-	match type:
-		Troops.ARCHERS:
-			score += h * 300.0
-			score += dist_to_front * 0.4
-			if in_w:
-				score += 60.0
+## A point moved a hair toward the side's own rear, so one that falls exactly on the line
+## between two cells of ground counts as the cell behind it for either side, as it does
+## for its mirror image.
+static func _own(p: Vector2, side: float) -> Vector2:
+	return p + Vector2(0.0, 0.5 * side)
 
-		Troops.INFANTRY, Troops.SPEARMEN:
-			score += h * 200.0
-			score -= dist_to_front * 0.8
-			if in_w:
-				score += 20.0
 
-		Troops.CAVALRY:
-			if in_w:
-				score -= 600.0
-			if terrain.water_at(pt) != Terrain.WATER_NONE:
-				score -= 600.0
-			var flank_dist := minf(pt.x, sim.ARENA.x - pt.x)
-			if flank_dist < 220.0:
-				score += 100.0
-
-	if temperament == PATIENT:
-		for feat in terrain.features:
-			if feat.get("type") == "river":
-				for fx in feat.get("fords", []):
-					if absf(pt.x - fx) < 90.0 and dist_to_front < 120.0:
-						score += 160.0
-			elif feat.get("type") == "hill":
-				var c: Vector2 = feat.get("center", Vector2.ZERO)
-				if pt.distance_to(c) < feat.get("radius", 100.0) * 0.5:
-					score += 150.0
-
-	return score
-
+## How good a spot is for bows: high, and better still under trees.
+static func _vantage(terrain, p: Vector2) -> float:
+	return terrain.height_at(p) + (WOODS_VANTAGE if terrain.in_woods(p) else 0.0)
 
 func update(sim, dt: float) -> void:
 	patience -= dt
@@ -170,17 +193,11 @@ func update(sim, dt: float) -> void:
 		return
 	_think = sim.rng.randf_range(0.3, 0.6)
 
-	# In chief objective, chief flees early when hurt
+	# A chief runs for it once his bodyguard has been cut to pieces.
 	for sq in sim.squads:
 		if sq.team == team and (sq.is_bodyguard or sq.is_chief) and sq.is_active():
-			if sq.alive_n < sq.start_men * 0.45 or sq.morale < 45.0:
-				if not sq.routing:
-					sq.routing = true
-					sq.focus = null
-					sq.wheeling = false
-					sq.ability_left = 0.0
-					sim.events.append({"type": "rout", "squad": sq})
-					sim._trigger_chief_shock(sq)
+			if sq.alive_n < sq.start_men * CHIEF_FLEES_AT and not sq.routing:
+				sim.rout(sq)
 
 	_use_abilities(sim)
 	if contact_at < 0.0 and _in_contact(sim):
@@ -206,12 +223,43 @@ func update(sim, dt: float) -> void:
 	for sq in sim.squads:
 		if sq.team != team or not sq.is_active() or sq.wheeling:
 			continue
-		if (sq.is_bodyguard or sq.is_chief) and not committed and not sq.engaged:
+		# The chief keeps his bodyguard back, and comes on only once the fight is going his
+		# way or someone comes for him.
+		if (sq.is_bodyguard or sq.is_chief) and not sq.engaged \
+				and (not committed or (not _winning(sim) and sim.nearest_enemy_squad(team, sq.avg, CHIEF_GUARD_RANGE) == null)):
 			continue
 		if sq.type == Troops.CAVALRY and temperament != RECKLESS:
 			_ride(sim, sq)
-		elif sq.order == "hold" and not sq.schiltron():
+		elif sq.order == "hold" and not sq.schiltron() and not _keeps_ground(sim, sq):
 			sim.order_advance(sq)
+
+
+## A commander who isn't reckless makes the enemy come to him, for the first part of the
+## battle: his foot stays on good ground (in a wood, or on a brow with the ground falling
+## away in front), and nobody but the horse wades a river to get at the enemy.
+func _keeps_ground(sim, sq) -> bool:
+	if temperament == RECKLESS or sq.type == Troops.CAVALRY or sim.terrain == null or sim.time > KEEP_GROUND_TIME:
+		return false
+	var p: Vector2 = sq.avg
+	var foe = sim.nearest_enemy_squad(team, p, INF)
+	if foe == null:
+		return false
+	if wet_between(sim.terrain, p, foe.avg):
+		return true
+	if sq.ranged:
+		return false
+	var side := 1.0 if team == Sim.PLAYER else -1.0
+	return sim.terrain.in_woods(p) \
+			or sim.terrain.height_at(p) - sim.terrain.height_at(p + Vector2(0.0, -BROW_LOOK * side)) > BROW_DROP
+
+
+## Whether there's a ford or deep water anywhere on the straight way from `a` to `b`.
+static func wet_between(terrain, a: Vector2, b: Vector2) -> bool:
+	var steps := maxi(1, int(a.distance_to(b) / 15.0))
+	for i in steps + 1:
+		if terrain.water_at(a.lerp(b, float(i) / steps)) != Terrain.WATER_NONE:
+			return true
+	return false
 
 
 ## Once the lines have met, horse goes for archers first, then for an enemy squad already
@@ -286,3 +334,7 @@ func _in_contact(sim) -> bool:
 
 func _losing(sim) -> bool:
 	return sim.strength(team) < sim.strength(1 - team) - PATIENT_LOSING
+
+
+func _winning(sim) -> bool:
+	return sim.strength(team) > sim.strength(1 - team) + PATIENT_LOSING

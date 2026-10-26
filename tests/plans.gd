@@ -46,17 +46,47 @@ static func army(seed_value: int) -> Array:
 	return out
 
 
-## Seven squads with captains for a specific culture.
+## The army the enemy brings to an objective. A chief leads a bodyguard of trained men in
+## place of one of his companies of foot, so the armies stay as strong as each other.
+## Raiders far outnumber you, but come in waves: you can't beat them all, only hold the
+## village until they give up.
+static func foe_army(seed_value: int, objective: String = "rout") -> Array:
+	var out := army(seed_value + 1000)
+	if objective == "village":
+		var more := [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.INFANTRY, Troops.SPEARMEN]
+		for i in more.size():
+			out.append({"id": 50 + i, "type": more[i], "men": Troops.full_size(more[i]), "xp": 0})
+	if objective == "chief":
+		for e in out:
+			if e["type"] == Troops.INFANTRY:
+				e["unit"] = Units.branches(Units.recruit(Cultures.VARDISH, Troops.INFANTRY))[0]
+				e["men"] = 16
+				e["level"] = 2
+				e["xp"] = Troops.XP_PER_LEVEL
+				e["is_bodyguard"] = true
+				e["is_chief"] = true
+				e["chief_name"] = "Rask the Red"
+				break
+	return out
+
+
+## Seven trained squads of a culture, the warband's usual mix, each one of its tier-2
+## branches: both branches of a role where it fields two squads, one picked by seed where
+## it fields one.
 static func culture_army(cult: String, seed_value: int) -> Array:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value * 7919
 	var out := []
 	var id := 1
+	var seen := {}
 	for type in [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.SPEARMEN, Troops.ARCHERS, Troops.ARCHERS, Troops.CAVALRY]:
-		var unit_id := Units.recruit(cult, type)
+		var branches: Array = Units.branches(Units.recruit(cult, type))
+		var nth: int = seen.get(type, seed_value)
+		seen[type] = nth + 1
+		var unit_id: String = branches[nth % branches.size()]
 		out.append({
-			"id": id, "type": type, "unit": unit_id, "culture": cult,
-			"men": Units.full_size(unit_id), "xp": 0,
+			"id": id, "type": type, "unit": unit_id, "culture": cult, "level": 2,
+			"men": Units.full_size(unit_id), "xp": Troops.XP_PER_LEVEL,
 			"captain": Captains.make(rng, seed_value * 100 + id, type, [], cult)
 		})
 		id += 1
@@ -72,7 +102,7 @@ static func culture_army(cult: String, seed_value: int) -> Array:
 ## {winner, time, margin} where margin is your men still fighting less theirs.
 static func battle(plan: String, temperament: String, seed_value: int, site = null, objective: String = "rout") -> Dictionary:
 	var sim := Sim.new()
-	sim.setup(army(seed_value), army(seed_value + 1000), seed_value, site, objective)
+	sim.setup(army(seed_value), foe_army(seed_value, objective), seed_value, site, objective)
 	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, temperament)
 	sim.ai[Sim.ENEMY].deploy(sim)
 	if plan == "terrain" and sim.terrain != null and not sim.terrain.features.is_empty():
@@ -102,15 +132,54 @@ static func battle(plan: String, temperament: String, seed_value: int, site = nu
 	return out
 
 
+## An army `more` times stronger than the enemy's (1.15: 15% more men in every squad)
+## pressing Advance all against a commander of `temperament`, who lines up on whatever
+## ground `site` gives him. Returns {winner, margin}.
+static func attack(more: float, temperament: String, seed_value: int, site = null) -> Dictionary:
+	var mine := army(seed_value)
+	for e in mine:
+		e["men"] = int(round(float(e["men"]) * more))
+	var sim := Sim.new()
+	sim.setup(mine, army(seed_value + 1000), seed_value, site)
+	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, temperament)
+	sim.ai[Sim.ENEMY].deploy(sim)
+	sim.auto_deploy(Sim.PLAYER)
+	sim.start_battle()
+	sim.order_all(Sim.PLAYER, "advance")
+	while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
+		sim.step()
+	var out := {"winner": sim.winner, "margin": sim.men_on_field(Sim.PLAYER) - sim.men_on_field(Sim.ENEMY)}
+	sim.dispose()
+	return out
+
+
 static func _tactician(sim, state: Dictionary) -> void:
 	var me := Sim.PLAYER
+	if sim.objective == Sim.OBJECTIVE_AMBUSH and not state.has("faced"):
+		# Ambushed: no line to receive them on, so go for them at once, before the trap
+		# closes.
+		state["faced"] = true
+		state["released"] = true
+		for sq in sim.squads:
+			if sq.team == me and not sq.ranged:
+				# Out of column: the squad spreads to its full width where it stands, then goes.
+				var foe = sim.nearest_enemy_squad(me, sq.center, INF)
+				var across: Vector2 = (foe.center - sq.center).normalized().orthogonal() if foe != null else Vector2.RIGHT
+				sim.order_line(me, sq.center - across * 60.0, sq.center + across * 60.0, sq)
+				sim.order_advance(sq)
+	if sim.objective == Sim.OBJECTIVE_VILLAGE and not state.has("square"):
+		# Defending a village: the line forms across the square and stays in it, and the
+		# raiders have to come to it, wave by wave.
+		state["square"] = true
+		var c: Vector2 = Sim.VILLAGE_ZONE_CENTER
+		sim.order_line(me, c + Vector2(-Sim.VILLAGE_ZONE_RADIUS, 30.0), c + Vector2(Sim.VILLAGE_ZONE_RADIUS, 30.0))
 	var lines_met := false
 	for sq in sim.squads:
 		if sq.team == me and sq.is_active() and sq.engaged and not sq.ranged:
 			lines_met = true
 	if lines_met and state["contact_at"] < 0.0:
 		state["contact_at"] = sim.time
-	if not state["released"]:
+	if not state["released"] and sim.objective != Sim.OBJECTIVE_VILLAGE:
 		var met: float = state["contact_at"]
 		state["released"] = (met >= 0.0 and sim.time - met > RECEIVE_SECONDS) or sim.time > RELEASE_AFTER
 	for sq in sim.squads:
@@ -147,86 +216,79 @@ static func _tactician(sim, state: Dictionary) -> void:
 					continue
 				if sq.order == "attack" and sq.order_target != null and sq.order_target.is_active():
 					continue
-				var prey = _flank_target(sim, sq)
+				var prey = _chief(sim) if sim.objective == Sim.OBJECTIVE_CHIEF else null
+				if prey == null:
+					prey = _flank_target(sim, sq)
 				if prey != null:
 					sim.order_attack(sq, prey)
 				elif sq.order == "hold":
 					sim.order_advance(sq)
 
 
-## The usual line, then each company of archers climbs the highest ground near its place
-## in it.
+## The usual line, moved onto the best ground the field offers, the way the computer
+## lines up.
 static func _deploy_terrain_player(sim) -> void:
 	sim.auto_deploy(Sim.PLAYER)
-	var zone: Rect2 = sim.deploy_zone(Sim.PLAYER)
-	var terrain = sim.terrain
-	for sq in sim.squads:
-		if sq.team != Sim.PLAYER or sq.type != Troops.ARCHERS:
-			continue
-		var half: Vector2 = sim._footprint(sq.type, sq.alive_count())
-		var best: Vector2 = sq.center
-		var best_h: float = terrain.height_at(best) + 0.05
-		for dy in [-80.0, -40.0, 0.0, 40.0, 80.0]:
-			for dx in [-120.0, -80.0, -40.0, 0.0, 40.0, 80.0, 120.0]:
-				var pt: Vector2 = sq.center + Vector2(dx, dy)
-				var h: float = terrain.height_at(pt)
-				if h > best_h and zone.has_point(pt) and terrain.passable(pt) and not sim._overlaps(Sim.PLAYER, pt, half, sq):
-					best = pt
-					best_h = h
-		if best != sq.center:
-			sim.place(Sim.PLAYER, sq.roster_id, best)
+	Commander.fit_line_to_ground(sim, Sim.PLAYER)
 
 
-## The tactician, but it waits on the high ground, in the woods and behind the fords for
-## the enemy to come to it, until the tactician would go in anyway.
+## The tactician, using the ground: on a ridge its foot takes the crest first; nobody but
+## the horse goes at an enemy across water or up a slope, so the enemy has to come to
+## them; the horse doesn't ride into woods or water.
 static func _terrain_plan(sim, state: Dictionary) -> void:
 	_tactician(sim, state)
 	var terrain = sim.terrain
-	if terrain == null:
+	if terrain == null or terrain.features.is_empty():
 		return
+	if not state.has("crest"):
+		state["crest"] = true
+		for feat in terrain.features:
+			if feat.get("type", "") == "ridge":
+				for sq in sim.squads:
+					if sq.team == Sim.PLAYER and (sq.type == Troops.INFANTRY or sq.type == Troops.SPEARMEN):
+						sim.order_move(sq, Vector2(sq.center.x, float(feat["y"]) + 30.0))
 	for sq in sim.squads:
-		if sq.team != Sim.PLAYER or not sq.is_active():
+		if sq.team != Sim.PLAYER or not sq.is_active() or sq.engaged:
 			continue
-		if state["released"] and sq.type != Troops.CAVALRY:
+		if sq.type == Troops.CAVALRY:
+			if sq.order == "attack" and sq.order_target != null and _bad_ground_for_horse(terrain, sq.order_target.avg):
+				var alt = _flank_target(sim, sq, true)
+				if alt != null:
+					sim.order_attack(sq, alt)
+				else:
+					sim.order_hold(sq)
 			continue
-		if sq.type == Troops.ARCHERS:
-			if (terrain.height_at(sq.avg) > 0.4 or terrain.in_woods(sq.avg)):
-				if not sq.engaged and sq.order == "advance":
-					sim.order_hold(sq)
-		elif sq.type in [Troops.INFANTRY, Troops.SPEARMEN]:
-			if not sq.engaged and sq.order == "advance":
-				var h: float = terrain.height_at(sq.avg)
-				if h > 0.5:
-					sim.order_hold(sq)
-				elif sq.avg.y > 660.0 and sq.avg.y < 760.0 and terrain.water_at(sq.avg) == Terrain.WATER_NONE:
-					sim.order_hold(sq)
-		elif sq.type == Troops.CAVALRY:
-			if sq.order == "attack" and sq.order_target != null:
-				if terrain.in_woods(sq.order_target.avg) or terrain.water_at(sq.order_target.avg) != Terrain.WATER_NONE:
-					var best_alt = null
-					var best_d := INF
-					for foe in sim.squads:
-						if foe.team == sq.team or not foe.is_active():
-							continue
-						if terrain.in_woods(foe.avg) or terrain.water_at(foe.avg) != Terrain.WATER_NONE:
-							continue
-						if foe.type != Troops.ARCHERS and (not foe.engaged or foe.type == Troops.SPEARMEN):
-							continue
-						var d: float = sq.avg.distance_to(foe.avg) - (200.0 if foe.type == Troops.ARCHERS else 0.0)
-						if d < best_d:
-							best_d = d
-							best_alt = foe
-					if best_alt != null:
-						sim.order_attack(sq, best_alt)
+		if sq.order != "advance":
+			continue
+		var foe = sq.focus if sq.focus != null else sim.nearest_enemy_squad(Sim.PLAYER, sq.avg, 2000.0)
+		if foe == null:
+			continue
+		var uphill: float = terrain.height_at(foe.avg) - terrain.height_at(sq.avg)
+		if uphill > 0.12 or Commander.wet_between(terrain, sq.avg, foe.avg):
+			sim.order_hold(sq)
+
+
+static func _bad_ground_for_horse(terrain, p: Vector2) -> bool:
+	return terrain.in_woods(p) or terrain.water_at(p) != Terrain.WATER_NONE
+
+
+## The enemy chief's bodyguard, while it's still in the fight.
+static func _chief(sim):
+	for foe in sim.squads:
+		if foe.team != Sim.PLAYER and (foe.is_bodyguard or foe.is_chief) and foe.is_active():
+			return foe
+	return null
 
 
 ## The enemy squad the horse should hit: archers, or one already locked in a fight with
 ## ours (not spearmen), nearest first.
-static func _flank_target(sim, sq):
+static func _flank_target(sim, sq, mind_ground: bool = false):
 	var best = null
 	var best_d := INF
 	for foe in sim.squads:
 		if foe.team == sq.team or not foe.is_active():
+			continue
+		if mind_ground and _bad_ground_for_horse(sim.terrain, foe.avg):
 			continue
 		if foe.type != Troops.ARCHERS and (not foe.engaged or foe.type == Troops.SPEARMEN):
 			continue
@@ -324,7 +386,10 @@ static func _shop(gs, here: String) -> void:
 		var want: int = gs.total_men() * 5 - gs.food
 		while want > 0 and not gs.buy_food(want):
 			want /= 2
-	# A new squad when renown allows one and there's silver to keep it.
+	# Fill the ranks first; then a new squad when renown allows one and there's silver to
+	# keep it, and training with what's left.
+	if w.player_in_town():
+		gs.reinforce(maxi(0, gs.silver - reserve))
 	var offers: Array = w.offers_at(here)
 	if gs.army.size() < gs.squad_cap() and not offers.is_empty():
 		var cost := Economy.recruit_cost(offers[0]["type"], Troops.full_size(offers[0]["type"]))
@@ -334,7 +399,6 @@ static func _shop(gs, here: String) -> void:
 		for s in gs.army.duplicate():
 			if gs.can_train(s) and gs.silver - reserve > 300:
 				gs.train_squad(int(s["id"]))
-		gs.reinforce(maxi(0, gs.silver - reserve))
 
 
 static func _nearest_town(w) -> String:

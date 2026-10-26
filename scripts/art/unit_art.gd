@@ -29,8 +29,11 @@ static func frame(type: String, team: int, index: int, culture: String = "vardis
 	return _cache[key]
 
 
-## The sprite drawn for a troop type of a culture: "ryumon/archers", or "corpse".
+## The sprite drawn for a troop type of a culture: "ryumon/archers", or "corpse". A unit
+## id names its own sprite when its branch has one ("vardish_knights"), else its recruit's.
 static func sprite_name(type: String, culture: String) -> String:
+	if Data.SPRITES.has(type):
+		return type
 	var role := type
 	var cult := culture
 	if Units.has(type):
@@ -77,7 +80,7 @@ static func icon(type: String, team: int = 0, culture: String = "vardish") -> Te
 		var p := pivot(type, culture)
 		var img := Image.create_empty(ICON_SIZE, ICON_SIZE, false, Image.FORMAT_RGBA8)
 		var ox := int(p.x) - ICON_SIZE / 2
-		var oy := int(p.y) - ICON_SIZE / 2 - (2 if type == "cavalry" else 0)
+		var oy := int(p.y) - ICON_SIZE / 2 - (2 if pixel_size(type) == HORSE_PIXEL else 0)
 		img.blit_rect(src, Rect2i(ox, oy, ICON_SIZE, ICON_SIZE), Vector2i.ZERO)
 		img.resize(ICON_SIZE * ICON_SCALE, ICON_SIZE * ICON_SCALE, Image.INTERPOLATE_NEAREST)
 		_cache[key] = ImageTexture.create_from_image(img)

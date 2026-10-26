@@ -18,6 +18,12 @@ const COAST := Color("23302a")
 const ROAD := Color("d8c08a")
 const ROAD_EDGE := Color(0.27, 0.2, 0.12, 0.55)
 const SEA_LANE := Color("cfe8f2")
+const RIVER := Color(0.2, 0.48, 0.55)
+const RIVER_BANK := Color(0.16, 0.26, 0.22)
+const RIVER_SHINE := Color(0.5, 0.72, 0.74, 0.55)
+const FORD := Color(0.58, 0.8, 0.8)
+## A river's width in map units at its source and at its mouth.
+const RIVER_WIDTH := Vector2(2.2, 5.6)
 
 var terrain
 var water: ColorRect
@@ -89,6 +95,7 @@ func _draw_detail() -> void:
 			if not Data.on_border(a, b):
 				detail_layer.draw_line(a, b, COAST, 2.2)
 	_draw_border()
+	_draw_rivers()
 	var standing := false
 	for d in terrain.decor:
 		# Fields lie flat under the roads; everything else stands on top of them.
@@ -121,6 +128,41 @@ func _draw_border() -> void:
 	while k < shape.size() - 1 and shape[k].x > 0.0:
 		detail_layer.draw_dashed_line(shape[k], shape[k + 1], Color(0.2, 0.12, 0.08, 0.5), 2.0, 6.0)
 		k += 1
+
+
+## Each river as a smooth line widening toward the sea: a dark bank, the water, and a
+## glint down its middle. Where a road crosses, pale shallows show the ford under the road.
+func _draw_rivers() -> void:
+	for r in Data.RIVERS:
+		var line := river_line(r["points"])
+		_draw_river_pass(line, RIVER_BANK, 1.0, 1.6)
+		_draw_river_pass(line, RIVER, 1.0, 0.0)
+		_draw_river_pass(line, RIVER_SHINE, 0.3, 0.0)
+	for f in Data.fords():
+		detail_layer.draw_circle(f["pos"], 5.0, RIVER_BANK)
+		detail_layer.draw_circle(f["pos"], 4.2, FORD)
+
+
+## One stroke along a river, `scale` of its width plus `extra`, with round joins so the
+## widening line shows no seams.
+func _draw_river_pass(line: PackedVector2Array, color: Color, scale: float, extra: float) -> void:
+	for k in line.size() - 1:
+		var w := lerpf(RIVER_WIDTH.x, RIVER_WIDTH.y, float(k) / float(line.size() - 1)) * scale + extra
+		detail_layer.draw_line(line[k], line[k + 1], color, w)
+		if k > 0 and color.a >= 1.0:
+			detail_layer.draw_circle(line[k], w * 0.5, color)
+
+
+## A river's course smoothed through its points, for drawing.
+static func river_line(points: Array) -> PackedVector2Array:
+	var curve := Curve2D.new()
+	for k in points.size():
+		var p: Vector2 = points[k]
+		var prev: Vector2 = points[maxi(0, k - 1)]
+		var next: Vector2 = points[mini(points.size() - 1, k + 1)]
+		var tangent := (next - prev) * 0.25
+		curve.add_point(p, -tangent, tangent)
+	return curve.tessellate(5, 3.0)
 
 
 func _draw_roads() -> void:

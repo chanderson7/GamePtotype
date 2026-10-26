@@ -6,6 +6,7 @@ extends RefCounted
 
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
+const Data = preload("res://scripts/world/world_data.gd")
 
 const TYPE_OPEN := "open"
 const TYPE_HILLS := "hills"
@@ -15,12 +16,25 @@ const TYPE_PASS := "pass"
 const TYPE_VILLAGE := "village"
 
 const TYPES := [TYPE_OPEN, TYPE_HILLS, TYPE_WOODS, TYPE_RIVER, TYPE_PASS, TYPE_VILLAGE]
+## How often a band met on hills or in woods has picked its ground and holds the better of it.
+const UNFAIR_CHANCE := 0.3
+## A fight this close to one of the map's rivers (in map units) is fought across it.
+const RIVER_NEAR := 28.0
+## How far a river winds either side of the middle of the field, on a field not made fair.
+const RIVER_BEND := 35.0
+## The village you're defending lies behind your line, so raiders who get past you or round
+## you reach it first.
+const VILLAGE_CENTER := Vector2(420.0, 840.0)
 
 
 ## Pick a battlefield site descriptor based on map position and objective.
 ## Returns {type, seed, biome, fair}.
-static func pick(world = null, position: Vector2 = Vector2.ZERO, objective: String = "rout") -> Dictionary:
-	var seed_val := randi()
+## `seed_val` makes the choice repeatable (the encounter dialog and the battle must agree);
+## left negative, it's random. On hills and in woods a band that isn't raiding or ambushing
+## has chosen its ground UNFAIR_CHANCE of the time, and waits for you on the better side.
+static func pick(world = null, position: Vector2 = Vector2.ZERO, objective: String = "rout", seed_val: int = -1) -> Dictionary:
+	if seed_val < 0:
+		seed_val = randi()
 	if objective == "village":
 		return {
 			"type": TYPE_VILLAGE,
@@ -38,11 +52,11 @@ static func pick(world = null, position: Vector2 = Vector2.ZERO, objective: Stri
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val
 
-	var roll := rng.randf()
 	var site_type := TYPE_OPEN
 
-	# River: 15% at random
-	if roll < 0.15:
+	# Near one of the map's rivers, the fight is across it.
+	var river: Dictionary = Data.nearest_river(position)
+	if float(river["distance"]) < RIVER_NEAR:
 		site_type = TYPE_RIVER
 	elif h > 0.65:
 		site_type = TYPE_HILLS if rng.randf() < 0.6 else TYPE_PASS
@@ -55,12 +69,18 @@ static func pick(world = null, position: Vector2 = Vector2.ZERO, objective: Stri
 	else:
 		site_type = TYPE_OPEN
 
-	return {
+	var fair := true
+	if (site_type == TYPE_HILLS or site_type == TYPE_WOODS) and (objective == "rout" or objective == "chief"):
+		fair = rng.randf() >= UNFAIR_CHANCE
+	var out := {
 		"type": site_type,
 		"seed": seed_val,
 		"biome": biome,
-		"fair": true,
+		"fair": fair,
 	}
+	if site_type == TYPE_RIVER:
+		out["river"] = river["name"]
+	return out
 
 
 ## Generate a Terrain instance from site descriptor {type, seed, biome, fair}.
@@ -129,7 +149,7 @@ static func _build_hills(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 			var h1_rad := rng.randf_range(180.0, 250.0)
 			var h1_peak := rng.randf_range(0.70, 0.85)
 
-			var h2_pos := Vector2(Terrain.ARENA.x - h1_pos.x, Terrain.ARENA.y - h1_pos.y)
+			var h2_pos := Vector2(h1_pos.x, Terrain.ARENA.y - h1_pos.y)
 			var h2_rad := h1_rad
 			var h2_peak := h1_peak
 
@@ -147,19 +167,19 @@ static func _build_hills(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 							max_h = maxf(max_h, h1_peak * (f * f * (3.0 - 2.0 * f)))
 					t.height[cy * Terrain.COLS + cx] = max_h
 	else:
-		# Unfair: enemy holds the high ground (upper half)
-		var enemy_hill_pos := Vector2(420.0, 320.0)
-		var enemy_hill_rad := 340.0
-		var enemy_hill_peak := 0.85
-		hills.append({"type": "hill", "center": enemy_hill_pos, "radius": enemy_hill_rad, "peak": enemy_hill_peak})
-
+		# Unfair: the enemy holds the high ground, a ridge across the whole of his half, wide
+		# enough for his line to stand along its brow.
+		var ridge_y := rng.randf_range(360.0, 400.0)
+		var ridge_peak := rng.randf_range(0.8, 0.9)
+		var ridge_half_w := rng.randf_range(200.0, 230.0)
+		hills.append({"type": "ridge", "y": ridge_y, "half_w": ridge_half_w, "peak": ridge_peak})
 		for cy in Terrain.ROWS:
 			for cx in Terrain.COLS:
 				var p := t.cell_pos(cx, cy)
-				var d := p.distance_to(enemy_hill_pos)
-				if d < enemy_hill_rad:
-					var f := 1.0 - (d / enemy_hill_rad)
-					t.height[cy * Terrain.COLS + cx] = enemy_hill_peak * (f * f * (3.0 - 2.0 * f))
+				var dy := absf(p.y - ridge_y)
+				if dy < ridge_half_w:
+					var f := 1.0 - dy / ridge_half_w
+					t.height[cy * Terrain.COLS + cx] = ridge_peak * (f * f * (3.0 - 2.0 * f))
 
 	t.features = hills
 
@@ -178,16 +198,18 @@ static func _build_woods(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 
 	var placed := []
 	if fair:
-		# In pairs, each stand matched by one where the field turned half round puts it, so
-		# each side has the same woods in the same places.
+		# In pairs, each stand matched by its mirror image across the middle of the field, so
+		# each side has the same woods in the same places. (Mirrored, not turned half round:
+		# both sides line up from the same end of the field.)
 		for i in (2 if count > 2 else 1):
 			var c: Vector2 = slots[i * 3] # upper left, then upper right: the enemy's half
 			var r := rng.randf_range(90.0, 135.0)
 			placed.append([c, r])
-			placed.append([Terrain.ARENA - c, r])
+			placed.append([Vector2(c.x, Terrain.ARENA.y - c.y), r])
 	else:
-		for i in count:
-			placed.append([slots[i], rng.randf_range(90.0, 135.0)])
+		# The enemy chose his ground: woods along the front of his line, his men in them.
+		for x in [rng.randf_range(220.0, 300.0), rng.randf_range(540.0, 620.0)]:
+			placed.append([Vector2(x, rng.randf_range(430.0, 480.0)), rng.randf_range(110.0, 135.0)])
 	for stand in placed:
 		var c: Vector2 = stand[0]
 		var r: float = stand[1]
@@ -206,10 +228,9 @@ static func _build_river(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 	var river_features := []
 	var half_w := 38.0
 	var phase := rng.randf_range(0.0, TAU)
-	if fair:
-		# Bends that turn the field into itself when it's spun half round, so each side
-		# faces the same river: crossing the middle of the field at its middle.
-		phase = -0.007 * Terrain.ARENA.x * 0.5 + (PI if rng.randf() < 0.5 else 0.0)
+	# On a fair field the river runs straight across the middle, so each side faces the same
+	# river: a bend toward one side is a bend away from the other.
+	var bend := 0.0 if fair else RIVER_BEND
 
 	# 2 or 3 fords, placed alike from each side's point of view on a fair field.
 	var ford_count := rng.randi_range(2, 3)
@@ -227,7 +248,7 @@ static func _build_river(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 	for cy in Terrain.ROWS:
 		for cx in Terrain.COLS:
 			var p := t.cell_pos(cx, cy)
-			var ry := 630.0 + sin(p.x * 0.007 + phase) * 35.0
+			var ry := 630.0 + sin(p.x * 0.007 + phase) * bend
 			if absf(p.y - ry) <= half_w:
 				var in_ford := false
 				for fx in fords:
@@ -244,6 +265,7 @@ static func _build_river(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 		"type": "river",
 		"half_width": half_w,
 		"phase": phase,
+		"bend": bend,
 		"fords": fords,
 		"ford_width": ford_half_w * 2.0,
 	})
@@ -273,7 +295,7 @@ static func _build_pass(t: Terrain, rng: RandomNumberGenerator, _fair: bool) -> 
 
 static func _build_village(t: Terrain, rng: RandomNumberGenerator, _fair: bool) -> void:
 	var village_features := []
-	var center := Vector2(420.0, 630.0)
+	var center := VILLAGE_CENTER
 
 	# 4-6 house obstacles around the village center
 	var house_count := rng.randi_range(4, 6)

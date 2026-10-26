@@ -480,7 +480,9 @@ func _open_encounter() -> void:
 	for s in GameState.army:
 		if int(s["men"]) > 0:
 			fighters.append(s)
-	var objective: String = GameState.encounter_objective(b)
+	var plan: Dictionary = GameState.encounter_plan(b)
+	var objective: String = plan["objective"]
+	var site: Dictionary = plan["site"]
 	var is_ambush := objective == "ambush"
 	var title := "%s block the road" % b.name
 	match objective:
@@ -499,10 +501,15 @@ func _open_encounter() -> void:
 		buttons.append(["Withdraw", _on_withdraw])
 		withdraw_text = "\nLead the fight, send your men in without you, or withdraw to %s and lose the hours it takes." % Data.settlement(world.player().node)["name"]
 
-	var obj_type := "ambush" if is_ambush else ("village" if b.raiding else ("chief" if b.is_chief_band else "rout"))
+	var ground := ""
+	if site.get("river", "") != "":
+		ground = "\nYou meet them at a ford over %s." % site["river"]
+	elif not bool(site.get("fair", true)):
+		ground = "\nThey chose their ground: %s, and they'll wait for you on it." % (
+			"the brow of a ridge" if site["type"] == "hills" else "the edge of a wood")
 	_show_sheet("encounter", title,
-		"%d squads, %d men: %s.\n%s%s" % [
-			b.army.size(), men, ", ".join(parts), _odds_text(AutoResolve.odds(fighters, b.army, null, obj_type)),
+		"%d squads, %d men: %s.%s\n%s%s" % [
+			b.army.size(), men, ", ".join(parts), ground, _odds_text(AutoResolve.odds(fighters, b.army, site, objective)),
 			withdraw_text],
 		buttons)
 	Sound.play("alarm")

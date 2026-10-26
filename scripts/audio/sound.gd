@@ -20,14 +20,7 @@ const SFX_DB := {
 	"click": -14.0, "page": -16.0, "coins": -8.0, "horn": -5.0, "alarm": -6.0,
 	"clash1": -15.0, "clash2": -15.0, "clash3": -15.0, "arrows": -11.0, "charge": -7.0,
 	"rout": -11.0, "dice": -5.0, "bell": -6.0, "hooves": -15.0,
-	"crossbow": -10.0, "javelin": -11.0, "water": -14.0, "birds": -16.0, "objective": -6.0,
-}
-const SFX_FALLBACKS := {
-	"crossbow": "arrows",
-	"javelin": "arrows",
-	"objective": "horn",
-	"water": "hooves",
-	"birds": "page",
+	"crossbow": -10.0, "javelin": -11.0, "horsebow": -12.0, "water": -20.0, "birds": -20.0, "objective": -6.0,
 }
 const POOL := 10
 
@@ -129,8 +122,6 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 		return
 	_last[name] = now
 	var stream := _stream(SFX_PATH % name, false)
-	if stream == null and SFX_FALLBACKS.has(name):
-		stream = _stream(SFX_PATH % SFX_FALLBACKS[name], false)
 	if stream == null:
 		return
 	var p: AudioStreamPlayer = null
@@ -147,7 +138,8 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 	p.play()
 
 
-## Keep a looping effect going (hoofbeats on the road), or stop it with "".
+## Keep a looping effect going (hoofbeats on the road, a river at a ford), or stop it
+## with "".
 func set_loop(name: String) -> void:
 	if name == "":
 		_loop.stop()

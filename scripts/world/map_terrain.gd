@@ -13,6 +13,7 @@ const DECOR_PIXEL := 2.0
 ## Woods and peaks keep this far from settlements and roads, in map units.
 const CLEAR_OF_PLACES := 44.0
 const CLEAR_OF_ROADS := 12.0
+const CLEAR_OF_RIVERS := 7.0
 ## What stands on the high ground and in the woods of each realm.
 const PEAK := {"vardmark": "mountain", "kharzan": "mesa", "ryumon": "mountain_snow"}
 const FIELDS := {"vardmark": "fields", "kharzan": "fields_dry", "ryumon": "paddy"}
@@ -181,14 +182,16 @@ func _growth(realm: String, woods: float, height: float, rng: RandomNumberGenera
 			return "pine" if rng.randf() < 0.03 else ""
 
 
-## On land, off the beach, and clear of settlements and roads by `extra` more than usual.
+## On land, off the beach, and clear of settlements, roads and rivers by `extra` more than
+## usual.
 func _clear(p: Vector2, extra: float) -> bool:
 	if Data.land_at(p) == -1 or _texel(p).r < 0.9:
 		return false
 	for id in Data.SETTLEMENTS:
 		if p.distance_to(Data.pos(id)) < CLEAR_OF_PLACES + extra:
 			return false
-	return _road_distance(p) > CLEAR_OF_ROADS + extra
+	return _road_distance(p) > CLEAR_OF_ROADS + extra \
+		and float(Data.nearest_river(p)["distance"]) > CLEAR_OF_RIVERS + extra
 
 
 func _road_distance(p: Vector2) -> float:

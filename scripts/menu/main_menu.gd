@@ -163,14 +163,15 @@ func _section(text: String) -> Label:
 
 func _squad_row(s: Dictionary) -> Control:
 	var type: String = s["type"]
-	var full := Troops.full_size(type)
+	var unit_id := String(s.get("unit", ""))
+	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(type)
 	var men: int = s["men"]
 	var level := int(s.get("level", 1))
 	var panel := PanelContainer.new()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	row.add_child(_portrait(type, String(s.get("culture", GameState.culture))))
+	row.add_child(_portrait(_kit(s), String(s.get("culture", GameState.culture))))
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	text.add_theme_constant_override("separation", 2)
@@ -209,7 +210,7 @@ func _memorial_row(f: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	panel.add_child(row)
-	var portrait := _portrait(String(f.get("type", "infantry")), String(f.get("culture", GameState.culture)))
+	var portrait := _portrait(_kit(f), String(f.get("culture", GameState.culture)))
 	portrait.modulate = Color(0.55, 0.55, 0.6)
 	row.add_child(portrait)
 	var text := VBoxContainer.new()
@@ -229,6 +230,12 @@ func _memorial_row(f: Dictionary) -> Control:
 		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text.add_child(w)
 	return panel
+
+
+## What a squad (or a fallen captain's) is drawn as: its trained branch, or its type.
+func _kit(s: Dictionary) -> String:
+	var unit := String(s.get("unit", ""))
+	return unit if unit != "" else String(s.get("type", "infantry"))
 
 
 ## A unit portrait, scaled up with hard pixel edges, dressed as `culture` dresses it.

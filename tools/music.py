@@ -13,6 +13,9 @@ Music:
   battle_low  Battle: war drums and a driving low ostinato. Always on.
   battle_high Battle: horns and snares, the same length, faded in as the fighting grows.
   victory, defeat   Short stingers.
+Sound effects: clicks, coins, horns, clashes, volleys of arrows, crossbow bolts, javelins
+and horse archers, a charge, a rout, dice, a bell, hoofbeats, and the loops of a river
+ford and of birds in a wood.
 Loops are seamless: each is rendered three times over and the middle pass kept, so
 what rings across its ends is what rings across them when it loops.
 
@@ -729,43 +732,130 @@ def sfx_page():
 
 
 def sfx_crossbow():
-    """A mechanical latch release, tensioned twang and sharp thunk."""
+    """A crossbow loosing: the snap of the latch, the deep twang of the steel prod, and
+    the bolt's short whirr away."""
     rng = rng_for("crossbow")
-    n = int(0.4 * SR)
+    n = int(0.45 * SR)
     t = np.arange(n) / SR
-    click = band(rng.standard_normal(n), 2000, 7000) * np.exp(-t / 0.006)
-    twang = np.sin(2 * np.pi * 380.0 * np.exp(-t * 8.0) * t) * np.exp(-t / 0.08)
+    out = band(rng.standard_normal(n), 2000, 7000) * np.exp(-t / 0.006) * 0.8
+    out += np.sin(2 * np.pi * 150.0 * t) * np.exp(-t / 0.06) * 0.6
+    out += np.sin(2 * np.pi * 300.0 * t) * np.exp(-t / 0.03) * 0.3
     thunk = drum(140.0, 0.03, noise=0.5, rng=rng)[:n]
-    x = click * 0.8 + twang * 0.6 + thunk * 0.7
-    return fade_out(x, int(0.05 * SR))
+    out[:len(thunk)] += thunk * 0.6
+    m = int(0.25 * SR)
+    st = int(0.04 * SR)
+    out[st:st + m] += band(rng.standard_normal(m), 1500, 5000) * np.hanning(m) * 0.3
+    return fade_out(out, int(0.05 * SR))
+
+
+def sfx_javelin():
+    """A few heavy shafts thrown together: low whooshes passing, and the thud of a hit."""
+    rng = rng_for("javelin")
+    n = int(0.8 * SR)
+    t = np.arange(n) / SR
+    out = np.zeros(n)
+    for k in range(3):
+        st = int(rng.uniform(0.0, 0.18) * SR)
+        m = int(0.42 * SR)
+        lo = rng.uniform(260, 420)
+        whoosh = band(rng.standard_normal(m), lo, lo * 3.5) * np.hanning(m) ** 1.5
+        out[st:st + m] += whoosh[: n - st] * rng.uniform(0.6, 1.0)
+    hit = drum(110.0, 0.05, noise=0.5, rng=rng)
+    st = int(0.5 * SR)
+    out[st:st + len(hit)] += hit[: n - st] * 0.7
+    return fade_out(out, int(0.05 * SR))
+
+
+def sfx_horsebow():
+    """Horse archers loosing on the move: hoofbeats under a ripple of bowstrings and the
+    hiss of arrows going out."""
+    rng = rng_for("horsebow")
+    n = int(1.0 * SR)
+    t = np.arange(n) / SR
+    out = np.zeros(n)
+    for at in (0.0, 0.09, 0.19, 0.42, 0.51, 0.61):
+        clop = drum(rng.uniform(150, 200), 0.02, noise=0.9, rng=rng, drop=0.3, noise_hi=2500)[: int(0.12 * SR)]
+        s0 = int(at * SR)
+        out[s0:s0 + len(clop)] += clop[: n - s0] * 0.35
+    for k in range(4):
+        s0 = int(rng.uniform(0.05, 0.45) * SR)
+        m = int(0.12 * SR)
+        tt = np.arange(m) / SR
+        f = rng.uniform(170, 240)
+        twang = np.sin(2 * np.pi * f * tt) * np.exp(-tt / 0.03) + np.sin(4 * np.pi * f * tt) * np.exp(-tt / 0.015) * 0.4
+        out[s0:s0 + m] += twang[: n - s0] * 0.5
+        h = int(0.3 * SR)
+        hiss = band(rng.standard_normal(h), 2500, 8000) * np.hanning(h) * 0.25
+        out[s0 + m // 2:s0 + m // 2 + h] += hiss[: max(0, n - s0 - m // 2)]
+    return fade_out(out, int(0.08 * SR))
+
+
+def seamless(x, n, overlap):
+    """The first `n` samples of `x` (which must run `overlap` longer), with what comes after
+    them faded into their start, so the end runs straight on into the beginning."""
+    r = np.linspace(0.0, 1.0, overlap)
+    out = x[:n].copy()
+    out[:overlap] = out[:overlap] * np.sqrt(r) + x[n:n + overlap] * np.sqrt(1.0 - r)
+    return out
 
 
 def sfx_water():
-    """A soft, rushing water ripple for river fords."""
+    """A loop of a river running over the stones of a ford: a broad rush that swells and
+    falls, and bubbles rising through it."""
     rng = rng_for("water")
-    n = int(1.2 * SR)
-    t = np.arange(n) / SR
-    noise = rng.standard_normal(n)
-    hiss = band(noise, 400, 3200)
-    swell = 0.6 + 0.4 * np.sin(2 * np.pi * 1.5 * t)
-    return lowpass(hiss * swell, 2400) * 0.5
+    n = int(5.0 * SR)
+    over = int(0.6 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    rush = band(rng.standard_normal(m), 250, 2600)
+    swell = 0.7 + 0.18 * np.sin(2 * np.pi * 0.4 * t) + 0.12 * np.sin(2 * np.pi * 1.1 * t + 1.0)
+    out = rush * swell * 0.5
+    for k in range(70):
+        s0 = int(rng.uniform(0, m - 0.05 * SR))
+        b = int(rng.uniform(0.02, 0.05) * SR)
+        tt = np.arange(b) / SR
+        f = np.linspace(rng.uniform(500, 900), rng.uniform(1100, 1900), b)
+        out[s0:s0 + b] += np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * tt / tt[-1]) * rng.uniform(0.15, 0.4)
+    return seamless(lowpass(out, 3000), n, over)
 
 
 def sfx_birds():
-    """Gentle birds chirping in the canopy."""
+    """A loop of a wood in daylight: leaves stirring, and now and then a bird: a quick
+    trill, a two-note call, a rising whistle."""
     rng = rng_for("birds")
-    n = int(1.5 * SR)
-    t = np.arange(n) / SR
-    out = np.zeros(n)
-    for at in (0.1, 0.35, 0.8, 1.05):
-        m = int(0.12 * SR)
-        chirp_t = np.arange(m) / SR
-        f = np.linspace(rng.uniform(2800, 3600), rng.uniform(4200, 5200), m)
-        sine = np.sin(2 * np.pi * f * chirp_t) * np.sin(np.pi * chirp_t / chirp_t[-1]) ** 2
-        s = int(at * SR)
-        e = min(n, s + m)
-        out[s:e] += sine[:e - s] * 0.4
-    return out
+    n = int(7.0 * SR)
+    over = int(0.8 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    leaves = band(rng.standard_normal(m), 1800, 7000) * (0.06 + 0.04 * np.sin(2 * np.pi * 0.23 * t) ** 2)
+    out = leaves
+    at = 0.3
+    while at < (m / SR) - 0.6:
+        kind = rng.integers(3)
+        s0 = int(at * SR)
+        if kind == 0:     # a trill: quick notes on one pitch
+            f = rng.uniform(3600, 4800)
+            for i in range(rng.integers(5, 9)):
+                b = int(0.03 * SR)
+                tt = np.arange(b) / SR
+                note = np.sin(2 * np.pi * f * tt) * np.sin(np.pi * tt / tt[-1]) ** 2
+                o = s0 + int(i * 0.045 * SR)
+                out[o:o + b] += note * 0.35
+        elif kind == 1:   # two notes, the second lower
+            for i, f in enumerate((rng.uniform(2800, 3400), rng.uniform(2200, 2700))):
+                b = int(0.14 * SR)
+                tt = np.arange(b) / SR
+                note = np.sin(2 * np.pi * f * tt) * np.sin(np.pi * tt / tt[-1]) ** 2
+                o = s0 + int(i * 0.2 * SR)
+                out[o:o + b] += note * 0.3
+        else:             # a whistle sliding up
+            b = int(0.22 * SR)
+            tt = np.arange(b) / SR
+            f = np.linspace(rng.uniform(1900, 2400), rng.uniform(3200, 3900), b)
+            note = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * tt / tt[-1]) ** 2
+            out[s0:s0 + b] += note * 0.3
+        at += rng.uniform(0.7, 1.8)
+    return seamless(out, n, over)
 
 
 def sfx_objective():
@@ -779,7 +869,8 @@ SFX = {
     "clash1": lambda: sfx_clash(1), "clash2": lambda: sfx_clash(2), "clash3": lambda: sfx_clash(3),
     "arrows": sfx_arrows, "charge": sfx_charge, "rout": sfx_rout, "dice": sfx_dice, "bell": sfx_bell,
     "hooves": sfx_hooves, "page": sfx_page,
-    "crossbow": sfx_crossbow, "water": sfx_water, "birds": sfx_birds, "objective": sfx_objective,
+    "crossbow": sfx_crossbow, "javelin": sfx_javelin, "horsebow": sfx_horsebow,
+    "water": sfx_water, "birds": sfx_birds, "objective": sfx_objective,
 }
 MUSIC = {
     "title": title, "vardish": vardish, "kharzani": kharzani, "ryumon": ryumon,

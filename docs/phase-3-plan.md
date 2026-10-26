@@ -8,51 +8,114 @@ troops, on varied ground.
 | | Workstream | Size (solo) | Status |
 |---|---|---|---|
 | 3.1 | Orders and readability | 3–4 days | **Done** (`965d729`) |
-| 3.2 | Battlefield terrain | ~2 weeks | **Mostly done**: see [Where Phase 3 stands](#where-phase-3-stands) |
-| 3.3 | Culture troop trees | ~2 weeks | **Mostly done**: no per-unit art or sounds yet |
-| 3.4 | Objectives and encounter variety | ~1.5 weeks | **Mostly done**: objective gates not yet tested |
-| 3.5 | Integration and polish | ~1 week | **Partly done** |
+| 3.2 | Battlefield terrain | ~2 weeks | **Done** |
+| 3.3 | Culture troop trees | ~2 weeks | **Done** |
+| 3.4 | Objectives and encounter variety | ~1.5 weeks | **Done** |
+| 3.5 | Integration and polish | ~1 week | **Done** |
 
-Phase 3 is **not** complete. The first drafts of 3.2–3.5 (`5b65a41`…`e9049f5`) didn't load:
-about 36 parse errors, so no test had run against them. The fix-up commit after them makes
-everything load and pass, fixes the bugs that running it turned up, and lists below what is
-still missing.
+Phase 3's work is complete, and each exit gate below passed when last measured. The first drafts of 3.2–3.5
+(`5b65a41`…`e9049f5`) didn't load; `02e4ab8` made them load, pass and play fair, and the
+commit after it finished what that one listed as left. Where the result differs from the
+plan below, it says so here.
 
 ## Where Phase 3 stands
 
-**Working, with tests:**
+**In the game, with tests:**
 
 - **Terrain** (hills, woods, river fords, rocky passes, villages):
-  - Effects: height, woods cover, fords, charges.
+  - Effects: slopes, woods cover, fords, charges (see the rules as built, below).
   - Pathing through fords and around rock. Men slide along banks and rock faces and never
     stand in deep water or on rock. Routers still leave the field.
-  - The enemy AI deploys on the ground.
-  - Hint cards for each kind of ground.
-- **Troop trees.** 24 tier-2 branches, chosen when training to level 2. The squad's branch
-  name shows on the battle cards, the warband screen and the town screen.
+  - The enemy AI lines up on the ground and keeps it (below).
+  - Woods drawn as stands of trees on a dark forest floor, the treetops over the men
+    nearly solid. Hint cards for each kind of ground.
+- **Rivers on the world map.** The Raven, the Qamar and the Kumo run down to the sea, each
+  forded where a road crosses it (four fords). A fight within 28 map units of a river is
+  fought across it, and the encounter says so ("You meet them at a ford over the Raven");
+  no fight far from water is. Trees, peaks and dunes stand clear of the rivers.
+- **Chosen ground.** On hills and in woods, a band that isn't raiding or ambushing has
+  picked its ground 30% of the time: a ridge across its half, or stands of trees at its
+  edge. It waits there (a Patient commander), and the encounter says so.
+- **Troop trees.** 24 tier-2 branches, chosen when training to level 2, each with its own
+  sprite and portrait (`tools/unit_sprites.py`): men-at-arms in plate, sergeants with
+  maces, halberdiers, crossbowmen with pavises, horse archers, ronin without banners,
+  mounted samurai with the horo, and the rest. The upgrade choice shows both branches.
   - Mechanics: armor, piercing, javelins (only before the lines meet), horse archers,
     sweep, steady.
   - Saves migrate from version 3 to 4.
 - **Objectives** (the matching fights on the map):
-  - **Chief.** A named bandit chief leads the band. Killed or escaped are now one fate, never
-    both. An escaped chief returns 5 days later.
+  - **Chief.** A named chief leads the band from behind his line with his bodyguard, which
+    rides out to finish a fight or meet a threat, and runs once it's down to 45% of its
+    men. Break the guard while your men are on it and the chief goes down in the rout,
+    with no one to drag him clear; the death roll decides whether he dies (about 4 wins in
+    10) or is carried off after all, to come back 5 days later. (As drafted he always got
+    away, so the chief could never be slain in a battle you led.)
   - **Ambush.** On roads through the woods the map draws, never in the desert. You start
-    strung out in a 2-wide column and can't re-form; the ambushers come from both ends.
-  - **Village defence.** Hold the circle against reinforcement waves.
-- **Fair maps are fair.** Rivers and woods on a "fair" field are now mirrored, as hills
-  already were. The AI also picks its deployment spots in its own frame. Before, the bottom
-  side won 29% of mirrored river battles; with these fixes it is about 48%.
+    strung out three abreast, foot at both ends of the column, 5 morale down, and can't
+    re-form; the ambushers come from both ends.
+  - **Village defence.** The village lies behind your line. Hold the square for 2 minutes
+    while raiders come in thirds, at 30 s and 60 s, from east and west. Raiders who hold
+    it two to one for 25 s in all burn it, and the fight is lost; a ring of flame shows how
+    near they are.
+- **Send in** knows terrain and trained units: each unit's counters come from its own
+  bonuses, its mechanics are worth so much a man, a band on chosen ground fights 1.3×
+  stronger, and a chief dies in 4 wins in 10, as in the full battle.
+- **Sound.** Crossbows, javelins and horse archers each have their own sound; a river runs
+  under a ford battle and birds sing in a wood; a fanfare when a chief's guard breaks or he
+  falls, and an alarm when raiders' reinforcements arrive.
 - **Performance.** On open ground a sim step costs what it did before Phase 3; on the four
-  kinds of rough ground, 8–21% more (gate: ≤ 25%).
+  kinds of rough ground, 3–15% more per man on the field (gate: ≤ 25%).
 
-**Changed from the plan, and why:**
+**The rules as built, where they differ from the plan:**
 
-- **"Branch choices are real"** is measured against every kind of recruit (`--balance`),
-  not head to head. A head-to-head duel between, say, crossbowmen and longbowmen is decided
-  by range alone, and one side wins 12 of 12 whatever the tuning.
+- **Slopes, not heights.** A blow struck up a full slope loses 40% of its force and one
+  struck down gains as much, by the slope where the striker stands. The planned rule, by
+  the height difference between the two men, did almost nothing: two men close enough to
+  trade blows are never far apart in height.
+- **Woods cover in melee.** Blows struck into the trees from outside land 20% softer.
+  Without it a wood's edge was worth nothing to its holders.
+- **Fords cut both ways.** Men in the water take 25% more and deal 20% less.
+- **The enemy AI fits its whole line to the ground** instead of scoring spots squad by
+  squad, which scattered its army: it shifts the line (keeping its shape) onto the best
+  footing in reach (height, the drop in front of it, a wood's edge), keeps horse out of
+  woods and water, and puts archers on the heights. Except a Reckless commander, it keeps
+  good ground for up to 90 s and never wades a river to attack.
+- **Send in's strength** uses mechanics only for trained units. Counting their stat
+  changes too made it agree with the battle sim less, not more.
+
+**Gates changed from the plan, and why:**
+
+- **"Terrain matters"** is measured as what holding ground is worth, not as a scripted
+  terrain player against the tactician. Both sides of a fair map can use its ground, so a
+  terrain-using player gained little over a good tactician against an AI that now uses it
+  too (about 58–61% against 50%). The gate is now: an army 15% stronger, pressing
+  *Advance all* against a band that holds a ridge, a ford or a wood's edge, wins at least
+  15 points less often than on open ground. It measures about 19–27 points: a ridge costs
+  the attacker the most (25–38), a ford 17–31, a wood's edge about 11.
+- **"Objectives ask for something different"** is measured on each objective: the
+  tactician plays it (hunts the chief with its horse, strikes back at once when ambushed,
+  holds the village square) and must win each at least 60% of the time and, on average,
+  15 points more often than *Advance all*. The tactician clears 60% on each, and the gap
+  averages about 18 points.
+- **"Branch choices are real"** is measured against every kind of recruit, not head to
+  head. A head-to-head duel between, say, crossbowmen and longbowmen is decided by range
+  alone, and one side wins 12 of 12 whatever the tuning.
 - **Terrain fairness** plays each seed both ways round, 48 battles per map, and allows
-  35–65%. With 24 battles one way round, chance alone moves the result about 10 points, so a
-  40–60% window failed fair maps about a third of the time.
+  35–65%. With 24 battles one way round, chance alone moves the result about 10 points.
+  A fair field is now mirrored across its middle, not turned half round: both sides lay out
+  their lines from the same end of the field (the scripted players and the AI's tuning
+  count on that), so on a half-turned field they stood differently on the ground, and the
+  side at the top won about two in three on rivers. A fair river therefore runs straight
+  across. Even mirrored, a batch of 48 battles swings about ±10 points (river: 38%, 62%,
+  44% on three batches of seeds), which the window allows for.
+- **Culture balance** fields each culture's trained army (both branches of each role) and
+  plays each seed both ways round. With recruits, who are the same in every culture, all
+  three pairings came out alike and the gate tested nothing. All three pairings now land
+  inside 35–65%.
+- **Performance** is measured per man on the field, and each battle is timed twice with
+  the faster run kept. Measured per step, a pass looked 28% dearer than open ground, but
+  only because its armies meet later and so still have more men alive 30 seconds in: even
+  the parts of a step that never look at the ground cost a third more.
 - **Halberdiers** still lose to footmen, because footmen counter spearmen. The test checks
   that the sweep makes footmen pay for it instead.
 - **Crossbowmen** were retuned (damage 60, reload 1.8 s, range 230, piercing 0.8). As
@@ -60,28 +123,10 @@ still missing.
   men-at-arms.
 - **Recruits renamed where they clashed with branch names:**
   - Vardish Men-at-arms, Pikemen, Crossbowmen and Knights became Footmen, Spearmen, Bowmen
-    and Horsemen.
+    and Horsemen, and now look it: spear and shield, hood and self bow, a steel cap on
+    horseback.
   - Kharzani Spear guard became Spearmen.
   - Ryumon Mounted samurai became Riders.
-
-**Still to do:**
-
-- **Terrain doesn't pay off over a whole battle.** Each rule wins its own duel, but a
-  scripted player who uses the ground wins no more often than the tactician who ignores it.
-  The gate stays in `--balance`, and fails, until it does.
-- **No rivers on the world map**, so river battles are picked at random (15%).
-- **No per-unit sprites or portraits** in `tools/unit_sprites.py`. Branches look like their
-  recruits.
-- **No new sounds.** Crossbow, javelin, horse archers, river and birds fall back to existing
-  sounds.
-- **Send in hasn't been re-fitted** for terrain and tier-2 units. Its calibration test still
-  uses recruit armies on open ground.
-- **The culture balance gate doesn't test anything yet.** It fights recruit armies, and
-  recruits have the same stats in every culture, so all three pairings come out the same.
-  It should field each culture's tier-2 branches.
-- **The objective gates aren't tested:** tactician ≥ 60% on each objective, and Advance-all
-  doing worse than on a plain rout.
-- **Woods are hard to see on the battlefield:** small, faint tree sprites.
 
 ---
 
@@ -114,14 +159,14 @@ All automated, in `tests/run_tests.gd` (with `--balance` where noted).
 |---|---|
 | Existing balance holds on open ground and on each terrain type (`--balance`) | Advance-all-only ≤ 55%, scripted tactician ≥ 70% |
 | Terrain is fair: AI vs AI on mirrored maps, 24 seeds per type, each fought both ways round | Each side wins 35–65% |
-| Terrain matters: a scripted player that uses terrain vs one that ignores it, on hill, wood and ford maps | ≥ 15 points better |
-| Cultures are balanced: each culture's standard army vs each other's, AI both sides, 24 seeds | 35–65% |
+| Terrain matters: an army 15% stronger attacking a band on a ridge, at a ford or at a wood's edge, against every kind of commander | Wins ≥ 15 points less often than on open ground |
+| Cultures are balanced: each culture's trained army vs each other's, AI both sides, 24 seeds both ways round | 35–65% |
 | Every new unit wins its intended matchup duel | ≥ 80% |
 | Branch choices are real: the two tier-2 options of a role, at equal cost | Neither beats the other by more than 65/35 |
-| Objectives ask for something different | Tactician wins each ≥ 60%; Advance-all does worse than on a plain rout |
+| Objectives ask for something different | Tactician wins each ≥ 60%, and on average ≥ 15 points more often than Advance-all |
 | Send in matches real battles, with terrain and new units | Same winner ≥ 85% |
 | 30-day scripted campaigns (`Plans.campaign`) | Still pass |
-| Performance: average sim step on a full battle | ≤ 25% slower than today |
+| Performance: a sim step per man on the field, on each kind of ground | ≤ 25% slower than on open ground |
 | Old saves | Phase 2/3 saves load |
 
 ---

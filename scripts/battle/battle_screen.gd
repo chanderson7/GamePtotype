@@ -53,6 +53,10 @@ const HITSTOP := 0.06
 const DRAG_START := 24.0
 ## Seconds the line just ordered stays on the field.
 const LINE_SHOWN := 1.4
+## The sound of the ground the battle is fought on, under the music.
+const AMBIENCE := {"river": "water", "woods": "birds"}
+## Branches that shoot bolts rather than arrows.
+const CROSSBOWS := ["vardish_crossbowmen"]
 ## The ring and blades over an enemy squad you've sent someone to attack.
 const TARGET_RED := Color(0.93, 0.28, 0.22)
 
@@ -104,7 +108,8 @@ var _patches: Array = []
 var _cultures := {}
 ## When the next clash of steel sounds, and how many arrows were in the air last frame.
 var _clash_clock := 0.0
-var _flying := 0
+## The missiles in the air last frame, so each volley is heard once.
+var _heard := {}
 ## A press on the field: where it went down (on screen and on the field), where it is
 ## now, and whether it has become a line.
 var _pressing := false
@@ -151,6 +156,11 @@ var terrain_hint_title: Label
 var terrain_hint_body: Label
 var _height_tex: ImageTexture = null
 var _trees: Array = []
+## Woods on the battlefield: the shade of the forest floor, in rings, and how solid the
+## treetops over the men are.
+const WOODS_FLOOR := Color(0.10, 0.24, 0.10)
+const WOODS_FLOOR_RINGS := 4
+const TREETOP_ALPHA := 0.78
 var _terrain_site_type := ""
 
 
@@ -192,6 +202,8 @@ func _ready() -> void:
 		_:
 			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	Sound.play_battle()
+	# A river runs through a ford; birds sing in a wood.
+	Sound.set_loop(AMBIENCE.get(_terrain_site_type, ""))
 	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY].deploy(sim)
 	if sim.caught_on_march(Sim.PLAYER):
@@ -212,6 +224,7 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
+	Sound.set_loop("")
 	if sim != null:
 		sim.dispose()
 
@@ -766,10 +779,30 @@ func _battle_sounds(delta: float) -> void:
 		if _clash_clock <= 0.0:
 			_clash_clock = randf_range(0.18, 0.4)
 			Sound.play("clash%d" % randi_range(1, 3), randf_range(-6.0, 0.0), 0.15)
-	var flying: int = sim.projectiles.size()
-	if flying - _flying >= 6:
-		Sound.play("arrows", 0.0, 0.08, 0.6)
-	_flying = flying
+	# Each kind of missile has its own sound, played when enough of them go up at once.
+	var loosed := {}
+	var seen := {}
+	for p in sim.projectiles:
+		seen[p] = true
+		if not _heard.has(p):
+			var kind := _missile_sound(p)
+			loosed[kind] = int(loosed.get(kind, 0)) + 1
+	_heard = seen
+	for kind in loosed:
+		if int(loosed[kind]) >= (6 if kind == "arrows" else 3):
+			Sound.play(kind, 0.0, 0.08, 0.6)
+
+
+## The sound a missile makes going up: a javelin, a crossbow bolt, a horse archer's
+## arrow, or a plain arrow.
+func _missile_sound(p) -> String:
+	if p.kind == "javelin":
+		return "javelin"
+	if p.source != null and CROSSBOWS.has(p.source.unit):
+		return "crossbow"
+	if p.source != null and p.source.type == Troops.CAVALRY:
+		return "horsebow"
+	return "arrows"
 
 
 # ---------------------------------------------------------------- events
@@ -819,6 +852,17 @@ func _consume_events() -> void:
 			"braced":
 				var sq = e["squad"]
 				_float_text("BRACED", sq.average_pos() + Vector2(0, -50), Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
+			"reinforcements":
+				if int(e["team"]) == Sim.ENEMY:
+					Sound.play("alarm", 0.0, 0.0, 2.0)
+					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT)
+			"chief_broken":
+				Sound.play("objective")
+				_float_text("THE CHIEF FALLS BACK", e["squad"].average_pos() + Vector2(0, -60), Style.BRASS, 1.6)
+				_tick("Their chief's guard is broken, and the whole band feels it.", Style.PLAYER_LIGHT)
+			"chief_slain":
+				Sound.play("objective")
+				_tick("%s is cut down!" % String(e["chief_name"] if e["chief_name"] != "" else "Their chief"), Style.BRASS)
 			"flanked":
 				var sq = e["squad"]
 				var where := "REAR!" if e["rear"] else "FLANK!"
@@ -923,6 +967,9 @@ func _show_result() -> void:
 		"rout": ["Their army broke and fled.", "Your army broke and fled."],
 		"time": ["Time ran out with more of your army still standing.", "Time ran out with more of theirs still standing."],
 		"retreat": ["The enemy withdrew.", "You pulled your army off the field."],
+		"village_held": ["You held the village square until the raiders gave up.", ""],
+		"village_lost": ["", "The raiders held the village square when time ran out."],
+		"village_burned": ["", "The raiders held the square long enough to fire the village."],
 	}
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
 	result_title.text = "Victory" if won else "Defeat"
@@ -1452,9 +1499,17 @@ func _draw_terrain_features() -> void:
 	var t: Terrain = sim.terrain
 	for feat in t.features:
 		var ft: String = feat.get("type", "")
-		if ft == "river":
+		if ft == "woods":
+			# The forest floor: shade that deepens toward the middle of the stand.
+			var c: Vector2 = feat["center"]
+			var r: float = float(feat["radius"])
+			for k in WOODS_FLOOR_RINGS:
+				draw_circle(c, r * (1.0 - 0.18 * k), Color(WOODS_FLOOR, 0.16 + 0.04 * k))
+			draw_arc(c, r, 0.0, TAU, 48, Color(WOODS_FLOOR.darkened(0.3), 0.55), 2.0)
+		elif ft == "river":
 			var half_w: float = float(feat.get("half_width", 38.0))
 			var phase: float = float(feat.get("phase", 0.0))
+			var bend: float = float(feat.get("bend", BattleSite.RIVER_BEND))
 			var fords: Array = feat.get("fords", [])
 			var ford_w: float = float(feat.get("ford_width", 90.0))
 
@@ -1463,7 +1518,7 @@ func _draw_terrain_features() -> void:
 			var x_step := 20.0
 			var x := 0.0
 			while x <= Sim.ARENA.x + x_step:
-				var ry := 630.0 + sin(x * 0.007 + phase) * 35.0
+				var ry := 630.0 + sin(x * 0.007 + phase) * bend
 				pts_top.append(Vector2(x, ry - half_w))
 				pts_bot.append(Vector2(x, ry + half_w))
 				x += x_step
@@ -1474,7 +1529,7 @@ func _draw_terrain_features() -> void:
 			draw_colored_polygon(poly, Color(0.14, 0.30, 0.54, 0.88))
 
 			for fx in fords:
-				var fry := 630.0 + sin(fx * 0.007 + phase) * 35.0
+				var fry := 630.0 + sin(fx * 0.007 + phase) * bend
 				var ford_rect := Rect2(fx - ford_w * 0.5, fry - half_w - 4.0, ford_w, half_w * 2.0 + 8.0)
 				draw_rect(ford_rect, Color(0.38, 0.68, 0.72, 0.80))
 				draw_rect(ford_rect, Color(0.72, 0.64, 0.42, 0.85), false, 2.0)
@@ -1486,7 +1541,7 @@ func _draw_terrain_features() -> void:
 				draw_rect(rect, Color(0.12, 0.10, 0.09, 0.95), false, 3.0)
 
 
-## Draw treetops over troops with 60% opacity so units in woods remain visible.
+## Draw treetops over troops, a little see-through so men in the woods still show.
 func _draw_treetops() -> void:
 	if _trees.is_empty():
 		return
@@ -1499,7 +1554,7 @@ func _draw_treetops() -> void:
 		var flip: float = float(tree["flip"])
 		var sz := MapArt.size(tree["name"])
 		var dest := Rect2(p.x - sz.x * s * 0.5 * flip, p.y - sz.y * s, sz.x * s * flip, sz.y * s)
-		draw_texture_rect(tex, dest, false, Color(1, 1, 1, 0.60))
+		draw_texture_rect(tex, dest, false, Color(1, 1, 1, TREETOP_ALPHA))
 
 
 func _setup_terrain_visuals() -> void:
@@ -1550,8 +1605,8 @@ func _setup_terrain_visuals() -> void:
 			if t.woods[idx] == Terrain.WOODS_TREES:
 				_terrain_site_type = "woods"
 				var cp := t.cell_pos(cx, cy)
-				for k in 2:
-					var p := cp + Vector2(rng.randf_range(-10.0, 10.0), rng.randf_range(-10.0, 10.0))
+				for k in 3:
+					var p := cp + Vector2(rng.randf_range(-13.0, 13.0), rng.randf_range(-13.0, 13.0))
 					var kind := tree_name
 					if _biome == Cultures.VARDISH and t.height_at(p) > 0.4:
 						kind = "pine"
@@ -1699,6 +1754,15 @@ func _draw_objectives() -> void:
 			var secs := int(remain) % 60
 			var time_str := "%d:%02d" % [mins, secs]
 			draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.BODY, Style.BRASS)
+		# How near the raiders are to firing it: they get there by holding the square.
+		if sim.village_burn > 0.0:
+			var burnt := sim.village_burn / Sim.VILLAGE_BURN
+			draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS + 9.0, -PI * 0.5, -PI * 0.5 + TAU * burnt, 48,
+				Color(1.0, 0.45, 0.12, 0.9), 7.0)
+			var counts: Array = sim.men_in_village()
+			if counts[Sim.ENEMY] > counts[Sim.PLAYER] * Sim.VILLAGE_TAKEN:
+				draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-90.0, Sim.VILLAGE_ZONE_RADIUS + 44.0), "They're firing the village!",
+					HORIZONTAL_ALIGNMENT_CENTER, 180.0, Style.SMALL, Color(1.0, 0.55, 0.25))
 	if sim.objective == Sim.OBJECTIVE_CHIEF:
 		for sq in sim.squads:
 			if (sq.is_bodyguard or sq.is_chief) and sq.is_active():
@@ -1787,7 +1851,8 @@ func _draw_shadows() -> void:
 
 
 func _draw_men(sq) -> void:
-	var type: String = sq.type
+	# A trained squad is drawn in its branch's own kit.
+	var type: String = sq.unit if sq.unit != "" else sq.type
 	var culture := _culture_of(sq)
 	var tint := Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE
 	for so in sq.soldiers:

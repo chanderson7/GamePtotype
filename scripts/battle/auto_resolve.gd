@@ -35,6 +35,20 @@ const LOSE_LOSS_BASE := 0.47
 const LOSE_LOSS_SCALE := -0.06
 ## When you send your men in without commanding them, they lose this many more.
 const UNLED := 1.25
+## Trained branches: what their mechanics add to a man's worth (armor and piercing per
+## unit of each).
+const ARMOR_WORTH := 0.5
+const PIERCING_WORTH := 0.25
+const SWEEP_WORTH := 1.15
+const JAVELINS_WORTH := 1.1
+const STEADY_WORTH := 1.08
+## A band that chose its ground and waits on it (a ridge, the edge of a wood) fights as if
+## this much stronger.
+const HELD_GROUND := 1.3
+## Win against a chief and he goes down in the rout of his guard; this is how often the
+## death roll kills him there, as it comes out in the full battle (about 4 in 10).
+## Otherwise his men carry him off.
+const CHIEF_SLAIN := 0.4
 
 
 ## A side's fighting strength against `foes`. Squads are {type, men, xp, level?}.
@@ -62,30 +76,23 @@ static func strength(army: Array, foes: Array, site = null, is_player: bool = tr
 			archer_men += men
 		var level := int(s.get("level", Troops.level_for(int(s.get("xp", 0)))))
 		var power := Troops.power_for(level)
+		var unit_id: String = s.get("unit", "")
+		var trained := unit_id != "" and Units.has(unit_id)
+		var stats: Dictionary = Units.stats(unit_id, level) if trained else Troops.stats(type)
 		var counter := 1.0
 		if foe_men > 0.0:
 			counter = 0.0
-			var bonus: Dictionary = Troops.stats(type)["bonus"]
+			var bonus: Dictionary = stats["bonus"]
 			for t in mix:
 				var b := float(bonus.get(t, 1.0))
 				counter += float(mix[t]) / foe_men * (1.0 + (b - 1.0) * COUNTER_WEIGHT)
-		total += men * float(VALUE.get(type, 1.0)) * power * power * counter
-
-		var unit_id: String = s.get("unit", "")
-		if unit_id != "" and Units.has(unit_id):
-			var u_mech := Units.mechanics(unit_id, level)
-			var armor_factor := 1.0 + float(u_mech.get("armor", 0.0)) * 0.5
-			var pierce_factor := 1.0 + float(u_mech.get("piercing", 0.0)) * 0.25
-			var sweep_factor := 1.15 if u_mech.get("sweep", false) else 1.0
-			var javelin_factor := 1.1 if int(u_mech.get("javelins", 0)) > 0 else 1.0
-			var steady_factor := 1.08 if u_mech.get("steady", false) else 1.0
-			total += men * float(VALUE.get(type, 1.0)) * power * power * counter * (armor_factor * pierce_factor * sweep_factor * javelin_factor * steady_factor - 1.0)
+		total += men * float(VALUE.get(type, 1.0)) * power * power * counter * (_quality(Units.mechanics(unit_id, level)) if trained else 1.0)
 
 	if site is Dictionary:
 		var st: String = site.get("type", "open")
 		var fair: bool = bool(site.get("fair", true))
 		if not fair and not is_player:
-			total *= 1.10 # Enemy holds the better ground
+			total *= HELD_GROUND
 		if total_men > 0.0:
 			var cav_share := cav_men / total_men
 			var archer_share := archer_men / total_men
@@ -95,6 +102,22 @@ static func strength(army: Array, foes: Array, site = null, is_player: bool = tr
 				total *= (1.0 - 0.10 * cav_share + 0.05 * archer_share)
 
 	return total
+
+
+## What one man of a trained branch is worth next to a recruit of its type, from its
+## mechanics. Its stat changes aren't counted: each branch pays for what it gains (heavier
+## bolts load slower, horse archers fight poorly hand to hand), and fitted against the
+## battle sim, counting them made the reckoning worse, not better.
+static func _quality(mech: Dictionary) -> float:
+	var q := 1.0 + float(mech.get("armor", 0.0)) * ARMOR_WORTH
+	q *= 1.0 + float(mech.get("piercing", 0.0)) * PIERCING_WORTH
+	if mech.get("sweep", false):
+		q *= SWEEP_WORTH
+	if int(mech.get("javelins", 0)) > 0:
+		q *= JAVELINS_WORTH
+	if mech.get("steady", false):
+		q *= STEADY_WORTH
+	return q
 
 
 ## The expected outcome with no luck: {player_wins, ratio, lost} where ratio is the
@@ -165,9 +188,9 @@ static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led
 		squads[int(s["id"])] = entry
 	var chief_killed := false
 	var chief_escaped := false
-	# Win, and the chief is cut down or gets away; lose, and he stays at the head of his band.
+	# Win, and the chief is cut down or carried off; lose, and he stays at the head of his band.
 	if objective == "chief" and won:
-		if rng.randf() < 0.70:
+		if rng.randf() < CHIEF_SLAIN:
 			chief_killed = true
 		else:
 			chief_escaped = true

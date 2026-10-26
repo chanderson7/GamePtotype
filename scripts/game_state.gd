@@ -16,6 +16,7 @@ const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
+const Commander = preload("res://scripts/battle/commander_ai.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 4
 
@@ -393,22 +394,38 @@ func encounter_objective(band) -> String:
 	return "rout"
 
 
+## How the band on the road means to fight: {objective, site, temperament}. Bandits
+## charge, except on ground they chose, where they wait for you, and chiefs have minds of
+## their own. Worked out from the band and the hour, so the encounter, the battle and Send
+## in all see the same fight.
+func encounter_plan(band) -> Dictionary:
+	var objective := encounter_objective(band)
+	var prng := RandomNumberGenerator.new()
+	prng.seed = hash([band.id, int(world.hour * 10.0)])
+	var site := BattleSite.pick(world, world.party_pos(world.player()), objective, prng.randi() & 0x7fffffff)
+	var temperament := Commander.RECKLESS
+	if not site["fair"]:
+		temperament = Commander.PATIENT
+	elif objective == "chief":
+		temperament = Commander.TEMPERAMENTS[prng.randi_range(0, Commander.TEMPERAMENTS.size() - 1)]
+	return {"objective": objective, "site": site, "temperament": temperament}
+
+
 ## The army of the bandit band blocking the road, set up for the battle screen.
 func start_encounter_battle() -> void:
 	if world == null or world.encounter == -1:
 		return
 	var band = world.party(world.encounter)
-	var objective := encounter_objective(band)
+	var plan := encounter_plan(band)
+	var objective: String = plan["objective"]
 	var chief_name := ""
-	var ppos: Vector2 = world.party_pos(world.player())
 	if objective == "chief":
 		chief_name = band.chief_name if band.chief_name != "" else band.name.split("'s")[0]
 
-	var site = BattleSite.pick(world, ppos, objective)
 	pending_battle = {
 		"enemy": WorldSim.clean_army(band.army), "culture": WorldData.culture_of(band.faction),
-		"temperament": "Reckless", "name": band.name,
-		"site": site,
+		"temperament": plan["temperament"], "name": band.name,
+		"site": plan["site"],
 		"objective": objective,
 		"chief_name": chief_name,
 		"raid_village": band.raid_village,
@@ -618,7 +635,8 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
 		if other != null and rank != "":
 			friends.append("%s (%s)" % [other["first"], rank])
 	return {
-		"name": c["name"], "company": squad.get("name", ""), "type": squad["type"], "culture": squad.get("culture", culture),
+		"name": c["name"], "company": squad.get("name", ""), "type": squad["type"], "unit": squad.get("unit", ""),
+		"culture": squad.get("culture", culture),
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		"words": words,
 		"bonds": friends,
