@@ -55,6 +55,11 @@ func height_at(p: Vector2) -> float:
 	return clampf(_height.get_noise_2dv(p) * 0.5 + 0.5, 0.0, 1.0)
 
 
+## How thick the woods run at map point `p`, from 0 to 1.
+func woods_at(p: Vector2) -> float:
+	return clampf(_woods.get_noise_2dv(p) * 0.5 + 0.5, 0.0, 1.0)
+
+
 ## How far inland `p` lies, from 0 out at sea to 1 well inland.
 func inland(p: Vector2) -> float:
 	return _texel(p).g

@@ -37,7 +37,8 @@ const UNLED := 1.25
 
 
 ## A side's fighting strength against `foes`. Squads are {type, men, xp, level?}.
-static func strength(army: Array, foes: Array) -> float:
+## Modified by terrain ground advantage and site conditions when `site` is given.
+static func strength(army: Array, foes: Array, site = null, is_player: bool = true) -> float:
 	var foe_men := 0.0
 	var mix := {}
 	for f in foes:
@@ -45,11 +46,19 @@ static func strength(army: Array, foes: Array) -> float:
 		foe_men += m
 		mix[f["type"]] = float(mix.get(f["type"], 0.0)) + m
 	var total := 0.0
+	var total_men := 0.0
+	var cav_men := 0.0
+	var archer_men := 0.0
 	for s in army:
 		var men := float(s.get("men", 0))
 		if men <= 0.0:
 			continue
+		total_men += men
 		var type := String(s["type"])
+		if type == Troops.CAVALRY:
+			cav_men += men
+		elif type == Troops.ARCHERS:
+			archer_men += men
 		var level := int(s.get("level", Troops.level_for(int(s.get("xp", 0)))))
 		var power := Troops.power_for(level)
 		var counter := 1.0
@@ -60,15 +69,29 @@ static func strength(army: Array, foes: Array) -> float:
 				var b := float(bonus.get(t, 1.0))
 				counter += float(mix[t]) / foe_men * (1.0 + (b - 1.0) * COUNTER_WEIGHT)
 		total += men * float(VALUE.get(type, 1.0)) * power * power * counter
+
+	if site is Dictionary:
+		var st: String = site.get("type", "open")
+		var fair: bool = bool(site.get("fair", true))
+		if not fair and not is_player:
+			total *= 1.10 # Enemy holds the better ground
+		if total_men > 0.0:
+			var cav_share := cav_men / total_men
+			var archer_share := archer_men / total_men
+			if st == "river":
+				total *= (1.0 - 0.15 * cav_share) # Fords hurt cavalry-heavy armies
+			elif st == "woods":
+				total *= (1.0 - 0.10 * cav_share + 0.05 * archer_share)
+
 	return total
 
 
 ## The expected outcome with no luck: {player_wins, ratio, lost} where ratio is the
 ## weaker side's strength over the stronger's, and lost about how many men you'd lose
 ## sending them in without you.
-static func odds(player: Array, enemy: Array) -> Dictionary:
-	var a := strength(player, enemy)
-	var b := strength(enemy, player)
+static func odds(player: Array, enemy: Array, site = null) -> Dictionary:
+	var a := strength(player, enemy, site, true)
+	var b := strength(enemy, player, site, false)
 	var r := minf(a, b) / maxf(1.0, maxf(a, b))
 	var shares := _loss_shares(r)
 	var men := 0
@@ -82,9 +105,9 @@ static func odds(player: Array, enemy: Array) -> Dictionary:
 ## Settle the fight. `led` is false when the player sends their men in without
 ## commanding them, which costs extra men. Returns the same shape as
 ## BattleSim.result_for(PLAYER), plus "enemy_squads" with the enemy's survivors.
-static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led: bool = false) -> Dictionary:
-	var a := strength(player, enemy) * (1.0 + rng.randf_range(-LUCK, LUCK))
-	var b := strength(enemy, player) * (1.0 + rng.randf_range(-LUCK, LUCK))
+static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led: bool = false, site = null) -> Dictionary:
+	var a := strength(player, enemy, site, true) * (1.0 + rng.randf_range(-LUCK, LUCK))
+	var b := strength(enemy, player, site, false) * (1.0 + rng.randf_range(-LUCK, LUCK))
 	var won := a >= b
 	var loss := _loss_shares(minf(a, b) / maxf(1.0, maxf(a, b)))
 	var mine: float = loss[0] if won else loss[1]

@@ -13,6 +13,7 @@ const WorldSim = preload("res://scripts/world/world_sim.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
+const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 3
 
@@ -332,9 +333,11 @@ func start_encounter_battle() -> void:
 	if world == null or world.encounter == -1:
 		return
 	var band = world.party(world.encounter)
+	var site = BattleSite.pick(world, world.player_pos, "rout")
 	pending_battle = {
 		"enemy": WorldSim.clean_army(band.army), "culture": WorldData.culture_of(band.faction),
 		"temperament": "Reckless", "name": band.name,
+		"site": site,
 	}
 
 
@@ -348,7 +351,7 @@ func auto_resolve_encounter() -> Dictionary:
 	for s in army:
 		if int(s["men"]) > 0:
 			fighters.append(s)
-	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false)
+	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, pending_battle.get("site"))
 	apply_result(result)
 	return result
 

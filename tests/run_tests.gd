@@ -17,6 +17,9 @@ const WorldSim = preload("res://scripts/world/world_sim.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
+const Terrain = preload("res://scripts/battle/terrain.gd")
+const BattleSite = preload("res://scripts/battle/battle_site.gd")
+const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
 
 const DUEL_SEEDS := 12
 const BATTLE_SEEDS := 6
@@ -43,6 +46,9 @@ func _init() -> void:
 	_check_flanks()
 	_check_brace()
 	_check_steering()
+
+	print("Terrain:")
+	_check_terrain()
 
 	print("Abilities:")
 	_check_shield_wall()
@@ -459,6 +465,248 @@ func _check_steering() -> void:
 		lost += 16 - horse.alive_count()
 		sim.dispose()
 	_expect(reached == 4 and lost <= 8, "horse sent at archers behind a spear line ride around it (%d/4 got there, %d men lost)" % [reached, lost])
+
+
+# ---------------------------------------------------------------- terrain
+
+func _check_terrain() -> void:
+	# 1. Uphill attackers lose more
+	var hill_t := Terrain.new()
+	hill_t.reset()
+	for cy in Terrain.ROWS:
+		for cx in Terrain.COLS:
+			var p := hill_t.cell_pos(cx, cy)
+			var d := p.distance_to(Vector2(420.0, 780.0))
+			if d < 280.0:
+				var f := 1.0 - (d / 280.0)
+				hill_t.height[cy * Terrain.COLS + cx] = 0.85 * (f * f * (3.0 - 2.0 * f))
+
+	var downhill_defender_wins := 0
+	for s in range(1, 13):
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], s, hill_t)
+		sim.place(Sim.PLAYER, 1, Vector2(420.0, 780.0))
+		sim.place(Sim.ENEMY, 2, Vector2(420.0, 480.0))
+		sim.start_battle()
+		sim.order_all(Sim.PLAYER, "hold")
+		sim.order_all(Sim.ENEMY, "advance")
+		while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
+			sim.step()
+		if sim.winner == Sim.PLAYER:
+			downhill_defender_wins += 1
+		sim.dispose()
+	_expect(downhill_defender_wins >= 10, "downhill defenders beat uphill attackers (%d/12)" % downhill_defender_wins)
+
+	# 2. Arrows into woods hit about half as often
+	var woods_t := Terrain.new()
+	woods_t.reset()
+	for cy in range(20, Terrain.ROWS):
+		for cx in Terrain.COLS:
+			woods_t.woods[cy * Terrain.COLS + cx] = Terrain.WOODS_TREES
+
+	var hits_open := 0
+	var hits_woods := 0
+	for in_woods in [false, true]:
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.ARCHERS, "men": 20}], 42, woods_t if in_woods else null)
+		sim.place(Sim.PLAYER, 1, Vector2(420.0, 800.0))
+		sim.place(Sim.ENEMY, 2, Vector2(420.0, 500.0))
+		sim.start_battle()
+		sim.order_all(Sim.PLAYER, "hold")
+		sim.order_all(Sim.ENEMY, "hold")
+		for step_i in 300:
+			sim.step()
+		var p_sq = sim.squads[0] if sim.squads[0].team == Sim.PLAYER else sim.squads[1]
+		var total_hp_lost := 0.0
+		for so in p_sq.soldiers:
+			total_hp_lost += (so.max_hp - so.hp)
+		if in_woods:
+			hits_woods = int(total_hp_lost)
+		else:
+			hits_open = int(total_hp_lost)
+		sim.dispose()
+	_expect(hits_woods < hits_open * 0.70 and hits_woods > 0,
+		"woods cover shelters from arrows (woods dmg %d vs open %d)" % [hits_woods, hits_open])
+
+	# 3. Charges into woods do no charge damage
+	var charge_woods_t := Terrain.new()
+	charge_woods_t.reset()
+	for cy in range(20, Terrain.ROWS):
+		for cx in Terrain.COLS:
+			charge_woods_t.woods[cy * Terrain.COLS + cx] = Terrain.WOODS_TREES
+	var charge_sim := Sim.new()
+	charge_sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.CAVALRY, "men": 20}], 42, charge_woods_t)
+	charge_sim.place(Sim.PLAYER, 1, Vector2(420.0, 800.0))
+	charge_sim.place(Sim.ENEMY, 2, Vector2(420.0, 480.0))
+	charge_sim.start_battle()
+	charge_sim.order_all(Sim.PLAYER, "hold")
+	charge_sim.order_all(Sim.ENEMY, "advance")
+	var had_charge := false
+	while charge_sim.time < 15.0 and charge_sim.winner == -1:
+		charge_sim.step()
+		for ev in charge_sim.events:
+			if ev.get("type") == "charge":
+				had_charge = true
+	_expect(not had_charge, "cavalry charge into woods triggers no charge shock")
+	charge_sim.dispose()
+
+	# 4. Fords slow troops
+	var river_t := Terrain.new()
+	river_t.reset()
+	for cy in range(19, 23):
+		for cx in Terrain.COLS:
+			river_t.water[cy * Terrain.COLS + cx] = Terrain.WATER_SHALLOW
+	var open_sim := Sim.new()
+	open_sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 1)
+	open_sim.place(Sim.PLAYER, 1, Vector2(420.0, 800.0))
+	open_sim.place(Sim.ENEMY, 2, Vector2(420.0, 460.0))
+	open_sim.start_battle()
+	open_sim.order_all(Sim.PLAYER, "move", Vector2(420.0, 630.0))
+	while open_sim.squads[0].center.y > 640.0 and open_sim.time < 30.0:
+		open_sim.step()
+	var time_open := open_sim.time
+	open_sim.dispose()
+
+	var ford_sim := Sim.new()
+	ford_sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 1, river_t)
+	ford_sim.place(Sim.PLAYER, 1, Vector2(420.0, 800.0))
+	ford_sim.place(Sim.ENEMY, 2, Vector2(420.0, 460.0))
+	ford_sim.start_battle()
+	ford_sim.order_all(Sim.PLAYER, "move", Vector2(420.0, 630.0))
+	while ford_sim.squads[0].center.y > 640.0 and ford_sim.time < 30.0:
+		ford_sim.step()
+	var time_ford := ford_sim.time
+	ford_sim.dispose()
+	_expect(time_ford > time_open * 1.25, "fords slow crossing troops (%.1fs vs %.1fs)" % [time_ford, time_open])
+
+	# 5. Men in fords take more damage
+	var ford_vuln_t := Terrain.new()
+	ford_vuln_t.reset()
+	for cy in range(18, 26):
+		for cx in Terrain.COLS:
+			ford_vuln_t.water[cy * Terrain.COLS + cx] = Terrain.WATER_SHALLOW
+
+	var water_defender_wins := 0
+	for s in range(1, 13):
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], s, ford_vuln_t)
+		sim.place(Sim.PLAYER, 1, Vector2(420.0, 630.0))
+		sim.place(Sim.ENEMY, 2, Vector2(420.0, 510.0))
+		sim.start_battle()
+		sim.order_all(Sim.PLAYER, "hold")
+		sim.order_all(Sim.ENEMY, "advance")
+		while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
+			sim.step()
+		if sim.winner == Sim.PLAYER:
+			water_defender_wins += 1
+		sim.dispose()
+	_expect(water_defender_wins <= 3, "men fighting in shallow water take more damage (%d/12 wins)" % water_defender_wins)
+
+	# 6. Pathing: A squad crosses a river only at a ford and arrives
+	var river_path_t := Terrain.new()
+	river_path_t.reset()
+	# Single ford at center x in [375, 465], everywhere else in rows 19..22 is deep water
+	for cy in range(19, 23):
+		for cx in Terrain.COLS:
+			var cp := river_path_t.cell_pos(cx, cy)
+			if absf(cp.x - 420.0) <= 45.0:
+				river_path_t.water[cy * Terrain.COLS + cx] = Terrain.WATER_SHALLOW
+			else:
+				river_path_t.water[cy * Terrain.COLS + cx] = Terrain.WATER_DEEP
+
+	var path_sim := Sim.new()
+	path_sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 1, river_path_t)
+	path_sim.place(Sim.PLAYER, 1, Vector2(180.0, 850.0))
+	path_sim.place(Sim.ENEMY, 2, Vector2(180.0, 400.0))
+	path_sim.start_battle()
+	path_sim.order_all(Sim.PLAYER, "move", Vector2(180.0, 400.0))
+	path_sim.order_all(Sim.ENEMY, "hold")
+
+	var stepped_in_deep_water := false
+	while path_sim.time < 50.0 and path_sim.squads[0].center.y > 440.0:
+		path_sim.step()
+		for so in path_sim.squads[0].soldiers:
+			if so.alive and river_path_t.water_at(so.pos) == Terrain.WATER_DEEP:
+				stepped_in_deep_water = true
+
+	var arrived := path_sim.squads[0].center.y <= 440.0
+	path_sim.dispose()
+	_expect(arrived and not stepped_in_deep_water, "squad routes through the river ford to destination without entering deep water")
+
+	# 7. Pathing: Nothing ever stands in deep water or rock across varied battles
+	var any_impassable_stand := false
+	for site_type in [BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS, BattleSite.TYPE_VILLAGE]:
+		for s in range(1, 4):
+			var site_t := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
+			var test_sim := Sim.new()
+			test_sim.setup(
+				[{"id": 1, "type": Troops.INFANTRY, "men": 20}, {"id": 2, "type": Troops.CAVALRY, "men": 16}],
+				[{"id": 3, "type": Troops.INFANTRY, "men": 20}, {"id": 4, "type": Troops.ARCHERS, "men": 20}],
+				s,
+				site_t
+			)
+			test_sim.start_battle()
+			test_sim.order_all(Sim.PLAYER, "advance")
+			test_sim.order_all(Sim.ENEMY, "advance")
+			for tick in 300:
+				test_sim.step()
+				for sq in test_sim.squads:
+					for so in sq.soldiers:
+						if so.alive and not site_t.passable(so.pos):
+							any_impassable_stand = true
+				if test_sim.winner != -1:
+					break
+			test_sim.dispose()
+	_expect(not any_impassable_stand, "no soldier stands on impassable rock or deep water")
+
+	# 8. Terrain matters: scripted player using terrain beats tactician plan on hill, wood, and ford maps
+	var terrain_matters_diff := 0.0
+	var terrain_test_count := 0
+	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER]:
+		for s in range(1, 7):
+			var site_dict := {"type": site_type, "seed": s, "fair": true}
+			var site_obj := BattleSite.generate(site_dict)
+			var r_terrain = Plans.battle("terrain", "Patient", s, site_obj)
+			var r_tactician = Plans.battle("tactician", "Patient", s, site_obj)
+			terrain_matters_diff += float(r_terrain["margin"] - r_tactician["margin"])
+			terrain_test_count += 1
+	var avg_terrain_advantage := terrain_matters_diff / float(terrain_test_count)
+	_expect(avg_terrain_advantage >= 15.0,
+		"terrain-aware player wins by >= 15 points better margin on terrain maps (avg +%.1f margin)" % avg_terrain_advantage)
+
+	# 9. Performance: time 6 full battles per type against an open-field baseline
+	var baseline_start := Time.get_ticks_usec()
+	for s in range(1, 7):
+		var sim := Sim.new()
+		sim.setup(Plans.army(s), Plans.army(s + 1000), s)
+		sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
+		sim.ai[Sim.PLAYER].deploy(sim)
+		sim.ai[Sim.ENEMY].deploy(sim)
+		sim.start_battle()
+		while sim.winner == -1 and sim.time < 30.0:
+			sim.step()
+		sim.dispose()
+	var baseline_duration := Time.get_ticks_usec() - baseline_start
+
+	var max_terrain_overhead := 0.0
+	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS]:
+		var t_start := Time.get_ticks_usec()
+		for s in range(1, 7):
+			var site_obj := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
+			var sim := Sim.new()
+			sim.setup(Plans.army(s), Plans.army(s + 1000), s, site_obj)
+			sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
+			sim.ai[Sim.PLAYER].deploy(sim)
+			sim.ai[Sim.ENEMY].deploy(sim)
+			sim.start_battle()
+			while sim.winner == -1 and sim.time < 30.0:
+				sim.step()
+			sim.dispose()
+		var t_duration := Time.get_ticks_usec() - t_start
+		var overhead := (float(t_duration) - float(baseline_duration)) / float(maxi(1, baseline_duration))
+		max_terrain_overhead = maxf(max_terrain_overhead, overhead)
+	_expect(max_terrain_overhead <= 0.25,
+		"sim step performance on terrain is within 25%% of open ground (max overhead: %.1f%%)" % (max_terrain_overhead * 100.0))
 
 
 # ---------------------------------------------------------------- abilities
@@ -1163,6 +1411,30 @@ func _check_auto_resolve() -> void:
 			winner_lost[0] / n * 100.0, winner_lost[1] / n * 100.0, loser_lost[0] / n * 100.0, loser_lost[1] / n * 100.0])
 	_expect(shape_ok, "a settled fight accounts for every man, and every squad on both sides")
 
+	var terrain_agree := 0
+	for i in CALIBRATION_BATTLES:
+		var seed_value := 9200 + i
+		var rng := RandomNumberGenerator.new()
+		rng.seed = seed_value * 977
+		var pa := _random_army(rng, 1, false)
+		var ea := _random_army(rng, 500, rng.randf() < 0.5)
+		var site_type: String = [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS][i % 4]
+		var site_dict := {"type": site_type, "seed": seed_value, "fair": true}
+		var site_obj := BattleSite.generate(site_dict)
+		var sim := Sim.new()
+		sim.setup(pa, ea, seed_value, site_obj)
+		sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY, "Reckless")]
+		sim.ai[Sim.PLAYER].deploy(sim)
+		sim.ai[Sim.ENEMY].deploy(sim)
+		sim.start_battle()
+		while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
+			sim.step()
+		var sim_won := sim.winner == Sim.PLAYER
+		sim.dispose()
+		if AutoResolve.odds(pa, ea, site_dict)["player_wins"] == sim_won:
+			terrain_agree += 1
+	_expect(terrain_agree >= int(ceil(n * 0.85)), "auto-resolve odds agree with sim on terrain maps (%d of %d)" % [terrain_agree, CALIBRATION_BATTLES])
+
 	var mine_army := Plans.army(5)
 	var foes := Plans.army(6)
 	var led := 0
@@ -1292,6 +1564,26 @@ func _check_balance() -> void:
 		print("%s   %3.0f%%" % [line, rates[plan] * 100.0])
 	_expect(rates["advance"] <= 0.55, "pressing Advance all and nothing else wins about half the time at most (%.0f%%)" % (rates["advance"] * 100.0))
 	_expect(rates["tactician"] >= 0.7, "a player who uses the tools wins at least 70%% of the time (%.0f%%)" % (rates["tactician"] * 100.0))
+
+	print("Terrain fairness (mirrored maps, AI vs AI, 24 seeds per type):")
+	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS]:
+		var player_wins := 0
+		for s in range(1, 25):
+			var site_obj := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
+			var sim := Sim.new()
+			sim.setup(Plans.army(s), Plans.army(s + 1000), s, site_obj)
+			sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
+			sim.ai[Sim.PLAYER].deploy(sim)
+			sim.ai[Sim.ENEMY].deploy(sim)
+			sim.start_battle()
+			while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
+				sim.step()
+			if sim.winner == Sim.PLAYER:
+				player_wins += 1
+			sim.dispose()
+		var win_pct := float(player_wins) / 24.0
+		_expect(win_pct >= 0.40 and win_pct <= 0.60,
+			"mirrored %s map is fair (player win rate: %.0f%%)" % [site_type, win_pct * 100.0])
 
 
 func _full_battle(seed_value: int) -> Dictionary:

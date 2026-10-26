@@ -15,8 +15,9 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const Terrain = preload("res://scripts/battle/terrain.gd")
 
-const PLANS := ["advance", "hold", "tactician"]
+const PLANS := ["advance", "hold", "tactician", "terrain"]
 ## The tactician's line fights braced this long after the first clash before the rest go
 ## in. It waits out a patient enemy, and only goes in first after RELEASE_AFTER. Its
 ## archers step back when enemy foot come within KITE_RANGE.
@@ -46,12 +47,15 @@ static func army(seed_value: int) -> Array:
 
 ## One battle of `plan` against a commander of `temperament`. Returns
 ## {winner, time, margin} where margin is your men still fighting less theirs.
-static func battle(plan: String, temperament: String, seed_value: int) -> Dictionary:
+static func battle(plan: String, temperament: String, seed_value: int, site = null) -> Dictionary:
 	var sim := Sim.new()
-	sim.setup(army(seed_value), army(seed_value + 1000), seed_value)
+	sim.setup(army(seed_value), army(seed_value + 1000), seed_value, site)
 	sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, temperament)
 	sim.ai[Sim.ENEMY].deploy(sim)
-	sim.auto_deploy(Sim.PLAYER)
+	if plan == "terrain" and sim.terrain != null and not sim.terrain.features.is_empty():
+		_deploy_terrain_player(sim)
+	else:
+		sim.auto_deploy(Sim.PLAYER)
 	sim.start_battle()
 	if plan == "advance":
 		sim.order_all(Sim.PLAYER, "advance")
@@ -63,6 +67,11 @@ static func battle(plan: String, temperament: String, seed_value: int) -> Dictio
 			if think <= 0.0:
 				think = 0.5
 				_tactician(sim, state)
+		elif plan == "terrain":
+			think -= Sim.STEP
+			if think <= 0.0:
+				think = 0.5
+				_terrain_plan(sim, state)
 		sim.step()
 	var out := {"winner": sim.winner, "time": sim.time,
 		"margin": sim.men_on_field(Sim.PLAYER) - sim.men_on_field(Sim.ENEMY)}
@@ -120,6 +129,109 @@ static func _tactician(sim, state: Dictionary) -> void:
 					sim.order_attack(sq, prey)
 				elif sq.order == "hold":
 					sim.order_advance(sq)
+
+
+static func _deploy_terrain_player(sim) -> void:
+	var zone: Rect2 = sim.deploy_zone(Sim.PLAYER)
+	var terrain = sim.terrain
+	var reserves_copy := sim.reserves[Sim.PLAYER].duplicate()
+
+	reserves_copy.sort_custom(func(a, b):
+		var priority := {Troops.ARCHERS: 0, Troops.SPEARMEN: 1, Troops.INFANTRY: 2, Troops.CAVALRY: 3}
+		return priority.get(a["type"], 4) < priority.get(b["type"], 4)
+	)
+
+	var candidates: Array = []
+	var y := zone.position.y + 20.0
+	while y < zone.position.y + zone.size.y - 20.0:
+		var x := zone.position.x + 30.0
+		while x < zone.position.x + zone.size.x - 30.0:
+			var pt := Vector2(x, y)
+			if terrain.passable(pt):
+				candidates.append(pt)
+			x += 45.0
+		y += 45.0
+
+	for entry in reserves_copy:
+		var type: String = entry["type"]
+		var best_spot = null
+		var best_score := -INF
+		var half := sim._footprint(type, entry["men"])
+
+		for pt in candidates:
+			var h: float = terrain.height_at(pt)
+			var in_w: bool = terrain.in_woods(pt)
+			var dist_to_mid := absf(pt.y - sim.MID_Y)
+			var score := 0.0
+
+			match type:
+				Troops.ARCHERS:
+					score += h * 350.0
+					score += dist_to_mid * 0.4
+					if in_w:
+						score += 60.0
+				Troops.INFANTRY, Troops.SPEARMEN:
+					score += h * 200.0
+					score -= dist_to_mid * 0.6
+					for feat in terrain.features:
+						if feat.get("type") == "river":
+							for fx in feat.get("fords", []):
+								if absf(pt.x - fx) < 70.0 and dist_to_mid < 140.0:
+									score += 200.0
+				Troops.CAVALRY:
+					if in_w or terrain.water_at(pt) != Terrain.WATER_NONE:
+						score -= 700.0
+					var flank := minf(pt.x, sim.ARENA.x - pt.x)
+					if flank < 200.0:
+						score += 150.0
+
+			if score > best_score and not sim._overlaps(Sim.PLAYER, pt, half, null) and terrain.passable(pt):
+				best_score = score
+				best_spot = pt
+
+		if best_spot != null:
+			sim.place(Sim.PLAYER, entry["roster_id"], best_spot)
+
+	sim.auto_deploy(Sim.PLAYER)
+
+
+static func _terrain_plan(sim, state: Dictionary) -> void:
+	_tactician(sim, state)
+	var terrain = sim.terrain
+	if terrain == null:
+		return
+	for sq in sim.squads:
+		if sq.team != Sim.PLAYER or not sq.is_active():
+			continue
+		if sq.type == Troops.ARCHERS:
+			if (terrain.height_at(sq.avg) > 0.4 or terrain.in_woods(sq.avg)):
+				if not sq.engaged and sq.order == "advance":
+					sim.order_hold(sq)
+		elif sq.type in [Troops.INFANTRY, Troops.SPEARMEN]:
+			if not sq.engaged and sq.order == "advance":
+				var h: float = terrain.height_at(sq.avg)
+				if h > 0.5:
+					sim.order_hold(sq)
+				elif sq.avg.y > 660.0 and sq.avg.y < 760.0 and terrain.water_at(sq.avg) == Terrain.WATER_NONE:
+					sim.order_hold(sq)
+		elif sq.type == Troops.CAVALRY:
+			if sq.order == "attack" and sq.order_target != null:
+				if terrain.in_woods(sq.order_target.avg) or terrain.water_at(sq.order_target.avg) != Terrain.WATER_NONE:
+					var best_alt = null
+					var best_d := INF
+					for foe in sim.squads:
+						if foe.team == sq.team or not foe.is_active():
+							continue
+						if terrain.in_woods(foe.avg) or terrain.water_at(foe.avg) != Terrain.WATER_NONE:
+							continue
+						if foe.type != Troops.ARCHERS and (not foe.engaged or foe.type == Troops.SPEARMEN):
+							continue
+						var d: float = sq.avg.distance_to(foe.avg) - (200.0 if foe.type == Troops.ARCHERS else 0.0)
+						if d < best_d:
+							best_d = d
+							best_alt = foe
+					if best_alt != null:
+						sim.order_attack(sq, best_alt)
 
 
 ## The enemy squad the horse should hit: archers, or one already locked in a fight with

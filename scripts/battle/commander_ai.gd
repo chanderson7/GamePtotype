@@ -6,6 +6,7 @@ extends RefCounted
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Troops = preload("res://scripts/data/troops.gd")
+const Terrain = preload("res://scripts/battle/terrain.gd")
 
 ## Waits a few seconds, then everything goes straight in.
 const RECKLESS := "Reckless"
@@ -53,11 +54,16 @@ func _init(side: int = Sim.ENEMY, kind: String = "") -> void:
 	temperament = kind
 
 
-## Place the whole army in a battle line, a little differently each time.
+## Place the whole army using terrain scoring (high ground and woods for archers,
+## hills/edges for foot, keeping horse clear of woods), falling back to auto_deploy.
 func deploy(sim) -> void:
 	if temperament == "":
 		temperament = TEMPERAMENTS[sim.rng.randi_range(0, TEMPERAMENTS.size() - 1)]
-	sim.auto_deploy(team, 26.0)
+	if sim.terrain != null and not sim.terrain.features.is_empty():
+		_deploy_terrain(sim)
+	if not sim.all_placed(team):
+		sim.auto_deploy(team, 26.0)
+
 	match temperament:
 		PATIENT:
 			patience = PATIENT_WAIT
@@ -65,6 +71,90 @@ func deploy(sim) -> void:
 			patience = sim.rng.randf_range(2.0, 4.0)
 		_:
 			patience = sim.rng.randf_range(3.0, 8.0)
+
+
+func _deploy_terrain(sim) -> void:
+	var zone: Rect2 = sim.deploy_zone(team)
+	var terrain = sim.terrain
+	var reserves_copy := sim.reserves[team].duplicate()
+
+	# Archers first for best vantage, foot next, cavalry on open flanks
+	reserves_copy.sort_custom(func(a, b):
+		var priority := {Troops.ARCHERS: 0, Troops.SPEARMEN: 1, Troops.INFANTRY: 2, Troops.CAVALRY: 3}
+		return priority.get(a["type"], 4) < priority.get(b["type"], 4)
+	)
+
+	var step := 50.0
+	var candidates: Array = []
+	var y := zone.position.y + 20.0
+	while y < zone.position.y + zone.size.y - 20.0:
+		var x := zone.position.x + 30.0
+		while x < zone.position.x + zone.size.x - 30.0:
+			var pt := Vector2(x, y)
+			if terrain.passable(pt):
+				candidates.append(pt)
+			x += step
+		y += step
+
+	for entry in reserves_copy:
+		var type: String = entry["type"]
+		var best_spot = null
+		var best_score := -INF
+		var half := sim._footprint(type, entry["men"])
+
+		for pt in candidates:
+			var score := _score_spot(sim, terrain, pt, type)
+			if score > best_score:
+				if not sim._overlaps(team, pt, half, null) and terrain.passable(pt):
+					best_score = score
+					best_spot = pt
+
+		if best_spot != null:
+			sim.place(team, entry["roster_id"], best_spot)
+
+
+func _score_spot(sim, terrain, pt: Vector2, type: String) -> float:
+	var h: float = terrain.height_at(pt)
+	var in_w: bool = terrain.in_woods(pt)
+	var score := 0.0
+
+	var front_y := sim.MID_Y - sim.DEPLOY_GAP if team == Sim.ENEMY else sim.MID_Y + sim.DEPLOY_GAP
+	var dist_to_front := absf(pt.y - front_y)
+
+	match type:
+		Troops.ARCHERS:
+			score += h * 300.0
+			score += dist_to_front * 0.4
+			if in_w:
+				score += 60.0
+
+		Troops.INFANTRY, Troops.SPEARMEN:
+			score += h * 200.0
+			score -= dist_to_front * 0.8
+			if in_w:
+				score += 20.0
+
+		Troops.CAVALRY:
+			if in_w:
+				score -= 600.0
+			if terrain.water_at(pt) != Terrain.WATER_NONE:
+				score -= 600.0
+			var flank_dist := minf(pt.x, sim.ARENA.x - pt.x)
+			if flank_dist < 220.0:
+				score += 100.0
+
+	if temperament == PATIENT:
+		for feat in terrain.features:
+			if feat.get("type") == "river":
+				for fx in feat.get("fords", []):
+					if absf(pt.x - fx) < 90.0 and dist_to_front < 120.0:
+						score += 160.0
+			elif feat.get("type") == "hill":
+				var c: Vector2 = feat.get("center", Vector2.ZERO)
+				if pt.distance_to(c) < feat.get("radius", 100.0) * 0.5:
+					score += 150.0
+
+	return score
 
 
 func update(sim, dt: float) -> void:
@@ -109,6 +199,11 @@ func _ride(sim, sq) -> void:
 			score -= 250.0
 		elif not foe.engaged or foe.type == Troops.SPEARMEN:
 			continue
+		if sim.terrain != null:
+			if sim.terrain.in_woods(foe.avg):
+				score += 300.0
+			if sim.terrain.water_at(foe.avg) != Terrain.WATER_NONE:
+				score += 400.0
 		if score < best:
 			best = score
 			prey = foe

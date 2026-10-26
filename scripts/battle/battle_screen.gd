@@ -21,6 +21,9 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const MapArt = preload("res://scripts/art/map_art.gd")
+const BattleSite = preload("res://scripts/battle/battle_site.gd")
+const Terrain = preload("res://scripts/battle/terrain.gd")
 
 const TOP_BAR := 96.0
 const CHIP_H := 84.0
@@ -142,6 +145,12 @@ var retreat_button: Button
 var result_panel: PanelContainer
 var result_title: Label
 var result_body: Label
+var terrain_hint_panel: PanelContainer
+var terrain_hint_title: Label
+var terrain_hint_body: Label
+var _height_tex: ImageTexture = null
+var _trees: Array = []
+var _terrain_site_type := ""
 
 
 func _ready() -> void:
@@ -154,15 +163,20 @@ func _ready() -> void:
 	sim = Sim.new()
 	# A fight the map set up (bandits on the road), or one made up on the spot.
 	var pending: Dictionary = GameState.pending_battle
+	var site = pending.get("site")
+	if site == null:
+		var pos: Vector2 = GameState.world.player_pos if GameState.world != null else Vector2.ZERO
+		site = BattleSite.pick(GameState.world, pos)
 	if pending.is_empty():
-		sim.setup(GameState.army, GameState.enemy_army())
+		sim.setup(GameState.army, GameState.enemy_army(), 0, site)
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY)
 	else:
 		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
-		sim.setup(GameState.army, pending["enemy"])
+		sim.setup(GameState.army, pending["enemy"], 0, site)
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
 	# Bandits fight in their own realm; a battle off the map is fought in yours.
 	_biome = _enemy_culture if not pending.is_empty() else GameState.culture
+	_setup_terrain_visuals()
 	_scatter_doodads()
 	Sound.play_battle()
 	# The enemy lines up first, so you can see what you're facing while you deploy.
@@ -178,6 +192,7 @@ func _ready() -> void:
 		_start_battle()
 	else:
 		_select_next_card()
+		_maybe_show_terrain_hint()
 	_refresh_hud()
 
 
@@ -407,6 +422,10 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 		_hint(_describe(foe))
 		return
 	if selected_id == -1:
+		var thint := _terrain_hint(p)
+		if thint != "":
+			_hint(thint)
+			return
 		if sim.all_placed(Sim.PLAYER):
 			_hint("Tap one of your squads to move it, or press Fight.")
 		else:
@@ -443,7 +462,11 @@ func _tap_battle(p: Vector2, tapped) -> void:
 		if foe != null:
 			_hint(_describe(foe))
 		else:
-			_hint("Tap a squad to command it, or drag across the field to give the army a new line.")
+			var thint := _terrain_hint(p)
+			if thint != "":
+				_hint(thint)
+			else:
+				_hint("Tap a squad to command it, or drag across the field to give the army a new line.")
 		return
 	if foe != null and foe.is_active():
 		sim.order_attack(selected_squad, foe)
@@ -453,6 +476,10 @@ func _tap_battle(p: Vector2, tapped) -> void:
 		Sound.play("clash2", -6.0, 0.05)
 		_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(selected_squad), _name(foe.type, Sim.ENEMY).to_lower()])
 	else:
+		if sim.terrain != null and not sim.terrain.passable(p):
+			var thint := _terrain_hint(p)
+			_hint("Cannot march there: %s" % thint)
+			return
 		sim.order_move(selected_squad, p)
 		_ordered_at[selected_squad] = _clock
 		_hint("%s march there and hold." % _company_or_type(selected_squad))
@@ -1049,6 +1076,22 @@ func _build_hud() -> void:
 	Style.make_primary(back)
 	rv.add_child(back)
 
+	terrain_hint_panel = _centered_panel(hud)
+	var thv := VBoxContainer.new()
+	thv.add_theme_constant_override("separation", 16)
+	terrain_hint_panel.add_child(thv)
+	terrain_hint_title = Style.label("Battlefield Ground", 44, Style.BRASS)
+	terrain_hint_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	thv.add_child(terrain_hint_title)
+	terrain_hint_body = Style.label("", Style.BODY)
+	terrain_hint_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	terrain_hint_body.custom_minimum_size = Vector2(500, 0)
+	terrain_hint_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	thv.add_child(terrain_hint_body)
+	var dismiss_btn := _button("Understood", Vector2(0, Style.TOUCH), func(): terrain_hint_panel.visible = false)
+	Style.make_primary(dismiss_btn)
+	thv.add_child(dismiss_btn)
+
 
 func _bar_box(top: bool) -> StyleBoxFlat:
 	var sb := Style.box(Style.NIGHT, Color(0, 0, 0, 0), 0, 0)
@@ -1341,6 +1384,7 @@ func _draw() -> void:
 	_draw_shadows()
 	for sq in sim.squads:
 		_draw_men(sq)
+	_draw_treetops()
 	_draw_arrows()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_standards()
@@ -1356,6 +1400,14 @@ func _draw_field() -> void:
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
 	draw_texture_rect(Art.ground(_biome), Rect2(Vector2.ZERO, Sim.ARENA / px), true)
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+
+	# Elevation shading & contour lines
+	if _height_tex != null:
+		draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
+
+	# Rivers, fords, and rock outcrops
+	_draw_terrain_features()
+
 	var look: Dictionary = Art.GROUND.get(_biome, Art.GROUND["vardish"])
 	for patch in _patches:
 		draw_set_transform(field_origin + Vector2(patch["pos"]) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.7))
@@ -1366,6 +1418,178 @@ func _draw_field() -> void:
 		draw_texture(Art.frame(d["name"], 0, 0, _biome), -Art.pivot(d["name"], _biome))
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
+
+
+func _draw_terrain_features() -> void:
+	if sim == null or sim.terrain == null:
+		return
+	var t: Terrain = sim.terrain
+	for feat in t.features:
+		var ft: String = feat.get("type", "")
+		if ft == "river":
+			var half_w: float = float(feat.get("half_width", 38.0))
+			var phase: float = float(feat.get("phase", 0.0))
+			var fords: Array = feat.get("fords", [])
+			var ford_w: float = float(feat.get("ford_width", 90.0))
+
+			var pts_top := PackedVector2Array()
+			var pts_bot := PackedVector2Array()
+			var x_step := 20.0
+			var x := 0.0
+			while x <= Sim.ARENA.x + x_step:
+				var ry := 630.0 + sin(x * 0.007 + phase) * 35.0
+				pts_top.append(Vector2(x, ry - half_w))
+				pts_bot.append(Vector2(x, ry + half_w))
+				x += x_step
+			var poly := PackedVector2Array()
+			poly.append_array(pts_top)
+			pts_bot.reverse()
+			poly.append_array(pts_bot)
+			draw_colored_polygon(poly, Color(0.14, 0.30, 0.54, 0.88))
+
+			for fx in fords:
+				var fry := 630.0 + sin(fx * 0.007 + phase) * 35.0
+				var ford_rect := Rect2(fx - ford_w * 0.5, fry - half_w - 4.0, ford_w, half_w * 2.0 + 8.0)
+				draw_rect(ford_rect, Color(0.38, 0.68, 0.72, 0.80))
+				draw_rect(ford_rect, Color(0.72, 0.64, 0.42, 0.85), false, 2.0)
+
+		elif ft == "rock" or ft == "building":
+			var rect: Rect2 = feat.get("rect", Rect2())
+			if rect.size != Vector2.ZERO:
+				draw_rect(rect, Color(0.24, 0.22, 0.20, 0.95))
+				draw_rect(rect, Color(0.12, 0.10, 0.09, 0.95), false, 3.0)
+
+
+## Draw treetops over troops with 60% opacity so units in woods remain visible.
+func _draw_treetops() -> void:
+	if _trees.is_empty():
+		return
+	for tree in _trees:
+		var tex: Texture2D = MapArt.texture(tree["name"])
+		if tex == null:
+			continue
+		var p: Vector2 = tree["pos"]
+		var s: float = float(tree["scale"]) * 1.6
+		var flip: float = float(tree["flip"])
+		var sz := MapArt.size(tree["name"])
+		var dest := Rect2(p.x - sz.x * s * 0.5 * flip, p.y - sz.y * s, sz.x * s * flip, sz.y * s)
+		draw_texture_rect(tex, dest, false, Color(1, 1, 1, 0.60))
+
+
+func _setup_terrain_visuals() -> void:
+	if sim == null or sim.terrain == null:
+		return
+	var t: Terrain = sim.terrain
+	_trees.clear()
+	_terrain_site_type = "open"
+
+	# Build shaded height image
+	var iw := 112
+	var ih := 168
+	var img := Image.create_empty(iw, ih, false, Image.FORMAT_RGBA8)
+	var has_height := false
+	for y in ih:
+		for x in iw:
+			var p := Vector2((x + 0.5) / float(iw) * Sim.ARENA.x, (y + 0.5) / float(ih) * Sim.ARENA.y)
+			var h := t.height_at(p)
+			if h > 0.04:
+				has_height = true
+				var alpha := clampf(h * 0.40, 0.0, 0.45)
+				var mod_h := fmod(h, 0.20)
+				if mod_h < 0.025 and h > 0.15:
+					img.set_pixel(x, y, Color(1.0, 0.92, 0.65, 0.60))
+				else:
+					img.set_pixel(x, y, Color(1.0, 1.0, 0.85, alpha))
+			else:
+				img.set_pixel(x, y, Color(0, 0, 0, 0))
+	if has_height:
+		_height_tex = ImageTexture.create_from_image(img)
+	else:
+		_height_tex = null
+
+	# Populate woods trees
+	var tree_name := "tree"
+	match _biome:
+		"vardmark":
+			tree_name = "tree"
+		"kharzan":
+			tree_name = "palm"
+		"ryumon":
+			tree_name = "blossom"
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 999
+	for cy in Terrain.ROWS:
+		for cx in Terrain.COLS:
+			var idx := cy * Terrain.COLS + cx
+			if t.woods[idx] == Terrain.WOODS_TREES:
+				_terrain_site_type = "woods"
+				var cp := t.cell_pos(cx, cy)
+				for k in 2:
+					var p := cp + Vector2(rng.randf_range(-10.0, 10.0), rng.randf_range(-10.0, 10.0))
+					var kind := tree_name
+					if _biome == "vardmark" and t.height_at(p) > 0.4:
+						kind = "pine"
+					_trees.append({
+						"pos": p,
+						"name": kind,
+						"scale": rng.randf_range(1.1, 1.4),
+						"flip": 1.0 if rng.randf() < 0.5 else -1.0,
+					})
+	_trees.sort_custom(func(a, b): return a["pos"].y < b["pos"].y)
+
+	for feat in t.features:
+		var ft: String = feat.get("type", "")
+		if ft == "river":
+			_terrain_site_type = "river"
+		elif ft == "hill" or ft == "ridge":
+			if _terrain_site_type == "open":
+				_terrain_site_type = "hills"
+		elif ft == "rock":
+			_terrain_site_type = "pass"
+		elif ft == "building":
+			_terrain_site_type = "village"
+
+
+func _maybe_show_terrain_hint() -> void:
+	if _terrain_site_type == "" or _terrain_site_type == "open":
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load(Sound.SETTINGS_PATH) == OK and bool(cfg.get_value("terrain_hints", _terrain_site_type, false)):
+		return
+	var texts := {
+		"hills": ["Hills & Ridges", "High ground grants archers up to +25% range and downhill fighters a 25% damage advantage. Charging uphill grants no charge shock or bonus."],
+		"woods": ["Woods & Forests", "Dense stands slow foot troops by 25% and cavalry by 50%. Tree cover intercepts 50% of incoming arrows, cuts volley shock in half, and prevents cavalry charges."],
+		"river": ["River Fords", "Deep river water is impassable; troops must cross at shallow fords. Soldiers fighting in shallow water take +25% damage and cannot brace."],
+		"pass": ["Rocky Pass", "Impassable stone narrows the center of the field into a bottleneck. Arrows fly freely over the rocks."],
+		"village": ["Village Defense", "Buildings and walls divide the combat zone into tight streets."],
+	}
+	var card_data: Array = texts.get(_terrain_site_type, [])
+	if card_data.is_empty():
+		return
+	terrain_hint_title.text = card_data[0]
+	terrain_hint_body.text = card_data[1]
+	terrain_hint_panel.visible = true
+
+	cfg.set_value("terrain_hints", _terrain_site_type, true)
+	cfg.save(Sound.SETTINGS_PATH)
+
+
+func _terrain_hint(p: Vector2) -> String:
+	if sim == null or sim.terrain == null:
+		return ""
+	var t: Terrain = sim.terrain
+	if t.rock_at(p) != Terrain.ROCK_NONE:
+		return "Rock: impassable obstacle. Troops must go around; arrows fly over."
+	if t.water_at(p) == Terrain.WATER_DEEP:
+		return "Deep Water: impassable river. Troops must cross at shallow fords."
+	if t.water_at(p) == Terrain.WATER_SHALLOW:
+		return "Shallow Ford: 50% movement speed, +25% damage taken, no charges or bracing."
+	if t.in_woods(p):
+		return "Woods: slows horse by 50% (foot 25%), 50% arrow block, no charges."
+	if t.height_at(p) > 0.35:
+		var pct := int(t.height_at(p) * 100.0)
+		return "High Ground (%d%% elevation): +25%% archer range, uphill melee damage advantage." % pct
+	return ""
 
 
 ## A few rocks and bushes, more scrub and stone in the desert, more green on the isles,
