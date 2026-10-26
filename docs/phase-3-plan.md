@@ -9,8 +9,8 @@ troops, on varied ground.
 |---|---|---|---|
 | 3.1 | Orders and readability | 3–4 days | **Done** (`965d729`) |
 | 3.2 | Battlefield terrain | ~2 weeks | **Done** (`5b65a41`) |
-| 3.3 | Culture troop trees | ~2 weeks | Next |
-| 3.4 | Objectives and encounter variety | ~1.5 weeks | |
+| 3.3 | Culture troop trees | ~2 weeks | **Done** (`800568b`) |
+| 3.4 | Objectives and encounter variety | ~1.5 weeks | Next |
 | 3.5 | Integration and polish | ~1 week | |
 
 **Total remaining: about 7 weeks.** A cut line for a 3-week core is at the end.
