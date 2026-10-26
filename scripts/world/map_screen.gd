@@ -431,7 +431,7 @@ func _open_preview(id: String) -> void:
 		if world.is_sea(a, b):
 			sea = ", partly by sea"
 		a = b
-	var body := "%s\n%s away%s." % [Data.describe(id), _hours_text(hours), sea]
+	var body := "%s\n%s away%s." % [world.describe(id), _hours_text(hours), sea]
 	_show_sheet("preview", String(Data.settlement(id)["name"]), body,
 		[["Ride there", _on_travel.bind(id), true], ["Close", _close_sheet]])
 
@@ -444,7 +444,7 @@ func _open_here() -> void:
 	_selected = id
 	var buttons := [["Enter", _on_enter, true], ["Wait", _on_wait], ["Warband", _on_warband], ["Close", _close_sheet]]
 	var offers: Array = world.offers_at(id)
-	var body := "%s\nYou are here. " % Data.describe(id)
+	var body := "%s\nYou are here. " % world.describe(id)
 	if offers.is_empty():
 		body += "Nobody here is looking for work."
 	else:
@@ -728,7 +728,9 @@ func _draw() -> void:
 func _draw_settlement(id: String, px: float) -> void:
 	var s := Data.settlement(id)
 	var c := _to_screen(s["pos"])
+	# Built by its own people, flying its holder's colors.
 	var culture := Data.culture_of(s["faction"])
+	var colors := Cultures.color(Data.culture_of(world.owner_of(id)))
 	var sprite := "%s/%s" % [culture, s["type"]]
 	var w: float = MapArt.size(sprite).x * px
 	draw_set_transform(c + Vector2(0, 2), 0.0, Vector2(1.0, 0.32))
@@ -736,7 +738,7 @@ func _draw_settlement(id: String, px: float) -> void:
 	if id == _selected:
 		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Style.BRASS, 3.0 / 0.32)
 	draw_set_transform(c, 0.0, Vector2(px, px))
-	draw_texture(MapArt.texture(sprite, 0, Cultures.color(culture)), -MapArt.pivot(sprite))
+	draw_texture(MapArt.texture(sprite, 0, colors), -MapArt.pivot(sprite))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

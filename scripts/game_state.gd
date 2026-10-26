@@ -18,7 +18,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const SAVE_PATH := "user://campaign.json"
-const SAVE_VERSION := 4
+const SAVE_VERSION := 5
 
 ## Each squad: {id, type, men, xp, level, culture, name, captain}. Kills earn xp; xp
 ## lets a squad be trained to the next level in a town. A squad's culture is where it

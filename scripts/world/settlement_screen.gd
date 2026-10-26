@@ -61,7 +61,7 @@ func _build() -> void:
 	margin.add_child(col)
 
 	col.add_child(Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS))
-	col.add_child(_note(WorldData.describe(place)))
+	col.add_child(_note(GameState.world.describe(place)))
 	var days := GameState.food_days()
 	var purse := Style.label("%d silver · food for %s · wages %d a day" % [GameState.silver,
 		"1 day" if days == 1 else "%d days" % days, GameState.daily_wages()], Style.BODY, Style.TEXT)

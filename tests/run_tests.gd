@@ -28,8 +28,9 @@ const DUEL_SEEDS := 12
 const BRANCH_SEEDS := 4
 ## Attacking into good ground: battles per commander on each kind of ground, how much
 ## stronger the attacker is, and how many points less often it should win there than on
-## open ground.
-const TERRAIN_SEEDS := 8
+## open ground. 24 battles a commander: with 8, chance alone moved the result about 7
+## points either way, and one unlucky draw read 8 points where the ground is worth 21.
+const TERRAIN_SEEDS := 24
 const TERRAIN_ATTACKER := 1.15
 const TERRAIN_POINTS := 15.0
 ## Objectives: battles per commander, and how many points more often playing to them
@@ -87,6 +88,7 @@ func _init() -> void:
 	_check_travel()
 	_check_encounters()
 	_check_world_saves()
+	_check_realms()
 	_check_long_run()
 	_check_campaign_battles()
 
@@ -1088,6 +1090,20 @@ func _check_map() -> void:
 		if not WorldData.FACTIONS.has(WorldData.settlement(id)["faction"]):
 			realms_ok = false
 	_expect(realms_ok, "every settlement belongs to a realm of a known culture, and each realm holds its capital")
+	var bound_ok := true
+	var holds := {}
+	for id in WorldData.SETTLEMENTS:
+		var s: Dictionary = WorldData.SETTLEMENTS[id]
+		if s["type"] == WorldData.VILLAGE:
+			var lord := String(s.get("bound_to", ""))
+			if not WorldData.SETTLEMENTS.has(lord) or WorldData.SETTLEMENTS[lord]["type"] == WorldData.VILLAGE \
+					or WorldData.SETTLEMENTS[lord]["faction"] != s["faction"]:
+				bound_ok = false
+			holds[lord] = true
+	for id in WorldData.SETTLEMENTS:
+		if WorldData.SETTLEMENTS[id]["type"] != WorldData.VILLAGE and not holds.has(id):
+			bound_ok = false
+	_expect(bound_ok, "every village belongs to a castle or town of its realm, and every castle and town has a village")
 	_check_rivers()
 
 
@@ -1214,6 +1230,62 @@ func _check_world_saves() -> void:
 	_expect(JSON.stringify(gs2.to_dict()) == data, "a saved campaign loads back with its warband, place and hour")
 	gs.free()
 	gs2.free()
+
+
+## Who holds what, and who is at war, are the world's to change, and kept in its saves.
+func _check_realms() -> void:
+	var w := _quiet_world(3)
+	var start_ok := true
+	for id in WorldData.SETTLEMENTS:
+		start_ok = start_ok and w.owner_of(id) == WorldData.SETTLEMENTS[id]["faction"]
+	_expect(start_ok and w.at_war("vardmark", "kharzan") and not w.at_war("ryumon", "vardmark")
+		and not w.at_war("kharzan", "ryumon") and w.at_war("ryumon", WorldData.BANDITS),
+		"a campaign starts with the map's owners and wars: Vardmark and Kharzan at war, the isles at peace")
+
+	w.set_owner("ravensford", "kharzan")
+	var moved := w.owner_of("ravensford") == "kharzan" and w.owner_of("thornwall") == "kharzan" \
+		and not w.villages_of("vardmark").has("thornwall") and w.villages_of("kharzan").has("thornwall") \
+		and w.describe("ravensford").begins_with("Castle of the Sultanate of Kharzan · Vardish")
+	_expect(moved, "a castle that changes hands takes its villages with it, and its people stay who they were")
+	w.set_owner("highcliff", "kharzan")
+	var seat := w.capital_of("vardmark")
+	_expect(seat == "marchgate" and w.owner_of("ashby") == "kharzan" and w.home() == "marchgate",
+		"a realm that loses its capital rules from what it has left, and your warband regroups there (%s)" % seat)
+	for id in w.villages_of("vardmark"):
+		w.set_owner(id, "kharzan")
+	w.set_owner("marchgate", "kharzan")
+	w._spawn_band("vardmark")
+	_expect(w.bands().is_empty() and w.capital_of("vardmark") == "" and w.home() == "highcliff",
+		"a realm with nothing left raises no bandits, and has no seat")
+
+	w.make_peace("vardmark", "kharzan")
+	w.declare_war("ryumon", "kharzan")
+	var kinds := w.events.map(func(e): return e["type"])
+	_expect(not w.at_war("kharzan", "vardmark") and w.at_war("kharzan", "ryumon") and kinds.has("captured")
+		and kinds.has("peace") and kinds.has("war"), "realms make peace and go to war, and the world says so")
+
+	var saved := JSON.stringify(w.to_dict())
+	var copy := WorldSim.new()
+	copy.from_dict(JSON.parse_string(saved))
+	_expect(JSON.stringify(copy.to_dict()) == saved and copy.owner_of("highcliff") == "kharzan"
+		and copy.at_war("ryumon", "kharzan") and copy.capital_of("vardmark") == "",
+		"owners, wars and capitals are saved and load back")
+
+	# A save from before places could change hands: version 4, made by the game as it was.
+	var gs = GameStateScript.new()
+	gs.persist = false
+	var old = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/save_v4.json"))
+	var loaded: bool = gs.from_dict(old)
+	var as_map := true
+	for id in WorldData.SETTLEMENTS:
+		as_map = as_map and gs.world.owner_of(id) == WorldData.SETTLEMENTS[id]["faction"]
+	var men: int = gs.total_men()
+	gs.world.travel("nahrabad")
+	gs.advance(30.0)
+	_expect(int(old["version"]) == 4 and loaded and as_map and gs.world.at_war("kharzan", "vardmark")
+		and gs.world.capital_of("kharzan") == "khalun" and men > 0 and gs.world.hour > float(old["world"]["hour"]),
+		"a version-4 save loads into the map's first owners and wars, and plays on")
+	gs.free()
 
 
 func _check_long_run() -> void:

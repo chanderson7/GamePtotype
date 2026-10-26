@@ -5,6 +5,10 @@
 ## travelling or waiting, and stops the moment a bandit band blocks the road. Bandit
 ## bands roam the villages of their own realm, and one that is beaten comes back a day
 ## later.
+##
+## Who holds each settlement, which realms are at war and where each realm's capital is
+## start as world_data.gd has them, and are the world's own from then on: places change
+## hands, and wars begin and end.
 extends RefCounted
 
 const Data = preload("res://scripts/world/world_data.gd")
@@ -91,6 +95,14 @@ var encounter := -1
 ## settlement's offers come back after any are taken.
 var offers := {}
 var offers_back := {}
+## Who holds each settlement: id → realm. A village goes with the castle or town it's
+## bound to.
+var owners := {}
+## Realms at war, by pair ("kharzan|vardmark") → {since: hour}. Everyone is at war with
+## bandits besides.
+var wars := {}
+## Each realm's seat: realm → {capital}. A realm that loses its capital moves it.
+var realms := {}
 var _next_id := 1
 var _adjacent := {}
 
@@ -104,6 +116,7 @@ func setup(seed_value: int, player_culture: String) -> void:
 	culture = player_culture
 	hour = START_HOUR
 	_build_roads()
+	_start_realms()
 	var p := Party.new()
 	p.id = _take_id()
 	p.kind = PLAYER
@@ -114,6 +127,21 @@ func setup(seed_value: int, player_culture: String) -> void:
 		_spawn_band(faction)
 	for id in Data.SETTLEMENTS:
 		offers[id] = _new_offers(id)
+
+
+## The map as it stands at the start of a campaign: every place in its first owner's
+## hands, the first wars, each realm's capital where world_data.gd puts it.
+func _start_realms() -> void:
+	owners = {}
+	for id in Data.SETTLEMENTS:
+		owners[id] = String(Data.SETTLEMENTS[id]["faction"])
+	wars = {}
+	for w in Data.WARS:
+		wars[war_key(w[0], w[1])] = {"since": 0.0}
+	realms = {}
+	for f in Data.FACTIONS:
+		if f != Data.BANDITS:
+			realms[f] = {"capital": String(Data.FACTIONS[f]["capital"])}
 
 
 func _build_roads() -> void:
@@ -129,6 +157,87 @@ func _take_id() -> int:
 	var id := _next_id
 	_next_id += 1
 	return id
+
+
+# ---------------------------------------------------------------- realms
+
+## The realm holding settlement `id`.
+func owner_of(id: String) -> String:
+	return String(owners.get(id, Data.settlement(id)["faction"]))
+
+
+## Every settlement realm `realm` holds; only its villages with `type` VILLAGE.
+func holdings_of(realm: String, type: String = "") -> Array:
+	var out := []
+	for id in Data.SETTLEMENTS:
+		if owner_of(id) == realm and (type == "" or Data.settlement(id)["type"] == type):
+			out.append(id)
+	return out
+
+
+func villages_of(realm: String) -> Array:
+	return holdings_of(realm, Data.VILLAGE)
+
+
+## Where realm `realm` rules from, or "" if it holds no castle or town.
+func capital_of(realm: String) -> String:
+	return String(realms.get(realm, {}).get("capital", ""))
+
+
+static func war_key(a: String, b: String) -> String:
+	return "%s|%s" % [a, b] if a < b else "%s|%s" % [b, a]
+
+
+func at_war(a: String, b: String) -> bool:
+	if a == b:
+		return false
+	if a == Data.BANDITS or b == Data.BANDITS:
+		return true
+	return wars.has(war_key(a, b))
+
+
+func declare_war(a: String, b: String) -> void:
+	if a != b and not at_war(a, b):
+		wars[war_key(a, b)] = {"since": hour}
+		events.append({"type": "war", "realms": [a, b]})
+
+
+func make_peace(a: String, b: String) -> void:
+	if wars.erase(war_key(a, b)):
+		events.append({"type": "peace", "realms": [a, b]})
+
+
+## Settlement `id` passes to `realm`, with the villages bound to it. A realm that loses its
+## capital rules from its best remaining place: a town if it has one, else a castle.
+func set_owner(id: String, realm: String) -> void:
+	var was := owner_of(id)
+	if was == realm:
+		return
+	owners[id] = realm
+	for v in Data.SETTLEMENTS:
+		if String(Data.SETTLEMENTS[v].get("bound_to", "")) == id:
+			owners[v] = realm
+	if capital_of(was) == id:
+		var seat := ""
+		for kind in [Data.TOWN, Data.CASTLE]:
+			var held := holdings_of(was, kind)
+			if not held.is_empty():
+				seat = held[0]
+				break
+		realms[was]["capital"] = seat
+	events.append({"type": "captured", "settlement": id, "realm": realm, "from": was})
+
+
+## "Castle of the Kingdom of Vardmark · Vardish": what a place is, whose it is now, and who
+## lives there (its people don't change with its owner).
+func describe(id: String) -> String:
+	var s := Data.settlement(id)
+	var realm := owner_of(id)
+	var faction: Dictionary = Data.FACTIONS[realm]
+	var line := "%s of the %s" % [String(s["type"]).capitalize(), faction["name"]]
+	if capital_of(realm) == id:
+		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
+	return "%s · %s" % [line, Cultures.info(Data.culture_of(s["faction"]))["people"]]
 
 
 # ---------------------------------------------------------------- queries
@@ -221,7 +330,7 @@ func path(from: String, to: String, band_realm: String = "") -> Array:
 			var nxt: String = n[0]
 			if done.has(nxt):
 				continue
-			if band_realm != "" and (bool(n[1]) or Data.settlement(nxt)["faction"] != band_realm):
+			if band_realm != "" and (bool(n[1]) or owner_of(nxt) != band_realm):
 				continue
 			var speed := BANDIT_SPEED if band_realm != "" else (SEA_SPEED if bool(n[1]) else LAND_SPEED)
 			var c: float = cost[cur] + road_length(cur, nxt) / speed
@@ -360,7 +469,7 @@ func _move_band(b: Party, dt: float) -> void:
 	if b.raiding:
 		b.raiding = false
 		b.raid_village = ""
-	var choices: Array = Data.villages_of(b.faction).filter(func(v): return v != b.node)
+	var choices: Array = villages_of(b.faction).filter(func(v): return v != b.node)
 	if choices.is_empty():
 		b.wait = BANDIT_WAIT_MAX
 		return
@@ -406,7 +515,11 @@ func _spawn_band(faction: String) -> void:
 	for b in bands():
 		if b.faction == faction:
 			return
-	var villages := Data.villages_of(faction)
+	var villages := villages_of(faction)
+	if villages.is_empty():
+		# A realm with no villages left has no band either, until it wins one back.
+		respawns.append({"faction": faction, "at": hour + RESPAWN_HOURS})
+		return
 	var b := Party.new()
 	b.id = _take_id()
 	b.kind = BAND
@@ -530,6 +643,7 @@ func take_offer(id: String, index: int) -> Dictionary:
 
 func _new_offers(id: String) -> Array:
 	var s := Data.settlement(id)
+	# Recruits are of the place's own people, whoever holds it now.
 	var place_culture := Data.culture_of(s["faction"])
 	var kinds: Array
 	var count: int
@@ -594,12 +708,12 @@ func hurt_band(survivors: Dictionary) -> void:
 		respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
 
 
-## The band beat you: the survivors regroup at your culture's capital, half a day later.
+## The band beat you: the survivors regroup at your people's capital, half a day later.
 func lose_encounter() -> void:
 	var b := party(encounter)
 	encounter = -1
 	var p := player()
-	p.node = Data.capital_of_culture(culture)
+	p.node = home()
 	p.next = ""
 	p.along = 0.0
 	p.path = []
@@ -607,6 +721,17 @@ func lose_encounter() -> void:
 	hour += REGROUP_HOURS
 	if b != null:
 		b.grace_until = hour + GRACE_HOURS
+
+
+## Where your warband regroups: your people's capital, wherever their realm now rules from
+## (or where it first did, if it holds nothing).
+func home() -> String:
+	var realm := ""
+	for f in Data.FACTIONS:
+		if Data.FACTIONS[f]["culture"] == culture:
+			realm = f
+	var seat := capital_of(realm)
+	return seat if seat != "" else Data.capital_of_culture(culture)
 
 
 # ---------------------------------------------------------------- saving
@@ -626,6 +751,7 @@ func to_dict() -> Dictionary:
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
 		"escaped_chiefs": escaped_chiefs.duplicate(true),
 		"saved_villages": saved_villages.duplicate(),
+		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
 	}
 
 
@@ -633,6 +759,21 @@ func to_dict() -> Dictionary:
 ## and ids come back as ints.
 func from_dict(d: Dictionary) -> void:
 	_build_roads()
+	# A world saved before places could change hands starts from the map as it was.
+	_start_realms()
+	var raw_owners = d.get("owners", {})
+	for id in raw_owners:
+		if Data.SETTLEMENTS.has(String(id)):
+			owners[String(id)] = String(raw_owners[id])
+	if d.has("wars"):
+		wars = {}
+		var raw_wars = d["wars"]
+		for k in raw_wars:
+			wars[String(k)] = {"since": float(raw_wars[k].get("since", 0.0))}
+	var raw_realms = d.get("realms", {})
+	for f in raw_realms:
+		if realms.has(String(f)):
+			realms[String(f)]["capital"] = String(raw_realms[f].get("capital", ""))
 	hour = float(d.get("hour", 0.0))
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))

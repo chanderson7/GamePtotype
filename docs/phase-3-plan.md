@@ -90,8 +90,9 @@ plan below, it says so here.
   terrain-using player gained little over a good tactician against an AI that now uses it
   too (about 58–61% against 50%). The gate is now: an army 15% stronger, pressing
   *Advance all* against a band that holds a ridge, a ford or a wood's edge, wins at least
-  15 points less often than on open ground. It measures about 19–27 points: a ridge costs
-  the attacker the most (25–38), a ford 17–31, a wood's edge about 11.
+  15 points less often than on open ground. Over 24 seeds per commander it measures 21
+  points: a ridge costs the attacker 38, a ford 15, a wood's edge 11. (With 8 seeds, as
+  first written, chance moved it about 7 points either way; one draw read 8.)
 - **"Objectives ask for something different"** is measured on each objective: the
   tactician plays it (hunts the chief with its horse, strikes back at once when ambushed,
   holds the village square) and must win each at least 60% of the time and, on average,
@@ -145,7 +146,7 @@ plan below, it says so here.
   ```
 - **Pixel art comes from tools.** Edit `tools/unit_sprites.py` or `tools/map_sprites.py` and
   re-run them. Don't hand-edit the generated `scripts/art/*_data.gd` files.
-- **Saves must keep loading.** Bump `SAVE_VERSION` in `scripts/game_state.gd` (now 4) and give
+- **Saves must keep loading.** Bump `SAVE_VERSION` in `scripts/game_state.gd` (now 5) and give
   every new field a default in `from_dict`.
 - **Don't commit generated `.uid` or `.import` files.**
 

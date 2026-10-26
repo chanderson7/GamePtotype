@@ -1,5 +1,6 @@
 ## The Glass Sea: factions, settlements, roads and coastlines, as plain data. The world
-## sim reads this; nothing here changes during a campaign.
+## sim reads this; nothing here changes during a campaign. Who holds each settlement and
+## who is at war are only where a campaign starts: the world sim keeps them after that.
 ##
 ## Map space is SIZE units, origin at the top left. Vardmark holds the northwest shore,
 ## Kharzan the south, joined to it by a land bridge in the west; the Ryumon isles lie
@@ -23,22 +24,31 @@ const FACTIONS := {
 	BANDITS: {"name": "Bandits", "culture": "", "ruler": "", "capital": ""},
 }
 
-## Pairs of factions at war. Everyone is also at war with bandits.
+## The wars a campaign starts with. The world sim keeps the wars after that.
 const WARS := [["vardmark", "kharzan"]]
 
 const SETTLEMENTS := {
 	"highcliff": {"name": "Highcliff", "type": TOWN, "faction": "vardmark", "pos": Vector2(300, 250)},
 	"ravensford": {"name": "Ravensford", "type": CASTLE, "faction": "vardmark", "pos": Vector2(180, 560)},
-	"kettlebrook": {"name": "Kettlebrook", "type": VILLAGE, "faction": "vardmark", "pos": Vector2(470, 160)},
-	"thornwall": {"name": "Thornwall", "type": VILLAGE, "faction": "vardmark", "pos": Vector2(420, 470)},
+	"marchgate": {"name": "Marchgate", "type": CASTLE, "faction": "vardmark", "pos": Vector2(200, 800)},
+	"kettlebrook": {"name": "Kettlebrook", "type": VILLAGE, "faction": "vardmark", "pos": Vector2(470, 160), "bound_to": "highcliff"},
+	"ashby": {"name": "Ashby", "type": VILLAGE, "faction": "vardmark", "pos": Vector2(130, 340), "bound_to": "highcliff"},
+	"thornwall": {"name": "Thornwall", "type": VILLAGE, "faction": "vardmark", "pos": Vector2(420, 470), "bound_to": "ravensford"},
+	"bramblemoor": {"name": "Bramblemoor", "type": VILLAGE, "faction": "vardmark", "pos": Vector2(90, 690), "bound_to": "marchgate"},
 	"khalun": {"name": "Khalun", "type": TOWN, "faction": "kharzan", "pos": Vector2(520, 1300)},
 	"zeyra": {"name": "Qal'at Zeyra", "type": CASTLE, "faction": "kharzan", "pos": Vector2(230, 1080)},
-	"bir_sahra": {"name": "Bir Sahra", "type": VILLAGE, "faction": "kharzan", "pos": Vector2(760, 1420)},
-	"nahrabad": {"name": "Nahrabad", "type": VILLAGE, "faction": "kharzan", "pos": Vector2(330, 1460)},
+	"qasr_hamra": {"name": "Qasr Hamra", "type": CASTLE, "faction": "kharzan", "pos": Vector2(860, 1215)},
+	"nahrabad": {"name": "Nahrabad", "type": VILLAGE, "faction": "kharzan", "pos": Vector2(330, 1460), "bound_to": "khalun"},
+	"dar_nakhla": {"name": "Dar Nakhla", "type": VILLAGE, "faction": "kharzan", "pos": Vector2(110, 1270), "bound_to": "zeyra"},
+	"bir_sahra": {"name": "Bir Sahra", "type": VILLAGE, "faction": "kharzan", "pos": Vector2(760, 1420), "bound_to": "qasr_hamra"},
+	"ain_tamar": {"name": "Ain Tamar", "type": VILLAGE, "faction": "kharzan", "pos": Vector2(930, 1370), "bound_to": "qasr_hamra"},
 	"kurogane": {"name": "Kurogane", "type": TOWN, "faction": "ryumon", "pos": Vector2(860, 380)},
 	"takamine": {"name": "Takamine", "type": CASTLE, "faction": "ryumon", "pos": Vector2(900, 700)},
-	"hamazaki": {"name": "Hamazaki", "type": VILLAGE, "faction": "ryumon", "pos": Vector2(780, 160)},
-	"shiraumi": {"name": "Shiraumi", "type": VILLAGE, "faction": "ryumon", "pos": Vector2(760, 560)},
+	"kitayama": {"name": "Kitayama", "type": CASTLE, "faction": "ryumon", "pos": Vector2(915, 215)},
+	"kawabe": {"name": "Kawabe", "type": VILLAGE, "faction": "ryumon", "pos": Vector2(745, 260), "bound_to": "kurogane"},
+	"hamazaki": {"name": "Hamazaki", "type": VILLAGE, "faction": "ryumon", "pos": Vector2(780, 160), "bound_to": "kitayama"},
+	"shiraumi": {"name": "Shiraumi", "type": VILLAGE, "faction": "ryumon", "pos": Vector2(760, 560), "bound_to": "takamine"},
+	"minato": {"name": "Minato", "type": VILLAGE, "faction": "ryumon", "pos": Vector2(930, 560), "bound_to": "takamine"},
 }
 
 ## [a, b, sea]. Sea lanes are slower and bandits never take them.
@@ -46,15 +56,30 @@ const ROADS := [
 	["highcliff", "kettlebrook", false],
 	["highcliff", "thornwall", false],
 	["highcliff", "ravensford", false],
+	["highcliff", "ashby", false],
+	["ashby", "ravensford", false],
 	["thornwall", "ravensford", false],
-	["ravensford", "zeyra", false],
+	["ravensford", "marchgate", false],
+	["marchgate", "bramblemoor", false],
+	["marchgate", "zeyra", false],
 	["zeyra", "nahrabad", false],
 	["zeyra", "khalun", false],
+	["zeyra", "dar_nakhla", false],
+	["dar_nakhla", "nahrabad", false],
 	["khalun", "nahrabad", false],
 	["khalun", "bir_sahra", false],
+	["khalun", "qasr_hamra", false],
+	["qasr_hamra", "bir_sahra", false],
+	["qasr_hamra", "ain_tamar", false],
 	["kurogane", "hamazaki", false],
 	["kurogane", "shiraumi", false],
+	["kurogane", "kawabe", false],
+	["kurogane", "kitayama", false],
+	["kurogane", "minato", false],
+	["kawabe", "hamazaki", false],
+	["kitayama", "hamazaki", false],
 	["shiraumi", "takamine", false],
+	["minato", "takamine", false],
 	["kettlebrook", "hamazaki", true],
 	["thornwall", "shiraumi", true],
 	["bir_sahra", "takamine", true],
@@ -112,33 +137,11 @@ static func culture_of(faction: String) -> String:
 	return String(FACTIONS[faction]["culture"])
 
 
-## "Capital of the Kingdom of Vardmark, seat of King Aldwin · Vardish": what a place is,
-## whose it is, and who lives there.
-static func describe(id: String) -> String:
-	var s := settlement(id)
-	var faction: Dictionary = FACTIONS[s["faction"]]
-	var line := "%s of the %s" % [String(s["type"]).capitalize(), faction["name"]]
-	if s["type"] == TOWN and faction["capital"] == id:
-		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
-	return "%s · %s" % [line, Cultures.info(culture_of(s["faction"]))["people"]]
-
-
 static func capital_of_culture(culture: String) -> String:
 	for f in FACTIONS:
 		if FACTIONS[f]["culture"] == culture:
 			return String(FACTIONS[f]["capital"])
 	return "highcliff"
-
-
-static func at_war(a: String, b: String) -> bool:
-	if a == b:
-		return false
-	if a == BANDITS or b == BANDITS:
-		return true
-	for w in WARS:
-		if w.has(a) and w.has(b):
-			return true
-	return false
 
 
 ## The index of the coastline a point lies on, or -1 if it's at sea.
@@ -235,11 +238,3 @@ static func fords() -> Array:
 
 static func is_village(id: String) -> bool:
 	return SETTLEMENTS.has(id) and SETTLEMENTS[id]["type"] == VILLAGE
-
-
-static func villages_of(faction: String) -> Array:
-	var out := []
-	for id in SETTLEMENTS:
-		if SETTLEMENTS[id]["faction"] == faction and SETTLEMENTS[id]["type"] == VILLAGE:
-			out.append(id)
-	return out

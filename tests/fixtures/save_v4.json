@@ -1,0 +1,696 @@
+{
+	"army": [
+		{
+			"captain": {
+				"battles": 0,
+				"bonds": {},
+				"culture": "kharzani",
+				"first": "Nasrin",
+				"id": 1,
+				"kills": 0,
+				"name": "Nasrin of Bir Sahra",
+				"quirk": "Mentor",
+				"temperament": "Steadfast",
+				"type": "infantry",
+				"wounded": 0
+			},
+			"culture": "kharzani",
+			"id": 1,
+			"level": 1,
+			"men": 20,
+			"name": "Nasrin's Blades",
+			"pending_branch": false,
+			"type": "infantry",
+			"unit": "kharzani_infantry",
+			"xp": 0
+		},
+		{
+			"captain": {
+				"battles": 0,
+				"bonds": {},
+				"culture": "kharzani",
+				"first": "Farid",
+				"id": 2,
+				"kills": 0,
+				"name": "Farid of Darvan",
+				"quirk": "Bold",
+				"temperament": "Vengeful",
+				"type": "infantry",
+				"wounded": 0
+			},
+			"culture": "kharzani",
+			"id": 2,
+			"level": 1,
+			"men": 20,
+			"name": "Farid's Blades",
+			"pending_branch": false,
+			"type": "infantry",
+			"unit": "kharzani_infantry",
+			"xp": 0
+		},
+		{
+			"captain": {
+				"battles": 0,
+				"bonds": {},
+				"culture": "kharzani",
+				"first": "Selim",
+				"id": 3,
+				"kills": 0,
+				"name": "Selim of Darvan",
+				"quirk": "Bold",
+				"temperament": "Steadfast",
+				"type": "spearmen",
+				"wounded": 0
+			},
+			"culture": "kharzani",
+			"id": 3,
+			"level": 1,
+			"men": 20,
+			"name": "Selim's Spears",
+			"pending_branch": false,
+			"type": "spearmen",
+			"unit": "kharzani_spearmen",
+			"xp": 0
+		},
+		{
+			"captain": {
+				"battles": 0,
+				"bonds": {},
+				"culture": "kharzani",
+				"first": "Soraya",
+				"id": 4,
+				"kills": 0,
+				"name": "Soraya of Sefid Oasis",
+				"quirk": "Lucky",
+				"temperament": "Fragile",
+				"type": "archers",
+				"wounded": 0
+			},
+			"culture": "kharzani",
+			"id": 4,
+			"level": 1,
+			"men": 20,
+			"name": "Soraya's Bows",
+			"pending_branch": false,
+			"type": "archers",
+			"unit": "kharzani_archers",
+			"xp": 0
+		},
+		{
+			"captain": {
+				"battles": 0,
+				"bonds": {},
+				"culture": "kharzani",
+				"first": "Tariq",
+				"id": 5,
+				"kills": 0,
+				"name": "Tariq of the Red Wastes",
+				"quirk": "Bold",
+				"temperament": "Steadfast",
+				"type": "cavalry",
+				"wounded": 0
+			},
+			"culture": "kharzani",
+			"id": 5,
+			"level": 1,
+			"men": 16,
+			"name": "Tariq's Riders",
+			"pending_branch": false,
+			"type": "cavalry",
+			"unit": "kharzani_cavalry",
+			"xp": 0
+		}
+	],
+	"battles": 0,
+	"culture": "kharzani",
+	"fallen": [],
+	"food": 480,
+	"next_captain": 6,
+	"next_id": 6,
+	"paid_day": 0,
+	"renown": 0,
+	"silver": 400,
+	"version": 4,
+	"wins": 0,
+	"world": {
+		"culture": "kharzani",
+		"encounter": -1,
+		"escaped_chiefs": [],
+		"hour": 14.0,
+		"next_id": 5,
+		"offers": {
+			"bir_sahra": [
+				{
+					"culture": "kharzani",
+					"type": "spearmen"
+				},
+				{
+					"culture": "kharzani",
+					"type": "spearmen"
+				}
+			],
+			"hamazaki": [
+				{
+					"culture": "ryumon",
+					"type": "spearmen"
+				}
+			],
+			"highcliff": [
+				{
+					"culture": "vardish",
+					"type": "spearmen"
+				},
+				{
+					"culture": "vardish",
+					"type": "archers"
+				}
+			],
+			"kettlebrook": [
+				{
+					"culture": "vardish",
+					"type": "infantry"
+				}
+			],
+			"khalun": [
+				{
+					"culture": "kharzani",
+					"type": "spearmen"
+				},
+				{
+					"culture": "kharzani",
+					"type": "cavalry"
+				}
+			],
+			"kurogane": [
+				{
+					"culture": "ryumon",
+					"type": "infantry"
+				},
+				{
+					"culture": "ryumon",
+					"type": "spearmen"
+				},
+				{
+					"culture": "ryumon",
+					"type": "cavalry"
+				}
+			],
+			"nahrabad": [
+				{
+					"culture": "kharzani",
+					"type": "infantry"
+				},
+				{
+					"culture": "kharzani",
+					"type": "archers"
+				}
+			],
+			"ravensford": [
+				{
+					"culture": "vardish",
+					"type": "spearmen"
+				}
+			],
+			"shiraumi": [
+				{
+					"culture": "ryumon",
+					"type": "infantry"
+				},
+				{
+					"culture": "ryumon",
+					"type": "infantry"
+				}
+			],
+			"takamine": [
+				{
+					"culture": "ryumon",
+					"type": "cavalry"
+				}
+			],
+			"thornwall": [
+				{
+					"culture": "vardish",
+					"type": "spearmen"
+				},
+				{
+					"culture": "vardish",
+					"type": "spearmen"
+				}
+			],
+			"zeyra": [
+				{
+					"culture": "kharzani",
+					"type": "cavalry"
+				}
+			]
+		},
+		"offers_back": {},
+		"parties": [
+			{
+				"along": 240.0,
+				"army": [],
+				"chief_name": "",
+				"faction": "",
+				"grace_until": -1.0,
+				"id": 1,
+				"is_chief_band": false,
+				"kind": "player",
+				"name": "Your warband",
+				"next": "zeyra",
+				"node": "khalun",
+				"path": [],
+				"raid_village": "",
+				"raiding": false,
+				"wait": 0.0
+			},
+			{
+				"along": 17.0,
+				"army": [
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "vardish",
+							"first": "Erik",
+							"id": 905020,
+							"kills": 0,
+							"name": "Erik Blood-axe",
+							"quirk": "",
+							"temperament": "Vengeful",
+							"type": "cavalry",
+							"wounded": 0
+						},
+						"chief_name": "Erik Blood-axe",
+						"culture": "vardish",
+						"id": 5020,
+						"is_bodyguard": true,
+						"is_chief": true,
+						"level": 2,
+						"men": 12,
+						"name": "Erik Blood-axe's Bodyguard",
+						"type": "cavalry",
+						"unit": "vardish_knights",
+						"xp": 20
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "vardish",
+							"first": "Brisa",
+							"id": 905021,
+							"kills": 0,
+							"name": "Brisa of the Ash Hills",
+							"quirk": "Bold",
+							"temperament": "Steadfast",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "vardish",
+						"id": 5021,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 11,
+						"name": "Brisa's Bows",
+						"type": "archers",
+						"unit": "vardish_archers",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "vardish",
+							"first": "Jessa",
+							"id": 905022,
+							"kills": 0,
+							"name": "Jessa of the Marches",
+							"quirk": "",
+							"temperament": "Steadfast",
+							"type": "spearmen",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "vardish",
+						"id": 5022,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 12,
+						"name": "Jessa's Pikes",
+						"type": "spearmen",
+						"unit": "vardish_spearmen",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "vardish",
+							"first": "Emrys",
+							"id": 905023,
+							"kills": 0,
+							"name": "Emrys of the Ash Hills",
+							"quirk": "Lucky",
+							"temperament": "Steadfast",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "vardish",
+						"id": 5023,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 9,
+						"name": "Emrys's Bows",
+						"type": "archers",
+						"unit": "vardish_archers",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "vardish",
+							"first": "Hale",
+							"id": 905024,
+							"kills": 0,
+							"name": "Hale of Thornwall",
+							"quirk": "Mentor",
+							"temperament": "Vengeful",
+							"type": "infantry",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "vardish",
+						"id": 5024,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 9,
+						"name": "Hale's Shields",
+						"type": "infantry",
+						"unit": "vardish_infantry",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "vardish",
+							"first": "Aldric",
+							"id": 905025,
+							"kills": 0,
+							"name": "Aldric of Ostmark",
+							"quirk": "",
+							"temperament": "Vengeful",
+							"type": "infantry",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "vardish",
+						"id": 5025,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 9,
+						"name": "Aldric's Shields",
+						"type": "infantry",
+						"unit": "vardish_infantry",
+						"xp": 0
+					}
+				],
+				"chief_name": "Erik Blood-axe",
+				"faction": "vardmark",
+				"grace_until": 9.0,
+				"id": 2,
+				"is_chief_band": true,
+				"kind": "bandit",
+				"name": "Erik Blood-axe's Band",
+				"next": "highcliff",
+				"node": "thornwall",
+				"path": [
+					"kettlebrook"
+				],
+				"raid_village": "",
+				"raiding": false,
+				"wait": 0.0
+			},
+			{
+				"along": 68.0,
+				"army": [
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "kharzani",
+							"first": "Leyla",
+							"id": 905030,
+							"kills": 0,
+							"name": "Leyla of Tamarisk Gate",
+							"quirk": "",
+							"temperament": "Fragile",
+							"type": "infantry",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "kharzani",
+						"id": 5030,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 11,
+						"name": "Leyla's Blades",
+						"type": "infantry",
+						"unit": "kharzani_infantry",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "kharzani",
+							"first": "Rustam",
+							"id": 905031,
+							"kills": 0,
+							"name": "Rustam of Khalun",
+							"quirk": "Mentor",
+							"temperament": "Fragile",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "kharzani",
+						"id": 5031,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 14,
+						"name": "Rustam's Bows",
+						"type": "archers",
+						"unit": "kharzani_archers",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "kharzani",
+							"first": "Karim",
+							"id": 905032,
+							"kills": 0,
+							"name": "Karim of Tamarisk Gate",
+							"quirk": "Bold",
+							"temperament": "Steadfast",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "kharzani",
+						"id": 5032,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 8,
+						"name": "Karim's Bows",
+						"type": "archers",
+						"unit": "kharzani_archers",
+						"xp": 0
+					}
+				],
+				"chief_name": "",
+				"faction": "kharzan",
+				"grace_until": 9.0,
+				"id": 3,
+				"is_chief_band": false,
+				"kind": "bandit",
+				"name": "Red Waste reavers",
+				"next": "khalun",
+				"node": "nahrabad",
+				"path": [
+					"bir_sahra"
+				],
+				"raid_village": "",
+				"raiding": false,
+				"wait": 0.0
+			},
+			{
+				"along": 25.5,
+				"army": [
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "ryumon",
+							"first": "Takeshi",
+							"id": 905040,
+							"kills": 0,
+							"name": "Takeshi of Tsuyu Pass",
+							"quirk": "Bold",
+							"temperament": "Fragile",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "ryumon",
+						"id": 5040,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 14,
+						"name": "Takeshi's Yumi",
+						"type": "archers",
+						"unit": "ryumon_archers",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "ryumon",
+							"first": "Mitsu",
+							"id": 905041,
+							"kills": 0,
+							"name": "Mitsu of Tsuyu Pass",
+							"quirk": "Mentor",
+							"temperament": "Steadfast",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "ryumon",
+						"id": 5041,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 8,
+						"name": "Mitsu's Yumi",
+						"type": "archers",
+						"unit": "ryumon_archers",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "ryumon",
+							"first": "Sayo",
+							"id": 905042,
+							"kills": 0,
+							"name": "Sayo of Mizunaka",
+							"quirk": "Lucky",
+							"temperament": "Vengeful",
+							"type": "cavalry",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "ryumon",
+						"id": 5042,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 13,
+						"name": "Sayo's Riders",
+						"type": "cavalry",
+						"unit": "ryumon_cavalry",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "ryumon",
+							"first": "Isamu",
+							"id": 905043,
+							"kills": 0,
+							"name": "Isamu of Takamine",
+							"quirk": "Bold",
+							"temperament": "Vengeful",
+							"type": "spearmen",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "ryumon",
+						"id": 5043,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 11,
+						"name": "Isamu's Yari",
+						"type": "spearmen",
+						"unit": "ryumon_spearmen",
+						"xp": 0
+					},
+					{
+						"captain": {
+							"battles": 0,
+							"bonds": {},
+							"culture": "ryumon",
+							"first": "Goro",
+							"id": 905044,
+							"kills": 0,
+							"name": "Goro of Hamazaki",
+							"quirk": "Mentor",
+							"temperament": "Steadfast",
+							"type": "archers",
+							"wounded": 0
+						},
+						"chief_name": "",
+						"culture": "ryumon",
+						"id": 5044,
+						"is_bodyguard": false,
+						"is_chief": false,
+						"level": 1,
+						"men": 12,
+						"name": "Goro's Yumi",
+						"type": "archers",
+						"unit": "ryumon_archers",
+						"xp": 0
+					}
+				],
+				"chief_name": "",
+				"faction": "ryumon",
+				"grace_until": 9.0,
+				"id": 4,
+				"is_chief_band": false,
+				"kind": "bandit",
+				"name": "Ronin band",
+				"next": "kurogane",
+				"node": "hamazaki",
+				"path": [
+					"shiraumi"
+				],
+				"raid_village": "",
+				"raiding": false,
+				"wait": 0.0
+			}
+		],
+		"respawns": [],
+		"saved_villages": {},
+		"seed": "184686247",
+		"state": "9179420515263182596"
+	}
+}

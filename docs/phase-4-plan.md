@@ -11,15 +11,15 @@ This is the phase that makes Bannerfall a Mount & Blade-like rather than a battl
 a map. It comes after Phase 3 because lords' armies are built from the culture troop trees,
 and their fights are fought on Phase 3's ground with its objectives.
 
-| | Workstream | Size (solo) |
-|---|---|---|
-| 4.1 | A world that can change: owners, wars, a bigger map, save v5 | ~1.5 weeks |
-| 4.2 | Lords on the map | ~2.5 weeks |
-| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks |
-| 4.4 | War and peace | ~1 week |
-| 4.5 | You in the war: lord encounters, contracts, battles bigger than your warband | ~2 weeks |
-| 4.6 | Prisoners, ransom, and lords who remember | ~1 week |
-| 4.7 | Integration and polish | ~1 week |
+| | Workstream | Size (solo) | Status |
+|---|---|---|---|
+| 4.1 | A world that can change: owners, wars, a bigger map, save v5 | ~1.5 weeks | **Done** |
+| 4.2 | Lords on the map | ~2.5 weeks | Next |
+| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | |
+| 4.4 | War and peace | ~1 week | |
+| 4.5 | You in the war: lord encounters, contracts, battles bigger than your warband | ~2 weeks | |
+| 4.6 | Prisoners, ransom, and lords who remember | ~1 week | |
+| 4.7 | Integration and polish | ~1 week | |
 
 About 11 weeks solo. The cut line at the end gives a 5-week core.
 
@@ -66,7 +66,23 @@ still in their capital.
 
 ---
 
-## 4.1 A world that can change (~1.5 weeks)
+## 4.1 A world that can change (~1.5 weeks): done
+
+**As built:** `WorldSim` holds `owners`, `wars` and `realms` (each realm's capital), read
+through `owner_of`, `holdings_of`, `villages_of`, `capital_of` and `at_war`, and changed
+through `set_owner` (which takes the bound villages along and moves a lost capital to the
+realm's best remaining town or castle), `declare_war` and `make_peace`. Each change is a
+world event (`captured`, `war`, `peace`). `WorldData` keeps only the starting state:
+`describe`, `at_war` and `villages_of` moved to the world sim, since they now depend on it.
+The map has 21 settlements: per realm a town, two castles and four villages (Marchgate
+guards the land bridge; Qasr Hamra and Kitayama are the new eastern and northern castles),
+every village bound to a castle or town. A realm with no villages left raises no bandits,
+and your warband regroups at your people's capital wherever it now is. Saves are version
+5; `tests/fixtures/save_v4.json`, made by the game before this change, loads into the
+starting owners and wars. Settlements are drawn by their own people and fly their holder's
+colors.
+
+### The plan
 
 ### What changes
 
