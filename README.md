@@ -146,6 +146,6 @@ Add `-- --balance` to also fight three scripted players against every kind of co
 - [x] Reasons to ride: silver, food and wages, recruiting by culture, training, renown, auto-resolve
 - [x] A first look and sound: troops dressed by culture, a living map, music and sound for every place
 - [x] Phase 3: battlefield terrain, culture troop trees, objectives and encounter variety (`docs/phase-3-plan.md`)
-- [ ] War map: AI lords on the move, towns and castles that change hands (Phase 4)
-- [ ] Kingdoms and diplomacy: war, peace, alliances, tribute (Phase 4)
-- [ ] Sieges, a second art and sound pass, then Steam early access and the App Store (Phase 6)
+- [ ] Phase 4, a living world: lords and armies on the map, war and peace, sieges that change who holds what, mercenary contracts, prisoners and ransom (`docs/phase-4-plan.md`)
+- [ ] Captains and men: wounded men, captain skills and promotions, Casual mode (Phase 5)
+- [ ] Land of your own and the crown: fiefs, vassalage, playable sieges, your own kingdom and alliances; a second art and sound pass, then Steam early access and the App Store (Phase 6 and launch)
