@@ -16,6 +16,7 @@ const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 const PLANS := ["advance", "hold", "tactician", "terrain"]
 ## The tactician's line fights braced this long after the first clash before the rest go
@@ -36,6 +37,28 @@ static func army(seed_value: int) -> Array:
 	for type in [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.SPEARMEN, Troops.ARCHERS, Troops.ARCHERS, Troops.CAVALRY]:
 		out.append({"id": id, "type": type, "men": Troops.full_size(type), "xp": 0,
 			"captain": Captains.make(rng, seed_value * 100 + id, type)})
+		id += 1
+	for i in range(out.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp = out[i]
+		out[i] = out[j]
+		out[j] = tmp
+	return out
+
+
+## Seven squads with captains for a specific culture.
+static func culture_army(cult: String, seed_value: int) -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 7919
+	var out := []
+	var id := 1
+	for type in [Troops.INFANTRY, Troops.INFANTRY, Troops.SPEARMEN, Troops.SPEARMEN, Troops.ARCHERS, Troops.ARCHERS, Troops.CAVALRY]:
+		var unit_id := Units.recruit(cult, type)
+		out.append({
+			"id": id, "type": type, "unit": unit_id, "culture": cult,
+			"men": Units.full_size(unit_id), "xp": 0,
+			"captain": Captains.make(rng, seed_value * 100 + id, type, [], cult)
+		})
 		id += 1
 	for i in range(out.size() - 1, 0, -1):
 		var j := rng.randi_range(0, i)

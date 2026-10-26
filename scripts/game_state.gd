@@ -14,8 +14,9 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
+const Units = preload("res://scripts/data/units.gd")
 const SAVE_PATH := "user://campaign.json"
-const SAVE_VERSION := 3
+const SAVE_VERSION := 4
 
 ## Each squad: {id, type, men, xp, level, culture, name, captain}. Kills earn xp; xp
 ## lets a squad be trained to the next level in a town. A squad's culture is where it
@@ -94,7 +95,9 @@ func new_warband() -> void:
 func _new_squad(type: String, squad_culture: String = "") -> Dictionary:
 	var c := squad_culture if squad_culture != "" else culture
 	var captain := _new_captain(type, c)
-	var squad := {"id": _next_id, "type": type, "men": Troops.full_size(type), "xp": 0, "level": 1,
+	var unit_id := Units.recruit(c, type)
+	var full := Units.full_size(unit_id)
+	var squad := {"id": _next_id, "type": type, "unit": unit_id, "men": full, "xp": 0, "level": 1,
 		"culture": c, "name": Captains.company_name(captain, type), "captain": captain}
 	_next_id += 1
 	return squad
@@ -119,7 +122,8 @@ func total_men() -> int:
 
 func is_wounded() -> bool:
 	for s in army:
-		if int(s["men"]) < Troops.full_size(s["type"]):
+		var full := Units.full_size(s.get("unit", "")) if Units.has(s.get("unit", "")) else Troops.full_size(s["type"])
+		if int(s["men"]) < full:
 			return true
 	return false
 
@@ -158,7 +162,9 @@ func food_days() -> int:
 
 ## Silver to bring one squad back to full strength.
 func reinforce_cost(squad: Dictionary) -> int:
-	return Economy.recruit_cost(squad["type"], Troops.full_size(squad["type"]) - int(squad["men"]))
+	var unit_id: String = squad.get("unit", "")
+	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(squad["type"])
+	return Economy.recruit_cost(unit_id if unit_id != "" else squad["type"], full - int(squad["men"]))
 
 
 ## Refill one squad with fresh recruits, in a town, if you can pay. Fresh men water down
@@ -167,7 +173,8 @@ func reinforce_squad(id: int) -> bool:
 	var s := squad_by_id(id)
 	if s.is_empty() or not in_town():
 		return false
-	var full := Troops.full_size(s["type"])
+	var unit_id: String = s.get("unit", "")
+	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(s["type"])
 	var cost := reinforce_cost(s)
 	if cost <= 0 or cost > silver:
 		return false
@@ -190,23 +197,56 @@ func reinforce(budget: int = -1) -> int:
 	return spent
 
 
-## True if a squad has the experience for its next level and isn't at the top.
+## True if a squad has the experience for its next level and isn't at the top, or has a pending branch choice.
 func can_train(squad: Dictionary) -> bool:
+	if squad.get("pending_branch", false):
+		return true
 	var level := int(squad.get("level", 1))
 	return level < Troops.MAX_LEVEL and Troops.level_for(int(squad["xp"])) > level
 
 
-## Train a squad up a level, in a town. Each level makes its men tougher and deadlier,
-## and costs more in wages.
-func train_squad(id: int) -> bool:
+## Train a squad up a level, in a town. When training to level 2, branch_unit_id picks the
+## upgrade path; if left empty, defaults to the first branch. Pending branch upgrades are free.
+func train_squad(id: int, branch_unit_id: String = "") -> bool:
 	var s := squad_by_id(id)
 	if s.is_empty() or not can_train(s) or not in_town():
 		return false
-	var cost := Economy.train_cost(s)
-	if cost > silver:
-		return false
-	silver -= cost
-	s["level"] = int(s.get("level", 1)) + 1
+
+	if s.get("pending_branch", false):
+		var target := branch_unit_id
+		if target == "":
+			var branches := Units.branches(s.get("unit", ""))
+			if not branches.is_empty():
+				target = branches[0]
+			else:
+				target = s.get("unit", "")
+		s["unit"] = target
+		s["pending_branch"] = false
+		save_game()
+		return true
+
+	var current_level := int(s.get("level", 1))
+	if current_level == 1:
+		var target := branch_unit_id
+		if target == "":
+			var branches := Units.branches(s.get("unit", ""))
+			if not branches.is_empty():
+				target = branches[0]
+			else:
+				target = s.get("unit", "")
+		var cost := Economy.train_cost(s, target)
+		if cost > silver:
+			return false
+		silver -= cost
+		s["unit"] = target
+		s["level"] = 2
+	else:
+		var cost := Economy.train_cost(s)
+		if cost > silver:
+			return false
+		silver -= cost
+		s["level"] = current_level + 1
+
 	save_game()
 	return true
 
@@ -220,7 +260,9 @@ func hire(place: String, index: int) -> bool:
 	if index < 0 or index >= offers.size():
 		return false
 	var offer: Dictionary = offers[index]
-	var cost := Economy.recruit_cost(offer["type"], Troops.full_size(offer["type"]))
+	var unit_id := Units.recruit(String(offer["culture"]), String(offer["type"]))
+	var full := Units.full_size(unit_id)
+	var cost := Economy.recruit_cost(unit_id, full)
 	if cost > silver:
 		return false
 	silver -= cost
@@ -582,9 +624,17 @@ func from_dict(data: Dictionary) -> bool:
 			continue
 		# JSON stores numbers as floats; keep ids and counts as ints so results match by key.
 		var xp := int(s.get("xp", 0))
-		var squad := {"id": int(s.get("id", 0)), "type": String(s["type"]), "men": int(s.get("men", 0)), "xp": xp,
-			"level": int(s.get("level", Troops.level_for(xp))), "culture": String(s.get("culture", culture)),
-			"name": String(s.get("name", "")), "captain": null}
+		var sq_culture := String(s.get("culture", culture))
+		var level := int(s.get("level", Troops.level_for(xp)))
+		var unit_id := String(s.get("unit", ""))
+		var pending_branch: bool = bool(s.get("pending_branch", false))
+		if unit_id == "" or not Units.has(unit_id):
+			unit_id = Units.recruit(sq_culture, String(s["type"]))
+			if level >= 2:
+				pending_branch = true
+		var squad := {"id": int(s.get("id", 0)), "type": String(s["type"]), "unit": unit_id,
+			"men": int(s.get("men", 0)), "xp": xp, "level": level, "pending_branch": pending_branch,
+			"culture": sq_culture, "name": String(s.get("name", "")), "captain": null}
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY:
 			squad["captain"] = _clean_captain(c, squad["type"])

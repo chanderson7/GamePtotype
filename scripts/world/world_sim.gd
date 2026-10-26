@@ -12,6 +12,7 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -384,11 +385,14 @@ func _spawn_band(faction: String) -> void:
 
 
 ## Three to five squads of eight to fourteen men, mostly foot and bows, never more than
-## one squad of horse, led by captains of the realm's culture.
+## one squad of horse, led by captains of the realm's culture. As days pass, bands
+## field tier-2 units more often.
 func _band_army(band_id: int, band_culture: String) -> Array:
 	var out := []
 	var taken := []
 	var horse := false
+	var day := int(hour / 24.0)
+	var tier2_chance := clampf(float(day) * 0.02, 0.0, 0.40)
 	for i in rng.randi_range(3, 5):
 		var roll := rng.randf()
 		var type := Troops.INFANTRY
@@ -402,7 +406,17 @@ func _band_army(band_id: int, band_culture: String) -> Array:
 		var id := 5000 + band_id * 10 + i
 		var captain := Captains.make(rng, 900000 + id, type, taken, band_culture)
 		taken.append(captain["first"])
-		out.append({"id": id, "type": type, "men": rng.randi_range(8, 14), "xp": 0,
+		var unit_id := Units.recruit(band_culture, type)
+		var level := 1
+		var xp := 0
+		if rng.randf() < tier2_chance:
+			var branch_options := Units.branches(unit_id)
+			if not branch_options.is_empty():
+				unit_id = branch_options[rng.randi_range(0, branch_options.size() - 1)]
+				level = 2
+				xp = Troops.XP_PER_LEVEL
+		out.append({"id": id, "type": type, "unit": unit_id, "level": level, "xp": xp,
+			"men": rng.randi_range(8, 14), "culture": band_culture,
 			"name": Captains.company_name(captain, type), "captain": captain})
 	return out
 

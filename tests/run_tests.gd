@@ -20,6 +20,7 @@ const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 const DUEL_SEEDS := 12
 const BATTLE_SEEDS := 6
@@ -61,6 +62,9 @@ func _init() -> void:
 
 	print("Cultures:")
 	_check_cultures()
+
+	print("Units & Troop Trees:")
+	_check_units()
 
 	print("World:")
 	_check_map()
@@ -877,6 +881,106 @@ func _check_cultures() -> void:
 		gs.free()
 
 
+# ---------------------------------------------------------------- units & troop trees
+
+func _check_units() -> void:
+	# 1. Matchup duels
+	var matchups := [
+		["vardish_crossbowmen", "vardish_men_at_arms", false, "crossbowmen pierce armored men-at-arms"],
+		["vardish_knights", "vardish_infantry", false, "knights charge crushes standard infantry"],
+		["vardish_pikemen", "vardish_knights", true, "braced pikemen stop knights cold"],
+		["vardish_halberdiers", "vardish_infantry", false, "halberdiers sweep cuts through footmen"],
+		["kharzani_horse_archers", "vardish_infantry", false, "horse archers skirmish down footmen"],
+		["kharzani_javelin_askari", "kharzani_spearmen", false, "javelin askari weaken and break spearmen"],
+		["ryumon_hatamoto", "vardish_infantry", false, "elite hatamoto best standard footmen"],
+		["ryumon_naginata", "vardish_cavalry", true, "naginata sweep and anti-cav bonus cuts horse down"],
+	]
+	for m in matchups:
+		var wins := 0
+		for s in range(1, DUEL_SEEDS + 1):
+			if _unit_duel(m[0], m[1], s, m[2])["winner"] == Sim.PLAYER:
+				wins += 1
+		_expect(wins >= int(DUEL_SEEDS * 0.75), "%s (%d/%d)" % [m[3], wins, DUEL_SEEDS])
+
+	# 2. Branch choices balance (neither tier-2 option beats the other by more than 65/35)
+	for cult in Cultures.ORDER:
+		for role in Troops.ORDER:
+			var tier1: String = Units.recruit(cult, role)
+			var branches: Array = Units.branches(tier1)
+			if branches.size() == 2:
+				var a: String = branches[0]
+				var b: String = branches[1]
+				var a_wins := 0
+				for s in range(1, 21):
+					if _unit_duel(a, b, s)["winner"] == Sim.PLAYER:
+						a_wins += 1
+				var a_rate := float(a_wins) / 20.0
+				_expect(a_rate >= 0.30 and a_rate <= 0.70,
+					"branches %s vs %s are balanced (%.0f%% - %.0f%%)" % [
+						Units.display_name(a), Units.display_name(b), a_rate * 100.0, (1.0 - a_rate) * 100.0])
+
+	# 3. Save migration (version 3 to 4)
+	var gs := GameStateScript.new()
+	gs.persist = false
+	var old_save := {
+		"version": 3, "culture": Cultures.VARDISH, "battles": 5, "silver": 600,
+		"army": [
+			{"id": 1, "type": Troops.INFANTRY, "men": 20, "xp": 0, "level": 1},
+			{"id": 2, "type": Troops.CAVALRY, "men": 16, "xp": 45, "level": 2},
+		]
+	}
+	gs.from_dict(old_save)
+	_expect(gs.army[0]["unit"] == "vardish_infantry" and not gs.army[0].get("pending_branch", false),
+		"migrated tier 1 squad assigned recruit unit without pending branch")
+	_expect(gs.army[1]["unit"] == "vardish_cavalry" and gs.army[1].get("pending_branch", false),
+		"migrated level 2 squad marked pending branch choice")
+	gs.free()
+
+	# 4. Training branches and costs
+	var gs_train := GameStateScript.new()
+	gs_train.persist = false
+	gs_train.new_campaign(Cultures.VARDISH)
+	var squad = gs_train.army[0] # Vardish infantry
+	squad["xp"] = 30
+	var branches: Array = Units.branches(squad["unit"])
+	var choice_a: String = branches[0]
+	var cost_a := Economy.train_cost(squad, choice_a)
+	var silver_before := gs_train.silver
+	var trained := gs_train.train_squad(int(squad["id"]), choice_a)
+	_expect(trained and squad["unit"] == choice_a and squad["level"] == 2 and gs_train.silver == silver_before - cost_a,
+		"training squad to branch %s upgrades unit and charges %d silver" % [Units.display_name(choice_a), cost_a])
+	gs_train.free()
+
+
+func _unit_duel(a: String, b: String, seed_value: int, a_holds: bool = false) -> Dictionary:
+	var role_a: String = Units.role(a) if Units.has(a) else a
+	var role_b: String = Units.role(b) if Units.has(b) else b
+	var size_a: int = Units.full_size(a) if Units.has(a) else Troops.full_size(a)
+	var size_b: int = Units.full_size(b) if Units.has(b) else Troops.full_size(b)
+	var sim := Sim.new()
+	sim.setup(
+		[{"id": 1, "type": role_a, "unit": a, "men": size_a, "level": Units.tier(a)}],
+		[{"id": 2, "type": role_b, "unit": b, "men": size_b, "level": Units.tier(b)}],
+		seed_value
+	)
+	var x := Sim.ARENA.x * 0.5 + sim.rng.randf_range(-40.0, 40.0)
+	sim.place(Sim.PLAYER, 1, Vector2(x, Sim.MID_Y + 280.0))
+	sim.place(Sim.ENEMY, 2, Vector2(x, Sim.MID_Y - 280.0))
+	sim.start_battle()
+	if not a_holds:
+		sim.order_all(Sim.PLAYER, "advance")
+	sim.order_all(Sim.ENEMY, "advance")
+	while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
+		sim.step()
+	var left := 0
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER:
+			left = sq.alive_count()
+	var winner := sim.winner
+	sim.dispose()
+	return {"winner": winner, "left": left}
+
+
 # ---------------------------------------------------------------- world
 
 ## A world with no bandits in it, so travel checks aren't interrupted.
@@ -1584,6 +1688,28 @@ func _check_balance() -> void:
 		var win_pct := float(player_wins) / 24.0
 		_expect(win_pct >= 0.40 and win_pct <= 0.60,
 			"mirrored %s map is fair (player win rate: %.0f%%)" % [site_type, win_pct * 100.0])
+
+	print("Culture vs Culture balance (24 seeds each):")
+	for pair in [[Cultures.VARDISH, Cultures.KHARZANI], [Cultures.KHARZANI, Cultures.RYUMON], [Cultures.RYUMON, Cultures.VARDISH]]:
+		var cult_a: String = pair[0]
+		var cult_b: String = pair[1]
+		var wins_a := 0
+		for s in range(1, 25):
+			var sim := Sim.new()
+			sim.setup(Plans.culture_army(cult_a, s), Plans.culture_army(cult_b, s + 1000), s)
+			sim.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
+			sim.ai[Sim.PLAYER].deploy(sim)
+			sim.ai[Sim.ENEMY].deploy(sim)
+			sim.start_battle()
+			while sim.winner == -1 and sim.time < Sim.TIME_LIMIT + 5.0:
+				sim.step()
+			if sim.winner == Sim.PLAYER:
+				wins_a += 1
+			sim.dispose()
+		var rate := float(wins_a) / 24.0
+		_expect(rate >= 0.35 and rate <= 0.65,
+			"%s army vs %s army is balanced (%.0f%% - %.0f%%)" % [
+				Cultures.info(cult_a)["people"], Cultures.info(cult_b)["people"], rate * 100.0, (1.0 - rate) * 100.0])
 
 
 func _full_battle(seed_value: int) -> Dictionary:

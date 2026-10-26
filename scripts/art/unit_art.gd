@@ -4,6 +4,7 @@
 extends RefCounted
 
 const Data = preload("res://scripts/art/sprite_data.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 ## Arena units per sprite pixel. Foot soldiers come out a little wider than the room
 ## they take up in the sim, so formations read as solid blocks.
@@ -30,12 +31,17 @@ static func frame(type: String, team: int, index: int, culture: String = "vardis
 
 ## The sprite drawn for a troop type of a culture: "ryumon/archers", or "corpse".
 static func sprite_name(type: String, culture: String) -> String:
-	var name := "%s/%s" % [culture, type]
+	var role := type
+	var cult := culture
+	if Units.has(type):
+		role = Units.role(type)
+		cult = Units.culture(type)
+	var name := "%s/%s" % [cult, role]
 	if Data.SPRITES.has(name):
 		return name
-	if Data.SPRITES.has(type):
-		return type
-	return "vardish/" + type
+	if Data.SPRITES.has(role):
+		return role
+	return "vardish/" + role
 
 
 ## A white silhouette of the same frame, drawn over a man for a moment when he's hit.
@@ -58,7 +64,8 @@ static func pivot(type: String, culture: String = "vardish") -> Vector2:
 
 
 static func pixel_size(type: String) -> float:
-	return HORSE_PIXEL if type == "cavalry" or type == "corpse_horse" else FOOT_PIXEL
+	var role := Units.role(type) if Units.has(type) else type
+	return HORSE_PIXEL if role == "cavalry" or role == "corpse_horse" else FOOT_PIXEL
 
 
 ## A square portrait of the troop type, as `culture` dresses it, for cards and rosters.

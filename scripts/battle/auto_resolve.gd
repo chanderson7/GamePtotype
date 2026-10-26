@@ -11,6 +11,7 @@ extends RefCounted
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 ## What one man of each type is worth in a stand-up fight.
 const VALUE := {
@@ -69,6 +70,16 @@ static func strength(army: Array, foes: Array, site = null, is_player: bool = tr
 				var b := float(bonus.get(t, 1.0))
 				counter += float(mix[t]) / foe_men * (1.0 + (b - 1.0) * COUNTER_WEIGHT)
 		total += men * float(VALUE.get(type, 1.0)) * power * power * counter
+
+		var unit_id: String = s.get("unit", "")
+		if unit_id != "" and Units.has(unit_id):
+			var u_mech := Units.mechanics(unit_id, level)
+			var armor_factor := 1.0 + float(u_mech.get("armor", 0.0)) * 0.5
+			var pierce_factor := 1.0 + float(u_mech.get("piercing", 0.0)) * 0.25
+			var sweep_factor := 1.15 if u_mech.get("sweep", false) else 1.0
+			var javelin_factor := 1.1 if int(u_mech.get("javelins", 0)) > 0 else 1.0
+			var steady_factor := 1.08 if u_mech.get("steady", false) else 1.0
+			total += men * float(VALUE.get(type, 1.0)) * power * power * counter * (armor_factor * pierce_factor * sweep_factor * javelin_factor * steady_factor - 1.0)
 
 	if site is Dictionary:
 		var st: String = site.get("type", "open")

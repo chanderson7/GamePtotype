@@ -14,6 +14,8 @@ const Terrain = preload("res://scripts/battle/terrain.gd")
 const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const Pathing = preload("res://scripts/battle/pathing.gd")
+const Units = preload("res://scripts/data/units.gd")
+const Cultures = preload("res://scripts/data/cultures.gd")
 
 const ARENA := Vector2(840.0, 1260.0)
 const MID_Y := 630.0
@@ -98,6 +100,8 @@ class Soldier:
 	## The squad's named captain: hardier, hits harder, and the squad's nerve rests on him.
 	var captain := false
 	var might := 1.0
+	## Javelins left to throw before contact.
+	var javelins := 0
 
 
 class Squad:
@@ -105,7 +109,11 @@ class Squad:
 	var roster_id := -1
 	var team := 0
 	var type := ""
+	var unit := ""
 	var stats := {}
+	var mechanics := {}
+	var armor := 0.0
+	var piercing := 0.0
 	var level := 1
 	var power := 1.0
 	var soldiers: Array = []
@@ -197,6 +205,11 @@ class Squad:
 	func schiltron() -> bool:
 		return type == Troops.SPEARMEN and ability_left > 0.0
 
+	func drop_morale(amount: float) -> void:
+		if mechanics.get("steady", false):
+			amount *= 0.8
+		morale -= amount
+
 	## Where the squad's living men are on average, as of the start of this tick.
 	func average_pos() -> Vector2:
 		return avg
@@ -225,6 +238,8 @@ class Projectile:
 	var source = null
 	var shooter = null
 	var volley := false
+	var kind := "arrow" # arrow | javelin
+	var piercing := 0.0
 	var done := false
 
 
@@ -298,9 +313,14 @@ func _to_entries(army: Array) -> Array:
 		var captain = entry.get("captain")
 		if typeof(captain) != TYPE_DICTIONARY or int(captain.get("wounded", 0)) > 0:
 			captain = null
+		var unit_id := String(entry.get("unit", ""))
+		if unit_id == "" and entry.has("type"):
+			var cult: String = String(entry.get("culture", Cultures.VARDISH))
+			unit_id = Units.recruit(cult, String(entry["type"]))
 		out.append({
 			"roster_id": id,
 			"type": String(entry["type"]),
+			"unit": unit_id,
 			"men": men,
 			"level": int(entry.get("level", Troops.level_for(int(entry.get("xp", 0))))),
 			"name": String(entry.get("name", "")),
@@ -443,15 +463,26 @@ func start_battle() -> void:
 
 func _spawn(team: int, entry: Dictionary, at: Vector2):
 	var type: String = entry["type"]
+	var unit_id: String = entry.get("unit", "")
 	var sq := Squad.new()
 	sq.id = _next_id
 	_next_id += 1
 	sq.roster_id = entry["roster_id"]
 	sq.team = team
 	sq.type = type
-	sq.stats = Troops.stats(type)
+	sq.unit = unit_id
 	sq.level = entry["level"]
 	sq.power = Troops.power_for(sq.level)
+
+	if unit_id != "" and Units.has(unit_id):
+		sq.stats = Units.stats(unit_id, sq.level)
+		sq.mechanics = Units.mechanics(unit_id, sq.level)
+	else:
+		sq.stats = Troops.stats(type)
+		sq.mechanics = {}
+
+	sq.armor = float(sq.mechanics.get("armor", 0.0))
+	sq.piercing = float(sq.mechanics.get("piercing", 0.0))
 	sq.radius = float(sq.stats["radius"])
 	sq.speed = float(sq.stats["speed"])
 	sq.ranged = bool(sq.stats["ranged"])
@@ -464,8 +495,9 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.start_men = men
 	sq.alive_n = men
 	if sq.ranged:
-		sq.arrows = men * int(sq.stats["arrows"])
+		sq.arrows = men * int(sq.stats.get("arrows", 8))
 	var slots := _formation_slots(men, sq.radius * 2.0 + 5.0)
+	var javelins_per_man: int = int(sq.mechanics.get("javelins", 0))
 	for i in men:
 		var so := Soldier.new()
 		so.squad = sq
@@ -475,6 +507,7 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 		so.max_hp = float(sq.stats["hp"]) * sq.power
 		so.hp = so.max_hp
 		so.cooldown = rng.randf_range(0.0, 0.4)
+		so.javelins = javelins_per_man
 		sq.soldiers.append(so)
 	var captain = entry.get("captain")
 	if typeof(captain) == TYPE_DICTIONARY:
@@ -869,13 +902,21 @@ func use_ability(sq, target = null) -> bool:
 		Troops.CAVALRY:
 			_start_wheel(sq)
 		Troops.SPEARMEN:
-			sq.ability_left = float(ab["seconds"])
+			var dur: float = float(ab["seconds"])
+			if sq.mechanics.get("longer_schiltron", false):
+				dur *= 1.5
+			sq.ability_left = dur
 			sq.wheeling = false
 			if sq.order != "hold":
 				order_hold(sq)
 		_:
 			sq.ability_left = float(ab["seconds"])
-	sq.ability_cd = float(ab["cooldown"])
+	var cd: float = float(ab["cooldown"])
+	if sq.type == Troops.CAVALRY and sq.mechanics.has("wheel_cooldown_mult"):
+		cd *= float(sq.mechanics["wheel_cooldown_mult"])
+	elif sq.type == Troops.ARCHERS and sq.mechanics.has("volley_cooldown_mult"):
+		cd *= float(sq.mechanics["volley_cooldown_mult"])
+	sq.ability_cd = cd
 	events.append({"type": "ability", "squad": sq, "name": String(ab["name"])})
 	return true
 
@@ -1085,6 +1126,17 @@ func _update_squad(sq, dt: float) -> void:
 	else:
 		sq.goal = sq.center
 
+	# Skirmishing: horse archers and kiting desert archers keep distance from approaching foot
+	var is_skirmisher: bool = sq.ranged and sq.arrows > 0 and (sq.mechanics.get("horse_archer", false) or sq.mechanics.get("kite", false))
+	if is_skirmisher and not sq.wheeling:
+		var threat = _nearest_enemy_foot(sq, 130.0)
+		if threat != null and not sq.engaged:
+			var away := (sq.center - threat.avg).normalized()
+			if away == Vector2.ZERO:
+				away = Vector2.DOWN if sq.team == PLAYER else Vector2.UP
+			sq.goal = sq.center + away * 90.0
+			chasing = false
+
 	# Engaged squads break formation and fight man to man. A braced line that the enemy
 	# reaches gets the first few seconds of the fight on its side.
 	var was_engaged: bool = sq.engaged
@@ -1093,6 +1145,10 @@ func _update_squad(sq, dt: float) -> void:
 		var slack := 20.0 if sq.ranged and not sq.hold_fire else ENGAGE_RANGE
 		sq.engaged = _in_range(sq, foe, reach + slack)
 	if sq.engaged:
+		if is_skirmisher and sq.mechanics.get("horse_archer", false) and not sq.wheeling and sq.engaged_for >= 0.3:
+			# Horse archers ride clear when engaged in melee while arrows remain
+			_start_wheel(sq)
+			return
 		if not was_engaged:
 			var can_brace: bool = sq.order == "hold" and sq.still >= BRACE_SET and not sq.ranged
 			if can_brace and terrain != null and terrain.water_at(sq.center) == Terrain.WATER_SHALLOW:
@@ -1291,6 +1347,15 @@ func _update_soldier(so, sq, dt: float) -> void:
 	if terrain != null and not terrain.passable(so.pos):
 		so.pos = _passable_slot(sq.center, so.pos)
 
+	# Javelins: thrown before contact when an enemy comes within 90 units
+	if so.javelins > 0 and so.cooldown <= 0.0:
+		var j_target = _find_javelin_target(so, sq, 90.0)
+		if j_target != null:
+			_throw_javelin(so, sq, j_target)
+			so.javelins -= 1
+			so.cooldown = 1.0
+			so.swing = 0.3
+
 	if not sq.engaged:
 		so.target = null
 		so.facing = sq.facing
@@ -1384,6 +1449,11 @@ func _strike(so, sq, target, gap: float) -> void:
 		dmg = float(Troops.SIDEARM["damage"]) * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
 	elif sq.ranged:
 		if gap < 30.0:
+			if sq.mechanics.get("samurai_sidearm", false):
+				# Ryumon yumi samurai fight like infantry when caught in melee
+				dmg = 13.0 * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
+				_damage(target, dmg, sq, false, so, _side_of(target, so.pos, sq))
+				return
 			dmg *= Troops.POINT_BLANK
 		var volley: bool = so.volley and sq.volley_left > 0.0
 		so.volley = false
@@ -1409,7 +1479,10 @@ func _strike(so, sq, target, gap: float) -> void:
 		elif terrain.water_at(so.pos) == Terrain.WATER_SHALLOW or terrain.water_at(target.pos) == Terrain.WATER_SHALLOW:
 			can_charge = false
 	if can_charge:
-		dmg *= Troops.CHARGE_MULTIPLIER
+		var charge_mult: float = float(sq.mechanics.get("charge_mult", Troops.CHARGE_MULTIPLIER))
+		if sq.mechanics.get("lance", false):
+			charge_mult = maxf(charge_mult, 6.5)
+		dmg *= charge_mult
 		charge = true
 	if side == FLANK:
 		dmg *= FLANK_POWER
@@ -1417,6 +1490,9 @@ func _strike(so, sq, target, gap: float) -> void:
 		dmg *= REAR_POWER
 	elif target.squad.shield_wall():
 		dmg *= Troops.SHIELD_WALL_MELEE
+	# Melee armor and piercing
+	var eff_armor := maxf(0.0, target.squad.armor * (1.0 - sq.piercing))
+	dmg *= (1.0 - minf(0.5, eff_armor * 0.5))
 	if terrain != null:
 		# Height advantage / penalty
 		var att_h := terrain.height_at(so.pos)
@@ -1428,6 +1504,10 @@ func _strike(so, sq, target, gap: float) -> void:
 	_damage(target, dmg, sq, charge, so, side)
 	if charge:
 		events.append({"type": "charge", "pos": target.pos, "squad": sq, "victim": target.squad})
+	if sq.mechanics.get("sweep", false):
+		var second = _find_sweep_target(so, sq, target, _fighting_reach(sq) + 10.0)
+		if second != null:
+			_damage(second, dmg * 0.5, sq, false, so, _side_of(second, so.pos, sq))
 
 
 ## Which side of his squad a blow from `from` lands on. A squad that isn't pinned in a
@@ -1453,14 +1533,32 @@ func _draw_blades(sq) -> void:
 	sq.arrows = 0
 	sq.ranged = false
 	sq.hold_fire = false
-	sq.reach = float(Troops.SIDEARM["reach"])
-	sq.damage = float(Troops.SIDEARM["damage"]) * sq.power
-	sq.cooldown = float(Troops.SIDEARM["cooldown"])
-	sq.bonus = {}
+	if sq.type == Troops.CAVALRY:
+		sq.reach = 14.0
+		if sq.mechanics.get("weak_melee", false):
+			sq.damage = 8.0 * sq.power
+			sq.cooldown = 1.1
+		elif sq.mechanics.get("good_melee", false):
+			sq.damage = 14.0 * sq.power
+			sq.cooldown = 1.0
+			sq.bonus = Troops.TYPES[Troops.CAVALRY]["bonus"].duplicate()
+		else:
+			sq.damage = float(sq.stats.get("damage", 15.0)) * sq.power
+			sq.cooldown = float(sq.stats.get("cooldown", 1.0))
+	elif sq.mechanics.get("samurai_sidearm", false):
+		sq.reach = 14.0
+		sq.damage = 13.0 * sq.power
+		sq.cooldown = 1.0
+		sq.bonus = Troops.TYPES[Troops.INFANTRY]["bonus"].duplicate()
+	else:
+		sq.reach = float(Troops.SIDEARM["reach"])
+		sq.damage = float(Troops.SIDEARM["damage"]) * sq.power
+		sq.cooldown = float(Troops.SIDEARM["cooldown"])
+		sq.bonus = {}
 	events.append({"type": "out_of_arrows", "squad": sq})
 
 
-func _shoot(so, sq, target, dmg: float, volley: bool = false) -> void:
+func _shoot(so, sq, target, dmg: float, volley: bool = false, kind: String = "arrow") -> void:
 	var p := Projectile.new()
 	p.pos = so.pos
 	p.origin = so.pos
@@ -1470,6 +1568,8 @@ func _shoot(so, sq, target, dmg: float, volley: bool = false) -> void:
 	p.source = sq
 	p.shooter = so
 	p.volley = volley
+	p.kind = kind
+	p.piercing = sq.piercing
 	projectiles.append(p)
 
 
@@ -1496,13 +1596,20 @@ func _update_projectiles(dt: float) -> void:
 			var vs = p.target.squad
 			var dmg: float = p.damage
 			if vs.shield_wall() and vs.facing.dot((p.origin - p.target.pos).normalized()) > FLANK_DOT:
-				dmg *= Troops.SHIELD_WALL_ARROWS
+				var wall_block := 1.0 - Troops.SHIELD_WALL_ARROWS
+				if vs.mechanics.get("shield_wall_boost", 0.0) > 0.0:
+					wall_block += float(vs.mechanics["shield_wall_boost"])
+				wall_block *= (1.0 - p.piercing)
+				dmg *= (1.0 - minf(0.95, wall_block))
+			# Armor on target
+			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
+			dmg *= (1.0 - minf(0.8, eff_armor))
 			vs.under_fire = 2.0
 			if p.volley:
 				var shock: float = Troops.VOLLEY_SHOCK / float(vs.start_men)
 				if terrain != null and terrain.in_woods(p.target.pos):
 					shock *= TerrainRules.WOODS_VOLLEY_SHOCK
-				vs.morale -= shock
+				vs.drop_morale(shock)
 			_damage(p.target, dmg, p.source, false, p.shooter)
 		else:
 			p.pos += to.normalized() * travel
@@ -1522,15 +1629,15 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 	victim.flash = 1.0
 	var vs = victim.squad
 	if charge:
-		vs.morale -= CHARGE_SHOCK / float(vs.start_men)
+		vs.drop_morale(CHARGE_SHOCK / float(vs.start_men))
 	if side != FRONT:
-		vs.morale -= REAR_SHOCK / float(vs.start_men) * (1.0 if side == REAR else 0.5)
+		vs.drop_morale(REAR_SHOCK / float(vs.start_men) * (1.0 if side == REAR else 0.5))
 		if time - vs.flanked_at > 4.0:
 			vs.flanked_at = time
 			events.append({"type": "flanked", "squad": vs, "pos": victim.pos, "rear": side == REAR})
 	if victim.hp <= 0.0:
 		_remove(victim)
-		vs.morale -= (100.0 / float(vs.start_men) * 0.8 + 2.0) * vs.led
+		vs.drop_morale((100.0 / float(vs.start_men) * 0.8 + 2.0) * vs.led)
 		if attacker != null:
 			attacker.kills += 1
 			if killer != null and killer.captain and killer.alive:
@@ -1548,7 +1655,72 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 func _captain_falls(sq, victim) -> void:
 	sq.captain = null
 	sq.led = Captains.LEADERLESS
-	sq.morale -= Captains.FALL_SHOCK
+	sq.drop_morale(Captains.FALL_SHOCK)
+	if sq.mechanics.get("ronin", false):
+		sq.fury = Captains.FURY_SECONDS
+	var holding: bool = sq.alive_n >= sq.start_men * 0.5
+	var friends := false
+	for other in squads:
+		if other != sq and other.team == sq.team and other.is_active() and other.avg.distance_to(victim.pos) < Captains.RESCUE_RANGE:
+			friends = true
+	var chance := Captains.death_chance(sq.info, holding, friends)
+	var roll := rng.randi_range(1, 100)
+	sq.death_roll = roll
+	sq.death_needed = chance + 1
+	sq.captain_fate = "killed" if roll <= chance else "wounded"
+	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
+	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
+	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
+		"roll": roll, "needed": chance + 1, "rescued": holding or friends,
+		"holding": holding, "friends": friends, "lucky": sq.info.get("quirk", "") == Captains.LUCKY})
+	for other in squads:
+		if other.team != sq.team or other.captain == null or other.info.is_empty():
+			continue
+		if _ranks.get(_bond_key(sq, other), 0) <= 0:
+			continue
+		match String(other.info.get("temperament", "")):
+			Captains.VENGEFUL:
+				other.fury = Captains.FURY_SECONDS
+			Captains.STEADFAST:
+				other.morale = minf(100.0, other.morale + Captains.STEADY_MORALE)
+			Captains.FRAGILE:
+				other.morale -= Captains.SHAKEN_MORALE
+		events.append({"type": "grief", "squad": other, "for": sq, "temperament": other.info.get("temperament", "")})
+
+
+func _find_javelin_target(so, sq, max_dist: float):
+	var best = null
+	var best_d := INF
+	for e in _nearby(so.pos, max_dist):
+		if e.squad.team != sq.team and not e.squad.routing:
+			var d := so.pos.distance_to(e.pos)
+			if d < best_d:
+				best_d = d
+				best = e
+	return best
+
+
+func _throw_javelin(so, sq, target) -> void:
+	_shoot(so, sq, target, 35.0 * sq.power, false, "javelin")
+
+
+func _find_sweep_target(so, sq, primary, max_dist: float):
+	for e in _nearby(so.pos, max_dist):
+		if e != primary and e.squad.team != sq.team and not e.squad.routing:
+			return e
+	return null
+
+
+func _nearest_enemy_foot(sq, max_dist: float):
+	var best = null
+	var best_d := max_dist
+	for foe in squads:
+		if foe.team != sq.team and foe.is_active() and not foe.ranged and foe.type != Troops.CAVALRY:
+			var d: float = sq.center.distance_to(foe.avg)
+			if d < best_d:
+				best_d = d
+				best = foe
+	return best
 	var holding: bool = sq.alive_n >= sq.start_men * 0.5
 	var friends := false
 	for other in squads:

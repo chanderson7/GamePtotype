@@ -4,6 +4,7 @@
 extends RefCounted
 
 const Troops = preload("res://scripts/data/troops.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 ## What a new warband starts with.
 const START_SILVER := 400
@@ -51,19 +52,27 @@ const OFFER_REFRESH_HOURS := 72.0
 
 
 static func recruit_cost(type: String, men: int) -> int:
-	return int(RECRUIT_COST.get(type, 10)) * men
+	var role := Units.role(type) if Units.has(type) else type
+	var mult := Units.cost_mult(type) if Units.has(type) else 1.0
+	return int(ceil(int(RECRUIT_COST.get(role, 10)) * mult * men))
 
 
 static func daily_wage(squad: Dictionary) -> float:
+	var unit_id: String = squad.get("unit", "")
+	var role: String = Units.role(unit_id) if Units.has(unit_id) else String(squad.get("type", Troops.INFANTRY))
+	var wage_mult: float = Units.wage_mult(unit_id) if Units.has(unit_id) else 1.0
 	var level := int(squad.get("level", 1))
-	var per_man := float(WAGE.get(squad["type"], 1.0)) * (1.0 + WAGE_PER_LEVEL * (level - 1))
-	return per_man * int(squad["men"])
+	var per_man := float(WAGE.get(role, 1.0)) * (1.0 + WAGE_PER_LEVEL * (level - 1)) * wage_mult
+	return per_man * int(squad.get("men", 0))
 
 
 ## Silver to train a squad from its level to the next.
-static func train_cost(squad: Dictionary) -> int:
+static func train_cost(squad: Dictionary, target_unit_id: String = "") -> int:
+	var unit_id: String = target_unit_id if target_unit_id != "" else squad.get("unit", "")
+	var role: String = Units.role(unit_id) if Units.has(unit_id) else String(squad.get("type", Troops.INFANTRY))
+	var cost_mult: float = Units.cost_mult(unit_id) if Units.has(unit_id) else 1.0
 	var level := int(squad.get("level", 1))
-	return int(ceil(RECRUIT_COST.get(squad["type"], 10) * TRAIN_SHARE * level * int(squad["men"])))
+	return int(ceil(RECRUIT_COST.get(role, 10) * cost_mult * TRAIN_SHARE * level * int(squad.get("men", 0))))
 
 
 static func squad_cap(renown: int) -> int:

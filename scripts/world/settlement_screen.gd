@@ -9,6 +9,7 @@ const Art = preload("res://scripts/art/unit_art.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -269,8 +270,129 @@ func _on_reinforce_all() -> void:
 	_paid(GameState.reinforce() > 0)
 
 
+var _modal: Control = null
+
+
 func _on_train(id: int) -> void:
-	_paid(GameState.train_squad(id))
+	var s := GameState.squad_by_id(id)
+	if s.is_empty():
+		return
+	var branches := Units.branches(s.get("unit", ""))
+	if (int(s.get("level", 1)) == 1 or s.get("pending_branch", false)) and not branches.is_empty():
+		_show_branch_choice(id, branches)
+	else:
+		_paid(GameState.train_squad(id))
+
+
+func _show_branch_choice(id: int, branches: Array) -> void:
+	if _modal != null:
+		_modal.queue_free()
+		_modal = null
+
+	var squad := GameState.squad_by_id(id)
+	if squad.is_empty():
+		return
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.75)
+	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	_modal = overlay
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(480, 0)
+	center.add_child(panel)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	panel.add_child(box)
+
+	var heading := Style.label("Choose Upgrade Path", Style.TITLE)
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(heading)
+
+	var sub := Style.label("Select a veteran specialization for this squad:", Style.BODY, Style.MUTED)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(sub)
+
+	var cards_row := HBoxContainer.new()
+	cards_row.add_theme_constant_override("separation", 12)
+	box.add_child(cards_row)
+
+	for b_id in branches:
+		var u_info := Units.get_unit(b_id)
+		var card := PanelContainer.new()
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var c_box := VBoxContainer.new()
+		c_box.add_theme_constant_override("separation", 8)
+		card.add_child(c_box)
+
+		var b_title := Style.label(Units.display_name(b_id), Style.HEADING)
+		b_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		c_box.add_child(b_title)
+
+		var b_blurb := Style.label(String(u_info.get("blurb", "")), Style.SMALL)
+		b_blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		c_box.add_child(b_blurb)
+
+		var stats_desc := _format_unit_diff(b_id)
+		if stats_desc != "":
+			var diff_label := Style.label(stats_desc, Style.SMALL, Style.TEXT)
+			diff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			c_box.add_child(diff_label)
+
+		var is_free: bool = squad.get("pending_branch", false)
+		var price := 0 if is_free else Economy.train_cost(squad, b_id)
+		var btn_text := "Select (Free)" if is_free else "Select · %d silver" % price
+		var btn := _button(btn_text, func():
+			overlay.queue_free()
+			_modal = null
+			_paid(GameState.train_squad(id, b_id))
+		)
+		btn.disabled = price > GameState.silver
+		c_box.add_child(btn)
+
+		cards_row.add_child(card)
+
+	var cancel_btn := _button("Cancel", func():
+		overlay.queue_free()
+		_modal = null
+	)
+	box.add_child(cancel_btn)
+
+
+func _format_unit_diff(unit_id: String) -> String:
+	var u := Units.get_unit(unit_id)
+	var lines := []
+	var mech: Dictionary = u.get("mechanics", {})
+	if mech.has("armor"):
+		lines.append("• Armor: %.0f%%" % [float(mech["armor"]) * 100.0])
+	if mech.has("piercing"):
+		lines.append("• Piercing: %.0f%%" % [float(mech["piercing"]) * 100.0])
+	if mech.has("javelins"):
+		lines.append("• Javelins: %d per man" % int(mech["javelins"]))
+	if mech.get("sweep", false):
+		lines.append("• Sweep: hits 2nd foe for 50%")
+	if mech.get("steady", false):
+		lines.append("• Steady: -20% morale loss")
+	if mech.get("horse_archer", false):
+		lines.append("• Horse Archer: shoots from saddle & kites")
+	if mech.get("ronin", false):
+		lines.append("• Ronin: enters fury if captain falls")
+	var st: Dictionary = u.get("stats", {})
+	if st.has("damage"):
+		lines.append("• Damage: %.0f" % float(st["damage"]))
+	if st.has("range"):
+		lines.append("• Range: %.0f" % float(st["range"]))
+	if st.has("speed"):
+		lines.append("• Speed: %.0f" % float(st["speed"]))
+	if st.has("size"):
+		lines.append("• Squad size: %d men" % int(st["size"]))
+	return "\n".join(lines)
 
 
 ## Silver changed hands, or didn't: the coins chink, and the screen shows the new state.
