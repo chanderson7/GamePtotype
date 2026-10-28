@@ -33,6 +33,15 @@ resource controls and desertion warnings. Menu tests, relevant save/upkeep/capta
 and autoplay pass on Godot 4.7.2; phone-sized menus were rendered and inspected. Phase 4's
 next gameplay piece remains armies.
 
+## Proposed romance and allies feature
+
+See [`romance-and-allies-plan.md`](romance-and-allies-plan.md) for the researched Warband
+comparison, a five-chapter personal quest, marriage/private-vow/friendship outcomes, house
+pacts, concrete ally support, UI flows, save design, implementation milestones, and tests.
+This is a design proposal, not implemented gameplay. Its recommended first release uses
+one settlement-based candidate and depends on the shared standing/politics work in 4.5.
+It does not change the current next task (4.3 armies) or the captain death rules.
+
 ## Latest validation
 
 Garrisons: focused checks and autoplay pass on macOS with Godot 4.7.2. The full regular
