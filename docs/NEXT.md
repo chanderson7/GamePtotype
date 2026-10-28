@@ -33,14 +33,15 @@ resource controls and desertion warnings. Menu tests, relevant save/upkeep/capta
 and autoplay pass on Godot 4.7.2; phone-sized menus were rendered and inspected. Phase 4's
 next gameplay piece remains armies.
 
-## Proposed romance and allies feature
+## Romance and allies feature (R0–R3 implemented)
 
-See [`romance-and-allies-plan.md`](romance-and-allies-plan.md) for the researched Warband
-comparison, a five-chapter personal quest, marriage/private-vow/friendship outcomes, house
-pacts, concrete ally support, UI flows, save design, implementation milestones, and tests.
-This is a design proposal, not implemented gameplay. Its recommended first release uses
-one settlement-based candidate and depends on the shared standing/politics work in 4.5.
-It does not change the current next task (4.3 armies) or the captain death rules.
+The core Romance & Allies system is implemented per [`romance-and-allies-plan.md`](romance-and-allies-plan.md):
+- Stable person & house IDs in `SocialSim`, persistent candidate Edda anchored to Ravensford's household, and candidate stubs for Farid & Kaede.
+- Complete 5-chapter story for Edda ("A Place Beneath the Banner") with personal/shared choices, honest vs. breach outcomes, repair restitution branch, public marriage, private vows, and sworn friendship pact.
+- Support projects with strict escrow accounting (`total == remaining + spent + refunded`), daily recruit funding before realm treasury, capture-triggered refund, and emergency household grants respecting 300-silver lord reserve and 14-day global cooldown.
+- UI: Settlement Court audience entry, People & Letters screen (`scenes/people.tscn`), interactive dialogue conversation (`scenes/conversation.tscn`), and "Romance invitations" toggle in Settings.
+- Persistence & migration: Version 6 saves with deterministic v4/v5 migration.
+- Tested: `tests/relationship_tests.gd` (48 automated checks, 0 failures) and `tests/menu_tests.gd` (all checks pass).
 
 ## Latest validation
 

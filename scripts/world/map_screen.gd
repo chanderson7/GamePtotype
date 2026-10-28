@@ -699,7 +699,13 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		[["Warband", _on_warband], ["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+		[["Warband", _on_warband], ["People & Letters", _on_people], ["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+
+
+func _on_people() -> void:
+	GameState.save_game()
+	Scenes.people_return = "res://scenes/world_map.tscn"
+	Scenes.go("res://scenes/people.tscn")
 
 
 func _on_settings() -> void:

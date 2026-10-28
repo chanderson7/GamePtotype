@@ -28,6 +28,7 @@ const POOL := 10
 var settings_path := SETTINGS_PATH
 var music_on := true
 var sounds_on := true
+var romance_invitations := true
 var _track := ""
 var _music: Array[AudioStreamPlayer] = []
 var _current := 0
@@ -174,6 +175,7 @@ func _load_settings() -> void:
 	if cfg.load(settings_path) == OK:
 		music_on = bool(cfg.get_value("audio", "music", true))
 		sounds_on = bool(cfg.get_value("audio", "sounds", true))
+		romance_invitations = bool(cfg.get_value("gameplay", "romance_invitations", true))
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Sounds"), not sounds_on)
 
@@ -184,7 +186,17 @@ func _save_settings() -> void:
 	cfg.load(settings_path)
 	cfg.set_value("audio", "music", music_on)
 	cfg.set_value("audio", "sounds", sounds_on)
+	cfg.set_value("gameplay", "romance_invitations", romance_invitations)
 	cfg.save(settings_path)
+
+
+func romance_invitations_enabled() -> bool:
+	return romance_invitations
+
+
+func set_romance_invitations(enabled: bool) -> void:
+	romance_invitations = enabled
+	_save_settings()
 
 
 func has_seen_hint(section: String, key: String) -> bool:

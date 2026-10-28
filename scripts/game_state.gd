@@ -18,7 +18,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const SAVE_PATH := "user://campaign.json"
-const SAVE_VERSION := 5
+const SAVE_VERSION := 6
 
 ## Each squad: {id, type, men, xp, level, culture, name, captain}. Kills earn xp; xp
 ## lets a squad be trained to the next level in a town. A squad's culture is where it
@@ -314,7 +314,72 @@ func advance(hours: float) -> void:
 	if world == null:
 		return
 	world.step(hours)
+	drain_social_settlements()
 	settle()
+
+
+func drain_social_settlements() -> void:
+	if world == null or world.social == null:
+		return
+	for item in world.social.drain_pending_settlements():
+		match String(item.get("type", "")):
+			"refund_silver":
+				silver += int(item.get("amount", 0))
+				_note("Refunded %d silver (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))])
+			"refund_food":
+				food += int(item.get("amount", 0))
+				_note("Refunded %d rations (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))])
+
+
+func apply_social_choice(candidate_id: String, choice_id: String) -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No world or social simulation active."}
+	var sound = get_node_or_null("/root/Sound")
+	var invitations := true
+	if sound != null and sound.has_method("romance_invitations_enabled"):
+		invitations = bool(sound.romance_invitations_enabled())
+	var context := {
+		"player_silver": silver,
+		"player_food": food,
+		"player_renown": renown,
+		"current_hour": world.hour,
+		"invitations_enabled": invitations
+	}
+	var prev: Dictionary = world.social.preview_choice(candidate_id, choice_id, context)
+	if not prev["ok"]:
+		return prev
+
+	var c_silver := int(prev.get("cost_silver", 0))
+	var c_food := int(prev.get("cost_food", 0))
+	if silver < c_silver or food < c_food:
+		return {"ok": false, "reason": "Insufficient resources."}
+	silver -= c_silver
+	food -= c_food
+
+	var res: Dictionary = world.social.apply_choice(candidate_id, choice_id, context)
+	save_game()
+	return res
+
+
+func sponsor_replacements(house_id: String, target_id: String, target_kind: String, amount: int) -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No world active."}
+	if amount <= 0 or silver < amount:
+		return {"ok": false, "reason": "Cannot afford %d silver contribution." % amount}
+	silver -= amount
+	var res: Dictionary = world.social.sponsor_replacements(house_id, target_id, target_kind, amount, world.hour, world.owner_of(target_id) if target_kind == "settlement" else "")
+	save_game()
+	return res
+
+
+func request_household_grant(house_id: String) -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No world active."}
+	var res: Dictionary = world.social.request_grant(house_id, world)
+	if res.get("ok", false):
+		silver += int(res.get("amount", 0))
+		save_game()
+	return res
 
 
 ## Pay wages and feed the men for each day that has ended since the last settling. Men

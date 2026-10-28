@@ -10,6 +10,7 @@ const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
+const Relationships = preload("res://scripts/data/relationships.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -71,6 +72,7 @@ func _build() -> void:
 	_add_provisions(col)
 	_add_recruits(col)
 	_add_squads(col)
+	_add_court(col)
 
 	var back := Button.new()
 	back.text = "Back to the map"
@@ -89,6 +91,28 @@ func _restore_scroll(value: int) -> void:
 	await get_tree().process_frame
 	if is_instance_valid(_scroll):
 		_scroll.scroll_vertical = value
+
+
+func _add_court(col: VBoxContainer) -> void:
+	var w = GameState.world
+	if w == null or w.social == null:
+		return
+	var residents: Array = w.social.residents_at(place)
+	if residents.is_empty():
+		return
+	col.add_child(_section("Court & Nobles"))
+	for person in residents:
+		var name_str := String(person.get("name", "Noble"))
+		var role_str := String(person.get("role", "Resident"))
+		var cid := String(person.get("content_id", ""))
+		var rel: Dictionary = w.social.get_relationship(cid)
+		var status_str := Relationships.status_label(String(rel.get("status", Relationships.UNKNOWN)))
+		var btn := _button("Speak with %s (%s · %s)" % [name_str, role_str, status_str], func():
+			Scenes.active_candidate_id = cid
+			Scenes.active_person_id = String(person.get("id", ""))
+			Scenes.conversation_return = "res://scenes/settlement.tscn"
+			Scenes.go("res://scenes/conversation.tscn"))
+		col.add_child(btn)
 
 
 func _add_provisions(col: VBoxContainer) -> void:

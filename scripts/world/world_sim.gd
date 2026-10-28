@@ -19,6 +19,7 @@ const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
+const SocialSim = preload("res://scripts/world/social_sim.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -111,6 +112,8 @@ var wars := {}
 var realms := {}
 ## Castle/town id → squads in battle army format. Villages have no standing garrison.
 var garrisons := {}
+## Social simulation: relationships, court residents, pacts, escrows, and letters.
+var social: SocialSim = null
 ## The lords of the realms, rulers among them: [{id, name, realm, culture, bearing, ruler,
 ## renown, silver, fief, party, state, back_at, job, target, think_at, raiding, broke_days,
 ## full, army}]. `party` is the id of his party on the map, or -1 while he regroups (his
@@ -148,6 +151,8 @@ func setup(seed_value: int, player_culture: String) -> void:
 		offers[id] = _new_offers(id)
 	_spawn_lords()
 	_start_garrisons()
+	social = SocialSim.new()
+	social.setup(seed_value, lords, Data.SETTLEMENTS)
 	_lord_day = int(hour / 24.0)
 
 
@@ -252,6 +257,8 @@ func set_owner(id: String, realm: String) -> void:
 				break
 		realms[was]["capital"] = seat
 	events.append({"type": "captured", "settlement": id, "realm": realm, "from": was})
+	if social != null:
+		social.on_settlement_captured(id, realm, was, self)
 
 
 ## "Castle of the Kingdom of Vardmark · Vardish": what a place is, whose it is now, and who
@@ -465,6 +472,8 @@ func step(hours: float) -> void:
 		for b in bands():
 			_move_band(b, dt)
 		_step_lords(dt)
+		if social != null:
+			social.step(dt, self)
 		_respawn()
 		_check_encounter()
 
@@ -731,13 +740,21 @@ func _garrisons_day() -> void:
 			var unit := String(sq["unit"])
 			var add := mini(budget, Units.full_size(unit) - int(sq["men"]))
 			var available := maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE)
-			while add > 0 and Economy.recruit_cost(unit, add) > available:
+			var unit_cost := int(Economy.recruit_cost(unit, 1))
+			var escrow_paid := 0
+			if social != null:
+				escrow_paid = social.consume_escrow_for_recruitment(id, "settlement", add, unit_cost)
+			var total_cost := Economy.recruit_cost(unit, add)
+			var realm_cost := maxi(0, total_cost - escrow_paid)
+			while add > 0 and realm_cost > available:
 				add -= 1
+				total_cost = Economy.recruit_cost(unit, add)
+				realm_cost = maxi(0, total_cost - escrow_paid)
 			if add <= 0:
 				continue
 			if not army.has(sq):
 				army.append(sq)
-			realm["treasury"] = int(realm["treasury"]) - Economy.recruit_cost(unit, add)
+			realm["treasury"] = int(realm["treasury"]) - realm_cost
 			sq["men"] = int(sq["men"]) + add
 			budget -= add
 
@@ -1071,12 +1088,17 @@ func _refill(l: Dictionary, army: Array) -> void:
 		if add <= 0:
 			continue
 		var cost := Economy.recruit_cost(unit if unit != "" else String(sq["type"]), add)
+		var unit_cost := int(Economy.recruit_cost(unit if unit != "" else String(sq["type"]), 1))
+		var escrow_paid := 0
+		if social != null:
+			escrow_paid = social.consume_escrow_for_recruitment(str(l["id"]), "lord", add, unit_cost)
+		var rem_cost := maxi(0, cost - escrow_paid)
 		var realm: Dictionary = realms[l["realm"]]
-		if cost > int(l["silver"]) + maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE):
+		if rem_cost > int(l["silver"]) + maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE):
 			break
-		var own := mini(cost, int(l["silver"]))
+		var own := mini(rem_cost, int(l["silver"]))
 		l["silver"] = int(l["silver"]) - own
-		realm["treasury"] = int(realm["treasury"]) - (cost - own)
+		realm["treasury"] = int(realm["treasury"]) - (rem_cost - own)
 		sq["men"] = int(sq["men"]) + add
 		budget -= add
 
@@ -1308,6 +1330,7 @@ func to_dict() -> Dictionary:
 		"saved_villages": saved_villages.duplicate(),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
 		"garrisons": garrisons.duplicate(true),
+		"social": social.to_dict() if social != null else null,
 		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "lord_day": _lord_day,
 	}
 
@@ -1416,6 +1439,13 @@ func from_dict(d: Dictionary) -> void:
 				garrisons[id] = clean_army(d["garrisons"].get(id, []))
 	else:
 		_start_garrisons()
+
+	if d.has("social") and typeof(d["social"]) == TYPE_DICTIONARY:
+		social = SocialSim.new()
+		social.from_dict(d["social"])
+	else:
+		social = SocialSim.new()
+		social.setup(rng.seed, lords, Data.SETTLEMENTS)
 
 
 ## A lord read back from JSON, with his counts as ints again.
