@@ -90,6 +90,7 @@ func _init() -> void:
 	_check_encounters()
 	_check_world_saves()
 	_check_realms()
+	_check_garrisons()
 	_check_lords()
 	_check_long_run()
 	_check_campaign_battles()
@@ -1289,6 +1290,129 @@ func _check_realms() -> void:
 		and gs.world.capital_of("kharzan") == "khalun" and men > 0 and gs.world.hour > float(old["world"]["hour"]),
 		"a version-4 save loads into the map's first owners and wars, and plays on")
 	gs.free()
+
+
+## Standing guards grow once a day, paid by their owner, and survive saving and losses.
+func _check_garrisons() -> void:
+	var w := _quiet_world(43)
+	var ids := {}
+	var valid := w.garrisons.size() == 9
+	for id in WorldData.SETTLEMENTS:
+		if WorldData.is_village(id):
+			valid = valid and w.garrison_at(id).is_empty() and w.garrison_capacity(id) == 0
+			continue
+		var army := w.garrison_at(id)
+		valid = valid and w.men_of(army) == int(w.garrison_capacity(id) * Lords.GARRISON_START_SHARE)
+		valid = valid and w.describe(id).contains("garrison %d/" % w.men_of(army))
+		for sq in army:
+			valid = valid and not ids.has(sq["id"]) and Units.has(String(sq["unit"])) \
+				and sq["culture"] == WorldData.culture_of(WorldData.settlement(id)["faction"])
+			ids[sq["id"]] = true
+	var castle := w.garrison_at("ravensford")
+	var town := w.garrison_at("highcliff")
+	_expect(valid and w.men_of(town) > w.men_of(castle)
+		and AutoResolve.strength(castle, []) / w.men_of(castle) > AutoResolve.strength(town, []) / w.men_of(town),
+		"nine castles and towns have local guards with unique ids; towns hold more, castles have stronger men")
+
+	# A quiet treasury makes the daily clock and exact recruit bill observable.
+	w.lords = []
+	w.parties = [w.player()]
+	var start := w.men_of(castle)
+	w.step(24.0)
+	var idle := w.men_of(castle) == start
+	w.wait(15.75)
+	w.step(15.75)
+	var before_midnight := w.men_of(castle) == start
+	var before := w.garrisons.duplicate(true)
+	var purse := int(w.realms["vardmark"]["treasury"])
+	w.wait(0.25)
+	w.step(0.25)
+	var cost := 0
+	var income := 0
+	for id in w.holdings_of("vardmark"):
+		income += int(Lords.INCOME[WorldData.settlement(id)["type"]])
+		for i in w.garrison_at(id).size():
+			var sq: Dictionary = w.garrison_at(id)[i]
+			cost += Economy.recruit_cost(String(sq["unit"]), int(sq["men"]) - int(before[id][i]["men"]))
+	_expect(idle and before_midnight and w.men_of(castle) == start + int(Lords.GARRISON_RECRUITS_PER_DAY["castle"])
+		and int(w.realms["vardmark"]["treasury"]) == purse + income - cost,
+		"garrisons grow at midnight only while time passes, charging their owner's treasury exactly")
+	var once := JSON.stringify(w.garrisons)
+	w._step_lords(0.0)
+	_expect(JSON.stringify(w.garrisons) == once, "the same midnight never recruits twice")
+
+	# Full garrisons stop spending; destroyed squads are raised again without duplicates.
+	for realm in w.realms:
+		w.realms[realm]["treasury"] = 100000
+	for day in 40:
+		w._garrisons_day()
+	var capped := true
+	for id in w.garrisons:
+		capped = capped and w.men_of(w.garrison_at(id)) == w.garrison_capacity(id)
+	var full_purses := JSON.stringify(w.realms)
+	w._garrisons_day()
+	_expect(capped and JSON.stringify(w.realms) == full_purses, "garrisons stop recruiting and spending at their caps")
+	var lost_id := int(castle[0]["id"])
+	castle.remove_at(0)
+	castle[0]["men"] = 19
+	var survivors := w.men_of(castle)
+	w._garrisons_day()
+	_expect(w.men_of(castle) == survivors + int(Lords.GARRISON_RECRUITS_PER_DAY["castle"])
+		and int(castle[0]["men"]) == 20 and castle.any(func(sq): return int(sq["id"]) == lost_id),
+		"daily guards refill surviving squads and rebuild destroyed squads with stable ids")
+
+	# Only one affordable man: no whole-batch rejection, debt, or spending the reserve.
+	var target: Dictionary = castle.back()
+	var one := Economy.recruit_cost(String(target["unit"]), 1)
+	w.realms["vardmark"]["treasury"] = Lords.TREASURY_RESERVE + one
+	survivors = w.men_of(castle)
+	w._garrisons_day()
+	_expect(w.men_of(castle) == survivors + 1 and int(w.realms["vardmark"]["treasury"]) == Lords.TREASURY_RESERVE,
+		"a treasury buys the men it can afford and keeps its reserve")
+	for balance in [Lords.TREASURY_RESERVE, 0]:
+		w.realms["vardmark"]["treasury"] = balance
+		var held := JSON.stringify(castle)
+		w._garrisons_day()
+		_expect(JSON.stringify(castle) == held and int(w.realms["vardmark"]["treasury"]) == balance,
+			"no free guards or debt when the recruitment budget is empty (%d silver)" % balance)
+
+	w.set_owner("ravensford", "kharzan")
+	var cleared := w.garrison_at("ravensford").is_empty()
+	w.realms["kharzan"]["treasury"] = 100000
+	var old_purse := int(w.realms["vardmark"]["treasury"])
+	var new_purse := int(w.realms["kharzan"]["treasury"])
+	w._garrisons_day()
+	castle = w.garrison_at("ravensford")
+	w.set_owner("ravensford", "kharzan")
+	_expect(cleared and not castle.is_empty() and castle[0]["culture"] == Cultures.VARDISH
+		and int(w.realms["vardmark"]["treasury"]) == old_purse
+		and int(w.realms["kharzan"]["treasury"]) < new_purse and w.garrison_at("ravensford") == castle,
+		"a capture clears old guards; the new owner pays for local recruits, and a repeated transfer preserves them")
+
+	w.garrisons["highcliff"] = []
+	var saved := JSON.stringify(w.to_dict())
+	var copy := WorldSim.new()
+	copy.from_dict(JSON.parse_string(saved))
+	var loaded := JSON.stringify(copy.to_dict()) == saved and copy.garrison_at("highcliff").is_empty()
+	for world in [w, copy]:
+		world.wait(48.0)
+		world.step(48.0)
+	_expect(loaded and JSON.stringify(w.to_dict()) == JSON.stringify(copy.to_dict()),
+		"empty and damaged garrisons save exactly and resume daily growth identically")
+	var legacy: Dictionary = JSON.parse_string(saved)
+	legacy.erase("garrisons")
+	copy.from_dict(legacy)
+	var purses_unchanged := true
+	for realm in copy.realms:
+		purses_unchanged = purses_unchanged and int(copy.realms[realm]["treasury"]) == int(legacy["realms"][realm]["treasury"])
+	_expect(copy.garrisons.size() == 9 and str(copy.rng.state) == legacy["state"]
+		and purses_unchanged
+		and copy.owner_of("ravensford") == "kharzan" and not copy.garrison_at("highcliff").is_empty(),
+		"pre-garrison saves receive starting guards without changing borders, treasuries or the random stream")
+	var old: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/fixtures/save_v4.json"))
+	copy.from_dict(old["world"])
+	_expect(copy.garrisons.size() == 9 and copy.lords.size() == 15,
+		"the real version-4 fixture still loads with lords and starting garrisons")
 
 
 ## Lords ride the map with warbands of their own, choose what to do by their realm's needs

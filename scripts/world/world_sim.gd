@@ -109,6 +109,8 @@ var wars := {}
 ## Each realm's seat and purse: realm → {capital, treasury}. A realm that loses its
 ## capital moves it.
 var realms := {}
+## Castle/town id → squads in battle army format. Villages have no standing garrison.
+var garrisons := {}
 ## The lords of the realms, rulers among them: [{id, name, realm, culture, bearing, ruler,
 ## renown, silver, fief, party, state, back_at, job, target, think_at, raiding, broke_days,
 ## full, army}]. `party` is the id of his party on the map, or -1 while he regroups (his
@@ -145,6 +147,7 @@ func setup(seed_value: int, player_culture: String) -> void:
 	for id in Data.SETTLEMENTS:
 		offers[id] = _new_offers(id)
 	_spawn_lords()
+	_start_garrisons()
 	_lord_day = int(hour / 24.0)
 
 
@@ -233,6 +236,10 @@ func set_owner(id: String, realm: String) -> void:
 	if was == realm:
 		return
 	owners[id] = realm
+	# Defenders don't change allegiance with their walls. A future siege leaves its
+	# survivors here after the transfer; until then the new owner must recruit guards.
+	if garrisons.has(id):
+		garrisons[id] = []
 	for v in Data.SETTLEMENTS:
 		if String(Data.SETTLEMENTS[v].get("bound_to", "")) == id:
 			owners[v] = realm
@@ -257,6 +264,8 @@ func describe(id: String) -> String:
 	if capital_of(realm) == id:
 		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
 	var people: String = Cultures.info(Data.culture_of(s["faction"]))["people"]
+	if garrisons.has(id):
+		people += " · garrison %d/%d men" % [men_of(garrison_at(id)), garrison_capacity(id)]
 	if is_burned(id):
 		return "%s · %s · burned by raiders, rebuilding" % [line, people]
 	return "%s · %s" % [line, people]
@@ -657,6 +666,82 @@ func _band_army(band_id: int, band_culture: String, with_chief: bool = false, ch
 	return out
 
 
+# ---------------------------------------------------------------- garrisons
+
+func garrison_at(id: String) -> Array:
+	return garrisons.get(id, [])
+
+
+func garrison_capacity(id: String) -> int:
+	var total := 0
+	for sq in _garrison_template(id):
+		total += Units.full_size(String(sq["unit"]))
+	return total
+
+
+## Fixed slots give rebuilt squads stable ids without consuming the world's random
+## stream. Recruits are the settlement's people, even under a foreign owner.
+func _garrison_template(id: String) -> Array:
+	var kind := String(Data.settlement(id)["type"])
+	var roles: Array = Lords.GARRISON_ROLES.get(kind, [])
+	var cult := Data.culture_of(String(Data.settlement(id)["faction"]))
+	var out := []
+	for i in roles.size():
+		var type := String(roles[i])
+		var unit := Units.recruit(cult, type)
+		var level := 1
+		if i < int(Lords.GARRISON_TRAINED[kind]):
+			unit = Units.branches(unit)[0]
+			level = 2
+		out.append({"id": 8000000 + Data.SETTLEMENTS.keys().find(id) * 100 + i,
+			"type": type, "unit": unit, "culture": cult, "level": level,
+			"xp": Troops.XP_PER_LEVEL if level > 1 else 0, "men": 0,
+			"name": "%s guard" % Data.settlement(id)["name"], "captain": null})
+	return out
+
+
+## New campaigns and pre-garrison saves start with the same standing guards, for free.
+func _start_garrisons() -> void:
+	garrisons = {}
+	for id in Data.SETTLEMENTS:
+		var army := _garrison_template(id)
+		if army.is_empty():
+			continue
+		for sq in army:
+			sq["men"] = int(Units.full_size(String(sq["unit"])) * Lords.GARRISON_START_SHARE)
+		garrisons[id] = army
+
+
+## Refill survivors first, then replace missing squads, up to the settlement's cap.
+## Buy only affordable men; an empty treasury neither creates troops nor goes negative.
+func _garrisons_day() -> void:
+	for id in garrisons:
+		var army: Array = garrisons[id]
+		var kind := String(Data.settlement(id)["type"])
+		var budget := mini(int(Lords.GARRISON_RECRUITS_PER_DAY[kind]),
+			garrison_capacity(id) - men_of(army))
+		var realm: Dictionary = realms[owner_of(id)]
+		var candidates := army.duplicate()
+		for sq in _garrison_template(id):
+			if not army.any(func(have): return int(have["id"]) == int(sq["id"])):
+				candidates.append(sq)
+		for sq in candidates:
+			if budget <= 0:
+				break
+			var unit := String(sq["unit"])
+			var add := mini(budget, Units.full_size(unit) - int(sq["men"]))
+			var available := maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE)
+			while add > 0 and Economy.recruit_cost(unit, add) > available:
+				add -= 1
+			if add <= 0:
+				continue
+			if not army.has(sq):
+				army.append(sq)
+			realm["treasury"] = int(realm["treasury"]) - Economy.recruit_cost(unit, add)
+			sq["men"] = int(sq["men"]) + add
+			budget -= add
+
+
 # ---------------------------------------------------------------- lords
 
 ## Each realm's ruler, at its capital, and its lords: the first two hold its castles, the
@@ -959,6 +1044,7 @@ func _lords_day() -> void:
 		if p != null:
 			p.army = army
 		l["army"] = army
+	_garrisons_day()
 
 
 ## A day's recruits for a lord at his seat, as many as his purse allows, up to his
@@ -1221,6 +1307,7 @@ func to_dict() -> Dictionary:
 		"escaped_chiefs": escaped_chiefs.duplicate(true),
 		"saved_villages": saved_villages.duplicate(),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
+		"garrisons": garrisons.duplicate(true),
 		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "lord_day": _lord_day,
 	}
 
@@ -1321,6 +1408,14 @@ func from_dict(d: Dictionary) -> void:
 		# A world saved before there were lords gets its lords now.
 		_spawn_lords()
 		_lord_day = int(hour / 24.0)
+
+	if d.has("garrisons"):
+		garrisons = {}
+		for id in Data.SETTLEMENTS:
+			if Lords.GARRISON_ROLES.has(String(Data.settlement(id)["type"])):
+				garrisons[id] = clean_army(d["garrisons"].get(id, []))
+	else:
+		_start_garrisons()
 
 
 ## A lord read back from JSON, with his counts as ints again.

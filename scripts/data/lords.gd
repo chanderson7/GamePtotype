@@ -3,6 +3,7 @@
 extends RefCounted
 
 const Cultures = preload("res://scripts/data/cultures.gd")
+const Troops = preload("res://scripts/data/troops.gd")
 
 ## Lords a realm has besides its ruler.
 const PER_REALM := 4
@@ -49,6 +50,18 @@ const WAGE_SHARE := 0.5
 const START_SILVER := 300
 ## Lords' recruits come out of the treasury only while it keeps this much back for wages.
 const TREASURY_RESERVE := 2000
+## Standing garrisons: towns house more men, castles a greater share of trained troops.
+## Each role is one squad; the first TRAINED squads use their culture's first branch.
+const GARRISON_ROLES := {
+	"castle": [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.ARCHERS],
+	"town": [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS,
+		Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS],
+}
+const GARRISON_TRAINED := {"castle": 2, "town": 1}
+## Start half staffed. Daily recruits are paid at recruit prices after lords' upkeep
+## and refills, leaving TREASURY_RESERVE untouched. No recruitment debt is carried.
+const GARRISON_START_SHARE := 0.5
+const GARRISON_RECRUITS_PER_DAY := {"castle": 4, "town": 6}
 ## Renown stops growing here.
 const RENOWN_MAX := 400
 

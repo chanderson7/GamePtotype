@@ -15,7 +15,7 @@ and their fights are fought on Phase 3's ground with its objectives.
 |---|---|---|---|
 | 4.1 | A world that can change: owners, wars, a bigger map, save v5 | ~1.5 weeks | **Done** |
 | 4.2 | Lords on the map | ~2.5 weeks | **Done** |
-| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | Next |
+| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | Garrisons done; armies next |
 | 4.4 | War and peace | ~1 week | |
 | 4.5 | You in the war: lord encounters, contracts, battles bigger than your warband | ~2 weeks | |
 | 4.6 | Prisoners, ransom, and lords who remember | ~1 week | |
@@ -221,6 +221,23 @@ his bearing and his realm's needs weighting it:
 ---
 
 ## 4.3 Armies, sieges, and settlements that change hands (~2 weeks)
+
+**As built so far — garrisons:** `WorldSim.garrisons` holds battle-format squads at the
+nine castles and towns; `garrison_at` and `garrison_capacity` expose them. Castles start
+with 40 of 80 men (two of four squads trained); towns with 60 of 120 (one of six trained).
+Their foot, spears and bows are of the settlement's people, even under a foreign owner.
+At midnight, after lord wages and refills, each castle recruits up to four men and each
+town six, paid at recruit prices from its current owner's treasury while preserving the
+2,000-silver reserve. Partial budgets buy only affordable men. Full garrisons cost no
+recruitment silver; damaged and destroyed squads refill to the cap. All tunables are in
+`scripts/data/lords.gd`. This step adds recruitment costs, not a separate garrison wage bill.
+
+Settlement descriptions on the map and in town show the current guards and capacity.
+Save v5 includes the squads; older saves receive starting guards without spending silver
+or advancing the random stream. `set_owner` clears the old defenders; the siege step must
+leave the attackers' garrison after transferring ownership. Village militia, siege food,
+armies and siege resolution remain for the following pieces. `_check_garrisons` covers
+daily timing, caps, costs, shortages, losses, captures, save replay and old-save migration.
 
 ### Armies
 
