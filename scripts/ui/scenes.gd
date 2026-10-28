@@ -5,6 +5,10 @@ extends CanvasLayer
 const OUT := 0.15
 const IN := 0.25
 
+## Return destinations for standalone help and settings pages.
+var settings_return := "res://scenes/title.tscn"
+var tutorial_return := "res://scenes/title.tscn"
+
 var _veil: ColorRect
 var _busy := false
 

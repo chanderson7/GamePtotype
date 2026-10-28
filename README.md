@@ -8,6 +8,11 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 
 ### The campaign
 
+- **A clearer Home screen.** Continue with a summary of your company, start a new campaign with an explicit replacement confirmation, or open Learn to play and Settings. Settings has its own page, reachable from Home or the map's Menu; Warband stays focused on your company.
+- **Optional tutorial.** Opt in when choosing your people, or replay the six-step introduction from Home or Settings. Go back, skip, or leave at any point without advancing the campaign.
+- **Resources and warnings.** Silver, food and renown have labeled icons in the map's top-right corner. Tap one for details; food is shown in days. Low supplies warn that men may leave. If they do, a saved warning names the losses and causes, explains what to fix, and pauses time until acknowledged.
+- **Your first bond.** When a surviving captain pair first reaches rank C, a one-time introduction explains morale recovery, nearby deployment, and the later B and A bonuses. Open Warband directly to review the pair; the acknowledgment is saved with the campaign.
+
 - **The Glass Sea.** An invented inland sea shared by three realms: the **Kingdom of Vardmark** on the northwest shore (stone keeps and armored knights), the **Sultanate of Kharzan** across the southern deserts (walled cities and swift riders), and the **Ryumon Shogunate** on the islands beyond the eastern strait (disciplined archers and spearmen). Twenty-one settlements: in each realm a town, two castles and four villages, every village bound to a castle or town, joined by roads and three sea lanes. Who holds each place, and who is at war with whom, are the world's own and kept in your save, ready for the realms to fight over them.
 - **Choose your people.** A new campaign starts with a choice of culture. Your captains take its names, your companies its words ("Brann's Pikes", "Tariq's Spears", "Hideo's Yari"), your troops its names (Footmen, Askari, Samurai), and you start at its capital. Cultures fight alike for now; their stats will differ later.
 - **Ride the roads.** Tap a settlement to see it and ride there. Time passes only while you ride or wait, an hour a second (two at 2x), and stops the moment anything needs you. Sea lanes are slower than roads. Drag to look around, pinch or scroll to zoom, double-tap to find your party.
@@ -60,7 +65,7 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 
 - **Music for every place**, composed and synthesized for the game (`tools/music.py`): a horn theme over harp and strings on the title screen; on the map, the music of the realm you're riding through, crossfading as you cross a border: lute and recorder over a hurdy-gurdy drone in Vardmark, oud and ney over a frame drum's rhythm in Kharzan, koto and shakuhachi with taiko on the Ryumon isles. Battle music has two layers, war drums and a driving ostinato always, horns and snares swelling in as more of the field is fighting, and ends with a victory or defeat call.
 - **Sounds**: a horn to start the battle, steel ringing faster the more squads are locked in melee, the rush of a volley, the snap and twang of crossbows, the whoosh of thrown javelins, horse archers loosing on the move, hooves thundering into a charge, a fanfare when a chief's guard breaks or he falls, the river running through a ford and birds in a wood under the battle music, the shout of a breaking squad, the rattle of the death roll's die and a bell when it lands on death; on the map, hoofbeats on the road, an alarm horn when bandits block it, coins when you buy or hire.
-- **Feel**: screens fade into one another, every button clicks and gives under your finger, map sheets and the battle result ease into view, and the title screen drifts over the Glass Sea at dawn. Music and sound can each be switched off on the title and Warband screens; the choice is kept on the device.
+- **Feel**: screens fade into one another, every button clicks and gives under your finger, map sheets and the battle result ease into view, and the title screen drifts over the Glass Sea at dawn. Music and sound can each be switched off on the dedicated Settings page; the choice is kept on the device.
 
 ## Run it
 
@@ -83,7 +88,9 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 
 | Path | What it does |
 | --- | --- |
-| `scenes/title.tscn` | The title screen: Continue or New campaign. The main scene. |
+| `scenes/title.tscn` | Home: campaign summary, Continue, New campaign, tutorial and Settings. |
+| `scenes/settings.tscn`, `scenes/tutorial.tscn` | Device audio preferences and an optional six-step walkthrough. |
+| `scenes/bond_intro.tscn` | The saved first-rank-C bond introduction. |
 | `scenes/new_campaign.tscn` | Choose your people. |
 | `scenes/world_map.tscn` | The map of the Glass Sea: travel, settlements, encounters. |
 | `scenes/settlement.tscn` | A settlement: buy food, hire recruits, reinforce and train. |
@@ -127,6 +134,8 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 The rules don't touch the screen, in battles and on the map alike, so both sims can be tested headless. Battles take and return plain data: an army goes in as `[{id, type, men, xp, level}]`, and `result_for()` hands back survivors and kills per squad. Auto-resolve returns the same shape, so a fight you send your men into lands on the warband exactly like one you led.
 
 ## Tests
+
+For menu navigation, tutorial opt-in and replay, first-bond save behavior, resource controls and desertion warnings, run `godot --headless --path . --script res://tests/menu_tests.gd`. It uses a temporary preferences file and does not save its test campaign.
 
 From the project folder:
 

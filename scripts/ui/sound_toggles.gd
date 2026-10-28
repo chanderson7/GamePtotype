@@ -1,5 +1,5 @@
-## Two buttons, Music and Sound, each switching itself on and off. Used on the title
-## screen and the Warband screen.
+## Two buttons, Music and Sound, each switching itself on and off. Used on the
+## dedicated Settings page.
 extends RefCounted
 
 const Style = preload("res://scripts/ui/style.gd")
@@ -15,7 +15,6 @@ static func make() -> HBoxContainer:
 
 static func _toggle(word: String, on: bool, setter: Callable) -> Button:
 	var b := Button.new()
-	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(0, Style.TOUCH)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.add_theme_font_size_override("font_size", Style.SMALL)

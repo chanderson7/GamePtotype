@@ -30,6 +30,9 @@ var fallen: Array = []
 var battles := 0
 var wins := 0
 var last_result := {}
+## Saved per campaign: pending help survives a quit until explicitly acknowledged.
+var bond_intro_seen := false
+var bond_intro_pair := ""
 ## Coin, rations (one per man per day) and renown, which lets you lead more squads.
 var silver := 0
 var food := 0
@@ -45,6 +48,8 @@ var world = null
 var pending_battle := {}
 ## What the map should tell the player when they get back from a battle, or "".
 var map_notice := ""
+## Unread desertion warning survives saving until the player acknowledges it.
+var desertion_warning := ""
 ## Battles the autoplay smoke test has fought this run.
 var autoplay_battles := 0
 ## Set false in tests so nothing touches the save file.
@@ -81,6 +86,10 @@ func new_warband() -> void:
 	battles = 0
 	wins = 0
 	last_result = {}
+	bond_intro_seen = false
+	bond_intro_pair = ""
+	map_notice = ""
+	desertion_warning = ""
 	_next_id = 1
 	_next_captain = 1
 	renown = 0
@@ -346,8 +355,14 @@ func _upkeep() -> void:
 	if left == 0:
 		return
 	var why := "unpaid and hungry" if hungry > 0.0 and unpaid > 0.0 else ("unpaid" if unpaid > 0.0 else "hungry")
-	var fix := "Buy food in any settlement." if hungry > 0.0 else "Beat bandits for their spoils to pay the rest."
-	_note("End of day %d: %d men left the warband, %s. %s" % [_paid_day, left, why, fix])
+	var fix := ""
+	if hungry > 0.0:
+		fix += "Buy food in any settlement. "
+	if unpaid > 0.0:
+		fix += "Earn silver from bounties and spoils to pay the rest."
+	var message := "End of day %d: %d men left the warband, %s. %s" % [_paid_day, left, why, fix.strip_edges()]
+	desertion_warning = message if desertion_warning == "" else desertion_warning + "\n" + message
+	_note(message)
 
 
 func _note(text: String) -> void:
@@ -378,6 +393,16 @@ func bonds() -> Array:
 				out.append({"a": a, "b": b, "points": points, "rank": Captains.rank_letter(points)})
 	out.sort_custom(func(x, y): return x["points"] > y["points"])
 	return out
+
+
+func bond_intro_pending() -> bool:
+	return not bond_intro_seen and bond_intro_pair != ""
+
+
+func acknowledge_bond_intro() -> void:
+	bond_intro_seen = true
+	bond_intro_pair = ""
+	save_game()
 
 
 ## What kind of fight `band` makes of it: "village" if you catch it raiding one, "chief"
@@ -531,6 +556,7 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 func apply_result(result: Dictionary) -> void:
 	# What became of each captain, in words, while the roster still names them.
 	var fates := describe_result(result)
+	var bond_changes := _bond_changes(result)
 	battles += 1
 	var by_id: Dictionary = result.get("squads", {})
 	# Bonds first, while every captain who fought is still on the roster.
@@ -576,6 +602,11 @@ func apply_result(result: Dictionary) -> void:
 				c["bonds"].erase(str(d))
 	# A squad with no men left is gone, unless its captain lived to raise it again.
 	army = army.filter(func(s): return int(s["men"]) > 0 or s.get("captain") != null)
+	if not bond_intro_seen and bond_intro_pair == "":
+		for change in bond_changes:
+			if captain_by_id(int(change["a"]["id"])) != null and captain_by_id(int(change["b"]["id"])) != null:
+				bond_intro_pair = "%s & %s" % [change["a"]["name"], change["b"]["name"]]
+				break
 	if result.get("won", false):
 		wins += 1
 	if world != null and not pending_battle.is_empty():
@@ -658,6 +689,8 @@ func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
 		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
 		"silver": silver, "food": food, "renown": renown, "paid_day": _paid_day,
+		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair,
+		"desertion_warning": desertion_warning,
 		"world": world.to_dict() if world != null else null}
 
 
@@ -717,6 +750,9 @@ func from_dict(data: Dictionary) -> bool:
 			s["captain"] = _new_captain(s["type"])
 		if s["name"] == "" and s["captain"] != null:
 			s["name"] = Captains.company_name(s["captain"], s["type"])
+	bond_intro_seen = bool(data.get("bond_intro_seen", not bonds().is_empty()))
+	bond_intro_pair = String(data.get("bond_intro_pair", ""))
+	desertion_warning = String(data.get("desertion_warning", ""))
 	# And those saved before they needed feeding start with a new warband's rations.
 	if food < 0:
 		food = Economy.START_FOOD_DAYS * total_men()

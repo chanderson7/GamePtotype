@@ -9,7 +9,6 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Units = preload("res://scripts/data/units.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
-const SoundToggles = preload("res://scripts/ui/sound_toggles.gd")
 
 
 func _ready() -> void:
@@ -65,6 +64,20 @@ func _build() -> void:
 		last_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		col.add_child(last_label)
 
+	var back := Button.new()
+	back.custom_minimum_size = Vector2(0, 92)
+	back.add_theme_font_size_override("font_size", Style.LARGE)
+	Style.make_primary(back)
+	if w != null:
+		back.text = "Back to the map"
+		back.pressed.connect(func(): Scenes.go("res://scenes/world_map.tscn"))
+	else:
+		back.text = "To battle"
+		back.disabled = GameState.total_men() == 0
+		back.pressed.connect(_on_battle)
+	col.add_child(back)
+
+
 	col.add_child(_section("Your warband"))
 	col.add_child(_note("%d men in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
 		GameState.total_men(), GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
@@ -89,18 +102,6 @@ func _build() -> void:
 		for i in range(GameState.fallen.size() - 1, -1, -1):
 			col.add_child(_memorial_row(GameState.fallen[i]))
 
-	var back := Button.new()
-	back.custom_minimum_size = Vector2(0, 92)
-	back.add_theme_font_size_override("font_size", Style.LARGE)
-	Style.make_primary(back)
-	if w != null:
-		back.text = "Back to the map"
-		back.pressed.connect(func(): Scenes.go("res://scenes/world_map.tscn"))
-	else:
-		back.text = "To battle"
-		back.disabled = GameState.total_men() == 0
-		back.pressed.connect(_on_battle)
-	col.add_child(back)
 
 	# Fresh men are found in towns.
 	if GameState.in_town():
@@ -120,39 +121,6 @@ func _build() -> void:
 	else:
 		col.add_child(_note("Ride to a town to reinforce and train."))
 
-	col.add_child(_section("Sound"))
-	col.add_child(SoundToggles.make())
-
-	col.add_child(_section("How to play"))
-	var how := Style.label(
-		"On the map, tap a settlement to ride there. Time passes only while you ride or wait. " +
-		"Bandits roam each realm: when they block the road, lead the fight, send your men in without " +
-		"you (quicker, but it costs more men), or withdraw.\n\n" +
-		"Every day costs wages and a ration a man. Men who go unpaid or hungry desert. Beating a band " +
-		"pays a bounty and spoils and wins renown, and renown lets you lead more squads. Buy food " +
-		"anywhere, cheapest in villages. Hire the recruits each place offers: a town's are of every " +
-		"kind, and foreign recruits fight just as well under their own captains. In a town, refill " +
-		"your squads and train the ones that have earned it.\n\n" +
-		"Before the fight, place your whole army in the blue zone: tap a card, then the field, " +
-		"or tap Auto-place. Your scouts tell you what kind of commander you face. Press Fight when you're ready.\n\n" +
-		"Your squads hold, braced, until ordered, and a braced line wins the first clash: often the " +
-		"best move is to let them come. Advance sends each squad at the enemy it fights best; Hold " +
-		"stops them and braces them again. Tap a card or a standard to command one squad, then tap " +
-		"an enemy to attack it (crossed swords mark its target, and it stays on them), open ground to " +
-		"march there, or its ability button. Archers can hold fire to keep their arrows.\n\n" +
-		"Drag across the field to draw a line: the whole army, or the squad you've picked, forms up " +
-		"along it, each squad to its own stretch, facing the enemy. A squad on its own widens or " +
-		"deepens its ranks to fill the line. Before the battle, a line places the whole army at once.\n\n" +
-		"Spearmen stop cavalry. Cavalry ride down archers. Archers shred infantry, until their " +
-		"arrows run out. Infantry cut through spear lines. A squad locked in one fight can be hit " +
-		"in the flank or rear by another, which hurts and shakes it: pin them with foot, then send in the horse.\n\n" +
-		"Infantry raise a Shield wall against arrows. Spearmen form a Schiltron no charge can break. " +
-		"Archers loose a Volley that shakes a squad's nerve. Cavalry Wheel away to charge again.\n\n" +
-		"Every squad has a captain, marked by a gold ring. If a captain falls, a d100 decides: " +
-		"roll over the death chance and they're wounded and sit out two battles; at or under it, " +
-		"they're gone. Their own squad, a friendly squad nearby or plain luck improves the odds.", Style.SMALL, Style.MUTED)
-	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(how)
 
 
 func _section(text: String) -> Label:

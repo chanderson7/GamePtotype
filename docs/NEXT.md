@@ -19,6 +19,20 @@ codebase; the plan names the files each step touches.
      after transferring ownership. Village militia and siege food belong to this piece.
 - Then 4.4 (war and peace), 4.5 (contracts and lord encounters), 4.6, 4.7.
 
+## Menu and onboarding update
+
+Home now has a campaign summary, explicit replacement confirmation, Learn to play, and
+Settings. The optional six-step tutorial can be selected at campaign creation or replayed
+from Home/Settings. Map Menu opens Warband, Settings or Home. Audio settings are no longer
+in Warband. First rank-C bonds introduce themselves once per campaign, with saved pending
+and acknowledgment state. The map's top-right resource icons are labeled and tappable;
+low supplies warn early, and actual desertion pauses play with a saved, actionable warning.
+
+`tests/menu_tests.gd` covers navigation, opt-in/replay, preferences, bond persistence,
+resource controls and desertion warnings. Menu tests, relevant save/upkeep/captain checks,
+and autoplay pass on Godot 4.7.2; phone-sized menus were rendered and inspected. Phase 4's
+next gameplay piece remains armies.
+
 ## Latest validation
 
 Garrisons: focused checks and autoplay pass on macOS with Godot 4.7.2. The full regular

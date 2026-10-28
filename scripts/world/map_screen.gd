@@ -18,7 +18,12 @@ const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
-const TOP_BAR := 122.0
+const TOP_BAR := 184.0
+const RESOURCE_ICONS := {
+	"silver": preload("res://assets/ui/silver.svg"),
+	"food": preload("res://assets/ui/food.svg"),
+	"renown": preload("res://assets/ui/renown.svg"),
+}
 ## Game hours that pass each real second at 1x.
 const HOURS_PER_SECOND := 1.0
 ## How far you can zoom: map units across the screen, most and fewest.
@@ -72,7 +77,7 @@ var _plate: StyleBoxFlat
 
 var top_panel: PanelContainer
 var clock_label: Label
-var purse_label: Label
+var resource_buttons := {}
 var status_label: Label
 var speed_button: Button
 var warband_button: Button
@@ -89,6 +94,9 @@ func _ready() -> void:
 	if world == null:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/title.tscn")
 		return
+	if GameState.bond_intro_pending() and GameState.desertion_warning == "" and not autoplay:
+		get_tree().change_scene_to_file.call_deferred("res://scenes/bond_intro.tscn")
+		return
 	if autoplay:
 		speed = 8.0
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -104,6 +112,8 @@ func _ready() -> void:
 	_update_music()
 	if world.encounter != -1:
 		_open_encounter()
+	elif GameState.desertion_warning != "":
+		_open_desertion_warning()
 	elif GameState.map_notice != "":
 		_open_notice(GameState.map_notice)
 		GameState.map_notice = ""
@@ -148,10 +158,15 @@ func _process(delta: float) -> void:
 	# On the way out (no campaign, or the smoke test is done) the screen was never built.
 	if world == null or top_panel == null:
 		return
+	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu"]:
+		_open_desertion_warning()
+	if GameState.bond_intro_pending() and GameState.desertion_warning == "" and not autoplay and _sheet not in ["encounter", "notice", "warning"]:
+		Scenes.go("res://scenes/bond_intro.tscn")
+		return
 	if autoplay:
 		_autoplay()
 	# An encounter or a note about the last battle holds the clock until it's answered.
-	if world.busy() and _sheet != "encounter" and _sheet != "notice":
+	if world.busy() and _sheet != "encounter" and _sheet != "notice" and _sheet != "menu" and _sheet != "warning":
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
 		_save_clock += delta
 		if _save_clock > 5.0:
@@ -167,8 +182,10 @@ func _process(delta: float) -> void:
 				GameState.save_game()
 				_open_encounter()
 	world.events.clear()
+	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu"]:
+		_open_desertion_warning()
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
-	if GameState.map_notice != "" and _sheet != "encounter" and _sheet != "notice":
+	if GameState.map_notice != "" and _sheet != "encounter" and _sheet != "notice" and _sheet != "menu" and _sheet != "warning":
 		_open_notice(GameState.map_notice, "On the road")
 		Sound.play("page")
 		GameState.map_notice = ""
@@ -177,7 +194,7 @@ func _process(delta: float) -> void:
 	if _music_clock <= 0.0:
 		_music_clock = 0.5
 		_update_music()
-	var riding: bool = world.player().moving() and world.busy() and _sheet != "encounter" and _sheet != "notice"
+	var riding: bool = world.player().moving() and world.busy() and _sheet not in ["encounter", "notice", "menu", "warning"]
 	Sound.set_loop("hooves" if riding else "")
 	_kick_dust(delta)
 	_refresh_hud()
@@ -188,6 +205,8 @@ func _process(delta: float) -> void:
 ## The smoke test: ride at the nearest band and fight it, send the men in against the
 ## next, then go into the next settlement you reach and spend there.
 func _autoplay() -> void:
+	if _sheet == "warning":
+		_acknowledge_desertion()
 	if _sheet == "encounter":
 		if GameState.autoplay_battles == 0:
 			_on_fight()
@@ -298,7 +317,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _tap(at: Vector2) -> void:
-	if _sheet == "encounter":
+	if _sheet in ["encounter", "notice", "warning", "menu"]:
 		return
 	var best := ""
 	var best_d := TAP_RADIUS
@@ -342,27 +361,37 @@ func _build_hud() -> void:
 	top_panel.anchor_right = 1.0
 	top_panel.offset_bottom = TOP_BAR
 	hud.add_child(top_panel)
+	var stack_top := VBoxContainer.new()
+	stack_top.add_theme_constant_override("separation", 4)
+	top_panel.add_child(stack_top)
+	var resource_row := HBoxContainer.new()
+	resource_row.add_theme_constant_override("separation", 8)
+	stack_top.add_child(resource_row)
+	clock_label = Style.label("", Style.BODY, Style.BRASS)
+	clock_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clock_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	resource_row.add_child(clock_label)
+	for key in ["silver", "food", "renown"]:
+		var badge := _button("", _open_resource.bind(key))
+		badge.icon = RESOURCE_ICONS[key]
+		badge.expand_icon = true
+		badge.add_theme_constant_override("icon_max_width", 30)
+		badge.add_theme_font_size_override("font_size", Style.SMALL)
+		badge.custom_minimum_size = Vector2(152, Style.TOUCH)
+		resource_buttons[key] = badge
+		resource_row.add_child(badge)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
-	top_panel.add_child(row)
-	var col := VBoxContainer.new()
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 0)
-	row.add_child(col)
-	clock_label = Style.label("", Style.BODY, Style.BRASS)
-	col.add_child(clock_label)
-	purse_label = Style.label("", Style.SMALL, Style.TEXT)
-	purse_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	purse_label.custom_minimum_size = Vector2(10, 0)
-	col.add_child(purse_label)
+	stack_top.add_child(row)
 	status_label = Style.label("", Style.SMALL, Style.MUTED)
+	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.custom_minimum_size = Vector2(10, 0)
-	col.add_child(status_label)
+	row.add_child(status_label)
 	speed_button = _button("1×", _on_speed)
 	speed_button.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
 	row.add_child(speed_button)
-	warband_button = _button("Warband", _on_warband)
+	warband_button = _button("Menu", _on_menu)
 	warband_button.custom_minimum_size = Vector2(150, Style.TOUCH)
 	row.add_child(warband_button)
 
@@ -401,7 +430,6 @@ func _build_hud() -> void:
 func _button(text: String, callback: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(0, Style.TOUCH)
 	b.pressed.connect(callback)
 	return b
@@ -410,6 +438,7 @@ func _button(text: String, callback: Callable) -> Button:
 func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> void:
 	_sheet = kind
 	sheet_title.text = title
+	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
 	sheet_body.text = body
 	for c in sheet_row.get_children():
 		c.queue_free()
@@ -575,7 +604,58 @@ func _odds_text(odds: Dictionary) -> String:
 	return "Your scouts say %s. Sent in without you, you'd lose about %d %s." % [call, lost, "man" if lost == 1 else "men"]
 
 
+func _open_desertion_warning() -> void:
+	_show_sheet("warning", "Warning: men are leaving", GameState.desertion_warning +
+		"\n\nTime is paused. Restore supplies and wages before another day passes.",
+		[["Understood", _acknowledge_desertion, true]])
+	GameState.save_game()
+	Sound.play("alarm")
+
+
+func _acknowledge_desertion() -> void:
+	# Remove only the warning's lines; preserve any unrelated battle or travel notice.
+	for line in GameState.desertion_warning.split("\n"):
+		GameState.map_notice = GameState.map_notice.replace(line, "")
+	GameState.map_notice = GameState.map_notice.strip_edges()
+	GameState.desertion_warning = ""
+	GameState.save_game()
+	_on_notice_done()
+
+
+static func _short_amount(value: int) -> String:
+	if value >= 1000000:
+		return "%.1fm" % (value / 1000000.0)
+	if value >= 10000:
+		return "%.1fk" % (value / 1000.0)
+	return str(value)
+
+
+func _open_resource(key: String) -> void:
+	if _sheet in ["encounter", "notice", "warning"]:
+		return
+	var text := ""
+	match key:
+		"silver":
+			text = "%d silver. Your men need %d silver in wages each day. Win battles for bounties and spoils." % [GameState.silver, GameState.daily_wages()]
+			if GameState.silver < GameState.daily_wages():
+				text += "\nWarning: you cannot cover the next day's wages. Unpaid men may leave."
+		"food":
+			text = "%d rations, enough for %d days. Every man eats one ration a day. Buy food in any settlement; villages are cheapest." % [GameState.food, GameState.food_days()]
+			if GameState.food < GameState.total_men():
+				text += "\nWarning: there is not enough food for the next day. Hungry men may leave."
+		"renown":
+			text = "%d renown. You can lead up to %d squads. Winning battles builds your reputation and increases your squad limit." % [GameState.renown, GameState.squad_cap()]
+	_show_sheet("menu", key.capitalize(), text, [["Close", _close_sheet]])
+
+
 func _open_notice(text: String, title: String = "After the battle") -> void:
+	if GameState.desertion_warning != "":
+		for line in GameState.desertion_warning.split("\n"):
+			text = text.replace(line, "")
+		text = text.strip_edges()
+		if text == "":
+			_open_desertion_warning()
+			return
 	if GameState.total_men() == 0:
 		_show_sheet("notice", "Your warband is gone", text + " Raise a new one to ride again.",
 			[["New campaign", _on_new_campaign, true]])
@@ -613,6 +693,24 @@ func _on_wait() -> void:
 func _on_enter() -> void:
 	GameState.save_game()
 	Scenes.go("res://scenes/settlement.tscn")
+
+
+func _on_menu() -> void:
+	if _sheet in ["encounter", "notice", "warning"]:
+		return
+	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
+		[["Warband", _on_warband], ["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+
+
+func _on_settings() -> void:
+	GameState.save_game()
+	Scenes.settings_return = "res://scenes/world_map.tscn"
+	Scenes.go("res://scenes/settings.tscn")
+
+
+func _on_home() -> void:
+	GameState.save_game()
+	Scenes.go("res://scenes/title.tscn")
 
 
 func _on_warband() -> void:
@@ -657,11 +755,20 @@ func _refresh_hud() -> void:
 	var h := int(world.hour)
 	clock_label.text = "Day %d · %02d:00" % [h / 24 + 1, h % 24]
 	speed_button.text = "2×" if speed > 1.5 else "1×"
+	var modal := _sheet in ["encounter", "notice", "warning"]
+	warband_button.disabled = modal
+	speed_button.disabled = modal or _sheet == "menu"
+	for badge in resource_buttons.values():
+		badge.disabled = modal
 	var days: int = GameState.food_days()
-	purse_label.text = "%d silver · food for %s · %d renown" % [GameState.silver,
-		"1 day" if days == 1 else "%d days" % days, GameState.renown]
-	var short: bool = days < 2 or GameState.silver < GameState.daily_wages()
-	purse_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if short else Style.TEXT)
+	resource_buttons["silver"].text = "%s\nSilver" % _short_amount(GameState.silver)
+	resource_buttons["food"].text = "%sd\nFood" % _short_amount(days)
+	resource_buttons["renown"].text = "%s\nRenown" % _short_amount(GameState.renown)
+	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_wages()]
+	resource_buttons["food"].tooltip_text = "%d rations · %d days of food" % [GameState.food, days]
+	resource_buttons["renown"].tooltip_text = "%d renown · capacity %d squads" % [GameState.renown, GameState.squad_cap()]
+	resource_buttons["silver"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if GameState.silver < GameState.daily_wages() else Style.TEXT)
+	resource_buttons["food"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if days < 2 else Style.TEXT)
 	var p = world.player()
 	if world.encounter != -1:
 		status_label.text = "Bandits block the road"
@@ -672,6 +779,10 @@ func _refresh_hud() -> void:
 		status_label.text = "Waiting at %s · %s" % [Data.settlement(p.node)["name"], _hours_text(p.wait)]
 	else:
 		status_label.text = "At %s" % Data.settlement(p.node)["name"]
+	var at_risk: bool = GameState.food < GameState.total_men() or GameState.silver < GameState.daily_wages()
+	if at_risk:
+		status_label.text += "\nLow supplies: men may leave."
+	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if at_risk else Style.MUTED)
 
 
 

@@ -9,6 +9,9 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 
+var _tutorial: Button
+var _starting := false
+
 func _ready() -> void:
 	theme = Style.make_theme()
 	var bg := ColorRect.new()
@@ -35,11 +38,16 @@ func _ready() -> void:
 		+ "and starts at its capital. You can ride anywhere.", Style.SMALL, Style.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(intro)
+	_tutorial = Button.new()
+	_tutorial.toggle_mode = true
+	_tutorial.text = "Tutorial: off (optional)"
+	_tutorial.toggled.connect(func(on: bool): _tutorial.text = "Tutorial: %s (optional)" % ("on" if on else "off"))
+	_tutorial.custom_minimum_size.y = Style.TOUCH
+	col.add_child(_tutorial)
 	for c in Cultures.ORDER:
 		col.add_child(_card(c))
 	var back := Button.new()
 	back.text = "Back"
-	back.focus_mode = Control.FOCUS_NONE
 	back.custom_minimum_size = Vector2(0, Style.TOUCH)
 	back.pressed.connect(func(): Scenes.go("res://scenes/title.tscn"))
 	col.add_child(back)
@@ -77,7 +85,6 @@ func _card(culture: String) -> Control:
 	v.add_child(facts)
 	var go := Button.new()
 	go.text = "Lead the %s" % info["people"]
-	go.focus_mode = Control.FOCUS_NONE
 	go.custom_minimum_size = Vector2(0, Style.TOUCH)
 	Style.make_primary(go)
 	go.pressed.connect(_on_pick.bind(culture))
@@ -86,5 +93,12 @@ func _card(culture: String) -> Control:
 
 
 func _on_pick(culture: String) -> void:
+	if _starting:
+		return
+	_starting = true
 	GameState.new_campaign(culture)
-	Scenes.go("res://scenes/world_map.tscn")
+	if _tutorial.button_pressed:
+		Scenes.tutorial_return = "res://scenes/world_map.tscn"
+		Scenes.go("res://scenes/tutorial.tscn")
+	else:
+		Scenes.go("res://scenes/world_map.tscn")

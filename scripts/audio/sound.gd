@@ -24,6 +24,8 @@ const SFX_DB := {
 }
 const POOL := 10
 
+## Tests may use a disposable preference file without touching device settings.
+var settings_path := SETTINGS_PATH
 var music_on := true
 var sounds_on := true
 var _track := ""
@@ -169,7 +171,7 @@ func set_sounds_on(on: bool) -> void:
 
 func _load_settings() -> void:
 	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_PATH) == OK:
+	if cfg.load(settings_path) == OK:
 		music_on = bool(cfg.get_value("audio", "music", true))
 		sounds_on = bool(cfg.get_value("audio", "sounds", true))
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
@@ -178,23 +180,25 @@ func _load_settings() -> void:
 
 func _save_settings() -> void:
 	var cfg := ConfigFile.new()
+	# Keep acknowledged hints when changing audio preferences.
+	cfg.load(settings_path)
 	cfg.set_value("audio", "music", music_on)
 	cfg.set_value("audio", "sounds", sounds_on)
-	cfg.save(SETTINGS_PATH)
+	cfg.save(settings_path)
 
 
 func has_seen_hint(section: String, key: String) -> bool:
 	var cfg := ConfigFile.new()
-	if cfg.load(SETTINGS_PATH) == OK:
+	if cfg.load(settings_path) == OK:
 		return bool(cfg.get_value(section, key, false))
 	return false
 
 
 func mark_hint_seen(section: String, key: String) -> void:
 	var cfg := ConfigFile.new()
-	cfg.load(SETTINGS_PATH)
+	cfg.load(settings_path)
 	cfg.set_value(section, key, true)
-	cfg.save(SETTINGS_PATH)
+	cfg.save(settings_path)
 
 
 # ---------------------------------------------------------------- buttons
