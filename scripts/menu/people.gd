@@ -111,7 +111,7 @@ func _build_contacts() -> void:
 		row.add_theme_constant_override("separation", 12)
 		card.add_child(row)
 
-		var here := w.here()
+		var here: String = w.here()
 		var at_same_place: bool = here != "" and here == p.get("residence", "")
 		var talk_btn := Button.new()
 		talk_btn.text = "Speak with %s" % p["name"] if at_same_place else "Audience (at %s)" % res_name
@@ -130,6 +130,11 @@ func _build_contacts() -> void:
 			_back())
 		row.add_child(map_btn)
 
+		if cand_id == RomanceStories.EDDA:
+			card.add_child(Page.button("Spend time / memories", func():
+				Scenes.active_person_id = p["id"]
+				Scenes.personal_conversation_return = "res://scenes/people.tscn"
+				Scenes.go("res://scenes/personal_conversation.tscn")))
 		_col.add_child(HSeparator.new())
 
 

@@ -740,14 +740,24 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
 
 
 ## Saves the campaign. Before one has started there's nothing worth keeping.
-func save_game() -> void:
-	if not persist or world == null:
-		return
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+func save_game() -> bool:
+	if not persist:
+		return true
+	if world == null:
+		return false
+	# Replace only a completely written save, preserving the previous campaign on failure.
+	var temporary := SAVE_PATH + ".tmp"
+	var f := FileAccess.open(temporary, FileAccess.WRITE)
 	if f == null:
-		return
-	# Every digit of every number, so a loaded world carries on exactly as it was.
+		return false
 	f.store_string(JSON.stringify(to_dict(), "", true, true))
+	f.flush()
+	var written := f.get_error() == OK
+	f.close()
+	if not written:
+		DirAccess.remove_absolute(temporary)
+		return false
+	return DirAccess.rename_absolute(temporary, SAVE_PATH) == OK
 
 
 func to_dict() -> Dictionary:
@@ -836,3 +846,20 @@ func _clean_captain(c: Dictionary, type: String) -> Dictionary:
 		"wounded": int(c.get("wounded", 0)), "battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0)),
 		"bonds": bonds,
 	}
+
+
+func personal_conversation_context() -> Dictionary:
+	var sound := get_node_or_null("/root/Sound")
+	return {"settlement_id": world.here() if world != null else "",
+		"invitations_enabled": sound.romance_invitations_enabled() if sound != null else true}
+
+
+func personal_conversation_action(person_id: String, scene_id: String, action: String, choice: int = -1) -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No active campaign."}
+	var before: Dictionary = world.social.to_dict().duplicate(true)
+	var result: Dictionary = world.social.personal_action(person_id, scene_id, action, personal_conversation_context(), choice)
+	if result.get("ok", false) and not save_game():
+		world.social.from_dict(before)
+		return {"ok": false, "reason": "Could not save this visit. Your previous progress is unchanged; please try again."}
+	return result

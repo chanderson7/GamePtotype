@@ -15,6 +15,9 @@ const FRIENDSHIP := "friendship"
 const ENDED := "ended"
 
 ## Trust range: 0 to 100.
+const PERSONAL_CONVERSATION_TRUST := 1
+const PERSONAL_CONVERSATION_CAP := 3
+
 const TRUST_MIN := 0
 const TRUST_MAX := 100
 const TRUST_PUBLIC_WEDDING := 60

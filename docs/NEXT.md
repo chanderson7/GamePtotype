@@ -3,6 +3,10 @@
 For a fresh session: read this, then `docs/phase-4-plan.md`. Don't re-read the whole
 codebase; the plan names the files each step touches.
 
+For the broader feature priorities and delivery packages, see
+[`next-features-roadmap.md`](next-features-roadmap.md). The immediate gameplay task remains
+Phase 4.3 army formation.
+
 ## State (on `main`)
 
 - Phase 3 is done; every gate passes.
@@ -42,6 +46,25 @@ The core Romance & Allies system is implemented per [`romance-and-allies-plan.md
 - UI: Settlement Court audience entry, People & Letters screen (`scenes/people.tscn`), interactive dialogue conversation (`scenes/conversation.tscn`), and "Romance invitations" toggle in Settings.
 - Persistence & migration: Version 6 saves with deterministic v4/v5 migration.
 - Tested: `tests/relationship_tests.gd` (48 automated checks, 0 failures) and `tests/menu_tests.gd` (all checks pass).
+
+### Personal conversations (Edda implemented)
+
+Edda has six optional backstory scenes, accessible through **Spend time / memories** in
+People and her audience. First visits require an introduction and being at her current
+residence; strained relationships pause new visits. Completed memories replay anywhere.
+All responses and summaries receive equal treatment: +1 trust for the first three unique
+completions, at most +3 per persistent person per campaign. Nothing else advances or costs
+resources. Each unfinished visit can be resumed independently; replays preserve original
+choices and relationship context. The final scene requires commitment or friendship.
+
+Records are additive to version 6 saves, with empty defaults for existing campaigns.
+Conversation writes use atomic save replacement and roll back on failure. Farid and Kaede's
+scenes remain planned until their core routes exist. See
+[`romance-personal-conversations-plan.md`](romance-personal-conversations-plan.md) for the
+content design, research, and implementation record.
+
+Validation: 79 personal-conversation checks, the existing relationship and menu suites,
+ten isolated disk-save/failure checks, and rendered phone-sized library/reader/summary views.
 
 ## Latest validation
 

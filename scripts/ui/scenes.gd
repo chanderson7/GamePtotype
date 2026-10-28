@@ -10,6 +10,7 @@ var settings_return := "res://scenes/title.tscn"
 var tutorial_return := "res://scenes/title.tscn"
 var people_return := "res://scenes/world_map.tscn"
 var conversation_return := "res://scenes/settlement.tscn"
+var personal_conversation_return := "res://scenes/people.tscn"
 var active_candidate_id := "edda"
 var active_person_id := ""
 

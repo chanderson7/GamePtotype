@@ -72,6 +72,12 @@ func _build() -> void:
 	# Build chapter choices
 	_build_chapter_choices(ch, cinfo, rel, house)
 
+	if _candidate_id == RomanceStories.EDDA:
+		_col.add_child(Page.button("Spend time / memories", func():
+			Scenes.active_person_id = p["id"]
+			Scenes.personal_conversation_return = "res://scenes/conversation.tscn"
+			Scenes.go("res://scenes/personal_conversation.tscn")))
+
 	# Leave button
 	var leave_btn := Page.button("Leave audience", _back, true)
 	_col.add_child(leave_btn)

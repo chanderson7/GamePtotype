@@ -158,6 +158,16 @@ those chapters, one optional cultural scene, three final relationship outcomes, 
 branch, and one post-commitment project. Expand to the other two only after this route is
 playable from introduction through a meaningful ally-support result.
 
+### Optional personal conversations
+
+The separate [personal conversations plan](romance-personal-conversations-plan.md) proposes
+six backstory scenes per candidate, with original dialogue inspired by Three Houses support
+writing. It recommends +1 trust for the first three unique personal scenes per character
+(+3 maximum), with equal treatment of all responses and no other gameplay rewards. These
+are additional optional scenes; the main chapter rewards and required story beats below
+keep their existing roles. Edda's six optional scenes and capped rewards are now implemented as an extension to the
+R0–R3 core. Farid and Kaede remain planned until their core routes exist.
+
 ## 6. Main side quest: “A Place Beneath the Banner”
 
 ### Entry and pacing

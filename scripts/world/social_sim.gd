@@ -3,12 +3,14 @@
 ## No nodes, no drawing, deterministic.
 extends RefCounted
 
+const PersonalConversations = preload("res://scripts/data/personal_conversations.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 
+var personal_conversations: Dictionary = {}
 var people: Dictionary = {}
 var houses: Dictionary = {}
 var relationships: Dictionary = {}
@@ -30,6 +32,7 @@ var _next_letter_id := 1
 
 
 func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
+	personal_conversations.clear()
 	people.clear()
 	houses.clear()
 	relationships.clear()
@@ -164,6 +167,7 @@ func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
 
 func to_dict() -> Dictionary:
 	return {
+		"personal_conversations": personal_conversations,
 		"people": people,
 		"houses": houses,
 		"relationships": relationships,
@@ -180,6 +184,7 @@ func to_dict() -> Dictionary:
 
 
 func from_dict(data: Dictionary) -> void:
+	personal_conversations = data.get("personal_conversations", {}).duplicate(true)
 	people = data.get("people", {}).duplicate(true)
 	houses = data.get("houses", {}).duplicate(true)
 	relationships = data.get("relationships", {}).duplicate(true)
@@ -779,3 +784,108 @@ func sponsor_replacements(house_id: String, target_id: String, target_kind: Stri
 	}
 	projects[proj_id] = p
 	return {"ok": true, "project": p}
+
+
+# Optional conversations never call apply_choice or advance the main quest.
+func personal_record(person_id: String) -> Dictionary:
+	return personal_conversations.get(person_id, {
+		"schema_version": 1, "completed": {}, "cosmetic_choices": {},
+		"bonus_claims": {}, "in_progress": {}
+	}).duplicate(true)
+
+
+func _personal_candidate(person_id: String) -> String:
+	for candidate_id in relationships:
+		if relationships[candidate_id].get("person_id", "") == person_id:
+			return candidate_id
+	return ""
+
+
+func personal_scene_access(person_id: String, scene_id: String, context: Dictionary) -> Dictionary:
+	var candidate_id := _personal_candidate(person_id)
+	if not PersonalConversations.ids_for(candidate_id).has(scene_id):
+		return {"ok": false, "reason": "This story is not available."}
+	var record := personal_record(person_id)
+	if record["completed"].has(scene_id):
+		return {"ok": true, "replay": true, "reason": "Memory · no rewards or changes."}
+	var person: Dictionary = people[person_id]
+	var rel: Dictionary = relationships[candidate_id]
+	if int(quests.get("quest_" + candidate_id, {}).get("chapter", 1)) < 2:
+		return {"ok": false, "reason": "Introduce yourself in an audience first."}
+	if rel.get("strained", false):
+		return {"ok": false, "reason": "Resolve the broken promise before a new visit."}
+	if not ["normal", "relocated"].has(person.get("status", "")):
+		return {"ok": false, "reason": "They are currently unavailable for a visit."}
+	if String(context.get("settlement_id", "")).is_empty() or context.get("settlement_id") != person.get("residence"):
+		return {"ok": false, "reason": "Visit their current residence to spend time together."}
+	var scene: Dictionary = PersonalConversations.SCENES[scene_id]
+	var prerequisites: Array = scene.get("requires_any", [])
+	var unlocked := prerequisites.is_empty()
+	for prerequisite in prerequisites:
+		if record["completed"].has(prerequisite):
+			unlocked = true
+	if not unlocked:
+		return {"ok": false, "reason": "First share: " + " or ".join(prerequisites.map(func(id): return PersonalConversations.SCENES[id]["title"]))}
+	if scene.get("coda", false) and not [Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED, Relationships.FRIENDSHIP].has(rel.get("status")):
+		return {"ok": false, "reason": "First choose commitment or a lasting friendship in the main story."}
+	return {"ok": true, "replay": false, "reason": "Optional visit · no time or resources spent."}
+
+
+func available_personal_conversations(person_id: String, context: Dictionary) -> Array:
+	var result: Array = []
+	for scene_id in PersonalConversations.ids_for(_personal_candidate(person_id)):
+		var item := personal_scene_access(person_id, scene_id, context)
+		item["scene_id"] = scene_id
+		result.append(item)
+	return result
+
+
+## Only this command mutates personal records. Replays are read-only UI sessions.
+func personal_action(person_id: String, scene_id: String, action: String, context: Dictionary, choice: int = -1) -> Dictionary:
+	var access := personal_scene_access(person_id, scene_id, context)
+	if not access.get("ok", false):
+		return access
+	if access.get("replay", false):
+		return {"ok": false, "reason": "This memory is already complete. Replay cannot change it."}
+	var record := personal_record(person_id)
+	var scene: Dictionary = PersonalConversations.SCENES[scene_id]
+	var progress: Dictionary = record["in_progress"].get(scene_id, {})
+	var rel: Dictionary = relationships[_personal_candidate(person_id)]
+	if action == "begin":
+		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+			progress = {"scene_id": scene_id, "node": 0, "choice": -1,
+				"content_version": PersonalConversations.VERSION,
+				"context": {"completed": record["completed"].keys(), "choices": record["cosmetic_choices"].duplicate(true), "status": rel.get("status", Relationships.UNKNOWN),
+					"romantic": bool(rel.get("romantic_intent", false)) and bool(context.get("invitations_enabled", true)) and rel.get("status") != Relationships.ENDED}}
+		# A resumed visit reflects the current relationship; completed memories retain their old context.
+		progress["context"]["status"] = rel.get("status", Relationships.UNKNOWN)
+		progress["context"]["romantic"] = bool(rel.get("romantic_intent", false)) and bool(context.get("invitations_enabled", true)) and rel.get("status") != Relationships.ENDED
+		record["in_progress"][scene_id] = progress
+	elif action == "choose":
+		if progress.get("scene_id", "") != scene_id or int(progress.get("node", -1)) != 0 or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+			return {"ok": false, "reason": "Reopen this visit before choosing a response."}
+		if choice < 0 or choice >= scene["choices"].size():
+			return {"ok": false, "reason": "Choose one of the offered responses."}
+		progress["choice"] = choice
+		progress["node"] = 1
+	elif action == "finish" or action == "summary":
+		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+			return {"ok": false, "reason": "Reopen this visit before completing it."}
+		if action == "finish" and int(progress.get("node", -1)) != 1:
+			return {"ok": false, "reason": "Choose a response or read the summary first."}
+		var delta := 0
+		if record["bonus_claims"].size() < Relationships.PERSONAL_CONVERSATION_CAP:
+			var old_trust := int(rel.get("trust", 0))
+			rel["trust"] = mini(Relationships.TRUST_MAX, old_trust + Relationships.PERSONAL_CONVERSATION_TRUST)
+			delta = int(rel["trust"]) - old_trust
+			record["bonus_claims"][scene_id] = delta # A claim at 100 still consumes a slot.
+		record["completed"][scene_id] = {"content_version": PersonalConversations.VERSION, "context": progress["context"].duplicate(true), "summary": action == "summary"}
+		record["cosmetic_choices"][scene_id] = -1 if action == "summary" else int(progress["choice"])
+		record["in_progress"].erase(scene_id)
+		personal_conversations[person_id] = record
+		add_memory(person_id, scene["memory"])
+		return {"ok": true, "trust_change": delta, "completed": true}
+	else:
+		return {"ok": false, "reason": "Unknown conversation action."}
+	personal_conversations[person_id] = record
+	return {"ok": true, "progress": progress.duplicate(true)}
