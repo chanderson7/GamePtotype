@@ -1487,6 +1487,9 @@ func _check_lords() -> void:
 	# A raid left alone burns the village: no dues, no recruits, until it's rebuilt.
 	var raider: Dictionary = w.lords.filter(func(l): return l["realm"] == "kharzan" and l["state"] == "field")[0]
 	var rp := w.party(int(raider["party"]))
+	# This fixture tests an independent raid, so release any newly mustered membership.
+	var expedition := WorldSim.MarshalArmies.for_party(w, rp.id)
+	if not expedition.is_empty(): WorldSim.MarshalArmies.disband(w, expedition, "Independent raid fixture")
 	rp.node = "kettlebrook"
 	rp.next = ""
 	rp.path = []

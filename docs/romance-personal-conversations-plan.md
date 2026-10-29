@@ -7,6 +7,15 @@ what shipped locally.
 
 ### Implementation record
 
+- Presentation follow-up (2026-10-28): illustrated speaker-labelled paragraph reader,
+  Previous/Continue, read-only history, summaries and saved `beat`/`furthest_beat` cursors.
+  `reader_version = 1` is independent of content version 1; legacy interrupted visits retain
+  their node/choice and resume at its first paragraph. Replay cursors remain local.
+  Five Edda expressions and a common-room backdrop accompany the existing writing.
+  Text sizing, reduced motion and text-only presentation live in Settings. Trust caps,
+  equal-choice rewards and all main-route gates remain unchanged. 43 focused presentation
+  checks supplement the original conversation suite.
+
 - `scripts/data/personal_conversations.gd`: six original Edda scenes, three equally rewarded
   replies each, short summaries, neutral/romantic coda, conditional remembered callbacks.
 - `scripts/world/social_sim.gd`: persistent person records, introduction/location/strain/

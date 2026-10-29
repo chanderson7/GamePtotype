@@ -5,7 +5,11 @@ codebase; the plan names the files each step touches.
 
 For the broader feature priorities and delivery packages, see
 [`next-features-roadmap.md`](next-features-roadmap.md). The immediate gameplay task remains
-Phase 4.3 army formation.
+Phase 4.3 siege resolution.
+
+For art, battle feedback, dialogue staging and usability work, see
+[`game-feel-and-presentation-plan.md`](game-feel-and-presentation-plan.md). It proposes
+small polish slices that can accompany the gameplay roadmap.
 
 ## State (on `main`)
 
@@ -14,10 +18,10 @@ Phase 4.3 army formation.
   see their "As built" notes in `docs/phase-4-plan.md`.
 - Phase 4.3's garrisons are done: towns and castles recruit daily from their owner's
   treasury, keep their guards in saves, and show their strength in settlement descriptions.
+- Marshal expeditions are implemented: saved membership, timed gathering, joint travel,
+  aggregate field battles, readable map sheets, interruption and return/disband behavior.
 - **Next: 4.3**, one piece per session, committing and pushing after each:
-  1. Armies: a realm at war has its marshal (highest-renown lord) gather 2–3 lords and
-     ride at an enemy castle or town.
-  2. Sieges by auto-resolve with walls (castle ×1.6, town ×1.4), then
+  1. Sieges by auto-resolve with walls (castle ×1.6, town ×1.4), then
      `world.set_owner(id, realm)`. Gate: twice the garrison's strength takes it ≥ 80%.
      `set_owner` clears the old defenders; leave attacking survivors in `world.garrisons[id]`
      after transferring ownership. Village militia and siege food belong to this piece.
@@ -35,7 +39,7 @@ low supplies warn early, and actual desertion pauses play with a saved, actionab
 `tests/menu_tests.gd` covers navigation, opt-in/replay, preferences, bond persistence,
 resource controls and desertion warnings. Menu tests, relevant save/upkeep/captain checks,
 and autoplay pass on Godot 4.7.2; phone-sized menus were rendered and inspected. Phase 4's
-next gameplay piece remains armies.
+next gameplay piece is sieges.
 
 ## Romance and allies feature (R0–R3 implemented)
 
@@ -67,6 +71,48 @@ Validation: 79 personal-conversation checks, the existing relationship and menu 
 ten isolated disk-save/failure checks, and rendered phone-sized library/reader/summary views.
 
 ## Latest validation
+
+Follow-up delivery (2026-10-29): collision correction is capped at **two** passes; shallow
+contacts receive correction but do not trigger a second global pass. The eight collision
+checks still pass. `tests/collision_profile.gd` alternates baseline/current order across
+three seeds at 272 and 544 soldiers; see the presentation plan for measured results.
+Battle controls add a persistent Selected/Whole army scope, Whole company selection,
+Hold view/Re-center, frozen framing during gestures and a 0.85-second release grace period.
+Unreachable single-squad moves are rejected before changing orders; accepted moves show a marker.
+Eight battle-control checks pass and both battle controls and the army sheet were rendered at
+405×720. No physical phone was available.
+
+Marshal army checks cover conservation, deterministic muster/march reloads, unique membership,
+peace/capture/marshal-loss interruption, muster timeout, group combat and old saves. The bounded
+world/battle regression passes, including a simulated year with 73% of lords in the field,
+no broke days, and a 1.84 ms world-hour average (2 ms gate). Loading social identity/progression
+numbers now restores integer types, preserving exact world-save round trips. Siege captures,
+siege food and player contracts remain future work.
+
+Combat collision follow-up: approaching fighters stop just inside weapon reach instead of
+stepping toward the target's center. Crowd separation uses full body radii and up to two
+terrain-aware correction passes, rebuilding the spatial grid between passes and stopping
+early when clear. This reduces persistent overlap without treating corpses as obstacles.
+`tests/collision_tests.gd` covers cell boundaries, coincident positions, symmetric correction,
+dead units, attack-distance rounding, dense crowds and water edges. Battle outcomes can change
+because spacing affects contact; physical-phone performance and broad balance remain follow-ups.
+Eight focused checks pass. Deployment/orders, bracing, steering and functional terrain checks
+pass, including 684 soldiers remaining off impassable ground and 111 routing escapes.
+Combat regressions also pass: shield walls, schiltron, volleys, cavalry disengagement and
+repeat charges; braced spearmen beat cavalry and cavalry beat archers in all 12 test seeds each.
+The broader terrain timing sweep exceeded its 240-second timeout after functional checks;
+no new terrain-overhead gate result is claimed. The small three-battle comparison measured
+about 1.08 ms/tick before and 2.12 ms/tick after, excluding rendering.
+
+Presentation first slice: Edda's five-expression portrait set, Ravensford/common-room art,
+paragraph reader with saved position/history/summary, and text-size/reduced-motion/art
+preferences are implemented. See the implementation record in
+[`game-feel-and-presentation-plan.md`](game-feel-and-presentation-plan.md) and
+[`../assets/story-art-manifest.md`](../assets/story-art-manifest.md).
+43 presentation checks and 79 personal-conversation checks pass, along with relationship
+and menu regressions. Rendered 405×720 layouts were reviewed; physical-phone performance
+remains untested. This does not complete the wider presentation roadmap or change the
+living-world feature order.
 
 Garrisons: focused checks and autoplay pass on macOS with Godot 4.7.2. The full regular
 suite passes its functional checks, but hits two timing gates on this Intel Mac: terrain

@@ -112,6 +112,9 @@ var _clash_clock := 0.0
 var _heard := {}
 ## A press on the field: where it went down (on screen and on the field), where it is
 ## now, and whether it has become a line.
+var _camera_hold := false
+var _camera_grace := 0.0
+var camera_button: Button
 var _pressing := false
 var _drawing := false
 var _press_at := Vector2.ZERO
@@ -176,7 +179,7 @@ func _ready() -> void:
 	var pending: Dictionary = GameState.pending_battle
 	var site = pending.get("site")
 	if site == null:
-		var pos: Vector2 = GameState.world.player_pos if GameState.world != null else Vector2.ZERO
+		var pos: Vector2 = GameState.world.party_pos(GameState.world.player()) if GameState.world != null else Vector2.ZERO
 		site = BattleSite.pick(GameState.world, pos)
 	if pending.is_empty():
 		sim.setup(GameState.army, GameState.enemy_army(), 0, site)
@@ -254,7 +257,7 @@ func _layout() -> void:
 
 func _bottom_height() -> float:
 	var rows := _tray_rows()
-	return 14.0 + rows * CHIP_H + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + Style.TOUCH + 8.0 + 64.0 + 14.0
+	return 14.0 + rows * CHIP_H + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + Style.TOUCH + 8.0 + 64.0 + 14.0 + Style.TOUCH + 10.0
 
 
 func _tray_rows() -> int:
@@ -275,6 +278,12 @@ func _apply_camera() -> void:
 
 ## The whole field while deploying; once the battle is on, every squad still fighting.
 func _update_camera(delta: float) -> void:
+	_camera_grace = maxf(0.0, _camera_grace - delta)
+	if _pressing or _camera_hold or _camera_grace > 0.0:
+		_shake = maxf(0.0, _shake - delta * 30.0)
+		_shake_offset = Vector2.ZERO
+		_apply_camera()
+		return
 	var want_zoom := 1.0
 	var want_center := Sim.ARENA * 0.5
 	if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
@@ -294,8 +303,20 @@ func _update_camera(delta: float) -> void:
 	cam_zoom = lerpf(cam_zoom, want_zoom, k)
 	cam_center = cam_center.lerp(want_center, k)
 	_shake = maxf(0.0, _shake - delta * 30.0)
-	_shake_offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake if _shake > 0.0 else Vector2.ZERO
+	_shake_offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake if _shake > 0.0 and not Style.motion_reduced() else Vector2.ZERO
 	_apply_camera()
+
+
+func _toggle_camera() -> void:
+	_camera_hold = not _camera_hold
+	camera_button.text = "View: held" if _camera_hold else "View: following"
+
+
+func _recenter_camera() -> void:
+	_camera_hold = false
+	_camera_grace = 0.0
+	camera_button.text = "View: following"
+	_update_camera(1.0)
 
 
 func _to_screen(p: Vector2) -> Vector2:
@@ -369,6 +390,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	_pressing = true
 	_drawing = false
 	_press_at = mb.position
+	_shake_offset = Vector2.ZERO
+	_apply_camera()
 	_press_field = _to_field(mb.position)
 	_drag_to = mb.position
 
@@ -389,6 +412,7 @@ func _input(event: InputEvent) -> void:
 		return
 	get_viewport().set_input_as_handled()
 	_pressing = false
+	_camera_grace = 0.85
 	var drew := _drawing
 	_drawing = false
 	if sim.winner != -1 or paused:
@@ -409,6 +433,7 @@ func _order_line(a: Vector2, b: Vector2) -> void:
 	var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
 	var spots := sim.order_line(Sim.PLAYER, a, b, only)
 	if spots.is_empty():
+		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
 		return
 	for spot in spots:
 		_ordered_at[spot["squad"]] = _clock
@@ -514,7 +539,11 @@ func _tap_battle(p: Vector2, tapped) -> void:
 			var thint := _terrain_hint(p)
 			_hint("Cannot march there: %s" % thint)
 			return
+		if Sim.Pathing.find_path(sim.terrain, selected_squad.center, p, selected_squad.type == Troops.CAVALRY, false).is_empty():
+			_hint("Cannot march there: no route to that ground.")
+			return
 		sim.order_move(selected_squad, p)
+		_float_text("MOVE", p, Style.BRASS)
 		_ordered_at[selected_squad] = _clock
 		_hint("%s march there and hold." % _company_or_type(selected_squad))
 
@@ -1106,6 +1135,13 @@ func _build_hud() -> void:
 	hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	col.add_child(hint_label)
 
+	var view_row := HBoxContainer.new()
+	view_row.add_theme_constant_override("separation", 10)
+	col.add_child(view_row)
+	camera_button = _wide_button("View: following", _toggle_camera, view_row)
+	_wide_button("Re-center", _recenter_camera, view_row)
+	_wide_button("Whole company", func(): _select(null), view_row)
+
 	# The death roll plays over the field.
 	roll_layer = Control.new()
 	roll_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1263,7 +1299,7 @@ func _refresh_battle() -> void:
 		elif sq.arrows == 0:
 			arrows = " · no arrows"
 		var mood := " · fury" if sq.fury > 0.0 else ""
-		info_label.text = "%s · %d men · %d%% morale%s%s · %s" % [
+		info_label.text = "Selected: %s · %d men · %d%% morale%s%s · %s" % [
 			title, sq.alive_count(), maxi(0, int(sq.morale)), mood, arrows, state]
 		advance_button.text = "Advance"
 		hold_button.text = "Hold"

@@ -35,6 +35,7 @@ static func note(text: String, size: int = Style.BODY, color: Color = Style.MUTE
 static func button(text: String, action: Callable, primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.custom_minimum_size.y = Style.TOUCH
 	b.pressed.connect(action)
 	if primary:

@@ -1658,7 +1658,10 @@ func _update_soldier(so, sq, dt: float) -> void:
 		so.facing = (tpos - so.pos).normalized()
 	var reach: float = _fighting_reach(sq) * sq.range_mult
 	if gap > reach:
-		var moved := _walk(so, tpos, speed, dt)
+		# Stop just inside reach, so floating-point rounding cannot leave a fighter
+		# endlessly approaching without ever being allowed to strike.
+		var stop_at: Vector2 = tpos + tpos.direction_to(so.pos) * (so.radius + so.target.radius + maxf(0.0, reach - 0.05))
+		var moved := _walk(so, stop_at, speed, dt)
 		if gap > reach + 20.0:
 			so.runup += moved # only a real run-up counts toward a charge, not shuffling in the melee
 	elif so.cooldown <= 0.0:
@@ -2173,6 +2176,16 @@ func _fighters_near(pos: Vector2, team: int, radius: float) -> bool:
 ## Pushes are summed first and applied together, so the result doesn't depend on who
 ## happens to be processed first and neither side is quietly favored.
 func _separate() -> void:
+	# Rebuild between passes: resolving one contact can create another across a cell edge.
+	# Repeat only for overlaps deeper than one world unit; small contacts still
+	# receive their full correction, without rerunning the entire crowd solver.
+	for iteration in 2:
+		if not _separate_pass():
+			break
+
+
+func _separate_pass() -> bool:
+	var crowded := false
 	_build_grid() # where everyone stands after this tick's moves
 	for c in _used_cells:
 		var cell: Array = _cells[c]
@@ -2192,13 +2205,14 @@ func _separate() -> void:
 		for i in n:
 			var a = cell[i]
 			var ap: Vector2 = a.pos
-			var ar: float = a.radius - 1.0
+			var ar: float = a.radius
 			for j in range(i + 1, n):
 				var b = cell[j]
 				var diff: Vector2 = ap - b.pos
 				var min_d: float = ar + b.radius
 				var d2 := diff.length_squared()
-				if d2 < min_d * min_d:
+				if d2 < (min_d - 0.1) * (min_d - 0.1):
+					crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
 					var push := _push_for(diff, d2, min_d)
 					a.push += push
 					b.push -= push
@@ -2206,7 +2220,8 @@ func _separate() -> void:
 				var diff: Vector2 = ap - b.pos
 				var min_d: float = ar + b.radius
 				var d2 := diff.length_squared()
-				if d2 < min_d * min_d:
+				if d2 < (min_d - 0.1) * (min_d - 0.1):
+					crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
 					var push := _push_for(diff, d2, min_d)
 					a.push += push
 					b.push -= push
@@ -2225,6 +2240,8 @@ func _separate() -> void:
 				so.push = Vector2.ZERO
 			if not sq.routing:
 				so.pos = Vector2(clampf(so.pos.x, 8.0, ARENA.x - 8.0), clampf(so.pos.y, 8.0, ARENA.y - 8.0))
+
+	return crowded
 
 
 ## Half of the overlap between two men `diff` apart who should be `min_d` apart.

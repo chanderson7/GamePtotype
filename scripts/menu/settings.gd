@@ -4,9 +4,27 @@ const Page = preload("res://scripts/ui/menu_page.gd")
 const SoundToggles = preload("res://scripts/ui/sound_toggles.gd")
 
 func _ready() -> void:
+	_build()
+
+func _build() -> void:
+	for child in get_children():
+		remove_child(child)
+		child.queue_free()
 	var col := Page.column(self, "Settings", "Changes save automatically on this device.")
 	col.add_child(Page.note("AUDIO"))
 	col.add_child(SoundToggles.make())
+	col.add_child(Page.note("READING & PRESENTATION"))
+	col.add_child(Page.note("Larger text for dialogue and shared menus. Reduced motion removes menu scaling, Home drift and battle shake."))
+	col.add_child(Page.button("Text size: %d%%" % roundi(Sound.text_scale * 100.0), func():
+		var sizes := [1.0, 1.25, 1.5]
+		Sound.set_text_scale(sizes[(sizes.find(Sound.text_scale) + 1) % sizes.size()])
+		_build()))
+	col.add_child(Page.button("Reduced motion: %s" % ("on" if Sound.reduced_motion else "off"), func():
+		Sound.set_reduced_motion(not Sound.reduced_motion)
+		_build()))
+	col.add_child(Page.button("Illustrations: %s" % ("on" if Sound.illustrations_enabled else "off"), func():
+		Sound.set_illustrations(not Sound.illustrations_enabled)
+		_build()))
 	col.add_child(Page.note("LEARN TO PLAY"))
 	col.add_child(Page.note("Take a short walkthrough of travel, supplies, battles and captains. You can leave at any time."))
 	col.add_child(Page.button("Open tutorial", func():
@@ -24,7 +42,9 @@ func _ready() -> void:
 	col.add_child(rom_btn)
 	var back := Page.button("Back", _back, true)
 	col.add_child(back)
-	back.grab_focus()
+	var heading := col.get_child(0) as Control
+	heading.focus_mode = Control.FOCUS_ALL
+	heading.grab_focus()
 
 func _back() -> void:
 	Scenes.go(Scenes.settings_return)

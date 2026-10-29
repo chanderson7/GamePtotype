@@ -3,6 +3,7 @@
 ## rules live in game_state.gd; this screen shows them and passes the taps on.
 extends Control
 
+const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
@@ -61,6 +62,8 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 16)
 	margin.add_child(col)
 
+	if place == "ravensford":
+		col.add_child(StoryArt.location("ravensford"))
 	col.add_child(Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS))
 	col.add_child(_note(GameState.world.describe(place)))
 	var days := GameState.food_days()
@@ -268,9 +271,10 @@ func _text_column(row: HBoxContainer) -> VBoxContainer:
 func _button(text: String, callback: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, Style.TOUCH)
-	b.add_theme_font_size_override("font_size", Style.SMALL)
+	b.custom_minimum_size = Vector2(160, Style.TOUCH)
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	b.pressed.connect(callback)
 	return b
 

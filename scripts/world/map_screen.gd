@@ -337,7 +337,7 @@ func _tap(at: Vector2) -> void:
 		if at.distance_to(_to_screen(world.party_pos(b)) + Vector2(0, -14) * _sprite_px()) < TAP_RADIUS:
 			_open_band(b)
 			return
-	for lp in world.lord_parties():
+	for lp in world.visible_lord_parties():
 		if at.distance_to(_to_screen(world.party_pos(lp)) + Vector2(0, -16) * _sprite_px()) < TAP_RADIUS:
 			_open_lord(lp)
 			return
@@ -501,6 +501,18 @@ func _open_band(b) -> void:
 
 ## A lord on the road: who he is, how strong, and what he's about.
 func _open_lord(lp) -> void:
+	var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
+	if not army.is_empty():
+		var names: Array = []
+		var total := 0
+		for member in world.MarshalArmies.members(world, army):
+			var men: int = world.men_of(member.army)
+			total += men
+			names.append("%s — %d men" % [member.name, men])
+		var body := "%s · %d men\nDestination: %s\n\n%s" % [String(army["state"]).capitalize(), total,
+			Data.settlement(army["destination"])["name"], "\n".join(names)]
+		_show_sheet("lord", "Marshal's army", body, [["Close", _close_sheet]])
+		return
 	var l: Dictionary = world.lord_of(lp)
 	var men := 0
 	for sq in lp.army:
@@ -872,7 +884,7 @@ func _draw() -> void:
 		things.append({"y": Data.pos(id).y, "settlement": id})
 	for b in world.bands():
 		things.append({"y": world.party_pos(b).y, "band": b})
-	for lp in world.lord_parties():
+	for lp in world.visible_lord_parties():
 		things.append({"y": world.party_pos(lp).y, "lord": lp})
 	things.append({"y": world.party_pos(world.player()).y + 0.5, "player": true})
 	things.sort_custom(func(a, b): return a["y"] < b["y"])
@@ -915,6 +927,9 @@ func _draw_settlement(id: String, px: float) -> void:
 func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 	var at: Vector2 = world.party_pos(p)
 	var base := _to_screen(at)
+	var army: Dictionary = world.MarshalArmies.for_party(world, p.id)
+	if not army.is_empty() and army["state"] != "gathering":
+		draw_arc(base, 18 * px, 0, TAU, 28, Style.BRASS, 2.0)
 	var moving: bool = p.moving() and (world.busy() or p != world.player())
 	var facing := 1.0
 	if p.moving() and Data.pos(p.next).x < at.x:
@@ -949,7 +964,7 @@ func _draw_labels() -> void:
 		_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -17.0 * px - 6.0), b.name, 17, Color("e8d9c0"))
 	# Lords' names only once you're looking closely, or the map drowns in them.
 	if px >= LORD_NAMES_PX:
-		for lp in world.lord_parties():
+		for lp in world.visible_lord_parties():
 			_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), lp.name, 15,
 				Cultures.color(Data.culture_of(lp.faction)).lightened(0.45))
 

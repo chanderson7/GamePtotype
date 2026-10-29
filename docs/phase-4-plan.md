@@ -15,7 +15,7 @@ and their fights are fought on Phase 3's ground with its objectives.
 |---|---|---|---|
 | 4.1 | A world that can change: owners, wars, a bigger map, save v5 | ~1.5 weeks | **Done** |
 | 4.2 | Lords on the map | ~2.5 weeks | **Done** |
-| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | Garrisons done; armies next |
+| 4.3 | Armies, sieges, and settlements that change hands | ~2 weeks | Garrisons and armies done; sieges next |
 | 4.4 | War and peace | ~1 week | |
 | 4.5 | You in the war: lord encounters, contracts, battles bigger than your warband | ~2 weeks | |
 | 4.6 | Prisoners, ransom, and lords who remember | ~1 week | |
@@ -236,8 +236,27 @@ Settlement descriptions on the map and in town show the current guards and capac
 Save v5 includes the squads; older saves receive starting guards without spending silver
 or advancing the random stream. `set_owner` clears the old defenders; the siege step must
 leave the attackers' garrison after transferring ownership. Village militia, siege food,
-armies and siege resolution remain for the following pieces. `_check_garrisons` covers
+and siege resolution remain for the following pieces. `_check_garrisons` covers
 daily timing, caps, costs, shortages, losses, captures, save replay and old-save migration.
+
+### Marshal expeditions — as built, 2026-10-29
+
+`marshal_armies.gd` manages saved expedition IDs, membership and gathering/marching/returning
+states. A realm calls its highest-renown eligible lord and up to two others. Healthy,
+available parties gather at the capital for up to 48 hours; two arrivals including the
+marshal can depart. Targets are reachable hostile towns/castles scored by travel, settlement
+value and defender count. An expedition expires after 144 hours, with a 72-hour cooldown.
+Peace, target ownership changes, lost muster sites, missing marshals and failed routes
+release members or send the joined army home. Reaching the target currently starts the
+return journey: no siege or ownership change is silently simulated.
+
+Troops and wages remain on the original lord parties. Joined parties share the marshal's
+movement and one highlighted map marker. Tapping it shows members, troop counts, destination
+and state. Field auto-resolve combines member troop references for the calculation, applies
+losses back to their owners, and routes defeated members together. Existing daily finances
+continue once per lord. Additive save-v6 fields retain membership and deadlines; legacy saves
+start without expeditions. `tests/army_tests.gd` and the bounded existing world/battle checks
+validate this slice. Food, siege camps, captures and player army membership remain future work.
 
 ### Armies
 

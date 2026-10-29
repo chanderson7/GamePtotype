@@ -195,21 +195,34 @@ func _check_ui(gs) -> void:
 	check(button("Visit: The Spare Spoon") != null, "personal library loads")
 	var before: Dictionary = gs.to_dict().duplicate(true)
 	button("Visit: The Spare Spoon").pressed.emit()
-	check(button("Read a short summary") != null, "reader offers accessible summary")
+	check(button("Summary") != null, "reader offers accessible summary")
+	_read_to_end()
 	button("You missed your own place.").pressed.emit()
-	button("Another time · save my place").pressed.emit()
+	button("Leave").pressed.emit()
 	check(button("Resume: The Spare Spoon") != null, "leaving preserves response for resume")
 	button("Resume: The Spare Spoon").pressed.emit()
+	_read_to_end()
 	check(button("Keep this memory") != null, "resume returns to closing passage")
 	button("Keep this memory").pressed.emit()
 	check(button("Remember: The Spare Spoon") != null, "completed scene enters archive")
 	check(gs.silver == before["silver"] and gs.food == before["food"] and gs.renown == before["renown"] and gs.army == before["army"], "UI visit preserves player resources and army")
 	var archived: Dictionary = gs.to_dict().duplicate(true)
 	button("Remember: The Spare Spoon").pressed.emit()
+	_read_to_end()
 	button("Who usually arrived late?").pressed.emit()
+	_read_to_end()
 	button("Close memory").pressed.emit()
 	check(archived == gs.to_dict(), "replay through real UI changes no campaign data")
 	button("Visit: The Wrong Last Verse").pressed.emit()
-	button("Read a short summary").pressed.emit()
+	button("Summary").pressed.emit()
 	button("Keep this memory").pressed.emit()
 	check(gs.world.social.personal_record(PERSON)["completed"].size() == 2, "summary completes through real UI")
+
+
+func _read_to_end() -> void:
+	for i in 60:
+		var next := button("Continue")
+		if next == null:
+			return
+		next.pressed.emit()
+	check(false, "reader reaches the end in bounded steps")

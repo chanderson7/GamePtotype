@@ -29,6 +29,9 @@ var settings_path := SETTINGS_PATH
 var music_on := true
 var sounds_on := true
 var romance_invitations := true
+var text_scale := 1.0
+var reduced_motion := false
+var illustrations_enabled := true
 var _track := ""
 var _music: Array[AudioStreamPlayer] = []
 var _current := 0
@@ -176,6 +179,11 @@ func _load_settings() -> void:
 		music_on = bool(cfg.get_value("audio", "music", true))
 		sounds_on = bool(cfg.get_value("audio", "sounds", true))
 		romance_invitations = bool(cfg.get_value("gameplay", "romance_invitations", true))
+		text_scale = float(cfg.get_value("presentation", "text_scale", 1.0))
+		if text_scale not in [1.0, 1.25, 1.5]:
+			text_scale = 1.0
+		reduced_motion = bool(cfg.get_value("presentation", "reduced_motion", false))
+		illustrations_enabled = bool(cfg.get_value("presentation", "illustrations", true))
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Sounds"), not sounds_on)
 
@@ -187,6 +195,9 @@ func _save_settings() -> void:
 	cfg.set_value("audio", "music", music_on)
 	cfg.set_value("audio", "sounds", sounds_on)
 	cfg.set_value("gameplay", "romance_invitations", romance_invitations)
+	cfg.set_value("presentation", "text_scale", text_scale)
+	cfg.set_value("presentation", "reduced_motion", reduced_motion)
+	cfg.set_value("presentation", "illustrations", illustrations_enabled)
 	cfg.save(settings_path)
 
 
@@ -227,6 +238,9 @@ func _on_node_added(node: Node) -> void:
 
 func _squash(b: BaseButton, to: float) -> void:
 	if not is_instance_valid(b):
+		return
+	if reduced_motion:
+		b.scale = Vector2.ONE
 		return
 	b.pivot_offset = b.size * 0.5
 	var t := b.create_tween()
@@ -278,3 +292,16 @@ func _stream(path: String, looped: bool) -> AudioStream:
 		(s as AudioStreamOggVorbis).loop = looped
 	_streams[key] = s
 	return s
+
+
+func set_text_scale(value: float) -> void:
+	text_scale = value if value in [1.0, 1.25, 1.5] else 1.0
+	_save_settings()
+
+func set_reduced_motion(enabled: bool) -> void:
+	reduced_motion = enabled
+	_save_settings()
+
+func set_illustrations(enabled: bool) -> void:
+	illustrations_enabled = enabled
+	_save_settings()

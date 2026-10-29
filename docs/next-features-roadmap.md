@@ -55,7 +55,7 @@ They are not calendar estimates.
 | Order | Feature | Priority | Size | Depends on |
 | --- | --- | --- | --- | --- |
 | 0 | Integration and save-readiness pass | Release gate | S–M | Current local changes |
-| 1 | Marshal armies | Next | M | Existing lords, routes and garrisons |
+| 1 | Marshal armies | Implemented 2026-10-29 | M | Existing lords, routes and garrisons |
 | 2 | Siege campaigns and captures | Next | L | 1 |
 | 3 | Campaign journal and useful map links | Next, incremental | M | Existing events; extend with 1–5 |
 | 4 | War, peace and a readable war overview | Next | M | 2 |
@@ -458,23 +458,22 @@ system and the player's limited ability to participate in the realm-level world.
 
 ## 9. Next implementation handoff
 
-Implement **army formation only** first:
+Marshal formation is implemented (2026-10-29); see [Phase 4's as-built record](phase-4-plan.md).
+Implement **siege campaigns and captures** next:
 
-1. Add saved army membership and muster state with stable IDs.
-2. Select eligible marshal/members and a reachable hostile target.
-3. Implement gathering, timeout, march, interruption and disband behavior.
-4. Show the aggregate party and a readable member/status sheet.
-5. Verify troop conservation, deterministic continuation, peace/capture interruption and
-   save compatibility; recheck world-step cost.
-6. Update [NEXT.md](NEXT.md) with the as-built state and make siege resolution the next slice.
+1. Replace the expedition's immediate return on reaching its target with a bounded siege state.
+2. Add preparation time, food pressure, interruption and retreat, keeping member troops authoritative.
+3. Resolve assaults with wall multipliers (castle ×1.6, town ×1.4), then transfer ownership and
+   leave attacking survivors as defenders after `set_owner` clears the old garrison.
+4. Handle relief forces and villages' defensive militia without advancing to player contracts yet.
+5. Test strength odds, conservation, captured households/escrow, save continuation and no stuck sieges.
+6. Update [NEXT.md](NEXT.md) and the phase plan with results before moving to war and peace.
 
-Do not silently resolve a capture in this first slice. Until siege behavior exists, reaching
-the target ends the test expedition with a bounded return/disband transition; it must not
-leave an army waiting indefinitely. The next slice supplies the explicit siege state and
-outcome rules. Journal scaffolding can record the new events without
-waiting for contracts or a full quest framework.
+The current formation slice returns/disbands at its target and never captures a settlement.
 
 ## Repository references
+
+- [Game feel, art and presentation plan](game-feel-and-presentation-plan.md)
 
 - [Current handoff and validation notes](NEXT.md)
 - [Living-world mechanics and quantitative gates](phase-4-plan.md)

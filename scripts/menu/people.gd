@@ -2,6 +2,7 @@
 ## Screen pauses the map; returning never advances time or spends money.
 extends Control
 
+const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Page = preload("res://scripts/ui/menu_page.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
@@ -29,7 +30,9 @@ func _build() -> void:
 
 	var btn_contacts := Button.new()
 	btn_contacts.text = "Contacts"
-	btn_contacts.custom_minimum_size.y = 54
+	btn_contacts.custom_minimum_size.y = Style.TOUCH
+	btn_contacts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	btn_contacts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_contacts.pressed.connect(func(): _tab = "contacts"; _build())
 	if _tab == "contacts":
 		Style.make_primary(btn_contacts)
@@ -37,7 +40,9 @@ func _build() -> void:
 
 	var btn_pacts := Button.new()
 	btn_pacts.text = "House Pacts"
-	btn_pacts.custom_minimum_size.y = 54
+	btn_pacts.custom_minimum_size.y = Style.TOUCH
+	btn_pacts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	btn_pacts.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_pacts.pressed.connect(func(): _tab = "pacts"; _build())
 	if _tab == "pacts":
 		Style.make_primary(btn_pacts)
@@ -47,7 +52,9 @@ func _build() -> void:
 	var unread: int = w.social.unread_letters_count() if w != null and w.social != null else 0
 	var btn_letters := Button.new()
 	btn_letters.text = "Letters (%d)" % unread if unread > 0 else "Letters"
-	btn_letters.custom_minimum_size.y = 54
+	btn_letters.custom_minimum_size.y = Style.TOUCH
+	btn_letters.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	btn_letters.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn_letters.pressed.connect(func(): _tab = "letters"; _build())
 	if _tab == "letters":
 		Style.make_primary(btn_letters)
@@ -89,6 +96,8 @@ func _build_contacts() -> void:
 
 		var res_name: String = String(WorldData.settlement(String(p.get("residence", "")))["name"]) if WorldData.SETTLEMENTS.has(String(p.get("residence", ""))) else String(p.get("residence", ""))
 		var header_text := "%s · %s" % [p["name"], p["role"]]
+		if cand_id == RomanceStories.EDDA:
+			card.add_child(StoryArt.portrait())
 		card.add_child(Page.note(header_text, Style.LARGE, Style.TEXT))
 
 		var status_str := Relationships.status_label(String(rel.get("status", Relationships.UNKNOWN)))
@@ -107,7 +116,7 @@ func _build_contacts() -> void:
 			card.add_child(Page.note("Latest memory: \"%s\"" % String(mems.back()), Style.SMALL, Style.BRASS))
 
 		# Actions row
-		var row := HBoxContainer.new()
+		var row := VBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
 		card.add_child(row)
 
@@ -115,7 +124,9 @@ func _build_contacts() -> void:
 		var at_same_place: bool = here != "" and here == p.get("residence", "")
 		var talk_btn := Button.new()
 		talk_btn.text = "Speak with %s" % p["name"] if at_same_place else "Audience (at %s)" % res_name
-		talk_btn.custom_minimum_size.y = 54
+		talk_btn.custom_minimum_size.y = Style.TOUCH
+		talk_btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		talk_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		talk_btn.pressed.connect(func():
 			Scenes.active_candidate_id = cand_id
 			Scenes.active_person_id = p["id"]
@@ -125,7 +136,9 @@ func _build_contacts() -> void:
 
 		var map_btn := Button.new()
 		map_btn.text = "Show on map"
-		map_btn.custom_minimum_size.y = 54
+		map_btn.custom_minimum_size.y = Style.TOUCH
+		map_btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		map_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		map_btn.pressed.connect(func():
 			_back())
 		row.add_child(map_btn)
@@ -170,7 +183,7 @@ func _build_pacts() -> void:
 
 		var grant_btn := Button.new()
 		grant_btn.text = "Request Grant (150 silver)"
-		grant_btn.custom_minimum_size.y = 54
+		grant_btn.custom_minimum_size.y = Style.TOUCH
 		grant_btn.pressed.connect(func():
 			var res := GameState.request_household_grant(hid)
 			if res.get("ok", false):
@@ -182,7 +195,7 @@ func _build_pacts() -> void:
 
 		var sponsor_btn := Button.new()
 		sponsor_btn.text = "Sponsor Muster (150 silver)"
-		sponsor_btn.custom_minimum_size.y = 54
+		sponsor_btn.custom_minimum_size.y = Style.TOUCH
 		sponsor_btn.pressed.connect(func():
 			var seat: String = String(house.get("seat", ""))
 			var res := GameState.sponsor_replacements(hid, seat, "settlement", 150)

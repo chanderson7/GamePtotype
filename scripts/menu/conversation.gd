@@ -2,6 +2,7 @@
 ## Pauses the map; returning never advances time or costs resources.
 extends Control
 
+const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Page = preload("res://scripts/ui/menu_page.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
@@ -48,6 +49,9 @@ func _build() -> void:
 
 	_col = Page.column(self, "%s · %s" % [p["name"], p["role"]], subtitle)
 
+	if _candidate_id == RomanceStories.EDDA:
+		_col.add_child(StoryArt.portrait("concerned" if rel.get("strained", false) else "neutral"))
+
 	# Active narrative or dialogue response
 	var sdata: Dictionary = RomanceStories.story_data(_candidate_id)
 	var chapters: Dictionary = sdata.get("chapters", {})
@@ -81,7 +85,9 @@ func _build() -> void:
 	# Leave button
 	var leave_btn := Page.button("Leave audience", _back, true)
 	_col.add_child(leave_btn)
-	leave_btn.grab_focus()
+	var heading := _col.get_child(0) as Control
+	heading.focus_mode = Control.FOCUS_ALL
+	heading.grab_focus()
 
 
 func _build_chapter_choices(ch: int, cinfo: Dictionary, rel: Dictionary, house: Dictionary) -> void:

@@ -99,7 +99,8 @@ func _build() -> void:
 
 func _process(delta: float) -> void:
 	if _backdrop != null:
-		_drift += delta
+		if not Style.motion_reduced():
+			_drift += delta
 		_point_backdrop()
 
 

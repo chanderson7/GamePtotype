@@ -103,3 +103,12 @@ static func squads_for(renown: int) -> int:
 ## The share of his squads that are trained, by renown.
 static func trained_share(renown: int) -> float:
 	return minf(TRAINED_SHARE_MAX, TRAINED_SHARE + renown * 0.002)
+
+## Marshal expeditions: one per realm, bounded even before sieges are implemented.
+const ARMY_MIN_MEMBERS := 2
+const ARMY_MAX_MEMBERS := 3
+const ARMY_READY_SHARE := 0.7
+const ARMY_MUSTER_HOURS := 48.0
+const ARMY_EXPEDITION_HOURS := 144.0
+const ARMY_COOLDOWN := 72.0
+const ARMY_RETRY_HOURS := 12.0

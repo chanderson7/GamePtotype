@@ -65,7 +65,8 @@ class MinHeap:
 
 ## Find a sequence of world waypoints from `start` to `goal`.
 ## Returns [goal] if direct line of sight is clear or terrain is empty.
-static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: bool = false) -> Array:
+## Command validation disables the legacy direct fallback when no route exists.
+static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: bool = false, allow_direct_fallback: bool = true) -> Array:
 	if terrain == null:
 		return [goal]
 
@@ -157,7 +158,7 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 				heap.push(n_idx, tentative_g + h)
 
 	if not reached:
-		return [goal]
+		return [goal] if allow_direct_fallback else []
 
 	# Reconstruct path of cell centers
 	var raw_points: Array = []

@@ -202,6 +202,17 @@ func from_dict(data: Dictionary) -> void:
 	scheduled_ceremony = data.get("scheduled_ceremony", {}).duplicate(true)
 	_next_project_id = int(data.get("next_project_id", 1))
 	_next_letter_id = int(data.get("next_letter_id", 1))
+	# JSON reads all numbers as floats; restore integral identity/progression fields.
+	for person in people.values():
+		for key in ["age", "lord_id"]:
+			if person.has(key): person[key] = int(person[key])
+	for house in houses.values():
+		if house.has("standing"): house["standing"] = int(house["standing"])
+	for relationship in relationships.values():
+		if relationship.has("trust"): relationship["trust"] = int(relationship["trust"])
+	for quest in quests.values():
+		if quest.has("chapter"): quest["chapter"] = int(quest["chapter"])
+
 
 
 # ---------------------------------------------------------------- ticking & updates
@@ -860,7 +871,18 @@ func personal_action(person_id: String, scene_id: String, action: String, contex
 		# A resumed visit reflects the current relationship; completed memories retain their old context.
 		progress["context"]["status"] = rel.get("status", Relationships.UNKNOWN)
 		progress["context"]["romantic"] = bool(rel.get("romantic_intent", false)) and bool(context.get("invitations_enabled", true)) and rel.get("status") != Relationships.ENDED
+		PersonalConversations.normalize_reader(scene_id, progress)
 		record["in_progress"][scene_id] = progress
+	elif action == "advance" or action == "previous":
+		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+			return {"ok": false, "reason": "Reopen this visit before continuing."}
+		PersonalConversations.normalize_reader(scene_id, progress)
+		var sequence := PersonalConversations.beats(scene_id, int(progress["node"]), int(progress["choice"]), progress["context"])
+		var next_beat := int(progress["beat"]) + (1 if action == "advance" else -1)
+		if next_beat < 0 or next_beat >= sequence.size():
+			return {"ok": false, "reason": "You have reached the end of this passage."}
+		progress["beat"] = next_beat
+		progress["furthest_beat"] = maxi(int(progress["furthest_beat"]), next_beat)
 	elif action == "choose":
 		if progress.get("scene_id", "") != scene_id or int(progress.get("node", -1)) != 0 or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
 			return {"ok": false, "reason": "Reopen this visit before choosing a response."}
@@ -868,6 +890,9 @@ func personal_action(person_id: String, scene_id: String, action: String, contex
 			return {"ok": false, "reason": "Choose one of the offered responses."}
 		progress["choice"] = choice
 		progress["node"] = 1
+		progress["beat"] = 0
+		progress["furthest_beat"] = 0
+		PersonalConversations.normalize_reader(scene_id, progress)
 	elif action == "finish" or action == "summary":
 		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
 			return {"ok": false, "reason": "Reopen this visit before completing it."}

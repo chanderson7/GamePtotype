@@ -18,6 +18,7 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const SocialSim = preload("res://scripts/world/social_sim.gd")
 
@@ -119,6 +120,10 @@ var social: SocialSim = null
 ## full, army}]. `party` is the id of his party on the map, or -1 while he regroups (his
 ## surviving squads wait in `army`).
 var lords: Array = []
+## Expedition membership references parties; it never duplicates their troops.
+var campaign_armies: Array = []
+var army_ready_at: Dictionary = {}
+var next_army_id := 1
 ## Villages raiders have burned: id → the hour they're rebuilt.
 var burned := {}
 ## The last day the lords' purses were settled.
@@ -168,7 +173,7 @@ func _start_realms() -> void:
 	realms = {}
 	for f in Data.FACTIONS:
 		if f != Data.BANDITS:
-			realms[f] = {"capital": String(Data.FACTIONS[f]["capital"]), "treasury": Lords.TREASURY_START}
+			realms[f] = {"capital": String(Data.FACTIONS[f]["capital"]), "treasury": Lords.TREASURY_START, "marshal": -1}
 
 
 func _build_roads() -> void:
@@ -298,6 +303,18 @@ func bands() -> Array:
 ## The lords' parties on the map.
 func lord_parties() -> Array:
 	return parties.filter(func(p): return p.kind == LORD)
+
+
+## Joined lords share one visible marker, but retain their authoritative parties.
+func visible_lord_parties() -> Array:
+	return lord_parties().filter(func(p):
+		var army := MarshalArmies.for_party(self, p.id)
+		return army.is_empty() or army["state"] == "gathering" or int(army["leader"]) == p.id)
+
+
+func army_parties(p: Party) -> Array:
+	var army := MarshalArmies.for_party(self, p.id)
+	return [p] if army.is_empty() or army["state"] == "gathering" else MarshalArmies.members(self, army)
 
 
 func lord_of(p: Party) -> Dictionary:
@@ -869,7 +886,10 @@ func _step_lords(dt: float) -> void:
 	while _lord_day < day:
 		_lord_day += 1
 		_lords_day()
+	MarshalArmies.tick(self, dt)
 	for l in lords:
+		if not MarshalArmies.for_party(self, int(l["party"])).is_empty():
+			continue
 		if l["state"] == "regroup":
 			if hour >= float(l["back_at"]):
 				_lord_takes_field(l, seat_of(l))
@@ -998,6 +1018,7 @@ func _set_job(l: Dictionary, p: Party, job: String, target: String) -> void:
 
 
 func _lord_arrives(l: Dictionary, p: Party) -> void:
+	if l["job"] == "army": return
 	if p.moving() or p.node != String(l["target"]):
 		return
 	match String(l["job"]):
@@ -1107,7 +1128,7 @@ func _refill(l: Dictionary, army: Array) -> void:
 ## your men into would be: lords of realms at war. The loser's party is gone, to regroup
 ## at his seat with whoever got away. Bandits a hunting lord catches are driven off.
 func _lord_fights() -> void:
-	var ps: Array = parties.filter(func(p): return p.kind != PLAYER)
+	var ps: Array = bands() + visible_lord_parties()
 	var at := []
 	for p in ps:
 		at.append(party_pos(p))
@@ -1115,13 +1136,13 @@ func _lord_fights() -> void:
 	var reach := ENCOUNTER_RADIUS * ENCOUNTER_RADIUS
 	for i in ps.size():
 		var a: Party = ps[i]
-		if a.kind != LORD or gone.has(a.id):
+		if a.kind != LORD or gone.has(a.id) or party(a.id) == null:
 			continue
 		# Bands keep out of a lord's way unless he's out hunting them.
 		var hunting: bool = lord_of(a).get("job", "") == "hunt"
 		for j in ps.size():
 			var b: Party = ps[j]
-			if j == i or gone.has(b.id):
+			if j == i or gone.has(b.id) or party(b.id) == null:
 				continue
 			if b.kind == LORD:
 				if j < i or not at_war(a.faction, b.faction):
@@ -1154,9 +1175,15 @@ func _drive_off(l_party: Party, band: Party) -> void:
 
 ## Two parties fight it out; returns the loser.
 func _ai_fight(a: Party, b: Party) -> Party:
-	var r := AutoResolve.resolve(a.army, b.army, rng, true, null, "rout")
-	_take_losses(a, r["squads"])
-	_take_losses(b, r["enemy_squads"])
+	var left := army_parties(a)
+	var right := army_parties(b)
+	var left_troops: Array = []
+	var right_troops: Array = []
+	for member in left: left_troops.append_array(member.army)
+	for member in right: right_troops.append_array(member.army)
+	var r := AutoResolve.resolve(left_troops, right_troops, rng, true, null, "rout")
+	for member in left: _take_losses(member, r["squads"])
+	for member in right: _take_losses(member, r["enemy_squads"])
 	var winner := a if r["won"] else b
 	var loser := b if r["won"] else a
 	var killed := int(r["killed"]) if r["won"] else int(r["lost"])
@@ -1165,7 +1192,9 @@ func _ai_fight(a: Party, b: Party) -> Party:
 		wl["silver"] = int(wl["silver"]) + Economy.SILVER_PER_KILL * killed
 		wl["renown"] = mini(Lords.RENOWN_MAX, int(wl["renown"]) + 1 + killed / 10)
 	events.append({"type": "fight", "winner": winner.name, "loser": loser.name, "at": loser.node})
-	_routed(loser)
+	for member in (right if r["won"] else left): _routed(member)
+	var defeated := MarshalArmies.for_party(self, loser.id)
+	if not defeated.is_empty(): MarshalArmies.disband(self, defeated, "Army defeated")
 	return loser
 
 
@@ -1330,6 +1359,7 @@ func to_dict() -> Dictionary:
 		"saved_villages": saved_villages.duplicate(),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
 		"garrisons": garrisons.duplicate(true),
+		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
 		"social": social.to_dict() if social != null else null,
 		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "lord_day": _lord_day,
 	}
@@ -1363,6 +1393,7 @@ func from_dict(d: Dictionary) -> void:
 		if realms.has(String(f)):
 			realms[String(f)]["capital"] = String(raw_realms[f].get("capital", ""))
 			realms[String(f)]["treasury"] = int(raw_realms[f].get("treasury", Lords.TREASURY_START))
+			realms[String(f)]["marshal"] = int(raw_realms[f].get("marshal", -1))
 	hour = float(d.get("hour", 0.0))
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))
@@ -1431,6 +1462,15 @@ func from_dict(d: Dictionary) -> void:
 		# A world saved before there were lords gets its lords now.
 		_spawn_lords()
 		_lord_day = int(hour / 24.0)
+
+	campaign_armies = d.get("campaign_armies", []).duplicate(true)
+	army_ready_at = d.get("army_ready_at", {}).duplicate()
+	next_army_id = int(d.get("next_army_id", 1))
+	for army in campaign_armies:
+		army["id"] = int(army["id"])
+		army["leader"] = int(army["leader"])
+		army["members"] = army["members"].map(func(id): return int(id))
+		next_army_id = maxi(next_army_id, army["id"] + 1)
 
 	if d.has("garrisons"):
 		garrisons = {}

@@ -100,3 +100,47 @@ static func ending(scene_id: String, context: Dictionary, completed: Array, choi
 		else:
 			result += "\n\nEdda leans back in her chair, at ease in the familiar company of a friend."
 	return result
+
+
+## Presentation is versioned independently: authored choices/rewards retain content version 1.
+const READER_VERSION := 1
+
+static func beats(scene_id: String, node: int, choice: int, context: Dictionary) -> Array:
+	var scene: Dictionary = SCENES.get(scene_id, {})
+	if scene.is_empty():
+		return []
+	var passage: String = scene["opening"]
+	if node == 1:
+		if choice < 0 or choice >= scene["choices"].size():
+			return []
+		passage = "You: " + scene["choices"][choice] + "\n\n" + scene["responses"][choice] + "\n\n" + ending(scene_id, context, context.get("completed", []), context.get("choices", {}))
+	var result: Array = []
+	for paragraph in passage.split("\n\n", false):
+		var speaker := "Narrator"
+		var line: String = paragraph
+		for name in ["Edda", "You"]:
+			if line.begins_with(name + ": "):
+				speaker = name
+				line = line.trim_prefix(name + ": ")
+				break
+		var expression := "neutral"
+		if scene_id in ["edda_boots_by_door", "edda_ledger_blot"]:
+			expression = "concerned" if node == 0 else "thoughtful"
+		elif scene_id in ["edda_wrong_verse", "edda_morning_unclaimed"]:
+			expression = "amused"
+		elif scene_id == "edda_place_no_task":
+			expression = "warm"
+		elif scene_id == "edda_spare_spoon":
+			expression = "thoughtful" if node == 0 else "amused"
+			if node == 1 and result.size() >= 3:
+				expression = "warm"
+		result.append({"speaker": speaker, "text": line, "expression": expression})
+	return result
+
+
+static func normalize_reader(scene_id: String, progress: Dictionary) -> void:
+	var sequence := beats(scene_id, int(progress.get("node", 0)), int(progress.get("choice", -1)), progress.get("context", {}))
+	var last := maxi(0, sequence.size() - 1)
+	progress["beat"] = clampi(int(progress.get("beat", 0)), 0, last)
+	progress["furthest_beat"] = clampi(int(progress.get("furthest_beat", progress["beat"])), progress["beat"], last)
+	progress["reader_version"] = READER_VERSION

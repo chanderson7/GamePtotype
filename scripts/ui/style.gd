@@ -72,7 +72,7 @@ static func box(bg: Color, border: Color = Color(0, 0, 0, 0), border_width: int 
 
 static func make_theme() -> Theme:
 	var t := Theme.new()
-	t.default_font_size = BODY
+	t.default_font_size = text_size(BODY)
 	t.set_color("font_color", "Label", TEXT)
 
 	t.set_stylebox("normal", "Button", box(RAISED, RULE, 2))
@@ -110,6 +110,10 @@ static func make_primary(button: Button) -> void:
 ## Ease a panel into view: it fades in and rises the last little way from `anchor`
 ## (0.5, 1 grows from its bottom middle; 0.5, 0.5 from its center).
 static func ease_in(panel: Control, anchor: Vector2 = Vector2(0.5, 1.0)) -> void:
+	if motion_reduced():
+		panel.modulate.a = 1.0
+		panel.scale = Vector2.ONE
+		return
 	panel.pivot_offset = panel.size * anchor
 	panel.modulate.a = 0.0
 	panel.scale = Vector2(0.96, 0.92) if anchor.y > 0.9 else Vector2(0.9, 0.9)
@@ -121,6 +125,25 @@ static func ease_in(panel: Control, anchor: Vector2 = Vector2(0.5, 1.0)) -> void
 static func label(text: String, size: int = 22, color: Color = TEXT) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_font_size_override("font_size", text_size(size))
 	l.add_theme_color_override("font_color", color)
 	return l
+
+
+static func presentation_settings() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	return tree.root.get_node_or_null("Sound") if tree != null else null
+
+static func text_size(base: int) -> int:
+	var settings := presentation_settings()
+	var scale: float = settings.text_scale if settings != null else 1.0
+	# Body text gets the full setting; display headings grow gently to preserve space.
+	return roundi(base * (scale if base <= 36 else minf(scale, 1.15)))
+
+static func motion_reduced() -> bool:
+	var settings := presentation_settings()
+	return bool(settings.reduced_motion) if settings != null else false
+
+static func illustrations_on() -> bool:
+	var settings := presentation_settings()
+	return bool(settings.illustrations_enabled) if settings != null else true
