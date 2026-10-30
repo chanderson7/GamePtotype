@@ -49,8 +49,7 @@ func _build() -> void:
 
 	_col = Page.column(self, "%s · %s" % [p["name"], p["role"]], subtitle)
 
-	if _candidate_id == RomanceStories.EDDA:
-		_col.add_child(StoryArt.portrait("concerned" if rel.get("strained", false) else "neutral"))
+	_col.add_child(StoryArt.candidate_portrait(_candidate_id, "concerned" if rel.get("strained", false) else "neutral"))
 
 	# Active narrative or dialogue response
 	var sdata: Dictionary = RomanceStories.story_data(_candidate_id)
@@ -76,11 +75,10 @@ func _build() -> void:
 	# Build chapter choices
 	_build_chapter_choices(ch, cinfo, rel, house)
 
-	if _candidate_id == RomanceStories.EDDA:
-		_col.add_child(Page.button("Spend time / memories", func():
-			Scenes.active_person_id = p["id"]
-			Scenes.personal_conversation_return = "res://scenes/conversation.tscn"
-			Scenes.go("res://scenes/personal_conversation.tscn")))
+	_col.add_child(Page.button("Spend time / memories", func():
+		Scenes.active_person_id = p["id"]
+		Scenes.personal_conversation_return = "res://scenes/conversation.tscn"
+		Scenes.go("res://scenes/personal_conversation.tscn")))
 
 	# Leave button
 	var leave_btn := Page.button("Leave audience", _back, true)
@@ -132,18 +130,19 @@ func _build_chapter_choices(ch: int, cinfo: Dictionary, rel: Dictionary, house: 
 		5:
 			_col.add_child(Page.note("Choose your future together:"))
 			var is_romantic: bool = bool(rel.get("romantic_intent", false))
+			var name := String(GameState.world.social.get_candidate_person(_candidate_id).get("name", "her"))
 
 			if is_romantic:
 				var m_pub := Page.button("Public Engagement and Marriage (100 silver, 100 food)", func():
-					_on_choice_selected("marry_public", "Edda smiles radiantly. Preparations begin for a joyful wedding."))
+					_on_choice_selected("marry_public", "%s accepts. Preparations begin for a public wedding." % name))
 				_col.add_child(m_pub)
 
 				var m_priv := Page.button("Private Vows (-10 House Standing if unapproved)", func():
-					_on_choice_selected("marry_private", "In a quiet twilight chapel, you exchange vows before the gods alone."))
+					_on_choice_selected("marry_private", "In a quiet private place, you and %s exchange vows." % name))
 				_col.add_child(m_priv)
 
 			var f_btn := Page.button("Sworn Friendship and Alliance Pact", func():
-				_on_choice_selected("friendship", "You clasp forearms in an unbreakable pledge of loyalty and fellowship."))
+				_on_choice_selected("friendship", "You and %s make a lasting pledge of friendship and cooperation." % name))
 			_col.add_child(f_btn)
 
 			var close_btn := Page.button("Remain close without commitment", func():

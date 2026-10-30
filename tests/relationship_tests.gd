@@ -18,6 +18,7 @@ func _init() -> void:
 	print("--- Running Romance & Allies Validation Suite ---")
 	_check_initialization()
 	_check_edda_story_progression()
+	_check_other_story_progression()
 	_check_repair_branch()
 	_check_friendship_route()
 	_check_ceremony_and_pacts()
@@ -103,6 +104,26 @@ func _check_edda_story_progression() -> void:
 	_expect(rel["trust"] == 65, "ch5 final conversation brings trust to 65 (trust: %d)" % rel["trust"])
 	_expect(rel["status"] == Relationships.ENGAGED, "status becomes engaged upon scheduling ceremony")
 	_expect(soc.scheduled_ceremony.get("active", false), "ceremony is scheduled")
+
+
+func _check_other_story_progression() -> void:
+	for candidate_id in [RomanceStories.FARAH, RomanceStories.KAEDE]:
+		var w := WorldSim.new()
+		w.setup(314, Cultures.VARDISH)
+		var soc: SocialSim = w.social
+		var person: Dictionary = soc.get_candidate_person(candidate_id)
+		var expected_name := "Farah" if candidate_id == RomanceStories.FARAH else "Kaede"
+		_expect(person.get("name") == expected_name and person.get("pronouns") == "she/her",
+			"%s is registered as a female romance candidate" % expected_name)
+		_expect(not RomanceStories.story_data(candidate_id).get("chapters", {}).is_empty(),
+			"%s has a complete authored route" % expected_name)
+		var ctx := {"player_silver": 500, "player_food": 500, "current_hour": w.hour, "invitations_enabled": true}
+		for choice_id in ["know_better", "verse", "correspondence", "negotiate"]:
+			_expect(soc.apply_choice(candidate_id, choice_id, ctx).get("ok", false),
+				"%s advances through %s" % [expected_name, choice_id])
+		var final := soc.apply_choice(candidate_id, "marry_public", ctx)
+		_expect(final.get("ok", false) and soc.get_relationship(candidate_id).get("status") == Relationships.ENGAGED,
+			"%s route reaches public engagement" % expected_name)
 
 
 func _check_repair_branch() -> void:

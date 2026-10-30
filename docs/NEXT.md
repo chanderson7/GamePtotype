@@ -11,6 +11,11 @@ For art, battle feedback, dialogue staging and usability work, see
 [`game-feel-and-presentation-plan.md`](game-feel-and-presentation-plan.md). It proposes
 small polish slices that can accompany the gameplay roadmap.
 
+For the next focused pass on travel atmosphere, lived-in settlements, a reactive company camp,
+battlefield feel and consequence continuity, see
+[`game-feel-and-immersion-roadmap.md`](game-feel-and-immersion-roadmap.md). Package A, The road
+feels alive, is implemented; Package B, Places carry their condition, is the next immersion slice.
+
 For a prioritized asset backlog, production briefs and artwork delivery packages, see
 [`artwork-roadmap.md`](artwork-roadmap.md). Its first package—captain portrait continuity
 and a reusable company camp—is implemented; siege resolution remains the next gameplay feature.
@@ -44,6 +49,19 @@ low supplies warn early, and actual desertion pauses play with a saved, actionab
 resource controls and desertion warnings. Menu tests, relevant save/upkeep/captain checks,
 and autoplay pass on Godot 4.7.2; phone-sized menus were rendered and inspected. Phase 4's
 next gameplay piece is sieges.
+
+## Experience Package A — The road feels alive
+
+Travel now derives a presentation-only context from the party's actual position, route,
+terrain, culture and time. Open road, woods, water, settlement-edge and night ambience crossfade
+without affecting simulation RNG. Foot-heavy companies march, mounted companies use hoofbeats,
+and map movement leaves restrained foot, dust or wake contact based on the actual route.
+
+Entering from the map stages a factual, dismissible settlement arrival card using the existing
+vista, owner and current condition. It clears in under a second, does not replay when returning
+from a conversation, and has reduced-motion and text-only behavior. Presentation checks cover
+context purity, stable cosmetic selection, sound assets and crossfades, movement types, a single
+arrival overlay, accessibility variants and zero campaign-state mutation.
 
 ## Artwork Package A
 
@@ -125,34 +143,34 @@ The activity feed is the first Chronicle slice, not the full planned Journal: co
 deadlines and contracts remain dependent on their gameplay systems. Siege forces are currently
 identified as marshal armies until siege state is implemented.
 
-## Romance and allies feature (R0–R3 implemented)
+## Romance and allies feature (R0–R3 and three-candidate cast implemented)
 
 The core Romance & Allies system is implemented per [`romance-and-allies-plan.md`](romance-and-allies-plan.md):
-- Stable person & house IDs in `SocialSim`, persistent candidate Edda anchored to Ravensford's household, and candidate stubs for Farid & Kaede.
-- Complete 5-chapter story for Edda ("A Place Beneath the Banner") with personal/shared choices, honest vs. breach outcomes, repair restitution branch, public marriage, private vows, and sworn friendship pact.
+- Stable person & house IDs in `SocialSim`, with three persistent women: Edda at Ravensford, Farah at Qasr Hamra, and Kaede at Kitayama. Farah retains the legacy save key `farid` so existing campaigns remain compatible.
+- Complete 5-chapter stories for Edda ("A Place Beneath the Banner"), Farah ("Words With Their Own Weight"), and Kaede ("The Account We Choose"), each with character-specific personal/shared scenes, honest vs. breach outcomes, repair restitution, public marriage, private vows, and sworn friendship pact.
 - Support projects with strict escrow accounting (`total == remaining + spent + refunded`), daily recruit funding before realm treasury, capture-triggered refund, and emergency household grants respecting 300-silver lord reserve and 14-day global cooldown.
 - UI: Settlement Court audience entry, People & Letters screen (`scenes/people.tscn`), interactive dialogue conversation (`scenes/conversation.tscn`), and "Romance invitations" toggle in Settings.
 - Persistence & migration: Version 6 saves with deterministic v4/v5 migration.
-- Tested: `tests/relationship_tests.gd` (48 automated checks, 0 failures) and `tests/menu_tests.gd` (all checks pass).
+- Tested: `tests/relationship_tests.gd` verifies all three complete routes and `tests/menu_tests.gd` covers their shared navigation and campaign HCI.
 
-### Personal conversations (Edda implemented)
+### Personal conversations (all three implemented)
 
-Edda has six optional backstory scenes, accessible through **Spend time / memories** in
-People and her audience. First visits require an introduction and being at her current
-residence; strained relationships pause new visits. Completed memories replay anywhere.
+Edda, Farah, and Kaede each have six optional backstory scenes, accessible through
+**Spend time / memories** in People and their audiences. First visits require an introduction
+and being at the candidate's current residence; strained relationships pause new visits.
+Completed memories replay anywhere.
 All responses and summaries receive equal treatment: +1 trust for the first three unique
 completions, at most +3 per persistent person per campaign. Nothing else advances or costs
 resources. Each unfinished visit can be resumed independently; replays preserve original
 choices and relationship context. The final scene requires commitment or friendship.
 
 Records are additive to version 6 saves, with empty defaults for existing campaigns.
-Conversation writes use atomic save replacement and roll back on failure. Farid and Kaede's
-scenes remain planned until their core routes exist. See
+Conversation writes use atomic save replacement and roll back on failure. See
 [`romance-personal-conversations-plan.md`](romance-personal-conversations-plan.md) for the
 content design, research, and implementation record.
 
-Validation: 79 personal-conversation checks, the existing relationship and menu suites,
-ten isolated disk-save/failure checks, and rendered phone-sized library/reader/summary views.
+Validation: 118 personal-conversation checks, 83 relationship-route checks, 120 presentation
+checks, the menu suite, isolated disk-save/failure checks, and phone-sized library/reader views.
 
 ## Latest validation
 
@@ -188,12 +206,13 @@ The broader terrain timing sweep exceeded its 240-second timeout after functiona
 no new terrain-overhead gate result is claimed. The small three-battle comparison measured
 about 1.08 ms/tick before and 2.12 ms/tick after, excluding rendering.
 
-Presentation first slice: Edda's five-expression portrait set, Ravensford/common-room art,
+Presentation first slice: five-expression portrait sets for Edda, Farah, and Kaede;
+Ravensford, Qasr Hamra, and Kitayama exteriors; three character-specific interiors;
 paragraph reader with saved position/history/summary, and text-size/reduced-motion/art
 preferences are implemented. See the implementation record in
 [`game-feel-and-presentation-plan.md`](game-feel-and-presentation-plan.md) and
 [`../assets/story-art-manifest.md`](../assets/story-art-manifest.md).
-43 presentation checks and 79 personal-conversation checks pass, along with relationship
+120 presentation checks and 118 personal-conversation checks pass, along with relationship
 and menu regressions. Rendered 405×720 layouts were reviewed; physical-phone performance
 remains untested. This does not complete the wider presentation roadmap or change the
 living-world feature order.

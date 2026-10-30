@@ -6,6 +6,9 @@ const Style = preload("res://scripts/ui/style.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
+const WorldSim = preload("res://scripts/world/world_sim.gd")
 const FIRST := "edda_spare_spoon"
 const PERSON := "person_edda"
 var failures := 0
@@ -39,10 +42,16 @@ func _run() -> void:
 	sound.set_text_scale(1.0)
 	sound.set_reduced_motion(false)
 	sound.set_illustrations(true)
-	for cue in ["footsteps", "camp", "morale_low", "bond_rank", "promotion"]:
-		check(sound._stream("res://assets/audio/sfx/%s.ogg" % cue, cue in ["footsteps", "camp"]) != null,
+	for cue in ["footsteps", "camp", "morale_low", "bond_rank", "promotion", "road_open", "road_night", "settlement_edge"]:
+		check(sound._stream("res://assets/audio/sfx/%s.ogg" % cue, cue in ["footsteps", "camp", "road_open", "road_night", "settlement_edge"]) != null,
 			"%s cue loads from the generated audio source" % cue)
 	check(sound._movement_loop != sound._loop, "battle movement and terrain ambience use separate audio channels")
+	check(sound._loop_alt != sound._loop, "ambience has two channels for uninterrupted crossfades")
+	sound.set_loop("road_open")
+	sound.set_loop("road_night")
+	check(sound._loop_name == "road_night", "road ambience changes through the crossfade controller")
+	sound.set_loop("")
+	_check_travel_context()
 	gs.new_campaign(Cultures.VARDISH)
 	gs.world.player().node = "ravensford"
 	gs.world.social.apply_choice("edda", "offer_help", {})
@@ -76,12 +85,15 @@ func _run() -> void:
 	check(not action("advance")["ok"], "reader rejects advancing beyond passage")
 	check(action("finish")["trust_change"] == 1, "presentation preserves first-completion reward")
 	check(not action("advance")["ok"], "archive commands cannot mutate completed visits")
-	for expression in Art.EXPRESSIONS:
-		var tex := Art.texture("res://assets/portraits/edda_%s.png" % expression)
-		check(tex != null and tex.get_width() == 384 and tex.get_height() == 512, expression + " portrait exported at consistent size")
-		if tex != null:
-			check(tex.get_image().detect_alpha() != Image.ALPHA_NONE, expression + " retains transparency")
-	for name in ["ravensford", "common_room"]:
+	for candidate_id in ["edda", "farid", "kaede"]:
+		for expression in Art.EXPRESSIONS:
+			var tex := Art.texture("res://assets/portraits/%s_%s.png" % [candidate_id, expression])
+			check(tex != null and tex.get_width() == 384 and tex.get_height() == 512,
+				"%s %s portrait exported at consistent size" % [candidate_id, expression])
+			if tex != null:
+				check(tex.get_image().detect_alpha() != Image.ALPHA_NONE,
+					"%s %s retains transparency" % [candidate_id, expression])
+	for name in ["ravensford", "common_room", "qasr_hamra", "envoy_room", "kitayama", "archive_room"]:
 		var tex := Art.texture("res://assets/locations/%s.png" % name)
 		check(tex != null and tex.get_width() == 768, name + " illustration available")
 	var camp := Art.texture("res://assets/locations/company_camp.png")
@@ -99,6 +111,51 @@ func _run() -> void:
 	DirAccess.remove_absolute(sound.settings_path)
 	print("Presentation: %d checks, %d failures" % [checks, failures])
 	quit(failures)
+
+
+func _check_travel_context() -> void:
+	var travel_world = WorldSim.new()
+	travel_world.setup(731, Cultures.VARDISH)
+	var foot := [{"unit": "vardish_infantry", "type": "infantry", "men": 20}]
+	var cavalry := [{"unit": "vardish_cavalry", "type": "cavalry", "men": 20}]
+	var before := JSON.stringify(travel_world.to_dict())
+	var at_home := TravelPresentation.context(travel_world, foot)
+	check(at_home["surface"] == "settlement" and at_home["ambience"] == "settlement_edge",
+		"standing near a settlement selects its edge ambience")
+	check(at_home["nearest_settlement"] == travel_world.here() and at_home["culture"] != "",
+		"travel context carries location and culture without screen state")
+	check(JSON.stringify(travel_world.to_dict()) == before, "deriving travel presentation does not mutate the world")
+	travel_world.hour = 23.0
+	check(TravelPresentation.context(travel_world, foot)["ambience"] == "road_night",
+		"night atmosphere takes priority over the daytime terrain bed")
+	travel_world.hour = 10.0
+	var land_road: Array = []
+	var sea_road: Array = []
+	for road in WorldData.ROADS:
+		if bool(road[2]) and sea_road.is_empty():
+			sea_road = road
+		elif not bool(road[2]) and land_road.is_empty():
+			land_road = road
+	var party = travel_world.player()
+	party.node = String(land_road[0])
+	party.next = String(land_road[1])
+	party.path = []
+	party.along = travel_world.road_length(party.node, party.next) * 0.5
+	var foot_context := TravelPresentation.context(travel_world, foot)
+	var cavalry_context := TravelPresentation.context(travel_world, cavalry)
+	check(foot_context["movement_contact"] == "foot" and cavalry_context["movement_contact"] == "cavalry",
+		"living company composition selects foot or cavalry road contact")
+	check(foot_context["cosmetic_key"] == TravelPresentation.context(travel_world, foot)["cosmetic_key"],
+		"cosmetic travel variation is stable and consumes no RNG")
+	party.node = String(sea_road[0])
+	party.next = String(sea_road[1])
+	party.along = travel_world.road_length(party.node, party.next) * 0.5
+	var sea_context := TravelPresentation.context(travel_world, foot)
+	check(sea_context["surface"] == "water" and sea_context["movement_contact"] == "wake",
+		"sea travel selects water ambience and a visual wake")
+	var arrival := TravelPresentation.arrival(travel_world, party.node)
+	check(arrival.has("name") and arrival.has("subtitle") and arrival.has("condition"),
+		"arrival presentation is composed entirely from settlement facts")
 
 func open_scene(path: String) -> void:
 	change_scene_to_file("res://scenes/" + path + ".tscn")
@@ -163,11 +220,33 @@ func _check_ui() -> void:
 	_check_widths(current_scene)
 	gs.world.player().node = "highcliff"
 	gs.world.player().next = ""
+	root.get_node("Scenes").settlement_arrival_pending = true
+	var arrival_baseline: Dictionary = gs.to_dict().duplicate(true)
 	await open_scene("settlement")
 	check(current_scene.find_child("LocationIllustration", true, false) != null, "capital arrival shows its culture-specific illustration")
+	check(current_scene.find_child("ArrivalOverlay", true, false) != null
+		and current_scene.find_child("ArrivalVista", true, false) != null,
+		"entering from the map stages a dismissible illustrated arrival")
+	check(_scene_has_text(current_scene, "ARRIVED") and _scene_has_text(current_scene, "Tap to continue"),
+		"arrival card has a readable text path and dismissal instruction")
+	current_scene._show_arrival_card()
+	check(current_scene.find_children("ArrivalOverlay", "Control", true, false).size() == 1,
+		"repeated arrival requests cannot stack cards")
+	current_scene._dismiss_arrival()
+	await process_frame
+	check(gs.to_dict() == arrival_baseline, "showing and dismissing arrival changes no campaign state")
 	check(_scene_has_text(current_scene, "Why it matters:") and _scene_has_text(current_scene, "Services:"),
 		"essential settlement intelligence remains readable outside the illustration")
 	_check_widths(current_scene)
+	sound.set_illustrations(false)
+	root.get_node("Scenes").settlement_arrival_pending = true
+	await open_scene("settlement")
+	check(current_scene.find_child("ArrivalOverlay", true, false) != null
+		and current_scene.find_child("ArrivalVista", true, false) == null
+		and _scene_has_text(current_scene, "ARRIVED"),
+		"illustrations off keeps the complete text-only arrival card")
+	current_scene._dismiss_arrival()
+	sound.set_illustrations(true)
 	sound.set_text_scale(1.5)
 	var bond_a: Dictionary = gs.army[0]["captain"]
 	var bond_b: Dictionary = gs.army[1]["captain"]

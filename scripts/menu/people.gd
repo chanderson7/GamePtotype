@@ -96,8 +96,7 @@ func _build_contacts() -> void:
 
 		var res_name: String = String(WorldData.settlement(String(p.get("residence", "")))["name"]) if WorldData.SETTLEMENTS.has(String(p.get("residence", ""))) else String(p.get("residence", ""))
 		var header_text := "%s · %s" % [p["name"], p["role"]]
-		if cand_id == RomanceStories.EDDA:
-			card.add_child(StoryArt.portrait())
+		card.add_child(StoryArt.candidate_portrait(cand_id))
 		card.add_child(Page.note(header_text, Style.LARGE, Style.TEXT))
 
 		var status_str := Relationships.status_label(String(rel.get("status", Relationships.UNKNOWN)))
@@ -143,11 +142,10 @@ func _build_contacts() -> void:
 			_back())
 		row.add_child(map_btn)
 
-		if cand_id == RomanceStories.EDDA:
-			card.add_child(Page.button("Spend time / memories", func():
-				Scenes.active_person_id = p["id"]
-				Scenes.personal_conversation_return = "res://scenes/people.tscn"
-				Scenes.go("res://scenes/personal_conversation.tscn")))
+		card.add_child(Page.button("Spend time / memories", func():
+			Scenes.active_person_id = p["id"]
+			Scenes.personal_conversation_return = "res://scenes/people.tscn"
+			Scenes.go("res://scenes/personal_conversation.tscn")))
 		_col.add_child(HSeparator.new())
 
 

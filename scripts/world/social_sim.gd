@@ -434,6 +434,8 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 	var house: Dictionary = houses.get(person.get("house_id", ""), {})
 	var current_ch: int = int(q.get("chapter", 1))
 	var target_ch: int = chapter_for_choice(choice_id)
+	var candidate_name := String(person.get("name", "this person"))
+	var reward_prefix := candidate_id
 
 	var out := {
 		"ok": true,
@@ -461,7 +463,7 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 	match target_ch:
 		1:
 			if choice_id in ["know_better", "offer_help", "another_time"]:
-				if not q.get("consumed_rewards", []).has("edda_ch1_intro"):
+				if not q.get("consumed_rewards", []).has("%s_ch1_intro" % reward_prefix):
 					out["trust_change"] = Relationships.TRUST_INTRO_REWARD
 				if choice_id == "know_better":
 					var check := Relationships.can_court(rel, person, bool(context.get("invitations_enabled", true)), String(limits.get("current_partner_id", "")))
@@ -473,10 +475,10 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 				elif choice_id == "offer_help":
 					out["new_status"] = Relationships.ACQUAINTED
 		2:
-			if not q.get("consumed_rewards", []).has("edda_ch2_personal"):
+			if not q.get("consumed_rewards", []).has("%s_ch2_personal" % reward_prefix):
 				out["trust_change"] = Relationships.TRUST_PERSONAL_REWARD
 		3:
-			var rkey := "edda_ch3_shared"
+			var rkey := "%s_ch3_shared" % reward_prefix
 			var unclaimed: bool = not q.get("consumed_rewards", []).has(rkey)
 			if choice_id == "fund_muster":
 				out["cost_silver"] = mini(300, int(context.get("player_silver", 0)))
@@ -493,20 +495,20 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 		4:
 			match choice_id:
 				"negotiate":
-					if not q.get("consumed_rewards", []).has("edda_ch4_negotiate"):
+					if not q.get("consumed_rewards", []).has("%s_ch4_negotiate" % reward_prefix):
 						out["trust_change"] = Relationships.TRUST_CH4_HONEST
 						out["standing_change"] = 10
 				"support_edda":
-					if not q.get("consumed_rewards", []).has("edda_ch4_support"):
+					if not q.get("consumed_rewards", []).has("%s_ch4_support" % reward_prefix):
 						out["trust_change"] = Relationships.TRUST_CH4_HONEST
 						out["standing_change"] = -10
 				"break_promise":
 					out["trust_change"] = Relationships.TRUST_CH4_BREACH
 					out["standing_change"] = 10
 					out["requires_confirmation"] = true
-					out["confirmation_text"] = "Breaking your promise to Edda will damage her trust and strain your relationship."
+					out["confirmation_text"] = "Breaking your promise to %s will damage her trust and strain your relationship." % candidate_name
 				"repair_promise":
-					if not q.get("consumed_rewards", []).has("edda_ch4_repaired"):
+					if not q.get("consumed_rewards", []).has("%s_ch4_repaired" % reward_prefix):
 						out["trust_change"] = Relationships.TRUST_CH4_REPAIR
 					out["cost_silver"] = 100
 					if int(context.get("player_silver", 0)) < 100:
@@ -515,7 +517,7 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 		5:
 			# In chapter 5, check trust + ch5 final bonus
 			var sim_trust: int = int(rel.get("trust", 0))
-			if not q.get("consumed_rewards", []).has("edda_ch5_final"):
+			if not q.get("consumed_rewards", []).has("%s_ch5_final" % reward_prefix):
 				sim_trust += Relationships.TRUST_CH5_FINAL
 				out["trust_change"] = Relationships.TRUST_CH5_FINAL
 
@@ -536,7 +538,8 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 							out["reason"] = "Requires %d silver and %d rations for public celebration." % [out["cost_silver"], out["cost_food"]]
 						out["new_status"] = Relationships.ENGAGED
 						out["requires_confirmation"] = true
-						out["confirmation_text"] = "Schedule a public ceremony at Ravensford with Edda?"
+						var seat_name := String(WorldData.SETTLEMENTS.get(person.get("residence", ""), {}).get("name", person.get("residence", "")))
+						out["confirmation_text"] = "Schedule a public ceremony at %s with %s?" % [seat_name, candidate_name]
 				"marry_private":
 					var check := Relationships.can_marry_private(sim_rel)
 					if not check["ok"]:
@@ -548,7 +551,7 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 						out["standing_change"] = Relationships.STANDING_PRIVATE_VOWS_PENALTY
 						out["new_status"] = Relationships.MARRIED
 						out["requires_confirmation"] = true
-						out["confirmation_text"] = "Exchange private vows? Bypassing house approval costs 10 standing with House Caldmoor."
+						out["confirmation_text"] = "Exchange private vows? Bypassing house approval costs 10 standing with %s." % String(house.get("name", "the household"))
 				"friendship":
 					var check := Relationships.can_swear_friendship(sim_rel, house)
 					if not check["ok"]:
@@ -558,13 +561,13 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 						out["new_status"] = Relationships.FRIENDSHIP
 						out["standing_change"] = Relationships.STANDING_PACT_BONUS
 						out["requires_confirmation"] = true
-						out["confirmation_text"] = "Swear mutual cooperation and friendship with Edda and her house?"
+						out["confirmation_text"] = "Swear mutual cooperation and friendship with %s and her house?" % candidate_name
 				"remain_close":
 					out["new_status"] = Relationships.COMMITTED
 				"part_respectfully":
 					out["new_status"] = Relationships.ENDED
 					out["requires_confirmation"] = true
-					out["confirmation_text"] = "Part ways with Edda? This respectfully concludes courtship while preserving earned standing."
+					out["confirmation_text"] = "Part ways with %s? This respectfully concludes courtship while preserving earned standing." % candidate_name
 
 	return out
 
@@ -581,6 +584,8 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 	var house: Dictionary = houses[person["house_id"]]
 	var target_ch: int = chapter_for_choice(choice_id)
 	var reward_claimed := false
+	var candidate_name := String(person.get("name", "this person"))
+	var reward_prefix := candidate_id
 
 	# Apply trust & standing changes
 	rel["trust"] = clampi(int(rel["trust"]) + int(prev["trust_change"]), Relationships.TRUST_MIN, Relationships.TRUST_MAX)
@@ -589,7 +594,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 	match target_ch:
 		1:
 			if choice_id in ["know_better", "offer_help", "another_time"]:
-				var rkey := "edda_ch1_intro"
+				var rkey := "%s_ch1_intro" % reward_prefix
 				if not q["consumed_rewards"].has(rkey):
 					q["consumed_rewards"].append(rkey)
 					reward_claimed = true
@@ -598,23 +603,23 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					rel["intent_chosen"] = true
 					rel["status"] = Relationships.COURTING
 					limits["current_partner_id"] = candidate_id
-					add_memory(person["id"], "Agreed to court Edda.")
+					add_memory(person["id"], "Agreed to court %s." % candidate_name)
 				elif choice_id == "offer_help":
 					rel["romantic_intent"] = false
 					rel["intent_chosen"] = true
 					rel["status"] = Relationships.ACQUAINTED
-					add_memory(person["id"], "Offered friendship and service to Edda.")
+					add_memory(person["id"], "Offered friendship and service to %s." % candidate_name)
 				q["chapter"] = 2
 				add_letter(person["id"], "ch2_invitation", q["id"], float(context.get("current_hour", 0.0)), person["residence"])
 		2:
-			var rkey := "edda_ch2_personal"
+			var rkey := "%s_ch2_personal" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
 				q["consumed_rewards"].append(rkey)
 				reward_claimed = true
 			q["chapter"] = 3
-			add_memory(person["id"], "Shared personal accounts and verse with Edda.")
+			add_memory(person["id"], "Shared personal stories with %s." % candidate_name)
 		3:
-			var rkey := "edda_ch3_shared"
+			var rkey := "%s_ch3_shared" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
 				q["consumed_rewards"].append(rkey)
 				reward_claimed = true
@@ -623,30 +628,30 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 				if spent > 0:
 					sponsor_replacements(house["id"], person["residence"], "settlement", spent, float(context.get("current_hour", 0.0)), house.get("realm", "vardmark"))
 			q["chapter"] = 4
-			add_memory(person["id"], "Helped protect the border villages.")
+			add_memory(person["id"], "Completed a shared service with %s." % candidate_name)
 		4:
 			match choice_id:
 				"negotiate":
-					var rkey := "edda_ch4_negotiate"
+					var rkey := "%s_ch4_negotiate" % reward_prefix
 					if not q["consumed_rewards"].has(rkey):
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
 					q["chapter"] = 5
 					add_memory(person["id"], "Negotiated a balanced defense agreement for the valley.")
 				"support_edda":
-					var rkey := "edda_ch4_support"
+					var rkey := "%s_ch4_support" % reward_prefix
 					if not q["consumed_rewards"].has(rkey):
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
 					q["chapter"] = 5
-					add_memory(person["id"], "Stood firmly with Edda against the elders.")
+					add_memory(person["id"], "Stood firmly with %s before the council." % candidate_name)
 				"break_promise":
 					rel["strained"] = true
 					rel["strained_reason"] = "broken_promise"
 					q["strained_reason"] = "broken_promise"
-					add_memory(person["id"], "Broke your word to Edda before the house council.")
+					add_memory(person["id"], "Broke your word to %s before the house council." % candidate_name)
 				"repair_promise":
-					var rkey := "edda_ch4_repaired"
+					var rkey := "%s_ch4_repaired" % reward_prefix
 					if not q["consumed_rewards"].has(rkey):
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
@@ -656,7 +661,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					q["chapter"] = 5
 					add_memory(person["id"], "Repaired your breach of word through honest restitution.")
 		5:
-			var rkey := "edda_ch5_final"
+			var rkey := "%s_ch5_final" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
 				q["consumed_rewards"].append(rkey)
 				reward_claimed = true
@@ -667,11 +672,11 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 				"marry_private":
 					rel["status"] = Relationships.MARRIED
 					limits["current_partner_id"] = candidate_id
-					add_memory(person["id"], "Exchanged private vows with Edda.")
+					add_memory(person["id"], "Exchanged private vows with %s." % candidate_name)
 				"friendship":
 					rel["status"] = Relationships.FRIENDSHIP
-					_form_pact(house["id"], "friendship", [person["id"], "player"], [person["residence"], "thornwall"], float(context.get("current_hour", 0.0)))
-					add_memory(person["id"], "Swore mutual cooperation and friendship with Edda.")
+					_form_pact(house["id"], "friendship", [person["id"], "player"], [person["residence"]], float(context.get("current_hour", 0.0)))
+					add_memory(person["id"], "Swore mutual cooperation and friendship with %s." % candidate_name)
 				"remain_close":
 					rel["status"] = Relationships.COMMITTED
 				"part_respectfully":

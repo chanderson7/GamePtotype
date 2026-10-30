@@ -1,9 +1,8 @@
 # Personal conversations for romances
 
-**Status:** Edda implementation complete, 2026-10-28. Builds on `main` at `2b93920`.
-Farid and Kaede remain future content until their main routes exist. This document retains
-the design and research for all three candidates; the implementation record below identifies
-what shipped locally.
+**Status:** All three candidates implemented, 2026-10-30. Edda, Farah, and Kaede each have
+a complete main route and six optional illustrated conversations. Farah retains the internal
+`farid` ID and scene prefix for compatibility with existing saves.
 
 ### Implementation record
 
@@ -11,13 +10,14 @@ what shipped locally.
   Previous/Continue, read-only history, summaries and saved `beat`/`furthest_beat` cursors.
   `reader_version = 1` is independent of content version 1; legacy interrupted visits retain
   their node/choice and resume at its first paragraph. Replay cursors remain local.
-  Five Edda expressions and a common-room backdrop accompany the existing writing.
+  Five registered expressions per candidate and six culture-specific exterior/interior
+  backdrops accompany the writing.
   Text sizing, reduced motion and text-only presentation live in Settings. Trust caps,
   equal-choice rewards and all main-route gates remain unchanged. 43 focused presentation
   checks supplement the original conversation suite.
 
-- `scripts/data/personal_conversations.gd`: six original Edda scenes, three equally rewarded
-  replies each, short summaries, neutral/romantic coda, conditional remembered callbacks.
+- `scripts/data/personal_conversations.gd`: 18 original scenes, six per candidate, with three
+  equally rewarded replies each, short summaries, neutral/romantic codas, and remembered callbacks.
 - `scripts/world/social_sim.gd`: persistent person records, introduction/location/strain/
   prerequisite checks, per-scene resumable progress, completion validation, first-three
   bonus claims including zero-delta claims at 100 trust. New campaigns reset the records.
@@ -30,7 +30,8 @@ what shipped locally.
   remembered relationship/callback context; they cannot rewrite campaign choices.
 - Save version remains **6**: this is an additive optional social field, defaulting to empty
   in existing saves. No main chapter is retrospectively counted as a personal conversation.
-- Validation: `tests/personal_conversation_tests.gd` passes 79 checks, including real UI
+- Validation: `tests/personal_conversation_tests.gd` passes 118 checks, including all 54
+  authored response paths at 250–400 words, real UI
   interactions, JSON resume, alternative replies, side-effect isolation, limits, prerequisite
   gates, relocation, separation, and disabled-invitation behavior. Existing relationship and
   menu tests pass. Ten isolated disk checks cover atomic replacement, reload, failed-write
@@ -91,11 +92,11 @@ column is our interpretation; the proposed Bannerfall scenes are original writin
 | Conversation studied | What the scene does | Writing lesson for Bannerfall |
 |---|---|---|
 | [Ferdinand / Dorothea, A](https://houses.fedatamine.com/en-us/supports/Ferdinand/Dorothea/A) | A remembered childhood encounter explains an existing mistrust, then gains another perspective | Let a later detail change how the player understands an earlier habit; useful for Edda's concern with recognition |
-| [Sylvain / Mercedes, A](https://houses.fedatamine.com/en-us/supports/Sylvain/Mercedes/A) | Flirtation gives way to a conversation about family expectations and being understood | Farid can use social fluency to avoid speaking personally; another person can notice without interrogating him |
+| [Sylvain / Mercedes, A](https://houses.fedatamine.com/en-us/supports/Sylvain/Mercedes/A) | Flirtation gives way to a conversation about family expectations and being understood | Farah can use social fluency to avoid speaking personally; another person can notice without interrogating her |
 | [Raphael / Ignatz, A](https://houses.fedatamine.com/en-us/supports/Raphael/Ignatz/A) | A childhood drawing and a family letter lead to encouragement about an artistic ambition, with humor retained | Use small objects and ordinary pleasures to reveal an interior life; useful for Kaede's private maps |
 | [Hilda / Seteth, B](https://houses.fedatamine.com/en-us/supports/Hilda/Seteth/B) | Sharing an authored story exposes a tender side beneath a stern public manner, provoking gentle teasing | A serious character can be funny and affectionate without losing their competence |
 
-Apply these techniques across the cast. Edda is not a renamed Dorothea, Farid is not
+Apply these techniques across the cast. Edda is not a renamed Dorothea, Farah is not
 Sylvain with a different title, and Kaede does not inherit Ignatz's family or ambitions.
 Their lives must fit Bannerfall's villages, courts, correspondence, and archives. None
 of the sample dialogue below is quoted from Fire Emblem.
@@ -112,7 +113,7 @@ of the sample dialogue below is quoted from Fire Emblem.
    do not make every response a diagnosis or a promise to fix the character's life.
 5. Characters can disagree, decline a question, and retain an awkward habit. A successful
    romance does not remove every insecurity or resolve every family conflict.
-6. Vary the rhythm. Edda is concrete and dry, Farid elaborates then occasionally speaks
+6. Vary the rhythm. Edda is concrete and dry, Farah elaborates then occasionally speaks
    very plainly, and Kaede is precise with an unexpectedly playful interest.
 7. Keep all political facts needed for main quests in those quests. A private story must
    not reveal a hidden “correct answer” required to negotiate a better pact later.
@@ -121,9 +122,9 @@ of the sample dialogue below is quoted from Fire Emblem.
 
 ## 3. Structure, availability, and pacing
 
-Plan **six scenes for each of the three candidates: 18 scenes total**. First release all
-six for Edda. Farid and Kaede remain authored plans until their introduction and core
-relationship routes are ready; do not present their unfinished routes as playable romances.
+The game now contains **six scenes for each of the three candidates: 18 scenes total**.
+Every set follows the same availability and reward rules while retaining its own voice,
+setting, objects, memories, and coda.
 
 Each scene targets 250–400 words on the selected path, about 2–3 minutes at an unhurried
 pace. Each has one or two response points with two or three options, which rejoin after
@@ -344,70 +345,70 @@ version they settle into a familiar shared routine. Neither initiates a new rela
 **End state:** a personal recollection and optional greeting variation. No permanent morale
 buff, promise flag, household project, or automatic proposal.
 
-## 5. Farid: someone who can answer for everyone except himself
+## 5. Farah: someone who can answer for everyone except herself
 
 ### Voice and backstory direction
 
-Farid, 31, is the Kharzani envoy of Qasr Hamra. Keep his diplomatic competence and concern
-for contact across borders. His private difficulty is speaking without first anticipating
-how everyone will hear him. He enjoys conversation, notices absurd social rituals, and
+Farah, 31, is the Kharzani envoy of Qasr Hamra. Keep her diplomatic competence and concern
+for contact across borders. Her private difficulty is speaking without first anticipating
+how everyone will hear her. She enjoys conversation, notices absurd social rituals, and
 sometimes uses a polished anecdote to avoid a personal question.
 
-His vulnerability need not be secret cruelty, serial infidelity, or a catastrophic family
-revelation. He grew up rewarded for saying the useful thing and finds honest preferences
-surprisingly exposing. He cares about living relatives who ask ordinary questions. Give
-him moments where his own joke fails and he can laugh about it.
+Her vulnerability need not be secret cruelty, serial infidelity, or a catastrophic family
+revelation. She grew up rewarded for saying the useful thing and finds honest preferences
+surprisingly exposing. She cares about living relatives who ask ordinary questions. Give
+her moments where her own joke fails and she can laugh about it.
 
 ### F01 — Three Ways to Ask for Supper
 
 **ID:** `farid_supper_request`. **Mood:** comic. **Place:** a guest room or dining alcove.
 
-**Beats:** Farid has written a simple request to the kitchens in language fit for a treaty.
-He knows it is ridiculous. As a young page he once delivered an overly blunt message and
-was coached so thoroughly that he still edits even harmless notes. The player helps him
+**Beats:** Farah has written a simple request to the kitchens in language fit for a treaty.
+She knows it is ridiculous. As a young page she once delivered an overly blunt message and
+was coached so thoroughly that she still edits even harmless notes. The player helps her
 choose a plain sentence; the note is a prop, not a food purchase.
 
-**Responses:** ask him to read the grandest draft, suggest a very short request, or confess
+**Responses:** ask her to read the grandest draft, suggest a very short request, or confess
 to overthinking a small task. All lead to a shared laugh rather than a persuasion check.
 
 **Sample exchange:**
 
-> **Farid:** “If the household's present circumstances permit—”
+> **Farah:** “If the household's present circumstances permit—”
 >
 > **Player:** You're asking for soup.
 >
-> **Farid:** Yes. I had hoped not to sound demanding.
+> **Farah:** Yes. I had hoped not to sound demanding.
 >
 > **Player:** “Is there any soup?”
 >
-> **Farid:** Distressingly effective.
+> **Farah:** Distressingly effective.
 
-**Callback:** one greeting can use a deliberately short sentence when Farid is at ease.
+**Callback:** one greeting can use a deliberately short sentence when Farah is at ease.
 
 ### F02 — The Street With Two Names
 
 **ID:** `farid_two_street_names`. **Mood:** curious and fond. **Place:** near a window.
 
-**Beats:** Farid describes a childhood street known by one name in official letters and
+**Beats:** Farah describes a childhood street known by one name in official letters and
 another by everyone who lived there. The informal name came from a stubborn shop sign,
-not a major historical event. He remembers family arguments about which name a visitor
-should use. His love of correspondence began with wanting distant people to find each
+not a major historical event. She remembers family arguments about which name a visitor
+should use. Her love of correspondence began with wanting distant people to find each
 other, rather than with an abstract love of treaties.
 
 **Responses:** ask about the shopkeeper, mention a nickname for a place the player knows,
-or ask which name Farid uses at home. He has no universal rule to teach the player.
+or ask which name Farah uses at home. She has no universal rule to teach the player.
 
 **Sample exchange:**
 
-> **Farid:** The address said South Market Street. My mother called it Crooked Lantern.
+> **Farah:** The address said South Market Street. My mother called it Crooked Lantern.
 >
 > **Player:** Was the lantern crooked?
 >
-> **Farid:** The shopkeeper said the entire street was leaning.
+> **Farah:** The shopkeeper said the entire street was leaning.
 >
 > **Player:** Did anyone agree?
 >
-> **Farid:** Only his customers. He was generous with them.
+> **Farah:** Only his customers. He was generous with them.
 
 **Callback:** the street remains a remembered childhood location. It is not a new map node,
 trade route, secret passage, or travel discount.
@@ -416,55 +417,55 @@ trade route, secret passage, or travel discount.
 
 **ID:** `farid_unsealed_letter`. **Mood:** personal. **Place:** a writing table.
 
-**Beats:** A relative has asked whether Farid is happy. He has drafted an answer about
-work, the weather, and safe roads. He admits that answering the actual question would
-mean choosing words he cannot retract as a diplomatic misunderstanding. The player can
-listen, share a limited personal answer, or leave the letter private. Farid writes the
-first honest sentence himself; the player does not dictate the letter.
+**Beats:** A relative has asked whether Farah is happy. She has drafted an answer about
+work, the weather, and safe roads. She admits that answering the actual question would
+mean choosing words she cannot retract as a diplomatic misunderstanding. The player can
+listen, share a limited personal answer, or leave the letter private. Farah writes the
+first honest sentence herself; the player does not dictate the letter.
 
 **Responses:** “What did you want to say first?”, “You don't have to read it to me,” or
 “I find that question difficult too.” Respecting privacy still completes the scene.
 
 **Sample exchange:**
 
-> **Farid:** She asked one question. I've written two pages around it.
+> **Farah:** She asked one question. I've written two pages around it.
 >
 > **Player:** Would you like me to leave you to it?
 >
-> **Farid:** No. Though I may stop trying to make this sound impressive.
+> **Farah:** No. Though I may stop trying to make this sound impressive.
 >
 > **Player:** That's all right.
 >
-> **Farid:** Good. The first sentence is rather small.
+> **Farah:** Good. The first sentence is rather small.
 
-**Callback:** later he mentions having sent the letter. No player mail quest or family
+**Callback:** later she mentions having sent the letter. No player mail quest or family
 standing change is created, and the private contents are not added to a public log.
 
 ### F04 — The Wrong Courtesy
 
 **ID:** `farid_wrong_courtesy`. **Mood:** embarrassment turning to humor. **Place:** a terrace.
 
-**Beats:** Farid recounts an early visit when he arrived with an elaborate ceremonial gift
-for a host who had asked for an informal meal. He spent the evening explaining himself
-instead of speaking to anyone. The host eventually asked him to help wash dishes, which
-was the first relaxed conversation they had. He still enjoys ceremony; he is learning
+**Beats:** Farah recounts an early visit when she arrived with an elaborate ceremonial gift
+for a host who had asked for an informal meal. She spent the evening explaining herself
+instead of speaking to anyone. The host eventually asked her to help wash dishes, which
+was the first relaxed conversation they had. She still enjoys ceremony; she is learning
 when other people do not need it.
 
 **Responses:** ask about the impractical gift, ask what they talked about afterward, or
-say that the host found a kind way through the awkwardness. Let Farid laugh at himself
-without depicting his culture or its etiquette as inherently ridiculous.
+say that the host found a kind way through the awkwardness. Let Farah laugh at herself
+without depicting her culture or its etiquette as inherently ridiculous.
 
 **Sample exchange:**
 
-> **Farid:** It took two servants to bring the box inside.
+> **Farah:** It took two servants to bring the box inside.
 >
 > **Player:** What was in it?
 >
-> **Farid:** An ornamental bowl. They already owned several useful ones.
+> **Farah:** An ornamental bowl. They already owned several useful ones.
 >
 > **Player:** Did you eventually find something to say?
 >
-> **Farid:** While drying the plates. Neither of us had to admire anything.
+> **Farah:** While drying the plates. Neither of us had to admire anything.
 
 **Callback:** a later simple shared task has an easier rhythm. The past gift does not
 appear in inventory or grant a gift preference bonus.
@@ -473,56 +474,56 @@ appear in inventory or grant a gift preference bonus.
 
 **ID:** `farid_own_answer`. **Mood:** quietly candid. **Place:** a bookbinder's bench or room.
 
-**Beats:** Farid knows how to repair the loose binding on a notebook. It was a trade he
-briefly wanted to learn, although he also genuinely likes his present work. He has usually
-framed every preference as a service to the family and feels awkward admitting that he
-likes making something small with his hands. He does not need to quit diplomacy to retain
-that part of himself.
+**Beats:** Farah knows how to repair the loose binding on a notebook. It was a trade she
+briefly wanted to learn, although she also genuinely likes her present work. She has usually
+framed every preference as a service to the family and feels awkward admitting that she
+likes making something small with her hands. She does not need to quit diplomacy to retain
+that part of herself.
 
-**Responses:** ask who taught him, ask what he enjoys about the work, or mention that two
+**Responses:** ask who taught her, ask what she enjoys about the work, or mention that two
 interests can coexist. If the player offers to help, the immediate reply covers holding
 the paper steady; there is no crafting action or unlock.
 
 **Sample exchange:**
 
-> **Farid:** The thread needs to be firm. If I pull it much tighter, the paper will tear.
+> **Farah:** The thread needs to be firm. If I pull it much tighter, the paper will tear.
 >
 > **Player:** You sound certain of that.
 >
-> **Farid:** I've torn enough paper to be certain.
+> **Farah:** I've torn enough paper to be certain.
 >
 > **Player:** Is that why you like it?
 >
-> **Farid:** Partly. Mostly I like having a notebook that opens properly.
+> **Farah:** Partly. Mostly I like having a notebook that opens properly.
 
-**Callback:** he later uses the repaired notebook. It remains a story prop with no market
+**Callback:** she later uses the repaired notebook. It remains a story prop with no market
 value, trade skill, or inventory effect.
 
 ### F06 — No Reply Required
 
 **ID:** `farid_no_reply_required`. **Mood:** relaxed affection. **Place:** a safe sitting room.
 
-**Beats:** Farid has some unimportant news he wants to tell the player. He makes no opening
+**Beats:** Farah has some unimportant news she wants to tell the player. She makes no opening
 speech and does not turn the conversation into a request. Recall the letter, soup, or
 notebook only if that topic was seen. The change is comfort in being ordinary with someone.
 
 **Responses:** invite the story, share a harmless observation, or suggest sitting together
-for a while. Romantic wording can acknowledge that he missed the player; friendship
+for a while. Romantic wording can acknowledge that she missed the player; friendship
 wording expresses pleasure in familiar company without implying a hidden romance.
 
 **Sample exchange, romantic variant:**
 
-> **Farid:** I saw something today that I wanted to tell you about.
+> **Farah:** I saw something today that I wanted to tell you about.
 >
 > **Player:** What was it?
 >
-> **Farid:** A dog carrying a very long loaf. I am fairly sure the baker was losing.
+> **Farah:** A dog carrying a very long loaf. I am fairly sure the baker was losing.
 >
 > **Player:** That's your important news?
 >
-> **Farid:** Yes. I found myself wishing you were there.
+> **Farah:** Yes. I found myself wishing you were there.
 
-**End state:** a cosmetic memory about being included in his ordinary day. No diplomatic
+**End state:** a cosmetic memory about being included in her ordinary day. No diplomatic
 favor, promise to visit, or extra alliance action.
 
 ## 6. Kaede: someone who records everything except her own preferences
@@ -731,7 +732,7 @@ unlock a pact, add a cost, or supply a hidden requirement for romance progressio
   a failed romantic ending.
 - A callback checks whether its source scene was completed. If E01 was skipped, E06
   introduces the shared table naturally instead of assuming the player remembers a spoon.
-  Apply the same rule to Farid's letter and Kaede's map.
+  Apply the same rule to Farah's letter and Kaede's map.
 - Use the character's current safe residence for the staging. A displaced Edda can remember
   her old kitchen without claiming the current room is at Ravensford.
 - During an unresolved main-story breach, pause new intimate scenes with a clear reason.
@@ -747,7 +748,7 @@ unlock a pact, add a cost, or supply a hidden requirement for romance progressio
 Write one plain recollection for each completed scene, for example:
 
 - “Edda told you why she sets an extra place at the table.”
-- “Farid shared a letter he found difficult to begin.”
+- “Farah shared a letter he found difficult to begin.”
 - “Kaede showed you a map of places she likes.”
 
 Keep sensitive details in the private scene transcript rather than repeating them in a
@@ -895,11 +896,10 @@ completion and bonus ledgers. Scene IDs remain stable across editorial changes.
 | P1: reader and scoring policy | New personal data file; `SocialSim` records; completion command in `game_state.gd`; tunables in `relationships.gd`; one Edda scene | A first read gives at most +1; replay, remote access, and duplicate submission cannot award it |
 | P2: Edda's six scenes | Dedicated `scripts/menu/personal_conversation.gd` and thin scene wrapper; entry from `people.gd`/`conversation.gd`; return context in `scenes.gd`; summaries and variants | Reading/skipping never advances or blocks a main chapter; the coda respects its existing-commitment gate; total additional trust is at most +3 |
 | P3: content and campaign QA | `tests/personal_conversation_tests.gd` plus relevant menu/save checks; editorial review of all branches | No world/economy mutation; baseline romance still completes with zero scenes; phone layouts and save/resume pass |
-| P4: Farid and Kaede | Implement their planned scenes after each has a valid introduction/core route; add neutral and romantic codas | Both have distinct voices and complete context checks; neither relies on Edda's chapter IDs |
+| P4: Farah and Kaede | Implement their scenes after each has a valid introduction/core route; add neutral and romantic codas | **Complete:** both have distinct voices and context checks; neither relies on Edda's chapter IDs |
 
-The first testable slice is E01 plus a replay and the capped-completion path. The first
-content-complete release is Edda's six scenes. Keep unpublished Farid/Kaede content hidden
-until their surrounding relationships can support it.
+The first testable slice was E01 plus a replay and the capped-completion path. The current
+content-complete release includes all 18 scenes and all three surrounding relationship routes.
 
 ## 11. Acceptance tests and editorial review
 
@@ -929,7 +929,7 @@ until their surrounding relationships can support it.
 ### Content and HCI checks
 
 - Read sample lines without speaker names: the three characters should sound distinguishable.
-  Check that Edda does more than administer, Farid does more than charm, and Kaede does more
+  Check that Edda does more than administer, Farah does more than charm, and Kaede does more
   than correct facts.
 - Every scene reveals a specific memory, preference, or habit. At least three of each
   character's six scenes should contain ordinary pleasure or humor, rather than a confession.

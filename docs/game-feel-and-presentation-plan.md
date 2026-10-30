@@ -15,16 +15,19 @@ This complements [the feature roadmap](next-features-roadmap.md). That roadmap e
 what the player can do; this plan improves how existing actions look, sound, read and feel.
 The living-world implementation order in [NEXT.md](NEXT.md) remains unchanged.
 
+For the post-priorities-1–9 implementation order, acceptance checks and current recommended
+slice, see the [game feel and immersion roadmap](game-feel-and-immersion-roadmap.md).
+
 The [artwork roadmap](artwork-roadmap.md) expands the remaining art work into asset briefs,
 quantities, screen placements, production constraints and a proposed delivery order.
 
 ### First slice implementation record
 
-- Edda has five original portraits: neutral, amused, thoughtful, concerned and warm.
-  Her face is reused in People, her audience and the personal conversation library/reader.
-- Ravensford has an illustrated settlement header; appropriate Edda scenes use a common-room
-  backdrop. These are static illustrations and do not change simulation or ownership.
-- All six personal scenes use speaker-labelled paragraphs, Previous/Continue controls,
+- Edda, Farah, and Kaede each have five original portraits: neutral, amused, thoughtful,
+  concerned and warm. Their faces are reused in People, audiences, and the conversation reader.
+- Ravensford, Qasr Hamra, and Kitayama have illustrated exteriors, while each candidate has
+  a distinct interior conversation backdrop. These static illustrations do not change simulation.
+- All 18 personal scenes use speaker-labelled paragraphs, Previous/Continue controls,
   history, summaries and an always-available Leave action. Each reading position persists;
   archived playback stays local and does not change rewards or campaign records.
 - Reader version 1 is separate from authored content version 1. Old interrupted visits start
@@ -32,10 +35,10 @@ quantities, screen placements, production constraints and a proposed delivery or
 - Settings persist 100/125/150% text, reduced motion and illustrations on/off. Reduced motion
   removes shared panel/button animation, title drift and battle camera shake. Large display
   headings grow less than body text. This is not a complete accessibility audit of all screens.
-- Seven PNG assets total roughly 2.5 MB on disk: five 384×512 transparent portraits and two
-  768×512 locations. [Asset provenance and exact prompts](../assets/story-art-manifest.md)
+- Twenty-one PNG assets total roughly 7.7 MB on disk: fifteen 384×512 transparent portraits
+  and six 768×512 locations. [Asset provenance and exact prompts](../assets/story-art-manifest.md)
   document built-in image generation and exports. Missing art leaves text/navigation usable.
-- Validation: 43 presentation checks, 79 personal-conversation checks, relationship and menu
+- Validation: 120 presentation checks, 118 personal-conversation checks, relationship and menu
   regression suites; rendered 405×720 reader, large text, text-only, People and settlement
   screens. Settlement court buttons now wrap instead of widening the page. No physical-phone
   performance test was performed. Headless teardown reports resource-leak warnings separately
@@ -147,8 +150,8 @@ Her practical clothes, restrained expression and a small work-related detail sho
 her established voice. Expressions describe the line being spoken, not a score for whether
 the player picked the right answer.
 
-Later build equivalent sheets for Farid and Kaede when their full routes are enabled.
-A placeholder portrait must not make an unfinished route look playable.
+Equivalent five-expression sheets for Farah and Kaede are implemented with their full routes.
+Each preserves a distinct silhouette, wardrobe, and emotional register in the shared reader.
 
 ### Captains
 

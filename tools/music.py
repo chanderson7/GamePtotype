@@ -15,7 +15,7 @@ Music:
   victory, defeat   Short stingers.
 Sound effects: clicks, coins, horns, clashes, volleys of arrows, crossbow bolts, javelins
 and horse archers, a charge, a rout, dice, a bell, promotion and bond cues, footsteps,
-hoofbeats, and the loops of a camp, river ford and wood.
+hoofbeats, and the loops of a camp, river ford, wood, open road, night road and settlement edge.
 Loops are seamless: each is rendered three times over and the middle pass kept, so
 what rings across its ends is what rings across them when it loops.
 
@@ -923,6 +923,58 @@ def sfx_birds():
     return seamless(out, n, over)
 
 
+def sfx_road_open():
+    """A seamless open-road bed: broad wind, grass at the verge and slow passing gusts."""
+    rng = rng_for("road_open")
+    n = int(7.0 * SR)
+    over = int(0.8 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    wind = band(rng.standard_normal(m), 90, 1300)
+    gust = 0.16 + 0.05 * np.sin(2 * np.pi * 0.14 * t) + 0.035 * np.sin(2 * np.pi * 0.31 * t + 1.7)
+    verge = band(rng.standard_normal(m), 1700, 6200) * (0.015 + 0.012 * np.sin(2 * np.pi * 0.23 * t) ** 2)
+    return seamless(lowpass(wind * gust + verge, 7000), n, over)
+
+
+def sfx_road_night():
+    """A seamless night road: softer wind with sparse insects and distant low calls."""
+    rng = rng_for("road_night")
+    n = int(8.0 * SR)
+    over = int(0.9 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    out = band(rng.standard_normal(m), 80, 900) * (0.10 + 0.025 * np.sin(2 * np.pi * 0.11 * t))
+    insects = np.maximum(0.0, np.sin(2 * np.pi * 5.6 * t)) ** 10
+    insects *= 0.018 * np.sin(2 * np.pi * 4050 * t)
+    out += insects
+    for at in (1.3, 4.9, 7.1):
+        b = int(0.42 * SR)
+        tt = np.arange(b) / SR
+        call = np.sin(2 * np.pi * (rng.uniform(420, 520) - 45 * tt) * tt)
+        call *= np.sin(np.pi * tt / tt[-1]) ** 2 * 0.035
+        s = int(at * SR)
+        out[s:s + b] += call[:m - s]
+    return seamless(lowpass(out, 6500), n, over)
+
+
+def sfx_settlement_edge():
+    """A seamless settlement edge: air, indistinct distant activity and an occasional cart."""
+    rng = rng_for("settlement_edge")
+    n = int(7.0 * SR)
+    over = int(0.8 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    air = band(rng.standard_normal(m), 100, 1000) * (0.09 + 0.025 * np.sin(2 * np.pi * 0.17 * t))
+    murmur = band(rng.standard_normal(m), 180, 700) * (0.025 + 0.015 * np.sin(2 * np.pi * 0.37 * t) ** 2)
+    out = air + murmur
+    for at in (1.1, 1.38, 4.8, 5.16):
+        knock = drum(rng.uniform(105, 145), 0.045, noise=0.28, rng=rng, drop=0.2, noise_hi=1700)
+        knock = knock[: int(0.22 * SR)] * 0.10
+        s = int(at * SR)
+        out[s:s + len(knock)] += knock[:m - s]
+    return seamless(lowpass(out, 5000), n, over)
+
+
 def sfx_objective():
     """A clear brass fanfare cue announcing an objective."""
     return sfx_horn(((62, 0.25), (65, 0.25), (69, 0.6)))
@@ -936,7 +988,8 @@ SFX = {
     "hooves": sfx_hooves, "footsteps": sfx_footsteps, "camp": sfx_camp, "page": sfx_page,
     "morale_low": sfx_morale_low, "bond_rank": sfx_bond_rank, "promotion": sfx_promotion,
     "crossbow": sfx_crossbow, "javelin": sfx_javelin, "horsebow": sfx_horsebow,
-    "water": sfx_water, "birds": sfx_birds, "objective": sfx_objective,
+    "water": sfx_water, "birds": sfx_birds, "road_open": sfx_road_open,
+    "road_night": sfx_road_night, "settlement_edge": sfx_settlement_edge, "objective": sfx_objective,
 }
 MUSIC = {
     "title": title, "vardish": vardish, "kharzani": kharzani, "ryumon": ryumon,

@@ -1,8 +1,8 @@
 # Romance and allies: implementation plan
 
-**Status:** proposed design; no gameplay changes implemented by this document. Based on
-`main` at `9fe6ece`. Numbers below are initial tuning values, not Warband values or tested
-balance results. The next main-roadmap task remains Phase 4.3 armies.
+**Status:** R0–R3 and the complete three-woman cast are implemented. This remains the design
+record for the system; numbers below are Bannerfall tuning values rather than Warband values.
+Farah uses the legacy internal ID `farid` to preserve existing save compatibility.
 
 ## 1. What we are building
 
@@ -145,7 +145,7 @@ non-ruling lord's house at campaign initialization and save the binding permanen
 | Candidate | Residence/house anchor | Personal aim | Character conflict | Shared project |
 |---|---|---|---|---|
 | Edda, 28, Vardish estate steward | House initially holding Ravensford | Restore the household's neglected border villages | Loyalty to relatives versus protecting villagers | Fund a depleted force and negotiate a defensive commitment |
-| Farid, 31, Kharzani envoy | House initially holding Qasr Hamra | Keep trade and correspondence open across hostile borders | Diplomatic compromise versus family prestige | Reconcile an allied dispute and arrange relief funding |
+| Farah, 31, Kharzani envoy | House initially holding Qasr Hamra | Keep trade and correspondence open across hostile borders | Diplomatic compromise versus family prestige | Reconcile an allied dispute and arrange relief funding |
 | Kaede, 27, Ryumon archivist and household negotiator | House initially holding Kitayama | Preserve an agreement that prevents a local feud | Public duty versus a personally chosen future | Verify competing claims and organize joint defense |
 
 House identity is not reassigned when these castles are conquered. Names, interests,
@@ -153,10 +153,10 @@ pronouns, and portrait references belong in authored character data, not culture
 stereotypes. All three offer the same basic pact capabilities; their stories and choices
 differ, so one culture is not the economically superior romance choice.
 
-First complete candidate: Edda. Budget five chapters, two private conversations within
-those chapters, one optional cultural scene, three final relationship outcomes, one repair
-branch, and one post-commitment project. Expand to the other two only after this route is
-playable from introduction through a meaningful ally-support result.
+All three candidates now have complete five-chapter routes, three final relationship outcomes,
+repair branches, equivalent pact access, and six optional personal conversations. Their route
+structure is shared for reliable campaign accounting, while scene writing, goals, locations,
+portraits, and voice are character-specific.
 
 ### Optional personal conversations
 
@@ -165,8 +165,8 @@ six backstory scenes per candidate, with original dialogue inspired by Three Hou
 writing. It recommends +1 trust for the first three unique personal scenes per character
 (+3 maximum), with equal treatment of all responses and no other gameplay rewards. These
 are additional optional scenes; the main chapter rewards and required story beats below
-keep their existing roles. Edda's six optional scenes and capped rewards are now implemented as an extension to the
-R0–R3 core. Farid and Kaede remain planned until their core routes exist.
+keep their existing roles. All 18 optional scenes and capped rewards are implemented as an
+extension to the R0–R3 core.
 
 ## 6. Main side quest: “A Place Beneath the Banner”
 
@@ -636,11 +636,11 @@ release is approximately 4–7 weeks after prerequisites; reassess after the fir
 | R2: complete Edda story | All five chapters, repair branch, friendship/private/public endings, ceremony, separation | R1 and usable 4.5 politics | Every route reaches a valid ending; changed ownership/war never traps progression | 4–6 days |
 | R3: useful house pact | Replacement escrow, grant, recruitment attribution, eligibility, first joint project | R0–R2; existing lord/garrison economy | Funded recruits and purse transfers reconcile exactly; all limits survive reload | 3–5 days |
 | R4: campaign integration | Military assistance, treaty/contract suspension, prisoner/succession hooks when available | R3, 4.3/4.5 for assistance; 4.6 for captivity/succession | Real allied party moves and participates correctly; no hostile cross-realm help | 3–5 days |
-| R5: cast and polish | Farid/Kaede variants, portraits, invitations preference, phone QA, pacing/balance passes | First route is fun and stable | Three distinct routes; equivalent core pact access; all release gates pass | 5–8 days |
+| R5: cast and polish | Farah/Kaede variants, portraits, invitations preference, phone QA, pacing/balance passes | First route is fun and stable | **Implemented:** three distinct routes, equivalent core pact access, registered art, and automated presentation coverage | Complete |
 
 **Smallest shippable version:** R0–R3 plus the invitation preference and essential UI/save
 validation, with one candidate and one post-commitment project. Clearly expose only
-implemented support actions. R4's troop call and R5's larger cast can follow.
+implemented support actions. R5's larger cast is complete; R4's troop call remains future campaign integration.
 
 During R2, use the correspondence or already-supported defense variant to exercise Chapter 3.
 Wire funding, brokered transfers, and actual pact benefits in R3. R2 alone is an internal

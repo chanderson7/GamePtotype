@@ -13,6 +13,7 @@ const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -20,6 +21,8 @@ const FOOD_DAYS := [3, 7]
 var place := ""
 var autoplay := false
 var _scroll: ScrollContainer
+var _arrival_overlay: Control
+var _arrival_dismissing := false
 
 
 func _ready() -> void:
@@ -32,9 +35,19 @@ func _ready() -> void:
 	place = w.here()
 	Sound.play_music(WorldData.culture_of(WorldData.settlement(place)["faction"]))
 	Sound.play_culture_accent(WorldData.culture_of(WorldData.settlement(place)["faction"]))
+	var travel := TravelPresentation.context(w, GameState.army)
+	Sound.set_loop(String(travel.get("ambience", "settlement_edge")))
 	_build()
+	var show_arrival: bool = Scenes.settlement_arrival_pending and not autoplay
+	Scenes.settlement_arrival_pending = false
+	if show_arrival:
+		_show_arrival_card()
 	if autoplay:
 		_autoplay.call_deferred()
+
+
+func _exit_tree() -> void:
+	Sound.set_loop("")
 
 
 func _build() -> void:
@@ -98,6 +111,109 @@ func _restore_scroll(value: int) -> void:
 	await get_tree().process_frame
 	if is_instance_valid(_scroll):
 		_scroll.scroll_vertical = value
+
+
+## A short, dismissible bridge from the road into the settlement. It is deliberately
+## local UI state: showing or dismissing it cannot touch campaign time or save data.
+func _show_arrival_card() -> void:
+	if _arrival_overlay != null or place == "":
+		return
+	var arrival := TravelPresentation.arrival(GameState.world, place)
+	if arrival.is_empty():
+		return
+	_arrival_dismissing = false
+	var shade := ColorRect.new()
+	shade.name = "ArrivalOverlay"
+	shade.color = Color(0.025, 0.035, 0.065, 0.92)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.z_index = 50
+	shade.gui_input.connect(_on_arrival_input)
+	add_child(shade)
+	_arrival_overlay = shade
+
+	var safe := MarginContainer.new()
+	safe.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	safe.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var insets := Style.safe_insets(get_viewport())
+	safe.add_theme_constant_override("margin_left", 42)
+	safe.add_theme_constant_override("margin_right", 42)
+	safe.add_theme_constant_override("margin_top", 42 + int(insets["top"]))
+	safe.add_theme_constant_override("margin_bottom", 42 + int(insets["bottom"]))
+	shade.add_child(safe)
+	var center := CenterContainer.new()
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	safe.add_child(center)
+	var card := PanelContainer.new()
+	card.name = "ArrivalCard"
+	card.custom_minimum_size = Vector2(600, 0)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 12)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(col)
+	if Sound.illustrations_enabled:
+		var vista := SettlementVista.make(place, GameState.world, 280.0)
+		vista.name = "ArrivalVista"
+		col.add_child(vista)
+	var arrived := Style.label("ARRIVED", Style.SMALL, Style.MUTED)
+	arrived.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(arrived)
+	var title := Style.label(String(arrival["name"]), 64, Style.BRASS)
+	title.name = "ArrivalTitle"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(title)
+	var subtitle := Style.label(String(arrival["subtitle"]), Style.BODY, Style.TEXT)
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(subtitle)
+	var condition := Style.label(String(arrival["condition"]), Style.BODY, Style.MUTED)
+	condition.name = "ArrivalCondition"
+	condition.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	condition.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(condition)
+	var hint := Style.label("Tap to continue", Style.SMALL, Style.MUTED.darkened(0.1))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(hint)
+	Style.ease_in(card, Vector2(0.5, 0.5))
+	get_tree().create_timer(0.72).timeout.connect(_dismiss_arrival)
+
+
+func _on_arrival_input(event: InputEvent) -> void:
+	if (event is InputEventScreenTouch and event.pressed) or (event is InputEventMouseButton and event.pressed):
+		_dismiss_arrival()
+		get_viewport().set_input_as_handled()
+
+
+func _dismiss_arrival() -> void:
+	if _arrival_overlay == null or not is_instance_valid(_arrival_overlay) or _arrival_dismissing:
+		return
+	_arrival_dismissing = true
+	var overlay := _arrival_overlay
+	if Sound.reduced_motion:
+		overlay.queue_free()
+		_arrival_overlay = null
+		return
+	var fade := overlay.create_tween()
+	fade.tween_property(overlay, "modulate:a", 0.0, 0.14)
+	fade.tween_callback(_finish_arrival.bind(overlay))
+
+
+func _finish_arrival(overlay: Control) -> void:
+	if is_instance_valid(overlay):
+		overlay.queue_free()
+	if _arrival_overlay == overlay:
+		_arrival_overlay = null
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	if _arrival_overlay != null and (event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_cancel")):
+		_dismiss_arrival()
+		get_viewport().set_input_as_handled()
 
 
 func _add_court(col: VBoxContainer) -> void:

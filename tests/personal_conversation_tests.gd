@@ -36,7 +36,15 @@ func _run() -> void:
 	var w = fresh()
 	var soc = w.social
 	check(not soc.personal_scene_access(PERSON, FIRST, ctx)["ok"], "introduction is required")
-	check(not soc.personal_scene_access("person_farid", FIRST, ctx)["ok"], "unimplemented candidates cannot access Edda's scenes")
+	check(not soc.personal_scene_access("person_farid", FIRST, ctx)["ok"], "candidates cannot access another person's scenes")
+	check(Stories.ids_for("farid").size() == 6 and Stories.ids_for("kaede").size() == 6,
+		"Farah and Kaede each have six personal conversations")
+	soc.apply_choice("farid", "another_time", {})
+	soc.apply_choice("kaede", "another_time", {})
+	check(soc.personal_scene_access("person_farid", "farid_supper_request", {"settlement_id": "qasr_hamra"})["ok"],
+		"Farah's first visit opens at Qasr Hamra")
+	check(soc.personal_scene_access("person_kaede", "kaede_useless_map", {"settlement_id": "kitayama"})["ok"],
+		"Kaede's first visit opens at Kitayama")
 	soc.apply_choice("edda", "another_time", {})
 	check(soc.personal_scene_access(PERSON, FIRST, ctx)["ok"], "neutral introduction unlocks optional visits without romantic intent")
 	check(not soc.personal_scene_access(PERSON, FIRST, {})["ok"], "missing location rejected in simulation")

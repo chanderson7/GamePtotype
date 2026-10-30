@@ -22,6 +22,9 @@ var warband_scroll := 0
 var warband_sort := 0
 var settlement_scroll := 0
 var settlement_place := ""
+## Set only by the map's Enter action, so returning from a conversation does not replay
+## the short arrival card.
+var settlement_arrival_pending := false
 
 var _veil: ColorRect
 var _busy := false

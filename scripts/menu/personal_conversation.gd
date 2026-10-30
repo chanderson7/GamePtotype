@@ -8,6 +8,7 @@ const Relationships = preload("res://scripts/data/relationships.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 
 var _person_id := ""
+var _candidate_id := ""
 var _scene_id := ""
 var _replay := false
 var _summary := false
@@ -38,12 +39,13 @@ func _build() -> void:
 		return
 	var social = world.social
 	var person: Dictionary = social.get_person(_person_id)
+	_candidate_id = String(person.get("content_id", "edda"))
 	var record: Dictionary = social.personal_record(_person_id)
 	var heading := String(person["name"]) + " · Personal conversations"
 	var subtitle := "Optional stories. No time or supplies spent. Every response is equally welcome."
 	if not _scene_id.is_empty():
 		heading = Stories.SCENES[_scene_id]["title"]
-		subtitle = "Edda · Optional visit" if not _replay else "Memory · No rewards or campaign changes"
+		subtitle = "%s · Optional visit" % String(person.get("name", "Companion")) if not _replay else "Memory · No rewards or campaign changes"
 	_col = Page.column(self, heading, subtitle)
 	if not _message.is_empty():
 		_col.add_child(Page.note(_message, Style.BODY, Style.BRASS))
@@ -57,7 +59,7 @@ func _build() -> void:
 	title.grab_focus()
 
 func _build_list(social, person: Dictionary, record: Dictionary) -> void:
-	_col.add_child(Art.identity())
+	_col.add_child(Art.identity(_candidate_id))
 	var used: int = record["bonus_claims"].size()
 	_col.add_child(Page.note("The first three new stories each grant +1 trust (maximum +3). Summaries count too. %d of 3 rewards claimed. Replays never grant rewards." % mini(used, 3)))
 	var residence: String = person.get("residence", "")
@@ -129,8 +131,10 @@ func _build_reader(record: Dictionary) -> void:
 	var sequence := _sequence()
 	var position := int(_progress["beat"])
 	var beat: Dictionary = sequence[position]
-	var setting := "common_room" if _scene_id in ["edda_spare_spoon", "edda_ledger_blot", "edda_place_no_task"] else ""
-	_col.add_child(Art.stage(beat["expression"], setting))
+	var scene_setting := String(scene.get("setting", ""))
+	if scene_setting == "" and _scene_id in ["edda_spare_spoon", "edda_ledger_blot", "edda_place_no_task"]:
+		scene_setting = "common_room"
+	_col.add_child(Art.candidate_stage(_candidate_id, beat["expression"], scene_setting))
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", Style.box(Style.PANEL, Style.RULE, 1, 12))
 	_col.add_child(panel)

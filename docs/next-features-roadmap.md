@@ -37,13 +37,13 @@ Do not schedule these as entirely new features:
 | Food, wages, recruiting, training, renown, desertion warnings | New ways to earn money and understand future expenses |
 | Captain traits, deaths, battle-count wounds, replacement captains, C/B/A bonds and memorials | Earned specializations, richer histories and optional bond scenes |
 | Home, separate Settings, optional tutorial, resource icons and first-bond introduction | Consistent navigation, meaningful map links and campaign information |
-| People & Letters, Edda's main story, house pacts, grants and replacement sponsorship | Clear political eligibility, military assistance and the other candidates' routes |
-| Edda's six optional personal scenes, summaries, replay and capped trust | Additional authored characters after their main routes work |
+| People & Letters, three complete main stories, house pacts, grants and replacement sponsorship | Clear political eligibility and military assistance |
+| Eighteen optional personal scenes, summaries, replay and capped trust | Later post-commitment stories after political systems deepen |
 | Local campaign persistence and atomic save replacement | Visible recovery options and coverage for new long-running states |
 
 Captain wounds already exist. Recoverable **troop casualties** would be a new system.
 War declarations and peace can already be represented; autonomous decisions about when to
-make them are still future work. Farid and Kaede have records, not complete playable routes.
+make them are still future work. Edda, Farah, and Kaede now have complete playable routes.
 
 ## 3. Priority and dependency order
 
@@ -63,7 +63,7 @@ They are not calendar estimates.
 | 7 | Prisoners, ransom and remembered rivals | Following | M–L | 5; ownership rules from 6 |
 | 8 | Small settlement jobs for independent companies | Following | M | Journal; reuses current encounters |
 | 9 | Captain development and optional bond stories | Following | M–L | Current captain IDs/bonds; stable campaign economy |
-| 10 | Farid and Kaede's complete routes | Following, one character at a time | L | Shared social eligibility and journal |
+| 10 | Farah and Kaede's complete routes | Implemented 2026-10-30 | L | Shared social eligibility and journal |
 | 11 | Recovery options and campaign achievements | Later | M–L | Stable battle results and campaign statistics |
 | 12 | A first fief, then playable sieges | Later expansion | L | Stable complete Phase 4 loop |
 
@@ -338,17 +338,16 @@ to a successor; skill bonuses remain bounded; generated names and pair reference
 **Leave for later:** a large skill tree, individual equipment inventories, mandatory camp
 chores and party jealousy that threatens the company's viability.
 
-### 10 — Farid and Kaede as complete characters
+### 10 — Farah and Kaede as complete characters — implemented
 
 **Player value:** social play reflects all three cultures, with different people and
 problems instead of repeating Edda's story in different clothing.
 
-- Ship **Farid first, then Kaede** so one full route can be tested before doubling content.
-  Use Farid's diplomatic voice and Kaede's tension between duty and personal choice from
-  the existing [personal-conversation plan](romance-personal-conversations-plan.md).
+- Farah and Kaede now ship beside Edda, using Farah's diplomatic voice and Kaede's tension
+  between duty and personal choice from the [personal-conversation plan](romance-personal-conversations-plan.md).
 - Each needs a valid introduction, distinct shared obligation, honest/conflict resolution,
   friendship ending, romantic commitment and post-commitment follow-up.
-- Only then enable that character's six planned optional personal scenes. Reuse the +1
+- Each character's six optional personal scenes reuse the +1
   first-three/+3 lifetime cap per persistent person, equal replies, summaries and archive.
 - Keep court residents anchored to households rather than requiring them to occupy a
   combat-party slot. They can relocate and send letters without becoming vulnerable to
@@ -413,7 +412,7 @@ successful fief playtests. They should not be prerequisites for the next playabl
 | C: Serve a realm | Contracts, lord encounters, existing village defense, income/commitment journal | Play a paid military career and return to independence |
 | D: Allies participate | Multi-party battles, reserves, one genuine military-help request | Fight beside troops belonging to people the player knows |
 | E: Remember the campaign | Prisoners, rival memories, captain detail and first bond scenes | Make decisions shaped by earlier victories and losses |
-| F: More ways to belong | Small local jobs; Farid's route, then Kaede's; later recovery and goals | Build a company and relationships outside constant conquest |
+| F: More ways to belong | Small local jobs; Farah's route, then Kaede's; later recovery and goals | Build a company and relationships outside constant conquest |
 
 Do not wait for an entire package to merge before showing a working slice. Every step
 should load old saves, have a playable entry point, and leave the game usable on its own.

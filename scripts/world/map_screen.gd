@@ -15,6 +15,7 @@ const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
+const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
@@ -64,9 +65,12 @@ var _pinching := false
 var _save_clock := 0.0
 ## Seconds since the map opened, for anything that moves on its own.
 var _clock := 0.0
-## Dust kicked up behind the warband on the road: [{pos, age}] in map units.
-var _dust: Array = []
-var _dust_clock := 0.0
+## Presentation-only contact left by the moving warband: dust, footsteps or wake.
+var _travel_marks: Array = []
+var _contact_position := Vector2(INF, INF)
+var _contact_distance := 0.0
+var _contact_kind := "none"
+var _travel_context := {}
 var _music_clock := 0.0
 
 var terrain
@@ -111,6 +115,7 @@ func _ready() -> void:
 	_sync_layers()
 	_refresh_hud()
 	_update_music()
+	_refresh_travel_presentation()
 	if world.encounter != -1:
 		_open_encounter()
 	elif GameState.desertion_warning != "":
@@ -124,6 +129,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Sound.set_loop("")
+	Sound.set_movement_loop("")
 
 
 func _notification(what: int) -> void:
@@ -195,9 +201,8 @@ func _process(delta: float) -> void:
 	if _music_clock <= 0.0:
 		_music_clock = 0.5
 		_update_music()
-	var riding: bool = world.player().moving() and world.busy() and _sheet not in ["encounter", "notice", "menu", "warning"]
-	Sound.set_loop("hooves" if riding else "")
-	_kick_dust(delta)
+	_refresh_travel_presentation()
+	_update_travel_contact(delta)
 	_refresh_hud()
 	_sync_layers()
 	queue_redraw()
@@ -713,6 +718,7 @@ func _on_wait() -> void:
 
 func _on_enter() -> void:
 	GameState.save_game()
+	Scenes.settlement_arrival_pending = true
 	Scenes.go("res://scenes/settlement.tscn")
 
 
@@ -901,17 +907,69 @@ func _sprite_px() -> float:
 	return clampf(round(cam_scale * SPRITE_PIXEL / 1.125 * 2.0) / 2.0, 1.5, 3.5)
 
 
-func _kick_dust(delta: float) -> void:
-	for d in _dust:
-		d["age"] = float(d["age"]) + delta
-	_dust = _dust.filter(func(d): return float(d["age"]) < 1.2)
-	var p = world.player()
-	if not p.moving() or not world.busy():
+## Select map ambience and the company's movement loop from read-only campaign facts.
+func _refresh_travel_presentation() -> void:
+	_travel_context = TravelPresentation.context(world, GameState.army)
+	if _travel_context.is_empty():
+		Sound.set_loop("")
+		Sound.set_movement_loop("")
 		return
-	_dust_clock -= delta * speed
-	if _dust_clock <= 0.0:
-		_dust_clock = 0.22
-		_dust.append({"pos": world.party_pos(p), "age": 0.0})
+	Sound.set_loop(String(_travel_context["ambience"]))
+	var contact := String(_travel_context["movement_contact"])
+	Sound.set_movement_loop("hooves" if contact == "cavalry" else ("footsteps" if contact == "foot" else ""))
+
+
+## Leave evenly spaced contact behind actual movement. This reads the party position after
+## the world advances; it cannot change travel speed, pathing or campaign time.
+func _update_travel_contact(delta: float) -> void:
+	for mark in _travel_marks:
+		mark["age"] = float(mark["age"]) + delta
+	_travel_marks = _travel_marks.filter(func(mark):
+		return float(mark["age"]) < (1.05 if String(mark["kind"]) == "wake" else 1.2))
+	if Sound.reduced_motion or not Sound.illustrations_enabled or _travel_context.is_empty():
+		_travel_marks.clear()
+		_contact_position = Vector2(INF, INF)
+		_contact_distance = 0.0
+		return
+	var kind := String(_travel_context["movement_contact"])
+	var pos: Vector2 = _travel_context["position"]
+	if kind == "none":
+		_contact_position = pos
+		_contact_distance = 0.0
+		_contact_kind = kind
+		return
+	if not _contact_position.is_finite() or _contact_kind != kind:
+		_contact_position = pos
+		_contact_distance = 0.0
+		_contact_kind = kind
+		return
+	var moved := _contact_position.distance_to(pos)
+	if moved <= 0.001 or moved > 90.0:
+		_contact_position = pos
+		return
+	var direction := (_contact_position - pos).normalized()
+	var spacing := 5.0 if kind == "wake" else (7.0 if kind == "cavalry" else 9.0)
+	_contact_distance += moved
+	var count := mini(6, int(_contact_distance / spacing))
+	for k in count:
+		_travel_marks.append({"pos": pos + direction * (float(k) * spacing + 2.0), "age": 0.0,
+			"kind": kind, "direction": direction, "surface": String(_travel_context["surface"]),
+			"realm": String(_travel_context["realm"])})
+	if count > 0:
+		_contact_distance = fmod(_contact_distance, spacing)
+	if _travel_marks.size() > 72:
+		_travel_marks = _travel_marks.slice(_travel_marks.size() - 72)
+	_contact_position = pos
+
+
+func _contact_color(mark: Dictionary) -> Color:
+	if String(mark.get("kind", "")) == "wake":
+		return Color(0.72, 0.9, 0.96, 0.52)
+	if String(mark.get("surface", "")) == "woods":
+		return Color(0.63, 0.68, 0.49, 0.38)
+	if String(mark.get("realm", "")) == "kharzan":
+		return Color(0.88, 0.75, 0.5, 0.45)
+	return Color(0.78, 0.7, 0.54, 0.38)
 
 
 # ---------------------------------------------------------------- drawing
@@ -921,9 +979,25 @@ func _draw() -> void:
 	if world == null:
 		return
 	var px := _sprite_px()
-	for d in _dust:
-		var age: float = d["age"]
-		draw_circle(_to_screen(d["pos"]) + Vector2(0, -2), (2.0 + age * 5.0) * px * 0.5, Color(0.85, 0.78, 0.6, 0.35 * (1.0 - age / 1.2)))
+	for mark in _travel_marks:
+		var age: float = mark["age"]
+		var kind := String(mark["kind"])
+		var fade := 1.0 - age / (1.05 if kind == "wake" else 1.2)
+		var color := _contact_color(mark)
+		color.a *= fade
+		var at := _to_screen(mark["pos"])
+		var direction: Vector2 = mark["direction"]
+		if kind == "wake":
+			var side := Vector2(-direction.y, direction.x) * (3.0 + age * 2.0) * px
+			var tail := direction * (9.0 + age * 8.0) * px
+			draw_line(at + side, at + tail + side * 1.5, color, 2.0)
+			draw_line(at - side, at + tail - side * 1.5, color, 2.0)
+		elif kind == "foot":
+			var side := Vector2(-direction.y, direction.x) * 2.2 * px
+			draw_circle(at + side, (1.2 + age * 1.6) * px, color)
+			draw_circle(at - side + direction * 2.0 * px, (1.0 + age * 1.4) * px, color)
+		else:
+			draw_circle(at + Vector2(0, -2), (2.0 + age * 5.0) * px * 0.5, color)
 	var things := []
 	for id in Data.SETTLEMENTS:
 		things.append({"y": Data.pos(id).y, "settlement": id})

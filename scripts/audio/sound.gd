@@ -12,6 +12,8 @@ const SFX_PATH := "res://assets/audio/sfx/%s.ogg"
 const SETTINGS_PATH := "user://settings.cfg"
 ## Seconds to fade one piece of music into the next.
 const FADE := 1.4
+## Road, camp and battlefield ambience changes more quickly than music, but never cuts.
+const AMBIENCE_FADE := 0.55
 ## Music sits under the effects.
 const MUSIC_DB := -7.0
 const SILENT_DB := -60.0
@@ -21,7 +23,8 @@ const SFX_DB := {
 	"clash1": -15.0, "clash2": -15.0, "clash3": -15.0, "arrows": -11.0, "charge": -7.0,
 	"rout": -11.0, "dice": -5.0, "bell": -6.0, "hooves": -15.0,
 	"footsteps": -20.0, "camp": -25.0, "morale_low": -10.0, "bond_rank": -8.0, "promotion": -8.0,
-	"crossbow": -10.0, "javelin": -11.0, "horsebow": -12.0, "water": -20.0, "birds": -20.0, "objective": -6.0,
+	"crossbow": -10.0, "javelin": -11.0, "horsebow": -12.0, "water": -20.0, "birds": -20.0,
+	"road_open": -25.0, "road_night": -26.0, "settlement_edge": -26.0, "objective": -6.0,
 }
 const POOL := 10
 
@@ -40,6 +43,9 @@ var _upper: AudioStreamPlayer
 var _intensity := 0.0
 var _stinger: AudioStreamPlayer
 var _loop: AudioStreamPlayer
+var _loop_alt: AudioStreamPlayer
+var _loop_current := 0
+var _loop_name := ""
 var _movement_loop: AudioStreamPlayer
 var _pool: Array[AudioStreamPlayer] = []
 var _streams := {}
@@ -56,6 +62,7 @@ func _ready() -> void:
 	_upper = _player("Music")
 	_stinger = _player("Music")
 	_loop = _player("Sounds")
+	_loop_alt = _player("Sounds")
 	_movement_loop = _player("Sounds")
 	for i in POOL:
 		_pool.append(_player("Sounds"))
@@ -155,10 +162,30 @@ func play_culture_accent(culture: String) -> void:
 		_: play("page", 0.0, 0.01, 0.0, 0.96)
 
 
-## Keep a looping effect going (hoofbeats on the road, a river at a ford), or stop it
-## with "".
+## Crossfade the current ambience (road, camp or battlefield), or fade it out with "".
 func set_loop(name: String) -> void:
-	_set_named_loop(_loop, name)
+	if name == _loop_name:
+		return
+	_loop_name = name
+	var current: AudioStreamPlayer = _loop if _loop_current == 0 else _loop_alt
+	var other: AudioStreamPlayer = _loop_alt if _loop_current == 0 else _loop
+	if name == "":
+		_fade(current, SILENT_DB, AMBIENCE_FADE, true)
+		if other.playing:
+			_fade(other, SILENT_DB, AMBIENCE_FADE, true)
+		return
+	var stream := _stream(SFX_PATH % name, true)
+	if stream == null:
+		_loop_name = ""
+		return
+	other.stream = stream
+	other.volume_db = SILENT_DB
+	other.set_meta("name", name)
+	other.play()
+	_fade(other, float(SFX_DB.get(name, -8.0)), AMBIENCE_FADE)
+	if current.playing:
+		_fade(current, SILENT_DB, AMBIENCE_FADE, true)
+	_loop_current = 1 - _loop_current
 
 
 ## Battle movement gets its own channel, so footsteps or hooves can sit over terrain

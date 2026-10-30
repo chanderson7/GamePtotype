@@ -23,7 +23,7 @@ These recur throughout a campaign and give existing decisions more visual contex
 | 5 | Marshal identity | 3 culture-specific army silhouettes and 3 state badges | Map markers and army sheet | Existing expedition state |
 | 6 | Battle aftermath | 3 restrained illustrations: victory, withdrawal, remembrance | Results and memorial | Accurate result/state selection |
 | 7 | Villages and forts | 3 village plates, 2 additional castle plates | Remaining settlement headers | Reusable culture/type fallback |
-| 8 | Personal story objects | 4 small Edda props; later Farid/Kaede portraits | Memories and dialogue | Authored scene context; complete routes for later portraits |
+| 8 | Personal story objects | 4 small Edda props; later Farah/Kaede portraits | Memories and dialogue | Authored scene context; complete routes for later portraits |
 | 9 | Siege artwork | 1 camp, 3 wall styles, 4 state symbols | Siege sheet and strategic map | Actual siege states, still unimplemented |
 | 10 | Company identity and world detail | 6 heraldic charges; a small landmark/prop set | Banners, Home, map, recruitment | Existing heraldry and truthful world state |
 
@@ -82,7 +82,7 @@ identity; the fallen captain's appearance ID is copied into the memorial record 
 
 Reuse the same face in Warband, the battle selection card, bond introductions and the fallen
 list. Keep the troop-role icon beside it so a face does not replace tactical information.
-Do not attach these generic portraits to Edda, Farid or Kaede.
+Do not attach these generic portraits to Edda, Farah or Kaede.
 
 **Done when:** a captain can be recognized between screens; reload and promotion preserve
 the face; the memorial keeps the deceased's portrait; missing assets fall back cleanly.
@@ -202,11 +202,12 @@ Start with four small Edda items: the spare spoon, a marked ledger page, worn bo
 piece of cloth. Use them as memory thumbnails or occasional scene details where the writing
 actually mentions them. Keep letters and legible prose in UI text, not in painted pixels.
 
-When Farid and Kaede's complete routes are ready, commission five registered expressions each:
-neutral, amused, thoughtful, concerned and warm. Farid's brief should reflect an accomplished
+Farah and Kaede now have five registered expressions each:
+neutral, amused, thoughtful, concerned and warm. Farah's brief should reflect an accomplished
 envoy whose formality softens in private; Kaede's should follow her existing character plan.
 Match Edda's visual system while giving each a distinct silhouette and clothing. Design original
-faces and costumes rather than adapting recognizable Fire Emblem character designs.
+faces and costumes rather than adapting recognizable Fire Emblem character designs. Their
+Qasr Hamra/envoy-room and Kitayama/archive-room settings are also implemented.
 
 Use bond introductions and milestone scenes to show paired portraits first. Reserve bespoke
 event paintings for a small number of authored moments after the everyday screens are covered.
