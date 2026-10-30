@@ -1,7 +1,7 @@
 # Bannerfall: game feel and immersion roadmap
 
 - **Date:** 2026-10-30
-- **Status:** Package A implemented locally; Package B is the next immersion slice
+- **Status:** Packages A and B implemented locally; Package C is the next immersion slice
 - **Goal:** make every part of the campaign feel responsive, grounded and connected while
   preserving the current simulation rules.
 
@@ -22,7 +22,7 @@ follow the company back onto the campaign map and into camp.
 | --- | --- | --- | --- |
 | Home | Orientation and anticipation | Campaign summary, recommendation and camp art | Let the camp reflect location, time, recent losses and current company state |
 | Travel | Distance, risk and momentum | Moving parties, terrain map, day/night lighting and activity feed | Terrain ambience, restrained movement effects and brief arrival transitions |
-| Settlement | Relief, identity and local tension | Culture/type vista, services, owner, danger and garrison facts | Visible local condition, ambient life and culture-specific sound |
+| Settlement | Relief, identity and local tension | Condition-aware culture/type vista, ambient life, local sound, services, owner, danger and garrison facts | Carry recent settlement events into optional company reactions |
 | Encounter | A readable decision under pressure | Factual sheets and force information | Stronger staging, commander identity and clearer consequences before committing |
 | Battle | Command, impact and mounting pressure | Order feedback, collision, particles, camera response and layered battle sound | A cue director, formation-state animation, morale telegraphs and terrain contact |
 | Results | Consequence and reflection | Detailed battle report and saved last-battle record | A short visual aftermath and direct continuity into the map and camp |
@@ -122,6 +122,12 @@ castle or village should have a short sense of arrival without slowing repeated 
 - `tests/presentation_tests.gd`
 
 ## 5. Package B — Places carry their condition
+
+**Implementation status:** complete on 2026-10-30. Five derived states—healthy, strained,
+occupied, damaged and recovering—drive reusable procedural layers in the settlement vista and
+map. Three culture-specific ambience loops, compact factual copy, saved activity-feed callbacks,
+text-only fallback and all-21-settlement coverage are included. No new save field or simulation
+rule was added. The sections below remain the acceptance record.
 
 ### Player outcome
 
@@ -558,7 +564,7 @@ The slice is complete when a route across two terrain types into a settlement fe
 all accessibility variants remain usable, save data is unchanged, and an identical campaign
 replay reaches the same world state with presentation enabled or disabled.
 
-The next immersion request is **Package B: Places carry their condition**. Start with reusable
-owner, activity, damage/recovery, night and garrison-pressure layers in the existing procedural
-settlement vista. Derive every layer from the same facts already displayed in the settlement
-sheet, then validate all 21 settlements at 100% and 150% text with illustrations on and off.
+Package B now supplies the reusable owner, activity, damage/recovery, night and garrison layers
+described above. The next immersion request is **Package C: Camp feels like home**: derive a
+company tableau from current captains, wounds, losses, terrain, time and one optional recent
+moment while preserving the same presentation-only boundary.

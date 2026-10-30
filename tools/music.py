@@ -15,7 +15,7 @@ Music:
   victory, defeat   Short stingers.
 Sound effects: clicks, coins, horns, clashes, volleys of arrows, crossbow bolts, javelins
 and horse archers, a charge, a rout, dice, a bell, promotion and bond cues, footsteps,
-hoofbeats, and the loops of a camp, river ford, wood, open road, night road and settlement edge.
+hoofbeats, and the loops of a camp, river ford, wood, open road, night road and three settlement cultures.
 Loops are seamless: each is rendered three times over and the middle pass kept, so
 what rings across its ends is what rings across them when it loops.
 
@@ -975,6 +975,40 @@ def sfx_settlement_edge():
     return seamless(lowpass(out, 5000), n, over)
 
 
+def sfx_settlement_culture(culture):
+    """A restrained local-life loop: Vardish carts and smithing, Kharzani market chimes,
+    or Ryumon water and wooden work. All share the same quiet air and distant murmur."""
+    rng = rng_for("settlement_" + culture)
+    n = int(7.0 * SR)
+    over = int(0.8 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    air = band(rng.standard_normal(m), 90, 1100) * (0.075 + 0.025 * np.sin(2 * np.pi * 0.15 * t))
+    murmur = band(rng.standard_normal(m), 170, 760) * (0.018 + 0.012 * np.sin(2 * np.pi * 0.34 * t) ** 2)
+    out = air + murmur
+    if culture == "vardish":
+        for at in (0.8, 1.12, 3.9, 5.55, 5.84):
+            hit = drum(rng.uniform(130, 180), 0.035, noise=0.22, rng=rng, drop=0.22, noise_hi=2600)
+            s = int(at * SR)
+            out[s:s + len(hit)] += hit[:m - s] * 0.10
+    elif culture == "kharzani":
+        for at, note in ((1.15, 78), (1.42, 81), (4.55, 76), (4.83, 83)):
+            b = int(0.7 * SR)
+            tt = np.arange(b) / SR
+            chime = np.sin(2 * np.pi * hz(note) * tt) * np.exp(-tt / 0.28)
+            chime += np.sin(2 * np.pi * hz(note + 12) * tt) * np.exp(-tt / 0.14) * 0.35
+            s = int(at * SR)
+            out[s:s + b] += chime[:m - s] * 0.025
+    else:
+        water = band(rng.standard_normal(m), 350, 2600) * (0.025 + 0.012 * np.sin(2 * np.pi * 0.47 * t))
+        out += water
+        for at in (1.0, 2.9, 5.2):
+            hit = drum(210, 0.025, noise=0.42, rng=rng, drop=0.16, noise_hi=3600)
+            s = int(at * SR)
+            out[s:s + len(hit)] += hit[:m - s] * 0.075
+    return seamless(lowpass(out, 6000), n, over)
+
+
 def sfx_objective():
     """A clear brass fanfare cue announcing an objective."""
     return sfx_horn(((62, 0.25), (65, 0.25), (69, 0.6)))
@@ -989,7 +1023,11 @@ SFX = {
     "morale_low": sfx_morale_low, "bond_rank": sfx_bond_rank, "promotion": sfx_promotion,
     "crossbow": sfx_crossbow, "javelin": sfx_javelin, "horsebow": sfx_horsebow,
     "water": sfx_water, "birds": sfx_birds, "road_open": sfx_road_open,
-    "road_night": sfx_road_night, "settlement_edge": sfx_settlement_edge, "objective": sfx_objective,
+    "road_night": sfx_road_night, "settlement_edge": sfx_settlement_edge,
+    "settlement_vardish": lambda: sfx_settlement_culture("vardish"),
+    "settlement_kharzani": lambda: sfx_settlement_culture("kharzani"),
+    "settlement_ryumon": lambda: sfx_settlement_culture("ryumon"),
+    "objective": sfx_objective,
 }
 MUSIC = {
     "title": title, "vardish": vardish, "kharzani": kharzani, "ryumon": ryumon,

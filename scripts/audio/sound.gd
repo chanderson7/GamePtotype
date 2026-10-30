@@ -24,7 +24,9 @@ const SFX_DB := {
 	"rout": -11.0, "dice": -5.0, "bell": -6.0, "hooves": -15.0,
 	"footsteps": -20.0, "camp": -25.0, "morale_low": -10.0, "bond_rank": -8.0, "promotion": -8.0,
 	"crossbow": -10.0, "javelin": -11.0, "horsebow": -12.0, "water": -20.0, "birds": -20.0,
-	"road_open": -25.0, "road_night": -26.0, "settlement_edge": -26.0, "objective": -6.0,
+	"road_open": -25.0, "road_night": -26.0, "settlement_edge": -26.0,
+	"settlement_vardish": -27.0, "settlement_kharzani": -27.0, "settlement_ryumon": -27.0,
+	"objective": -6.0,
 }
 const POOL := 10
 

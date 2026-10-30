@@ -9,6 +9,8 @@ const Captains = preload("res://scripts/data/captains.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 const FIRST := "edda_spare_spoon"
 const PERSON := "person_edda"
 var failures := 0
@@ -42,8 +44,10 @@ func _run() -> void:
 	sound.set_text_scale(1.0)
 	sound.set_reduced_motion(false)
 	sound.set_illustrations(true)
-	for cue in ["footsteps", "camp", "morale_low", "bond_rank", "promotion", "road_open", "road_night", "settlement_edge"]:
-		check(sound._stream("res://assets/audio/sfx/%s.ogg" % cue, cue in ["footsteps", "camp", "road_open", "road_night", "settlement_edge"]) != null,
+	for cue in ["footsteps", "camp", "morale_low", "bond_rank", "promotion", "road_open", "road_night", "settlement_edge",
+			"settlement_vardish", "settlement_kharzani", "settlement_ryumon"]:
+		check(sound._stream("res://assets/audio/sfx/%s.ogg" % cue, cue in ["footsteps", "camp", "road_open", "road_night", "settlement_edge",
+			"settlement_vardish", "settlement_kharzani", "settlement_ryumon"]) != null,
 			"%s cue loads from the generated audio source" % cue)
 	check(sound._movement_loop != sound._loop, "battle movement and terrain ambience use separate audio channels")
 	check(sound._loop_alt != sound._loop, "ambience has two channels for uninterrupted crossfades")
@@ -120,14 +124,14 @@ func _check_travel_context() -> void:
 	var cavalry := [{"unit": "vardish_cavalry", "type": "cavalry", "men": 20}]
 	var before := JSON.stringify(travel_world.to_dict())
 	var at_home := TravelPresentation.context(travel_world, foot)
-	check(at_home["surface"] == "settlement" and at_home["ambience"] == "settlement_edge",
-		"standing near a settlement selects its edge ambience")
+	check(at_home["surface"] == "settlement" and at_home["ambience"] == "settlement_vardish",
+		"standing near a settlement selects its culture ambience")
 	check(at_home["nearest_settlement"] == travel_world.here() and at_home["culture"] != "",
 		"travel context carries location and culture without screen state")
 	check(JSON.stringify(travel_world.to_dict()) == before, "deriving travel presentation does not mutate the world")
 	travel_world.hour = 23.0
-	check(TravelPresentation.context(travel_world, foot)["ambience"] == "road_night",
-		"night atmosphere takes priority over the daytime terrain bed")
+	check(TravelPresentation.context(travel_world, foot)["ambience"] == "settlement_vardish",
+		"night settlements retain their quiet culture ambience")
 	travel_world.hour = 10.0
 	var land_road: Array = []
 	var sea_road: Array = []
@@ -147,6 +151,10 @@ func _check_travel_context() -> void:
 		"living company composition selects foot or cavalry road contact")
 	check(foot_context["cosmetic_key"] == TravelPresentation.context(travel_world, foot)["cosmetic_key"],
 		"cosmetic travel variation is stable and consumes no RNG")
+	travel_world.hour = 23.0
+	check(TravelPresentation.context(travel_world, foot)["ambience"] == "road_night",
+		"night atmosphere takes priority on the open road")
+	travel_world.hour = 10.0
 	party.node = String(sea_road[0])
 	party.next = String(sea_road[1])
 	party.along = travel_world.road_length(party.node, party.next) * 0.5
@@ -156,6 +164,78 @@ func _check_travel_context() -> void:
 	var arrival := TravelPresentation.arrival(travel_world, party.node)
 	check(arrival.has("name") and arrival.has("subtitle") and arrival.has("condition"),
 		"arrival presentation is composed entirely from settlement facts")
+	_check_settlement_conditions()
+
+
+func _check_settlement_conditions() -> void:
+	var w = WorldSim.new()
+	w.setup(832, Cultures.VARDISH)
+	var local_ambience: Array[String] = []
+	for capital in ["highcliff", "khalun", "kurogane"]:
+		w.player().node = capital
+		w.player().next = ""
+		local_ambience.append(String(TravelPresentation.context(w, [])["ambience"]))
+	check(local_ambience == ["settlement_vardish", "settlement_kharzani", "settlement_ryumon"],
+		"each culture selects its own settlement ambience family")
+	var baseline := JSON.stringify(w.to_dict())
+	var cultures := {}
+	var types := {}
+	for id in WorldData.SETTLEMENTS:
+		var state := TravelPresentation.settlement_state(w, id)
+		cultures[String(state.get("culture", ""))] = true
+		types[String(state.get("type", ""))] = true
+		var vista := SettlementVista.make(id, w, 180.0)
+		check(not state.is_empty() and String(state["sentence"]) != "" and vista.place == id,
+			"%s has a coherent culture, type and condition composition" % id)
+		vista.free()
+	check(cultures.size() == 3 and types.size() == 3, "all three cultures and settlement types use the shared composition")
+	check(JSON.stringify(w.to_dict()) == baseline, "deriving all 21 settlement compositions changes no campaign state")
+	var town := TravelPresentation.settlement_state(w, "highcliff")
+	check(town["props"].has("market") and town["props"].has("smith"), "town services stage market and smith activity")
+	var castle := TravelPresentation.settlement_state(w, "ravensford")
+	check(castle["props"].has("guards") and castle["garrison"] != "none", "castle staging reflects its standing guards")
+	var village := TravelPresentation.settlement_state(w, "thornwall")
+	check(village["props"].has("workers") and village["props"].has("livestock"), "healthy village staging reflects field work")
+
+	for squad in w.garrisons["ravensford"]:
+		squad["men"] = 0
+	var thin := TravelPresentation.settlement_state(w, "ravensford")
+	check(thin["condition"] == "strained" and thin["garrison"] == "thin" and "thinly held" in thin["sentence"],
+		"low garrison produces the same strained state and warning copy")
+
+	w.set_owner("ravensford", "kharzan")
+	var occupied := TravelPresentation.settlement_state(w, "ravensford")
+	check(occupied["condition"] == "occupied" and occupied["owner"] == "kharzan" and occupied["recent_event"] != "",
+		"captured settlement carries new ownership and the saved activity entry")
+
+	var band = w.bands()[0]
+	band.raiding = true
+	band.raid_village = "thornwall"
+	var raided := TravelPresentation.settlement_state(w, "thornwall")
+	check(raided["condition"] == "damaged" and raided["raid_active"] and raided["props"].is_empty(),
+		"active raid removes ordinary village activity and stages damage")
+	band.raiding = false
+	band.raid_village = ""
+	w.burned["thornwall"] = w.hour + Lords.BURNED_DAYS * 24.0
+	var damaged := TravelPresentation.settlement_state(w, "thornwall")
+	check(damaged["condition"] == "damaged" and not damaged["services"].has("recruits"),
+		"newly burned village shows damage and no recruit service")
+	w.hour += Lords.BURNED_DAYS * 12.0 + 1.0
+	var recovering := TravelPresentation.settlement_state(w, "thornwall")
+	check(recovering["condition"] == "recovering" and recovering["props"].has("timber"),
+		"later rebuild phase replaces ruin staging with workers and fresh timber")
+	w.hour = floor(w.hour / 24.0) * 24.0 + 23.0
+	check(TravelPresentation.settlement_state(w, "thornwall")["night"], "settlement composition derives night lighting from campaign time")
+
+	var saved: Dictionary = JSON.parse_string(JSON.stringify(w.to_dict()))
+	var restored = WorldSim.new()
+	restored.from_dict(saved)
+	var before_reload := TravelPresentation.settlement_state(w, "thornwall")
+	var after_reload := TravelPresentation.settlement_state(restored, "thornwall")
+	check(before_reload["condition"] == after_reload["condition"]
+		and before_reload["owner"] == after_reload["owner"]
+		and before_reload["garrison"] == after_reload["garrison"],
+		"settlement condition remains stable across save and reload")
 
 func open_scene(path: String) -> void:
 	change_scene_to_file("res://scenes/" + path + ".tscn")
@@ -227,6 +307,9 @@ func _check_ui() -> void:
 	check(current_scene.find_child("ArrivalOverlay", true, false) != null
 		and current_scene.find_child("ArrivalVista", true, false) != null,
 		"entering from the map stages a dismissible illustrated arrival")
+	var settlement_condition := current_scene.find_child("SettlementCondition", true, false)
+	check(settlement_condition != null and String(settlement_condition.text) != "",
+		"settlement sheet leads with the same compact condition used by the vista")
 	check(_scene_has_text(current_scene, "ARRIVED") and _scene_has_text(current_scene, "Tap to continue"),
 		"arrival card has a readable text path and dismissal instruction")
 	current_scene._show_arrival_card()
@@ -238,6 +321,10 @@ func _check_ui() -> void:
 	check(_scene_has_text(current_scene, "Why it matters:") and _scene_has_text(current_scene, "Services:"),
 		"essential settlement intelligence remains readable outside the illustration")
 	_check_widths(current_scene)
+	sound.set_text_scale(1.0)
+	await open_scene("settlement")
+	_check_widths(current_scene)
+	sound.set_text_scale(1.5)
 	sound.set_illustrations(false)
 	root.get_node("Scenes").settlement_arrival_pending = true
 	await open_scene("settlement")
@@ -292,7 +379,7 @@ func _check_widths(scene: Node) -> void:
 		if node is Label or node is Button:
 			if node.is_visible_in_tree() and (node.get_global_rect().end.x > width + 1.0 or node.get_global_rect().position.x < -1.0):
 				overflow.append(node.name)
-	check(overflow.is_empty(), "%s fits horizontally at 150%% text: %s" % [scene.name, str(overflow)])
+	check(overflow.is_empty(), "%s fits horizontally at %d%% text: %s" % [scene.name, roundi(sound.text_scale * 100.0), str(overflow)])
 
 
 func _scene_has_text(node: Node, wanted: String) -> bool:

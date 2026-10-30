@@ -20,10 +20,10 @@ const Lords = preload("res://scripts/data/lords.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 184.0
-const RESOURCE_ICONS := {
-	"silver": preload("res://assets/ui/silver.svg"),
-	"food": preload("res://assets/ui/food.svg"),
-	"renown": preload("res://assets/ui/renown.svg"),
+const RESOURCE_ICON_PATHS := {
+	"silver": "res://assets/ui/silver.svg",
+	"food": "res://assets/ui/food.svg",
+	"renown": "res://assets/ui/renown.svg",
 }
 ## Game hours that pass each real second at 1x.
 const HOURS_PER_SECOND := 1.0
@@ -82,6 +82,7 @@ var _plate: StyleBoxFlat
 var top_panel: PanelContainer
 var clock_label: Label
 var resource_buttons := {}
+var _resource_icons := {}
 var status_label: Label
 var speed_button: Button
 var warband_button: Button
@@ -354,6 +355,17 @@ func _tap(at: Vector2) -> void:
 
 # ---------------------------------------------------------------- sheets
 
+## Load source SVGs directly when a fresh headless checkout has no editor import cache.
+## The packaged game still uses the same files through Godot's normal resource pipeline.
+func _resource_icon(key: String) -> Texture2D:
+	if _resource_icons.has(key):
+		return _resource_icons[key]
+	var image := Image.load_from_file(String(RESOURCE_ICON_PATHS.get(key, "")))
+	var texture: Texture2D = ImageTexture.create_from_image(image) if image != null and not image.is_empty() else null
+	_resource_icons[key] = texture
+	return texture
+
+
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -379,7 +391,7 @@ func _build_hud() -> void:
 	resource_row.add_child(clock_label)
 	for key in ["silver", "food", "renown"]:
 		var badge := _button("", _open_resource.bind(key))
-		badge.icon = RESOURCE_ICONS[key]
+		badge.icon = _resource_icon(key)
 		badge.expand_icon = true
 		badge.add_theme_constant_override("icon_max_width", 30)
 		badge.add_theme_font_size_override("font_size", Style.SMALL)
@@ -1031,13 +1043,22 @@ func _draw_settlement(id: String, px: float) -> void:
 	if id == _selected:
 		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Style.BRASS, 3.0 / 0.32)
 	draw_set_transform(c, 0.0, Vector2(px, px))
-	var burnt: bool = world.is_burned(id)
-	draw_texture(MapArt.texture(sprite, 0, colors), -MapArt.pivot(sprite), BURNT if burnt else Color.WHITE)
-	if burnt:
+	var presentation := TravelPresentation.settlement_state(world, id)
+	var condition := String(presentation.get("condition", "healthy"))
+	var tint := BURNT if condition == "damaged" else (Color("c8b58f") if condition == "recovering" else Color.WHITE)
+	draw_texture(MapArt.texture(sprite, 0, colors), -MapArt.pivot(sprite), tint)
+	if condition == "damaged":
 		# Smoke still rising from the ruins.
 		for k in 3:
 			var rise := fmod(_clock * 0.6 + k * 0.33, 1.0)
 			draw_circle(Vector2(-3.0 + k * 3.0, -10.0 - rise * 14.0), 2.0 + rise * 3.0, Color(0.25, 0.23, 0.22, 0.45 * (1.0 - rise)))
+	elif condition == "recovering":
+		# Pale new timbers distinguish rebuilding from an actively ruined village.
+		draw_line(Vector2(-9, -12), Vector2(-9, 2), Color("c59555"), 2.0)
+		draw_line(Vector2(9, -12), Vector2(9, 2), Color("c59555"), 2.0)
+		draw_line(Vector2(-11, -7), Vector2(11, -7), Color("d5ae6c"), 2.0)
+	if String(presentation.get("garrison", "none")) == "thin" and String(s["type"]) != Data.VILLAGE:
+		draw_arc(Vector2.ZERO, MapArt.size(sprite).x * 0.58, 0.18, PI - 0.18, 14, Style.ENEMY_LIGHT, 1.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

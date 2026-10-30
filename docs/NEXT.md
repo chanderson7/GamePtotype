@@ -13,8 +13,9 @@ small polish slices that can accompany the gameplay roadmap.
 
 For the next focused pass on travel atmosphere, lived-in settlements, a reactive company camp,
 battlefield feel and consequence continuity, see
-[`game-feel-and-immersion-roadmap.md`](game-feel-and-immersion-roadmap.md). Package A, The road
-feels alive, is implemented; Package B, Places carry their condition, is the next immersion slice.
+[`game-feel-and-immersion-roadmap.md`](game-feel-and-immersion-roadmap.md). Packages A and B—
+The road feels alive and Places carry their condition—are implemented. Package C, Camp feels
+like home, is the next immersion slice.
 
 For a prioritized asset backlog, production briefs and artwork delivery packages, see
 [`artwork-roadmap.md`](artwork-roadmap.md). Its first package—captain portrait continuity
@@ -62,6 +63,21 @@ vista, owner and current condition. It clears in under a second, does not replay
 from a conversation, and has reduced-motion and text-only behavior. Presentation checks cover
 context purity, stable cosmetic selection, sound assets and crossfades, movement types, a single
 arrival overlay, accessibility variants and zero campaign-state mutation.
+
+## Experience Package B — Places carry their condition
+
+All 21 settlements now derive one presentation state from saved campaign facts: healthy,
+strained, occupied, damaged or recovering. The procedural vista combines the place's original
+architecture with its current owner's culture-specific banner, relation treatment, town/castle/
+village activity, available-service props, garrison pressure, raid damage, rebuilding timber and
+night lamps. The map uses the same damage, recovery and low-garrison facts.
+
+Settlement sheets and arrival cards lead with the same compact condition sentence. Recent
+capture or raid wording comes from the saved activity feed. Vardish, Kharzani and Ryumon places
+have separate synthesized ambience loops. No presentation state is added to saves: reloads
+reconstruct the same result without consuming campaign RNG. Text-only mode retains all condition,
+owner, danger, service and garrison information. `tests/presentation_tests.gd` covers all 21
+compositions, state transitions, save/reload, audio, missing-art behavior and 150% layout.
 
 ## Artwork Package A
 

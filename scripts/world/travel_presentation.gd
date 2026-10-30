@@ -6,6 +6,7 @@ const Data = preload("res://scripts/world/world_data.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Troops = preload("res://scripts/data/troops.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 
 ## Within this many map units, the road sounds like the edge of a settlement.
 const SETTLEMENT_EDGE := 72.0
@@ -34,22 +35,24 @@ static func context(world, army: Array = []) -> Dictionary:
 	elif terrain.wooded(pos):
 		surface = "woods"
 
+	var realm: String = terrain.realm_at(pos)
+	var culture := ""
+	if surface == "settlement" and nearest_id != "":
+		culture = Data.culture_of(Data.settlement(nearest_id)["faction"])
+	elif realm != "":
+		culture = Data.culture_of(realm)
+	elif nearest_id != "":
+		culture = Data.culture_of(Data.settlement(nearest_id)["faction"])
 	var time := time_band(float(world.hour))
 	var ambience := "road_open"
-	if time == "night":
+	if surface == "settlement" and culture != "":
+		ambience = "settlement_%s" % culture
+	elif time == "night":
 		ambience = "road_night"
 	else:
 		match surface:
 			"water": ambience = "water"
 			"woods": ambience = "birds"
-			"settlement": ambience = "settlement_edge"
-
-	var realm: String = terrain.realm_at(pos)
-	var culture := ""
-	if realm != "":
-		culture = Data.culture_of(realm)
-	elif nearest_id != "":
-		culture = Data.culture_of(Data.settlement(nearest_id)["faction"])
 
 	var moving: bool = party.moving() and world.busy()
 	var contact := "none"
@@ -79,33 +82,115 @@ static func arrival(world, id: String) -> Dictionary:
 	if world == null or not Data.SETTLEMENTS.has(id):
 		return {}
 	var info: Dictionary = Data.settlement(id)
-	var owner: String = world.owner_of(id)
-	var condition := "Quiet roads"
-	if world.is_burned(id):
-		condition = "Rebuilding after a raid"
-	else:
-		for party in world.parties:
-			if party.raiding and party.raid_village == id:
-				condition = "Raiders are active here"
-				break
-		if condition == "Quiet roads" and world.garrisons.has(id):
-			var capacity: int = world.garrison_capacity(id)
-			var held: int = world.men_of(world.garrison_at(id))
-			if capacity > 0 and held < capacity * 0.4:
-				condition = "The walls are thinly held"
-		if condition == "Quiet roads":
-			var player_realm: String = Data.realm_of_culture(world.culture)
-			if world.at_war(player_realm, owner):
-				condition = "Hostile territory"
-			elif world.capital_of(owner) == id:
-				condition = "Realm capital"
+	var state := settlement_state(world, id)
+	var owner: String = String(state["owner"])
 	return {
 		"name": String(info["name"]),
 		"subtitle": "%s · %s" % [String(info["type"]).capitalize(), Data.FACTIONS[owner]["name"]],
-		"condition": condition,
+		"condition": String(state["sentence"]),
+		"recent_event": String(state["recent_event"]),
 		"culture": Data.culture_of(info["faction"]),
 		"owner": owner,
+		"state": String(state["condition"]),
 	}
+
+
+## Read-only facts used by the vista, map, arrival card and settlement copy. Every field is
+## reconstructed from saved simulation data, so presentation cannot drift from the campaign.
+static func settlement_state(world, id: String) -> Dictionary:
+	if world == null or not Data.SETTLEMENTS.has(id):
+		return {}
+	var info: Dictionary = Data.settlement(id)
+	var built_by := String(info["faction"])
+	var owner := String(world.owner_of(id))
+	var player_realm := Data.realm_of_culture(world.culture)
+	var relation := "friendly" if owner == player_realm else ("hostile" if world.at_war(player_realm, owner) else "neutral")
+	var raid_active := false
+	for party in world.parties:
+		if party.raiding and party.raid_village == id:
+			raid_active = true
+			break
+	var burned: bool = world.is_burned(id)
+	var rebuild_progress := 1.0
+	if burned:
+		var total := float(Lords.BURNED_DAYS) * 24.0
+		var remaining := maxf(0.0, float(world.burned.get(id, world.hour)) - float(world.hour))
+		rebuild_progress = clampf(1.0 - remaining / maxf(1.0, total), 0.0, 1.0)
+
+	var held := 0
+	var capacity := 0
+	var garrison := "none"
+	if world.garrisons.has(id):
+		held = world.men_of(world.garrison_at(id))
+		capacity = world.garrison_capacity(id)
+		var share := float(held) / maxf(1.0, float(capacity))
+		garrison = "thin" if share < 0.4 else ("strong" if share >= 0.8 else "steady")
+
+	var condition := "healthy"
+	if raid_active or (burned and rebuild_progress < 0.5):
+		condition = "damaged"
+	elif burned:
+		condition = "recovering"
+	elif owner != built_by:
+		condition = "occupied"
+	elif relation == "hostile" or garrison == "thin":
+		condition = "strained"
+
+	var sentence := ""
+	match condition:
+		"damaged":
+			sentence = "Raiders are active beyond the fields; work has stopped and smoke hangs over the road." if raid_active else "Charred roofs and empty plots show the recent raid; rebuilding has only begun."
+		"recovering":
+			sentence = "Fresh timber and returning workers mark a settlement rebuilding after the raid."
+		"occupied":
+			sentence = "New banners fly over familiar streets after the change of rule."
+		"strained":
+			sentence = "The walls are thinly held; few guards watch the approaches." if garrison == "thin" else "The gates are watchful under a realm at war with your own."
+		_:
+			match String(info["type"]):
+				Data.TOWN: sentence = "Trade and carts keep the streets busy beneath secure banners."
+				Data.CASTLE: sentence = "Guards hold the walls while the road below remains orderly."
+				_: sentence = "Field work continues and livestock gathers close to the village road."
+
+	var available_services: Array[String] = []
+	for service in Data.services(id):
+		if not burned or String(service) != "recruits":
+			available_services.append(String(service))
+	var props: Array[String] = []
+	if condition not in ["damaged"]:
+		match String(info["type"]):
+			Data.TOWN:
+				props.append_array(["market", "cart"])
+				if available_services.has("training"): props.append("smith")
+			Data.CASTLE:
+				if held > 0: props.append("guards")
+				if available_services.has("provisions"): props.append("cart")
+			_:
+				props.append_array(["workers", "livestock"])
+	if condition == "recovering":
+		props = ["workers", "timber"]
+
+	return {
+		"id": id, "type": String(info["type"]), "culture": Data.culture_of(built_by),
+		"built_by": built_by, "owner": owner, "relation": relation,
+		"occupied": owner != built_by, "condition": condition, "sentence": sentence,
+		"raid_active": raid_active, "burned": burned, "rebuild_progress": rebuild_progress,
+		"garrison": garrison, "garrison_men": held, "garrison_capacity": capacity,
+		"services": available_services, "props": props,
+		"night": time_band(float(world.hour)) == "night",
+		"recent_event": recent_settlement_event(world, id),
+	}
+
+
+## Reuse the saved activity feed rather than maintaining a second presentation history.
+static func recent_settlement_event(world, id: String, within_hours: float = 7.0 * 24.0) -> String:
+	for entry in world.activity_log:
+		if String(entry.get("place", "")) != id:
+			continue
+		if float(world.hour) - float(entry.get("hour", world.hour)) > within_hours:
+			continue
+		return String(entry.get("text", ""))
+	return ""
 
 
 static func time_band(hour: float) -> String:

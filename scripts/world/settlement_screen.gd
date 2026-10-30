@@ -81,6 +81,15 @@ func _build() -> void:
 	vista.name = "LocationIllustration"
 	col.add_child(vista)
 	col.add_child(Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS))
+	var presentation := TravelPresentation.settlement_state(GameState.world, place)
+	var condition := _note(String(presentation.get("sentence", "")), Style.TEXT)
+	condition.name = "SettlementCondition"
+	col.add_child(condition)
+	var recent := String(presentation.get("recent_event", ""))
+	if recent != "":
+		var recent_note := _note("Recent: %s" % recent, Style.MUTED)
+		recent_note.name = "SettlementRecentEvent"
+		col.add_child(recent_note)
 	col.add_child(_note(GameState.world.describe(place)))
 	col.add_child(_note(GameState.world.settlement_intelligence(place), Style.TEXT))
 	var days := GameState.food_days()
