@@ -33,10 +33,15 @@ and a reusable company camp—is implemented; siege resolution remains the next 
     relief battles, auto-resolved assaults, and settlement ownership transfer.
   - Attacking survivors stationed into garrison 1:1 (soldier conservation), bound villages follow,
     fief-holders become landless upon seat loss, capital relocates, and 15-man village militia resists raids.
-- **Next: 4.4 (War and peace)**, one piece per session, committing and pushing after each:
-  - War and peace conditions: reasons for war (border raids, broken pacts, conquests), peace offerings,
-    truce durations, and realm AI declarations.
-- Then 4.5 (contracts and lord encounters), 4.6, 4.7.
+- Phase 4.4 is done:
+  - War weariness tracks losses, burnings, captures, and casualties; decays during peace.
+  - Peace treaties, 30-day truce enforcement, and daily tribute transfers (20 days).
+  - Autonomous war declarations for rested rivals; Ryumon Shogunate balance-of-power intervention when a mainland realm holds >= 4 of 6 mainland seats.
+  - War Sheet on the map screen showing active wars, truces, tributes, realm strength/weariness, and recent chronicle events.
+  - Fully deterministic save/load persistence. Verified with `tests/politics_tests.gd` (31 tests pass).
+- **Next: 4.5 (You in the war)**, one piece per session, committing and pushing after each:
+  - Relation with each realm and lord (-100 to 100), mercenary contracts, lord encounters and hostile consequences.
+- Then 4.6, 4.7.
 
 ## Menu and onboarding update
 

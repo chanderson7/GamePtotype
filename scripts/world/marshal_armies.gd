@@ -4,6 +4,7 @@ const Data = preload("res://scripts/world/world_data.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const Units = preload("res://scripts/data/units.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 
 static func for_party(w, party_id: int) -> Dictionary:
 	for army in w.campaign_armies:
@@ -253,6 +254,10 @@ static func assault(w, army: Dictionary) -> void:
 		"attacker_lost": res["attacker_lost"],
 		"defender_lost": res["defender_lost"],
 	})
+
+	if w.has_method("add_weariness"):
+		w.add_weariness(army["realm"], float(res["attacker_lost"]) * Politics.WEARINESS_CASUALTY)
+		w.add_weariness(w.owner_of(target), float(res["defender_lost"]) * Politics.WEARINESS_CASUALTY)
 
 	if res["attacker_won"]:
 		capture_settlement(w, army, "assault")

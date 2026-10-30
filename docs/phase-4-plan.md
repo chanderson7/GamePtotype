@@ -355,6 +355,15 @@ New tunables in `scripts/data/politics.gd`; the rules run once a world day.
 - Ryumon joins against a mainland realm that grows too strong.
 - The world gates (borders move, wars and peace both happen, no early fall).
 
+### As built: War and peace
+
+- **Politics tunables:** `scripts/data/politics.gd` defines weariness caps (`WEARINESS_MAX = 100.0`), casualty rate (`WEARINESS_CASUALTY = 0.05`), holding loss (`WEARINESS_LOST_HOLDING = 15.0`), village burn (`WEARINESS_LOST_VILLAGE = 3.0`), lord routed (`WEARINESS_LORD_ROUTED = 5.0`), war passage (`0.25`/day) and peace decay (`0.50`/day), peace suing threshold (`60.0`), winning fresh acceptance threshold (`40.0`), truce length (`30` days), tribute duration (`20` days, `25`–`75` silver/day), and mainland seats (`6` seats total; $\ge 4$ triggers Ryumon intervention).
+- **Weariness and politics simulation:** `WorldSim` tracks realm weariness, daily weariness decay/growth, active enforced truces (`truces`), and ongoing tribute agreements (`tributes`).
+- **War and peace dynamics:** Weary realms offer peace; fresh winning rivals reject peace to press advantages, otherwise accept. Peace treaties initiate 30-day truces (preventing new war declarations) and daily tribute flows from debtor to creditor treasury.
+- **Autonomous declarations & balance of power:** Rested realms ($\le 25$ weariness) with expired truces declare war over borders or rivalries. When a mainland realm reaches $\ge 4$ seats ($\ge 66.7\%$), the Ryumon Shogunate declares war to preserve balance of power.
+- **War Sheet & notices:** Map Menu includes "War & Politics" displaying active wars, days at war, truces, tributes, realm strength/weariness/holdings, and recent conflict history. Notices broadcast treaties and tributes ("Vardmark and Kharzan make peace; Vardmark pays 45 silver a day for 20 days").
+- **Verification:** Verified by dedicated test suite `tests/politics_tests.gd` (31 tests passing) and integrated world tests in `tests/run_tests.gd`. Fully deterministic save/load roundtrip in `to_dict()` and `from_dict()`.
+
 ---
 
 ## 4.5 You in the war (~2 weeks)

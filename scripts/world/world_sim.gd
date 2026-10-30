@@ -21,6 +21,7 @@ const Lords = preload("res://scripts/data/lords.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const SocialSim = preload("res://scripts/world/social_sim.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -117,6 +118,10 @@ var owners := {}
 ## Realms at war, by pair ("kharzan|vardmark") → {since: hour}. Everyone is at war with
 ## bandits besides.
 var wars := {}
+## Enforced truces between realms: pair ("kharzan|vardmark") → {until: hour}.
+var truces := {}
+## Ongoing tribute agreements between realms: [{from, to, daily, days_left}].
+var tributes: Array = []
 ## Each realm's seat and purse: realm → {capital, treasury}. A realm that loses its
 ## capital moves it.
 var realms := {}
@@ -184,7 +189,14 @@ func _start_realms() -> void:
 	realms = {}
 	for f in Data.FACTIONS:
 		if f != Data.BANDITS:
-			realms[f] = {"capital": String(Data.FACTIONS[f]["capital"]), "treasury": Lords.TREASURY_START, "marshal": -1}
+			realms[f] = {
+				"capital": String(Data.FACTIONS[f]["capital"]),
+				"treasury": Lords.TREASURY_START,
+				"marshal": -1,
+				"weariness": 0.0,
+			}
+	truces = {}
+	tributes = []
 
 
 func _build_roads() -> void:
@@ -239,15 +251,99 @@ func at_war(a: String, b: String) -> bool:
 	return wars.has(war_key(a, b))
 
 
-func declare_war(a: String, b: String) -> void:
+func is_at_war(realm: String) -> bool:
+	for key in wars:
+		var parts: PackedStringArray = key.split("|")
+		if parts.has(realm):
+			return true
+	return false
+
+
+func has_truce(a: String, b: String) -> bool:
+	if a == b:
+		return false
+	var key := war_key(a, b)
+	if not truces.has(key):
+		return false
+	return hour < float(truces[key].get("until", 0.0))
+
+
+func truce_until(a: String, b: String) -> float:
+	var key := war_key(a, b)
+	return float(truces.get(key, {}).get("until", 0.0))
+
+
+func add_weariness(realm: String, amount: float) -> void:
+	if not realms.has(realm):
+		return
+	var cur: float = float(realms[realm].get("weariness", 0.0))
+	realms[realm]["weariness"] = clampf(cur + amount, 0.0, Politics.WEARINESS_MAX)
+
+
+func weariness_of(realm: String) -> float:
+	return float(realms.get(realm, {}).get("weariness", 0.0))
+
+
+func mainland_seats_of(realm: String) -> int:
+	var count := 0
+	for seat in Politics.MAINLAND_SEATS:
+		if owner_of(seat) == realm:
+			count += 1
+	return count
+
+
+func lords_of(realm: String) -> Array:
+	var out := []
+	for l in lords:
+		if l.get("realm", "") == realm:
+			out.append(l)
+	return out
+
+
+func realm_strength(realm: String) -> int:
+	var total := 0
+	for l in lords_of(realm):
+		var p := party(int(l.get("party", -1)))
+		if p != null:
+			total += men_of(p.army)
+		else:
+			total += men_of(l.get("army", []))
+	for h in holdings_of(realm):
+		total += men_of(garrison_at(h))
+	return total
+
+
+func declare_war(a: String, b: String, force: bool = false, reason: String = "") -> void:
 	if a != b and not at_war(a, b):
+		if not force and has_truce(a, b):
+			return
 		wars[war_key(a, b)] = {"since": hour}
-		emit_event({"type": "war", "realms": [a, b]})
+		var ev := {"type": "war", "realms": [a, b]}
+		if reason != "":
+			ev["reason"] = reason
+		emit_event(ev)
 
 
-func make_peace(a: String, b: String) -> void:
+func make_peace(a: String, b: String, truce_days: int = Politics.TRUCE_DAYS, tribute_daily: int = 0, tribute_from: String = "", tribute_days: int = Politics.TRIBUTE_DAYS) -> void:
 	if wars.erase(war_key(a, b)):
-		emit_event({"type": "peace", "realms": [a, b]})
+		if truce_days > 0:
+			truces[war_key(a, b)] = {"until": hour + truce_days * 24.0}
+		if tribute_daily > 0 and tribute_from != "":
+			var tribute_to := b if tribute_from == a else a
+			tributes.append({
+				"from": tribute_from,
+				"to": tribute_to,
+				"daily": tribute_daily,
+				"days_left": tribute_days,
+			})
+		emit_event({
+			"type": "peace",
+			"realms": [a, b],
+			"truce_days": truce_days,
+			"tribute_from": tribute_from,
+			"tribute_daily": tribute_daily,
+			"tribute_days": tribute_days,
+		})
 
 
 ## Settlement `id` passes to `realm`, with the villages bound to it. A realm that loses its
@@ -257,6 +353,11 @@ func set_owner(id: String, realm: String) -> void:
 	if was == realm:
 		return
 	owners[id] = realm
+	if Data.settlement(id)["type"] in [Data.CASTLE, Data.TOWN]:
+		if realms.has(was):
+			add_weariness(was, Politics.WEARINESS_LOST_HOLDING)
+		if realms.has(realm):
+			add_weariness(realm, -5.0)
 	# Defenders don't change allegiance with their walls. A future siege leaves its
 	# survivors here after the transfer; until then the new owner must recruit guards.
 	if garrisons.has(id):
@@ -357,8 +458,21 @@ func _activity_text(event: Dictionary) -> String:
 		"war", "peace":
 			var pair: Array = event.get("realms", [])
 			if pair.size() >= 2:
-				return "%s and %s %s." % [Data.FACTIONS[String(pair[0])]["name"], Data.FACTIONS[String(pair[1])]["name"],
-					"are now at war" if kind == "war" else "have made peace"]
+				var r0: String = Data.FACTIONS[String(pair[0])]["name"]
+				var r1: String = Data.FACTIONS[String(pair[1])]["name"]
+				if kind == "war":
+					var reason: String = event.get("reason", "")
+					if reason == "balance of power":
+						return "%s declared war on %s to preserve the balance of power." % [r0, r1]
+					return "%s and %s are now at war." % [r0, r1]
+				else:
+					var tf: String = String(event.get("tribute_from", ""))
+					var td: int = int(event.get("tribute_daily", 0))
+					var days: int = int(event.get("tribute_days", 0))
+					if td > 0 and tf != "":
+						var loser_name: String = Data.FACTIONS[tf]["name"]
+						return "%s and %s make peace; %s pays %d silver a day for %d days." % [r0, r1, loser_name, td, days]
+					return "%s and %s have made peace." % [r0, r1]
 		"captured":
 			return "%s captured %s from %s." % [Data.FACTIONS[String(event["realm"])]["name"],
 				Data.settlement(String(event["settlement"]))["name"], Data.FACTIONS[String(event["from"])]["name"]]
@@ -1234,6 +1348,9 @@ func _burn(l: Dictionary, village: String) -> void:
 		lp.army = lp.army.filter(func(sq): return int(sq["men"]) > 0)
 	burned[village] = hour + Lords.BURNED_DAYS * 24.0
 	l["silver"] = int(l["silver"]) + Lords.RAID_LOOT
+	var v_owner := owner_of(village)
+	if realms.has(v_owner):
+		add_weariness(v_owner, Politics.WEARINESS_LOST_VILLAGE)
 	emit_event({"type": "burned", "village": village, "by": String(l["name"])})
 
 
@@ -1274,6 +1391,132 @@ func _lords_day() -> void:
 			p.army = army
 		l["army"] = army
 	_garrisons_day()
+	_politics_day()
+
+
+func _politics_day() -> void:
+	# 1. Weariness tick for at-war and peace
+	for f in realms:
+		if is_at_war(f):
+			add_weariness(f, Politics.WEARINESS_DAY_AT_WAR)
+		else:
+			add_weariness(f, -Politics.WEARINESS_PEACE_DECAY)
+
+	# 2. Tribute transfers
+	var rem_tribs: Array = []
+	for t in tributes:
+		if int(t.get("days_left", 0)) > 0:
+			var debtor: String = String(t.get("from", ""))
+			var creditor: String = String(t.get("to", ""))
+			var daily: int = int(t.get("daily", 0))
+			if realms.has(debtor) and realms.has(creditor):
+				var paid: int = mini(daily, maxi(0, int(realms[debtor].get("treasury", 0))))
+				realms[debtor]["treasury"] = int(realms[debtor]["treasury"]) - paid
+				realms[creditor]["treasury"] = int(realms[creditor]["treasury"]) + paid
+			t["days_left"] = int(t.get("days_left", 0)) - 1
+			if int(t["days_left"]) > 0:
+				rem_tribs.append(t)
+	tributes = rem_tribs
+
+	# 3. Clean up expired truces
+	var expired_truces: Array = []
+	for key in truces:
+		if hour >= float(truces[key].get("until", 0.0)):
+			expired_truces.append(key)
+	for key in expired_truces:
+		truces.erase(key)
+
+	# 4. Peace evaluation
+	_evaluate_peace()
+
+	# 5. Balance of power (Ryumon intervention)
+	_evaluate_balance_of_power()
+
+	# 6. Autonomous war declarations
+	_evaluate_war_declarations()
+
+
+func _evaluate_peace() -> void:
+	var war_keys := wars.keys()
+	for key in war_keys:
+		if not wars.has(key):
+			continue
+		var parts: PackedStringArray = key.split("|")
+		if parts.size() < 2:
+			continue
+		var a: String = parts[0]
+		var b: String = parts[1]
+		var w_a := weariness_of(a)
+		var w_b := weariness_of(b)
+
+		var a_wants := w_a >= Politics.PEACE_THRESHOLD
+		var b_wants := w_b >= Politics.PEACE_THRESHOLD
+
+		if not a_wants and not b_wants:
+			continue
+
+		if a_wants and b_wants:
+			_sign_peace_treaty(a, b)
+			continue
+
+		var suitor := a if a_wants else b
+		var respondent := b if suitor == a else a
+
+		var w_resp := weariness_of(respondent)
+		var is_fresh := w_resp < Politics.PEACE_ACCEPT_THRESHOLD
+		var diff := weariness_of(suitor) - w_resp
+
+		var seats_resp := mainland_seats_of(respondent) if respondent in ["vardmark", "kharzan"] else holdings_of(respondent).size()
+		var seats_suitor := mainland_seats_of(suitor) if suitor in ["vardmark", "kharzan"] else holdings_of(suitor).size()
+		var winning_clearly := (seats_resp > seats_suitor) or (diff >= 30.0)
+
+		if is_fresh and winning_clearly:
+			# Respondent refuses peace; war continues
+			continue
+		else:
+			_sign_peace_treaty(a, b)
+
+
+func _sign_peace_treaty(a: String, b: String) -> void:
+	var w_a := weariness_of(a)
+	var w_b := weariness_of(b)
+	var diff := absf(w_a - w_b)
+	var loser := a if w_a > w_b else b
+	var daily_tribute: int = 0
+	if diff >= 5.0:
+		daily_tribute = int(clampf(
+			Politics.TRIBUTE_BASE + diff * Politics.TRIBUTE_PER_WEARINESS_DIFF,
+			float(Politics.TRIBUTE_BASE),
+			float(Politics.TRIBUTE_MAX)
+		))
+	make_peace(a, b, Politics.TRUCE_DAYS, daily_tribute, loser, Politics.TRIBUTE_DAYS)
+
+
+func _evaluate_balance_of_power() -> void:
+	for realm in ["vardmark", "kharzan"]:
+		var seats := mainland_seats_of(realm)
+		if seats >= Politics.HEGEMONY_SEATS_THRESHOLD:
+			if not at_war("ryumon", realm):
+				declare_war("ryumon", realm, true, "balance of power")
+
+
+func _evaluate_war_declarations() -> void:
+	var pairs := [["vardmark", "kharzan"]]
+	for pair in pairs:
+		var a: String = pair[0]
+		var b: String = pair[1]
+		if at_war(a, b) or has_truce(a, b):
+			continue
+		var w_a := weariness_of(a)
+		var w_b := weariness_of(b)
+		if w_a <= Politics.WAR_READY_WEARINESS and w_b <= Politics.WAR_READY_WEARINESS:
+			var str_a := realm_strength(a)
+			var str_b := realm_strength(b)
+			var has_edge := absf(float(str_a - str_b)) >= 20.0
+			if has_edge or rng.randf() < 0.2:
+				var aggressor := a if str_a >= str_b else b
+				var defender := b if aggressor == a else a
+				declare_war(aggressor, defender)
 
 
 ## A day's recruits for a lord at his seat, as many as his purse allows, up to his
@@ -1387,8 +1630,18 @@ func _ai_fight(a: Party, b: Party) -> Party:
 	for member in left: left_troops.append_array(member.army)
 	for member in right: right_troops.append_array(member.army)
 	var r := AutoResolve.resolve(left_troops, right_troops, rng, true, null, "rout")
-	for member in left: _take_losses(member, r["squads"])
-	for member in right: _take_losses(member, r["enemy_squads"])
+	for member in left:
+		var pre := men_of(member.army)
+		_take_losses(member, r["squads"])
+		var lost := pre - men_of(member.army)
+		if lost > 0 and realms.has(member.faction):
+			add_weariness(member.faction, float(lost) * Politics.WEARINESS_CASUALTY)
+	for member in right:
+		var pre := men_of(member.army)
+		_take_losses(member, r["enemy_squads"])
+		var lost := pre - men_of(member.army)
+		if lost > 0 and realms.has(member.faction):
+			add_weariness(member.faction, float(lost) * Politics.WEARINESS_CASUALTY)
 	var winner := a if r["won"] else b
 	var loser := b if r["won"] else a
 	var killed := int(r["killed"]) if r["won"] else int(r["lost"])
@@ -1425,6 +1678,8 @@ func _routed(p: Party) -> void:
 	l["raiding"] = ""
 	l["job"] = ""
 	l["back_at"] = hour + Lords.REGROUP_HOURS
+	if realms.has(String(l.get("realm", ""))):
+		add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED)
 
 
 # ---------------------------------------------------------------- recruits
@@ -1564,6 +1819,7 @@ func to_dict() -> Dictionary:
 		"saved_villages": saved_villages.duplicate(),
 		"activity_log": activity_log.duplicate(true),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
+		"truces": truces.duplicate(true), "tributes": tributes.duplicate(true),
 		"garrisons": garrisons.duplicate(true),
 		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
 		"social": social.to_dict() if social != null else null,
@@ -1600,6 +1856,20 @@ func from_dict(d: Dictionary) -> void:
 			realms[String(f)]["capital"] = String(raw_realms[f].get("capital", ""))
 			realms[String(f)]["treasury"] = int(raw_realms[f].get("treasury", Lords.TREASURY_START))
 			realms[String(f)]["marshal"] = int(raw_realms[f].get("marshal", -1))
+			realms[String(f)]["weariness"] = float(raw_realms[f].get("weariness", 0.0))
+	truces = {}
+	var raw_truces = d.get("truces", {})
+	for k in raw_truces:
+		truces[String(k)] = {"until": float(raw_truces[k].get("until", 0.0))}
+	tributes = []
+	var raw_tribs = d.get("tributes", [])
+	for t in raw_tribs:
+		tributes.append({
+			"from": String(t.get("from", "")),
+			"to": String(t.get("to", "")),
+			"daily": int(t.get("daily", 0)),
+			"days_left": int(t.get("days_left", 0)),
+		})
 	hour = float(d.get("hour", 0.0))
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))

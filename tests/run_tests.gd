@@ -24,6 +24,7 @@ const Lords = preload("res://scripts/data/lords.gd")
 const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
 const Units = preload("res://scripts/data/units.gd")
 const UnitArt = preload("res://scripts/art/unit_art.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 
 const DUEL_SEEDS := 12
 const BRANCH_SEEDS := 4
@@ -60,6 +61,7 @@ func _init() -> void:
 		_check_garrisons()
 		_check_sieges()
 		_check_lords()
+		_check_politics()
 		print("FAILURES: %d" % failures)
 		quit(1 if failures > 0 else 0)
 		return
@@ -1636,6 +1638,38 @@ func _check_lords() -> void:
 		agree = agree and year.parties[i].node == copy.parties[i].node and year.parties[i].next == copy.parties[i].next
 	_expect(loads_back and JSON.stringify(copy.to_dict()) == JSON.stringify(again.to_dict()) and agree,
 		"lords, their purses and what they're doing are saved, and the world carries on as it would have")
+
+
+## Politics: war weariness, peace and truces, tribute transfers, and balance of power.
+func _check_politics() -> void:
+	var w := _quiet_world(45)
+
+	# 1. Weariness growth
+	_expect(w.weariness_of("vardmark") == 0.0, "initial weariness starts at zero")
+	w.add_weariness("vardmark", 20.0 * Politics.WEARINESS_CASUALTY)
+	_expect(is_equal_approx(w.weariness_of("vardmark"), 1.0), "casualties increase war weariness")
+	w.set_owner("marchgate", "kharzan")
+	_expect(is_equal_approx(w.weariness_of("vardmark"), 1.0 + Politics.WEARINESS_LOST_HOLDING), "losing a holding increases weariness")
+
+	# 2. Peace and truces
+	w.add_weariness("vardmark", Politics.PEACE_THRESHOLD + 10.0)
+	w.add_weariness("kharzan", 45.0)
+	w._evaluate_peace()
+	_expect(not w.at_war("vardmark", "kharzan") and w.has_truce("vardmark", "kharzan"), "weary realm agrees to peace and establishes truce")
+	_expect(not w.tributes.is_empty() and w.tributes[0]["from"] == "vardmark", "defeated realm owes daily tribute")
+
+	# 3. Truce enforcement
+	w.declare_war("vardmark", "kharzan")
+	_expect(not w.at_war("vardmark", "kharzan"), "active truce prevents new war declaration")
+	w.hour += (Politics.TRUCE_DAYS + 1) * 24.0
+	_expect(not w.has_truce("vardmark", "kharzan"), "truce expires after 30 days")
+
+	# 4. Balance of power
+	w.set_owner("marchgate", "vardmark")
+	w.set_owner("khalun", "vardmark")
+	_expect(w.mainland_seats_of("vardmark") == 4, "Vardmark takes 4 mainland seats")
+	w._evaluate_balance_of_power()
+	_expect(w.at_war("ryumon", "vardmark"), "Ryumon intervenes against mainland hegemon")
 
 
 func _check_long_run() -> void:

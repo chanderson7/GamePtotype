@@ -738,8 +738,59 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		[["Warband", _on_warband], ["People & Letters", _on_people], ["Activity", _open_activity],
+		[["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["Activity", _open_activity],
 		["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+
+
+func _open_wars() -> void:
+	var lines: Array[String] = []
+	lines.append("=== WARS & TRUCES ===")
+	if world.wars.is_empty():
+		lines.append("All realms are currently at peace.")
+	else:
+		for k in world.wars:
+			var parts: PackedStringArray = k.split("|")
+			var r0: String = Data.FACTIONS[parts[0]]["name"]
+			var r1: String = Data.FACTIONS[parts[1]]["name"]
+			var days_war: int = int((world.hour - float(world.wars[k].get("since", 0.0))) / 24.0)
+			lines.append("• %s vs %s · %d days at war" % [r0, r1, days_war])
+
+	if not world.truces.is_empty():
+		for k in world.truces:
+			var parts: PackedStringArray = k.split("|")
+			var r0: String = Data.FACTIONS[parts[0]]["name"]
+			var r1: String = Data.FACTIONS[parts[1]]["name"]
+			var days_left: int = int(ceil(maxf(0.0, float(world.truces[k].get("until", 0.0)) - world.hour) / 24.0))
+			lines.append("• Truce: %s and %s · %d days remaining" % [r0, r1, days_left])
+
+	if not world.tributes.is_empty():
+		for t in world.tributes:
+			var f_name: String = Data.FACTIONS[t["from"]]["name"]
+			var to_name: String = Data.FACTIONS[t["to"]]["name"]
+			lines.append("• Tribute: %s pays %d silver/day to %s (%d days left)" % [f_name, t["daily"], to_name, t["days_left"]])
+
+	lines.append("\n=== REALMS ===")
+	for f in ["vardmark", "kharzan", "ryumon"]:
+		var fn: String = Data.FACTIONS[f]["name"]
+		var str_val: int = world.realm_strength(f)
+		var wear: float = world.weariness_of(f)
+		var holdings_count: int = world.holdings_of(f).size()
+		lines.append("• %s: %d men · Weariness %d%% · %d holdings" % [fn, str_val, int(wear), holdings_count])
+
+	lines.append("\n=== RECENT WAR EVENTS ===")
+	var event_count := 0
+	for entry in world.activity_log:
+		var kind: String = entry.get("type", "")
+		if kind in ["war", "peace", "captured", "fight", "siege_assault"]:
+			var h := int(float(entry.get("hour", 0.0)))
+			lines.append("Day %d · %s" % [h / 24 + 1, entry.get("text", "")])
+			event_count += 1
+			if event_count >= 5:
+				break
+	if event_count == 0:
+		lines.append("No recent major battles or captures.")
+
+	_show_sheet("wars", "War & Politics", "\n".join(lines), [["Close", _close_sheet, true]])
 
 
 func _open_activity() -> void:
