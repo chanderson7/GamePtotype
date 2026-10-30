@@ -2,9 +2,8 @@
 
 **Planning date:** 2026-10-28
 
-**Status:** proposed roadmap, based on the current working tree, including the local Edda
-personal-conversation implementation. This document does not mean the proposed features
-are implemented, committed, or published.
+**Status:** roadmap with marshal armies and the first saved Chronicle/activity slice implemented.
+The remaining entries are proposals unless their section says otherwise.
 
 ## 1. Recommendation
 
@@ -57,7 +56,7 @@ They are not calendar estimates.
 | 0 | Integration and save-readiness pass | Release gate | S–M | Current local changes |
 | 1 | Marshal armies | Implemented 2026-10-29 | M | Existing lords, routes and garrisons |
 | 2 | Siege campaigns and captures | Next | L | 1 |
-| 3 | Campaign journal and useful map links | Next, incremental | M | Existing events; extend with 1–5 |
+| 3 | Campaign journal and useful map links | Activity slice implemented; commitments next | M | Existing events; extend with 1–5 |
 | 4 | War, peace and a readable war overview | Next | M | 2 |
 | 5 | Mercenary contracts and lord encounters | Next major player feature | L | 4 and journal basics |
 | 6 | Allied battles and real house assistance | Following | L | 1, 5 and political eligibility |

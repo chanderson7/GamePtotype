@@ -26,7 +26,7 @@ static func disband(w, army: Dictionary, reason: String) -> void:
 		lord["think_at"] = w.hour
 		p.path.clear() # Finish the current road, then resume independent decisions.
 		p.wait = 0.0
-	w.events.append({"type": "army_disbanded", "army": army["id"], "realm": army["realm"], "reason": reason})
+	w.emit_event({"type": "army_disbanded", "army": army["id"], "realm": army["realm"], "reason": reason})
 	w.realms[army["realm"]]["marshal"] = -1
 	w.army_ready_at[army["realm"]] = w.hour + Lords.ARMY_COOLDOWN
 	w.campaign_armies.erase(army)
@@ -40,6 +40,7 @@ static func return_home(w, army: Dictionary, reason: String) -> void:
 	army["state"] = "returning"
 	army["reason"] = reason
 	army["destination"] = home
+	w.emit_event({"type": "army_returning", "army": army["id"], "realm": army["realm"], "target": home, "reason": reason})
 	w._set_job(w.lord_of(p), p, "army", home)
 
 static func reachable(w, p, target: String) -> bool:
@@ -86,7 +87,7 @@ static func tick(w, dt: float) -> void:
 				army["state"] = "marching"
 				army["destination"] = army["target"]
 				w._set_job(w.lord_of(p), p, "army", army["target"])
-				w.events.append({"type": "army_departed", "army": army["id"], "target": army["target"]})
+				w.emit_event({"type": "army_departed", "army": army["id"], "target": army["target"]})
 		else:
 			if not reachable(w, p, army["destination"]):
 				disband(w, army, "No route to destination")
@@ -102,7 +103,7 @@ static func tick(w, dt: float) -> void:
 			if not p.moving() and p.node == army["destination"]:
 				if army["state"] == "marching":
 					# Siege resolution is the next slice; expeditions never capture silently.
-					w.events.append({"type": "army_arrived", "army": army["id"], "target": army["target"]})
+					w.emit_event({"type": "army_arrived", "army": army["id"], "target": army["target"]})
 					return_home(w, army, "Expedition completed; returning home")
 				else:
 					disband(w, army, army.get("reason", "Returned home"))
@@ -147,4 +148,4 @@ static func create(w, realm: String) -> void:
 		w._set_job(lord, member, "army", muster)
 	w.campaign_armies.append(army)
 	w.realms[realm]["marshal"] = int(marshal["id"])
-	w.events.append({"type": "army_formed", "army": army["id"], "realm": realm, "marshal": marshal["name"], "target": best})
+	w.emit_event({"type": "army_formed", "army": army["id"], "realm": realm, "marshal": marshal["name"], "target": best})

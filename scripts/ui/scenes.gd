@@ -20,6 +20,8 @@ var active_bond_a_id := -1
 var active_bond_b_id := -1
 var warband_scroll := 0
 var warband_sort := 0
+var settlement_scroll := 0
+var settlement_place := ""
 
 var _veil: ColorRect
 var _busy := false

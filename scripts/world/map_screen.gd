@@ -81,10 +81,11 @@ var resource_buttons := {}
 var status_label: Label
 var speed_button: Button
 var warband_button: Button
+var next_button: Button
 var sheet_panel: PanelContainer
 var sheet_title: Label
 var sheet_body: Label
-var sheet_row: HBoxContainer
+var sheet_row: GridContainer
 
 
 func _ready() -> void:
@@ -166,7 +167,7 @@ func _process(delta: float) -> void:
 	if autoplay:
 		_autoplay()
 	# An encounter or a note about the last battle holds the clock until it's answered.
-	if world.busy() and _sheet != "encounter" and _sheet != "notice" and _sheet != "menu" and _sheet != "warning":
+	if world.busy() and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
 		_save_clock += delta
 		if _save_clock > 5.0:
@@ -377,7 +378,7 @@ func _build_hud() -> void:
 		badge.expand_icon = true
 		badge.add_theme_constant_override("icon_max_width", 30)
 		badge.add_theme_font_size_override("font_size", Style.SMALL)
-		badge.custom_minimum_size = Vector2(152, Style.TOUCH)
+		badge.custom_minimum_size = Vector2(138, Style.TOUCH)
 		resource_buttons[key] = badge
 		resource_row.add_child(badge)
 	var row := HBoxContainer.new()
@@ -388,6 +389,10 @@ func _build_hud() -> void:
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.custom_minimum_size = Vector2(10, 0)
 	row.add_child(status_label)
+	next_button = _button("Next", _open_recommendation)
+	next_button.name = "NextStepButton"
+	next_button.custom_minimum_size = Vector2(118, Style.TOUCH)
+	row.add_child(next_button)
 	speed_button = _button("1×", _on_speed)
 	speed_button.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
 	row.add_child(speed_button)
@@ -422,8 +427,11 @@ func _build_hud() -> void:
 	sheet_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sheet_body.custom_minimum_size = Vector2(10, 0)
 	sv.add_child(sheet_body)
-	sheet_row = HBoxContainer.new()
+	sheet_row = GridContainer.new()
+	sheet_row.columns = 2
 	sheet_row.add_theme_constant_override("separation", 10)
+	sheet_row.add_theme_constant_override("h_separation", 10)
+	sheet_row.add_theme_constant_override("v_separation", 10)
 	sv.add_child(sheet_row)
 
 
@@ -440,6 +448,7 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> v
 	sheet_title.text = title
 	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
 	sheet_body.text = body
+	sheet_row.columns = 1 if buttons.size() <= 1 else 2
 	for c in sheet_row.get_children():
 		c.queue_free()
 	for spec in buttons:
@@ -468,7 +477,7 @@ func _open_preview(id: String) -> void:
 		if world.is_sea(a, b):
 			sea = ", partly by sea"
 		a = b
-	var body := "%s\n%s away%s." % [world.describe(id), _hours_text(hours), sea]
+	var body := "%s\n%s\n%s away%s." % [world.describe(id), world.settlement_intelligence(id), _hours_text(hours), sea]
 	_show_sheet("preview", String(Data.settlement(id)["name"]), body,
 		[["Ride there", _on_travel.bind(id), true], ["Close", _close_sheet]])
 
@@ -481,7 +490,7 @@ func _open_here() -> void:
 	_selected = id
 	var buttons := [["Enter", _on_enter, true], ["Wait", _on_wait], ["Warband", _on_warband], ["Close", _close_sheet]]
 	var offers: Array = world.offers_at(id)
-	var body := "%s\nYou are here. " % world.describe(id)
+	var body := "%s\n%s\nYou are here. " % [world.describe(id), world.settlement_intelligence(id)]
 	if offers.is_empty():
 		body += "Nobody here is looking for work."
 	else:
@@ -711,7 +720,42 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		[["Warband", _on_warband], ["People & Letters", _on_people], ["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+		[["Warband", _on_warband], ["People & Letters", _on_people], ["Activity", _open_activity],
+		["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+
+
+func _open_activity() -> void:
+	var lines: Array[String] = []
+	for entry in world.activity_log.slice(0, 8):
+		var h := int(float(entry.get("hour", 0.0)))
+		lines.append("Day %d · %s" % [h / 24 + 1, entry.get("text", "")])
+	if lines.is_empty():
+		lines.append("The roads are quiet. News of raids, battles and marshal armies will appear here.")
+	_show_sheet("activity", "Recent activity", "\n".join(lines), [["Close", _close_sheet, true]])
+
+
+func _open_recommendation() -> void:
+	if _sheet in ["encounter", "notice", "warning"]:
+		return
+	var rec: Dictionary = GameState.recommendation()
+	var buttons := []
+	match String(rec.get("action", "")):
+		"place":
+			var place := String(rec.get("place", ""))
+			if Data.SETTLEMENTS.has(place):
+				buttons.append(["Show %s" % Data.settlement(place)["name"], _focus_place.bind(place), true])
+		"warband":
+			buttons.append(["View warband", _on_warband, true])
+	buttons.append(["Close", _close_sheet])
+	_show_sheet("recommendation", String(rec.get("title", "Next step")), String(rec.get("body", "")), buttons)
+
+
+func _focus_place(id: String) -> void:
+	_selected = id
+	cam_center = Data.pos(id)
+	_clamp_camera()
+	_sync_layers()
+	_open_preview(id)
 
 
 func _on_people() -> void:
@@ -775,6 +819,7 @@ func _refresh_hud() -> void:
 	speed_button.text = "2×" if speed > 1.5 else "1×"
 	var modal := _sheet in ["encounter", "notice", "warning"]
 	warband_button.disabled = modal
+	next_button.disabled = modal
 	speed_button.disabled = modal or _sheet == "menu"
 	for badge in resource_buttons.values():
 		badge.disabled = modal
@@ -929,7 +974,12 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 	var base := _to_screen(at)
 	var army: Dictionary = world.MarshalArmies.for_party(world, p.id)
 	if not army.is_empty() and army["state"] != "gathering":
-		draw_arc(base, 18 * px, 0, TAU, 28, Style.BRASS, 2.0)
+		draw_arc(base, 18 * px, 0, TAU, 28, Style.BRASS, 3.0)
+		draw_arc(base, 22 * px, 0, TAU, 28, Color(Style.BRASS, 0.55), 2.0)
+	elif sprite == "bandits":
+		var r := 15.0 * px
+		draw_polyline(PackedVector2Array([base + Vector2(0, -r), base + Vector2(r, 0), base + Vector2(0, r),
+			base + Vector2(-r, 0), base + Vector2(0, -r)]), Style.ENEMY_LIGHT, 2.0)
 	var moving: bool = p.moving() and (world.busy() or p != world.player())
 	var facing := 1.0
 	if p.moving() and Data.pos(p.next).x < at.x:
@@ -965,7 +1015,9 @@ func _draw_labels() -> void:
 	# Lords' names only once you're looking closely, or the map drowns in them.
 	if px >= LORD_NAMES_PX:
 		for lp in world.visible_lord_parties():
-			_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), lp.name, 15,
+			var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
+			var title: String = "MARSHAL ARMY · %s" % lp.name if not army.is_empty() and army["state"] != "gathering" else String(lp.name)
+			_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), title, 15,
 				Cultures.color(Data.culture_of(lp.faction)).lightened(0.45))
 
 

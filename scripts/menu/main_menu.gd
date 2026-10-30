@@ -18,7 +18,12 @@ var _scroll: ScrollContainer
 
 func _ready() -> void:
 	theme = Style.make_theme()
+	Sound.set_loop("camp")
 	_build()
+
+
+func _exit_tree() -> void:
+	Sound.set_loop("")
 
 
 func _build() -> void:

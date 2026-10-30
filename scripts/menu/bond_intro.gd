@@ -9,6 +9,7 @@ var _event := {}
 func _ready() -> void:
 	_event = GameState.bond_intro_event()
 	var kind := String(_event.get("kind", "rank"))
+	Sound.play("bell" if kind == "memorial" else "bond_rank")
 	var rank := String(_event.get("rank", "C"))
 	var title: String = "A place left empty" if kind == "memorial" else String({"C": "A bond is forged", "B": "Trust under fire", "A": "Bound by battle"}.get(rank, "A bond deepens"))
 	var subtitle := "REMEMBRANCE · BOND %s" % rank if kind == "memorial" else "CAPTAINS · RANK %s" % rank

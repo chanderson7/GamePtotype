@@ -144,6 +144,45 @@ static func capital_of_culture(culture: String) -> String:
 	return "highcliff"
 
 
+static func realm_of_culture(culture: String) -> String:
+	for faction in FACTIONS:
+		if FACTIONS[faction]["culture"] == culture:
+			return String(faction)
+	return "vardmark"
+
+
+## Stable, plain-language map intelligence. Dynamic ownership, danger and available
+## recruits are added by the world screen so this never promises a service that is absent.
+static func services(id: String) -> Array:
+	match String(settlement(id)["type"]):
+		TOWN:
+			return ["provisions", "recruits", "reinforcement", "training", "court"]
+		CASTLE:
+			return ["provisions", "recruits", "court"]
+		_:
+			return ["cheap provisions", "recruits"]
+
+
+static func importance(id: String) -> String:
+	var s := settlement(id)
+	if String(FACTIONS[String(s["faction"])]["capital"]) == id:
+		return "A founding capital and the political heart of its people."
+	match String(s["type"]):
+		TOWN:
+			return "A regional market where companies can reinforce and train."
+		CASTLE:
+			var villages := 0
+			for other in SETTLEMENTS.values():
+				if String(other.get("bound_to", "")) == id:
+					villages += 1
+			return "A fortified road stronghold%s." % (" protecting %d nearby villages" % villages if villages > 0 else "")
+		_:
+			var bound := String(s.get("bound_to", ""))
+			if bound != "":
+				return "A farming community supplying %s and selling the cheapest provisions." % settlement(bound)["name"]
+			return "A farming community selling the cheapest provisions."
+
+
 ## The index of the coastline a point lies on, or -1 if it's at sea.
 static func land_at(p: Vector2) -> int:
 	for i in LAND.size():

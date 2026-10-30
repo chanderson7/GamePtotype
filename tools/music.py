@@ -14,8 +14,8 @@ Music:
   battle_high Battle: horns and snares, the same length, faded in as the fighting grows.
   victory, defeat   Short stingers.
 Sound effects: clicks, coins, horns, clashes, volleys of arrows, crossbow bolts, javelins
-and horse archers, a charge, a rout, dice, a bell, hoofbeats, and the loops of a river
-ford and of birds in a wood.
+and horse archers, a charge, a rout, dice, a bell, promotion and bond cues, footsteps,
+hoofbeats, and the loops of a camp, river ford and wood.
 Loops are seamless: each is rendered three times over and the middle pass kept, so
 what rings across its ends is what rings across them when it loops.
 
@@ -24,6 +24,7 @@ what rings across its ends is what rings across them when it loops.
     python3 tools/music.py vardish    # one piece
 """
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -254,10 +255,18 @@ def write(path, buf, quality=3):
         w.setsampwidth(2)
         w.setframerate(SR)
         w.writeframes(pcm.tobytes())
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", wav, "-c:a", "libvorbis", "-q:a", str(quality), path],
-                   check=True)
-    os.unlink(wav)
-    print("wrote", os.path.relpath(path, os.path.join(HERE, "..")), "%.1fs" % (data.shape[1] / SR))
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg:
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-i", wav, "-c:a", "libvorbis", "-q:a", str(quality), path],
+                       check=True)
+        os.unlink(wav)
+        actual = path
+    else:
+        # A clean development machine may not have ffmpeg. Godot imports PCM WAV
+        # directly, so keep that deterministic source rather than making generation fail.
+        actual = os.path.splitext(path)[0] + ".wav"
+        os.replace(wav, actual)
+    print("wrote", os.path.relpath(actual, os.path.join(HERE, "..")), "%.1fs" % (data.shape[1] / SR))
 
 
 # ------------------------------------------------------------------ helpers for scores
@@ -723,6 +732,62 @@ def sfx_hooves():
     return x
 
 
+def sfx_footsteps():
+    """A seamless company marching on packed earth, with overlapping bootfalls."""
+    rng = rng_for("footsteps")
+    n = int(1.0 * SR)
+    x = np.zeros(n)
+    for at in np.arange(0.0, 1.0, 0.125):
+        m = int(0.11 * SR)
+        t = np.arange(m) / SR
+        step = lowpass(rng.standard_normal(m), 1000) * np.exp(-t / 0.025)
+        step += np.sin(2 * np.pi * rng.uniform(75, 105) * t) * np.exp(-t / 0.035) * 1.4
+        s = int(at * SR)
+        x[s:s + m] += step[:n - s] * rng.uniform(0.35, 0.65)
+    return x
+
+
+def sfx_camp():
+    """A quiet seamless camp: low fire crackle, soft wind and distant night insects."""
+    rng = rng_for("camp")
+    n = int(6.0 * SR)
+    over = int(0.8 * SR)
+    m = n + over
+    t = np.arange(m) / SR
+    wind_noise = band(rng.standard_normal(m), 90, 800) * (0.10 + 0.025 * np.sin(2 * np.pi * 0.18 * t))
+    fire = band(rng.standard_normal(m), 700, 4500) * 0.018
+    for _ in range(70):
+        s = rng.integers(0, m - int(0.03 * SR))
+        k = int(rng.uniform(0.008, 0.03) * SR)
+        tt = np.arange(k) / SR
+        fire[s:s + k] += band(rng.standard_normal(k), 1200, 7000) * np.exp(-tt / 0.006) * rng.uniform(0.12, 0.3)
+    return seamless(wind_noise + fire, n, over)
+
+
+def sfx_morale_low():
+    """A restrained low horn and heartbeat warning that a company is close to breaking."""
+    rng = rng_for("morale_low")
+    tr = Track(2.2)
+    tr.add(brass(hz(45), 0.8, attack=0.12, release=0.3, rng=rng), 0.0, 0.35, 0.0)
+    tr.add(drum(58, 0.16, noise=0.15, rng=rng), 0.05, 0.28, -0.2)
+    tr.add(drum(58, 0.16, noise=0.15, rng=rng), 0.48, 0.22, 0.2)
+    return tr.buf[0, :int(1.7 * SR)]
+
+
+def sfx_bond_rank():
+    """A warm three-note bell figure for a new bond rank."""
+    rng = rng_for("bond_rank")
+    tr = Track(3.2)
+    for i, note in enumerate((62, 65, 69)):
+        tr.add(bell(hz(note), 2.4, rng), i * 0.28, 0.18, (i - 1) * 0.18)
+    return reverb(tr.buf, 1.8, 0.24)[0, :int(3.0 * SR)]
+
+
+def sfx_promotion():
+    """A short ascending drill and promotion flourish."""
+    return sfx_horn(((57, 0.18), (62, 0.18), (65, 0.55)))
+
+
 def sfx_page():
     """A soft rustle, for opening a sheet or a screen."""
     rng = rng_for("page")
@@ -868,7 +933,8 @@ SFX = {
     "alarm": lambda: sfx_horn(((57, 0.22), (57, 0.22), (62, 0.7))),
     "clash1": lambda: sfx_clash(1), "clash2": lambda: sfx_clash(2), "clash3": lambda: sfx_clash(3),
     "arrows": sfx_arrows, "charge": sfx_charge, "rout": sfx_rout, "dice": sfx_dice, "bell": sfx_bell,
-    "hooves": sfx_hooves, "page": sfx_page,
+    "hooves": sfx_hooves, "footsteps": sfx_footsteps, "camp": sfx_camp, "page": sfx_page,
+    "morale_low": sfx_morale_low, "bond_rank": sfx_bond_rank, "promotion": sfx_promotion,
     "crossbow": sfx_crossbow, "javelin": sfx_javelin, "horsebow": sfx_horsebow,
     "water": sfx_water, "birds": sfx_birds, "objective": sfx_objective,
 }

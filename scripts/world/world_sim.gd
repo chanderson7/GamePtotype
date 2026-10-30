@@ -48,6 +48,12 @@ const TICK := 0.25
 const PLAYER := "player"
 const BAND := "bandit"
 const LORD := "lord"
+const ACTIVITY_LIMIT := 24
+const ACTIVITY_TYPES := {
+	"war": true, "peace": true, "captured": true, "raid_started": true, "burned": true,
+	"driven_off": true, "fight": true, "army_formed": true, "army_departed": true,
+	"army_arrived": true, "army_returning": true, "army_disbanded": true, "chief_returned": true,
+}
 
 
 class Party:
@@ -96,6 +102,9 @@ var escaped_chiefs: Array = []
 var saved_villages: Dictionary = {}
 ## What happened since the screen last looked: arrived, waited, encounter, respawn.
 var events: Array = []
+## The recent campaign chronicle. Unlike `events`, these readable entries survive a
+## map refresh and a save/load so the player can catch up on the changing world.
+var activity_log: Array = []
 ## The id of the band blocking the player's road, or -1.
 var encounter := -1
 ## Recruits each settlement offers: {settlement id: [{type, culture}]}, and the hour each
@@ -141,6 +150,8 @@ func setup(seed_value: int, player_culture: String) -> void:
 	rng.seed = seed_value
 	culture = player_culture
 	hour = START_HOUR
+	events = []
+	activity_log = []
 	_build_roads()
 	_start_realms()
 	var p := Party.new()
@@ -231,12 +242,12 @@ func at_war(a: String, b: String) -> bool:
 func declare_war(a: String, b: String) -> void:
 	if a != b and not at_war(a, b):
 		wars[war_key(a, b)] = {"since": hour}
-		events.append({"type": "war", "realms": [a, b]})
+		emit_event({"type": "war", "realms": [a, b]})
 
 
 func make_peace(a: String, b: String) -> void:
 	if wars.erase(war_key(a, b)):
-		events.append({"type": "peace", "realms": [a, b]})
+		emit_event({"type": "peace", "realms": [a, b]})
 
 
 ## Settlement `id` passes to `realm`, with the villages bound to it. A realm that loses its
@@ -261,7 +272,7 @@ func set_owner(id: String, realm: String) -> void:
 				seat = held[0]
 				break
 		realms[was]["capital"] = seat
-	events.append({"type": "captured", "settlement": id, "realm": realm, "from": was})
+	emit_event({"type": "captured", "settlement": id, "realm": realm, "from": was})
 	if social != null:
 		social.on_settlement_captured(id, realm, was, self)
 
@@ -281,6 +292,94 @@ func describe(id: String) -> String:
 	if is_burned(id):
 		return "%s · %s · burned by raiders, rebuilding" % [line, people]
 	return "%s · %s" % [line, people]
+
+
+## Information a commander can see before entering: ownership, strength, danger,
+## services and strategic value. It deliberately describes only actions the game has.
+func settlement_intelligence(id: String) -> String:
+	var owner := owner_of(id)
+	var lines: Array[String] = []
+	lines.append("Owner: %s" % Data.FACTIONS[owner]["name"])
+	if garrisons.has(id):
+		var men := men_of(garrison_at(id))
+		var cap := garrison_capacity(id)
+		var strength := "thin" if men < cap * 0.4 else ("strong" if men >= cap * 0.8 else "steady")
+		lines.append("Garrison: %d/%d men · %s" % [men, cap, strength])
+	else:
+		lines.append("Garrison: none")
+	var player_realm := Data.realm_of_culture(culture)
+	var danger := "hostile territory; patrols may oppose you" if at_war(player_realm, owner) else "quiet roads"
+	if is_burned(id):
+		danger = "burned by raiders; rebuilding"
+	else:
+		for p in parties:
+			if p.raiding and p.raid_village == id:
+				danger = "raid in progress"
+				break
+		for army in campaign_armies:
+			if String(army.get("target", "")) == id and String(army.get("state", "")) != "returning":
+				danger = "marshal army advancing here"
+				break
+	lines.append("Danger: %s" % danger)
+	var service_names: Array = Data.services(id)
+	var recruit_count := offers_at(id).size()
+	lines.append("Services: %s · %d recruit %s available" % [", ".join(service_names), recruit_count,
+		"company" if recruit_count == 1 else "companies"])
+	lines.append("Why it matters: %s" % Data.importance(id))
+	return "\n".join(lines)
+
+
+## Publish a transient simulation event and, when it matters to the campaign, a short
+## readable chronicle entry.
+func emit_event(event: Dictionary) -> void:
+	events.append(event)
+	if not ACTIVITY_TYPES.has(String(event.get("type", ""))):
+		return
+	var line := _activity_text(event)
+	if line == "":
+		return
+	var place := String(event.get("settlement", event.get("village", event.get("target", event.get("at", "")))))
+	activity_log.push_front({"hour": hour, "type": String(event.get("type", "")), "text": line, "place": place})
+	if activity_log.size() > ACTIVITY_LIMIT:
+		activity_log.resize(ACTIVITY_LIMIT)
+
+
+func _activity_text(event: Dictionary) -> String:
+	var kind := String(event.get("type", ""))
+	match kind:
+		"war", "peace":
+			var pair: Array = event.get("realms", [])
+			if pair.size() >= 2:
+				return "%s and %s %s." % [Data.FACTIONS[String(pair[0])]["name"], Data.FACTIONS[String(pair[1])]["name"],
+					"are now at war" if kind == "war" else "have made peace"]
+		"captured":
+			return "%s captured %s from %s." % [Data.FACTIONS[String(event["realm"])]["name"],
+				Data.settlement(String(event["settlement"]))["name"], Data.FACTIONS[String(event["from"])]["name"]]
+		"raid_started":
+			return "Raiders struck %s." % Data.settlement(String(event["village"]))["name"]
+		"burned":
+			return "%s was burned by %s." % [Data.settlement(String(event["village"]))["name"], event.get("by", "raiders")]
+		"driven_off":
+			return "%s drove raiders away from %s." % [event.get("by", "Defenders"), Data.settlement(String(event["village"]))["name"]]
+		"fight":
+			var where := String(event.get("at", ""))
+			return "%s defeated %s%s." % [event.get("winner", "A warband"), event.get("loser", "its foe"),
+				" near %s" % Data.settlement(where)["name"] if Data.SETTLEMENTS.has(where) else ""]
+		"army_formed":
+			return "%s called a marshal army under %s, bound for %s." % [Data.FACTIONS[String(event["realm"])]["name"],
+				event.get("marshal", "its marshal"), Data.settlement(String(event["target"]))["name"]]
+		"army_departed":
+			return "A marshal army departed for %s." % Data.settlement(String(event["target"]))["name"]
+		"army_arrived":
+			return "A marshal army reached %s." % Data.settlement(String(event["target"]))["name"]
+		"army_returning":
+			return "%s's marshal army is returning to %s." % [Data.FACTIONS[String(event["realm"])]["name"],
+				Data.settlement(String(event["target"]))["name"]]
+		"army_disbanded":
+			return "%s's marshal army dispersed: %s." % [Data.FACTIONS[String(event["realm"])]["name"], event.get("reason", "the campaign ended")]
+		"chief_returned":
+			return "%s has returned at the head of a band." % event.get("chief", "A bandit chief")
+	return ""
 
 
 # ---------------------------------------------------------------- queries
@@ -499,11 +598,11 @@ func _move_player(dt: float) -> void:
 	var p := player()
 	if p.moving():
 		if _move(p, dt):
-			events.append({"type": "arrived", "at": p.node})
+			emit_event({"type": "arrived", "at": p.node})
 	elif p.wait > 0.0:
 		p.wait = maxf(0.0, p.wait - dt)
 		if p.wait <= 0.0:
-			events.append({"type": "waited", "at": p.node})
+			emit_event({"type": "waited", "at": p.node})
 
 
 ## Move a party along its roads for `dt` hours. True if it reached the end of its path.
@@ -530,7 +629,7 @@ func _move_band(b: Party, dt: float) -> void:
 				b.raiding = true
 				b.raid_village = b.node
 				b.wait = rng.randf_range(4.0, 8.0)
-				events.append({"type": "raid_started", "party": b.id, "village": b.node, "hours": b.wait})
+				emit_event({"type": "raid_started", "party": b.id, "village": b.node, "hours": b.wait})
 		return
 	if b.wait > 0.0:
 		b.wait = maxf(0.0, b.wait - dt)
@@ -556,7 +655,7 @@ func _check_encounter() -> void:
 	for b in bands():
 		if hour >= b.grace_until and party_pos(b).distance_to(at) <= ENCOUNTER_RADIUS:
 			encounter = b.id
-			events.append({"type": "encounter", "party": b.id})
+			emit_event({"type": "encounter", "party": b.id})
 			return
 
 
@@ -616,7 +715,7 @@ func _spawn_band(faction: String) -> void:
 		b.chief_name = String(chief_to_return["name"])
 		b.name = "%s's Host" % b.chief_name
 		b.army = _band_army(b.id, band_cult, true, chief_to_return)
-		events.append({"type": "chief_returned", "party": b.id, "chief": chief_to_return})
+		emit_event({"type": "chief_returned", "party": b.id, "chief": chief_to_return})
 	else:
 		var day := int(hour / 24.0)
 		var chief_chance := minf(CHIEF_CHANCE_MAX, CHIEF_CHANCE_START + float(day) * CHIEF_CHANCE_PER_DAY)
@@ -630,7 +729,7 @@ func _spawn_band(faction: String) -> void:
 			b.army = _band_army(b.id, band_cult)
 
 	parties.append(b)
-	events.append({"type": "respawn", "party": b.id})
+	emit_event({"type": "respawn", "party": b.id})
 
 
 ## Three to five squads of eight to fourteen men, mostly foot and bows, never more than
@@ -1026,7 +1125,7 @@ func _lord_arrives(l: Dictionary, p: Party) -> void:
 			if Data.is_village(p.node) and not is_burned(p.node) and at_war(owner_of(p.node), String(l["realm"])):
 				l["raiding"] = p.node
 				p.wait = Lords.RAID_HOURS
-				events.append({"type": "raid_started", "party": p.id, "village": p.node, "hours": Lords.RAID_HOURS})
+				emit_event({"type": "raid_started", "party": p.id, "village": p.node, "hours": Lords.RAID_HOURS})
 			else:
 				l["job"] = ""
 		"home":
@@ -1043,7 +1142,7 @@ func _burn(l: Dictionary, village: String) -> void:
 		return
 	burned[village] = hour + Lords.BURNED_DAYS * 24.0
 	l["silver"] = int(l["silver"]) + Lords.RAID_LOOT
-	events.append({"type": "burned", "village": village, "by": String(l["name"])})
+	emit_event({"type": "burned", "village": village, "by": String(l["name"])})
 
 
 ## A day's money. Each realm takes in its places' dues and pays its lords' wages; a lord
@@ -1164,7 +1263,7 @@ func _lord_fights() -> void:
 ## another village, and the lord turns back to his own business.
 func _drive_off(l_party: Party, band: Party) -> void:
 	if band.raiding:
-		events.append({"type": "driven_off", "party": band.id, "village": band.raid_village, "by": l_party.name})
+		emit_event({"type": "driven_off", "party": band.id, "village": band.raid_village, "by": l_party.name})
 	band.raiding = false
 	band.raid_village = ""
 	band.wait = 0.0
@@ -1191,7 +1290,7 @@ func _ai_fight(a: Party, b: Party) -> Party:
 	if not wl.is_empty():
 		wl["silver"] = int(wl["silver"]) + Economy.SILVER_PER_KILL * killed
 		wl["renown"] = mini(Lords.RENOWN_MAX, int(wl["renown"]) + 1 + killed / 10)
-	events.append({"type": "fight", "winner": winner.name, "loser": loser.name, "at": loser.node})
+	emit_event({"type": "fight", "winner": winner.name, "loser": loser.name, "at": loser.node})
 	for member in (right if r["won"] else left): _routed(member)
 	var defeated := MarshalArmies.for_party(self, loser.id)
 	if not defeated.is_empty(): MarshalArmies.disband(self, defeated, "Army defeated")
@@ -1357,6 +1456,7 @@ func to_dict() -> Dictionary:
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
 		"escaped_chiefs": escaped_chiefs.duplicate(true),
 		"saved_villages": saved_villages.duplicate(),
+		"activity_log": activity_log.duplicate(true),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
 		"garrisons": garrisons.duplicate(true),
 		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
@@ -1423,6 +1523,13 @@ func from_dict(d: Dictionary) -> void:
 	var raw_saved = d.get("saved_villages", {})
 	for k in raw_saved:
 		saved_villages[String(k)] = int(raw_saved[k])
+	activity_log = []
+	for raw in d.get("activity_log", []):
+		if typeof(raw) == TYPE_DICTIONARY and String(raw.get("text", "")) != "":
+			activity_log.append({"hour": float(raw.get("hour", hour)), "type": String(raw.get("type", "")),
+				"text": String(raw.get("text", "")), "place": String(raw.get("place", ""))})
+	if activity_log.size() > ACTIVITY_LIMIT:
+		activity_log.resize(ACTIVITY_LIMIT)
 	parties = []
 	for e in d.get("parties", []):
 		var p := Party.new()
@@ -1531,6 +1638,10 @@ static func clean_army(raw: Array) -> Array:
 			var cap: Dictionary = c.duplicate(true)
 			for k in ["id", "wounded", "battles", "kills"]:
 				cap[k] = int(cap.get(k, 0))
+			var raw_history = cap.get("history", {})
+			if typeof(raw_history) == TYPE_DICTIONARY:
+				cap["history"] = {"wounds": int(raw_history.get("wounds", 0)),
+					"fallen_friends": raw_history.get("fallen_friends", []).duplicate() if typeof(raw_history.get("fallen_friends", [])) == TYPE_ARRAY else []}
 			squad["captain"] = cap
 		out.append(squad)
 	return out

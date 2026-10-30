@@ -5,7 +5,8 @@
 **Status:** the first presentation slice, captain continuity, tactical feedback, captain
 profiles, the structured battle aftermath, the Warband overview and visible bond progression
 are implemented locally through 2026-10-29;
-remaining items are future proposals, based on the game at `714f686`.
+remaining items are future proposals, with experience priorities 1–9 implemented through
+2026-10-29.
 The recommendations come from source inspection and the references below; they are not
 claims from a new player study or a completed art pass. Timing values and asset budgets
 are starting targets to validate in playtests.
@@ -40,9 +41,12 @@ quantities, screen placements, production constraints and a proposed delivery or
   performance test was performed. Headless teardown reports resource-leak warnings separately
   from the passing assertions.
 
-Other settlements, ambient audio and the wider effect library remain future work. Captain
-portrait continuity, tactical order/bond/impact cues, captain profiles and result reports are
-now implemented. The sections below retain the wider implementation plan.
+Every settlement now has a culture/type arrival vista plus factual ownership, garrison, danger,
+services and strategic-value text. The map has distinct force markers, a saved 24-entry activity
+feed and factual Home/map recommendations. Foot/cavalry movement, low morale, camp, promotion
+and bond-rank cues extend the procedural audio library. Map sheets use a two-column touch layout,
+settlement subpages preserve their scroll position, and focused 150% text checks cover the new
+campaign surfaces. The sections below retain the remaining wider implementation plan.
 
 ## 1. Recommended direction
 

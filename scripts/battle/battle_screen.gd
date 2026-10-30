@@ -112,6 +112,8 @@ var _cultures := {}
 var _clash_clock := 0.0
 ## The missiles in the air last frame, so each volley is heard once.
 var _heard := {}
+## Player companies that have already sounded their low-morale warning this battle.
+var _low_morale_heard := {}
 ## A press on the field: where it went down (on screen and on the field), where it is
 ## now, and whether it has become a line.
 var _camera_hold := false
@@ -232,6 +234,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Sound.set_loop("")
+	Sound.set_movement_loop("")
 	if sim != null:
 		sim.dispose()
 
@@ -804,11 +807,22 @@ func _scouting() -> String:
 func _battle_sounds(delta: float) -> void:
 	var engaged := 0
 	var active := 0
+	var foot_moving := false
+	var cavalry_moving := false
 	for sq in sim.squads:
 		if sq.is_active():
 			active += 1
 			if sq.engaged:
 				engaged += 1
+			if sq.team == Sim.PLAYER and not sq.engaged and sq.order != "hold":
+				if sq.type == Troops.CAVALRY:
+					cavalry_moving = true
+				else:
+					foot_moving = true
+			if sq.team == Sim.PLAYER and sq.morale <= 35.0 and not _low_morale_heard.has(sq.id):
+				_low_morale_heard[sq.id] = true
+				Sound.play("morale_low", 0.0, 0.02, 1.0)
+	Sound.set_movement_loop("hooves" if cavalry_moving else ("footsteps" if foot_moving else ""))
 	Sound.set_battle_intensity(float(engaged) / maxf(1.0, active) * 1.6)
 	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
 		_clash_clock -= delta * speed * (0.5 + engaged * 0.35)

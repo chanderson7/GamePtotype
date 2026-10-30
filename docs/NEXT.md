@@ -93,9 +93,37 @@ facts such as the last outcome, losses, current wounds and fallen friends, while
 resources, combat values or bond points. A bonded death is recorded in the survivor's history
 and queues a saved memorial reaction. Old version-6 campaigns load with empty history records.
 
-The focused menu suite and 69 presentation checks pass. Warband, rank-B and bond-conversation
+The focused menu suite and 78 presentation checks pass. Warband, rank-B and bond-conversation
 screens were rendered and inspected at 720×1280; the roster and bond cards remain scrollable
 and all controls fit at 150% text.
+
+## Experience improvements 6–9
+
+World readability, campaign guidance, sound variety and mobile comfort are implemented as
+one campaign-navigation pass:
+
+- Settlement previews and arrival pages now keep ownership, garrison strength, danger,
+  available services/recruits and strategic value in readable text. Every settlement has a
+  culture- and type-specific procedural arrival vista; current capitals carry a second banner
+  and crown, while essential facts remain outside the art and survive text-only mode.
+- Lone lords, bandits and active marshal armies have different map silhouettes. Marshal armies
+  use a double brass ring and an explicit label. The saved activity feed retains the latest 24
+  significant wars, captures, raids, battles and marshal movements after the transient event
+  queue is consumed.
+- Home and the map expose one factual recommendation based on food, earned training, a nearby
+  bond rank, open company capacity, wounded ranks or recent world news. “Show” focuses a real
+  place without beginning travel. Vulnerable-garrison recommendations wait for playable siege
+  decisions, so the UI does not advertise an action that does not exist yet.
+- New synthesized cues distinguish foot and cavalry movement, low morale, promotion and bond
+  rank. Camp screens use a quiet fire/wind loop, settlement arrivals use subtle cultural UI
+  pitches, and the existing synchronized battle layers still follow battle intensity.
+- Map sheets use a two-column touch grid, settlement controls accept keyboard focus, pressed
+  and disabled states are clearer, and settlement scroll position survives an audience subpage.
+  Focused presentation coverage exercises settlement and map screens at 150% text.
+
+The activity feed is the first Chronicle slice, not the full planned Journal: commitments,
+deadlines and contracts remain dependent on their gameplay systems. Siege forces are currently
+identified as marshal armies until siege state is implemented.
 
 ## Romance and allies feature (R0–R3 implemented)
 

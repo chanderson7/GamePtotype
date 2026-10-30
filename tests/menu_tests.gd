@@ -43,6 +43,8 @@ func _run() -> void:
 	await open("title")
 	check(button("Continue campaign") != null and button("Music: on") == null, "saved Home offers Continue and keeps audio in Settings")
 	check(current_scene.find_child("HomeCampIllustration", true, false) != null, "saved Home shows the company camp")
+	check(current_scene.find_child("NextStepPanel", true, false) != null and _has_text(current_scene, "Next step"),
+		"Home shows one recommendation from the current campaign")
 	button("New campaign").pressed.emit()
 	check(current_scene._confirmation.visible and gs.has_campaign(), "replacing a campaign requires an explicit confirmation")
 	current_scene._confirmation.canceled.emit()
@@ -100,8 +102,33 @@ func _run() -> void:
 	check(current_scene.scene_file_path.ends_with("world_map.tscn"), "map Settings returns to the map")
 	check(current_scene.resource_buttons.size() == 3 and current_scene.resource_buttons["silver"].icon != null,
 		"silver, food and renown have labeled icon controls in the HUD")
+	check(current_scene.find_child("NextStepButton", true, false) != null, "map exposes the contextual next step without opening a menu")
 	current_scene._open_resource("food")
 	check(current_scene.sheet_title.text == "Food" and current_scene.sheet_body.text.contains("rations"), "resource icons explain their values when tapped")
+	current_scene._close_sheet()
+	current_scene._open_preview("highcliff")
+	check(current_scene.sheet_body.text.contains("Owner:") and current_scene.sheet_body.text.contains("Garrison:")
+		and current_scene.sheet_body.text.contains("Danger:") and current_scene.sheet_body.text.contains("Services:")
+		and current_scene.sheet_body.text.contains("Why it matters:"),
+		"settlement preview explains ownership, strength, danger, services and strategic value")
+	current_scene._close_sheet()
+	gs.world.emit_event({"type": "fight", "winner": "King Aldwin", "loser": "a raiding band", "at": "highcliff"})
+	current_scene._open_activity()
+	check(current_scene.sheet_body.text.contains("King Aldwin defeated") and current_scene.sheet_body.text.contains("Day"),
+		"activity feed reports battles with a campaign date")
+	var chronicle_reload := State.new()
+	chronicle_reload.persist = false
+	chronicle_reload.from_dict(JSON.parse_string(JSON.stringify(gs.to_dict())))
+	check(not chronicle_reload.world.activity_log.is_empty() and chronicle_reload.world.activity_log[0]["text"].contains("King Aldwin"),
+		"activity feed survives saving and loading")
+	chronicle_reload.free()
+	current_scene._close_sheet()
+	var food_before: int = int(gs.food)
+	gs.food = 0
+	current_scene._open_recommendation()
+	check(current_scene.sheet_title.text == "Buy provisions" and current_scene.sheet_body.text.contains("Villages"),
+		"next-step guidance responds to actual low food")
+	gs.food = food_before
 	current_scene._close_sheet()
 	gs.food = 0
 	gs.silver = 0

@@ -85,6 +85,17 @@ func _build() -> void:
 		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		col.add_child(note)
 		col.add_child(Page.note("%d men · %d silver · %d days of food" % [GameState.total_men(), GameState.silver, GameState.food_days()]))
+		var rec: Dictionary = GameState.recommendation()
+		var next_panel := PanelContainer.new()
+		next_panel.name = "NextStepPanel"
+		var next_col := VBoxContainer.new()
+		next_col.add_theme_constant_override("separation", 6)
+		next_panel.add_child(next_col)
+		next_col.add_child(Style.label("NEXT STEP · %s" % String(rec.get("title", "Carry on")), Style.SMALL, Style.BRASS))
+		var rec_text := Style.label(String(rec.get("body", "")), Style.SMALL, Style.TEXT)
+		rec_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		next_col.add_child(rec_text)
+		col.add_child(next_panel)
 	_new_button = _button("New campaign", _on_new)
 	if not GameState.has_campaign():
 		Style.make_primary(_new_button)

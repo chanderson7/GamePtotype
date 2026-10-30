@@ -20,6 +20,7 @@ const SFX_DB := {
 	"click": -14.0, "page": -16.0, "coins": -8.0, "horn": -5.0, "alarm": -6.0,
 	"clash1": -15.0, "clash2": -15.0, "clash3": -15.0, "arrows": -11.0, "charge": -7.0,
 	"rout": -11.0, "dice": -5.0, "bell": -6.0, "hooves": -15.0,
+	"footsteps": -20.0, "camp": -25.0, "morale_low": -10.0, "bond_rank": -8.0, "promotion": -8.0,
 	"crossbow": -10.0, "javelin": -11.0, "horsebow": -12.0, "water": -20.0, "birds": -20.0, "objective": -6.0,
 }
 const POOL := 10
@@ -39,6 +40,7 @@ var _upper: AudioStreamPlayer
 var _intensity := 0.0
 var _stinger: AudioStreamPlayer
 var _loop: AudioStreamPlayer
+var _movement_loop: AudioStreamPlayer
 var _pool: Array[AudioStreamPlayer] = []
 var _streams := {}
 var _last := {}
@@ -54,6 +56,7 @@ func _ready() -> void:
 	_upper = _player("Music")
 	_stinger = _player("Music")
 	_loop = _player("Sounds")
+	_movement_loop = _player("Sounds")
 	for i in POOL:
 		_pool.append(_player("Sounds"))
 	_load_settings()
@@ -120,7 +123,7 @@ func _stop_upper() -> void:
 
 ## Play an effect. `jitter` varies its pitch a little each time, so repeats don't sound
 ## canned; `gap` is the fewest seconds between two plays of the same effect.
-func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float = 0.0) -> void:
+func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float = 0.0, pitch: float = 1.0) -> void:
 	if not sounds_on:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
@@ -140,23 +143,43 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 		_pool.push_back(_pool.pop_front())
 	p.stream = stream
 	p.volume_db = float(SFX_DB.get(name, -8.0)) + volume_db
-	p.pitch_scale = 1.0 + randf_range(-jitter, jitter)
+	p.pitch_scale = pitch * (1.0 + randf_range(-jitter, jitter))
 	p.play()
+
+
+## A restrained arrival accent whose instrument and pitch reflect the place's culture.
+func play_culture_accent(culture: String) -> void:
+	match culture:
+		"kharzani": play("page", -1.0, 0.01, 0.0, 0.78)
+		"ryumon": play("page", -2.0, 0.01, 0.0, 1.32)
+		_: play("page", 0.0, 0.01, 0.0, 0.96)
 
 
 ## Keep a looping effect going (hoofbeats on the road, a river at a ford), or stop it
 ## with "".
 func set_loop(name: String) -> void:
+	_set_named_loop(_loop, name)
+
+
+## Battle movement gets its own channel, so footsteps or hooves can sit over terrain
+## ambience without either loop cutting the other off.
+func set_movement_loop(name: String) -> void:
+	_set_named_loop(_movement_loop, name)
+
+
+func _set_named_loop(player: AudioStreamPlayer, name: String) -> void:
 	if name == "":
-		_loop.stop()
-		_loop.set_meta("name", "")
+		player.stop()
+		player.set_meta("name", "")
 		return
-	if _loop.playing and String(_loop.get_meta("name", "")) == name:
+	if player.playing and String(player.get_meta("name", "")) == name:
 		return
-	_loop.stream = _stream(SFX_PATH % name, true)
-	_loop.volume_db = float(SFX_DB.get(name, -8.0))
-	_loop.set_meta("name", name)
-	_loop.play()
+	player.stream = _stream(SFX_PATH % name, true)
+	if player.stream == null:
+		return
+	player.volume_db = float(SFX_DB.get(name, -8.0))
+	player.set_meta("name", name)
+	player.play()
 
 
 # ---------------------------------------------------------------- settings
@@ -278,6 +301,10 @@ func _fade(p: AudioStreamPlayer, to_db: float, seconds: float, stop_after: bool 
 ## An audio file, imported if the editor has done so, read straight from disk if not
 ## (headless runs of a fresh checkout). Null if it's missing.
 func _stream(path: String, looped: bool) -> AudioStream:
+	if not ResourceLoader.exists(path) and not FileAccess.file_exists(path):
+		var wav_path := path.get_basename() + ".wav"
+		if ResourceLoader.exists(wav_path) or FileAccess.file_exists(wav_path):
+			path = wav_path
 	var key := "%s/%s" % [path, looped]
 	if _streams.has(key):
 		return _streams[key]
@@ -287,9 +314,11 @@ func _stream(path: String, looped: bool) -> AudioStream:
 		if s != null:
 			s = s.duplicate()
 	elif FileAccess.file_exists(path):
-		s = AudioStreamOggVorbis.load_from_file(path)
+		s = AudioStreamWAV.load_from_file(path) if path.get_extension().to_lower() == "wav" else AudioStreamOggVorbis.load_from_file(path)
 	if s is AudioStreamOggVorbis:
 		(s as AudioStreamOggVorbis).loop = looped
+	elif s is AudioStreamWAV:
+		(s as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD if looped else AudioStreamWAV.LOOP_DISABLED
 	_streams[key] = s
 	return s
 

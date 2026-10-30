@@ -178,6 +178,91 @@ func food_days() -> int:
 	return food / maxi(1, total_men())
 
 
+# ---------------------------------------------------------------- guidance
+
+## One honest next step from the current campaign state. This points at existing
+## systems and places; it does not create a quest or promise an unavailable siege.
+func recommendation() -> Dictionary:
+	if world == null:
+		return {"title": "Form your company", "body": "Choose a people and begin a campaign.", "action": "home", "place": ""}
+	if food_days() < 2:
+		var village := _nearest_settlement([WorldData.VILLAGE])
+		return {"title": "Buy provisions", "body": "Only %d days of food remain. Villages sell the cheapest supplies." % food_days(),
+			"action": "place", "place": village}
+	var ready := army.filter(func(s): return can_train(s))
+	if not ready.is_empty():
+		var town := _nearest_settlement([WorldData.TOWN])
+		return {"title": "Training is ready", "body": "%d %s earned a new level. Town drillmasters can promote them." % [ready.size(),
+			"company has" if ready.size() == 1 else "companies have"], "action": "place", "place": town}
+	var close_bond := _closest_bond_goal()
+	if not close_bond.is_empty():
+		return {"title": "A bond is taking shape", "body": "%s are %.1f points from rank %s. Fighting beside one another strengthens it." % [
+			close_bond["pair"], close_bond["remaining"], close_bond["rank"]], "action": "warband", "place": ""}
+	if army.size() < squad_cap():
+		var recruits := _nearest_settlement_with_recruits()
+		if recruits != "":
+			return {"title": "Room for another company", "body": "Your renown supports %d more %s, and recruits are waiting nearby." % [
+				squad_cap() - army.size(), "company" if squad_cap() - army.size() == 1 else "companies"], "action": "place", "place": recruits}
+	if is_wounded():
+		var town := _nearest_settlement([WorldData.TOWN])
+		return {"title": "Rebuild the ranks", "body": "Some companies are below full strength. A town can reinforce them.",
+			"action": "place", "place": town}
+	if not world.activity_log.is_empty():
+		var latest: Dictionary = world.activity_log[0]
+		var place := String(latest.get("place", ""))
+		if WorldData.SETTLEMENTS.has(place):
+			return {"title": "News from the road", "body": String(latest["text"]), "action": "place", "place": place}
+	return {"title": "Build your name", "body": "Patrol the roads, protect villages and seek battles to earn silver and renown.",
+		"action": "map", "place": ""}
+
+
+func _nearest_settlement(kinds: Array) -> String:
+	var best := ""
+	var best_hours := INF
+	for id in WorldData.SETTLEMENTS:
+		if not kinds.has(String(WorldData.settlement(id)["type"])):
+			continue
+		var hours: float = world.hours_to(id)
+		if hours < best_hours:
+			best_hours = hours
+			best = id
+	return best
+
+
+func _nearest_settlement_with_recruits() -> String:
+	var best := ""
+	var best_hours := INF
+	for id in WorldData.SETTLEMENTS:
+		if world.offers_at(id).is_empty():
+			continue
+		var hours: float = world.hours_to(id)
+		if hours < best_hours:
+			best_hours = hours
+			best = id
+	return best
+
+
+func _closest_bond_goal() -> Dictionary:
+	var best := {}
+	for i in army.size():
+		var a = army[i].get("captain")
+		if a == null:
+			continue
+		for j in range(i + 1, army.size()):
+			var b = army[j].get("captain")
+			if b == null:
+				continue
+			var points := float(a.get("bonds", {}).get(str(b["id"]), 0.0))
+			var rank := Captains.rank_for(points)
+			if rank >= Captains.RANKS.size() - 1:
+				continue
+			var remaining: float = Captains.RANK_POINTS[rank + 1] - points
+			if remaining <= 3.0 and (best.is_empty() or remaining < float(best["remaining"])):
+				best = {"pair": "%s & %s" % [a["first"], b["first"]], "remaining": remaining,
+					"rank": Captains.RANKS[rank + 1]}
+	return best
+
+
 ## Silver to bring one squad back to full strength.
 func reinforce_cost(squad: Dictionary) -> int:
 	var unit_id: String = squad.get("unit", "")

@@ -12,6 +12,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -30,13 +31,14 @@ func _ready() -> void:
 		return
 	place = w.here()
 	Sound.play_music(WorldData.culture_of(WorldData.settlement(place)["faction"]))
+	Sound.play_culture_accent(WorldData.culture_of(WorldData.settlement(place)["faction"]))
 	_build()
 	if autoplay:
 		_autoplay.call_deferred()
 
 
 func _build() -> void:
-	var keep := _scroll.scroll_vertical if _scroll != null else 0
+	var keep := _scroll.scroll_vertical if _scroll != null else (Scenes.settlement_scroll if Scenes.settlement_place == place else 0)
 	for child in get_children():
 		child.queue_free()
 
@@ -62,10 +64,12 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 16)
 	margin.add_child(col)
 
-	if place == "ravensford":
-		col.add_child(StoryArt.location("ravensford"))
+	var vista := SettlementVista.make(place, GameState.world)
+	vista.name = "LocationIllustration"
+	col.add_child(vista)
 	col.add_child(Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS))
 	col.add_child(_note(GameState.world.describe(place)))
+	col.add_child(_note(GameState.world.settlement_intelligence(place), Style.TEXT))
 	var days := GameState.food_days()
 	var purse := Style.label("%d silver · food for %s · wages %d a day" % [GameState.silver,
 		"1 day" if days == 1 else "%d days" % days, GameState.daily_wages()], Style.BODY, Style.TEXT)
@@ -111,6 +115,7 @@ func _add_court(col: VBoxContainer) -> void:
 		var rel: Dictionary = w.social.get_relationship(cid)
 		var status_str := Relationships.status_label(String(rel.get("status", Relationships.UNKNOWN)))
 		var btn := _button("Speak with %s (%s · %s)" % [name_str, role_str, status_str], func():
+			_remember_scroll()
 			Scenes.active_candidate_id = cid
 			Scenes.active_person_id = String(person.get("id", ""))
 			Scenes.conversation_return = "res://scenes/settlement.tscn"
@@ -272,7 +277,7 @@ func _button(text: String, callback: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	b.focus_mode = Control.FOCUS_NONE
+	b.focus_mode = Control.FOCUS_ALL
 	b.custom_minimum_size = Vector2(160, Style.TOUCH)
 	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	b.pressed.connect(callback)
@@ -319,7 +324,7 @@ func _on_train(id: int) -> void:
 	if (int(s.get("level", 1)) == 1 or s.get("pending_branch", false)) and not branches.is_empty():
 		_show_branch_choice(id, branches)
 	else:
-		_paid(GameState.train_squad(id))
+		_paid(GameState.train_squad(id), "promotion")
 
 
 func _show_branch_choice(id: int, branches: Array) -> void:
@@ -393,7 +398,7 @@ func _show_branch_choice(id: int, branches: Array) -> void:
 		var btn := _button(btn_text, func():
 			overlay.queue_free()
 			_modal = null
-			_paid(GameState.train_squad(id, b_id))
+			_paid(GameState.train_squad(id, b_id), "promotion")
 		)
 		btn.disabled = price > GameState.silver
 		c_box.add_child(btn)
@@ -438,14 +443,21 @@ func _format_unit_diff(unit_id: String) -> String:
 
 
 ## Silver changed hands, or didn't: the coins chink, and the screen shows the new state.
-func _paid(done: bool) -> void:
+func _paid(done: bool, effect: String = "coins") -> void:
 	if done:
-		Sound.play("coins", 0.0, 0.08)
+		Sound.play(effect, 0.0, 0.08)
 	_build()
+
+
+func _remember_scroll() -> void:
+	Scenes.settlement_place = place
+	Scenes.settlement_scroll = _scroll.scroll_vertical if _scroll != null else 0
 
 
 func _on_leave() -> void:
 	GameState.save_game()
+	Scenes.settlement_place = ""
+	Scenes.settlement_scroll = 0
 	Scenes.go("res://scenes/world_map.tscn")
 
 

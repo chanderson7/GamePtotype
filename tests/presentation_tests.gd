@@ -39,6 +39,10 @@ func _run() -> void:
 	sound.set_text_scale(1.0)
 	sound.set_reduced_motion(false)
 	sound.set_illustrations(true)
+	for cue in ["footsteps", "camp", "morale_low", "bond_rank", "promotion"]:
+		check(sound._stream("res://assets/audio/sfx/%s.ogg" % cue, cue in ["footsteps", "camp"]) != null,
+			"%s cue loads from the generated audio source" % cue)
+	check(sound._movement_loop != sound._loop, "battle movement and terrain ambience use separate audio channels")
 	gs.new_campaign(Cultures.VARDISH)
 	gs.world.player().node = "ravensford"
 	gs.world.social.apply_choice("edda", "offer_help", {})
@@ -157,8 +161,12 @@ func _check_ui() -> void:
 	sound.set_illustrations(true)
 	await open_scene("people")
 	_check_widths(current_scene)
+	gs.world.player().node = "highcliff"
+	gs.world.player().next = ""
 	await open_scene("settlement")
-	check(current_scene.find_child("LocationIllustration", true, false) != null, "Ravensford arrival shows its illustration")
+	check(current_scene.find_child("LocationIllustration", true, false) != null, "capital arrival shows its culture-specific illustration")
+	check(_scene_has_text(current_scene, "Why it matters:") and _scene_has_text(current_scene, "Services:"),
+		"essential settlement intelligence remains readable outside the illustration")
 	_check_widths(current_scene)
 	sound.set_text_scale(1.5)
 	var bond_a: Dictionary = gs.army[0]["captain"]
@@ -186,6 +194,12 @@ func _check_ui() -> void:
 	await open_scene("captain_profile")
 	check(button("Back to Warband") != null, "captain profile keeps its exit at 150 percent text")
 	_check_widths(current_scene)
+	await open_scene("world_map")
+	current_scene._open_preview("khalun")
+	await process_frame
+	check(button("Ride there") != null and button("Ride there").get_global_rect().end.y <= root.get_visible_rect().size.y,
+		"map keeps the primary travel action reachable at 150 percent text")
+	_check_widths(current_scene)
 	await open_scene("title")
 	check(current_scene.find_child("HomeCampIllustration", true, false) != null, "Home keeps its campaign art at 150 percent text")
 	_check_widths(current_scene)
@@ -200,3 +214,12 @@ func _check_widths(scene: Node) -> void:
 			if node.is_visible_in_tree() and (node.get_global_rect().end.x > width + 1.0 or node.get_global_rect().position.x < -1.0):
 				overflow.append(node.name)
 	check(overflow.is_empty(), "%s fits horizontally at 150%% text: %s" % [scene.name, str(overflow)])
+
+
+func _scene_has_text(node: Node, wanted: String) -> bool:
+	if node is Label and String(node.text).contains(wanted):
+		return true
+	for child in node.get_children():
+		if _scene_has_text(child, wanted):
+			return true
+	return false
