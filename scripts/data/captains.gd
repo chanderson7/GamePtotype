@@ -4,6 +4,14 @@ extends RefCounted
 
 const Cultures = preload("res://scripts/data/cultures.gd")
 
+## Two reusable faces per culture. The captain id chooses between them without
+## consuming campaign RNG, so adding portraits never changes names or battle rules.
+const APPEARANCES := {
+	Cultures.VARDISH: ["vardish_01", "vardish_02"],
+	Cultures.KHARZANI: ["kharzani_01", "kharzani_02"],
+	Cultures.RYUMON: ["ryumon_01", "ryumon_02"],
+}
+
 ## How a captain takes the fall of someone they're bonded to.
 const VENGEFUL := "Vengeful"   # fights harder and won't break for a while
 const STEADFAST := "Steadfast" # steadies the squad
@@ -90,6 +98,7 @@ static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array
 		first = names[rng.randi_range(0, names.size() - 1)]
 	return {
 		"id": id,
+		"appearance_id": appearance_for(culture, id),
 		"name": "%s of %s" % [first, origins[rng.randi_range(0, origins.size() - 1)]],
 		"first": first,
 		"culture": culture,
@@ -100,7 +109,38 @@ static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array
 		"battles": 0,
 		"kills": 0,
 		"bonds": {},
+		"history": {"wounds": 0, "fallen_friends": []},
 	}
+
+
+## A stable portrait for new captains and old saves. Old memorial entries did not
+## retain an id, so their name supplies a small deterministic fallback key.
+static func ensure_appearance(captain: Dictionary) -> String:
+	var culture := String(captain.get("culture", Cultures.VARDISH))
+	var valid: Array = APPEARANCES.get(culture, [])
+	var current := String(captain.get("appearance_id", ""))
+	if valid.has(current):
+		return current
+	var key := int(captain.get("id", 0))
+	if key <= 0:
+		key = _stable_name_key(String(captain.get("name", captain.get("first", ""))))
+	current = appearance_for(culture, key)
+	captain["appearance_id"] = current
+	return current
+
+
+static func appearance_for(culture: String, id: int) -> String:
+	var choices: Array = APPEARANCES.get(culture, [])
+	if choices.is_empty():
+		return "fallback"
+	return String(choices[posmod(maxi(1, id) - 1, choices.size())])
+
+
+static func _stable_name_key(value: String) -> int:
+	var key := 17
+	for character in value.to_utf8_buffer():
+		key = posmod(key * 31 + int(character), 2147483629)
+	return maxi(1, key)
 
 
 ## "Brann's Pikes", in the captain's own culture's words.

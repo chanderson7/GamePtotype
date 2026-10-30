@@ -11,6 +11,10 @@ For art, battle feedback, dialogue staging and usability work, see
 [`game-feel-and-presentation-plan.md`](game-feel-and-presentation-plan.md). It proposes
 small polish slices that can accompany the gameplay roadmap.
 
+For a prioritized asset backlog, production briefs and artwork delivery packages, see
+[`artwork-roadmap.md`](artwork-roadmap.md). Its first package—captain portrait continuity
+and a reusable company camp—is implemented; siege resolution remains the next gameplay feature.
+
 ## State (on `main`)
 
 - Phase 3 is done; every gate passes.
@@ -32,14 +36,66 @@ small polish slices that can accompany the gameplay roadmap.
 Home now has a campaign summary, explicit replacement confirmation, Learn to play, and
 Settings. The optional six-step tutorial can be selected at campaign creation or replayed
 from Home/Settings. Map Menu opens Warband, Settings or Home. Audio settings are no longer
-in Warband. First rank-C bonds introduce themselves once per campaign, with saved pending
-and acknowledgment state. The map's top-right resource icons are labeled and tappable;
+in Warband. Bonds introduce rank C, B and A milestones with saved pending and acknowledgment
+state, and bonded deaths create a remembrance. The map's top-right resource icons are labeled and tappable;
 low supplies warn early, and actual desertion pauses play with a saved, actionable warning.
 
 `tests/menu_tests.gd` covers navigation, opt-in/replay, preferences, bond persistence,
 resource controls and desertion warnings. Menu tests, relevant save/upkeep/captain checks,
 and autoplay pass on Godot 4.7.2; phone-sized menus were rendered and inspected. Phase 4's
 next gameplay piece is sieges.
+
+## Artwork Package A
+
+Six captain portraits, one fallback and the company camp are integrated across Home, Warband,
+battle cards, the first rank-C bond introduction and the memorial. Captain appearance IDs are
+deterministic and additive to version 6 saves, do not consume campaign RNG, and survive death in
+memorial records. Older campaigns acquire a stable ID when loaded. The illustrations preference
+keeps the complete text, controls and tactical standards while hiding decorative art.
+
+Source prompts and asset details are in [`../assets/captain-art-manifest.md`](../assets/captain-art-manifest.md);
+the delivery record and next art packages are in [`artwork-roadmap.md`](artwork-roadmap.md).
+
+## Experience improvements 1–3
+
+The first three game-feel priorities are implemented as one connected battle-to-camp flow:
+
+- Battle units have a narrower painted footprint, stronger hit sparks, charge/fall/rout
+  bursts, persistent company destination marks, selected-order lines and visible links when
+  established bonds are actively supporting nearby captains. These are presentation-only;
+  collision, damage, morale and battle RNG are unchanged.
+- Every living captain and modern memorial entry opens a full profile from its Warband card.
+  The profile carries the stable portrait, status, company, troop role, trait explanations,
+  battles, kills, squad progression and bond progress. Fallen profiles retain final words,
+  campaign record and mourners.
+- The battle result is a scrollable report with an outcome sentence, casualty tally, exact
+  campaign rewards including chief/village bonuses, captain fate rolls, bond points/rank-ups,
+  and per-company survivor, kill, XP and training information. The same report is saved as
+  the last-battle record, using only additive version-6 data.
+
+Focused battle-control and menu checks cover report reconciliation, training/bond/fate
+details and profile navigation. The presentation regression remains green. Physical-phone
+effect performance and haptics still need device review.
+
+## Experience improvements 4–5
+
+Warband now reads as a company overview. Its camp header carries a culture-colored company
+banner, the next daily wage and ration payment is forecast with the remaining supplies, and
+the roster can be sorted by role, strength, experience or captain. Active and wounded captains
+have separate sections. Each company card shows troop strength, experience and strongest-bond
+progress, opens the captain profile from the whole card, and restores the previous scroll
+position on return.
+
+Bond progression is visible beyond its combat bonus. Rank C, B and A each receive a paired
+portrait milestone with the exact nearby morale and damage effects. Warband bond cards show
+shared battles, rank progress and an optional camp conversation. These exchanges use saved
+facts such as the last outcome, losses, current wounds and fallen friends, while changing no
+resources, combat values or bond points. A bonded death is recorded in the survivor's history
+and queues a saved memorial reaction. Old version-6 campaigns load with empty history records.
+
+The focused menu suite and 69 presentation checks pass. Warband, rank-B and bond-conversation
+screens were rendered and inspected at 720×1280; the roster and bond cards remain scrollable
+and all controls fit at 150% text.
 
 ## Romance and allies feature (R0–R3 implemented)
 

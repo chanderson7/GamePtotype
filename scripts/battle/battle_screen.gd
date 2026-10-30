@@ -21,10 +21,10 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
-const Economy = preload("res://scripts/data/economy.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
+const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 
 const TOP_BAR := 96.0
 const CHIP_H := 84.0
@@ -75,6 +75,8 @@ var font: Font
 
 var floaters: Array = []
 var ticker: Array = []
+## Short-lived field marks for impacts, charges and broken formations.
+var bursts: Array = []
 var _view := Rect2()
 var _fit_scale := 1.0
 var cam_zoom := 1.0
@@ -152,8 +154,10 @@ var pause_panel: PanelContainer
 var pause_note: Label
 var retreat_button: Button
 var result_panel: PanelContainer
+var result_scrim: ColorRect
 var result_title: Label
 var result_body: Label
+var result_content: VBoxContainer
 var terrain_hint_panel: PanelContainer
 var terrain_hint_title: Label
 var terrain_hint_body: Label
@@ -367,6 +371,9 @@ func _process(delta: float) -> void:
 	for t in ticker:
 		t["age"] += delta
 	ticker = ticker.filter(func(t): return t["age"] < t["life"])
+	for burst in bursts:
+		burst["age"] += delta
+	bursts = bursts.filter(func(burst): return burst["age"] < burst["life"])
 	_refresh_hud()
 	queue_redraw()
 
@@ -842,6 +849,7 @@ func _consume_events() -> void:
 			"rout":
 				var sq = e["squad"]
 				_broke_at[sq] = _clock
+				_burst(sq.average_pos(), "rout", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.0)
 				Sound.play("rout", 0.0, 0.1, 0.8)
 				var mine: bool = sq.team == Sim.PLAYER
 				_float_text("BROKEN", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT, 1.6)
@@ -853,6 +861,7 @@ func _consume_events() -> void:
 				var sq = e["squad"]
 				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
 					_charged_at[sq] = _clock
+					_burst(e["pos"], "charge", Style.BRASS, 0.55)
 					_float_text("CHARGE!", e["pos"], Style.BRASS)
 					Sound.play("charge", 0.0, 0.06, 0.6)
 					if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
@@ -904,6 +913,7 @@ func _consume_events() -> void:
 
 func _captain_down(e: Dictionary) -> void:
 	var sq = e["squad"]
+	_burst(e["pos"], "fall", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.1)
 	var info: Dictionary = sq.info
 	if sq.team != Sim.PLAYER:
 		_float_text("%s CUT DOWN" % String(info.get("first", "Captain")).to_upper(), e["pos"], Style.PLAYER_LIGHT, 2.2)
@@ -913,6 +923,7 @@ func _captain_down(e: Dictionary) -> void:
 	Input.vibrate_handheld(120)
 	var roll := {
 		"t": 0.0, "name": String(info.get("name", "")), "company": _company(sq.roster_id),
+		"captain": info,
 		"roll": int(e["roll"]), "needed": int(e["needed"]), "fate": String(e["fate"]),
 		"words": String(sq.last_words), "holding": bool(e.get("holding", false)),
 		"friends": bool(e.get("friends", false)), "lucky": bool(e.get("lucky", false)),
@@ -972,6 +983,10 @@ func _float_text(text: String, at: Vector2, color: Color, life: float = 1.3) -> 
 	floaters.append({"text": text, "pos": pos, "color": color, "age": 0.0, "life": life})
 
 
+func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
+	bursts.append({"pos": at, "kind": kind, "color": color, "age": 0.0, "life": life})
+
+
 ## A line in the ticker along the top of the field, for what's happening in the story.
 func _tick(text: String, color: Color) -> void:
 	for t in ticker:
@@ -1004,18 +1019,147 @@ func _show_result() -> void:
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
 	Sound.stinger("victory" if won else "defeat")
-	var text := "%s\nYou lost %d men and cut down %d." % [why, _pending_result["lost"], _pending_result["killed"]]
-	if won and GameState.has_campaign() and not GameState.pending_battle.is_empty():
-		var got := Economy.spoils(int(_pending_result["killed"]))
-		text += "\nSpoils: %d silver, %d rations, %d renown." % [got["silver"], got["food"], got["renown"]]
-	var fates: Array = GameState.describe_result(_pending_result)
-	if not fates.is_empty():
-		text += "\n\n" + "\n".join(PackedStringArray(fates))
-	result_body.text = text
+	_rebuild_result(GameState.battle_report(_pending_result), why)
 	result_panel.visible = true
+	result_scrim.visible = true
 	Style.ease_in(result_panel, Vector2(0.5, 0.5))
 	if autoplay:
 		get_tree().create_timer(0.8).timeout.connect(_back_to_camp)
+
+
+func _rebuild_result(report: Dictionary, why: String) -> void:
+	for child in result_content.get_children():
+		result_content.remove_child(child)
+		child.free()
+	result_body.text = why
+	result_content.add_child(result_body)
+	var story := Style.label(String(report.get("story", "")), Style.BODY, Style.TEXT)
+	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	story.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	result_content.add_child(story)
+
+	var tally := HBoxContainer.new()
+	tally.add_theme_constant_override("separation", 10)
+	tally.add_child(_result_stat("LOST", int(report.get("lost", 0)), Style.ENEMY_LIGHT))
+	tally.add_child(_result_stat("ENEMY DOWN", int(report.get("killed", 0)), Style.BRASS))
+	result_content.add_child(tally)
+
+	var rewards: Dictionary = report.get("rewards", {})
+	if int(rewards.get("silver", 0)) + int(rewards.get("food", 0)) + int(rewards.get("renown", 0)) > 0:
+		result_content.add_child(_result_heading("Rewards"))
+		result_content.add_child(_result_note("%d silver  ·  %d food  ·  %d renown" % [
+			int(rewards.get("silver", 0)), int(rewards.get("food", 0)), int(rewards.get("renown", 0))], Style.BRASS))
+
+	var captains: Array = report.get("captains", [])
+	if not captains.is_empty():
+		result_content.add_child(_result_heading("Captains"))
+		for captain in captains:
+			result_content.add_child(_result_captain(captain))
+
+	var bonds: Array = report.get("bonds", [])
+	if not bonds.is_empty():
+		result_content.add_child(_result_heading("Bonds forged"))
+		for bond in bonds:
+			result_content.add_child(_result_bond(bond))
+
+	var squads: Array = report.get("squads", [])
+	if not squads.is_empty():
+		result_content.add_child(_result_heading("Company record"))
+		for squad in squads:
+			result_content.add_child(_result_squad(squad))
+
+
+func _result_heading(text: String) -> Label:
+	var label := Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
+	label.add_theme_constant_override("line_spacing", 2)
+	return label
+
+
+func _result_note(text: String, color: Color = Style.TEXT) -> Label:
+	var label := Style.label(text, Style.BODY, color)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return label
+
+
+func _result_stat(caption: String, value: int, color: Color) -> Control:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(col)
+	var number := Style.label(str(value), Style.LARGE, color)
+	number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(number)
+	var words := Style.label(caption, Style.SMALL, Style.MUTED)
+	words.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(words)
+	return panel
+
+
+func _result_captain(captain: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	panel.add_child(row)
+	row.add_child(CaptainArt.portrait(captain, Vector2(54, 72)))
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(words)
+	words.add_child(_result_note("%s · %s" % [captain.get("name", "Captain"), captain.get("company", "Company")]))
+	var fate := String(captain.get("fate", "standing"))
+	var line := "%d kills · held the field" % int(captain.get("kills", 0))
+	var color := Style.MUTED
+	if fate == "wounded":
+		line = "Wounded · death roll %d, needed %d · out for %d battles" % [captain.get("roll", 0), captain.get("needed", 0), Captains.WOUND_BATTLES]
+		color = Style.BRASS
+	elif fate == "killed":
+		line = "Fallen · death roll %d, needed %d" % [captain.get("roll", 0), captain.get("needed", 0)]
+		color = Style.ENEMY_LIGHT
+	words.add_child(_result_note(line, color))
+	return panel
+
+
+func _result_bond(bond: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 9)
+	panel.add_child(row)
+	var a := {"appearance_id": bond.get("a_appearance_id", "fallback"), "culture": bond.get("a_culture", Cultures.VARDISH)}
+	var b := {"appearance_id": bond.get("b_appearance_id", "fallback"), "culture": bond.get("b_culture", Cultures.VARDISH)}
+	row.add_child(CaptainArt.portrait(a, Vector2(40, 54)))
+	row.add_child(CaptainArt.portrait(b, Vector2(40, 54)))
+	var rank := String(bond.get("rank_after", ""))
+	var text := "%s & %s · +%.1f bond points" % [bond.get("a_name", ""), bond.get("b_name", ""), float(bond.get("earned", 0.0))]
+	if rank != "":
+		text += " · rank %s" % rank
+	if bool(bond.get("rank_up", false)):
+		text += " reached"
+	var note := _result_note(text, Style.BRASS if bool(bond.get("rank_up", false)) else Style.TEXT)
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(note)
+	return panel
+
+
+func _result_squad(squad: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(words)
+	words.add_child(_result_note(String(squad.get("name", "Company"))))
+	words.add_child(_result_note("%d → %d soldiers · %d kills · %d XP" % [squad.get("men_before", 0), squad.get("men_after", 0), squad.get("kills", 0), squad.get("xp_after", 0)], Style.MUTED))
+	var level_text := "Lv%d" % int(squad.get("level_after", 1))
+	if bool(squad.get("training_ready", false)):
+		level_text += "+ READY"
+	var level := Style.label(level_text, Style.SMALL, Style.BRASS)
+	level.custom_minimum_size.x = 112
+	level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	level.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	level.autowrap_mode = TextServer.AUTOWRAP_OFF
+	row.add_child(level)
+	return panel
 
 
 ## Your side's result, plus what's left of the enemy, so a band that beats you stays
@@ -1167,18 +1311,36 @@ func _build_hud() -> void:
 	retreat_button = _button("Retreat", Vector2(0, Style.TOUCH), _on_retreat)
 	pv.add_child(retreat_button)
 
-	result_panel = _centered_panel(hud)
+	result_scrim = ColorRect.new()
+	result_scrim.color = Color(Style.NIGHT, 0.88)
+	result_scrim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	result_scrim.mouse_filter = Control.MOUSE_FILTER_STOP
+	result_scrim.visible = false
+	hud.add_child(result_scrim)
+	result_panel = PanelContainer.new()
+	result_panel.anchor_left = 0.05
+	result_panel.anchor_right = 0.95
+	result_panel.anchor_top = 0.045
+	result_panel.anchor_bottom = 0.955
+	result_panel.visible = false
+	hud.add_child(result_panel)
 	var rv := VBoxContainer.new()
-	rv.add_theme_constant_override("separation", 18)
+	rv.add_theme_constant_override("separation", 12)
 	result_panel.add_child(rv)
 	result_title = Style.label("Victory", 64, Style.BRASS)
 	result_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rv.add_child(result_title)
+	var result_scroll := ScrollContainer.new()
+	result_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	result_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rv.add_child(result_scroll)
+	result_content = VBoxContainer.new()
+	result_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	result_content.add_theme_constant_override("separation", 12)
+	result_scroll.add_child(result_content)
 	result_body = Style.label("", Style.BODY)
 	result_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	result_body.custom_minimum_size = Vector2(540, 0)
 	result_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	rv.add_child(result_body)
 	var back := _button("Back to the map" if not GameState.pending_battle.is_empty() else "Back to camp", Vector2(0, Style.TOUCH), _back_to_camp)
 	Style.make_primary(back)
 	rv.add_child(back)
@@ -1371,8 +1533,13 @@ func _draw_chip(i: int) -> void:
 	b.draw_rect(Rect2(Vector2.ZERO, size), bg)
 	b.draw_rect(Rect2(Vector2.ZERO, size), Style.BRASS if picked else Style.RULE, false, 3.0 if picked else 2.0)
 	var dim := 0.45 if out else 1.0
-	_draw_flag(b, Vector2(8, 8), Vector2(28, 21), Sim.PLAYER, String(e["type"]), out, false, 0.0)
 	var c = _squad_record(e["roster_id"]).get("captain")
+	var face: Texture2D = CaptainArt.texture(c) if typeof(c) == TYPE_DICTIONARY else null
+	if face != null:
+		b.draw_texture_rect(face, Rect2(5, 3, 30, 40), false, Color(1, 1, 1, dim))
+		_draw_flag(b, Vector2(39, 9), Vector2(22, 16), Sim.PLAYER, String(e["type"]), out, false, 0.0)
+	else:
+		_draw_flag(b, Vector2(8, 8), Vector2(28, 21), Sim.PLAYER, String(e["type"]), out, false, 0.0)
 	var who := _name(e["type"], Sim.PLAYER, e["roster_id"])
 	if c != null:
 		who = String(c["first"]) + ("*" if int(c.get("wounded", 0)) > 0 else "")
@@ -1430,6 +1597,9 @@ func _draw_roll() -> void:
 	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
 	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, 34, Color(Style.TEXT, a))
 	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}))
+	if face != null:
+		ci.draw_texture_rect(face, Rect2(Vector2(x + 20, y + 22), Vector2(72, 96)), false, Color(1, 1, 1, a))
 
 	# The die tumbles, slowing, then lands.
 	var needed: int = _roll["needed"]
@@ -1489,6 +1659,8 @@ func _draw() -> void:
 	_draw_orders()
 	_draw_targets()
 	_draw_line_order()
+	_draw_bonds()
+	_draw_bursts()
 	_draw_shadows()
 	for sq in sim.squads:
 		_draw_men(sq)
@@ -1841,7 +2013,13 @@ func _draw_stuck_arrows() -> void:
 func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE, grow: float = 1.0,
 		culture: String = Cultures.VARDISH) -> void:
 	var s := field_scale * Art.pixel_size(name) * grow
-	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s, s))
+	# Troops are slightly narrower than their old painted footprint. Their collision
+	# stays unchanged; this exposes the gaps that already exist in the simulation.
+	var width := 1.0
+	if Troops.TYPES.has(name) or Units.has(name):
+		var role := Units.role(name) if Units.has(name) else name
+		width = 0.92 if role == Troops.CAVALRY else 0.86
+	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s * width, s))
 	draw_texture(Art.frame(name, team, index, culture), -Art.pivot(name, culture), tint)
 
 
@@ -1853,6 +2031,17 @@ func _draw_orders() -> void:
 		if picked != null and picked.ranged:
 			draw_arc(picked.center, picked.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.35), 2.0)
 		return
+	# Every company keeps a quiet destination mark. A player can glance across the
+	# field and see where all orders lead without selecting squads one by one.
+	for squad in sim.squads:
+		if squad.team != Sim.PLAYER or not squad.is_active():
+			continue
+		if squad.order == "move" or squad.order == "hold":
+			var alpha := 0.5 if squad == selected_squad else 0.24
+			draw_arc(squad.order_point, 12.0, 0.0, TAU, 20, Color(Style.BRASS, alpha), 2.0)
+			if _clock - float(_ordered_at.get(squad, -9.0)) < 1.0:
+				var pulse := 15.0 + (_clock - float(_ordered_at.get(squad, _clock))) * 13.0
+				draw_arc(squad.order_point, pulse, 0.0, TAU, 24, Color(Style.BRASS, 0.55), 2.0)
 	if sel == null or not sel.is_active():
 		return
 	var from: Vector2 = sel.average_pos()
@@ -1872,6 +2061,52 @@ func _draw_orders() -> void:
 		draw_dashed_line(from, sel.order_target.average_pos(), Style.ENEMY_LIGHT, 3.0, 12.0)
 	elif sel.order == "advance" and sel.focus != null and sel.focus.is_active():
 		draw_dashed_line(from, sel.focus.average_pos(), Color(Style.ENEMY_LIGHT, 0.6), 2.0, 10.0)
+
+
+## A subtle link shows when an established bond is actively supporting two nearby
+## companies. It turns a hidden combat modifier into readable battlefield teamwork.
+func _draw_bonds() -> void:
+	for i in sim.squads.size():
+		var a = sim.squads[i]
+		if a.team != Sim.PLAYER or not a.is_active() or a.bond_power <= 0.0 or a.info.is_empty():
+			continue
+		for j in range(i + 1, sim.squads.size()):
+			var b = sim.squads[j]
+			if b.team != Sim.PLAYER or not b.is_active() or b.bond_power <= 0.0 or b.info.is_empty():
+				continue
+			if a.average_pos().distance_to(b.average_pos()) > Captains.BOND_RANGE:
+				continue
+			var points := float(a.info.get("bonds", {}).get(str(b.info.get("id", -1)), 0.0))
+			if Captains.rank_for(points) <= 0:
+				continue
+			var pulse := 0.18 + sin(_clock * 3.0) * 0.05
+			var ap: Vector2 = a.average_pos()
+			var bp: Vector2 = b.average_pos()
+			draw_dashed_line(ap, bp, Color(Style.BRASS, pulse), 2.0, 11.0)
+			draw_circle(ap, 5.0, Color(Style.BRASS, pulse + 0.1))
+			draw_circle(bp, 5.0, Color(Style.BRASS, pulse + 0.1))
+
+
+func _draw_bursts() -> void:
+	for burst in bursts:
+		var age := float(burst["age"])
+		var life := float(burst["life"])
+		var t := clampf(age / life, 0.0, 1.0)
+		var color: Color = burst["color"]
+		color.a = (1.0 - t) * 0.8
+		var pos: Vector2 = burst["pos"]
+		match String(burst["kind"]):
+			"charge":
+				for i in 6:
+					var d := Vector2.from_angle(float(i) / 6.0 * TAU)
+					draw_line(pos + d * (6.0 + 18.0 * t), pos + d * (18.0 + 28.0 * t), color, 2.5)
+			"rout":
+				draw_arc(pos, 20.0 + 42.0 * t, 0.0, TAU, 30, color, 3.0)
+				draw_arc(pos, 9.0 + 25.0 * t, 0.0, TAU, 24, Color(color, color.a * 0.55), 2.0)
+			"fall":
+				draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
+				draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
+				draw_line(pos + Vector2(8, -8), pos + Vector2(-8, 8), color, 2.0)
 
 
 ## Soft shadows lift the men off the grass.
@@ -1907,6 +2142,10 @@ func _draw_men(sq) -> void:
 		_sprite(type, sq.team, index, so.pos, angle, tint, grow, culture)
 		if so.flash > 0.05:
 			draw_texture(Art.flash(type, index, culture), -Art.pivot(type, culture), Color(1, 1, 1, so.flash * 0.8))
+			if so.flash > 0.35:
+				var spark := Color(1.0, 0.88, 0.54, minf(1.0, so.flash))
+				draw_line(Vector2(-7, 0), Vector2(7, 0), spark, 1.8)
+				draw_line(Vector2(0, -7), Vector2(0, 7), spark, 1.8)
 
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.

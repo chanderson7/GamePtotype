@@ -8,6 +8,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Page = preload("res://scripts/ui/menu_page.gd")
 const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
+const StoryArt = preload("res://scripts/ui/story_art.gd")
 ## The light over the title's map: early morning.
 const DAWN := Color(1.0, 0.88, 0.76)
 
@@ -71,6 +72,9 @@ func _build() -> void:
 	col.add_child(Page.note("YOUR CAMPAIGN", Style.SMALL))
 	if GameState.has_campaign():
 		var w = GameState.world
+		var camp := StoryArt.location("company_camp", 150)
+		camp.name = "HomeCampIllustration"
+		col.add_child(camp)
 		var go := _button("Continue campaign", _on_continue)
 		Style.make_primary(go)
 		col.add_child(go)

@@ -4,6 +4,8 @@ const Stories = preload("res://scripts/data/personal_conversations.gd")
 const Art = preload("res://scripts/ui/story_art.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const Captains = preload("res://scripts/data/captains.gd")
 const FIRST := "edda_spare_spoon"
 const PERSON := "person_edda"
 var failures := 0
@@ -78,6 +80,16 @@ func _run() -> void:
 	for name in ["ravensford", "common_room"]:
 		var tex := Art.texture("res://assets/locations/%s.png" % name)
 		check(tex != null and tex.get_width() == 768, name + " illustration available")
+	var camp := Art.texture("res://assets/locations/company_camp.png")
+	check(camp != null and camp.get_width() == 768 and camp.get_height() == 512, "company camp has reusable header dimensions")
+	for culture in Captains.APPEARANCES:
+		for appearance in Captains.APPEARANCES[culture]:
+			var tex := Art.texture("res://assets/portraits/captain_%s.png" % appearance)
+			check(tex != null and tex.get_width() == 384 and tex.get_height() == 512, appearance + " captain portrait has a consistent crop")
+			if tex != null:
+				check(tex.get_image().detect_alpha() != Image.ALPHA_NONE, appearance + " captain portrait retains transparency")
+	var fallback := Art.texture("res://assets/portraits/captain_fallback.png")
+	check(fallback != null and fallback.get_image().detect_alpha() != Image.ALPHA_NONE, "captain fallback is available with transparency")
 	check(Art.texture("res://assets/portraits/absent.png") == null, "missing illustration has a text-only fallback")
 	await _check_ui()
 	DirAccess.remove_absolute(sound.settings_path)
@@ -125,11 +137,16 @@ func _check_ui() -> void:
 	check(Art.texture("res://assets/portraits/edda_neutral.png") == null, "illustrations off also bypasses cached textures")
 	await open_scene("settings")
 	check(button("Text size: 150%") != null and button("Reduced motion: on") != null, "Settings reflects persisted preferences")
+	check(CaptainArt.texture(gs.army[0]["captain"]) == null, "illustrations off bypasses captain portraits")
 	var panel := Control.new()
 	root.add_child(panel)
 	Style.ease_in(panel)
 	check(panel.scale == Vector2.ONE and panel.modulate.a == 1.0, "reduced motion skips spring animation")
 	panel.queue_free()
+	await open_scene("main_menu")
+	check(not current_scene.find_child("WarbandCampIllustration", true, false).visible
+		and current_scene.find_children("CaptainPortrait", "TextureRect", true, false).is_empty(),
+		"text-only Warband keeps unit icons and hides decorative art")
 	await open_scene("personal_conversation")
 	button("Remember: The Spare Spoon").pressed.emit()
 	await process_frame
@@ -142,6 +159,35 @@ func _check_ui() -> void:
 	_check_widths(current_scene)
 	await open_scene("settlement")
 	check(current_scene.find_child("LocationIllustration", true, false) != null, "Ravensford arrival shows its illustration")
+	_check_widths(current_scene)
+	sound.set_text_scale(1.5)
+	var bond_a: Dictionary = gs.army[0]["captain"]
+	var bond_b: Dictionary = gs.army[1]["captain"]
+	bond_a["bonds"][str(bond_b["id"])] = 12.0
+	bond_b["bonds"][str(bond_a["id"])] = 12.0
+	var bond_key := "%d|%d" % [mini(bond_a["id"], bond_b["id"]), maxi(bond_a["id"], bond_b["id"])]
+	gs.bond_records[bond_key] = {"shared_battles": 4, "last_battle": 4, "last_outcome": "victory",
+		"last_losses": 2, "milestones": ["C", "B"], "conversations": [], "losses": []}
+	await open_scene("main_menu")
+	check(current_scene.find_child("WarbandCampIllustration", true, false) != null, "Warband keeps its camp at 150 percent text")
+	_check_widths(current_scene)
+	root.get_node("Scenes").active_bond_a_id = int(bond_a["id"])
+	root.get_node("Scenes").active_bond_b_id = int(bond_b["id"])
+	await open_scene("bond_conversation")
+	check(current_scene.find_child("BondConversationPortraits", true, false) != null, "bond conversation keeps paired portraits at 150 percent text")
+	_check_widths(current_scene)
+	gs.bond_events = [{"kind": "rank", "rank": "B", "a_id": int(bond_a["id"]), "b_id": int(bond_b["id"]),
+		"pair": "%s & %s" % [bond_a["name"], bond_b["name"]], "points": 12.0, "shared_battles": 4}]
+	await open_scene("bond_intro")
+	check(button("Spend time at camp") != null, "rank B milestone keeps its optional conversation action at 150 percent text")
+	_check_widths(current_scene)
+	gs.bond_events = []
+	root.get_node("Scenes").active_captain_id = int(gs.army[0]["captain"]["id"])
+	await open_scene("captain_profile")
+	check(button("Back to Warband") != null, "captain profile keeps its exit at 150 percent text")
+	_check_widths(current_scene)
+	await open_scene("title")
+	check(current_scene.find_child("HomeCampIllustration", true, false) != null, "Home keeps its campaign art at 150 percent text")
 	_check_widths(current_scene)
 	sound.set_text_scale(1.0)
 	sound.set_reduced_motion(false)

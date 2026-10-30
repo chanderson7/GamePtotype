@@ -11,8 +11,15 @@ var tutorial_return := "res://scenes/title.tscn"
 var people_return := "res://scenes/world_map.tscn"
 var conversation_return := "res://scenes/settlement.tscn"
 var personal_conversation_return := "res://scenes/people.tscn"
+var captain_profile_return := "res://scenes/main_menu.tscn"
+var bond_conversation_return := "res://scenes/main_menu.tscn"
 var active_candidate_id := "edda"
 var active_person_id := ""
+var active_captain_id := -1
+var active_bond_a_id := -1
+var active_bond_b_id := -1
+var warband_scroll := 0
+var warband_sort := 0
 
 var _veil: ColorRect
 var _busy := false

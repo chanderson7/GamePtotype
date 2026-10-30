@@ -2,8 +2,10 @@
 
 **Date:** 2026-10-28
 
-**Status:** first presentation slice implemented locally on 2026-10-28; remaining items
-are future proposals, based on the game at `714f686`.
+**Status:** the first presentation slice, captain continuity, tactical feedback, captain
+profiles, the structured battle aftermath, the Warband overview and visible bond progression
+are implemented locally through 2026-10-29;
+remaining items are future proposals, based on the game at `714f686`.
 The recommendations come from source inspection and the references below; they are not
 claims from a new player study or a completed art pass. Timing values and asset budgets
 are starting targets to validate in playtests.
@@ -11,6 +13,9 @@ are starting targets to validate in playtests.
 This complements [the feature roadmap](next-features-roadmap.md). That roadmap expands
 what the player can do; this plan improves how existing actions look, sound, read and feel.
 The living-world implementation order in [NEXT.md](NEXT.md) remains unchanged.
+
+The [artwork roadmap](artwork-roadmap.md) expands the remaining art work into asset briefs,
+quantities, screen placements, production constraints and a proposed delivery order.
 
 ### First slice implementation record
 
@@ -35,8 +40,9 @@ The living-world implementation order in [NEXT.md](NEXT.md) remains unchanged.
   performance test was performed. Headless teardown reports resource-leak warnings separately
   from the passing assertions.
 
-Captain portraits, other settlements, ambient audio, tactical feedback and result screens
-remain future work. The sections below retain the wider implementation plan.
+Other settlements, ambient audio and the wider effect library remain future work. Captain
+portrait continuity, tactical order/bond/impact cues, captain profiles and result reports are
+now implemented. The sections below retain the wider implementation plan.
 
 ## 1. Recommended direction
 
@@ -567,13 +573,15 @@ pass; the visit works at narrow phone width, 150% text and without art/audio.
 
 ### B — One convincing battle
 
-**Partial delivery, 2026-10-29:** scope is shown explicitly; Whole company clears squad
+**Partial delivery, updated 2026-10-29:** scope is shown explicitly; Whole company clears squad
 selection; Hold view/Re-center control automatic framing. Gestures freeze the camera and
 receive a 0.85-second grace period afterward. Single-squad moves validate terrain routes
 before acceptance and show a MOVE marker. Eight UI checks and a 405×720 rendered review pass.
 Collision correction now uses at most two passes, repeating only for contacts deeper than
-one world unit. Eight crowd/attack checks and combat regressions pass. Charge effect tuning,
-haptics, tactile device review and broader effect-priority work remain outstanding.
+one world unit. Units now render narrower over the same collision bodies; all company move
+destinations remain visible, nearby active bonds link their captains, and hits, charges,
+captain falls and routs receive short field marks. Eight crowd/attack checks and combat
+regressions pass. Haptics, tactile device review and broader effect-priority work remain.
 
 An isolated interleaved desktop profile (`tests/collision_profile.gd`, three seeds, 600 ticks
 each) compares the first three-pass collision fix with this two-pass revision:
@@ -596,6 +604,17 @@ compact presentation preserve battle logic for the same recorded commands at sim
 times; input response and frame time are measured on the target phone.
 
 ### C — One convincing return to camp
+
+**Partial delivery, 2026-10-29:** the battle aftermath now reconciles casualty totals,
+campaign rewards, captain fate rolls, earned bonds, XP and training readiness in a scrollable
+report. The report is saved as the last battle. Warband captain cards open persistent profiles
+for living and fallen captains, combining portrait, status, traits, company record, progression
+and relationships. The screen now adds a company banner, payment forecast, sorting, separate
+active/wounded sections and strength, experience and bond meters while preserving its scroll
+position through profile visits. Rank C/B/A bond milestones show paired portraits and exact
+effects; optional camp dialogue refers only to recorded battles, outcomes, wounds and losses.
+Bonded deaths create saved memorial reactions and survivor history without adding a new reward
+or penalty. A quieter camp mix and explicit recovery actions remain future work.
 
 Deliver captain portrait continuity, the revised battle report, a remembrance view and a
 quiet camp mix. Use a victory, a costly victory and a defeat as separate review cases.

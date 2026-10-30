@@ -44,7 +44,7 @@ static func location(id: String, height: float = 230.0) -> TextureRect:
 	node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	if id in ["ravensford", "common_room"]:
+	if id in ["ravensford", "common_room", "company_camp"]:
 		node.texture = texture("res://assets/locations/%s.png" % id)
 	node.visible = node.texture != null
 	return node

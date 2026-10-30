@@ -33,6 +33,10 @@ var last_result := {}
 ## Saved per campaign: pending help survives a quit until explicitly acknowledged.
 var bond_intro_seen := false
 var bond_intro_pair := ""
+var bond_intro_ids: Array = []
+## Saved bond milestones waiting to be shown, and factual shared history for camp scenes.
+var bond_events: Array = []
+var bond_records: Dictionary = {}
 ## Coin, rations (one per man per day) and renown, which lets you lead more squads.
 var silver := 0
 var food := 0
@@ -88,6 +92,9 @@ func new_warband() -> void:
 	last_result = {}
 	bond_intro_seen = false
 	bond_intro_pair = ""
+	bond_intro_ids = []
+	bond_events = []
+	bond_records = {}
 	map_notice = ""
 	desertion_warning = ""
 	_next_id = 1
@@ -461,13 +468,160 @@ func bonds() -> Array:
 
 
 func bond_intro_pending() -> bool:
-	return not bond_intro_seen and bond_intro_pair != ""
+	return not bond_events.is_empty() or (not bond_intro_seen and bond_intro_pair != "")
+
+
+## The rank or memorial moment currently waiting for the player. The legacy fields remain
+## readable so version-6 campaigns saved during the original rank-C introduction still work.
+func bond_intro_event() -> Dictionary:
+	if not bond_events.is_empty():
+		return bond_events[0]
+	if not bond_intro_seen and bond_intro_pair != "":
+		return {"kind": "rank", "rank": "C", "a_id": int(bond_intro_ids[0]) if bond_intro_ids.size() > 0 else 0,
+			"b_id": int(bond_intro_ids[1]) if bond_intro_ids.size() > 1 else 0, "pair": bond_intro_pair,
+			"shared_battles": 1, "points": Captains.RANK_POINTS[1]}
+	return {}
 
 
 func acknowledge_bond_intro() -> void:
-	bond_intro_seen = true
-	bond_intro_pair = ""
+	var event := bond_intro_event()
+	if not bond_events.is_empty():
+		bond_events.pop_front()
+	if String(event.get("kind", "")) == "rank" and String(event.get("rank", "")) == "C":
+		bond_intro_seen = true
+	_sync_bond_intro_legacy()
 	save_game()
+
+
+func bond_intro_captains() -> Array:
+	var event := bond_intro_event()
+	var out := []
+	for id in [int(event.get("a_id", 0)), int(event.get("b_id", 0))]:
+		if id <= 0:
+			continue
+		var captain = _captain_or_memorial(id)
+		if captain != null:
+			out.append(captain)
+	if out.size() < 2 and bond_intro_pair != "":
+		for pair in bonds():
+			if bond_intro_pair.contains(String(pair["a"]["name"])) and bond_intro_pair.contains(String(pair["b"]["name"])):
+				return [pair["a"], pair["b"]]
+	return out
+
+
+func _captain_or_memorial(id: int) -> Variant:
+	var living = captain_by_id(id)
+	if living != null:
+		return living
+	for memorial in fallen:
+		if int(memorial.get("id", 0)) == id:
+			return memorial
+	return null
+
+
+func _bond_key_ids(a_id: int, b_id: int) -> String:
+	return "%d|%d" % [mini(a_id, b_id), maxi(a_id, b_id)]
+
+
+func bond_record(a_id: int, b_id: int) -> Dictionary:
+	return bond_records.get(_bond_key_ids(a_id, b_id), {})
+
+
+func _ensure_bond_record(a_id: int, b_id: int) -> Dictionary:
+	var key := _bond_key_ids(a_id, b_id)
+	if not bond_records.has(key):
+		bond_records[key] = {"shared_battles": 0, "last_battle": 0, "last_outcome": "",
+			"last_losses": 0, "milestones": [], "conversations": [], "losses": []}
+	return bond_records[key]
+
+
+func bond_effect_text(points: float) -> String:
+	var rank := Captains.rank_for(points)
+	if rank <= 0:
+		return "No battle effect until rank C."
+	var damage := roundi(Captains.RANK_POWER[rank] * 100.0)
+	return "+%.1f morale each second nearby%s" % [Captains.RANK_REGEN[rank],
+		" · +%d%% damage" % damage if damage > 0 else ""]
+
+
+func bond_conversation_is_new(a_id: int, b_id: int) -> bool:
+	var a = captain_by_id(a_id)
+	var b = captain_by_id(b_id)
+	if a == null or b == null:
+		return false
+	var rank := Captains.rank_letter(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	return rank != "" and not bond_record(a_id, b_id).get("conversations", []).has(rank)
+
+
+## A replayable, event-aware camp exchange. It reads campaign facts and changes no combat,
+## bond or relationship values; only the "new" marker is acknowledged.
+func bond_conversation(a_id: int, b_id: int) -> Dictionary:
+	var a = captain_by_id(a_id)
+	var b = captain_by_id(b_id)
+	if a == null or b == null:
+		return {}
+	var points := float(a.get("bonds", {}).get(str(b_id), 0.0))
+	var rank := Captains.rank_letter(points)
+	if rank == "":
+		return {}
+	var record := bond_record(a_id, b_id)
+	var shared := int(record.get("shared_battles", 0))
+	var passages := []
+	if shared > 0:
+		passages.append("%s and %s sit near the edge of the fire. They have fought close enough to rely on one another in %d %s." % [
+			a["first"], b["first"], shared, "battle" if shared == 1 else "battles"])
+	else:
+		passages.append("%s and %s sit near the edge of the fire. Their bond was already established before the company began keeping a shared battle record." % [a["first"], b["first"]])
+	var outcome := String(record.get("last_outcome", ""))
+	if outcome != "":
+		passages.append("Their last shared fight ended in %s, with %d of the company lost. Neither needs to make the cost sound smaller." % [
+			outcome, int(record.get("last_losses", 0))])
+	if int(a.get("wounded", 0)) > 0 or int(b.get("wounded", 0)) > 0:
+		var hurt := String(a["first"] if int(a.get("wounded", 0)) > 0 else b["first"])
+		var other := String(b["first"] if hurt == String(a["first"]) else a["first"])
+		passages.append("%s checks %s's bandages without ceremony. \"You heal. I will keep your place in the line.\"" % [other, hurt])
+	var remembered := []
+	for captain in [a, b]:
+		var history: Dictionary = captain.get("history", {})
+		for fallen_name in history.get("fallen_friends", []):
+			if not remembered.has(fallen_name):
+				remembered.append(fallen_name)
+	if not remembered.is_empty():
+		passages.append("Before they rise, they speak the names of the absent: %s. The silence afterward is shared, not empty." % ", ".join(PackedStringArray(remembered)))
+	passages.append(_bond_voice_line(a, b))
+	return {"a": a, "b": b, "rank": rank, "points": points, "shared_battles": shared, "passages": passages}
+
+
+func _bond_voice_line(a: Dictionary, b: Dictionary) -> String:
+	match String(a.get("temperament", Captains.STEADFAST)):
+		Captains.VENGEFUL:
+			return "\"If you fall,\" %s says, \"I finish what reached you.\" %s answers, \"Then I had better stay standing.\"" % [a["first"], b["first"]]
+		Captains.FRAGILE:
+			return "%s admits that the line feels thinner whenever %s is out of sight. %s does not laugh; that is answer enough." % [a["first"], b["first"], b["first"]]
+		_:
+			return "%s says, \"Same distance tomorrow. Close enough to help, far enough to breathe.\" %s nods." % [a["first"], b["first"]]
+
+
+func acknowledge_bond_conversation(a_id: int, b_id: int) -> void:
+	var a = captain_by_id(a_id)
+	var b = captain_by_id(b_id)
+	if a == null or b == null:
+		return
+	var rank := Captains.rank_letter(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	var record := _ensure_bond_record(a_id, b_id)
+	if rank != "" and not record["conversations"].has(rank):
+		record["conversations"].append(rank)
+		save_game()
+
+
+func _sync_bond_intro_legacy() -> void:
+	if bond_events.is_empty():
+		bond_intro_pair = ""
+		bond_intro_ids = []
+		return
+	var event: Dictionary = bond_events[0]
+	bond_intro_pair = String(event.get("pair", ""))
+	bond_intro_ids = [int(event.get("a_id", 0)), int(event.get("b_id", 0))]
 
 
 ## What kind of fight `band` makes of it: "village" if you catch it raiding one, "chief"
@@ -594,6 +748,107 @@ func describe_result(result: Dictionary) -> Array:
 	return lines
 
 
+## A complete, read-only account of a battle while the old roster is still intact.
+## The result screen and the saved "last battle" card both use this, so rewards,
+## captain fates, bonds and progression tell the same story.
+func battle_report(result: Dictionary) -> Dictionary:
+	var won := bool(result.get("won", false))
+	var lost := int(result.get("lost", 0))
+	var killed := int(result.get("killed", 0))
+	var by_id: Dictionary = result.get("squads", {})
+	var squad_rows := []
+	var captain_rows := []
+	var strongest := {}
+	for squad in army:
+		var id := int(squad.get("id", 0))
+		var outcome = by_id.get(id, by_id.get(str(id)))
+		if typeof(outcome) != TYPE_DICTIONARY:
+			continue
+		var before_men := int(squad.get("men", 0))
+		var after_men := int(outcome.get("men", before_men))
+		var battle_kills := int(outcome.get("kills", 0))
+		var before_xp := int(squad.get("xp", 0))
+		var after_xp := before_xp + battle_kills
+		var level := int(squad.get("level", Troops.level_for(before_xp)))
+		var row := {
+			"id": id, "name": String(squad.get("name", "Company")),
+			"unit_name": Units.troop_name(squad, culture),
+			"men_before": before_men, "men_after": after_men,
+			"lost": maxi(0, before_men - after_men), "kills": battle_kills,
+			"xp_before": before_xp, "xp_after": after_xp,
+			"level_before": level, "level_after": Troops.level_for(after_xp),
+			"training_ready": Troops.level_for(after_xp) > level,
+		}
+		squad_rows.append(row)
+		if strongest.is_empty() or battle_kills > int(strongest.get("kills", -1)):
+			strongest = row
+		var captain = squad.get("captain")
+		var captain_result = outcome.get("captain")
+		if typeof(captain) == TYPE_DICTIONARY and typeof(captain_result) == TYPE_DICTIONARY:
+			captain_rows.append({
+				"id": int(captain.get("id", 0)),
+				"appearance_id": Captains.ensure_appearance(captain),
+				"name": String(captain.get("name", "Captain")),
+				"first": String(captain.get("first", "Captain")),
+				"company": String(squad.get("name", "Company")),
+				"culture": String(captain.get("culture", culture)),
+				"fate": String(captain_result.get("fate", "standing")),
+				"roll": int(captain_result.get("roll", 0)),
+				"needed": int(captain_result.get("needed", 0)),
+				"kills": int(captain_result.get("kills", 0)),
+				"words": String(captain_result.get("words", "")),
+			})
+
+	var bond_rows := []
+	var gained: Dictionary = result.get("bonds", {})
+	for key in gained:
+		var ids := String(key).split("|")
+		if ids.size() != 2:
+			continue
+		var a = captain_by_id(int(ids[0]))
+		var b = captain_by_id(int(ids[1]))
+		if a == null or b == null:
+			continue
+		var before := float(a["bonds"].get(str(b["id"]), 0.0))
+		var earned := _bond_points(a, b, float(gained[key]))
+		var after := before + earned
+		bond_rows.append({
+			"a_id": int(a["id"]), "b_id": int(b["id"]),
+			"a_name": String(a["first"]), "b_name": String(b["first"]),
+			"a_appearance_id": Captains.ensure_appearance(a),
+			"b_appearance_id": Captains.ensure_appearance(b),
+			"a_culture": String(a.get("culture", culture)),
+			"b_culture": String(b.get("culture", culture)),
+			"before": before, "earned": earned, "after": after,
+			"rank_before": Captains.rank_letter(before),
+			"rank_after": Captains.rank_letter(after),
+			"rank_up": Captains.rank_for(after) > Captains.rank_for(before),
+		})
+
+	var rewards := {"silver": 0, "food": 0, "renown": 0}
+	if won and world != null and not pending_battle.is_empty():
+		rewards = Economy.spoils(killed)
+		var objective := String(pending_battle.get("objective", "rout"))
+		if objective == "chief" and bool(result.get("chief_killed", false)):
+			rewards["silver"] = int(rewards["silver"]) * 2
+			rewards["renown"] = int(rewards["renown"]) + 10
+		elif objective == "village" and String(pending_battle.get("raid_village", "")) != "":
+			rewards["food"] = int(rewards["food"]) + 15
+
+	var story := "The company withdrew from the field." if not won else "The company held the field."
+	if not strongest.is_empty() and int(strongest["kills"]) > 0:
+		story = "%s bore the hardest fighting, cutting down %d." % [strongest["name"], strongest["kills"]]
+		story += " The company held the field." if won else " The survivors withdrew."
+	if lost > 0:
+		story += " %d %s did not return." % [lost, "soldier" if lost == 1 else "soldiers"]
+	return {
+		"won": won, "lost": lost, "killed": killed,
+		"reason": String(result.get("reason", "")), "story": story,
+		"rewards": rewards, "captains": captain_rows, "bonds": bond_rows,
+		"squads": squad_rows,
+	}
+
+
 func _bond_changes(result: Dictionary) -> Array:
 	var out := []
 	var gained: Dictionary = result.get("bonds", {})
@@ -610,6 +865,70 @@ func _bond_changes(result: Dictionary) -> Array:
 	return out
 
 
+func _bond_rank_events(result: Dictionary) -> Array:
+	var out := []
+	var gained: Dictionary = result.get("bonds", {})
+	for key in gained:
+		var ids := String(key).split("|")
+		if ids.size() != 2:
+			continue
+		var a = captain_by_id(int(ids[0]))
+		var b = captain_by_id(int(ids[1]))
+		if a == null or b == null:
+			continue
+		var before := float(a["bonds"].get(str(b["id"]), 0.0))
+		var after := before + _bond_points(a, b, float(gained[key]))
+		for rank_index in range(Captains.rank_for(before) + 1, Captains.rank_for(after) + 1):
+			out.append({"a_id": int(a["id"]), "b_id": int(b["id"]), "rank": Captains.RANKS[rank_index],
+				"points": after, "pair": "%s & %s" % [a["name"], b["name"]]})
+	return out
+
+
+func _queue_bond_rank_events(events: Array) -> void:
+	for event in events:
+		var a_id := int(event["a_id"])
+		var b_id := int(event["b_id"])
+		if captain_by_id(a_id) == null or captain_by_id(b_id) == null:
+			continue
+		var rank := String(event["rank"])
+		var record := _ensure_bond_record(a_id, b_id)
+		if record["milestones"].has(rank):
+			continue
+		record["milestones"].append(rank)
+		if rank == "C" and bond_intro_seen:
+			continue
+		var queued: Dictionary = event.duplicate(true)
+		queued["kind"] = "rank"
+		queued["battle"] = battles
+		queued["shared_battles"] = int(record.get("shared_battles", 0))
+		bond_events.append(queued)
+	_sync_bond_intro_legacy()
+
+
+func _record_bond_loss(fallen_captain: Dictionary) -> void:
+	for other_id in fallen_captain.get("bonds", {}):
+		var survivor = captain_by_id(int(other_id))
+		if survivor == null:
+			continue
+		var points := float(fallen_captain["bonds"][other_id])
+		var rank := Captains.rank_letter(points)
+		if rank == "":
+			continue
+		var history: Dictionary = survivor.get("history", {"wounds": 0, "fallen_friends": []})
+		if not history.get("fallen_friends", []).has(fallen_captain["name"]):
+			history["fallen_friends"].append(fallen_captain["name"])
+		survivor["history"] = history
+		var record := _ensure_bond_record(int(fallen_captain["id"]), int(survivor["id"]))
+		if not record["losses"].has(fallen_captain["name"]):
+			record["losses"].append(fallen_captain["name"])
+		bond_events.append({"kind": "memorial", "rank": rank,
+			"a_id": int(survivor["id"]), "b_id": int(fallen_captain["id"]),
+			"pair": "%s remembers %s" % [survivor["name"], fallen_captain["name"]],
+			"fallen_name": String(fallen_captain["name"]), "battle": battles,
+			"shared_battles": int(record.get("shared_battles", 0))})
+	_sync_bond_intro_legacy()
+
+
 func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 	var points := minf(Captains.BOND_POINTS_PER_BATTLE, seconds / Captains.BOND_SECONDS_PER_POINT)
 	if a.get("quirk", "") == Captains.MENTOR or b.get("quirk", "") == Captains.MENTOR:
@@ -621,7 +940,8 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 func apply_result(result: Dictionary) -> void:
 	# What became of each captain, in words, while the roster still names them.
 	var fates := describe_result(result)
-	var bond_changes := _bond_changes(result)
+	var rank_events := _bond_rank_events(result)
+	var report := battle_report(result)
 	battles += 1
 	var by_id: Dictionary = result.get("squads", {})
 	# Bonds first, while every captain who fought is still on the roster.
@@ -635,7 +955,13 @@ func apply_result(result: Dictionary) -> void:
 		var points := float(a["bonds"].get(str(b["id"]), 0.0)) + _bond_points(a, b, float(gained[key]))
 		a["bonds"][str(b["id"])] = points
 		b["bonds"][str(a["id"])] = points
+		var record := _ensure_bond_record(int(a["id"]), int(b["id"]))
+		record["shared_battles"] = int(record.get("shared_battles", 0)) + 1
+		record["last_battle"] = battles
+		record["last_outcome"] = "victory" if bool(result.get("won", false)) else "defeat"
+		record["last_losses"] = int(result.get("lost", 0))
 	var dead_ids := []
+	var fallen_captains := []
 	for s in army:
 		var id := int(s["id"])
 		var c = s.get("captain")
@@ -655,11 +981,18 @@ func apply_result(result: Dictionary) -> void:
 		match String(cr["fate"]):
 			"wounded":
 				c["wounded"] = Captains.WOUND_BATTLES
+				var history: Dictionary = c.get("history", {"wounds": 0, "fallen_friends": []})
+				history["wounds"] = int(history.get("wounds", 0)) + 1
+				c["history"] = history
 			"killed":
 				dead_ids.append(int(c["id"]))
+				fallen_captains.append(c)
 				fallen.append(_memorial(s, c, String(cr.get("words", ""))))
 				# A veteran from the ranks takes command, if there's anyone left to lead.
 				s["captain"] = _new_captain(String(s["type"])) if int(s["men"]) > 0 else null
+	# Reactions are created only for partners who actually survived the whole result.
+	for fallen_captain in fallen_captains:
+		_record_bond_loss(fallen_captain)
 	for s in army:
 		var c = s.get("captain")
 		if c != null:
@@ -667,11 +1000,7 @@ func apply_result(result: Dictionary) -> void:
 				c["bonds"].erase(str(d))
 	# A squad with no men left is gone, unless its captain lived to raise it again.
 	army = army.filter(func(s): return int(s["men"]) > 0 or s.get("captain") != null)
-	if not bond_intro_seen and bond_intro_pair == "":
-		for change in bond_changes:
-			if captain_by_id(int(change["a"]["id"])) != null and captain_by_id(int(change["b"]["id"])) != null:
-				bond_intro_pair = "%s & %s" % [change["a"]["name"], change["b"]["name"]]
-				break
+	_queue_bond_rank_events(rank_events)
 	if result.get("won", false):
 		wins += 1
 	if world != null and not pending_battle.is_empty():
@@ -714,12 +1043,7 @@ func apply_result(result: Dictionary) -> void:
 			_note(line)
 		settle()
 	pending_battle = {}
-	last_result = {
-		"won": bool(result.get("won", false)),
-		"lost": int(result.get("lost", 0)),
-		"killed": int(result.get("killed", 0)),
-		"reason": String(result.get("reason", "")),
-	}
+	last_result = report
 	save_game()
 
 
@@ -731,8 +1055,10 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
 		if other != null and rank != "":
 			friends.append("%s (%s)" % [other["first"], rank])
 	return {
-		"name": c["name"], "company": squad.get("name", ""), "type": squad["type"], "unit": squad.get("unit", ""),
+		"id": int(c.get("id", 0)), "appearance_id": Captains.ensure_appearance(c),
+		"name": c["name"], "first": c.get("first", c["name"]), "company": squad.get("name", ""), "type": squad["type"], "unit": squad.get("unit", ""),
 		"culture": squad.get("culture", culture),
+		"temperament": c.get("temperament", ""), "quirk": c.get("quirk", ""), "history": c.get("history", {}),
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		"words": words,
 		"bonds": friends,
@@ -764,8 +1090,9 @@ func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
 		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
 		"silver": silver, "food": food, "renown": renown, "paid_day": _paid_day,
-		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair,
-		"desertion_warning": desertion_warning,
+		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair, "bond_intro_ids": bond_intro_ids,
+		"bond_events": bond_events, "bond_records": bond_records,
+		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
 
@@ -791,9 +1118,13 @@ func from_dict(data: Dictionary) -> bool:
 	renown = int(data.get("renown", 0))
 	_paid_day = int(data.get("paid_day", int(world.hour / 24.0) if world != null else 0))
 	wins = int(data.get("wins", 0))
+	last_result = data.get("last_result", {}) if typeof(data.get("last_result")) == TYPE_DICTIONARY else {}
 	_next_id = int(data.get("next_id", 1))
 	_next_captain = int(data.get("next_captain", 1))
 	fallen = data.get("fallen", []) if typeof(data.get("fallen")) == TYPE_ARRAY else []
+	for memorial in fallen:
+		if typeof(memorial) == TYPE_DICTIONARY:
+			Captains.ensure_appearance(memorial)
 	army = []
 	for s in data["army"]:
 		if typeof(s) != TYPE_DICTIONARY or not Troops.TYPES.has(String(s.get("type", ""))):
@@ -827,6 +1158,10 @@ func from_dict(data: Dictionary) -> bool:
 			s["name"] = Captains.company_name(s["captain"], s["type"])
 	bond_intro_seen = bool(data.get("bond_intro_seen", not bonds().is_empty()))
 	bond_intro_pair = String(data.get("bond_intro_pair", ""))
+	bond_intro_ids = data.get("bond_intro_ids", []) if typeof(data.get("bond_intro_ids")) == TYPE_ARRAY else []
+	bond_events = data.get("bond_events", []) if typeof(data.get("bond_events")) == TYPE_ARRAY else []
+	bond_records = data.get("bond_records", {}) if typeof(data.get("bond_records")) == TYPE_DICTIONARY else {}
+	_clean_bond_state()
 	desertion_warning = String(data.get("desertion_warning", ""))
 	# And those saved before they needed feeding start with a new warband's rations.
 	if food < 0:
@@ -840,12 +1175,53 @@ func _clean_captain(c: Dictionary, type: String) -> Dictionary:
 	if typeof(raw) == TYPE_DICTIONARY:
 		for k in raw:
 			bonds[str(int(float(k)))] = float(raw[k])
-	return {
+	var history := {"wounds": 0, "fallen_friends": []}
+	if typeof(c.get("history")) == TYPE_DICTIONARY:
+		history["wounds"] = int(c["history"].get("wounds", 0))
+		history["fallen_friends"] = c["history"].get("fallen_friends", []) if typeof(c["history"].get("fallen_friends")) == TYPE_ARRAY else []
+	var clean := {
 		"id": int(c.get("id", 0)), "name": String(c.get("name", "Nameless")), "first": String(c.get("first", "Nameless")),
 		"culture": String(c.get("culture", Cultures.VARDISH)), "type": type, "temperament": String(c.get("temperament", Captains.STEADFAST)), "quirk": String(c.get("quirk", "")),
 		"wounded": int(c.get("wounded", 0)), "battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0)),
-		"bonds": bonds,
+		"bonds": bonds, "history": history,
 	}
+	clean["appearance_id"] = String(c.get("appearance_id", ""))
+	Captains.ensure_appearance(clean)
+	return clean
+
+
+func _clean_bond_state() -> void:
+	var clean_records := {}
+	for raw_key in bond_records:
+		var ids := String(raw_key).split("|")
+		if ids.size() != 2:
+			continue
+		var key := _bond_key_ids(int(float(ids[0])), int(float(ids[1])))
+		var raw = bond_records[raw_key]
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		clean_records[key] = {
+			"shared_battles": int(raw.get("shared_battles", 0)), "last_battle": int(raw.get("last_battle", 0)),
+			"last_outcome": String(raw.get("last_outcome", "")), "last_losses": int(raw.get("last_losses", 0)),
+			"milestones": raw.get("milestones", []) if typeof(raw.get("milestones")) == TYPE_ARRAY else [],
+			"conversations": raw.get("conversations", []) if typeof(raw.get("conversations")) == TYPE_ARRAY else [],
+			"losses": raw.get("losses", []) if typeof(raw.get("losses")) == TYPE_ARRAY else [],
+		}
+	bond_records = clean_records
+	var clean_events := []
+	for raw in bond_events:
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var event: Dictionary = raw.duplicate(true)
+		event["a_id"] = int(raw.get("a_id", 0))
+		event["b_id"] = int(raw.get("b_id", 0))
+		event["battle"] = int(raw.get("battle", 0))
+		event["shared_battles"] = int(raw.get("shared_battles", 0))
+		event["points"] = float(raw.get("points", 0.0))
+		clean_events.append(event)
+	bond_events = clean_events
+	if not bond_events.is_empty():
+		_sync_bond_intro_legacy()
 
 
 func personal_conversation_context() -> Dictionary:

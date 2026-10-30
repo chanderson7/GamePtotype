@@ -1629,6 +1629,13 @@ func _captained(type: String, id: int, extra: Dictionary = {}) -> Dictionary:
 
 
 func _check_captains() -> void:
+	var rng_probe := RandomNumberGenerator.new()
+	rng_probe.seed = 318
+	var rng_state := rng_probe.state
+	var first_look := Captains.appearance_for(Cultures.VARDISH, 1)
+	var second_look := Captains.appearance_for(Cultures.VARDISH, 2)
+	_expect(rng_probe.state == rng_state and first_look != second_look,
+		"captain appearances alternate without consuming campaign RNG")
 	var sim := Sim.new()
 	var wounded := _captained(Troops.INFANTRY, 2, {"wounded": 1})
 	sim.setup([_captained(Troops.INFANTRY, 1), wounded], [{"id": 9, "type": Troops.INFANTRY, "men": 20}], 3)
@@ -1643,6 +1650,20 @@ func _check_captains() -> void:
 		"each squad's captain is a hardier man at the heart of the squad")
 	_expect(hurt.captain == null and hurt.info.is_empty(), "a wounded captain sits the battle out")
 	sim.dispose()
+	var state := GameStateScript.new()
+	state.persist = false
+	state.new_warband()
+	var saved: Dictionary = JSON.parse_string(JSON.stringify(state.to_dict()))
+	var expected := String(saved["army"][0]["captain"]["appearance_id"])
+	for squad in saved["army"]:
+		squad["captain"].erase("appearance_id")
+	var restored := GameStateScript.new()
+	restored.persist = false
+	restored.from_dict(saved)
+	_expect(String(restored.army[0]["captain"]["appearance_id"]) == expected,
+		"old saves receive the same deterministic captain face")
+	state.free()
+	restored.free()
 
 
 ## Knock a captain down and return the event. `friends` puts another squad beside him.
@@ -1739,8 +1760,9 @@ func _check_camp_memory() -> void:
 	var lines: Array = gs.describe_result(result)
 	gs.apply_result(result)
 	var heir = gs.army[0]["captain"]
-	_expect(gs.fallen.size() == 1 and gs.fallen[0]["name"] == c1["name"] and gs.fallen[0]["words"] == "Tell them I held.",
-		"the dead go on the memorial with their last words")
+	_expect(gs.fallen.size() == 1 and gs.fallen[0]["name"] == c1["name"] and gs.fallen[0]["words"] == "Tell them I held."
+		and gs.fallen[0]["appearance_id"] == c1["appearance_id"],
+		"the dead go on the memorial with their last words and the same face")
 	_expect(heir != null and int(heir["id"]) != int(c1["id"]) and gs.army[0]["name"] == s1["name"],
 		"a veteran takes command and the company keeps its name")
 	_expect(int(c2["wounded"]) == Captains.WOUND_BATTLES and not c2["bonds"].has(str(c1["id"])),
