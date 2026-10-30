@@ -2,6 +2,8 @@
 extends RefCounted
 const Data = preload("res://scripts/world/world_data.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
+const Units = preload("res://scripts/data/units.gd")
 
 static func for_party(w, party_id: int) -> Dictionary:
 	for army in w.campaign_armies:
@@ -88,7 +90,7 @@ static func tick(w, dt: float) -> void:
 				army["destination"] = army["target"]
 				w._set_job(w.lord_of(p), p, "army", army["target"])
 				w.emit_event({"type": "army_departed", "army": army["id"], "target": army["target"]})
-		else:
+		elif army["state"] == "marching":
 			if not reachable(w, p, army["destination"]):
 				disband(w, army, "No route to destination")
 				continue
@@ -101,12 +103,60 @@ static func tick(w, dt: float) -> void:
 				member.path = p.path.duplicate()
 				member.wait = 0.0
 			if not p.moving() and p.node == army["destination"]:
-				if army["state"] == "marching":
-					# Siege resolution is the next slice; expeditions never capture silently.
-					w.emit_event({"type": "army_arrived", "army": army["id"], "target": army["target"]})
-					return_home(w, army, "Expedition completed; returning home")
+				if w.owner_of(army["target"]) == army["realm"] or not w.at_war(army["realm"], w.owner_of(army["target"])):
+					return_home(w, army, "Target changed or peace declared")
 				else:
-					disband(w, army, army.get("reason", "Returned home"))
+					army["state"] = "besieging"
+					army["destination"] = army["target"]
+					army["siege_start"] = w.hour
+					army["siege_prep_until"] = w.hour + Lords.SIEGE_PREP_HOURS
+					var kind := String(Data.settlement(army["target"])["type"])
+					army["siege_food_until"] = w.hour + float(Lords.SIEGE_FOOD_DAYS.get(kind, 5.0)) * 24.0
+					w.emit_event({"type": "siege_started", "army": army["id"], "target": army["target"], "realm": army["realm"]})
+		elif army["state"] == "besieging":
+			p.node = army["target"]
+			p.next = ""
+			p.along = 0.0
+			p.path.clear()
+			p.wait = 0.0
+			for member in members(w, army):
+				member.node = p.node
+				member.next = ""
+				member.along = 0.0
+				member.path.clear()
+				member.wait = 0.0
+			# Check relief force
+			var relief_party = null
+			for lp in w.lord_parties():
+				if lp.node == army["target"] and not lp.moving() and w.at_war(lp.faction, army["realm"]):
+					relief_party = lp
+					break
+			if relief_party != null:
+				var besieger_won := _resolve_relief(w, army, relief_party)
+				if not besieger_won or not w.campaign_armies.has(army):
+					continue
+			# Check food starvation
+			if w.hour >= float(army.get("siege_food_until", 0.0)):
+				capture_settlement(w, army, "starvation")
+				continue
+			# Check assault readiness
+			if w.hour >= float(army.get("siege_prep_until", 0.0)):
+				assault(w, army)
+				continue
+		elif army["state"] == "returning":
+			if not reachable(w, p, army["destination"]):
+				disband(w, army, "No route to destination")
+				continue
+			if p.moving(): w._move(p, dt)
+			for member in members(w, army):
+				if member == p: continue
+				member.node = p.node
+				member.next = p.next
+				member.along = p.along
+				member.path = p.path.duplicate()
+				member.wait = 0.0
+			if not p.moving() and p.node == army["destination"]:
+				disband(w, army, army.get("reason", "Returned home"))
 	for realm in w.realms:
 		if w.hour < float(w.army_ready_at.get(realm, 0.0)): continue
 		if w.campaign_armies.any(func(a): return a["realm"] == realm): continue
@@ -130,9 +180,9 @@ static func create(w, realm: String) -> void:
 	var score := INF
 	for id in Data.SETTLEMENTS:
 		if Data.is_village(id) or not w.at_war(realm, w.owner_of(id)): continue
-		var route: Array = w.path(muster, id)
-		if route.is_empty(): continue
-		var value: float = w.route_hours(muster, route) + w.men_of(w.garrison_at(id)) * 0.05
+		var h: float = w._hours(p, muster, id)
+		if is_inf(h): continue
+		var value: float = h + w.men_of(w.garrison_at(id)) * 0.05
 		if Data.settlement(id)["type"] == Data.TOWN: value -= 2.0
 		if value < score:
 			score = value
@@ -149,3 +199,128 @@ static func create(w, realm: String) -> void:
 	w.campaign_armies.append(army)
 	w.realms[realm]["marshal"] = int(marshal["id"])
 	w.emit_event({"type": "army_formed", "army": army["id"], "realm": realm, "marshal": marshal["name"], "target": best})
+
+static func _resolve_relief(w, army: Dictionary, relief_party) -> bool:
+	var p = leader(w, army)
+	if p == null:
+		return false
+	var loser = w._ai_fight(p, relief_party)
+	return loser != p
+
+static func assault(w, army: Dictionary) -> void:
+	var target: String = army["target"]
+	if w.owner_of(target) == army["realm"] or not w.at_war(army["realm"], w.owner_of(target)):
+		return_home(w, army, "Target changed or peace declared")
+		return
+
+	var attacker_squads: Array = []
+	for member in members(w, army):
+		for sq in member.army:
+			if int(sq.get("men", 0)) > 0:
+				attacker_squads.append(sq)
+
+	if attacker_squads.is_empty():
+		disband(w, army, "No attacking troops remain")
+		return
+
+	var garrison: Array = w.garrison_at(target)
+	if w.men_of(garrison) == 0:
+		capture_settlement(w, army, "assault")
+		return
+
+	var kind: String = Data.settlement(target)["type"]
+	var wall_mult: float = float(AutoResolve.WALLS.get(kind, 1.4))
+	var res: Dictionary = AutoResolve.resolve_siege(attacker_squads, garrison, wall_mult, w.rng)
+
+	for sq in garrison:
+		var entry = res["defender_squads"].get(int(sq["id"]))
+		if entry:
+			sq["men"] = int(entry["men"])
+	w.garrisons[target] = garrison.filter(func(sq): return int(sq["men"]) > 0)
+
+	for member in members(w, army):
+		for sq in member.army:
+			var entry = res["attacker_squads"].get(int(sq["id"]))
+			if entry:
+				sq["men"] = int(entry["men"])
+		member.army = member.army.filter(func(sq): return int(sq["men"]) > 0)
+
+	w.emit_event({
+		"type": "siege_assault",
+		"army": army["id"],
+		"target": target,
+		"attacker_won": res["attacker_won"],
+		"attacker_lost": res["attacker_lost"],
+		"defender_lost": res["defender_lost"],
+	})
+
+	if res["attacker_won"]:
+		capture_settlement(w, army, "assault")
+	else:
+		w.emit_event({"type": "siege_repulsed", "army": army["id"], "target": target})
+		return_home(w, army, "Assault repulsed")
+
+static func capture_settlement(w, army: Dictionary, reason: String) -> void:
+	var target: String = army["target"]
+	var realm: String = army["realm"]
+	var was: String = w.owner_of(target)
+
+	w.set_owner(target, realm)
+
+	var surviving_attackers := 0
+	for member in members(w, army):
+		surviving_attackers += w.men_of(member.army)
+
+	var cap: int = w.garrison_capacity(target)
+	var desired: int = mini(int(cap * Lords.GARRISON_START_SHARE), int(surviving_attackers * 0.4))
+	desired = mini(desired, maxi(0, surviving_attackers - 10))
+
+	if desired > 0:
+		var tpl: Array = w._garrison_template(target)
+		var placed := 0
+		for sq in tpl:
+			if placed >= desired:
+				break
+			var room: int = Units.full_size(String(sq["unit"]))
+			var to_add: int = mini(room, desired - placed)
+			sq["men"] = to_add
+			placed += to_add
+		w.garrisons[target] = tpl.filter(func(s): return int(s["men"]) > 0)
+
+		var to_remove := placed
+		var mems := members(w, army)
+		while to_remove > 0 and not mems.is_empty():
+			var taken_this_pass := false
+			for member in mems:
+				if to_remove <= 0:
+					break
+				for sq in member.army:
+					if int(sq.get("men", 0)) > 1:
+						sq["men"] = int(sq["men"]) - 1
+						to_remove -= 1
+						taken_this_pass = true
+						if to_remove <= 0:
+							break
+			if not taken_this_pass:
+				for member in mems:
+					if to_remove <= 0:
+						break
+					for sq in member.army:
+						if int(sq.get("men", 0)) > 0:
+							sq["men"] = int(sq["men"]) - 1
+							to_remove -= 1
+							if to_remove <= 0:
+								break
+				break
+		for member in mems:
+			member.army = member.army.filter(func(sq): return int(sq["men"]) > 0)
+
+	w.emit_event({
+		"type": "settlement_captured",
+		"settlement": target,
+		"realm": realm,
+		"from": was,
+		"by_army": army["id"],
+		"reason": reason,
+	})
+	return_home(w, army, "Expedition successful: %s captured" % Data.settlement(target)["name"])

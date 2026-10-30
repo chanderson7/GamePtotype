@@ -26,16 +26,17 @@ and a reusable company camp—is implemented; siege resolution remains the next 
 - Phase 3 is done; every gate passes.
 - Phase 4.1 (owners, wars, 21 settlements, save v5) and 4.2 (lords on the map) are done:
   see their "As built" notes in `docs/phase-4-plan.md`.
-- Phase 4.3's garrisons are done: towns and castles recruit daily from their owner's
-  treasury, keep their guards in saves, and show their strength in settlement descriptions.
-- Marshal expeditions are implemented: saved membership, timed gathering, joint travel,
-  aggregate field battles, readable map sheets, interruption and return/disband behavior.
-- **Next: 4.3**, one piece per session, committing and pushing after each:
-  1. Sieges by auto-resolve with walls (castle ×1.6, town ×1.4), then
-     `world.set_owner(id, realm)`. Gate: twice the garrison's strength takes it ≥ 80%.
-     `set_owner` clears the old defenders; leave attacking survivors in `world.garrisons[id]`
-     after transferring ownership. Village militia and siege food belong to this piece.
-- Then 4.4 (war and peace), 4.5 (contracts and lord encounters), 4.6, 4.7.
+- Phase 4.3 is done:
+  - Garrisons grow daily from treasuries, save accurately, and show in descriptions.
+  - Marshal expeditions: saved membership, timed gathering, joint travel, and aggregate battles.
+  - Sieges with walls (castle ×1.6, town ×1.4), ladder/ram prep, defender food starvation,
+    relief battles, auto-resolved assaults, and settlement ownership transfer.
+  - Attacking survivors stationed into garrison 1:1 (soldier conservation), bound villages follow,
+    fief-holders become landless upon seat loss, capital relocates, and 15-man village militia resists raids.
+- **Next: 4.4 (War and peace)**, one piece per session, committing and pushing after each:
+  - War and peace conditions: reasons for war (border raids, broken pacts, conquests), peace offerings,
+    truce durations, and realm AI declarations.
+- Then 4.5 (contracts and lord encounters), 4.6, 4.7.
 
 ## Menu and onboarding update
 

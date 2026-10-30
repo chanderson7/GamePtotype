@@ -107,5 +107,132 @@ func _init() -> void:
 	legacy.erase("next_army_id")
 	restored.from_dict(legacy)
 	check(restored.campaign_armies.is_empty() and restored.next_army_id == 1, "old saves start without expeditions")
+
+	# --- Siege auto-resolve wall multiplier and quantitative gate ---
+	const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
+	var garrison_squads: Array = w.garrison_at("ravensford").duplicate(true)
+	var g_men: int = w.men_of(garrison_squads)
+	# Raw garrison strength:
+	var g_str: float = AutoResolve.strength(garrison_squads, [])
+	var test_rng := RandomNumberGenerator.new()
+	test_rng.seed = 12345
+	# Attacker with twice the garrison's strength:
+	var twice_squads: Array = [
+		{"id": 1, "type": "infantry", "unit": "vard_foot", "culture": "vardish", "level": 1, "xp": 0, "men": int(g_men * 2.2), "captain": null}
+	]
+	var twice_wins := 0
+	for seed_i in 50:
+		test_rng.seed = 20000 + seed_i
+		var res: Dictionary = AutoResolve.resolve_siege(twice_squads, garrison_squads, AutoResolve.WALLS["castle"], test_rng)
+		if res["won"]: twice_wins += 1
+	var twice_win_rate := float(twice_wins) / 50.0
+	check(twice_win_rate >= 0.80, "gate: twice garrison strength takes settlement >= 80%% (got %.1f%%)" % [twice_win_rate * 100.0])
+
+	# Attacker with less than garrison's strength:
+	var weak_squads: Array = [
+		{"id": 1, "type": "infantry", "unit": "vard_foot", "culture": "vardish", "level": 1, "xp": 0, "men": int(g_men * 0.7), "captain": null}
+	]
+	var weak_wins := 0
+	for seed_i in 50:
+		test_rng.seed = 30000 + seed_i
+		var res: Dictionary = AutoResolve.resolve_siege(weak_squads, garrison_squads, AutoResolve.WALLS["castle"], test_rng)
+		if res["won"]: weak_wins += 1
+	var weak_win_rate := float(weak_wins) / 50.0
+	check(weak_win_rate <= 0.20, "gate: less than garrison strength succeeds <= 20%% (got %.1f%%)" % [weak_win_rate * 100.0])
+
+	# --- Siege lifecycle: march, besiege, assault, capture, garrison stationing & troop conservation ---
+	w = fixture()
+	Armies.tick(w, 0.0)
+	army = w.campaign_armies[0]
+	var siege_target: String = army["target"]
+	var target_owner: String = w.owner_of(siege_target)
+	var attacker_realm: String = army["realm"]
+	# Move gathered lords to target to initiate siege:
+	army["state"] = "marching"
+	army["destination"] = siege_target
+	var l_party = Armies.leader(w, army)
+	l_party.node = siege_target
+	l_party.next = ""
+	l_party.along = 0.0
+	l_party.path.clear()
+	for m in Armies.members(w, army):
+		m.node = siege_target
+		m.next = ""
+		m.path.clear()
+	Armies.tick(w, 0.25)
+	check(army["state"] == "besieging", "arriving army establishes siege camp")
+	check(army.has("siege_prep_until") and army.has("siege_food_until"), "siege tracks ladder/ram preparation and defender food")
+
+	# Fast forward past preparation to trigger assault:
+	w.hour = float(army["siege_prep_until"]) + 0.1
+	# Count attacker troops before assault:
+	var atk_troops_before := 0
+	for m in Armies.members(w, army): atk_troops_before += w.men_of(m.army)
+	Armies.tick(w, 0.25)
+	check(w.owner_of(siege_target) == attacker_realm, "successful assault captures settlement and changes owner")
+	var new_garrison_men: int = w.men_of(w.garrison_at(siege_target))
+	check(new_garrison_men > 0, "surviving attackers are stationed in the captured garrison")
+	var atk_troops_after := 0
+	for m in Armies.members(w, army): atk_troops_after += w.men_of(m.army)
+	check(atk_troops_after + new_garrison_men <= atk_troops_before, "troop conservation: garrison troops come from attacking squads")
+
+	# Check bound villages followed the castle:
+	var bound_ok := true
+	for v in World.Data.SETTLEMENTS:
+		if String(World.Data.SETTLEMENTS[v].get("bound_to", "")) == siege_target:
+			bound_ok = bound_ok and w.owner_of(v) == attacker_realm
+	check(bound_ok, "bound villages follow captured settlement")
+
+	# --- Capital relocation and landless fief-holder ---
+	w = fixture()
+	var vard_cap: String = w.capital_of("vardmark")
+	var lord_with_cap = null
+	for l in w.lords:
+		if l["realm"] == "vardmark" and l["fief"] == vard_cap:
+			lord_with_cap = l
+			break
+	w.set_owner(vard_cap, "kharzan")
+	check(w.capital_of("vardmark") != vard_cap and w.capital_of("vardmark") != "", "captured capital relocates to another holding")
+	if lord_with_cap != null:
+		check(lord_with_cap["fief"] == "", "old fief holder becomes landless upon loss of seat")
+
+	# --- Starvation capture ---
+	w = fixture()
+	Armies.tick(w, 0.0)
+	army = w.campaign_armies[0]
+	siege_target = army["target"]
+	target_owner = w.owner_of(siege_target)
+	army["state"] = "besieging"
+	army["destination"] = siege_target
+	army["siege_start"] = w.hour
+	army["siege_prep_until"] = w.hour + 999.0 # Delay assault so starvation triggers first
+	army["siege_food_until"] = w.hour + 24.0
+	w.hour += 25.0
+	Armies.tick(w, 0.25)
+	check(w.owner_of(siege_target) == army["realm"], "starvation forces garrison surrender without assault")
+
+	# --- Village militia ---
+	var militia: Array = w.village_militia("kettlebrook")
+	check(militia.size() == 2 and w.men_of(militia) == 15, "villages have a small defensive militia (15 men)")
+
+	# --- Relief battle ---
+	w = fixture()
+	Armies.tick(w, 0.0)
+	army = w.campaign_armies[0]
+	siege_target = army["target"]
+	army["state"] = "besieging"
+	army["destination"] = siege_target
+	l_party = Armies.leader(w, army)
+	l_party.node = siege_target
+	# Spawn a strong relief party of defender's realm at the settlement:
+	var relief_lord = w.lord_parties().filter(func(p): return p.faction == army["target_owner"])[0]
+	relief_lord.node = siege_target
+	relief_lord.next = ""
+	relief_lord.path.clear()
+	# Give relief lord huge army to guarantee breaking siege:
+	relief_lord.army = [{"id": 9999, "type": "cavalry", "unit": "kharz_sipahi", "culture": "kharzani", "level": 2, "xp": 100, "men": 300, "captain": null}]
+	Armies.tick(w, 0.25)
+	check(army["state"] == "returning" or not w.campaign_armies.has(army), "victorious relief force breaks the siege")
+
 	print("Army failures: %d" % failures)
 	quit(failures)

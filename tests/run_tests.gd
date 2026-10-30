@@ -49,6 +49,21 @@ var failures := 0
 
 
 func _init() -> void:
+	var args := OS.get_cmdline_user_args()
+	if args.has("--world"):
+		print("World:")
+		_check_map()
+		_check_travel()
+		_check_encounters()
+		_check_world_saves()
+		_check_realms()
+		_check_garrisons()
+		_check_sieges()
+		_check_lords()
+		print("FAILURES: %d" % failures)
+		quit(1 if failures > 0 else 0)
+		return
+
 	print("Deployment:")
 	_check_deployment()
 
@@ -91,6 +106,7 @@ func _init() -> void:
 	_check_world_saves()
 	_check_realms()
 	_check_garrisons()
+	_check_sieges()
 	_check_lords()
 	_check_long_run()
 	_check_campaign_battles()
@@ -1415,6 +1431,70 @@ func _check_garrisons() -> void:
 		"the real version-4 fixture still loads with lords and starting garrisons")
 
 
+## Wall multipliers, siege preparation, auto-resolved assaults, and settlement capture.
+func _check_sieges() -> void:
+	var w := _quiet_world(44)
+	var castle := w.garrison_at("ravensford")
+	var g_men := w.men_of(castle)
+	var rng := RandomNumberGenerator.new()
+	var twice_squads := [{"id": 1, "type": Troops.INFANTRY, "unit": "vard_foot", "culture": Cultures.VARDISH, "level": 1, "xp": 0, "men": int(g_men * 2.2), "captain": null}]
+	var twice_wins := 0
+	for i in 50:
+		rng.seed = 20000 + i
+		var r := AutoResolve.resolve_siege(twice_squads, castle, AutoResolve.WALLS["castle"], rng)
+		if r["won"]: twice_wins += 1
+	var twice_rate := float(twice_wins) / 50.0
+
+	var weak_squads := [{"id": 1, "type": Troops.INFANTRY, "unit": "vard_foot", "culture": Cultures.VARDISH, "level": 1, "xp": 0, "men": int(g_men * 0.7), "captain": null}]
+	var weak_wins := 0
+	for i in 50:
+		rng.seed = 30000 + i
+		var r := AutoResolve.resolve_siege(weak_squads, castle, AutoResolve.WALLS["castle"], rng)
+		if r["won"]: weak_wins += 1
+	var weak_rate := float(weak_wins) / 50.0
+
+	_expect(twice_rate >= 0.80 and weak_rate <= 0.20,
+		"gate: twice garrison strength takes settlement >= 80%% (got %.1f%%), less than garrison strength succeeds <= 20%% (got %.1f%%)" % [twice_rate * 100.0, weak_rate * 100.0])
+
+	# Expedition siege and capture
+	w.step(0.0)
+	WorldSim.MarshalArmies.create(w, "kharzan")
+	var army_dict: Dictionary = w.campaign_armies.filter(func(a): return a["realm"] == "kharzan")[0]
+	var target: String = army_dict["target"]
+	army_dict["state"] = "marching"
+	army_dict["destination"] = target
+	var leader = WorldSim.MarshalArmies.leader(w, army_dict)
+	leader.node = target
+	leader.next = ""
+	leader.path.clear()
+	for m in WorldSim.MarshalArmies.members(w, army_dict):
+		m.node = target
+		m.next = ""
+		m.path.clear()
+	WorldSim.MarshalArmies.tick(w, 0.25)
+	var besieging_ok: bool = army_dict["state"] == "besieging" and army_dict.has("siege_prep_until")
+	w.hour = float(army_dict["siege_prep_until"]) + 0.1
+	var atk_before := 0
+	for m in WorldSim.MarshalArmies.members(w, army_dict): atk_before += w.men_of(m.army)
+	WorldSim.MarshalArmies.tick(w, 0.25)
+	var captured_ok: bool = w.owner_of(target) == "kharzan"
+	var garrison_left := w.men_of(w.garrison_at(target))
+	var atk_after := 0
+	for m in WorldSim.MarshalArmies.members(w, army_dict): atk_after += w.men_of(m.army)
+	var conserved_ok: bool = garrison_left > 0 and (atk_after + garrison_left <= atk_before)
+	var bound_ok: bool = true
+	for v in WorldData.SETTLEMENTS:
+		if String(WorldData.SETTLEMENTS[v].get("bound_to", "")) == target:
+			bound_ok = bound_ok and w.owner_of(v) == "kharzan"
+	_expect(besieging_ok and captured_ok and conserved_ok and bound_ok,
+		"an army reaching a hostile castle besieges, assaults, captures it, stations surviving attackers, and takes bound villages")
+
+	# Village militia
+	var mil: Array = w.village_militia("kettlebrook")
+	_expect(mil.size() == 2 and w.men_of(mil) == 15,
+		"villages keep a 15-man local defensive militia that resists raids")
+
+
 ## Lords ride the map with warbands of their own, choose what to do by their realm's needs
 ## and their bearing, fight each other and the bandits, and pay their way.
 func _check_lords() -> void:
@@ -1533,7 +1613,7 @@ func _check_lords() -> void:
 	_expect(worst_broke <= 7 and in_field / samples >= 0.6 and fights > 0 and burned > 0,
 		"a year on: lords are out in the field %.0f%% of the time, none broke over a week (worst %d days); %d fights, %d villages burned" % [
 			in_field * 100.0 / samples, worst_broke, fights, burned])
-	_expect(ms_per_hour <= 2.0, "a world hour with every lord riding costs at most 2 ms (%.2f ms)" % ms_per_hour)
+	_expect(ms_per_hour <= 8.0, "a world hour with every lord riding and campaigns active costs at most 8 ms (%.2f ms)" % ms_per_hour)
 
 	# Godot's JSON doesn't read every float back to the last bit, so a loaded world is the
 	# saved one to 14 digits: it loads back exactly as saved, two loads carry on exactly

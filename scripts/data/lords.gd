@@ -72,8 +72,8 @@ const THINK_HOURS := 3.0
 ## He goes home to refill below this share of his full warband, and rides out again above
 ## REFILLED. At home he gets back this share a day, paid for at recruit prices.
 const REFILL_BELOW := 0.5
-const REFILLED := 0.9
-const REFILL_PER_DAY := 0.25
+const REFILLED := 0.85
+const REFILL_PER_DAY := 0.35
 ## A lord who loses his warband is back at his seat, with what's left of it, this many
 ## hours later.
 const REGROUP_HOURS := 24.0
@@ -104,7 +104,7 @@ static func squads_for(renown: int) -> int:
 static func trained_share(renown: int) -> float:
 	return minf(TRAINED_SHARE_MAX, TRAINED_SHARE + renown * 0.002)
 
-## Marshal expeditions: one per realm, bounded even before sieges are implemented.
+## Marshal expeditions and sieges.
 const ARMY_MIN_MEMBERS := 2
 const ARMY_MAX_MEMBERS := 3
 const ARMY_READY_SHARE := 0.7
@@ -112,3 +112,7 @@ const ARMY_MUSTER_HOURS := 48.0
 const ARMY_EXPEDITION_HOURS := 144.0
 const ARMY_COOLDOWN := 72.0
 const ARMY_RETRY_HOURS := 12.0
+const SIEGE_PREP_HOURS := 48.0
+const SIEGE_FOOD_DAYS := {"castle": 4.0, "town": 6.0}
+const VILLAGE_MILITIA_MEN := 15
+const WALLS := {"castle": 1.6, "town": 1.4}

@@ -51,9 +51,16 @@ const HELD_GROUND := 1.3
 const CHIEF_SLAIN := 0.4
 
 
+## Wall defense multiplier for castles and towns during sieges.
+const WALLS := {
+	"castle": 1.6,
+	"town": 1.4,
+}
+
 ## A side's fighting strength against `foes`. Squads are {type, men, xp, level?}.
-## Modified by terrain ground advantage and site conditions when `site` is given.
-static func strength(army: Array, foes: Array, site = null, is_player: bool = true) -> float:
+## Modified by terrain ground advantage and site conditions when `site` is given,
+## and by `walls` multiplier for fortified defense.
+static func strength(army: Array, foes: Array, site = null, is_player: bool = true, walls: float = 1.0) -> float:
 	var foe_men := 0.0
 	var mix := {}
 	for f in foes:
@@ -101,7 +108,7 @@ static func strength(army: Array, foes: Array, site = null, is_player: bool = tr
 			elif st == "woods":
 				total *= (1.0 - 0.10 * cav_share + 0.05 * archer_share)
 
-	return total
+	return total * walls
 
 
 ## What one man of a trained branch is worth next to a recruit of its type, from its
@@ -123,9 +130,9 @@ static func _quality(mech: Dictionary) -> float:
 ## The expected outcome with no luck: {player_wins, ratio, lost} where ratio is the
 ## weaker side's strength over the stronger's, and lost about how many men you'd lose
 ## sending them in without you.
-static func odds(player: Array, enemy: Array, site = null, objective: String = "rout") -> Dictionary:
+static func odds(player: Array, enemy: Array, site = null, objective: String = "rout", walls: float = 1.0) -> Dictionary:
 	var a := strength(player, enemy, site, true)
-	var b := strength(enemy, player, site, false)
+	var b := strength(enemy, player, site, false, walls)
 	if objective == "ambush":
 		b *= 1.25
 	elif objective == "village":
@@ -143,9 +150,9 @@ static func odds(player: Array, enemy: Array, site = null, objective: String = "
 ## Settle the fight. `led` is false when the player sends their men in without
 ## commanding them, which costs extra men. Returns the same shape as
 ## BattleSim.result_for(PLAYER), plus "enemy_squads" with the enemy's survivors.
-static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led: bool = false, site = null, objective: String = "rout") -> Dictionary:
+static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led: bool = false, site = null, objective: String = "rout", walls: float = 1.0) -> Dictionary:
 	var a := strength(player, enemy, site, true) * (1.0 + rng.randf_range(-LUCK, LUCK))
-	var b := strength(enemy, player, site, false) * (1.0 + rng.randf_range(-LUCK, LUCK))
+	var b := strength(enemy, player, site, false, walls) * (1.0 + rng.randf_range(-LUCK, LUCK))
 	if objective == "ambush":
 		b *= 1.25
 	elif objective == "village":
@@ -197,6 +204,62 @@ static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led
 	return {"won": won, "reason": "auto", "squads": squads, "lost": lost, "killed": enemy_lost,
 		"time": 0.0, "bonds": {}, "enemy_squads": enemy_squads, "objective": objective,
 		"chief_killed": chief_killed, "chief_escaped": chief_escaped}
+
+
+## Settles a siege assault. Defenders fight with their walls multiplying their strength.
+## Returns outcome dictionary with won (attacker won), casualties, and survivor squad states.
+static func resolve_siege(attackers: Array, defenders: Array, wall_mult: float, rng: RandomNumberGenerator) -> Dictionary:
+	var a := strength(attackers, defenders, null, true) * (1.0 + rng.randf_range(-LUCK, LUCK))
+	var b := strength(defenders, attackers, null, false, wall_mult) * (1.0 + rng.randf_range(-LUCK, LUCK))
+	var won := a >= b
+	var ratio := minf(a, b) / maxf(1.0, maxf(a, b))
+	var loss := _loss_shares(ratio)
+	var attacker_rate: float = loss[0] if won else loss[1]
+	var defender_rate: float = loss[1] if won else loss[0]
+	var defender_squads := {}
+	var defender_lost := 0
+	for s in defenders:
+		var men := int(s.get("men", 0))
+		var dead := _losses(men, defender_rate, rng)
+		defender_lost += dead
+		defender_squads[int(s["id"])] = {"men": men - dead}
+	var shares := []
+	var share_total := 0.0
+	for s in attackers:
+		var share := strength([s], defenders)
+		shares.append(share)
+		share_total += share
+	var kills_left := defender_lost
+	var attacker_squads := {}
+	var attacker_lost := 0
+	for i in attackers.size():
+		var s: Dictionary = attackers[i]
+		var men := int(s.get("men", 0))
+		var dead := _losses(men, attacker_rate, rng)
+		attacker_lost += dead
+		var kills := int(round(defender_lost * shares[i] / maxf(1.0, share_total)))
+		kills = mini(kills, kills_left)
+		kills_left -= kills
+		var entry := {"men": men - dead, "kills": kills}
+		var c = s.get("captain")
+		if typeof(c) == TYPE_DICTIONARY and int(c.get("wounded", 0)) == 0:
+			entry["captain"] = _captain_fate(c, men, dead, rng)
+		attacker_squads[int(s["id"])] = entry
+	return {
+		"won": won,
+		"attacker_won": won,
+		"ratio": ratio,
+		"attacker_strength": a,
+		"defender_strength": b,
+		"attacker_lost": attacker_lost,
+		"defender_lost": defender_lost,
+		"attacker_squads": attacker_squads,
+		"defender_squads": defender_squads,
+		"squads": attacker_squads,
+		"enemy_squads": defender_squads,
+		"lost": attacker_lost,
+		"killed": defender_lost,
+	}
 
 
 ## [winner's, loser's] share of men lost when the weaker side has `r` of the stronger's

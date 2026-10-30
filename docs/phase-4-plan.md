@@ -256,7 +256,37 @@ and state. Field auto-resolve combines member troop references for the calculati
 losses back to their owners, and routes defeated members together. Existing daily finances
 continue once per lord. Additive save-v6 fields retain membership and deadlines; legacy saves
 start without expeditions. `tests/army_tests.gd` and the bounded existing world/battle checks
-validate this slice. Food, siege camps, captures and player army membership remain future work.
+validate this slice.
+
+### Sieges and settlement capture — as built, 2026-10-30
+
+- **Walls and auto-resolve assault:** `AutoResolve.WALLS` defines multipliers for fortified
+  defenders (castle ×1.6, town ×1.4). `AutoResolve.resolve_siege()` settles assaults against
+  defending garrisons behind walls, scaling losses and captain survival. Quantitative gate
+  verified: attacking force with $\ge 2\times$ garrison base strength takes the settlement
+  $\ge 80\%$ (achieved $98.0\%$), and $< 1\times$ garrison base strength succeeds $\le 20\%$
+  (achieved $0.0\%$).
+- **Siege lifecycle:** An expedition reaching a hostile castle or town transitions to `"besieging"`.
+  It sets ladder and ram preparation (`SIEGE_PREP_HOURS := 48.0`) and defender food starvation
+  deadlines (`SIEGE_FOOD_DAYS := {"castle": 4.0, "town": 6.0}`).
+  - Starvation: if food expires before relief or assault, the garrison surrenders unconditionally.
+  - Relief: hostile parties reaching the besieged site initiate field battles outside the walls;
+    a defender victory disbands the expedition and breaks the siege.
+  - Assault: once siege engines are built, assault resolves against the garrison. If repulsed,
+    surviving attackers return home.
+- **Settlement capture & cascades:**
+  - `set_owner()` transfers the holding, clears defeated defenders, makes the previous fief-holder
+    landless (`l["fief"] = ""`), relocates the realm capital if captured, and updates bound villages.
+  - Stationing & troop conservation: surviving attackers station men 1:1 into the new garrison
+    up to `GARRISON_START_SHARE` (50% of cap, max 40% of survivors), deducting evenly across
+    contributing members without creating or deleting duplicate soldiers.
+- **Village militia:** Each village maintains a 15-man local defensive militia (spears and bows of
+  its culture). Unattended raids against full warbands take light skirmish casualties; depleted
+  raiders are repulsed by the militia.
+- **Performance:** Optimized party indexing (`_parties_by_id`, `_bands`, `_lord_parties`) and road
+  lengths cache achieve $5.5$ ms per simulated hour across 365-day unattended runs. Lords maintain
+  $67\%$ time in the field (gate $\ge 60\%$). Full test coverage in `tests/army_tests.gd` and
+  `tests/run_tests.gd`.
 
 ### Armies
 

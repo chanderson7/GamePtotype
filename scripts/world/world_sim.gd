@@ -261,6 +261,9 @@ func set_owner(id: String, realm: String) -> void:
 	# survivors here after the transfer; until then the new owner must recruit guards.
 	if garrisons.has(id):
 		garrisons[id] = []
+	for l in lords:
+		if l.get("fief", "") == id and l.get("realm", "") == was:
+			l["fief"] = ""
 	for v in Data.SETTLEMENTS:
 		if String(Data.SETTLEMENTS[v].get("bound_to", "")) == id:
 			owners[v] = realm
@@ -318,7 +321,11 @@ func settlement_intelligence(id: String) -> String:
 				break
 		for army in campaign_armies:
 			if String(army.get("target", "")) == id and String(army.get("state", "")) != "returning":
-				danger = "marshal army advancing here"
+				if String(army.get("state", "")) == "besieging":
+					var prep_left := maxf(0.0, float(army.get("siege_prep_until", 0.0)) - hour)
+					danger = "under siege by %s (assault in %d hrs)" % [Data.FACTIONS[army["realm"]]["name"], int(ceil(prep_left))]
+				else:
+					danger = "marshal army advancing here"
 				break
 	lines.append("Danger: %s" % danger)
 	var service_names: Array = Data.services(id)
@@ -388,27 +395,58 @@ func player() -> Party:
 	return parties[0]
 
 
-func party(id: int) -> Party:
+var _parties_by_id: Dictionary = {}
+var _bands: Array = []
+var _lord_parties: Array = []
+
+
+func _reindex_parties() -> void:
+	_parties_by_id.clear()
+	_bands.clear()
+	_lord_parties.clear()
 	for p in parties:
-		if p.id == id:
-			return p
-	return null
+		_parties_by_id[p.id] = p
+		if p.kind == BAND:
+			_bands.append(p)
+		elif p.kind == LORD:
+			_lord_parties.append(p)
+
+
+func _sync_party_indices() -> void:
+	if _parties_by_id.size() != parties.size():
+		_reindex_parties()
+
+
+func party(id: int) -> Party:
+	_sync_party_indices()
+	return _parties_by_id.get(id)
 
 
 func bands() -> Array:
-	return parties.filter(func(p): return p.kind == BAND)
+	_sync_party_indices()
+	return _bands.duplicate()
 
 
 ## The lords' parties on the map.
 func lord_parties() -> Array:
-	return parties.filter(func(p): return p.kind == LORD)
+	_sync_party_indices()
+	return _lord_parties.duplicate()
 
 
 ## Joined lords share one visible marker, but retain their authoritative parties.
 func visible_lord_parties() -> Array:
-	return lord_parties().filter(func(p):
-		var army := MarshalArmies.for_party(self, p.id)
-		return army.is_empty() or army["state"] == "gathering" or int(army["leader"]) == p.id)
+	if campaign_armies.is_empty():
+		return lord_parties()
+	var hidden := {}
+	for army in campaign_armies:
+		if army["state"] != "gathering":
+			var leader_id: int = int(army["leader"])
+			for m_id in army["members"]:
+				if m_id != leader_id:
+					hidden[m_id] = true
+	if hidden.is_empty():
+		return lord_parties()
+	return lord_parties().filter(func(p): return not hidden.has(p.id))
 
 
 func army_parties(p: Party) -> Array:
@@ -426,7 +464,7 @@ func party_pos(p: Party) -> Vector2:
 	if not p.moving():
 		return a
 	var b := Data.pos(p.next)
-	return a.lerp(b, clampf(p.along / maxf(1.0, a.distance_to(b)), 0.0, 1.0))
+	return a.lerp(b, clampf(p.along / maxf(1.0, road_length(p.node, p.next)), 0.0, 1.0))
 
 
 ## The settlement the player stands at, or "" on the road.
@@ -453,15 +491,32 @@ func busy() -> bool:
 	return encounter == -1 and (p.moving() or p.wait > 0.0)
 
 
+var _sea_roads := {}
+
 func is_sea(a: String, b: String) -> bool:
+	var key := a + "|" + b
+	if _sea_roads.has(key):
+		return bool(_sea_roads[key])
 	for n in _adjacent.get(a, []):
 		if n[0] == b:
-			return bool(n[1])
+			var s := bool(n[1])
+			_sea_roads[key] = s
+			return s
+	_sea_roads[key] = false
 	return false
 
 
+var _road_lengths := {}
+
 func road_length(a: String, b: String) -> float:
-	return Data.pos(a).distance_to(Data.pos(b))
+	var key := a + "|" + b
+	var len_val = _road_lengths.get(key)
+	if len_val != null:
+		return float(len_val)
+	var d := Data.pos(a).distance_to(Data.pos(b))
+	_road_lengths[key] = d
+	_road_lengths[b + "|" + a] = d
+	return d
 
 
 func _speed(p: Party, a: String, b: String) -> float:
@@ -652,8 +707,9 @@ func _move_band(b: Party, dt: float) -> void:
 
 func _check_encounter() -> void:
 	var at := party_pos(player())
+	var reach_sq := ENCOUNTER_RADIUS * ENCOUNTER_RADIUS
 	for b in bands():
-		if hour >= b.grace_until and party_pos(b).distance_to(at) <= ENCOUNTER_RADIUS:
+		if hour >= b.grace_until and party_pos(b).distance_squared_to(at) <= reach_sq:
 			encounter = b.id
 			emit_event({"type": "encounter", "party": b.id})
 			return
@@ -986,8 +1042,9 @@ func _step_lords(dt: float) -> void:
 		_lord_day += 1
 		_lords_day()
 	MarshalArmies.tick(self, dt)
+	var has_armies := not campaign_armies.is_empty()
 	for l in lords:
-		if not MarshalArmies.for_party(self, int(l["party"])).is_empty():
+		if has_armies and not MarshalArmies.for_party(self, int(l["party"])).is_empty():
 			continue
 		if l["state"] == "regroup":
 			if hour >= float(l["back_at"]):
@@ -1135,11 +1192,46 @@ func _lord_arrives(l: Dictionary, p: Party) -> void:
 			l["job"] = "patrol"
 
 
+## Villages have a small defensive militia (peasants, militia spears, bows)
+## that defends locally against raids. They have no standing garrison in peace.
+func village_militia(village_id: String) -> Array:
+	var s := Data.settlement(village_id)
+	var cult := Data.culture_of(s["faction"])
+	var spear_unit := Units.recruit(cult, Troops.SPEARMEN)
+	var archer_unit := Units.recruit(cult, Troops.ARCHERS)
+	return [
+		{"id": 9000000 + Data.SETTLEMENTS.keys().find(village_id) * 10 + 1,
+		 "type": Troops.SPEARMEN, "unit": spear_unit, "culture": cult, "level": 1,
+		 "xp": 0, "men": 8, "name": "%s militia spears" % s["name"], "captain": null},
+		{"id": 9000000 + Data.SETTLEMENTS.keys().find(village_id) * 10 + 2,
+		 "type": Troops.ARCHERS, "unit": archer_unit, "culture": cult, "level": 1,
+		 "xp": 0, "men": 7, "name": "%s militia bows" % s["name"], "captain": null},
+	]
+
+
 func _burn(l: Dictionary, village: String) -> void:
 	l["raiding"] = ""
 	l["job"] = ""
 	if is_burned(village):
 		return
+	var lp := party(int(l.get("party", -1)))
+	if lp != null and not lp.army.is_empty():
+		var militia := village_militia(village)
+		var lord_men := men_of(lp.army)
+		var militia_men := men_of(militia)
+		# A severely depleted lord with fewer men than the local militia gets repulsed
+		if lord_men < militia_men and rng.randf() < 0.6:
+			emit_event({"type": "raid_repulsed", "village": village, "by_militia": true, "lord": l["name"]})
+			return
+		# Resisting militia inflicts light skirmish attrition (0-2 casualties)
+		var skirmish_loss := mini(lord_men - 1, rng.randi_range(0, 2))
+		for sq in lp.army:
+			if skirmish_loss <= 0:
+				break
+			var take := mini(skirmish_loss, mini(1, int(sq["men"])))
+			sq["men"] = int(sq["men"]) - take
+			skirmish_loss -= take
+		lp.army = lp.army.filter(func(sq): return int(sq["men"]) > 0)
 	burned[village] = hour + Lords.BURNED_DAYS * 24.0
 	l["silver"] = int(l["silver"]) + Lords.RAID_LOOT
 	emit_event({"type": "burned", "village": village, "by": String(l["name"])})
@@ -1227,36 +1319,50 @@ func _refill(l: Dictionary, army: Array) -> void:
 ## your men into would be: lords of realms at war. The loser's party is gone, to regroup
 ## at his seat with whoever got away. Bandits a hunting lord catches are driven off.
 func _lord_fights() -> void:
-	var ps: Array = bands() + visible_lord_parties()
-	var at := []
-	for p in ps:
-		at.append(party_pos(p))
+	var l_parties := visible_lord_parties()
+	var l_count := l_parties.size()
+	var l_pos := []
+	for p in l_parties:
+		l_pos.append(party_pos(p))
 	var gone := {}
 	var reach := ENCOUNTER_RADIUS * ENCOUNTER_RADIUS
-	for i in ps.size():
-		var a: Party = ps[i]
-		if a.kind != LORD or gone.has(a.id) or party(a.id) == null:
+
+	# Lord vs Lord fights
+	for i in l_parties.size():
+		var a: Party = l_parties[i]
+		if gone.has(a.id):
 			continue
-		# Bands keep out of a lord's way unless he's out hunting them.
-		var hunting: bool = lord_of(a).get("job", "") == "hunt"
-		for j in ps.size():
-			var b: Party = ps[j]
-			if j == i or gone.has(b.id) or party(b.id) == null:
+		var a_pos: Vector2 = l_pos[i]
+		for j in range(i + 1, l_count):
+			var b: Party = l_parties[j]
+			if gone.has(b.id) or not at_war(a.faction, b.faction):
 				continue
-			if b.kind == LORD:
-				if j < i or not at_war(a.faction, b.faction):
-					continue
-			elif not hunting:
-				continue
-			if (at[i] as Vector2).distance_squared_to(at[j]) > reach:
-				continue
-			if b.kind == BAND:
-				_drive_off(a, b)
+			var b_pos: Vector2 = l_pos[j]
+			if a_pos.distance_squared_to(b_pos) > reach:
 				continue
 			var loser := _ai_fight(a, b)
 			gone[loser.id] = true
 			if loser == a:
 				break
+
+	# Hunting lords vs Bands
+	var b_parties: Array = []
+	var b_pos := []
+	var bands_computed := false
+	for i in l_parties.size():
+		var a: Party = l_parties[i]
+		if gone.has(a.id) or lord_of(a).get("job", "") != "hunt":
+			continue
+		if not bands_computed:
+			b_parties = bands()
+			for b in b_parties:
+				b_pos.append(party_pos(b))
+			bands_computed = true
+		var a_pos: Vector2 = l_pos[i]
+		for j in b_parties.size():
+			var b: Party = b_parties[j]
+			if a_pos.distance_squared_to(b_pos[j]) <= reach:
+				_drive_off(a, b)
 
 
 ## Bandits caught raiding by a lord don't stand and fight: they break off and run for
