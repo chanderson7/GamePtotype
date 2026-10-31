@@ -571,7 +571,12 @@ func _open_preview(id: String) -> void:
 		if world.is_sea(a, b):
 			sea = ", partly by sea"
 		a = b
-	var body := "%s\n%s\n%s away%s." % [world.describe(id), world.settlement_intelligence(id), _hours_text(hours), sea]
+	# Kept short on the map: what it is, how far, and only danger worth knowing. The full
+	# picture is inside the settlement.
+	var body := "%s\n%s away%s." % [world.brief(id), _hours_text(hours), sea]
+	var danger: String = world.settlement_danger(id)
+	if danger != "":
+		body += "\n" + danger.substr(0, 1).to_upper() + danger.substr(1) + "."
 	_show_sheet("preview", String(Data.settlement(id)["name"]), body,
 		[["Ride there", _on_travel.bind(id), true], ["Close", _close_sheet]])
 
@@ -589,7 +594,10 @@ func _open_here() -> void:
 	if GameState.crown_check()["ok"]:
 		buttons.insert(buttons.size() - 1, ["Raise your banner", _open_raise_crown])
 	var offers: Array = world.offers_at(id)
-	var body := "%s\n%s\nYou are here. " % [world.describe(id), world.settlement_intelligence(id)]
+	var body := "%s\nYou are here. " % world.brief(id)
+	var danger: String = world.settlement_danger(id)
+	if danger != "":
+		body = "%s\n%s.\nYou are here. " % [world.brief(id), danger.substr(0, 1).to_upper() + danger.substr(1)]
 	if offers.is_empty():
 		body += "Nobody here is looking for work."
 	else:

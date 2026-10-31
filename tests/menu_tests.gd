@@ -107,10 +107,9 @@ func _run() -> void:
 	check(current_scene.sheet_title.text == "Food" and current_scene.sheet_body.text.contains("rations"), "resource icons explain their values when tapped")
 	current_scene._close_sheet()
 	current_scene._open_preview("highcliff")
-	check(current_scene.sheet_body.text.contains("Owner:") and current_scene.sheet_body.text.contains("Garrison:")
-		and current_scene.sheet_body.text.contains("Danger:") and current_scene.sheet_body.text.contains("Services:")
-		and current_scene.sheet_body.text.contains("Why it matters:"),
-		"settlement preview explains ownership, strength, danger, services and strategic value")
+	check(current_scene.sheet_body.text.contains("Kingdom of Vardmark") and current_scene.sheet_body.text.contains("away")
+		and not current_scene.sheet_body.text.contains("Why it matters:") and current_scene.sheet_body.text.split("\n").size() <= 3,
+		"settlement preview stays brief: what it is, who holds it and how far (the details wait inside)")
 	current_scene._close_sheet()
 	gs.world.emit_event({"type": "fight", "winner": "King Aldwin", "loser": "a raiding band", "at": "highcliff"})
 	current_scene._open_activity()

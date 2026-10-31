@@ -592,6 +592,37 @@ func describe(id: String) -> String:
 	return "%s · %s" % [line, people]
 
 
+## What's dangerous about `id` right now, or "" when the roads are quiet.
+func settlement_danger(id: String) -> String:
+	var danger := "hostile territory; patrols may oppose you" if relation_to_player(owner_of(id)) == "hostile" else ""
+	if is_burned(id):
+		return "burned by raiders; rebuilding"
+	for p in parties:
+		if p.raiding and p.raid_village == id:
+			return "raid in progress"
+	for army in campaign_armies:
+		if String(army.get("target", "")) == id and String(army.get("state", "")) != "returning":
+			if String(army.get("state", "")) == "besieging":
+				var info := siege_info(id)
+				return "under siege by %s: %d men against %d behind walls (x%.1f); food for %d days; assault in %d hrs%s" % [
+					Data.FACTIONS[info["realm"]]["name"], info["attackers"], info["defenders"], info["walls"],
+					int(ceil(info["food_hours"] / 24.0)), int(ceil(info["assault_hours"])),
+					"; relief may come" if int(info["relief"]) > 0 else "; no relief in sight"]
+			return "marshal army advancing here"
+	return danger
+
+
+## One line for a place seen from the map: what it is and who holds it. The full picture
+## waits inside (describe() and settlement_intelligence()).
+func brief(id: String) -> String:
+	var s := Data.settlement(id)
+	var realm := owner_of(id)
+	var line := "%s · %s" % [String(s["type"]).capitalize(), Data.FACTIONS[realm]["name"]]
+	if capital_of(realm) == id:
+		line = "Capital · %s" % Data.FACTIONS[realm]["name"]
+	return line
+
+
 ## Information a commander can see before entering: ownership, strength, danger,
 ## services and strategic value. It deliberately describes only actions the game has.
 func settlement_intelligence(id: String) -> String:
@@ -605,26 +636,9 @@ func settlement_intelligence(id: String) -> String:
 		lines.append("Garrison: %d/%d men · %s" % [men, cap, strength])
 	else:
 		lines.append("Garrison: none")
-	var player_rel := relation_to_player(owner)
-	var danger := "hostile territory; patrols may oppose you" if player_rel == "hostile" else "quiet roads"
-	if is_burned(id):
-		danger = "burned by raiders; rebuilding"
-	else:
-		for p in parties:
-			if p.raiding and p.raid_village == id:
-				danger = "raid in progress"
-				break
-		for army in campaign_armies:
-			if String(army.get("target", "")) == id and String(army.get("state", "")) != "returning":
-				if String(army.get("state", "")) == "besieging":
-					var info := siege_info(id)
-					danger = "under siege by %s: %d men against %d behind walls (x%.1f); food for %d days; assault in %d hrs%s" % [
-						Data.FACTIONS[info["realm"]]["name"], info["attackers"], info["defenders"], info["walls"],
-						int(ceil(info["food_hours"] / 24.0)), int(ceil(info["assault_hours"])),
-						"; relief may come" if int(info["relief"]) > 0 else "; no relief in sight"]
-				else:
-					danger = "marshal army advancing here"
-				break
+	var danger := settlement_danger(id)
+	if danger == "":
+		danger = "quiet roads"
 	lines.append("Danger: %s" % danger)
 	var service_names: Array = Data.services(id)
 	var recruit_count := offers_at(id).size()
