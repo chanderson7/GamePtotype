@@ -39,8 +39,9 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - Autonomous war declarations for rested rivals; Ryumon Shogunate balance-of-power intervention when a mainland realm holds >= 4 of 6 mainland seats.
   - War Sheet on the map screen showing active wars, truces, tributes, realm strength/weariness, and recent chronicle events.
   - Fully deterministic save/load persistence. Verified with `tests/politics_tests.gd` (31 tests pass).
-- **Next: 4.5 (You in the war)**, one piece per session, committing and pushing after each:
-  - Relation with each realm and lord (-100 to 100), mercenary contracts, lord encounters and hostile consequences.
+- Phase 4.5 in progress:
+  - **Slice 4.5.1 done:** Realm & lord relations (-100 to 100), 30-day mercenary contracts ("Offer your sword"), scaled daily stipend, employer war alignment, hostile settlement market bar, warband financial forecast integration, and save/load roundtrip. Verified with `tests/mercenary_tests.gd` (37 tests pass).
+  - **Next: Slice 4.5.2:** Meeting lords on the road (hostile lord road interception, friendly lord dialogues, following armies) and combined allied battles.
 - Then 4.6, 4.7.
 
 ## Menu and onboarding update

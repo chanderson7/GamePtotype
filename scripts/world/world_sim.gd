@@ -259,6 +259,19 @@ func is_at_war(realm: String) -> bool:
 	return false
 
 
+func relation_to_player(realm: String) -> String:
+	var p = player()
+	if p != null and p.faction != "":
+		if p.faction == realm:
+			return "friendly"
+		if at_war(p.faction, realm):
+			return "hostile"
+	var player_realm := Data.realm_of_culture(culture)
+	if realm == player_realm:
+		return "friendly"
+	return "neutral"
+
+
 func has_truce(a: String, b: String) -> bool:
 	if a == b:
 		return false
@@ -411,8 +424,8 @@ func settlement_intelligence(id: String) -> String:
 		lines.append("Garrison: %d/%d men · %s" % [men, cap, strength])
 	else:
 		lines.append("Garrison: none")
-	var player_realm := Data.realm_of_culture(culture)
-	var danger := "hostile territory; patrols may oppose you" if at_war(player_realm, owner) else "quiet roads"
+	var player_rel := relation_to_player(owner)
+	var danger := "hostile territory; patrols may oppose you" if player_rel == "hostile" else "quiet roads"
 	if is_burned(id):
 		danger = "burned by raiders; rebuilding"
 	else:

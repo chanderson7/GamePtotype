@@ -103,8 +103,7 @@ static func settlement_state(world, id: String) -> Dictionary:
 	var info: Dictionary = Data.settlement(id)
 	var built_by := String(info["faction"])
 	var owner := String(world.owner_of(id))
-	var player_realm := Data.realm_of_culture(world.culture)
-	var relation := "friendly" if owner == player_realm else ("hostile" if world.at_war(player_realm, owner) else "neutral")
+	var relation: String = world.relation_to_player(owner) if world.has_method("relation_to_player") else ("friendly" if owner == Data.realm_of_culture(world.culture) else ("hostile" if world.at_war(Data.realm_of_culture(world.culture), owner) else "neutral"))
 	var raid_active := false
 	for party in world.parties:
 		if party.raiding and party.raid_village == id:

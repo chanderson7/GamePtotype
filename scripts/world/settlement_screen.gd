@@ -98,10 +98,15 @@ func _build() -> void:
 	purse.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(purse)
 
-	_add_provisions(col)
-	_add_recruits(col)
-	_add_squads(col)
-	_add_court(col)
+	var owner := String(GameState.world.owner_of(place))
+	if GameState.is_at_war_with(owner):
+		_add_hostile_notice(col, owner)
+	else:
+		_add_contract(col, owner)
+		_add_provisions(col)
+		_add_recruits(col)
+		_add_squads(col)
+		_add_court(col)
 
 	var back := Button.new()
 	back.text = "Back to the map"
@@ -223,6 +228,65 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if _arrival_overlay != null and (event.is_action_pressed("ui_accept") or event.is_action_pressed("ui_cancel")):
 		_dismiss_arrival()
 		get_viewport().set_input_as_handled()
+
+
+func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
+	col.add_child(_section("Hostile settlement"))
+	var faction_name: String = WorldData.FACTIONS[owner]["name"]
+	var warn := _note("The sentries bar the gates to enemies of the %s. The markets, barracks, and halls are closed to your company." % faction_name, Style.ENEMY_LIGHT)
+	col.add_child(warn)
+
+
+func _add_contract(col: VBoxContainer, owner: String) -> void:
+	var kind: String = WorldData.settlement(place)["type"]
+	if not kind in [WorldData.CASTLE, WorldData.TOWN]:
+		return
+
+	col.add_child(_section("Mercenary commission"))
+	var faction_name: String = WorldData.FACTIONS[owner]["name"]
+
+	if GameState.has_contract():
+		if GameState.contract_realm() == owner:
+			var daily: int = GameState.contract_daily_pay()
+			var left: int = int(GameState.contract.get("days_left", 0))
+			var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
+			col.add_child(_note("In service to %s · %d silver daily (%d days remaining) · %d silver bonus per captured enemy lord." % [
+				faction_name, daily, left, bonus
+			], Style.BRASS))
+			var cancel_btn := _button("Resign commission (costs 25 relation)", _on_cancel_contract)
+			col.add_child(cancel_btn)
+		else:
+			var other_name: String = WorldData.FACTIONS[GameState.contract_realm()]["name"]
+			col.add_child(_note("Your company is already pledged to %s." % other_name, Style.MUTED))
+		return
+
+	if not GameState.world.is_at_war(owner):
+		col.add_child(_note("%s is currently at peace and requires no mercenary companies." % faction_name, Style.MUTED))
+		return
+
+	var pay := GameState.calculate_contract_pay(owner)
+	if GameState.renown < GameState.CONTRACT_MIN_RENOWN:
+		col.add_child(_note("The realm is at war and seeks sellswords, but marshals only hire captains of renown (%d renown needed)." % GameState.CONTRACT_MIN_RENOWN, Style.MUTED))
+		return
+
+	col.add_child(_note("The %s is at war and seeks sellswords to take the field. A 30-day commission offers %d silver each day." % [
+		faction_name, pay
+	], Style.TEXT))
+	var sign_btn := _button("Offer your sword (%d silver/day)" % pay, _on_sign_contract.bind(owner))
+	Style.make_primary(sign_btn)
+	col.add_child(sign_btn)
+
+
+func _on_sign_contract(owner: String) -> void:
+	GameState.sign_contract(owner)
+	Sound.play("charge")
+	_build()
+
+
+func _on_cancel_contract() -> void:
+	GameState.break_contract()
+	Sound.play("alarm")
+	_build()
 
 
 func _add_court(col: VBoxContainer) -> void:

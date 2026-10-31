@@ -92,9 +92,15 @@ func _build() -> void:
 
 
 	col.add_child(_section("Your warband"))
-	col.add_child(_note("%d men in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
+	var note_text := "%d men in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
 		GameState.total_men(), GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
-		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]))
+		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]
+	if GameState.has_contract():
+		var emp_name: String = WorldData.FACTIONS[GameState.contract_realm()]["name"]
+		note_text += "\nContract: %s · +%d silver/day (%d days left)" % [
+			emp_name, GameState.contract_daily_pay(), int(GameState.contract.get("days_left", 0))
+		]
+	col.add_child(_note(note_text))
 	col.add_child(_sort_control())
 	var sorted := _sorted_roster(GameState.army)
 	var active := sorted.filter(func(s): return s.get("captain") == null or int(s["captain"].get("wounded", 0)) <= 0)
@@ -176,16 +182,18 @@ func _camp_header() -> Control:
 
 func _upkeep_forecast() -> Label:
 	var wages := GameState.daily_wages()
+	var stipend := GameState.contract_daily_pay()
 	var rations := GameState.total_men()
 	var due := "each campaign day"
 	if GameState.world != null:
 		var next_day := (floori(GameState.world.hour / 24.0) + 1) * 24
 		var hours := maxi(1, ceili(float(next_day) - GameState.world.hour))
 		due = "in %d %s" % [hours, "hour" if hours == 1 else "hours"]
-	var after_silver := GameState.silver - wages
+	var after_silver := GameState.silver - wages + stipend
 	var after_food := GameState.food - rations
-	var text := "Next payment %s · %d silver + %d rations · afterward: %d silver, %d rations" % [
-		due, wages, rations, maxi(0, after_silver), maxi(0, after_food)]
+	var pay_text := "%d silver" % wages if stipend <= 0 else "%d silver (net %d with contract)" % [wages, wages - stipend]
+	var text := "Next payment %s · %s + %d rations · afterward: %d silver, %d rations" % [
+		due, pay_text, rations, maxi(0, after_silver), maxi(0, after_food)]
 	if after_silver < 0 or after_food < 0:
 		text += " · shortfall: men may leave"
 	return _note(text, Style.ENEMY_LIGHT if after_silver < 0 or after_food < 0 else Style.MUTED)

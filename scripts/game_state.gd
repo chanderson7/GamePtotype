@@ -20,6 +20,18 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
+const CONTRACT_MIN_RENOWN := 10
+const CONTRACT_DAYS := 30
+const CONTRACT_BASE_PAY := 25
+const CONTRACT_LORD_BONUS := 100
+
+## Relations with realms (-100 to 100): "vardmark", "kharzan", "ryumon"
+var realm_relations: Dictionary = {"vardmark": 0, "kharzan": 0, "ryumon": 0}
+## Relations with individual lords (-100 to 100): lord_id -> int
+var lord_relations: Dictionary = {}
+## Active mercenary contract: {realm, daily_pay, days_left, bonus_per_lord}
+var contract: Dictionary = {}
+
 ## Each squad: {id, type, men, xp, level, culture, name, captain}. Kills earn xp; xp
 ## lets a squad be trained to the next level in a town. A squad's culture is where it
 ## was raised, which names its men and its captain. A squad that loses every man is
@@ -95,6 +107,9 @@ func new_warband() -> void:
 	bond_intro_ids = []
 	bond_events = []
 	bond_records = {}
+	realm_relations = {"vardmark": 0, "kharzan": 0, "ryumon": 0}
+	lord_relations = {}
+	contract = {}
 	map_notice = ""
 	desertion_warning = ""
 	_next_id = 1
@@ -492,6 +507,18 @@ func _upkeep() -> void:
 	var men := total_men()
 	if men == 0:
 		return
+	if has_contract():
+		var pay := contract_daily_pay()
+		silver += pay
+		var realm := String(contract.get("realm", ""))
+		contract["days_left"] = int(contract["days_left"]) - 1
+		if int(contract["days_left"]) <= 0:
+			add_realm_relation(realm, 10)
+			contract = {}
+			if world != null and world.player() != null:
+				world.player().faction = ""
+			var r_name: String = WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm
+			_note("Your mercenary contract with %s has concluded in good standing." % r_name)
 	var eaten := mini(food, men)
 	food -= eaten
 	var wages := daily_wages()
@@ -524,6 +551,92 @@ func _upkeep() -> void:
 
 func _note(text: String) -> void:
 	map_notice = text if map_notice == "" else map_notice + "\n" + text
+
+
+func relation_with_realm(realm: String) -> int:
+	return int(realm_relations.get(realm, 0))
+
+
+func add_realm_relation(realm: String, amount: int) -> void:
+	var cur: int = int(realm_relations.get(realm, 0))
+	realm_relations[realm] = clampi(cur + amount, -100, 100)
+
+
+func relation_with_lord(lord_id: int) -> int:
+	return int(lord_relations.get(lord_id, 0))
+
+
+func add_lord_relation(lord_id: int, amount: int) -> void:
+	var cur: int = int(lord_relations.get(lord_id, 0))
+	lord_relations[lord_id] = clampi(cur + amount, -100, 100)
+
+
+func has_contract() -> bool:
+	return not contract.is_empty() and int(contract.get("days_left", 0)) > 0
+
+
+func contract_realm() -> String:
+	return String(contract.get("realm", "")) if has_contract() else ""
+
+
+func contract_daily_pay() -> int:
+	return int(contract.get("daily_pay", 0)) if has_contract() else 0
+
+
+func is_allied_with(realm: String) -> bool:
+	if has_contract() and contract_realm() == realm:
+		return true
+	return relation_with_realm(realm) >= 50
+
+
+func is_at_war_with(realm: String) -> bool:
+	if realm == WorldData.BANDITS:
+		return true
+	if relation_with_realm(realm) <= -20:
+		return true
+	if has_contract() and world != null:
+		var emp := contract_realm()
+		if emp != "" and world.at_war(emp, realm):
+			return true
+	return false
+
+
+func calculate_contract_pay(realm: String) -> int:
+	var men := total_men()
+	return CONTRACT_BASE_PAY + int(renown / 5) + int(men / 2)
+
+
+func sign_contract(realm: String) -> void:
+	var daily: int = calculate_contract_pay(realm)
+	contract = {
+		"realm": realm,
+		"daily_pay": daily,
+		"days_left": CONTRACT_DAYS,
+		"bonus_per_lord": CONTRACT_LORD_BONUS,
+	}
+	if world != null and world.player() != null:
+		world.player().faction = realm
+	add_realm_relation(realm, 10)
+	if world != null:
+		for f in WorldData.FACTIONS:
+			if f != WorldData.BANDITS and f != realm and world.at_war(realm, f):
+				add_realm_relation(f, -15)
+	_note("Signed a %d-day mercenary contract with the %s (%d silver/day)." % [
+		CONTRACT_DAYS, WorldData.FACTIONS[realm]["name"], daily
+	])
+	save_game()
+
+
+func break_contract() -> void:
+	if not has_contract():
+		return
+	var realm := contract_realm()
+	contract = {}
+	if world != null and world.player() != null:
+		world.player().faction = ""
+	add_realm_relation(realm, -25)
+	_note("You broke your contract with the %s, suffering a loss of honor." % WorldData.FACTIONS[realm]["name"])
+	save_game()
 
 
 func captain_by_id(id: int) -> Variant:
@@ -1175,6 +1288,8 @@ func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
 		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
 		"silver": silver, "food": food, "renown": renown, "paid_day": _paid_day,
+		"realm_relations": realm_relations.duplicate(true), "lord_relations": lord_relations.duplicate(true),
+		"contract": contract.duplicate(true),
 		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair, "bond_intro_ids": bond_intro_ids,
 		"bond_events": bond_events, "bond_records": bond_records,
 		"desertion_warning": desertion_warning, "last_result": last_result,
@@ -1201,6 +1316,25 @@ func from_dict(data: Dictionary) -> bool:
 	silver = int(data.get("silver", Economy.START_SILVER))
 	food = int(data.get("food", -1))
 	renown = int(data.get("renown", 0))
+	realm_relations = {"vardmark": 0, "kharzan": 0, "ryumon": 0}
+	var raw_rr = data.get("realm_relations", {})
+	if typeof(raw_rr) == TYPE_DICTIONARY:
+		for k in raw_rr:
+			realm_relations[String(k)] = int(raw_rr[k])
+	lord_relations = {}
+	var raw_lr = data.get("lord_relations", {})
+	if typeof(raw_lr) == TYPE_DICTIONARY:
+		for k in raw_lr:
+			lord_relations[int(k)] = int(raw_lr[k])
+	contract = {}
+	var raw_contract = data.get("contract", {})
+	if typeof(raw_contract) == TYPE_DICTIONARY and not raw_contract.is_empty():
+		contract = {
+			"realm": String(raw_contract.get("realm", "")),
+			"daily_pay": int(raw_contract.get("daily_pay", 0)),
+			"days_left": int(raw_contract.get("days_left", 0)),
+			"bonus_per_lord": int(raw_contract.get("bonus_per_lord", 100)),
+		}
 	_paid_day = int(data.get("paid_day", int(world.hour / 24.0) if world != null else 0))
 	wins = int(data.get("wins", 0))
 	last_result = data.get("last_result", {}) if typeof(data.get("last_result")) == TYPE_DICTIONARY else {}
