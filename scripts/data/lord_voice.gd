@@ -23,6 +23,13 @@ const LINES := {
 		Lords.HONORABLE: "%s salutes you across the field. \"No quarter asked, none refused. Begin when ready.\"",
 		Lords.CRUEL: "%s smiles thinly. \"Leave none who can still crawl.\"",
 	},
+	# Facing a company they've fought before.
+	"again": {
+		Lords.DARING: "%s grins in recognition. \"You again! Good. Last time was too short.\"",
+		Lords.CAUTIOUS: "%s remembers your banner, and has brought more men this time.",
+		Lords.HONORABLE: "%s inclines their head. \"We meet again, captain. May it end as cleanly.\"",
+		Lords.CRUEL: "%s knows your banner. \"I owe you for last time.\"",
+	},
 	"beaten": {
 		Lords.DARING: "%s spits blood and laughs, being led away. \"Again someday!\"",
 		Lords.CAUTIOUS: "%s had already sent the baggage back before the end, knowing.",

@@ -490,6 +490,50 @@ func _crown_day() -> void:
 	world.realms[WorldData.CROWN]["treasury"] = int(world.realms[WorldData.CROWN]["treasury"]) + dues - dues / 2
 
 
+## Lords sworn to the crown.
+func crown_lords() -> Array:
+	return world.lords_of(WorldData.CROWN) if is_crowned() else []
+
+
+## Whether a captive lord would swear to the crown. Honorable lords keep faith with the
+## realm they serve; rulers never bend the knee.
+func swear_check(lord_id: int) -> Dictionary:
+	var l: Dictionary = world.lord_by_id(lord_id) if world != null else {}
+	if not is_crowned() or l.is_empty() or l.get("state") != "prisoner" or l.get("captive_of") != "player":
+		return {"ok": false, "reason": "Only your own captives can swear to your crown."}
+	if bool(l.get("ruler", false)):
+		return {"ok": false, "reason": "A ruler will not kneel to another crown."}
+	if String(l.get("bearing", "")) == Lords.HONORABLE:
+		return {"ok": false, "reason": "%s keeps faith with the realm they serve." % l["name"]}
+	return {"ok": true, "reason": ""}
+
+
+## A captive lord swears to the crown: they serve it from a crown castle (or its seat),
+## and raise their warband again from the crown treasury.
+func swear_lord_to_crown(lord_id: int) -> bool:
+	if not swear_check(lord_id)["ok"]:
+		return false
+	var l: Dictionary = world.lord_by_id(lord_id)
+	var was := String(l["realm"])
+	var seat := ""
+	for id in crown_holdings():
+		if String(WorldData.settlement(id)["type"]) == WorldData.CASTLE and id != fief_id() \
+				and not crown_lords().any(func(o): return String(o.get("fief", "")) == id):
+			seat = id
+			break
+	l["realm"] = WorldData.CROWN
+	l["fief"] = seat
+	l["ruler"] = false
+	world.release_lord(lord_id)
+	add_lord_relation(lord_id, 30)
+	if world.realms.has(was):
+		add_realm_relation(was, -10)
+	_note("%s swears fealty to your crown%s." % [l["name"], (" and will hold %s" % WorldData.settlement(seat)["name"]) if seat != "" else ""])
+	world.emit_event({"type": "lord_sworn", "lord": String(l["name"]), "from": was})
+	save_game()
+	return true
+
+
 ## Realms the crown could ally with now.
 func crown_allies_possible() -> Array:
 	var out := []
@@ -612,8 +656,29 @@ func start_siege_battle(id: String) -> void:
 		"enemy": WorldSim.clean_army(world.garrisons.get(id, [])), "culture": WorldData.culture_of(owner),
 		"temperament": "", "name": "The garrison of %s" % WorldData.settlement(id)["name"],
 		"party_id": -1, "site": null, "objective": "siege", "siege_target": id,
-		"siege_kind": check["kind"], "siege_realm": check["realm"], "enemy_faction": owner, "allies": [],
+		"siege_kind": check["kind"], "siege_realm": check["realm"], "enemy_faction": owner, "allies": siege_allies(id),
 	}
+
+
+## Friendly lords standing at `id`'s walls, ready to join an assault on it: their squads,
+## marked as allies with their lord, so losses go home to them.
+func siege_allies(id: String) -> Array:
+	var out := []
+	if world == null:
+		return out
+	for lp in world.lord_parties():
+		if lp.node != id or lp.moving() or world.relation_to_player(lp.faction) != "friendly":
+			continue
+		if not world.at_war(lp.faction, world.owner_of(id)):
+			continue
+		for sq in lp.army:
+			if int(sq.get("men", 0)) > 0:
+				var entry: Dictionary = WorldSim.clean_army([sq])[0]
+				entry["is_ally"] = true
+				entry["lord_id"] = lp.lord
+				entry["culture"] = WorldData.culture_of(lp.faction)
+				out.append(entry)
+	return out
 
 
 ## Storm the walls without leading the men: settled at once, with the walls counted.
@@ -626,6 +691,7 @@ func auto_resolve_siege(id: String) -> Dictionary:
 		apply_result(empty)
 		return empty
 	var fighters := army.filter(func(sq): return int(sq["men"]) > 0)
+	fighters.append_array(pending_battle.get("allies", []))
 	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, null, "rout",
 		float(Lords.WALLS[String(pending_battle["siege_kind"])]))
 	result["objective"] = "siege"
@@ -2501,6 +2567,7 @@ func apply_result(result: Dictionary) -> void:
 		if is_lord and enemy_lid >= 0 and obj != "siege":
 			var foe: Dictionary = world.lord_by_id(enemy_lid)
 			if not foe.is_empty():
+				foe["met_player"] = int(foe.get("met_player", 0)) + 1
 				_note(LordVoice.line("beaten" if result.get("won", false) else "victor", foe))
 		# Notable battles leave a mark: a chronicle line, and a few days of aftermath on
 		# the map. Small skirmishes don't.

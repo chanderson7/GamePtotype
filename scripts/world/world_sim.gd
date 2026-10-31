@@ -61,7 +61,7 @@ const ACTIVITY_TYPES := {
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
-	"achievement": true, "battle_fought": true, "crown_raised": true, "alliance": true, "alliance_ended": true,
+	"achievement": true, "battle_fought": true, "crown_raised": true, "lord_sworn": true, "alliance": true, "alliance_ended": true,
 }
 
 
@@ -651,7 +651,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "war"
 		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
 			cat = "siege"
-		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "alliance", "alliance_ended":
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "alliance", "alliance_ended", "lord_sworn":
 			cat = "deed"
 		"fight", "battle_fought", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
@@ -753,6 +753,9 @@ func _activity_text(event: Dictionary) -> String:
 		"battle_fought":
 			return "Your company %s near %s: %d of theirs fell, %d of yours." % ["won a battle" if bool(event.get("won", false)) else "was beaten",
 				Data.settlement(String(event["at"]))["name"], int(event.get("killed", 0)), int(event.get("lost", 0))]
+		"lord_sworn":
+			return "%s, once of %s, swore fealty to your crown." % [event.get("lord", "A lord"),
+				Data.FACTIONS[String(event["from"])]["name"] if Data.FACTIONS.has(String(event["from"])) else "another realm"]
 		"crown_raised":
 			return "Your company raised its own crown at %s, casting off %s." % [Data.settlement(String(event["settlement"]))["name"],
 				Data.FACTIONS[String(event["from"])]["name"] if Data.FACTIONS.has(String(event["from"])) else "its liege"]
@@ -2583,6 +2586,9 @@ static func _clean_lord(e: Dictionary) -> Dictionary:
 			"back_at", "job", "target", "think_at", "raiding", "broke_days", "full", "army",
 			"grudge", "grudge_captain_name", "grudge_company_name", "captive_of", "ransom_at", "ransom_amount", "ransom_offered"]:
 		ordered[k] = l[k]
+	# How often this lord has fought the player's company, once they have.
+	if e.has("met_player"):
+		ordered["met_player"] = int(e["met_player"])
 	return ordered
 
 

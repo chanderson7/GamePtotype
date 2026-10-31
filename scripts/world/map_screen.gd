@@ -818,7 +818,8 @@ func _open_encounter() -> void:
 		encounter_body = grudge_text + "\n\n" + encounter_body
 	var foe_lord: Dictionary = world.lord_of(b) if b.kind == WorldSim.LORD else {}
 	if not foe_lord.is_empty():
-		encounter_body = LordVoice.line("face", foe_lord) + "\n\n" + encounter_body
+		var met := int(foe_lord.get("met_player", 0))
+		encounter_body = LordVoice.line("again" if met > 0 else "face", foe_lord) + "\n\n" + encounter_body
 	_show_sheet("encounter", title, encounter_body, buttons)
 	_show_lord_header(foe_lord)
 	Sound.play("alarm")
@@ -1274,6 +1275,13 @@ func _open_siege(id: String) -> void:
 	var garrison: Array = world.garrisons.get(id, [])
 	var body := "Storm %s for %s. %d men hold its walls against your %d.\n" % [place, realm, check["men"], GameState.total_men()]
 	body += "Men on foot must batter down the gate while the walls shelter the defenders' archers; then rout the garrison. A gate still standing when time runs out means the walls held."
+	var allies: Array = GameState.siege_allies(id)
+	if not allies.is_empty():
+		var ally_men := 0
+		for a in allies:
+			ally_men += int(a["men"])
+		body += "\n%d men of the lords camped here will storm the walls beside you." % ally_men
+		fighters = fighters + allies
 	if not garrison.is_empty():
 		var odds: Dictionary = AutoResolve.odds(fighters, garrison, null, "rout", walls)
 		body += "\nYour captains think the assault %s." % ("can succeed" if odds["player_wins"] else "would fail")

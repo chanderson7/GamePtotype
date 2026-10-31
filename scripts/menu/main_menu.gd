@@ -787,6 +787,20 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 	)
 	btns.add_child(honor_btn)
 
+	if GameState.is_crowned():
+		var swear := Button.new()
+		swear.name = "SwearToCrown_%d" % lord_id
+		var check: Dictionary = GameState.swear_check(lord_id)
+		swear.text = "Swear to your crown" if check["ok"] else "Won't swear"
+		swear.disabled = not check["ok"]
+		swear.tooltip_text = String(check["reason"])
+		swear.pressed.connect(func():
+			GameState.swear_lord_to_crown(lord_id)
+			Sound.play("horn")
+			_build()
+		)
+		btns.add_child(swear)
+
 	return panel
 
 
