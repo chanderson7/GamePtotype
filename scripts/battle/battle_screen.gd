@@ -77,6 +77,16 @@ var floaters: Array = []
 var ticker: Array = []
 ## Short-lived field marks for impacts, charges and broken formations.
 var bursts: Array = []
+## Cue budget: at most this many bursts at once; critical ones (routs, falls) push out
+## routine ones first.
+const MAX_BURSTS := 36
+const CRITICAL_BURSTS := ["rout", "fall"]
+## A squad at or below this morale is wavering: warned before it breaks.
+const WAVER_MORALE := 35.0
+var _wavered := {}
+var _prev_order := {}
+var _settled_at := {}
+var _last_ack := -9.0
 var _view := Rect2()
 var _fit_scale := 1.0
 var cam_zoom := 1.0
@@ -342,6 +352,15 @@ func _recenter_camera() -> void:
 	_update_camera(1.0)
 
 
+## An order was given to `sq`: its standard dips, and the hand feels it (lightly, and not
+## once per squad when a whole line is ordered).
+func _mark_ordered(sq) -> void:
+	_ordered_at[sq] = _clock
+	if _clock - _last_ack > 0.12:
+		_last_ack = _clock
+		Sound.haptic(false)
+
+
 func _to_screen(p: Vector2) -> Vector2:
 	return field_origin + p * field_scale
 
@@ -462,7 +481,7 @@ func _order_line(a: Vector2, b: Vector2) -> void:
 		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
 		return
 	for spot in spots:
-		_ordered_at[spot["squad"]] = _clock
+		_mark_ordered(spot["squad"])
 	_line_shown = {"spots": spots, "face": sim.line_face(Sim.PLAYER, a, b), "at": _clock}
 	Sound.play("page", 0.0, 0.05)
 	if sim.phase == Sim.PHASE_DEPLOY:
@@ -561,8 +580,8 @@ func _tap_battle(p: Vector2, tapped) -> void:
 		return
 	if foe != null and foe.is_active():
 		sim.order_attack(selected_squad, foe)
-		_ordered_at[selected_squad] = _clock
-		_ordered_at[foe] = _clock
+		_mark_ordered(selected_squad)
+		_mark_ordered(foe)
 		_float_text("TARGET", foe.average_pos() + Vector2(0, -60), Style.ENEMY_LIGHT)
 		Sound.play("clash2", -6.0, 0.05)
 		_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(selected_squad), _name(foe.type, Sim.ENEMY).to_lower()])
@@ -576,7 +595,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 			return
 		sim.order_move(selected_squad, p)
 		_float_text("MOVE", p, Style.BRASS)
-		_ordered_at[selected_squad] = _clock
+		_mark_ordered(selected_squad)
 		_hint("%s march there and hold." % _company_or_type(selected_squad))
 
 
@@ -648,13 +667,13 @@ func _on_advance() -> void:
 		return
 	if selected_squad != null:
 		sim.order_advance(selected_squad)
-		_ordered_at[selected_squad] = _clock
+		_mark_ordered(selected_squad)
 		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad))
 	else:
 		sim.order_all(Sim.PLAYER, "advance")
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
-				_ordered_at[sq] = _clock
+				_mark_ordered(sq)
 		_hint("The whole army advances. Each squad goes for the enemy it fights best.")
 
 
@@ -663,13 +682,13 @@ func _on_hold() -> void:
 		return
 	if selected_squad != null:
 		sim.order_hold(selected_squad)
-		_ordered_at[selected_squad] = _clock
+		_mark_ordered(selected_squad)
 		_hint("%s hold where they stand, and brace." % _company_or_type(selected_squad))
 	else:
 		sim.order_all(Sim.PLAYER, "hold")
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
-				_ordered_at[sq] = _clock
+				_mark_ordered(sq)
 		_hint("The whole army holds and braces. Squads fight anyone who comes close.")
 
 
@@ -692,7 +711,7 @@ func _on_hold_fire() -> void:
 	if sq == null or sim.winner != -1 or not sq.ranged:
 		return
 	sim.set_hold_fire(sq, not sq.hold_fire)
-	_ordered_at[sq] = _clock
+	_mark_ordered(sq)
 	if sq.hold_fire:
 		_hint("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq))
 	else:
@@ -844,6 +863,17 @@ func _battle_sounds(delta: float) -> void:
 			if sq.team == Sim.PLAYER and sq.morale <= 35.0 and not _low_morale_heard.has(sq.id):
 				_low_morale_heard[sq.id] = true
 				Sound.play("morale_low", 0.0, 0.02, 1.0)
+			# Wavering: warned once, before the break.
+			if wavering(sq) and not _wavered.has(sq):
+				_wavered[sq] = true
+				var mine_w: bool = sq.team == Sim.PLAYER
+				_float_text("WAVERING", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine_w else Style.PLAYER_LIGHT, 1.4)
+				if mine_w:
+					_tick("%s is wavering. Pull them back or send help." % _company_or_type(sq), Style.MORALE_LOW)
+			# A squad that has just come to a halt settles into its ground.
+			if sq.team == Sim.PLAYER and sq.order == "hold" and String(_prev_order.get(sq, "hold")) != "hold" and not sq.engaged:
+				_settled_at[sq] = _clock
+			_prev_order[sq] = sq.order
 	Sound.set_movement_loop("hooves" if cavalry_moving else ("footsteps" if foot_moving else ""))
 	Sound.set_battle_intensity(float(engaged) / maxf(1.0, active) * 1.6)
 	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
@@ -933,6 +963,7 @@ func _consume_events() -> void:
 					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT)
 				Sound.play("charge", 0.0, 0.05, 0.6)
 				_shake = maxf(_shake, 8.0)
+				Sound.duck()
 			"rout":
 				var sq = e["squad"]
 				_broke_at[sq] = _clock
@@ -941,6 +972,8 @@ func _consume_events() -> void:
 				var mine: bool = sq.team == Sim.PLAYER
 				_float_text("BROKEN", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT, 1.6)
 				if mine:
+					Sound.duck()
+					Sound.haptic(true)
 					_tick("%s broke and run for the edge." % _company_or_type(sq), Style.ENEMY_LIGHT)
 				else:
 					_tick("Their %s break and run." % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT)
@@ -949,13 +982,14 @@ func _consume_events() -> void:
 				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
 					_charged_at[sq] = _clock
 					_burst(e["pos"], "charge", Style.BRASS, 0.55)
+					_burst(e["pos"], "dust", _ground_dust(e["pos"]), 0.8)
 					_float_text("CHARGE!", e["pos"], Style.BRASS)
 					Sound.play("charge", 0.0, 0.06, 0.6)
 					if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
 						_shake = maxf(_shake, 5.0)
 						_hitstop = HITSTOP
 						if e["victim"].team == Sim.PLAYER:
-							Input.vibrate_handheld(30)
+							Sound.haptic(false)
 			"out_of_arrows":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
@@ -1017,7 +1051,8 @@ func _captain_down(e: Dictionary) -> void:
 		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type, Sim.ENEMY).to_lower()], Style.PLAYER_LIGHT)
 		return
 	_shake = maxf(_shake, 9.0)
-	Input.vibrate_handheld(120)
+	Sound.duck()
+	Sound.haptic(true)
 	var roll := {
 		"t": 0.0, "name": String(info.get("name", "")), "company": _company(sq.roster_id),
 		"captain": info,
@@ -1081,6 +1116,15 @@ func _float_text(text: String, at: Vector2, color: Color, life: float = 1.3) -> 
 
 
 func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
+	if bursts.size() >= MAX_BURSTS:
+		var drop := -1
+		for i in bursts.size():
+			if not CRITICAL_BURSTS.has(String(bursts[i]["kind"])):
+				drop = i
+				break
+		if drop == -1 and not CRITICAL_BURSTS.has(kind):
+			return
+		bursts.remove_at(maxi(drop, 0))
 	bursts.append({"pos": at, "kind": kind, "color": color, "age": 0.0, "life": life})
 
 
@@ -1776,8 +1820,10 @@ func _draw() -> void:
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_treetops()
 	_draw_arrows()
+	_draw_settled()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_standards()
+	_draw_edge_markers()
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -2214,6 +2260,10 @@ func _draw_bursts() -> void:
 			"rout":
 				draw_arc(pos, 20.0 + 42.0 * t, 0.0, TAU, 30, color, 3.0)
 				draw_arc(pos, 9.0 + 25.0 * t, 0.0, TAU, 24, Color(color, color.a * 0.55), 2.0)
+			"dust":
+				for i in 5:
+					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
+					draw_circle(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
 			"fall":
 				draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
 				draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
@@ -2280,6 +2330,64 @@ func _draw_arrows() -> void:
 
 ## Every squad carries a standard over it: its type, a morale bar and a head count. A
 ## squad's standard topples when it breaks. Standards that would overlap fan out.
+## Whether `sq` is wavering: still fighting, but close to breaking.
+func wavering(sq) -> bool:
+	return sq.is_active() and not sq.routing and sq.morale <= WAVER_MORALE
+
+
+## The colour of what a hoof or a foot throws up at `p`: spray at a ford, leaf litter in a
+## wood, sand in the desert, dust or turf elsewhere.
+func _ground_dust(p: Vector2) -> Color:
+	if sim.terrain != null:
+		if sim.terrain.water_at(p) != Terrain.WATER_NONE:
+			return Color(0.75, 0.88, 1.0)
+		if sim.terrain.in_woods(p):
+			return Color(0.36, 0.3, 0.18)
+	return Color(0.86, 0.74, 0.5) if _biome == "kharzani" else Color(0.55, 0.47, 0.3)
+
+
+## Rings where a squad has just halted and settled into its ground.
+func _draw_settled() -> void:
+	for sq in _settled_at.keys():
+		var t: float = (_clock - float(_settled_at[sq])) / 0.6
+		if t >= 1.0 or not sq.is_active():
+			_settled_at.erase(sq)
+			continue
+		var r: float = minf(sq.extent, 60.0) + 8.0 + (0.0 if Sound.reduced_motion else 10.0 * t)
+		draw_arc(sq.average_pos(), r, 0.0, TAU, 32, Color(Style.BRASS, 0.7 * (1.0 - t)), 3.0)
+
+
+## Arrows at the edge of the field for your selected company, and any of yours fighting,
+## when they're out of sight.
+func _draw_edge_markers() -> void:
+	if sim.phase != Sim.PHASE_BATTLE:
+		return
+	var view := get_viewport_rect()
+	var top_h: float = top_panel.size.y if top_panel != null else 0.0
+	var bottom_h: float = bottom_panel.size.y if bottom_panel != null else 0.0
+	var area := Rect2(view.position + Vector2(18.0, top_h + 18.0), view.size - Vector2(36.0, top_h + bottom_h + 36.0))
+	if area.size.x <= 0.0 or area.size.y <= 0.0:
+		return
+	for sq in sim.squads:
+		if sq.team != Sim.PLAYER or not sq.is_active():
+			continue
+		var urgent: bool = sq.engaged or wavering(sq)
+		if sq != selected_squad and not urgent:
+			continue
+		var at := _to_screen(sq.average_pos())
+		if area.has_point(at):
+			continue
+		var c := area.get_center()
+		var dir := (at - c).normalized()
+		var edge := Vector2(clampf(at.x, area.position.x, area.end.x), clampf(at.y, area.position.y, area.end.y))
+		var col := Style.ENEMY_LIGHT if wavering(sq) else (Style.BRASS if sq == selected_squad else Style.PLAYER_LIGHT)
+		var tip := edge
+		var back := tip - dir * 22.0
+		var side := dir.orthogonal() * 11.0
+		draw_colored_polygon(PackedVector2Array([tip, back + side, back - side]), Color(0, 0, 0, 0.6))
+		draw_colored_polygon(PackedVector2Array([tip - dir * 2.0, back + side * 0.75, back - side * 0.75]), col)
+
+
 func _draw_standards() -> void:
 	_std_tops.clear()
 	var ref_type := ""
@@ -2336,6 +2444,9 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	if since < 0.5:
 		dip = sin(since / 0.5 * PI) * 0.35
 	var lean := deg_to_rad(68.0) * fall * (1.0 if mine else -1.0) + dip * (1.0 if sq.facing.x >= 0.0 else -1.0)
+	# A wavering standard trembles.
+	if wavering(sq) and not Sound.reduced_motion:
+		flag_x += sin(_clock * 31.0 + sq.id) * 2.5
 	var top := Vector2(flag_x, base.y) + Vector2(sin(lean), -cos(lean)) * POLE
 	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
 	draw_line(base + Vector2(1, 1), top + Vector2(1, 1), Color(0, 0, 0, 0.5), 4.0)
@@ -2359,6 +2470,12 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		return
 	var bar := Rect2(top + Vector2(-2, FLAG.y + 9.0), Vector2(36, 6))
 	var m := clampf(sq.morale / 100.0, 0.0, 1.0)
+	if wavering(sq):
+		# A warning mark beside the flag, steady with reduced motion, pulsing otherwise.
+		var pulse := 1.0 if Sound.reduced_motion else 0.6 + 0.4 * sin(_clock * 9.0)
+		var mark := top + Vector2(FLAG.x + 12.0, 8.0)
+		draw_circle(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
+		draw_string(font, mark + Vector2(-3.5, 6.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.05, 0.03, 0.03))
 	draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 	var count := str(sq.alive_n)

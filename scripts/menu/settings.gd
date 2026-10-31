@@ -25,6 +25,9 @@ func _build() -> void:
 	col.add_child(Page.button("Illustrations: %s" % ("on" if Sound.illustrations_enabled else "off"), func():
 		Sound.set_illustrations(not Sound.illustrations_enabled)
 		_build()))
+	col.add_child(Page.button("Vibration: %s" % ("on" if Sound.haptics_enabled else "off"), func():
+		Sound.set_haptics(not Sound.haptics_enabled)
+		_build()))
 	col.add_child(Page.note("LEARN TO PLAY"))
 	col.add_child(Page.note("Take a short walkthrough of travel, supplies, battles and captains. You can leave at any time."))
 	col.add_child(Page.button("Open tutorial", func():

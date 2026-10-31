@@ -38,6 +38,16 @@ var romance_invitations := true
 var text_scale := 1.0
 var reduced_motion := false
 var illustrations_enabled := true
+## Vibration on supported devices: a light tap for an accepted order, a stronger one for a
+## decisive moment. Separate from reduced motion.
+var haptics_enabled := true
+## Pulses sent, for tests (and so a headless run can see them).
+var haptic_count := 0
+## Until this time, routine contact sounds play quieter, so a critical cue cuts through.
+var _duck_until := 0.0
+## Routine contact sounds, which give way to critical cues.
+const CONTACT := ["clash1", "clash2", "clash3", "arrows", "footsteps", "hooves", "crossbow", "javelin", "horsebow"]
+const DUCK_DB := -9.0
 var _track := ""
 var _music: Array[AudioStreamPlayer] = []
 var _current := 0
@@ -139,6 +149,8 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 	if gap > 0.0 and now - float(_last.get(name, -99.0)) < gap:
 		return
 	_last[name] = now
+	if now < _duck_until and CONTACT.has(name):
+		volume_db += DUCK_DB
 	var stream := _stream(SFX_PATH % name, false)
 	if stream == null:
 		return
@@ -249,6 +261,7 @@ func _load_settings() -> void:
 			text_scale = 1.0
 		reduced_motion = bool(cfg.get_value("presentation", "reduced_motion", false))
 		illustrations_enabled = bool(cfg.get_value("presentation", "illustrations", true))
+		haptics_enabled = bool(cfg.get_value("presentation", "haptics", true))
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Sounds"), not sounds_on)
 
@@ -263,6 +276,7 @@ func _save_settings() -> void:
 	cfg.set_value("presentation", "text_scale", text_scale)
 	cfg.set_value("presentation", "reduced_motion", reduced_motion)
 	cfg.set_value("presentation", "illustrations", illustrations_enabled)
+	cfg.set_value("presentation", "haptics", haptics_enabled)
 	cfg.save(settings_path)
 
 
@@ -376,3 +390,20 @@ func set_reduced_motion(enabled: bool) -> void:
 func set_illustrations(enabled: bool) -> void:
 	illustrations_enabled = enabled
 	_save_settings()
+
+func set_haptics(enabled: bool) -> void:
+	haptics_enabled = enabled
+	_save_settings()
+
+
+## A short vibration, if the player wants them: `strong` for a decisive moment.
+func haptic(strong: bool = false) -> void:
+	if not haptics_enabled:
+		return
+	haptic_count += 1
+	Input.vibrate_handheld(90 if strong else 15)
+
+
+## Quiet routine contact sounds for a moment, so a critical cue is heard over the press.
+func duck(seconds: float = 0.8) -> void:
+	_duck_until = Time.get_ticks_msec() / 1000.0 + seconds
