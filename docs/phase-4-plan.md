@@ -490,6 +490,26 @@ New tunables in `scripts/data/politics.gd`; the rules run once a world day.
 - **Docs:** README and how-to-play; screenshots of the War sheet, an army, a siege and a
   battle with allies.
 
+### As built: Integration and polish
+
+- **Map Readability on Phone**:
+  - Party strength scaling: shadow, outline, and sprite dimensions scale progressively from small bands (<20 men at 0.85x) to massive hosts (140+ men at 1.45x).
+  - Marshal army grouping: army leader displays the grand ring and total troop strength across all contingents; attached member cohort lords march with grouped formation rings, and their separate nameplates collapse at wide zoom to eliminate map clutter.
+  - Zoom fading: bandit markers and names fade smoothly when zoomed out (`px < 2.2`), keeping roads and strategic realm movements clearly readable.
+  - Banners by owner: fluttering heraldic pennants drawn in realm/company owner colors on every party marker.
+  - Siege works & burned villages: besieged settlements render timber palisade arcs, conical tents, and flickering campfires; raided villages render charred ground, smoke plumes, and floating embers.
+- **The Chronicle**:
+  - Expanded event capacity to 30 entries (`ACTIVITY_LIMIT = 30`).
+  - Categorized into `war`, `siege`, `battle`, and `deed` entries. Logs wars, peace treaties, truces, tribute agreements, sieges, wall breaches, lord captures, ransoms, and player company deeds (grudge vengeance, contracts, and victories).
+  - Dedicated map view with category filtering (`All`, `Wars`, `Sieges`, `Deeds`), accessible from the Map Menu and the War & Politics sheet.
+- **Audio & Sound Cues**:
+  - War horn sounds when war is declared or truces broken (`Sound.play_war_horn()`).
+  - Triumphant fanfare stinger sounds when a settlement falls or siege succeeds (`Sound.play_place_fallen()`).
+  - Rhythmic siege drums sound when camera or player is near an active siege (`Sound.play_siege_drums()`).
+- **Phone Performance & Route Caching**:
+  - Dijkstra shortest path calculations cached in `_path_cache`, invalidating only upon settlement conquest. Reduces per-tick pathfinding from $O(V+E)$ to $O(1)$ for all 20+ active parties.
+- **Verification**: Verified by dedicated test suite `tests/integration_and_polish_tests.gd` (48 tests passing), covering chronicle capacity, categorization, filtering, path cache/invalidation, siege queries, audio methods, strength scaling, zoom fading, and save/load roundtripping.
+
 ---
 
 ## Order of work

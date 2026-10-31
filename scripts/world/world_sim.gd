@@ -49,11 +49,15 @@ const TICK := 0.25
 const PLAYER := "player"
 const BAND := "bandit"
 const LORD := "lord"
-const ACTIVITY_LIMIT := 24
+const ACTIVITY_LIMIT := 30
 const ACTIVITY_TYPES := {
 	"war": true, "peace": true, "captured": true, "raid_started": true, "burned": true,
 	"driven_off": true, "fight": true, "army_formed": true, "army_departed": true,
 	"army_arrived": true, "army_returning": true, "army_disbanded": true, "chief_returned": true,
+	"siege_started": true, "siege_assault": true, "siege_repulsed": true,
+	"lord_captured": true, "lord_captured_ai": true, "lord_slain": true,
+	"ransom_paid": true, "lord_ransomed_ai": true,
+	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 }
 
 
@@ -149,6 +153,22 @@ var _lord_day := 0
 var _next_id := 1
 var _adjacent := {}
 var _lord_hours := {}
+var _path_cache: Dictionary = {}
+
+func clear_path_cache() -> void:
+	_path_cache.clear()
+
+func is_sieged(id: String) -> bool:
+	for army in campaign_armies:
+		if String(army.get("state", "")) == "sieging" and String(army.get("target", "")) == id:
+			return true
+	return false
+
+func sieging_army(id: String) -> Dictionary:
+	for army in campaign_armies:
+		if String(army.get("state", "")) == "sieging" and String(army.get("target", "")) == id:
+			return army
+	return {}
 
 
 # ---------------------------------------------------------------- setup
@@ -161,6 +181,7 @@ func setup(seed_value: int, player_culture: String) -> void:
 	hour = START_HOUR
 	events = []
 	activity_log = []
+	clear_path_cache()
 	_build_roads()
 	_start_realms()
 	var p := Party.new()
@@ -385,6 +406,7 @@ func set_owner(id: String, realm: String) -> void:
 	if was == realm:
 		return
 	owners[id] = realm
+	clear_path_cache()
 	if Data.settlement(id)["type"] in [Data.CASTLE, Data.TOWN]:
 		if realms.has(was):
 			add_weariness(was, Politics.WEARINESS_LOST_HOLDING)
@@ -473,13 +495,32 @@ func settlement_intelligence(id: String) -> String:
 ## readable chronicle entry.
 func emit_event(event: Dictionary) -> void:
 	events.append(event)
-	if not ACTIVITY_TYPES.has(String(event.get("type", ""))):
+	var kind := String(event.get("type", ""))
+	if not ACTIVITY_TYPES.has(kind):
 		return
 	var line := _activity_text(event)
 	if line == "":
 		return
 	var place := String(event.get("settlement", event.get("village", event.get("target", event.get("at", "")))))
-	activity_log.push_front({"hour": hour, "type": String(event.get("type", "")), "text": line, "place": place})
+	var cat := "war"
+	match kind:
+		"war", "peace":
+			cat = "war"
+		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
+			cat = "siege"
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory":
+			cat = "deed"
+		"fight", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
+			cat = "battle"
+		_:
+			cat = "war"
+	activity_log.push_front({
+		"hour": hour,
+		"type": kind,
+		"category": cat,
+		"text": line,
+		"place": place,
+	})
 	if activity_log.size() > ACTIVITY_LIMIT:
 		activity_log.resize(ACTIVITY_LIMIT)
 
@@ -532,6 +573,40 @@ func _activity_text(event: Dictionary) -> String:
 			return "%s's marshal army dispersed: %s." % [Data.FACTIONS[String(event["realm"])]["name"], event.get("reason", "the campaign ended")]
 		"chief_returned":
 			return "%s has returned at the head of a band." % event.get("chief", "A bandit chief")
+		"siege_started":
+			return "%s laid siege to %s." % [Data.FACTIONS.get(String(event.get("realm", "")), {}).get("name", "An army"),
+				Data.settlement(String(event.get("target", "")))["name"]]
+		"siege_assault":
+			var where := String(event.get("target", ""))
+			var p_name: String = String(Data.settlement(where)["name"]) if Data.SETTLEMENTS.has(where) else "the walls"
+			if bool(event.get("attacker_won", false)):
+				return "The walls of %s were breached and taken in an assault." % p_name
+			else:
+				return "The assault on %s was repulsed by the garrison." % p_name
+		"siege_repulsed":
+			var where := String(event.get("target", ""))
+			var p_name: String = String(Data.settlement(where)["name"]) if Data.SETTLEMENTS.has(where) else "the fortress"
+			return "The siege of %s was lifted after defenders repulsed the attackers." % p_name
+		"lord_captured":
+			return "%s was taken prisoner by %s." % [event.get("lord", "A lord"), event.get("captor", "their foe")]
+		"lord_captured_ai":
+			return "%s was taken prisoner in battle by %s." % [event.get("lord", "A lord"), event.get("by", "an enemy")]
+		"lord_slain":
+			return "%s fell in battle against %s. An heir takes up their sword." % [event.get("lord", "A lord"), event.get("by", "their foe")]
+		"ransom_paid", "lord_ransomed_ai":
+			return "%s was ransomed for %d silver and returns to his hall." % [event.get("lord", "A lord"), int(event.get("amount", 0))]
+		"grudge_avenged":
+			return "Vengeance answered! %s struck down %s for past blood." % [event.get("company", "The warband"), event.get("lord", "the enemy lord")]
+		"contract_signed":
+			var r_name: String = Data.FACTIONS.get(event.get("realm", ""), {}).get("name", event.get("realm", ""))
+			return "%s signed a 30-day mercenary contract with %s." % [event.get("company", "The warband"), r_name]
+		"contract_ended":
+			var r_name: String = Data.FACTIONS.get(event.get("realm", ""), {}).get("name", event.get("realm", ""))
+			return "%s fulfilled their contract with %s with honour." % [event.get("company", "The warband"), r_name]
+		"player_victory":
+			var at := String(event.get("at", ""))
+			var place_str := (" near %s" % Data.settlement(at)["name"]) if Data.SETTLEMENTS.has(at) else ""
+			return "%s crushed %s%s." % [event.get("company", "The warband"), event.get("enemy", "the enemy"), place_str]
 	return ""
 
 
@@ -682,6 +757,9 @@ func _speed(p: Party, a: String, b: String) -> float:
 func path(from: String, to: String, band_realm: String = "") -> Array:
 	if from == to or not _adjacent.has(from) or not _adjacent.has(to):
 		return []
+	var cache_key := "%s|%s|%s" % [from, to, band_realm]
+	if _path_cache.has(cache_key):
+		return (_path_cache[cache_key] as Array).duplicate()
 	var cost := {from: 0.0}
 	var prev := {}
 	var open := [from]
@@ -710,11 +788,13 @@ func path(from: String, to: String, band_realm: String = "") -> Array:
 				if not open.has(nxt):
 					open.append(nxt)
 	if not prev.has(to):
+		_path_cache[cache_key] = []
 		return []
 	var out := [to]
 	while prev[out[0]] != from:
 		out.push_front(prev[out[0]])
-	return out
+	_path_cache[cache_key] = out
+	return out.duplicate()
 
 
 ## Hours for the player to ride `route` starting from `from`.
@@ -2097,6 +2177,7 @@ func _lord_for_save(l: Dictionary) -> Dictionary:
 ## Restore a world saved with to_dict(). JSON turns every number into a float, so counts
 ## and ids come back as ints.
 func from_dict(d: Dictionary) -> void:
+	clear_path_cache()
 	_build_roads()
 	# A world saved before places could change hands starts from the map as it was.
 	_start_realms()
@@ -2162,8 +2243,24 @@ func from_dict(d: Dictionary) -> void:
 	activity_log = []
 	for raw in d.get("activity_log", []):
 		if typeof(raw) == TYPE_DICTIONARY and String(raw.get("text", "")) != "":
-			activity_log.append({"hour": float(raw.get("hour", hour)), "type": String(raw.get("type", "")),
-				"text": String(raw.get("text", "")), "place": String(raw.get("place", ""))})
+			var kind := String(raw.get("type", ""))
+			var cat := String(raw.get("category", ""))
+			if cat == "":
+				if kind in ["war", "peace"]:
+					cat = "war"
+				elif kind in ["siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off"]:
+					cat = "siege"
+				elif kind in ["grudge_avenged", "contract_signed", "contract_ended", "player_victory"]:
+					cat = "deed"
+				else:
+					cat = "battle"
+			activity_log.append({
+				"hour": float(raw.get("hour", hour)),
+				"type": kind,
+				"category": cat,
+				"text": String(raw.get("text", "")),
+				"place": String(raw.get("place", "")),
+			})
 	if activity_log.size() > ACTIVITY_LIMIT:
 		activity_log.resize(ACTIVITY_LIMIT)
 	parties = []

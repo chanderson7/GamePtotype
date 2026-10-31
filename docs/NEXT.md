@@ -52,12 +52,14 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - Lords who remember & grudges: memorial logs `killed_by_lord_id` and `killed_by_lord_name` when captains die; lords gain grudge, actively hunt the player on the map (`grudge_hunt`), sneer past blood in road dialogues, and fight with altered temperament (+15 morale shock resistance for daring lords).
   - Memorial vengeance: defeating, capturing, or slaying grudge lords resolves the grudge, creates a vengeance chronicle entry, and marks memorial records with `avenged = true` and deeds.
   - Fully deterministic save/load persistence. Verified with `tests/prisoner_and_grudge_tests.gd` (68 tests pass).
-- Next is Phase 4.7 (Integration and polish):
-  - Map readability on phone: party size scaling by troop strength, armies grouped, bandits faded at wide zoom, banners styled by realm owner, siege camps and burned villages drawn distinctly.
-  - The Chronicle: the last 30 world & player events (wars, truces, captures, sieges, deeds, vengeance) readable directly from a dedicated map view.
-  - Dynamic audio & sound cues: war horn on declaration, siege drums near active sieges, triumph fanfare when a settlement falls.
-  - Performance profiling & phone optimization: efficient world tick, party path caching, smooth party rendering.
-  - Documentation & how-to-play: updated README, how-to-play guide, and visual presentations.
+- Phase 4.7 is done (Phase 4 complete):
+  - Map readability on phone: party size scaling by strength, armies grouped, bandits faded at wide zoom, fluttering heraldic banners by owner, animated siege camps and burned villages.
+  - The Chronicle: last 30 world and player events (`ACTIVITY_LIMIT = 30`), categorized into wars, sieges, battles, and company deeds, viewable directly from the map HUD with filter tabs.
+  - Sound cues: war horn on declaration, rhythmic siege drums near active sieges, and fanfare stinger on settlement conquest.
+  - Performance & path caching: $O(1)$ Dijkstra route caching in `_path_cache`, with automatic invalidation on settlement conquest.
+  - Documentation and test suite: verified by `tests/integration_and_polish_tests.gd` (48 tests pass).
+- Phase 4 is complete! All milestones (4.1 through 4.7) implemented, integrated, and verified.
+- Next is Phase 5 (Captains and men: wounded men who heal, captain skills and promotions, named heroes, casual mode).
 
 ## Menu and onboarding update
 

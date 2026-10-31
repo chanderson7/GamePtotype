@@ -164,6 +164,19 @@ func play_culture_accent(culture: String) -> void:
 		_: play("page", 0.0, 0.01, 0.0, 0.96)
 
 
+## Phase 4.7 war and siege sound cues
+func play_war_horn() -> void:
+	play("horn", 2.0, 0.02, 1.0, 0.9)
+
+
+func play_place_fallen() -> void:
+	play("objective", 3.0, 0.0, 1.0, 1.0)
+
+
+func play_siege_drums() -> void:
+	play("charge", 0.0, 0.04, 2.5, 0.65)
+
+
 ## Crossfade the current ambience (road, camp or battlefield), or fade it out with "".
 func set_loop(name: String) -> void:
 	if name == _loop_name:

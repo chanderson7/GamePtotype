@@ -524,6 +524,8 @@ func _upkeep() -> void:
 				world.player().faction = ""
 			var r_name: String = WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm
 			_note("Your mercenary contract with %s has concluded in good standing." % r_name)
+			if world != null:
+				world.emit_event({"type": "contract_ended", "company": "Your warband", "realm": realm})
 	var eaten := mini(food, men)
 	food -= eaten
 	var wages := daily_wages()
@@ -629,6 +631,8 @@ func sign_contract(realm: String) -> void:
 	_note("Signed a %d-day mercenary contract with the %s (%d silver/day)." % [
 		CONTRACT_DAYS, WorldData.FACTIONS[realm]["name"], daily
 	])
+	if world != null:
+		world.emit_event({"type": "contract_signed", "company": "Your warband", "realm": realm})
 	save_game()
 
 
@@ -1321,14 +1325,18 @@ func apply_result(result: Dictionary) -> void:
 							l_cap_name if l_cap_name != "" else "your captain",
 							"slain" if result.get("lord_killed", false) else "brought down"
 						])
+						world.emit_event({"type": "grudge_avenged", "company": "Your warband", "lord": elord_name})
 					if result.get("lord_killed", false):
 						var heir: Dictionary = world.kill_lord(enemy_lid, "Player Warband")
 						_note("%s fell mortally wounded on the field! An heir, %s, takes up their seat." % [elord_name, heir.get("name", "kin")])
+						world.emit_event({"type": "lord_slain", "lord": elord_name, "by": "Your warband"})
 					elif result.get("lord_captured", false):
 						world.capture_lord(enemy_lid, "player")
 						_note("%s was taken prisoner and travels in chains with your baggage." % elord_name)
+						world.emit_event({"type": "lord_captured", "lord": elord_name, "captor": "Your warband"})
 					else:
 						_note("%s cut through the rout and escaped into the hills." % elord_name)
+						world.emit_event({"type": "player_victory", "company": "Your warband", "enemy": elord_name, "at": world.here()})
 			elif obj == "chief":
 				if result.get("chief_killed", false):
 					got["silver"] = int(got["silver"]) * 2
@@ -1424,6 +1432,7 @@ func accept_lord_ransom(lord_id: int) -> bool:
 	_note("%s was ransomed back to %s for %d silver." % [
 		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm), amount
 	])
+	world.emit_event({"type": "ransom_paid", "lord": l["name"], "from": "Your warband", "amount": amount})
 	save_game()
 	return true
 

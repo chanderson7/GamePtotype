@@ -72,6 +72,7 @@ var _contact_distance := 0.0
 var _contact_kind := "none"
 var _travel_context := {}
 var _music_clock := 0.0
+var _siege_drum_clock := 0.0
 
 var terrain
 var backdrop
@@ -196,10 +197,15 @@ func _process(delta: float) -> void:
 				GameState.silver += int(e.get("silver", 0))
 				GameState.renown += int(e.get("renown", 0))
 				GameState.settle()
+				Sound.play_place_fallen()
 				_open_notice("Assault successful at %s! Claimed %d silver and %d renown." % [
 					Data.settlement(String(e.get("target", "")))["name"],
 					int(e.get("silver", 0)), int(e.get("renown", 0))
 				], "Siege Victory")
+			"war":
+				Sound.play_war_horn()
+			"captured":
+				Sound.play_place_fallen()
 	world.events.clear()
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu"]:
 		_open_desertion_warning()
@@ -213,6 +219,10 @@ func _process(delta: float) -> void:
 	if _music_clock <= 0.0:
 		_music_clock = 0.5
 		_update_music()
+	_siege_drum_clock -= delta
+	if _siege_drum_clock <= 0.0:
+		_siege_drum_clock = 5.0
+		_check_siege_proximity_sound()
 	_refresh_travel_presentation()
 	_update_travel_contact(delta)
 	_refresh_hud()
@@ -752,6 +762,19 @@ func _update_music() -> void:
 		Sound.play_music(Data.culture_of(realm))
 
 
+## Siege drums when the player or camera is near an active siege
+func _check_siege_proximity_sound() -> void:
+	if world == null:
+		return
+	var player_pos: Vector2 = world.party_pos(world.player())
+	for id in Data.SETTLEMENTS:
+		if world.is_sieged(id):
+			var s_pos: Vector2 = Data.pos(id)
+			if s_pos.distance_to(player_pos) < 180.0 or s_pos.distance_to(cam_center) < 180.0:
+				Sound.play_siege_drums()
+				break
+
+
 ## What your scouts make of a fight, from auto-resolve's reckoning.
 func _odds_text(odds: Dictionary) -> String:
 	var r: float = odds["ratio"]
@@ -860,7 +883,7 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		[["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["Activity", _open_activity],
+		[["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["The Chronicle", _open_chronicle.bind("all")],
 		["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
 
 
@@ -912,17 +935,36 @@ func _open_wars() -> void:
 	if event_count == 0:
 		lines.append("No recent major battles or captures.")
 
-	_show_sheet("wars", "War & Politics", "\n".join(lines), [["Close", _close_sheet, true]])
+	_show_sheet("wars", "War & Politics", "\n".join(lines), [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_sheet, true]])
 
 
-func _open_activity() -> void:
+## The chronicle: the last 30 events (wars, peace, captures, sieges, company deeds)
+func _open_chronicle(filter: String = "all") -> void:
 	var lines: Array[String] = []
-	for entry in world.activity_log.slice(0, 8):
+	var entries: Array = []
+	for entry in world.activity_log:
+		if filter == "all" or entry.get("category", "") == filter:
+			entries.append(entry)
+			if entries.size() >= 30:
+				break
+	for entry in entries:
 		var h := int(float(entry.get("hour", 0.0)))
 		lines.append("Day %d · %s" % [h / 24 + 1, entry.get("text", "")])
 	if lines.is_empty():
-		lines.append("The roads are quiet. News of raids, battles and marshal armies will appear here.")
-	_show_sheet("activity", "Recent activity", "\n".join(lines), [["Close", _close_sheet, true]])
+		lines.append("No chronicle events in this category yet.")
+	var buttons := [
+		["All", _open_chronicle.bind("all"), filter == "all"],
+		["Wars", _open_chronicle.bind("war"), filter == "war"],
+		["Sieges", _open_chronicle.bind("siege"), filter == "siege"],
+		["Deeds", _open_chronicle.bind("deed"), filter == "deed"],
+		["Close", _close_sheet]
+	]
+	var cat_label := "" if filter == "all" else (" · " + filter.capitalize())
+	_show_sheet("chronicle", "The Chronicle%s" % cat_label, "\n".join(lines), buttons)
+
+
+func _open_activity() -> void:
+	_open_chronicle("all")
 
 
 func _open_recommendation() -> void:
@@ -1237,10 +1279,12 @@ func _draw_settlement(id: String, px: float) -> void:
 	var tint := BURNT if condition == "damaged" else (Color("c8b58f") if condition == "recovering" else Color.WHITE)
 	draw_texture(MapArt.texture(sprite, 0, colors), -MapArt.pivot(sprite), tint)
 	if condition == "damaged":
-		# Smoke still rising from the ruins.
+		# Charred ruins: smoke plumes and glowing embers rising
 		for k in 3:
 			var rise := fmod(_clock * 0.6 + k * 0.33, 1.0)
 			draw_circle(Vector2(-3.0 + k * 3.0, -10.0 - rise * 14.0), 2.0 + rise * 3.0, Color(0.25, 0.23, 0.22, 0.45 * (1.0 - rise)))
+			var ember_rise := fmod(_clock * 1.3 + k * 0.37, 1.0)
+			draw_circle(Vector2(-4.0 + k * 4.0 + sin(_clock * 4.0 + k) * 2.0, -8.0 - ember_rise * 16.0), 1.2, Color(1.0, 0.45, 0.1, 0.75 * (1.0 - ember_rise)))
 	elif condition == "recovering":
 		# Pale new timbers distinguish rebuilding from an actively ruined village.
 		draw_line(Vector2(-9, -12), Vector2(-9, 2), Color("c59555"), 2.0)
@@ -1250,6 +1294,27 @@ func _draw_settlement(id: String, px: float) -> void:
 		draw_arc(Vector2.ZERO, MapArt.size(sprite).x * 0.58, 0.18, PI - 0.18, 14, Style.ENEMY_LIGHT, 1.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
+	# Siege camps drawn around besieged settlements
+	if world.is_sieged(id):
+		var siege_r: float = w * 0.72
+		draw_arc(c, siege_r, 0.1, TAU - 0.1, 32, Color("7a5c3b"), 2.0)
+		for t_i in 4:
+			var ang := 0.45 + t_i * 1.57
+			var t_pos := c + Vector2(cos(ang), sin(ang)) * siege_r
+			var pts := PackedVector2Array([
+				t_pos + Vector2(0, -6.0 * px),
+				t_pos + Vector2(4.5 * px, 4.0 * px),
+				t_pos + Vector2(-4.5 * px, 4.0 * px)
+			])
+			draw_colored_polygon(pts, Color("8a7356"))
+			draw_polyline(pts, Color("483928"), 1.2)
+		for f_i in 2:
+			var f_ang := 1.25 + f_i * 3.1
+			var f_pos := c + Vector2(cos(f_ang), sin(f_ang)) * (siege_r + 5.0 * px)
+			var f_pulse := 0.7 + 0.3 * sin(_clock * 8.0 + f_i * 3.0)
+			draw_circle(f_pos, 2.5 * px * f_pulse, Color(0.95, 0.45, 0.1, 0.85))
+			draw_circle(f_pos, 1.2 * px * f_pulse, Color(1.0, 0.85, 0.3, 0.95))
+
 
 ## A party on the road: your rider under your banner, or a bandit band. Walks while it
 ## moves, facing the way it's going.
@@ -1257,25 +1322,81 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 	var at: Vector2 = world.party_pos(p)
 	var base := _to_screen(at)
 	var army: Dictionary = world.MarshalArmies.for_party(world, p.id)
-	if not army.is_empty() and army["state"] != "gathering":
-		draw_arc(base, 18 * px, 0, TAU, 28, Style.BRASS, 3.0)
-		draw_arc(base, 22 * px, 0, TAU, 28, Color(Style.BRASS, 0.55), 2.0)
-	elif sprite == "bandits":
-		var r := 15.0 * px
-		draw_polyline(PackedVector2Array([base + Vector2(0, -r), base + Vector2(r, 0), base + Vector2(0, r),
-			base + Vector2(-r, 0), base + Vector2(0, -r)]), Style.ENEMY_LIGHT, 2.0)
+
+	# Calculate troop strength for scaling party presence
+	var men := 0
+	if p == world.player():
+		men = GameState.total_men()
+	else:
+		for sq in p.army:
+			men += int(sq.get("men", 0))
+	var strength_scale := 1.0
+	if men < 20:
+		strength_scale = 0.85
+	elif men < 50:
+		strength_scale = 1.0
+	elif men < 90:
+		strength_scale = 1.18
+	elif men < 140:
+		strength_scale = 1.32
+	else:
+		strength_scale = 1.45
+
+	# Fading bandits at wide zoom
+	var party_alpha := 1.0
+	if sprite == "bandits":
+		party_alpha = clampf((px - 1.4) / (2.2 - 1.4), 0.25, 1.0)
+
 	var moving: bool = p.moving() and (world.busy() or p != world.player())
 	var facing := 1.0
 	if p.moving() and Data.pos(p.next).x < at.x:
 		facing = -1.0
 	var frame := int(_clock * 6.0) % 2 if moving else 0
 	var mine := sprite == "rider"
+
+	# Shadow on ground
 	draw_set_transform(base + Vector2(0, 2), 0.0, Vector2(1.0, 0.35))
-	draw_circle(Vector2.ZERO, 8.0 * px, Color(0, 0, 0, 0.28))
+	draw_circle(Vector2.ZERO, 8.0 * px * strength_scale, Color(0, 0, 0, 0.28 * party_alpha))
 	if mine:
-		draw_arc(Vector2.ZERO, 9.5 * px, 0.0, TAU, 32, Style.BRASS, 2.5 / 0.35)
-	draw_set_transform(base, 0.0, Vector2(px * facing, px))
-	draw_texture(MapArt.texture(sprite, frame, color), -MapArt.pivot(sprite))
+		draw_arc(Vector2.ZERO, 9.5 * px * strength_scale, 0.0, TAU, 32, Style.BRASS, 2.5 / 0.35)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	# Marshal army rings or bandit diamond
+	if not army.is_empty() and army["state"] != "gathering":
+		if p.id == int(army["leader"]):
+			draw_arc(base, 20 * px * strength_scale, 0, TAU, 32, Style.BRASS, 3.0)
+			draw_arc(base, 25 * px * strength_scale, 0, TAU, 32, Color(Style.BRASS, 0.55), 2.0)
+		else:
+			# Attached army cohort member: grouped cohort ring
+			draw_arc(base, 14 * px * strength_scale, 0, TAU, 24, Color(Style.BRASS, 0.4), 1.5)
+	elif sprite == "bandits":
+		var r := 15.0 * px * strength_scale
+		var b_col := Style.ENEMY_LIGHT
+		b_col.a *= party_alpha
+		draw_polyline(PackedVector2Array([base + Vector2(0, -r), base + Vector2(r, 0), base + Vector2(0, r),
+			base + Vector2(-r, 0), base + Vector2(0, -r)]), b_col, 2.0)
+
+	# Heraldic banner / pennant by owner
+	var pole_x := 7.0 * px * facing
+	var pole_top := base + Vector2(pole_x, -14.0 * px * strength_scale)
+	var pole_bot := base + Vector2(pole_x, 1.0 * px)
+	var pole_col := Color(0.25, 0.22, 0.18, party_alpha)
+	draw_line(pole_bot, pole_top, pole_col, 1.5)
+	var flutter := sin(_clock * 7.0 + float(p.id)) * 2.0 * px
+	var flag_pts := PackedVector2Array([
+		pole_top,
+		pole_top + Vector2(9.0 * px * facing + flutter * facing, 3.0 * px),
+		pole_top + Vector2(0, 6.5 * px)
+	])
+	var flag_col := color
+	flag_col.a *= party_alpha
+	draw_colored_polygon(flag_pts, flag_col)
+	draw_polyline(flag_pts, Color(0.12, 0.1, 0.08, 0.8 * party_alpha), 1.0)
+
+	# Party sprite
+	draw_set_transform(base, 0.0, Vector2(px * facing * strength_scale, px * strength_scale))
+	var tex_col := Color(1, 1, 1, party_alpha)
+	draw_texture(MapArt.texture(sprite, frame, color), -MapArt.pivot(sprite), tex_col)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
@@ -1295,14 +1416,31 @@ func _draw_labels() -> void:
 		_name_plate(_to_screen(s["pos"]) + Vector2(0, 8.0 + px * 2.0), String(s["name"]), size,
 			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
 	for b in world.bands():
-		_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -17.0 * px - 6.0), b.name, 17, Color("e8d9c0"))
+		if px >= 2.0:
+			var b_col := Color("e8d9c0")
+			if px < 2.5:
+				b_col.a = clampf((px - 2.0) / 0.5, 0.3, 1.0)
+			_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -17.0 * px - 6.0), b.name, 17, b_col)
 	# Lords' names only once you're looking closely, or the map drowns in them.
 	if px >= LORD_NAMES_PX:
 		for lp in world.visible_lord_parties():
 			var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
-			var title: String = "MARSHAL ARMY · %s" % lp.name if not army.is_empty() and army["state"] != "gathering" else String(lp.name)
-			_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), title, 15,
-				Cultures.color(Data.culture_of(lp.faction)).lightened(0.45))
+			if not army.is_empty() and army["state"] != "gathering":
+				if lp.id != int(army["leader"]):
+					if px < 2.8:
+						continue
+					_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -21.0 * px - 6.0), "%s (Cohort)" % lp.name, 14,
+						Cultures.color(Data.culture_of(lp.faction)).lightened(0.35))
+					continue
+				var total_men := 0
+				for m in world.MarshalArmies.members(world, army):
+					total_men += world.men_of(m.army)
+				var title := "MARSHAL ARMY · %s (%d men)" % [lp.name, total_men]
+				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -25.0 * px - 6.0), title, 16,
+					Cultures.color(Data.culture_of(lp.faction)).lightened(0.55))
+			else:
+				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), String(lp.name), 15,
+					Cultures.color(Data.culture_of(lp.faction)).lightened(0.45))
 
 
 ## A name on a dark plate, centered on `at` (the plate's top edge).
