@@ -118,6 +118,9 @@ var activity_log: Array = []
 var encounter := -1
 ## The party id of the allied lord/army the player is following, or -1.
 var following_party := -1
+## An assault waiting on the player: {army, role ("lead" with an allied army, "defend"
+## at the player's fief), target}. The clock stands still until it is answered.
+var pending_assault: Dictionary = {}
 ## GameState back-reference if running under campaign.
 var game_state = null
 ## Recruits each settlement offers: {settlement id: [{type, culture}]}, and the hour each
@@ -744,6 +747,8 @@ func destination() -> String:
 ## The clock runs while the player travels or waits, unless a band blocks the road.
 func busy() -> bool:
 	var p := player()
+	if not pending_assault.is_empty():
+		return false
 	if following_party != -1:
 		var target := party(following_party)
 		if target != null and (target.moving() or target.wait > 0.0):
@@ -2225,7 +2230,7 @@ func to_dict() -> Dictionary:
 			"raiding": p.raiding, "raid_village": p.raid_village,
 			"is_chief_band": p.is_chief_band, "chief_name": p.chief_name, "lord": p.lord})
 	return {
-		"hour": hour, "culture": culture, "encounter": encounter, "following_party": following_party, "next_id": _next_id,
+		"hour": hour, "culture": culture, "encounter": encounter, "following_party": following_party, "pending_assault": pending_assault.duplicate(), "next_id": _next_id,
 		"seed": str(rng.seed), "state": str(rng.state),
 		"respawns": respawns.duplicate(true), "parties": ps,
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
@@ -2290,6 +2295,9 @@ func from_dict(d: Dictionary) -> void:
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))
 	following_party = int(d.get("following_party", -1))
+	pending_assault = d.get("pending_assault", {}).duplicate() if typeof(d.get("pending_assault")) == TYPE_DICTIONARY else {}
+	if pending_assault.has("army"):
+		pending_assault["army"] = int(pending_assault["army"])
 	_next_id = int(d.get("next_id", 1))
 	rng.seed = int(String(d.get("seed", "0")))
 	rng.state = int(String(d.get("state", "0")))

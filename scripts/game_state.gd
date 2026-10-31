@@ -19,6 +19,7 @@ const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
+const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
@@ -521,7 +522,119 @@ func auto_resolve_siege(id: String) -> Dictionary:
 	return result
 
 
+## The army an assault call is about, or {}.
+func _assault_army() -> Dictionary:
+	if world == null or world.pending_assault.is_empty():
+		return {}
+	for a in world.campaign_armies:
+		if int(a["id"]) == int(world.pending_assault["army"]):
+			return a
+	return {}
+
+
+## Answer the call to an assault. `fight` sets up the battle for the battle screen;
+## otherwise it is settled as before (riding along, or leaving the walls to the garrison).
+func answer_assault(fight: bool) -> void:
+	var army := _assault_army()
+	if army.is_empty():
+		if world != null:
+			world.pending_assault = {}
+		return
+	if not fight:
+		army["player_answered"] = true
+		world.pending_assault = {}
+		return
+	var role := String(world.pending_assault["role"])
+	var target := String(world.pending_assault["target"])
+	var lords_squads: Array = []
+	for member in MarshalArmies.members(world, army):
+		for sq in member.army:
+			if int(sq.get("men", 0)) > 0:
+				var entry: Dictionary = WorldSim.clean_army([sq])[0]
+				entry["lord_id"] = member.lord
+				entry["culture"] = WorldData.culture_of(member.faction)
+				lords_squads.append(entry)
+	var garrison: Array = WorldSim.clean_army(world.garrisons.get(target, []))
+	var kind := String(WorldData.settlement(target)["type"])
+	var owner: String = world.owner_of(target)
+	pending_battle = {"objective": "siege", "siege_target": target, "siege_kind": kind, "site": null,
+		"temperament": "", "party_id": -1, "assault_army": int(army["id"])}
+	if role == "lead":
+		for e in lords_squads:
+			e["is_ally"] = true
+		pending_battle.merge({"enemy": garrison, "allies": lords_squads, "culture": WorldData.culture_of(owner),
+			"name": "The garrison of %s" % WorldData.settlement(target)["name"], "siege_realm": String(army["realm"]),
+			"enemy_faction": owner})
+	else:
+		for e in garrison:
+			e["is_ally"] = true
+			e["garrison"] = true
+		pending_battle.merge({"enemy": lords_squads, "allies": garrison, "culture": WorldData.culture_of(String(army["realm"])),
+			"name": "The army of %s" % WorldData.FACTIONS[army["realm"]]["name"], "siege_defend": true,
+			"siege_realm": owner, "enemy_faction": String(army["realm"])})
+
+
+## A siege battle fought beside (or against) a marshal army.
+func _army_assault_outcome(result: Dictionary, how: String) -> void:
+	var army := _assault_army()
+	var target := String(pending_battle.get("siege_target", ""))
+	var place: String = WorldData.settlement(target)["name"]
+	world.pending_assault = {}
+	var won := bool(result.get("won", false))
+	var defend := bool(pending_battle.get("siege_defend", false))
+	var ours: Dictionary = result.get("squads", {})
+	var theirs: Dictionary = result.get("enemy_squads", {})
+	# Garrison survivors: on our side when defending, the enemy's when storming.
+	var garrison_left: Dictionary = ours if defend else theirs
+	var garrison: Array = world.garrisons.get(target, [])
+	for sq in garrison:
+		var after = garrison_left.get(int(sq["id"]))
+		if after != null:
+			sq["men"] = int(after.get("men", sq["men"]))
+	world.garrisons[target] = garrison.filter(func(sq): return int(sq["men"]) > 0)
+	# The army's survivors.
+	if not army.is_empty():
+		var army_left: Dictionary = theirs if defend else ours
+		for member in MarshalArmies.members(world, army):
+			for sq in member.army:
+				var after = army_left.get(int(sq["id"]))
+				if after != null:
+					sq["men"] = int(after.get("men", sq["men"]))
+			member.army = member.army.filter(func(sq): return int(sq["men"]) > 0)
+			var l: Dictionary = world.lord_of(member)
+			if not l.is_empty():
+				l["army"] = member.army
+	var army_won := won != defend
+	if not army.is_empty():
+		army["player_answered"] = true
+		if army_won:
+			MarshalArmies.capture_settlement(world, army, "assault")
+		else:
+			world.emit_event({"type": "siege_repulsed", "army": army["id"], "target": target})
+			MarshalArmies.return_home(world, army, "Assault repulsed")
+	if won:
+		var got := Economy.spoils(int(result.get("killed", 0)))
+		got["renown"] = int(got["renown"]) + 20
+		silver += int(got["silver"])
+		food += int(got["food"])
+		renown += int(got["renown"])
+		if defend:
+			world.emit_event({"type": "fief_defended", "settlement": target, "enemy": String(pending_battle.get("name", "the besiegers"))})
+			_note("You held the walls of %s! %s The besiegers fall back. +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]])
+		else:
+			add_realm_relation(String(pending_battle.get("siege_realm", "")), 15)
+			_note("%s falls to the assault you led! %s +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]])
+	else:
+		if defend:
+			_note("%s fell. %s The besiegers hold the walls now." % [place, how])
+		else:
+			_note("The assault on %s failed. %s The army falls back." % [place, how])
+
+
 func _siege_outcome(result: Dictionary, how: String) -> void:
+	if pending_battle.has("assault_army"):
+		_army_assault_outcome(result, how)
+		return
 	var id := String(pending_battle.get("siege_target", ""))
 	var realm := String(pending_battle.get("siege_realm", ""))
 	if id == "" or not WorldData.SETTLEMENTS.has(id):

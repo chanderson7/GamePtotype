@@ -199,6 +199,7 @@ func _ready() -> void:
 			player_host.append_array(pending["allies"])
 			has_allies = true
 		sim.siege_kind = String(pending.get("siege_kind", "castle"))
+		sim.siege_defender = Sim.PLAYER if bool(pending.get("siege_defend", false)) else Sim.ENEMY
 		sim.setup(player_host, pending["enemy"], 0, site, obj)
 		if has_allies:
 			sim.allied_ai = Commander.new(Sim.PLAYER, "", true)
@@ -217,7 +218,10 @@ func _ready() -> void:
 		Sim.OBJECTIVE_AMBUSH:
 			_tick("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
 		Sim.OBJECTIVE_SIEGE:
-			_tick("SIEGE: Break the gate, then rout the garrison!", Style.BRASS)
+			if sim.siege_defender == Sim.PLAYER:
+				_tick("SIEGE: Hold the gate until they give up!", Style.BRASS)
+			else:
+				_tick("SIEGE: Break the gate, then rout the garrison!", Style.BRASS)
 		_:
 			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	Sound.play_battle()
@@ -877,7 +881,9 @@ func _missile_sound(p) -> String:
 
 ## The wall across the field, its battlements, and the gate with how much it has left.
 func _draw_walls() -> void:
-	var top := Sim.WALL_ROW * Terrain.CELL
+	var top: float = sim.wall_row * Terrain.CELL
+	# battlements face the attackers' side; the gate's bar shows on the attackers' side
+	var out := 1.0 if sim.siege_defender == Sim.ENEMY else -1.0
 	var cell := Terrain.CELL
 	var stone := Color("7d776c")
 	var dark := Color("4e4a43")
@@ -888,8 +894,9 @@ func _draw_walls() -> void:
 		draw_rect(r, stone)
 		draw_rect(Rect2(r.position + Vector2(0, cell - 6.0), Vector2(cell, 6.0)), dark)
 		# battlements on the garrison's side
-		draw_rect(Rect2(r.position + Vector2(3.0, -7.0), Vector2(10.0, 7.0)), stone)
-		draw_rect(Rect2(r.position + Vector2(17.0, -7.0), Vector2(10.0, 7.0)), stone)
+		var lip: float = cell if sim.siege_defender == Sim.PLAYER else -7.0
+		draw_rect(Rect2(r.position + Vector2(3.0, lip), Vector2(10.0, 7.0)), stone)
+		draw_rect(Rect2(r.position + Vector2(17.0, lip), Vector2(10.0, 7.0)), stone)
 		draw_line(r.position + Vector2(cell, 0), r.position + Vector2(cell, cell), dark, 1.0)
 	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
 	if sim.gate_hp > 0.0:
@@ -901,11 +908,11 @@ func _draw_walls() -> void:
 		draw_line(gate.position + Vector2(0, 9), gate.position + Vector2(gate.size.x, 9), Color("2b2b2b"), 3.0)
 		draw_line(gate.position + Vector2(0, 21), gate.position + Vector2(gate.size.x, 21), Color("2b2b2b"), 3.0)
 		# how much the gate has left, below it where the attackers can see
-		var bar := Rect2(gate.position + Vector2(-20.0, cell + 10.0), Vector2(gate.size.x + 40.0, 8.0))
+		var bar := Rect2(gate.position + Vector2(-20.0, cell + 10.0 if out > 0.0 else -18.0), Vector2(gate.size.x + 40.0, 8.0))
 		draw_rect(bar, Color(0, 0, 0, 0.55))
 		draw_rect(Rect2(bar.position, Vector2(bar.size.x * share, bar.size.y)), Color(1.0, 0.65, 0.25, 0.95))
 		if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
-			draw_string(font, bar.position + Vector2(-40.0, 34.0), "Gate %d%%" % int(ceil(share * 100.0)),
+			draw_string(font, bar.position + Vector2(-40.0, 34.0 if out > 0.0 else -10.0), "Gate %d%%" % int(ceil(share * 100.0)),
 				HORIZONTAL_ALIGNMENT_CENTER, bar.size.x + 80.0, Style.SMALL, Style.BRASS)
 	else:
 		# splintered timbers either side of the breach
@@ -918,9 +925,12 @@ func _consume_events() -> void:
 	for e in sim.events:
 		match e["type"]:
 			"gate_breached":
-				_burst(Sim.GATE_CENTER, "charge", Style.BRASS, 1.0)
-				_float_text("THE GATE IS BROKEN!", Sim.GATE_CENTER + Vector2(0, -60), Style.BRASS, 2.0)
-				_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT)
+				_burst(sim.gate_center, "charge", Style.BRASS, 1.0)
+				_float_text("THE GATE IS BROKEN!", sim.gate_center + Vector2(0, -60), Style.BRASS, 2.0)
+				if sim.siege_defender == Sim.PLAYER:
+					_tick("The gate is broken! Hold the breach!", Style.ENEMY_LIGHT)
+				else:
+					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT)
 				Sound.play("charge", 0.0, 0.05, 0.6)
 				_shake = maxf(_shake, 8.0)
 			"rout":
@@ -1098,7 +1108,7 @@ func _show_result() -> void:
 		"rout": ["Their army broke and fled.", "Your army broke and fled."],
 		"time": ["Time ran out with more of your army still standing.", "Time ran out with more of theirs still standing."],
 		"retreat": ["The enemy withdrew.", "You pulled your army off the field."],
-		"walls_held": ["", "The gate held. The garrison kept its walls."],
+		"walls_held": ["The gate held. The attackers gave up the assault.", "The gate held. The garrison kept its walls."],
 		"village_held": ["You held the village square until the raiders gave up.", ""],
 		"village_lost": ["", "The raiders held the village square when time ran out."],
 		"village_burned": ["", "The raiders held the square long enough to fire the village."],

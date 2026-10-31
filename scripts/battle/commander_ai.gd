@@ -212,8 +212,10 @@ func update(sim, dt: float) -> void:
 
 	_use_abilities(sim)
 	# A garrison keeps to its walls until the gate gives.
-	if sim.objective == Sim.OBJECTIVE_SIEGE and team == Sim.ENEMY and not sim.gate_open():
+	if sim.objective == Sim.OBJECTIVE_SIEGE and team == sim.siege_defender and not sim.gate_open():
 		for sq in sim.squads:
+			if allies_only and not sq.is_ally:
+				continue
 			if sq.team == team and sq.is_active() and not sq.routing and sq.order != "hold" and not sq.engaged:
 				sim.order_hold(sq)
 		return

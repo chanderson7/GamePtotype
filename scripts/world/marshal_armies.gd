@@ -221,6 +221,19 @@ static func assault(w, army: Dictionary) -> void:
 				attacker_squads.append(sq)
 
 	var player_in_assault: bool = w.following_party != -1 and army["members"].has(w.following_party)
+	# The player is asked first: to lead the assault beside the army, or to hold the walls
+	# of their own fief. Declining lets it be settled as before.
+	if not bool(army.get("player_answered", false)) and w.pending_assault.is_empty():
+		var role := ""
+		var gs = w._active_game_state()
+		if player_in_assault:
+			role = "lead"
+		elif gs != null and gs.is_player_fief(target) and w.here() == target and w.following_party == -1 and w.encounter == -1:
+			role = "defend"
+		if role != "":
+			w.pending_assault = {"army": int(army["id"]), "role": role, "target": target}
+			w.emit_event({"type": "assault_ready", "army": army["id"], "role": role, "target": target})
+			return
 	var player_p = w.player() if player_in_assault else null
 	if player_in_assault and player_p != null:
 		for sq in player_p.army:

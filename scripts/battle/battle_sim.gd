@@ -344,6 +344,12 @@ var village_burn := 0.0
 var gate_hp := 0.0
 var gate_max := 0.0
 var siege_kind := "castle"
+## Which side holds the walls (the garrison): ENEMY when you storm them, PLAYER when you
+## defend them. The wall stands across the defenders' half, with them behind it.
+var siege_defender := ENEMY
+var wall_row := WALL_ROW
+var wall_y := WALL_Y
+var gate_center := GATE_CENTER
 ## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
 var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
@@ -439,10 +445,13 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 func _setup_siege(kind: String = "") -> void:
 	if kind != "":
 		siege_kind = kind
+	wall_row = WALL_ROW if siege_defender == ENEMY else Terrain.ROWS - 1 - WALL_ROW
+	wall_y = (wall_row + 0.5) * Terrain.CELL
+	gate_center = Vector2(GATE_CENTER.x, wall_y)
 	var t := Terrain.new()
 	for cx in Terrain.COLS:
 		if not GATE_COLS.has(cx):
-			t.rock[WALL_ROW * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
+			t.rock[wall_row * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
 	set_terrain(t)
 	gate_max = float(GATE_HP.get(siege_kind, GATE_HP["castle"]))
 	gate_hp = gate_max
@@ -454,8 +463,8 @@ func _close_gate(closed: bool) -> void:
 	_horse = terrain.horse_speed.duplicate()
 	if closed:
 		for cx in GATE_COLS:
-			_foot[WALL_ROW * Terrain.COLS + cx] = 0.0
-			_horse[WALL_ROW * Terrain.COLS + cx] = 0.0
+			_foot[wall_row * Terrain.COLS + cx] = 0.0
+			_horse[wall_row * Terrain.COLS + cx] = 0.0
 
 
 func gate_open() -> bool:
@@ -466,11 +475,11 @@ func gate_open() -> bool:
 func _batter_gate(dt: float) -> void:
 	var blows := 0.0
 	for sq in squads:
-		if sq.team != PLAYER or not sq.is_active() or sq.routing or bool(sq.stats["ranged"]):
+		if sq.team == siege_defender or not sq.is_active() or sq.routing or bool(sq.stats["ranged"]):
 			continue
 		var weight := GATE_HORSE if sq.type == Troops.CAVALRY else 1.0
 		for so in sq.soldiers:
-			if so.alive and so.pos.distance_to(GATE_CENTER) <= GATE_REACH:
+			if so.alive and so.pos.distance_to(gate_center) <= GATE_REACH:
 				blows += weight
 	if blows <= 0.0:
 		return
@@ -480,13 +489,18 @@ func _batter_gate(dt: float) -> void:
 		events.append({"type": "gate_breached"})
 
 
+## Whether `p` is on the garrison's side of the wall (and clear of it).
+func inside_walls(p: Vector2) -> bool:
+	return p.y < wall_y - 15.0 if siege_defender == ENEMY else p.y > wall_y + 15.0
+
+
 ## How many of each side's men are inside the walls.
 func men_inside_walls() -> Array:
 	var count := [0, 0]
 	for sq in squads:
 		if sq.is_active() and not sq.routing:
 			for so in sq.soldiers:
-				if so.alive and so.pos.y < WALL_Y - 15.0:
+				if so.alive and inside_walls(so.pos):
 					count[sq.team] += 1
 	return count
 
@@ -684,8 +698,10 @@ func roster(team: int) -> Array:
 
 
 func deploy_zone(team: int) -> Rect2:
-	if objective == OBJECTIVE_SIEGE and team == ENEMY:
-		return Rect2(20.0, 30.0, ARENA.x - 40.0, WALL_Y - 45.0 - 30.0)
+	if objective == OBJECTIVE_SIEGE and team == siege_defender:
+		if team == ENEMY:
+			return Rect2(20.0, 30.0, ARENA.x - 40.0, wall_y - 45.0 - 30.0)
+		return Rect2(20.0, wall_y + 45.0, ARENA.x - 40.0, ARENA.y - 30.0 - (wall_y + 45.0))
 	if team == PLAYER:
 		var top := MID_Y + DEPLOY_GAP
 		return Rect2(20.0, top, ARENA.x - 40.0, ARENA.y - 30.0 - top)
@@ -768,9 +784,9 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 		if jitter > 0.0:
 			x += rng.randf_range(-jitter, jitter)
 		var y := MID_Y + depth if team == PLAYER else MID_Y - depth
-		if objective == OBJECTIVE_SIEGE and team == ENEMY:
+		if objective == OBJECTIVE_SIEGE and team == siege_defender:
 			# A garrison forms up just behind its wall.
-			y = WALL_Y - 50.0 - (depth - front)
+			y = wall_y - 50.0 - (depth - front) if team == ENEMY else wall_y + 50.0 + (depth - front)
 		place(team, s[0]["roster_id"], Vector2(x, y))
 
 
@@ -1870,9 +1886,9 @@ func _update_soldier(so, sq, dt: float) -> void:
 func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 	var before: Vector2 = so.pos
 	# While the gate holds, anyone making for the far side of the wall crowds the gate.
-	if objective == OBJECTIVE_SIEGE and gate_hp > 0.0 and (before.y > WALL_Y) != (dest.y > WALL_Y):
-		var side := 1.0 if before.y > WALL_Y else -1.0
-		dest = Vector2(clampf(before.x, GATE_CENTER.x - 30.0, GATE_CENTER.x + 30.0), GATE_CENTER.y + side * 20.0)
+	if objective == OBJECTIVE_SIEGE and gate_hp > 0.0 and (before.y > wall_y) != (dest.y > wall_y):
+		var side := 1.0 if before.y > wall_y else -1.0
+		dest = Vector2(clampf(before.x, gate_center.x - 30.0, gate_center.x + 30.0), gate_center.y + side * 20.0)
 	if _rough:
 		so.pos = _rough_step(before, dest, speed * dt, so.squad.type == Troops.CAVALRY)
 	else:
@@ -2144,8 +2160,8 @@ func _update_projectiles(dt: float) -> void:
 				wall_block *= (1.0 - p.piercing)
 				dmg *= (1.0 - minf(0.95, wall_block))
 			# Defenders behind their wall
-			if objective == OBJECTIVE_SIEGE and vs.team == ENEMY and p.target.pos.y < WALL_Y \
-					and p.target.pos.y > WALL_Y - WALL_COVER:
+			if objective == OBJECTIVE_SIEGE and vs.team == siege_defender and inside_walls(p.target.pos) \
+					and absf(p.target.pos.y - wall_y) < WALL_COVER:
 				dmg *= WALL_ARROWS
 			# Armor on target
 			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
@@ -2574,8 +2590,8 @@ func _burn_village(dt: float) -> void:
 
 func _check_end() -> void:
 	# A gate still standing when time runs out: the walls held.
-	if objective == OBJECTIVE_SIEGE and time >= TIME_LIMIT and gate_hp > 0.0 and has_active(ENEMY):
-		_finish(ENEMY, "walls_held")
+	if objective == OBJECTIVE_SIEGE and time >= TIME_LIMIT and gate_hp > 0.0 and has_active(siege_defender):
+		_finish(siege_defender, "walls_held")
 		return
 	if objective == OBJECTIVE_VILLAGE and time >= VILLAGE_DURATION:
 		var count := men_in_village()

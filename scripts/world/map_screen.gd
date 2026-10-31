@@ -17,6 +17,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
@@ -122,6 +123,8 @@ func _ready() -> void:
 	_refresh_travel_presentation()
 	if world.encounter != -1:
 		_open_encounter()
+	elif not world.pending_assault.is_empty():
+		_open_assault_call()
 	elif GameState.desertion_warning != "":
 		_open_desertion_warning()
 	elif GameState.map_notice != "":
@@ -195,6 +198,9 @@ func _process(delta: float) -> void:
 			"ransom_offer":
 				GameState.save_game()
 				_open_ransom_sheet(int(e["lord_id"]))
+			"assault_ready":
+				GameState.save_game()
+				_open_assault_call()
 			"siege_loot":
 				GameState.silver += int(e.get("silver", 0))
 				GameState.renown += int(e.get("renown", 0))
@@ -1112,6 +1118,46 @@ func _on_home() -> void:
 func _on_warband() -> void:
 	GameState.save_game()
 	Scenes.go("res://scenes/main_menu.tscn")
+
+
+## An army is about to storm walls you have a stake in: beside it, or against your fief.
+func _open_assault_call() -> void:
+	var call: Dictionary = world.pending_assault
+	if call.is_empty():
+		return
+	var target := String(call["target"])
+	var place: String = Data.settlement(target)["name"]
+	var army: Dictionary = {}
+	for a in world.campaign_armies:
+		if int(a["id"]) == int(call["army"]):
+			army = a
+	if army.is_empty():
+		GameState.answer_assault(false)
+		return
+	var realm: String = Data.FACTIONS[army["realm"]]["name"]
+	var their_men := 0
+	for m in MarshalArmies.members(world, army):
+		their_men += world.men_of(m.army)
+	var garrison_men: int = world.men_of(world.garrisons.get(target, []))
+	if String(call["role"]) == "lead":
+		_show_sheet("encounter", "The assault on %s" % place,
+			"The army of %s is ready to storm %s: %d men against %d on the walls. The marshal offers you the van. Lead the assault, with the lords' men fighting beside you?" % [
+				realm, place, their_men, garrison_men],
+			[["Lead the assault", _on_assault_answer.bind(true), true], ["Let them storm it", _on_assault_answer.bind(false)]])
+	else:
+		_show_sheet("encounter", "%s is stormed!" % place,
+			"The army of %s storms the walls of your fief: %d men against its %d. Will you hold the walls yourself, with the garrison beside you?" % [
+				realm, their_men, garrison_men],
+			[["Hold the walls", _on_assault_answer.bind(true), true], ["Leave it to the garrison", _on_assault_answer.bind(false)]])
+
+
+func _on_assault_answer(fight: bool) -> void:
+	GameState.answer_assault(fight)
+	_close_sheet()
+	if fight and not GameState.pending_battle.is_empty():
+		GameState.save_game()
+		Scenes.go("res://scenes/battle.tscn")
+	_refresh_hud()
 
 
 ## Before an assault: the garrison, the walls, and the odds.
