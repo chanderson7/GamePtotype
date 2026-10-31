@@ -16,9 +16,9 @@ const CRUEL := "Cruel"           # raids whenever he can
 const BEARINGS := [DARING, CAUTIOUS, HONORABLE, CRUEL]
 const BEARING_TEXT := {
 	DARING: "takes risks for glory",
-	CAUTIOUS: "keeps to his own lands",
-	HONORABLE: "guards the roads before he raids",
-	CRUEL: "burns villages whenever he can",
+	CAUTIOUS: "keeps to their own lands",
+	HONORABLE: "guards the roads before raiding",
+	CRUEL: "burns villages whenever possible",
 }
 
 ## What a realm calls its lords, and the houses they come from.

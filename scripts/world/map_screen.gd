@@ -687,14 +687,14 @@ func _lord_doing(l: Dictionary, lp) -> String:
 		"home":
 			return "Resting at %s, raising men" % place if not lp.moving() else "Riding home to %s" % place
 		_:
-			return "Riding to %s" % place if lp.moving() and place != "" else "Keeping watch on his lands"
+			return "Riding to %s" % place if lp.moving() and place != "" else "Keeping watch over their lands"
 
 
 func _open_friendly_lord_encounter(b) -> void:
 	var realm: String = Data.FACTIONS[b.faction]["name"]
 	var title := "%s of the %s" % [b.name, realm]
 	var greeter: Dictionary = world.lord_of(b)
-	var text := LordVoice.line("greet", greeter) if not greeter.is_empty() else "Lord %s halts his party and greets you upon the road." % b.name
+	var text := LordVoice.line("greet", greeter) if not greeter.is_empty() else "%s halts on the road to greet you." % b.name
 	var buttons := []
 	buttons.append(["News of the war", _open_wars, true])
 	if GameState.has_contract() and GameState.contract_realm() == b.faction:
@@ -721,7 +721,7 @@ func _open_ransom_sheet(lord_id: int) -> void:
 	var realm_name: String = Data.FACTIONS.get(l.get("realm", ""), {}).get("name", l.get("realm", ""))
 	var ransom: int = int(l.get("ransom_amount", 200))
 	var title := "Ransom Envoy: %s" % l.get("name", "Captive Lord")
-	var text := "An envoy rides under a banner of truce bearing an offer from %s.\n\n\"We offer %d silver for the honorable return of %s to his hall.\"" % [
+	var text := "An envoy rides under a banner of truce bearing an offer from %s.\n\n\"We offer %d silver for the honorable return of %s to their hall.\"" % [
 		realm_name, ransom, l.get("name", "the lord")
 	]
 	var buttons := []

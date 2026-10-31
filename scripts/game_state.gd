@@ -854,7 +854,7 @@ func commitments() -> Array:
 			"cost": "Breaking it early costs standing", "hours_left": float(int(contract.get("days_left", 0))) * 24.0, "blocked": ""})
 	for l in captive_lords():
 		out.append({"id": "captive_%d" % int(l.get("id", -1)), "kind": "captive", "title": "Captive: %s" % String(l.get("name", "a lord")),
-			"objective": "Hold him until his realm's envoy offers ransom, then decide his fate.", "place": "",
+			"objective": "Hold them until their realm's envoy offers ransom, then decide their fate.", "place": "",
 			"reward": "%d silver ransom" % int(l.get("ransom_amount", Lords.ransom_for(int(l.get("renown", 0))))),
 			"cost": "", "hours_left": -1.0, "blocked": ""})
 	if world.social != null and bool(world.social.scheduled_ceremony.get("active", false)):

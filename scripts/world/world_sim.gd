@@ -737,7 +737,7 @@ func _activity_text(event: Dictionary) -> String:
 		"lord_slain":
 			return "%s fell in battle against %s. An heir takes up their sword." % [event.get("lord", "A lord"), event.get("by", "their foe")]
 		"ransom_paid", "lord_ransomed_ai":
-			return "%s was ransomed for %d silver and returns to his hall." % [event.get("lord", "A lord"), int(event.get("amount", 0))]
+			return "%s was ransomed for %d silver and returns to their hall." % [event.get("lord", "A lord"), int(event.get("amount", 0))]
 		"grudge_avenged":
 			return "Vengeance answered! %s struck down %s for past blood." % [event.get("company", "The warband"), event.get("lord", "the enemy lord")]
 		"contract_signed":
