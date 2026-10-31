@@ -24,7 +24,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
-const TOP_BAR := 184.0
+const TOP_BAR := 132.0
 const RESOURCE_ICON_PATHS := {
 	"silver": "res://assets/ui/silver.svg",
 	"food": "res://assets/ui/food.svg",
@@ -93,7 +93,19 @@ var status_label: Label
 var speed_button: Button
 var warband_button: Button
 var next_button: Button
+## The goal chip in the top bar: the pinned journal entry, or the next step. (pin_button
+## and next_button are the same chip.)
 var pin_button: Button
+var status_progress: ProgressBar
+var day_icon: TextureRect
+## Bottom of the screen, in thumb reach: the Warband, and pause / play / fast.
+var bottom_bar: Control
+var pause_button: Button
+var play_button: Button
+var fast_button: Button
+var paused := false
+var _trip_key := ""
+var _trip_total := 0.0
 var sheet_panel: PanelContainer
 var sheet_title: Label
 var sheet_body: Label
@@ -188,7 +200,7 @@ func _process(delta: float) -> void:
 	if autoplay:
 		_autoplay()
 	# An encounter or a note about the last battle holds the clock until it's answered.
-	if world.busy() and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation"]:
+	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
 		_save_clock += delta
 		if _save_clock > 5.0:
@@ -417,52 +429,110 @@ func _build_hud() -> void:
 	top_panel.offset_bottom = TOP_BAR
 	hud.add_child(top_panel)
 	var stack_top := VBoxContainer.new()
-	stack_top.add_theme_constant_override("separation", 4)
+	stack_top.add_theme_constant_override("separation", 6)
 	top_panel.add_child(stack_top)
+	# Row one: the day, the purse, food and renown as small pills, and the menu.
 	var resource_row := HBoxContainer.new()
-	resource_row.add_theme_constant_override("separation", 8)
+	resource_row.add_theme_constant_override("separation", 6)
 	stack_top.add_child(resource_row)
-	clock_label = Style.label("", Style.BODY, Style.BRASS)
+	day_icon = TextureRect.new()
+	day_icon.custom_minimum_size = Vector2(26, 26)
+	day_icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+	day_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	resource_row.add_child(day_icon)
+	clock_label = Style.label("", Style.SMALL, Style.BRASS)
 	clock_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clock_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	clock_label.clip_text = true
+	clock_label.custom_minimum_size = Vector2(10, 0)
 	resource_row.add_child(clock_label)
 	for key in ["silver", "food", "renown"]:
 		var badge := _button("", _open_resource.bind(key))
 		badge.icon = _resource_icon(key)
 		badge.expand_icon = true
-		badge.add_theme_constant_override("icon_max_width", 30)
+		badge.add_theme_constant_override("icon_max_width", 24)
 		badge.add_theme_font_size_override("font_size", Style.SMALL)
-		badge.custom_minimum_size = Vector2(138, Style.TOUCH)
+		badge.custom_minimum_size = Vector2(104, 52)
+		badge.add_theme_stylebox_override("normal", _pill_box(Style.PANEL))
+		badge.add_theme_stylebox_override("hover", _pill_box(Style.PANEL.lightened(0.08)))
+		badge.add_theme_stylebox_override("pressed", _pill_box(Style.PANEL.darkened(0.1)))
 		resource_buttons[key] = badge
 		resource_row.add_child(badge)
+	warband_button = _button("", _on_menu)
+	warband_button.name = "MenuButton"
+	warband_button.tooltip_text = "Menu"
+	warband_button.icon = _glyph("menu")
+	warband_button.custom_minimum_size = Vector2(56, 52)
+	resource_row.add_child(warband_button)
+	# Row two: what the company is doing (with how far along), and the goal chip.
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 8)
 	stack_top.add_child(row)
+	var status_box := VBoxContainer.new()
+	status_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_box.add_theme_constant_override("separation", 3)
+	status_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(status_box)
 	status_label = Style.label("", Style.SMALL, Style.MUTED)
-	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.custom_minimum_size = Vector2(10, 0)
-	row.add_child(status_label)
-	next_button = _button("Next", _open_recommendation)
+	status_box.add_child(status_label)
+	status_progress = ProgressBar.new()
+	status_progress.show_percentage = false
+	status_progress.custom_minimum_size = Vector2(10, 4)
+	status_progress.max_value = 1.0
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color(1, 1, 1, 0.08)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = Style.BRASS
+	status_progress.add_theme_stylebox_override("background", bg)
+	status_progress.add_theme_stylebox_override("fill", fill)
+	status_box.add_child(status_progress)
+	next_button = _button("", _on_goal)
 	next_button.name = "NextStepButton"
-	next_button.custom_minimum_size = Vector2(118, Style.TOUCH)
+	next_button.clip_text = true
+	next_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	next_button.add_theme_font_size_override("font_size", Style.SMALL)
+	next_button.add_theme_color_override("font_color", Style.BRASS)
+	next_button.custom_minimum_size = Vector2(0, 48)
+	next_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	next_button.add_theme_stylebox_override("normal", _pill_box(Color("3b2f14"), Color(Style.BRASS, 0.55)))
+	next_button.add_theme_stylebox_override("hover", _pill_box(Color("4a3a18"), Color(Style.BRASS, 0.7)))
+	next_button.add_theme_stylebox_override("pressed", _pill_box(Color("2e2410"), Color(Style.BRASS, 0.7)))
 	row.add_child(next_button)
-	speed_button = _button("1×", _on_speed)
-	speed_button.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
-	row.add_child(speed_button)
-	warband_button = _button("Menu", _on_menu)
-	warband_button.custom_minimum_size = Vector2(150, Style.TOUCH)
-	row.add_child(warband_button)
-	# The commitment pinned from the journal, one tap from its details.
-	pin_button = _button("", _open_pinned)
-	pin_button.name = "PinnedCommitment"
-	pin_button.clip_text = true
-	pin_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	pin_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	pin_button.add_theme_font_size_override("font_size", Style.SMALL)
-	pin_button.custom_minimum_size = Vector2(10, Style.TOUCH)
-	pin_button.visible = false
-	stack_top.add_child(pin_button)
+	pin_button = next_button
+
+	# In thumb reach at the bottom: the Warband, and the clock's controls.
+	bottom_bar = MarginContainer.new()
+	bottom_bar.name = "TimeControls"
+	bottom_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bottom_bar.offset_top = -96.0
+	bottom_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for side in ["left", "right"]:
+		bottom_bar.add_theme_constant_override("margin_" + side, 14)
+	bottom_bar.add_theme_constant_override("margin_bottom", 18)
+	hud.add_child(bottom_bar)
+	var brow := HBoxContainer.new()
+	brow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bottom_bar.add_child(brow)
+	var camp := _button("Warband", _on_warband)
+	camp.name = "WarbandButton"
+	camp.custom_minimum_size = Vector2(150, 64)
+	camp.add_theme_stylebox_override("normal", _pill_box(Color(Style.PANEL, 0.94)))
+	brow.add_child(camp)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	brow.add_child(gap)
+	var clock_row := HBoxContainer.new()
+	clock_row.add_theme_constant_override("separation", 0)
+	brow.add_child(clock_row)
+	pause_button = _time_button("pause", _on_time.bind(0.0))
+	play_button = _time_button("play", _on_time.bind(1.0))
+	fast_button = _time_button("fast", _on_time.bind(2.0))
+	for b in [pause_button, play_button, fast_button]:
+		clock_row.add_child(b)
+	speed_button = fast_button
 
 	# The sheet sits at the bottom of a full-screen column, so it takes the screen's width
 	# and grows upward to fit what it says.
@@ -527,6 +597,8 @@ func _button(text: String, callback: Callable) -> Button:
 
 func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> void:
 	_sheet = kind
+	if bottom_bar != null:
+		bottom_bar.visible = false
 	sheet_lord_row.visible = false
 	sheet_title.text = title
 	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
@@ -559,6 +631,8 @@ func _show_lord_header(lord: Dictionary) -> void:
 
 func _close_sheet() -> void:
 	_sheet = ""
+	if bottom_bar != null:
+		bottom_bar.visible = true
 	sheet_panel.visible = false
 
 
@@ -1351,6 +1425,113 @@ func _on_withdraw() -> void:
 
 func _on_speed() -> void:
 	speed = 2.0 if speed < 1.5 else 1.0
+	paused = false
+
+
+## Pause, play at an hour a second, or fast at two.
+func _on_time(rate: float) -> void:
+	paused = rate <= 0.0
+	if rate > 0.0:
+		speed = rate
+	Sound.play("click", -4.0)
+	_refresh_hud()
+
+
+## The goal chip opens the pinned journal entry, or the next step.
+func _on_goal() -> void:
+	if not GameState.pinned().is_empty():
+		_open_pinned()
+	else:
+		_open_recommendation()
+
+
+func _pill_box(color: Color, border: Color = Color(1, 1, 1, 0.12)) -> StyleBoxFlat:
+	var b := StyleBoxFlat.new()
+	b.bg_color = color
+	b.border_color = border
+	b.set_border_width_all(1)
+	b.set_corner_radius_all(16)
+	b.content_margin_left = 10.0
+	b.content_margin_right = 12.0
+	b.content_margin_top = 4.0
+	b.content_margin_bottom = 4.0
+	return b
+
+
+func _time_button(kind: String, callback: Callable) -> Button:
+	var b := _button("", callback)
+	b.name = "Time_" + kind
+	b.tooltip_text = {"pause": "Pause", "play": "Play", "fast": "Fast"}[kind]
+	b.icon = _glyph(kind)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.custom_minimum_size = Vector2(72, 64)
+	return b
+
+
+## Small icons drawn here rather than taken from the font, which may not carry them.
+var _glyphs := {}
+
+func _glyph(kind: String) -> Texture2D:
+	if _glyphs.has(kind):
+		return _glyphs[kind]
+	var n := 32
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := Color(0.93, 0.89, 0.8)
+	match kind:
+		"menu":
+			for y in [8, 15, 22]:
+				img.fill_rect(Rect2i(6, y, 20, 3), c)
+		"pause":
+			img.fill_rect(Rect2i(9, 7, 5, 18), c)
+			img.fill_rect(Rect2i(18, 7, 5, 18), c)
+		"play", "fast":
+			var tris := [[9, 23]] if kind == "play" else [[4, 15], [15, 26]]
+			for t in tris:
+				for x in range(t[0], t[1]):
+					var h := int((float(t[1] - x) / float(t[1] - t[0])) * 9.0)
+					img.fill_rect(Rect2i(x, 16 - h, 1, h * 2 + 1), c)
+		"sun":
+			var sc := Style.BRASS
+			for y in n:
+				for x in n:
+					var d := Vector2(x - 15.5, y - 15.5).length()
+					if d < 6.0:
+						img.set_pixel(x, y, sc)
+			for i in 8:
+				var a := TAU * i / 8.0
+				for r in range(9, 13):
+					img.set_pixel(int(15.5 + cos(a) * r), int(15.5 + sin(a) * r), sc)
+		"moon":
+			var mc := Color(0.78, 0.82, 0.95)
+			for y in n:
+				for x in n:
+					if Vector2(x - 15.5, y - 15.5).length() < 10.0 and Vector2(x - 20.5, y - 12.5).length() > 8.0:
+						img.set_pixel(x, y, mc)
+	var tex := ImageTexture.create_from_image(img)
+	_glyphs[kind] = tex
+	return tex
+
+
+## How far along the current ride or wait is, for the thin bar under the status line.
+func _update_progress(p) -> void:
+	var key := ""
+	var left := 0.0
+	if world.encounter == -1 and p.moving():
+		key = "ride:" + String(world.destination())
+		left = float(world.hours_to(world.destination()))
+	elif world.encounter == -1 and p.wait > 0.0:
+		key = "wait:%d" % int(p.node.hash())
+		left = float(p.wait)
+	if key == "":
+		_trip_key = ""
+		status_progress.visible = false
+		return
+	if key != _trip_key or left > _trip_total:
+		_trip_key = key
+		_trip_total = maxf(left, 0.01)
+	status_progress.visible = true
+	status_progress.value = clampf(1.0 - left / _trip_total, 0.0, 1.0)
 
 
 func _on_new_campaign() -> void:
@@ -1360,17 +1541,27 @@ func _on_new_campaign() -> void:
 func _refresh_hud() -> void:
 	var h := int(world.hour)
 	clock_label.text = "Day %d · %02d:00" % [h / 24 + 1, h % 24]
-	speed_button.text = "2×" if speed > 1.5 else "1×"
+	day_icon.texture = _glyph("moon" if h % 24 < 6 or h % 24 >= 20 else "sun")
+	var current := pause_button if paused else (fast_button if speed > 1.5 else play_button)
+	for b in [pause_button, play_button, fast_button]:
+		var on: bool = b == current
+		b.add_theme_stylebox_override("normal", _pill_box(Style.BRASS if on else Color(Style.PANEL, 0.94)))
+		b.add_theme_stylebox_override("hover", _pill_box(Style.BRASS.lightened(0.1) if on else Color(Style.PANEL, 0.94).lightened(0.08)))
+		var ink := Color(0.1, 0.08, 0.12) if on else Color(0.93, 0.89, 0.8)
+		for state in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+			b.add_theme_color_override(state, ink)
+	bottom_bar.visible = not sheet_panel.visible
 	var modal := _sheet in ["encounter", "notice", "warning"]
 	warband_button.disabled = modal
 	next_button.disabled = modal
-	speed_button.disabled = modal or _sheet == "menu"
+	for b in [pause_button, play_button, fast_button]:
+		b.disabled = modal or _sheet == "menu"
 	for badge in resource_buttons.values():
 		badge.disabled = modal
 	var days: int = GameState.food_days()
-	resource_buttons["silver"].text = "%s\nSilver" % _short_amount(GameState.silver)
-	resource_buttons["food"].text = "%sd\nFood" % _short_amount(days)
-	resource_buttons["renown"].text = "%s\nRenown" % _short_amount(GameState.renown)
+	resource_buttons["silver"].text = _short_amount(GameState.silver)
+	resource_buttons["food"].text = "%sd" % _short_amount(days)
+	resource_buttons["renown"].text = _short_amount(GameState.renown)
 	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_wages()]
 	resource_buttons["food"].tooltip_text = "%d rations · %d days of food" % [GameState.food, days]
 	resource_buttons["renown"].tooltip_text = "%d renown · capacity %d squads" % [GameState.renown, GameState.squad_cap()]
@@ -1400,11 +1591,13 @@ func _refresh_hud() -> void:
 		var n_captives: int = GameState.captive_lords().size()
 		status_label.text += " · %d captive%s" % [n_captives, "" if n_captives == 1 else "s"]
 	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if at_risk else Style.MUTED)
+	# The goal chip: the pinned journal entry, else the game's next step.
 	var pin: Dictionary = GameState.pinned()
-	pin_button.visible = not pin.is_empty()
-	pin_button.disabled = modal
 	if not pin.is_empty():
-		pin_button.text = "Pinned: %s%s" % [pin["title"], _commitment_time(pin, " · ")]
+		next_button.text = "Pinned: %s%s" % [pin["title"], _commitment_time(pin, " · ")]
+	else:
+		next_button.text = "Next: %s" % String(GameState.recommendation().get("title", "Carry on"))
+	_update_progress(p)
 
 
 

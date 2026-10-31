@@ -103,6 +103,19 @@ func _run() -> void:
 	check(current_scene.resource_buttons.size() == 3 and current_scene.resource_buttons["silver"].icon != null,
 		"silver, food and renown have labeled icon controls in the HUD")
 	check(current_scene.find_child("NextStepButton", true, false) != null, "map exposes the contextual next step without opening a menu")
+	current_scene._close_sheet()
+	var chip: Button = current_scene.find_child("NextStepButton", true, false)
+	check(chip.text.begins_with("Next: ") or chip.text.begins_with("Pinned: "), "the goal chip names the next step instead of a bare Next")
+	gs.world.wait(6.0)
+	current_scene._on_time(0.0)
+	var held: float = gs.world.hour
+	await create_timer(0.3).timeout
+	check(gs.world.hour == held, "pause holds the clock while waiting")
+	current_scene._on_time(2.0)
+	await create_timer(0.3).timeout
+	check(gs.world.hour > held and current_scene.speed == 2.0, "fast resumes it at double speed")
+	current_scene._on_time(1.0)
+	gs.world.player().wait = 0.0
 	current_scene._open_resource("food")
 	check(current_scene.sheet_title.text == "Food" and current_scene.sheet_body.text.contains("rations"), "resource icons explain their values when tapped")
 	current_scene._close_sheet()
