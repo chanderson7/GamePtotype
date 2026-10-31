@@ -1,25 +1,20 @@
 # Where to pick up
 
-For a fresh session: read this, then `docs/phase-4-plan.md`. Don't re-read the whole
-codebase; the plan names the files each step touches.
+For a fresh session: read this. The newest work is under **Added 2026-10-31** below; each
+item names its tests. Don't re-read the whole codebase.
 
-For the broader feature priorities and delivery packages, see
-[`next-features-roadmap.md`](next-features-roadmap.md). The immediate gameplay task remains
-Phase 4.3 siege resolution.
+Every feature on [`next-features-roadmap.md`](next-features-roadmap.md) now has at least a
+first version, and all seven immersion packages of
+[`game-feel-and-immersion-roadmap.md`](game-feel-and-immersion-roadmap.md) have a first slice.
+The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
 
-For art, battle feedback, dialogue staging and usability work, see
-[`game-feel-and-presentation-plan.md`](game-feel-and-presentation-plan.md). It proposes
-small polish slices that can accompany the gameplay roadmap.
-
-For the next focused pass on travel atmosphere, lived-in settlements, a reactive company camp,
-battlefield feel and consequence continuity, see
-[`game-feel-and-immersion-roadmap.md`](game-feel-and-immersion-roadmap.md). Packages A and B—
-The road feels alive and Places carry their condition—are implemented. Package C, Camp feels
-like home, is the next immersion slice.
-
-For a prioritized asset backlog, production briefs and artwork delivery packages, see
-[`artwork-roadmap.md`](artwork-roadmap.md). Its first package—captain portrait continuity
-and a reusable company camp—is implemented; siege resolution remains the next gameplay feature.
+**What's left:**
+- Painted art: the three capital plates, result/remembrance vignettes and village/castle
+  plates ([`artwork-roadmap.md`](artwork-roadmap.md) Packages B and C). They need the external
+  illustration workflow the portraits used; the marshal map markers are done in pixel art.
+- Deeper slices: crown courts and granting crown fiefs to lords, rebellion inside a realm;
+  movement cycles and a mix-group sound system for battles; siege engines; more lord lines.
+- Release: a build on a real phone, a frame-rate check there, and a playtest.
 
 ## State (on `main`)
 
@@ -92,6 +87,40 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - UI Integrations: dedicated "Your Fief & Manor" overview card on `settlement_screen.gd` with treasury/granary collection, garrison transfer roster, and improvement builders. Warband screen estate overview card on `main_menu.gd`. Strategic recommendation guidance for uncollected taxes and ruined estate reconstruction in `game_state.recommendation()`.
   - Chronicle events (`fief_granted`, `fief_defended`, `fief_lost`) and complete save/load roundtrip persistence.
   - Verified with `tests/fief_tests.gd` (62 tests pass, 0 failures).
+
+## Added 2026-10-31
+
+Each item below has a focused suite in `tests/`; all pass. `tests/run_tests.gd` last passed in full at
+`728a772`; the `--balance` gates are being run (see Latest validation).
+
+- **Fixes first:** the map compiles again (`Captains` preload); captains' scars, new-captain
+  hero fields and fallen captains round-trip through saves; friendly lords greet you only
+  on the road; the hero bio wraps at 150% text; archers caught in melee shoot at 20% (the
+  archer/infantry duel had slipped to 7/12 after soldiers stopped overlapping).
+- **Journal** (`journal_tests`): `GameState.commitments()` lists jobs, contract, captives, a
+  wedding and the fief with objective, reward, cost, time left and what blocks it; Show on
+  map, a pinned card, and `ended_commitments` explaining how promises ended.
+- **Camp** (`camp_tests`, `scripts/data/camp_moments.gd`): captains at the fire, light by the
+  hour, one optional moment from real events, acknowledged by key in `camp_seen`.
+- **Sieges** (`siege_tests`, `siege_presence_tests`): `OBJECTIVE_SIEGE` in the battle sim
+  (wall row, gate HP battered by men on foot, cover, hold-until-breach AI, "walls held");
+  either side can defend (`siege_defender`). Storm the walls under contract, as a vassal or
+  crowned; lead an allied army's assault or hold your fief's walls when the world pauses to
+  ask (`world.pending_assault`); friendly lords at the walls join (`siege_allies`).
+  `world.siege_info()` feeds the map ring and the settlement sheet.
+- **Deeds** (`achievements_tests`, `scripts/data/achievements.gd`): ten deeds, once each,
+  with progress and a carried name.
+- **Crown** (`kingdom_tests`, `campaign_depth_tests`): `WorldData.CROWN` realm created by
+  `declare_crown()`; crown holdings, dues, alliances, suing for peace, captive lords sworn to
+  the crown.
+- **Presentation** (`battle_cues_tests`, `aftermath_tests`, `cast_tests`): wavering, settling,
+  edge markers, cue budget and ducking, terrain dust, a Vibration setting; battle and capture
+  aftermath on the map for three days; lords with portraits, house banners, voices by
+  bearing, and memory of past battles (`met_player`); marshal hosts by culture with state
+  badges (`tools/map_sprites.py`).
+- **Saves** (`save_compat_tests`): a save from before all of this
+  (`tests/fixtures/save_2026-10-31_pre_journal.json`) loads, opens every screen, plays ten
+  days and round-trips.
 
 ## Menu and onboarding update
 
