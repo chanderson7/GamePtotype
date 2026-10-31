@@ -58,6 +58,7 @@ const WHEEL_AFTER := 2.5
 
 var team := Sim.ENEMY
 var temperament := ""
+var allies_only := false
 ## How sharp the commander is, from 0 to 1: the chance each look at a squad leads to
 ## using its ability when it should.
 var skill := 0.6
@@ -69,15 +70,25 @@ var contact_at := -1.0
 var _think := 0.0
 
 
-func _init(side: int = Sim.ENEMY, kind: String = "") -> void:
+func _init(side: int = Sim.ENEMY, kind: String = "", p_allies_only: bool = false) -> void:
 	team = side
 	temperament = kind
+	allies_only = p_allies_only
 
 
 ## Line up: the usual battle line, moved onto the best ground the field offers.
 func deploy(sim) -> void:
 	if temperament == "":
 		temperament = TEMPERAMENTS[sim.rng.randi_range(0, TEMPERAMENTS.size() - 1)]
+	if allies_only:
+		var ally_entries: Array = sim.reserves[team].filter(func(e): return bool(e.get("is_ally", false)))
+		var n: int = ally_entries.size()
+		for i in n:
+			var entry: Dictionary = ally_entries[i]
+			var offset: float = (float(i) - float(n - 1) * 0.5) * 80.0
+			var spot := Vector2(clampf(Sim.ARENA.x * 0.5 + offset, 80.0, Sim.ARENA.x - 80.0), Sim.MID_Y + 140.0)
+			sim.place(team, entry["roster_id"], spot)
+		return
 	if sim.objective == Sim.OBJECTIVE_AMBUSH:
 		committed = true
 		patience = 0.0
@@ -223,6 +234,10 @@ func update(sim, dt: float) -> void:
 	for sq in sim.squads:
 		if sq.team != team or not sq.is_active() or sq.wheeling:
 			continue
+		if allies_only and not sq.is_ally:
+			continue
+		if not allies_only and team == Sim.PLAYER and sq.is_ally:
+			continue
 		# The chief keeps his bodyguard back, and comes on only once the fight is going his
 		# way or someone comes for him.
 		if (sq.is_bodyguard or sq.is_chief) and not sq.engaged \
@@ -296,6 +311,10 @@ func _ride(sim, sq) -> void:
 func _use_abilities(sim) -> void:
 	for sq in sim.squads:
 		if sq.team != team or not sim.ability_ready(sq) or sim.rng.randf() > skill:
+			continue
+		if allies_only and not sq.is_ally:
+			continue
+		if not allies_only and team == Sim.PLAYER and sq.is_ally:
 			continue
 		match sq.type:
 			Troops.INFANTRY:

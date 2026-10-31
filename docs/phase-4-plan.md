@@ -418,6 +418,17 @@ New tunables in `scripts/data/politics.gd`; the rules run once a world day.
 - Relation changes; attacking a neutral lord starts a war with you.
 - Send in with allies matches the full battle (the gate).
 
+### As built: You in the war
+
+- **Standing & Relations:** Tracks relations with realms and individual lords (−100 to 100). Relations shift dynamically upon completing/breaking contracts, defeating enemy lords, or attacking neutrals. Hostile realms (relation $\le -20$) lock settlement services (markets, hirelings, smiths). Attacking a neutral lord inflicts −30 relation penalty and triggers immediate realm war.
+- **Mercenary Contracts:** Available at friendly/neutral castles and towns of realms at war when renown $\ge 20$. 30-day duration with scaled daily pay ($30 + \text{renown}/2 + \text{troops}\times 2$). Signing immediately aligns war and alliance diplomacy with employer (+10 employer relation, −15 enemy relations). Contract stipends and capture bounties are fully integrated into daily camp upkeep and the Warband screen financial forecast. Resigning early inflicts −25 relation penalty; full completion awards +10 relation in good standing.
+- **Meeting Lords on the Road:** Hostile lords intercept the player on roads; the player can Fight, Send In, or Withdraw. If the hostile party is faster and outnumbers the player $> 1.3\times$, withdrawal has a 40% chance to fail ("Ridden Down!"), forcing battle. Friendly lords open dialog for war rumors, following army movement, or departing with temporary grace.
+- **Riding with Armies:** Following allied lords or marshal armies (`following_party`) locks player movement to the party route and progress. Participating in marshal army assaults auto-resolves with player warband contribution, sharing siege loot (silver and renown) and attributing casualties.
+- **Field Cap & Dynamic Reserves:** Tactical and auto-resolve battles support large combined forces with `FIELD_CAP = 12` active squads per side. Overflow squads queue in `reserve_queue` and dynamically march in from the rear field edge as front-line units break.
+- **Allied Contigent AI & Visual Presentation:** Allied lord squads fight alongside the player under an autonomous AI `Commander` (`allies_only = true`). Allied squads feature custom cyan trim (`#5bc0be`) and cannot be ordered or selected by the player. The tactical tray displays only player squad cards, with a top HUD strip displaying allied counts and queued reserves.
+- **1:1 Casualty Conservation & Spoils:** `return_allied_losses` applies combat casualties directly to allied lord armies and lord records 1:1. Fully depleted armies rout lords back to their seats. Defeating enemy lords awards purse loot (+150 silver, +15 renown) plus employer contract bounties (+100 silver, +5 employer relation).
+- **Verification:** Verified by dedicated test suites: `tests/mercenary_tests.gd` (37 tests passing) and `tests/combined_battle_tests.gd` (48 tests passing), plus save/load roundtrip persistence.
+
 ---
 
 ## 4.6 Prisoners, ransom, and lords who remember (~1 week)

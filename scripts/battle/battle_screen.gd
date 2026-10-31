@@ -193,7 +193,14 @@ func _ready() -> void:
 	else:
 		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
 		var obj: String = String(pending.get("objective", Sim.OBJECTIVE_ROUT))
-		sim.setup(GameState.army, pending["enemy"], 0, site, obj)
+		var player_host: Array = GameState.army.duplicate(true)
+		var has_allies := false
+		if pending.has("allies") and not pending["allies"].is_empty():
+			player_host.append_array(pending["allies"])
+			has_allies = true
+		sim.setup(player_host, pending["enemy"], 0, site, obj)
+		if has_allies:
+			sim.allied_ai = Commander.new(Sim.PLAYER, "", true)
 		if pending.has("chief_name") and pending["chief_name"] != "":
 			sim.chief_name = String(pending["chief_name"])
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
@@ -215,9 +222,11 @@ func _ready() -> void:
 	Sound.set_loop(AMBIENCE.get(_terrain_site_type, ""))
 	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY].deploy(sim)
+	if sim.allied_ai != null:
+		sim.allied_ai.deploy(sim)
 	if sim.caught_on_march(Sim.PLAYER):
 		sim.auto_deploy(Sim.PLAYER)
-	_cards = sim.roster(Sim.PLAYER)
+	_cards = sim.roster(Sim.PLAYER).filter(func(e): return not bool(e.get("is_ally", false)))
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
@@ -474,6 +483,9 @@ func _standard_at(at: Vector2):
 func _tap_deploy(p: Vector2, tapped) -> void:
 	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
 	if mine != null:
+		if mine.is_ally:
+			_hint("%s are allied troops under their lord's command." % _company_or_type(mine))
+			return
 		if mine.roster_id == selected_id:
 			_select_next_card() # tapping the picked-up squad again leaves it where it is
 		else:
@@ -524,6 +536,9 @@ func _select_next_card() -> void:
 func _tap_battle(p: Vector2, tapped) -> void:
 	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
 	if mine != null and mine.is_active():
+		if mine.is_ally:
+			_hint("%s are allied troops under their lord's command." % _company_or_type(mine))
+			return
 		_select(null if mine == selected_squad else mine)
 		return
 	var foe = tapped if tapped != null and tapped.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
@@ -1441,10 +1456,13 @@ func _refresh_hud() -> void:
 
 
 func _refresh_deploy() -> void:
-	var left: int = sim.reserves[Sim.PLAYER].size()
-	status_label.text = "%d of %d placed" % [_cards.size() - left, _cards.size()]
-	auto_button.disabled = left == 0 or sim.winner != -1
-	fight_button.disabled = left > 0 or sim.winner != -1
+	var unplaced_player := 0
+	for e in _cards:
+		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
+			unplaced_player += 1
+	status_label.text = "%d of %d placed" % [_cards.size() - unplaced_player, _cards.size()]
+	auto_button.disabled = unplaced_player == 0 or sim.winner != -1
+	fight_button.disabled = unplaced_player > 0 or sim.winner != -1
 	ability_button.visible = false
 	hold_fire_button.visible = false
 	info_label.text = _scouting()
@@ -1485,7 +1503,15 @@ func _refresh_battle() -> void:
 		ability_button.queue_redraw()
 		hold_fire_button.text = "Fire at will" if sq.hold_fire else "Hold fire"
 	else:
-		info_label.text = "Whole army · " + _order_summary()
+		var allies_active := 0
+		for s in sim.squads:
+			if s.team == Sim.PLAYER and s.is_active() and s.is_ally:
+				allies_active += 1
+		var res_count: int = sim.reserve_queue[Sim.PLAYER].size()
+		var extra := ""
+		if allies_active > 0 or res_count > 0:
+			extra = " · Allies: %d · Reserves: %d" % [allies_active, res_count]
+		info_label.text = "Whole army · " + _order_summary() + extra
 		advance_button.text = "Advance all"
 		hold_button.text = "Hold all"
 	advance_button.disabled = sim.winner != -1
@@ -2247,7 +2273,7 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	draw_circle(top, 5.0 if ready else 3.5, Style.BRASS if ready or not sq.routing else Color(0.5, 0.5, 0.5))
 	if not sq.routing:
 		_std_tops[sq] = top
-	var edge := Style.BRASS if selected or sq.braced() else Color(0.06, 0.05, 0.08)
+	var edge := Style.BRASS if selected or sq.braced() else (Color("5bc0be") if sq.is_ally else Color(0.06, 0.05, 0.08))
 	_draw_flag(self, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
 	if sq.is_bodyguard or sq.is_chief:
 		var crown_c := top + Vector2(FLAG.x * 0.5, -16.0)

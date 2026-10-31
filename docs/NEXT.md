@@ -39,10 +39,16 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - Autonomous war declarations for rested rivals; Ryumon Shogunate balance-of-power intervention when a mainland realm holds >= 4 of 6 mainland seats.
   - War Sheet on the map screen showing active wars, truces, tributes, realm strength/weariness, and recent chronicle events.
   - Fully deterministic save/load persistence. Verified with `tests/politics_tests.gd` (31 tests pass).
-- Phase 4.5 in progress:
-  - **Slice 4.5.1 done:** Realm & lord relations (-100 to 100), 30-day mercenary contracts ("Offer your sword"), scaled daily stipend, employer war alignment, hostile settlement market bar, warband financial forecast integration, and save/load roundtrip. Verified with `tests/mercenary_tests.gd` (37 tests pass).
-  - **Next: Slice 4.5.2:** Meeting lords on the road (hostile lord road interception, friendly lord dialogues, following armies) and combined allied battles.
-- Then 4.6, 4.7.
+- Phase 4.5 is done:
+  - Realm & lord relations (-100 to 100), 30-day mercenary contracts ("Offer your sword"), scaled daily stipend, employer war alignment, hostile settlement market bar, warband financial forecast integration. Verified with `tests/mercenary_tests.gd` (37 tests pass).
+  - Meeting lords on the road (hostile lord road interception, withdrawal odds / ridden down, friendly lord dialogues, following armies).
+  - Combined allied battles: `FIELD_CAP = 12` active squads per side with dynamic rear-edge reinforcements via `reserve_queue`. Allied lord squads fight under autonomous AI `Commander` (`allies_only = true`), drawn with cyan trim, excluded from tray orders.
+  - 1:1 conservation of allied casualties via `return_allied_losses()`, auto-resolve loss attribution, spoils and contract capture bounties. Verified with `tests/combined_battle_tests.gd` (48 tests pass).
+- Next is Phase 4.6:
+  - Prisoners and ransom: capturing defeated lords, holding lord prisoners in party, ransom negotiations, selling to employer or releasing for relations.
+  - Inter-realm AI lord captures and ransoms in auto-resolved conflicts.
+  - Lords who remember: grudge system when a lord kills player captains or is captured, reactive encounters, and battlefield temperament shifts.
+- Then 4.7.
 
 ## Menu and onboarding update
 

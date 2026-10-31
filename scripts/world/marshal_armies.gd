@@ -220,6 +220,13 @@ static func assault(w, army: Dictionary) -> void:
 			if int(sq.get("men", 0)) > 0:
 				attacker_squads.append(sq)
 
+	var player_in_assault: bool = w.following_party != -1 and army["members"].has(w.following_party)
+	var player_p = w.player() if player_in_assault else null
+	if player_in_assault and player_p != null:
+		for sq in player_p.army:
+			if int(sq.get("men", 0)) > 0:
+				attacker_squads.append(sq)
+
 	if attacker_squads.is_empty():
 		disband(w, army, "No attacking troops remain")
 		return
@@ -245,6 +252,15 @@ static func assault(w, army: Dictionary) -> void:
 			if entry:
 				sq["men"] = int(entry["men"])
 		member.army = member.army.filter(func(sq): return int(sq["men"]) > 0)
+
+	if player_in_assault and player_p != null:
+		for sq in player_p.army:
+			var entry = res["attacker_squads"].get(int(sq["id"]))
+			if entry:
+				sq["men"] = int(entry["men"])
+		player_p.army = player_p.army.filter(func(sq): return int(sq["men"]) > 0)
+		if res["attacker_won"]:
+			w.emit_event({"type": "siege_loot", "silver": 150, "renown": 10, "target": target})
 
 	w.emit_event({
 		"type": "siege_assault",

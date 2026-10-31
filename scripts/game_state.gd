@@ -17,6 +17,7 @@ const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -58,7 +59,11 @@ var _paid_day := 0
 ## The player's culture: their captains' names and where they start.
 var culture := Cultures.VARDISH
 ## The world map, or null before a campaign has started.
-var world = null
+var world = null:
+	set(v):
+		world = v
+		if world != null:
+			world.game_state = self
 ## The fight the map has set up for the battle screen: {enemy, culture, temperament,
 ## name}. Empty when the battle screen should make up its own enemy.
 var pending_battle := {}
@@ -846,14 +851,26 @@ func encounter_plan(band) -> Dictionary:
 	prng.seed = hash([band.id, int(world.hour * 10.0)])
 	var site := BattleSite.pick(world, world.party_pos(world.player()), objective, prng.randi() & 0x7fffffff)
 	var temperament := Commander.RECKLESS
-	if not site["fair"]:
+	if band.kind == WorldSim.LORD:
+		var l: Dictionary = world.lord_of(band)
+		match String(l.get("bearing", "")):
+			Lords.CAUTIOUS:
+				temperament = Commander.PATIENT
+			Lords.DARING, Lords.CRUEL:
+				temperament = Commander.RECKLESS
+			Lords.HONORABLE:
+				temperament = Commander.HAMMER
+			_:
+				temperament = Commander.PATIENT if not site["fair"] else Commander.RECKLESS
+	elif not site["fair"]:
 		temperament = Commander.PATIENT
 	elif objective == "chief":
 		temperament = Commander.TEMPERAMENTS[prng.randi_range(0, Commander.TEMPERAMENTS.size() - 1)]
-	return {"objective": objective, "site": site, "temperament": temperament}
+	var can_withdraw: bool = world.can_withdraw() if world != null else true
+	return {"objective": objective, "site": site, "temperament": temperament, "can_withdraw": can_withdraw}
 
 
-## The army of the bandit band blocking the road, set up for the battle screen.
+## The army of the party blocking the road, set up for the battle screen.
 func start_encounter_battle() -> void:
 	if world == null or world.encounter == -1:
 		return
@@ -864,13 +881,35 @@ func start_encounter_battle() -> void:
 	if objective == "chief":
 		chief_name = band.chief_name if band.chief_name != "" else band.name.split("'s")[0]
 
+	var enemy_army := []
+	var enemy_parties: Array = world.army_parties(band)
+	for p in enemy_parties:
+		enemy_army.append_array(WorldSim.clean_army(p.army))
+
+	var allied_squads := []
+	if world.following_party != -1:
+		var fp = world.party(world.following_party)
+		if fp != null and world.relation_to_player(fp.faction) == "friendly":
+			for ap in world.army_parties(fp):
+				for sq in ap.army:
+					if int(sq.get("men", 0)) > 0:
+						var entry: Dictionary = sq.duplicate(true)
+						entry["is_ally"] = true
+						entry["lord_id"] = ap.lord
+						entry["culture"] = WorldData.culture_of(ap.faction)
+						allied_squads.append(entry)
+
 	pending_battle = {
-		"enemy": WorldSim.clean_army(band.army), "culture": WorldData.culture_of(band.faction),
+		"enemy": enemy_army, "culture": WorldData.culture_of(band.faction),
 		"temperament": plan["temperament"], "name": band.name,
 		"site": plan["site"],
 		"objective": objective,
 		"chief_name": chief_name,
 		"raid_village": band.raid_village,
+		"is_lord": band.kind == WorldSim.LORD,
+		"enemy_lord_id": band.lord if band.kind == WorldSim.LORD else -1,
+		"enemy_faction": band.faction,
+		"allies": allied_squads,
 	}
 
 
@@ -884,6 +923,9 @@ func auto_resolve_encounter() -> Dictionary:
 	for s in army:
 		if int(s["men"]) > 0:
 			fighters.append(s)
+	for a in pending_battle.get("allies", []):
+		if int(a.get("men", 0)) > 0:
+			fighters.append(a)
 	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, pending_battle.get("site"), pending_battle.get("objective", "rout"))
 	apply_result(result)
 	return result
@@ -1201,16 +1243,35 @@ func apply_result(result: Dictionary) -> void:
 	_queue_bond_rank_events(rank_events)
 	if result.get("won", false):
 		wins += 1
+	if world != null:
+		world.return_allied_losses(by_id)
 	if world != null and not pending_battle.is_empty():
 		var band := String(pending_battle.get("name", "The bandits"))
 		var how := "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
 		var obj: String = String(pending_battle.get("objective", "rout"))
 		var c_name: String = String(pending_battle.get("chief_name", ""))
 		var r_village: String = String(pending_battle.get("raid_village", ""))
+		var is_lord: bool = bool(pending_battle.get("is_lord", false))
+		var enemy_faction: String = String(pending_battle.get("enemy_faction", ""))
+		var enemy_lid: int = int(pending_battle.get("enemy_lord_id", -1))
 		if result.get("won", false):
 			world.win_encounter()
 			var got := Economy.spoils(int(result.get("killed", 0)))
-			if obj == "chief":
+			if is_lord:
+				got["silver"] = int(got["silver"]) + 150
+				got["renown"] = int(got["renown"]) + 15
+				if enemy_lid >= 0:
+					add_lord_relation(enemy_lid, -15)
+				if has_contract() and world.at_war(contract_realm(), enemy_faction):
+					var bonus: int = int(contract.get("bonus_per_lord", 100))
+					got["silver"] = int(got["silver"]) + bonus
+					add_realm_relation(contract_realm(), 5)
+					_note("Contract bounty: +%d silver from %s." % [bonus, WorldData.FACTIONS[contract_realm()]["name"]])
+				if not is_at_war_with(enemy_faction) and relation_with_realm(enemy_faction) > -20:
+					add_realm_relation(enemy_faction, -30)
+					_note("You attacked a lord of %s while at peace! They declare war upon you." % WorldData.FACTIONS[enemy_faction]["name"])
+				_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
+			elif obj == "chief":
 				if result.get("chief_killed", false):
 					got["silver"] = int(got["silver"]) * 2
 					got["renown"] = int(got["renown"]) + 10
@@ -1227,8 +1288,9 @@ func apply_result(result: Dictionary) -> void:
 			silver += int(got["silver"])
 			food += int(got["food"])
 			renown += int(got["renown"])
-			_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
-				band, how, got["silver"], got["food"], got["renown"]])
+			if not is_lord:
+				_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
+					band, how, got["silver"], got["food"], got["renown"]])
 		else:
 			world.hurt_band(result.get("enemy_squads", {}))
 			world.lose_encounter()
@@ -1243,6 +1305,19 @@ func apply_result(result: Dictionary) -> void:
 	pending_battle = {}
 	last_result = report
 	save_game()
+
+
+## Attacking a lord of a realm the player is at peace with starts a war.
+func attack_neutral_lord(lord_id: int, party_id: int) -> void:
+	if world == null:
+		return
+	var lp = world.party(party_id)
+	if lp == null:
+		return
+	add_realm_relation(lp.faction, -30)
+	add_lord_relation(lord_id, -30)
+	world.encounter = party_id
+	world.emit_event({"type": "encounter", "party": party_id})
 
 
 func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:

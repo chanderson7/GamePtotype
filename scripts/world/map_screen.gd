@@ -186,9 +186,17 @@ func _process(delta: float) -> void:
 				GameState.save_game()
 				Sound.play("page", 0.0, 0.05)
 				_open_here()
-			"encounter":
+			"encounter", "friendly_encounter":
 				GameState.save_game()
 				_open_encounter()
+			"siege_loot":
+				GameState.silver += int(e.get("silver", 0))
+				GameState.renown += int(e.get("renown", 0))
+				GameState.settle()
+				_open_notice("Assault successful at %s! Claimed %d silver and %d renown." % [
+					Data.settlement(String(e.get("target", "")))["name"],
+					int(e.get("silver", 0)), int(e.get("renown", 0))
+				], "Siege Victory")
 	world.events.clear()
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu"]:
 		_open_desertion_warning()
@@ -528,6 +536,8 @@ func _open_band(b) -> void:
 ## A lord on the road: who he is, how strong, and what he's about.
 func _open_lord(lp) -> void:
 	var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
+	var rel: String = world.relation_to_player(lp.faction)
+	var buttons := []
 	if not army.is_empty():
 		var names: Array = []
 		var total := 0
@@ -537,7 +547,15 @@ func _open_lord(lp) -> void:
 			names.append("%s — %d men" % [member.name, men])
 		var body := "%s · %d men\nDestination: %s\n\n%s" % [String(army["state"]).capitalize(), total,
 			Data.settlement(army["destination"])["name"], "\n".join(names)]
-		_show_sheet("lord", "Marshal's army", body, [["Close", _close_sheet]])
+		if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == army["realm"]:
+			if world.following_party == lp.id or world.following_party == int(army["leader"]):
+				buttons.append(["Stop following", _on_stop_following])
+			else:
+				buttons.append(["Ride with army", _on_follow_lord.bind(int(army["leader"]))])
+		elif rel == "neutral":
+			buttons.append(["Attack", _on_attack_lord.bind(lp), true])
+		buttons.append(["Close", _close_sheet])
+		_show_sheet("lord", "Marshal's army", body, buttons)
 		return
 	var l: Dictionary = world.lord_of(lp)
 	var men := 0
@@ -551,7 +569,33 @@ func _open_lord(lp) -> void:
 	var bearing := String(l.get("bearing", ""))
 	var body := "%s. %s: %s.\nAbout %d men in %d squads. %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
 		int(round(men / 10.0)) * 10, lp.army.size(), _lord_doing(l, lp)]
-	_show_sheet("lord", lp.name, body, [["Close", _close_sheet]])
+	if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == lp.faction:
+		if world.following_party == lp.id:
+			buttons.append(["Stop following", _on_stop_following])
+		else:
+			buttons.append(["Ride with us", _on_follow_lord.bind(lp.id)])
+	elif rel == "neutral":
+		buttons.append(["Attack", _on_attack_lord.bind(lp), true])
+	buttons.append(["Close", _close_sheet])
+	_show_sheet("lord", lp.name, body, buttons)
+
+
+func _on_attack_lord(lp) -> void:
+	_close_sheet()
+	GameState.attack_neutral_lord(lp.lord, lp.id)
+	_open_encounter()
+
+
+func _on_follow_lord(party_id: int) -> void:
+	world.following_party = party_id
+	_close_sheet()
+	var p = world.party(party_id)
+	_open_notice("You are now riding with %s." % (p.name if p != null else "the army"), "Riding with an army")
+
+
+func _on_stop_following() -> void:
+	world.following_party = -1
+	_close_sheet()
 
 
 func _lord_doing(l: Dictionary, lp) -> String:
@@ -570,9 +614,32 @@ func _lord_doing(l: Dictionary, lp) -> String:
 			return "Riding to %s" % place if lp.moving() and place != "" else "Keeping watch on his lands"
 
 
+func _open_friendly_lord_encounter(b) -> void:
+	var realm: String = Data.FACTIONS[b.faction]["name"]
+	var title := "%s of the %s" % [b.name, realm]
+	var text := "Lord %s halts his party and greets you warmly upon the road.\n\"Greetings, sellsword. What news do you bring?\"" % b.name
+	var buttons := []
+	buttons.append(["News of the war", _open_wars, true])
+	if GameState.has_contract() and GameState.contract_realm() == b.faction:
+		if world.following_party == b.id:
+			buttons.append(["Part ways", _on_part_ways_friendly])
+		else:
+			buttons.append(["Ride with us", _on_follow_lord.bind(b.id)])
+	buttons.append(["Leave", _on_part_ways_friendly])
+	_show_sheet("encounter", title, text, buttons)
+
+
+func _on_part_ways_friendly() -> void:
+	world.encounter = -1
+	_close_sheet()
+
+
 func _open_encounter() -> void:
 	var b = world.party(world.encounter)
 	if b == null:
+		return
+	if b.kind == WorldSim.LORD and world.relation_to_player(b.faction) == "friendly":
+		_open_friendly_lord_encounter(b)
 		return
 	var men := 0
 	var kinds := {}
@@ -592,19 +659,25 @@ func _open_encounter() -> void:
 	var objective: String = plan["objective"]
 	var site: Dictionary = plan["site"]
 	var is_ambush := objective == "ambush"
+	var can_withdraw := bool(plan.get("can_withdraw", true))
 	var title := "%s block the road" % b.name
-	match objective:
-		"village":
-			title = "%s are raiding %s!" % [b.name, Data.settlement(b.raid_village)["name"]]
-		"chief":
-			title = "%s confronts you" % b.name
-		"ambush":
-			title = "AMBUSH! %s attack from the woods" % b.name
+	if b.kind == WorldSim.LORD:
+		title = "%s blocks the road!" % b.name
+	else:
+		match objective:
+			"village":
+				title = "%s are raiding %s!" % [b.name, Data.settlement(b.raid_village)["name"]]
+			"chief":
+				title = "%s confronts you" % b.name
+			"ambush":
+				title = "AMBUSH! %s attack from the woods" % b.name
 
 	var buttons := [["Fight", _on_fight, true], ["Send in", _on_send_in]]
 	var withdraw_text := ""
 	if is_ambush:
 		withdraw_text = "\nYou cannot withdraw from an ambush!"
+	elif not can_withdraw:
+		withdraw_text = "\nThey are faster and stronger: you cannot withdraw!"
 	else:
 		buttons.append(["Withdraw", _on_withdraw])
 		withdraw_text = "\nLead the fight, send your men in without you, or withdraw to %s and lose the hours it takes." % Data.settlement(world.player().node)["name"]
@@ -866,6 +939,12 @@ func _on_send_in() -> void:
 
 
 func _on_withdraw() -> void:
+	if not world.can_withdraw():
+		var b = world.party(world.encounter)
+		var l_name: String = b.name if b != null else "The enemy"
+		_show_sheet("encounter", "Ridden Down!", "%s's cavalry ride you down as you attempt to withdraw! You have no choice but to fight." % l_name,
+			[["Fight", _on_fight, true], ["Send in", _on_send_in]])
+		return
 	world.withdraw()
 	# Riding back takes hours: pay for any day that ended on the way.
 	GameState.settle()
@@ -903,7 +982,14 @@ func _refresh_hud() -> void:
 	resource_buttons["food"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if days < 2 else Style.TEXT)
 	var p = world.player()
 	if world.encounter != -1:
-		status_label.text = "Bandits block the road"
+		var enc_p = world.party(world.encounter)
+		if enc_p != null and enc_p.kind == WorldSim.LORD:
+			status_label.text = "%s blocks your road" % enc_p.name
+		else:
+			status_label.text = "Bandits block the road"
+	elif world.following_party != -1:
+		var fp = world.party(world.following_party)
+		status_label.text = "Riding with %s" % (fp.name if fp != null else "allies")
 	elif p.moving():
 		var to: String = world.destination()
 		status_label.text = "Riding to %s · %s" % [Data.settlement(to)["name"], _hours_text(world.hours_to(to))]

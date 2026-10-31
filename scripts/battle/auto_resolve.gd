@@ -188,7 +188,12 @@ static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led
 		var kills := int(round(enemy_lost * shares[i] / maxf(1.0, share_total)))
 		kills = mini(kills, kills_left)
 		kills_left -= kills
-		var entry := {"men": men - dead, "kills": kills}
+		var entry := {
+			"men": men - dead,
+			"kills": kills,
+			"is_ally": bool(s.get("is_ally", false)),
+			"lord_id": int(s.get("lord_id", -1)),
+		}
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY and int(c.get("wounded", 0)) == 0:
 			entry["captain"] = _captain_fate(c, men, dead, rng)
@@ -240,7 +245,12 @@ static func resolve_siege(attackers: Array, defenders: Array, wall_mult: float, 
 		var kills := int(round(defender_lost * shares[i] / maxf(1.0, share_total)))
 		kills = mini(kills, kills_left)
 		kills_left -= kills
-		var entry := {"men": men - dead, "kills": kills}
+		var entry := {
+			"men": men - dead,
+			"kills": kills,
+			"is_ally": bool(s.get("is_ally", false)),
+			"lord_id": int(s.get("lord_id", -1)),
+		}
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY and int(c.get("wounded", 0)) == 0:
 			entry["captain"] = _captain_fate(c, men, dead, rng)

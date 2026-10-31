@@ -49,6 +49,9 @@ const OBJECTIVE_CHIEF := "chief"
 const OBJECTIVE_AMBUSH := "ambush"
 const OBJECTIVE_VILLAGE := "village"
 
+## At most 12 squads per side on the field at once; excess squads wait in reserve.
+const FIELD_CAP := 12
+
 ## The enemy squad within this distance of a chief cut down in the rout gets the kill.
 const CHIEF_CAUGHT_RANGE := 120.0
 
@@ -144,6 +147,8 @@ class Squad:
 	var is_bodyguard := false
 	var is_chief := false
 	var chief_name := ""
+	var is_ally := false
+	var lord_id := -1
 	var soldiers: Array = []
 	var start_men := 0
 	var center := Vector2.ZERO
@@ -285,6 +290,8 @@ var squads: Array = []
 var armies: Array = [[], []]
 ## The squads each side has not placed yet.
 var reserves: Array = [[], []]
+## Squads waiting off-field beyond the 12-squad field cap: [[player_queue], [enemy_queue]].
+var reserve_queue: Array = [[], []]
 var projectiles: Array = []
 var corpses: Array = []
 ## Arrows that missed and stuck in the ground: {pos, angle}. Only the screen reads these.
@@ -293,6 +300,8 @@ var events: Array = []
 ## Commanders that give orders for a side once the battle starts. null means a human
 ## plays that side.
 var ai: Array = [null, null]
+## AI Commander for allied squads on the player's side.
+var allied_ai: RefCounted = null
 var winner := -1
 var end_reason := ""
 ## Objective of this battle: "rout", "chief", "ambush", or "village".
@@ -349,7 +358,23 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 		terrain = Terrain.new()
 	set_terrain(terrain)
 	armies = [_to_entries(player_army), _to_entries(enemy_army)]
-	reserves = [armies[PLAYER].duplicate(), armies[ENEMY].duplicate()]
+	reserves = [[], []]
+	reserve_queue = [[], []]
+	for t in 2:
+		if armies[t].size() > FIELD_CAP:
+			if t == PLAYER:
+				var player_entries: Array = armies[t].filter(func(e): return not bool(e.get("is_ally", false)))
+				var ally_entries: Array = armies[t].filter(func(e): return bool(e.get("is_ally", false)))
+				var initial: Array = player_entries.slice(0, FIELD_CAP)
+				var rem: int = FIELD_CAP - initial.size()
+				initial += ally_entries.slice(0, rem)
+				reserves[t] = initial
+				reserve_queue[t] = player_entries.slice(FIELD_CAP) + ally_entries.slice(rem)
+			else:
+				reserves[t] = armies[t].slice(0, FIELD_CAP)
+				reserve_queue[t] = armies[t].slice(FIELD_CAP)
+		else:
+			reserves[t] = armies[t].duplicate()
 	if objective == OBJECTIVE_CHIEF:
 		_setup_chief()
 	elif objective == OBJECTIVE_VILLAGE:
@@ -440,7 +465,8 @@ func _spawn_reinforcements(team: int, p_entries: Array, edge: String) -> void:
 	var spacing := 65.0
 	for i in n:
 		var entry: Dictionary = p_entries[i]
-		armies[team].append(entry)
+		if not armies[team].has(entry):
+			armies[team].append(entry)
 		var offset := (float(i) - float(n - 1) * 0.5) * spacing
 		var pos := Vector2.ZERO
 		var face := Vector2.DOWN
@@ -473,6 +499,21 @@ func _spawn_reinforcements(team: int, p_entries: Array, edge: String) -> void:
 	events.append({"type": "reinforcements", "team": team, "edge": edge, "count": n})
 
 
+## Spawns reserve squads from the edge when active on-field squads break or fall below FIELD_CAP.
+func _check_reserve_reinforcements(team: int) -> void:
+	if reserve_queue[team].is_empty():
+		return
+	var on_field := 0
+	for s in squads:
+		if s.team == team and s.is_active():
+			on_field += 1
+	while on_field < FIELD_CAP and not reserve_queue[team].is_empty():
+		var entry: Dictionary = reserve_queue[team].pop_front()
+		var edge := "south" if team == PLAYER else "north"
+		_spawn_reinforcements(team, [entry], edge)
+		on_field += 1
+
+
 func _to_entries(army: Array) -> Array:
 	var out := []
 	var used := {}
@@ -498,6 +539,8 @@ func _to_entries(army: Array) -> Array:
 		var is_bodyguard: bool = bool(entry.get("is_bodyguard", false))
 		var is_chief: bool = bool(entry.get("is_chief", false))
 		var c_name: String = String(entry.get("chief_name", ""))
+		var is_ally: bool = bool(entry.get("is_ally", false))
+		var lord_id: int = int(entry.get("lord_id", -1))
 		out.append({
 			"roster_id": id,
 			"type": String(entry["type"]),
@@ -509,6 +552,8 @@ func _to_entries(army: Array) -> Array:
 			"is_bodyguard": is_bodyguard,
 			"is_chief": is_chief,
 			"chief_name": c_name,
+			"is_ally": is_ally,
+			"lord_id": lord_id,
 		})
 	return out
 
@@ -737,6 +782,8 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.is_bodyguard = bool(entry.get("is_bodyguard", false))
 	sq.is_chief = bool(entry.get("is_chief", false))
 	sq.chief_name = String(entry.get("chief_name", ""))
+	sq.is_ally = bool(entry.get("is_ally", false))
+	sq.lord_id = int(entry.get("lord_id", -1))
 
 	if unit_id != "" and Units.has(unit_id):
 		sq.stats = Units.stats(unit_id, sq.level)
@@ -1027,8 +1074,9 @@ func order_line(team: int, a: Vector2, b: Vector2, only = null) -> Array:
 	if only == null and phase == PHASE_DEPLOY:
 		# Anyone still in reserve joins the line; they start from its middle.
 		for entry in reserves[team].duplicate():
-			reserves[team].erase(entry)
-			_spawn(team, entry, _fit(deploy_zone(team), (a + b) * 0.5, _footprint(entry["type"], entry["men"])))
+			if not bool(entry.get("is_ally", false)):
+				reserves[team].erase(entry)
+				_spawn(team, entry, _fit(deploy_zone(team), (a + b) * 0.5, _footprint(entry["type"], entry["men"])))
 	var spots := line_preview(team, a, b, only)
 	var face := line_face(team, a, b)
 	for s in spots:
@@ -1055,15 +1103,16 @@ func line_preview(team: int, a: Vector2, b: Vector2, only = null) -> Array:
 			line_squads.append(only)
 	else:
 		for sq in squads:
-			if sq.team == team and sq.is_active():
+			if sq.team == team and sq.is_active() and not (team == PLAYER and sq.is_ally):
 				line_squads.append(sq)
 		if phase == PHASE_DEPLOY:
 			for entry in reserves[team]:
-				var stand_in := Squad.new()
-				stand_in.type = entry["type"]
-				stand_in.start_men = int(entry["men"])
-				stand_in.center = (a + b) * 0.5
-				line_squads.append(stand_in)
+				if not bool(entry.get("is_ally", false)):
+					var stand_in := Squad.new()
+					stand_in.type = entry["type"]
+					stand_in.start_men = int(entry["men"])
+					stand_in.center = (a + b) * 0.5
+					line_squads.append(stand_in)
 	if line_squads.is_empty():
 		return []
 	var dir := (b - a).normalized() if a.distance_to(b) > 1.0 else Vector2.RIGHT
@@ -1236,7 +1285,7 @@ func _end_wheel(sq) -> void:
 ## "advance" or "hold" for every squad a side still has fighting.
 func order_all(team: int, order: String) -> void:
 	for sq in squads:
-		if sq.team != team or not sq.is_active():
+		if sq.team != team or not sq.is_active() or (team == PLAYER and sq.is_ally):
 			continue
 		if order == "hold":
 			order_hold(sq)
@@ -1284,6 +1333,10 @@ func step(dt: float = STEP) -> void:
 		var t := 1 - i if flip else i
 		if ai[t] != null:
 			ai[t].update(self, dt)
+	if allied_ai != null:
+		allied_ai.update(self, dt)
+	_check_reserve_reinforcements(PLAYER)
+	_check_reserve_reinforcements(ENEMY)
 	_build_grid()
 	var order := squads.duplicate()
 	if flip:
@@ -2082,6 +2135,7 @@ func rout(sq) -> void:
 	if sq.is_bodyguard or sq.is_chief:
 		_trigger_chief_shock(sq)
 		_chief_caught(sq)
+	_check_reserve_reinforcements(sq.team)
 
 
 ## A chief whose guard breaks in the thick of a fight doesn't get clear: he's cut down as
@@ -2323,8 +2377,8 @@ func _check_end() -> void:
 			_finish(ENEMY, "village_lost")
 		return
 
-	var standing := [has_active(PLAYER) or _has_pending_reinforcements(PLAYER),
-		has_active(ENEMY) or _has_pending_reinforcements(ENEMY)]
+	var standing := [has_active(PLAYER) or _has_pending_reinforcements(PLAYER) or not reserve_queue[PLAYER].is_empty(),
+		has_active(ENEMY) or _has_pending_reinforcements(ENEMY) or not reserve_queue[ENEMY].is_empty()]
 	if standing[PLAYER] and standing[ENEMY]:
 		if time >= TIME_LIMIT:
 			var mine := strength(PLAYER)
@@ -2392,12 +2446,14 @@ func result_for(team: int) -> Dictionary:
 	var lost := 0
 	var killed := 0
 	for e in reserves[team]:
-		by_id[e["roster_id"]] = {"men": int(e["men"]), "kills": 0}
+		by_id[e["roster_id"]] = {"men": int(e["men"]), "kills": 0, "is_ally": bool(e.get("is_ally", false)), "lord_id": int(e.get("lord_id", -1))}
+	for e in reserve_queue[team]:
+		by_id[e["roster_id"]] = {"men": int(e["men"]), "kills": 0, "is_ally": bool(e.get("is_ally", false)), "lord_id": int(e.get("lord_id", -1))}
 	for sq in squads:
 		if sq.team != team:
 			continue
 		var survivors: int = sq.alive_n + sq.escaped
-		by_id[sq.roster_id] = {"men": survivors, "kills": sq.kills}
+		by_id[sq.roster_id] = {"men": survivors, "kills": sq.kills, "is_ally": sq.is_ally, "lord_id": sq.lord_id}
 		if not sq.info.is_empty():
 			by_id[sq.roster_id]["captain"] = {
 				"id": int(sq.info["id"]),
@@ -2409,6 +2465,10 @@ func result_for(team: int) -> Dictionary:
 			}
 		lost += sq.start_men - survivors
 		killed += sq.kills
+	for e in armies[team]:
+		var rid: int = int(e["roster_id"])
+		if not by_id.has(rid):
+			by_id[rid] = {"men": int(e["men"]), "kills": 0, "is_ally": bool(e.get("is_ally", false)), "lord_id": int(e.get("lord_id", -1))}
 	var bonds := {}
 	for key in bond_time:
 		for sq in squads:

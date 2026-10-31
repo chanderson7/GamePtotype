@@ -108,6 +108,10 @@ var events: Array = []
 var activity_log: Array = []
 ## The id of the band blocking the player's road, or -1.
 var encounter := -1
+## The party id of the allied lord/army the player is following, or -1.
+var following_party := -1
+## GameState back-reference if running under campaign.
+var game_state = null
 ## Recruits each settlement offers: {settlement id: [{type, culture}]}, and the hour each
 ## settlement's offers come back after any are taken.
 var offers := {}
@@ -259,7 +263,22 @@ func is_at_war(realm: String) -> bool:
 	return false
 
 
+func _active_game_state():
+	if game_state != null:
+		return game_state
+	var tree = Engine.get_main_loop() as SceneTree
+	if tree != null and tree.root != null and tree.root.has_node("GameState"):
+		return tree.root.get_node("GameState")
+	return null
+
+
 func relation_to_player(realm: String) -> String:
+	var gs = _active_game_state()
+	if gs != null:
+		if gs.is_at_war_with(realm):
+			return "hostile"
+		if gs.is_allied_with(realm):
+			return "friendly"
 	var p = player()
 	if p != null and p.faction != "":
 		if p.faction == realm:
@@ -615,6 +634,10 @@ func destination() -> String:
 ## The clock runs while the player travels or waits, unless a band blocks the road.
 func busy() -> bool:
 	var p := player()
+	if following_party != -1:
+		var target := party(following_party)
+		if target != null and (target.moving() or target.wait > 0.0):
+			return encounter == -1
 	return encounter == -1 and (p.moving() or p.wait > 0.0)
 
 
@@ -719,6 +742,7 @@ func hours_to(to: String) -> float:
 
 ## Set the player off for `to`. From the middle of a road it turns back if that's quicker.
 func travel(to: String) -> bool:
+	following_party = -1
 	var p := player()
 	if encounter != -1 or not Data.SETTLEMENTS.has(to):
 		return false
@@ -749,6 +773,7 @@ func travel(to: String) -> bool:
 
 ## Stand where you are for `hours`.
 func wait(hours: float) -> bool:
+	following_party = -1
 	var p := player()
 	if p.moving() or encounter != -1:
 		return false
@@ -778,6 +803,17 @@ func step(hours: float) -> void:
 
 func _move_player(dt: float) -> void:
 	var p := player()
+	if following_party != -1:
+		var target := party(following_party)
+		if target == null or (target.kind == LORD and lord_of(target).get("state", "") != "field"):
+			following_party = -1
+		else:
+			p.node = target.node
+			p.next = target.next
+			p.along = target.along
+			p.path = target.path.duplicate()
+			p.wait = target.wait
+			return
 	if p.moving():
 		if _move(p, dt):
 			emit_event({"type": "arrived", "at": p.node})
@@ -840,6 +876,20 @@ func _check_encounter() -> void:
 			encounter = b.id
 			emit_event({"type": "encounter", "party": b.id})
 			return
+	for lp in lord_parties():
+		if lp.id == following_party:
+			continue
+		if hour >= lp.grace_until and party_pos(lp).distance_squared_to(at) <= reach_sq:
+			var rel := relation_to_player(lp.faction)
+			if rel == "hostile":
+				encounter = lp.id
+				emit_event({"type": "encounter", "party": lp.id})
+				return
+			elif rel == "friendly":
+				encounter = lp.id
+				lp.grace_until = hour + 12.0
+				emit_event({"type": "friendly_encounter", "party": lp.id})
+				return
 
 
 func _respawn() -> void:
@@ -1744,15 +1794,68 @@ func _new_offers(id: String) -> Array:
 
 # ---------------------------------------------------------------- encounters
 
-## You beat the band: it's gone, and another rises in its realm a day later. The player
-## carries on wherever they were going.
+## Whether the player can withdraw from the current encounter. Hostile lords who are
+## faster and significantly stronger can overrun/ride down the player.
+func can_withdraw() -> bool:
+	if encounter == -1:
+		return true
+	var b := party(encounter)
+	if b == null or b.kind != LORD:
+		return true
+	var p := player()
+	var p_speed: float = _speed(p, p.node, p.next if p.next != "" else p.node)
+	var e_speed: float = _speed(b, b.node, b.next if b.next != "" else b.node)
+	var p_men: int = men_of(p.army)
+	var e_men: int = men_of(b.army)
+	if e_speed > p_speed and float(e_men) > float(p_men) * 1.3:
+		var prng := RandomNumberGenerator.new()
+		prng.seed = hash([b.id, int(hour * 10.0)])
+		if prng.randf() < 0.4:
+			return false
+	return true
+
+
+## Returns losses to allied lords who fought alongside the player.
+func return_allied_losses(squads: Dictionary) -> void:
+	if squads.is_empty():
+		return
+	var touched_parties := {}
+	for sq_id in squads:
+		var s: Dictionary = squads[sq_id]
+		if not bool(s.get("is_ally", false)):
+			continue
+		var lid: int = int(s.get("lord_id", -1))
+		if lid < 0 or lid >= lords.size():
+			continue
+		var lord: Dictionary = lords[lid]
+		var lp := party(int(lord.get("party", -1)))
+		var army_list: Array = lp.army if lp != null else lord.get("army", [])
+		for lsq in army_list:
+			if int(lsq["id"]) == int(sq_id):
+				lsq["men"] = int(s["men"])
+		if lp != null:
+			touched_parties[lp] = true
+	for lp in touched_parties:
+		lp.army = lp.army.filter(func(sq): return int(sq["men"]) > 0)
+		var l: Dictionary = lord_of(lp)
+		if not l.is_empty():
+			l["army"] = lp.army
+		if lp.army.is_empty():
+			_routed(lp)
+
+
+## You beat the band: it's gone, and another rises in its realm a day later. If it was a lord,
+## he is routed back to his seat to regroup.
 func win_encounter() -> void:
 	var b := party(encounter)
 	encounter = -1
 	if b == null:
 		return
-	parties.erase(b)
-	respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
+	if b.kind == LORD:
+		_routed(b)
+	else:
+		parties.erase(b)
+		respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
 
 
 ## You pull back to the last settlement you passed. The time it takes passes, and the
@@ -1772,7 +1875,7 @@ func withdraw() -> void:
 
 
 ## The band blocking the road takes its losses: `survivors` maps squad ids to the men
-## left ({id: {men}}). A band with nobody left is gone.
+## left ({id: {men}}). A band with nobody left is gone; a lord regroups.
 func hurt_band(survivors: Dictionary) -> void:
 	var b := party(encounter)
 	if b == null or survivors.is_empty():
@@ -1783,12 +1886,16 @@ func hurt_band(survivors: Dictionary) -> void:
 			sq["men"] = int(left["men"])
 	b.army = b.army.filter(func(sq): return int(sq["men"]) > 0)
 	if b.army.is_empty():
-		parties.erase(b)
-		respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
+		if b.kind == LORD:
+			_routed(b)
+		else:
+			parties.erase(b)
+			respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
 
 
 ## The band beat you: the survivors regroup at your people's capital, half a day later.
 func lose_encounter() -> void:
+	following_party = -1
 	var b := party(encounter)
 	encounter = -1
 	var p := player()
@@ -1824,7 +1931,7 @@ func to_dict() -> Dictionary:
 			"raiding": p.raiding, "raid_village": p.raid_village,
 			"is_chief_band": p.is_chief_band, "chief_name": p.chief_name, "lord": p.lord})
 	return {
-		"hour": hour, "culture": culture, "encounter": encounter, "next_id": _next_id,
+		"hour": hour, "culture": culture, "encounter": encounter, "following_party": following_party, "next_id": _next_id,
 		"seed": str(rng.seed), "state": str(rng.state),
 		"respawns": respawns.duplicate(true), "parties": ps,
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
@@ -1886,6 +1993,7 @@ func from_dict(d: Dictionary) -> void:
 	hour = float(d.get("hour", 0.0))
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))
+	following_party = int(d.get("following_party", -1))
 	_next_id = int(d.get("next_id", 1))
 	rng.seed = int(String(d.get("seed", "0")))
 	rng.state = int(String(d.get("state", "0")))
