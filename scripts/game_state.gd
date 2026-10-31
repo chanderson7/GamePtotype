@@ -423,6 +423,114 @@ func _check_job_deadlines() -> void:
 				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
 
 
+# ---------------------------------------------------------------- the crown
+
+const CROWN_RENOWN := 200
+## Days at war before the crown can sue for peace, and the enemy weariness it needs.
+const CROWN_PEACE_DAYS := 7
+const CROWN_PEACE_WEARINESS := 30.0
+
+
+## Whether the company rules its own realm.
+func is_crowned() -> bool:
+	return world != null and world.realms.has(WorldData.CROWN)
+
+
+## Whether the company can raise its own banner now. {ok, reason}.
+func crown_check() -> Dictionary:
+	if world == null or is_crowned():
+		return {"ok": false, "reason": "The crown is already raised."}
+	if not has_fief() or bool(player_fief.get("lost", false)):
+		return {"ok": false, "reason": "A crown needs a seat: hold a fief of your own first."}
+	if has_contract():
+		return {"ok": false, "reason": "Serve out or break your contract first."}
+	if renown < CROWN_RENOWN:
+		return {"ok": false, "reason": "Only a famous company can raise a crown (%d of %d renown)." % [renown, CROWN_RENOWN]}
+	if world.here() != fief_id():
+		return {"ok": false, "reason": "Raise it at your own seat."}
+	return {"ok": true, "reason": ""}
+
+
+## Cast off the liege and raise the company's own crown at its fief.
+func declare_crown() -> bool:
+	if not crown_check()["ok"]:
+		return false
+	var seat := fief_id()
+	var liege := fief_realm()
+	WorldData.crown_culture = culture
+	player_fief["realm"] = WorldData.CROWN
+	world.declare_crown(seat)
+	world.player().faction = WorldData.CROWN
+	add_realm_relation(liege, -60)
+	_note("You raise your own banner over %s. %s will not forgive it: it is war." % [
+		WorldData.settlement(seat)["name"], WorldData.FACTIONS[liege]["name"] if WorldData.FACTIONS.has(liege) else "Your liege"])
+	save_game()
+	return true
+
+
+## What the crown holds: castles, towns and villages.
+func crown_holdings() -> Array:
+	return world.holdings_of(WorldData.CROWN) if is_crowned() else []
+
+
+## A day of crown dues: half to the company's purse, half to the crown treasury for its
+## garrisons. The fief itself pays through the fief as before.
+func _crown_day() -> void:
+	if not is_crowned():
+		return
+	var dues := 0
+	for id in crown_holdings():
+		if id == fief_id() or world.is_burned(id):
+			continue
+		dues += int(Lords.INCOME.get(String(WorldData.settlement(id)["type"]), 0))
+	if dues <= 0:
+		return
+	silver += dues / 2
+	world.realms[WorldData.CROWN]["treasury"] = int(world.realms[WorldData.CROWN]["treasury"]) + dues - dues / 2
+
+
+## Realms the crown could ally with now.
+func crown_allies_possible() -> Array:
+	var out := []
+	if not is_crowned():
+		return out
+	for r in world.realms:
+		if world.can_ally_crown(r):
+			out.append(r)
+	return out
+
+
+func propose_alliance(realm: String) -> bool:
+	if not is_crowned() or not world.ally_crown(realm):
+		return false
+	add_realm_relation(realm, 20)
+	_note("%s agrees to an alliance against your common enemies." % WorldData.FACTIONS[realm]["name"])
+	save_game()
+	return true
+
+
+## Whether the crown can sue `realm` for peace: at war long enough, and they're weary.
+func crown_peace_check(realm: String) -> Dictionary:
+	if not is_crowned() or not world.at_war(WorldData.CROWN, realm):
+		return {"ok": false, "reason": "You are not at war with them."}
+	var since := float(world.wars[world.war_key(WorldData.CROWN, realm)].get("since", world.hour))
+	if world.hour - since < CROWN_PEACE_DAYS * 24.0:
+		return {"ok": false, "reason": "Too soon: they won't treat with a crown not %d days old in war." % CROWN_PEACE_DAYS}
+	if world.weariness_of(realm) < CROWN_PEACE_WEARINESS:
+		return {"ok": false, "reason": "They aren't weary enough of the war yet (%d of %d)." % [int(world.weariness_of(realm)), int(CROWN_PEACE_WEARINESS)]}
+	return {"ok": true, "reason": ""}
+
+
+func sue_for_peace(realm: String) -> bool:
+	if not crown_peace_check(realm)["ok"]:
+		return false
+	world.make_peace(WorldData.CROWN, realm)
+	add_realm_relation(realm, 30)
+	_note("%s accepts peace with your crown. A truce holds." % WorldData.FACTIONS[realm]["name"])
+	save_game()
+	return true
+
+
 # ---------------------------------------------------------------- deeds
 
 func _count_deed(id: String) -> void:
@@ -454,6 +562,8 @@ func set_company_title(id: String) -> bool:
 ## The realm the company fights for: its employer under contract, or its liege as a
 ## landed vassal. "" for a free company.
 func siege_realm() -> String:
+	if is_crowned():
+		return WorldData.CROWN
 	if has_contract():
 		return contract_realm()
 	if has_fief():
@@ -1440,6 +1550,7 @@ func settle() -> void:
 		_paid_day += 1
 		_upkeep()
 		_fief_day()
+		_crown_day()
 	_award_deeds()
 
 
@@ -1540,11 +1651,15 @@ func contract_daily_pay() -> int:
 func is_allied_with(realm: String) -> bool:
 	if has_contract() and contract_realm() == realm:
 		return true
+	if is_crowned() and (realm == WorldData.CROWN or world.allied_with_crown(realm)):
+		return true
 	return relation_with_realm(realm) >= 50
 
 
 func is_at_war_with(realm: String) -> bool:
 	if realm == WorldData.BANDITS:
+		return true
+	if is_crowned() and realm != WorldData.CROWN and world.at_war(WorldData.CROWN, realm):
 		return true
 	if relation_with_realm(realm) <= -20:
 		return true
@@ -2553,6 +2668,8 @@ func from_dict(data: Dictionary) -> bool:
 	active_jobs = data.get("active_jobs", []).duplicate(true) if typeof(data.get("active_jobs")) == TYPE_ARRAY else []
 	completed_jobs = data.get("completed_jobs", []).duplicate(true) if typeof(data.get("completed_jobs")) == TYPE_ARRAY else []
 	player_fief = data.get("player_fief", {}).duplicate(true) if typeof(data.get("player_fief")) == TYPE_DICTIONARY else {}
+	if world != null and world.realms.has(WorldData.CROWN):
+		WorldData.crown_culture = culture
 	pinned_commitment = String(data.get("pinned_commitment", ""))
 	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
 	camp_seen = data.get("camp_seen", []).duplicate() if typeof(data.get("camp_seen")) == TYPE_ARRAY else []

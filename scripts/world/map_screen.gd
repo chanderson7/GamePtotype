@@ -548,6 +548,8 @@ func _open_here() -> void:
 	if GameState.siege_check(id)["ok"]:
 		buttons.push_front(["Storm the walls", _open_siege.bind(id), true])
 		buttons[1][2] = false
+	if GameState.crown_check()["ok"]:
+		buttons.insert(buttons.size() - 1, ["Raise your banner", _open_raise_crown])
 	var offers: Array = world.offers_at(id)
 	var body := "%s\n%s\nYou are here. " % [world.describe(id), world.settlement_intelligence(id)]
 	if offers.is_empty():
@@ -905,8 +907,9 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		[["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["Journal", _open_journal],
-		["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
+		([["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["Journal", _open_journal]]
+		+ ([["Your Crown", _open_crown]] if GameState.is_crowned() else [])
+		+ [["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]]))
 
 
 func _open_wars() -> void:
@@ -937,7 +940,7 @@ func _open_wars() -> void:
 			lines.append("• Tribute: %s pays %d silver/day to %s (%d days left)" % [f_name, t["daily"], to_name, t["days_left"]])
 
 	lines.append("\n=== REALMS ===")
-	for f in ["vardmark", "kharzan", "ryumon"]:
+	for f in ["vardmark", "kharzan", "ryumon"] + ([Data.CROWN] if GameState.is_crowned() else []):
 		var fn: String = Data.FACTIONS[f]["name"]
 		var str_val: int = world.realm_strength(f)
 		var wear: float = world.weariness_of(f)
@@ -1158,6 +1161,59 @@ func _on_assault_answer(fight: bool) -> void:
 		GameState.save_game()
 		Scenes.go("res://scenes/battle.tscn")
 	_refresh_hud()
+
+
+## Cast off your liege: what it means, before it's done.
+func _open_raise_crown() -> void:
+	var liege: String = Data.FACTIONS[GameState.fief_realm()]["name"]
+	_show_sheet("crown", "Raise your banner",
+		"Declare %s the seat of your own crown. %s will go to war with you at once and send its armies for your walls. Every castle or town you storm after this is yours, and its dues fill your purse and your garrisons. There is no going back." % [
+			Data.settlement(GameState.fief_id())["name"], liege],
+		[["Raise the crown", _on_raise_crown, true], ["Not yet", _open_here]])
+
+
+func _on_raise_crown() -> void:
+	if GameState.declare_crown():
+		Sound.play("horn")
+	_close_sheet()
+	_refresh_hud()
+	_sync_layers()
+
+
+## The crown: what it holds, who it fights, who stands with it.
+func _open_crown() -> void:
+	var lines: PackedStringArray = []
+	var held: Array = GameState.crown_holdings()
+	var names: PackedStringArray = []
+	for id in held:
+		names.append(String(Data.settlement(id)["name"]))
+	lines.append("Holds: %s." % ", ".join(names) if not names.is_empty() else "Holds nothing. Without a seat the crown is only a name.")
+	lines.append("Crown treasury: %d silver (raises garrisons)." % int(world.realms[Data.CROWN].get("treasury", 0)))
+	var buttons := []
+	var enemies: Array = world.crown_enemies()
+	if enemies.is_empty():
+		lines.append("At war with no one.")
+	for r in enemies:
+		var check: Dictionary = GameState.crown_peace_check(r)
+		lines.append("At war with %s.%s" % [Data.FACTIONS[r]["name"], "" if check["ok"] else " " + String(check["reason"])])
+		if check["ok"]:
+			buttons.append(["Sue %s for peace" % Data.FACTIONS[r]["name"], _on_crown_peace.bind(r)])
+	for r in world.alliances:
+		lines.append("Allied with %s." % Data.FACTIONS[r]["name"])
+	for r in GameState.crown_allies_possible():
+		buttons.append(["Ally with %s" % Data.FACTIONS[r]["name"], _on_crown_ally.bind(r)])
+	buttons.append(["Close", _close_sheet, true])
+	_show_sheet("crown", "Your Crown", "\n".join(lines), buttons)
+
+
+func _on_crown_ally(realm: String) -> void:
+	GameState.propose_alliance(realm)
+	_open_crown()
+
+
+func _on_crown_peace(realm: String) -> void:
+	GameState.sue_for_peace(realm)
+	_open_crown()
 
 
 ## Before an assault: the garrison, the walls, and the odds.
@@ -1459,7 +1515,7 @@ func _draw_settlement(id: String, px: float) -> void:
 	var c := _to_screen(s["pos"])
 	# Built by its own people, flying its holder's colors.
 	var culture := Data.culture_of(s["faction"])
-	var colors := Cultures.color(Data.culture_of(world.owner_of(id)))
+	var colors := Style.BRASS if world.owner_of(id) == Data.CROWN else Cultures.color(Data.culture_of(world.owner_of(id)))
 	var sprite := "%s/%s" % [culture, s["type"]]
 	var w: float = MapArt.size(sprite).x * px
 	draw_set_transform(c + Vector2(0, 2), 0.0, Vector2(1.0, 0.32))

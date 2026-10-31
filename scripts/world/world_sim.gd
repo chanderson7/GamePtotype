@@ -61,7 +61,7 @@ const ACTIVITY_TYPES := {
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
-	"achievement": true,
+	"achievement": true, "crown_raised": true, "alliance": true, "alliance_ended": true,
 }
 
 
@@ -223,7 +223,7 @@ func _start_realms() -> void:
 		wars[war_key(w[0], w[1])] = {"since": 0.0}
 	realms = {}
 	for f in Data.FACTIONS:
-		if f != Data.BANDITS:
+		if f != Data.BANDITS and f != Data.CROWN:
 			realms[f] = {
 				"capital": String(Data.FACTIONS[f]["capital"]),
 				"treasury": Lords.TREASURY_START,
@@ -232,6 +232,7 @@ func _start_realms() -> void:
 			}
 	truces = {}
 	tributes = []
+	alliances = {}
 
 
 func _build_roads() -> void:
@@ -374,6 +375,67 @@ func realm_strength(realm: String) -> int:
 	for h in holdings_of(realm):
 		total += men_of(garrison_at(h))
 	return total
+
+
+## Raise the crown at `seat`: a new realm, which its former holder goes to war with.
+func declare_crown(seat: String) -> void:
+	var liege := owner_of(seat)
+	realms[Data.CROWN] = {"capital": seat, "treasury": 0, "marshal": -1, "weariness": 0.0}
+	set_owner(seat, Data.CROWN)
+	emit_event({"type": "crown_raised", "settlement": seat, "from": liege})
+	if realms.has(liege):
+		declare_war(liege, Data.CROWN, true, "rebellion")
+	_prune_alliances()
+
+
+## Realms allied with the crown.
+var alliances: Dictionary = {}
+
+
+func allied_with_crown(realm: String) -> bool:
+	return alliances.has(realm)
+
+
+## The crown's enemies: realms at war with it.
+func crown_enemies() -> Array:
+	var out := []
+	for r in realms:
+		if r != Data.CROWN and at_war(r, Data.CROWN):
+			out.append(r)
+	return out
+
+
+## Whether `realm` would ally with the crown: it shares one of the crown's enemies and is
+## not at war with the crown itself.
+func can_ally_crown(realm: String) -> bool:
+	if not realms.has(Data.CROWN) or not realms.has(realm) or realm == Data.CROWN or alliances.has(realm):
+		return false
+	if at_war(realm, Data.CROWN):
+		return false
+	for e in crown_enemies():
+		if at_war(realm, e):
+			return true
+	return false
+
+
+func ally_crown(realm: String) -> bool:
+	if not can_ally_crown(realm):
+		return false
+	alliances[realm] = {"since": hour}
+	emit_event({"type": "alliance", "realm": realm})
+	return true
+
+
+## An alliance lasts while the two share an enemy and don't fight each other.
+func _prune_alliances() -> void:
+	for r in alliances.keys():
+		var shared := false
+		for e in crown_enemies():
+			if at_war(r, e):
+				shared = true
+		if at_war(r, Data.CROWN) or not shared:
+			alliances.erase(r)
+			emit_event({"type": "alliance_ended", "realm": r})
 
 
 func declare_war(a: String, b: String, force: bool = false, reason: String = "") -> void:
@@ -520,7 +582,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "war"
 		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
 			cat = "siege"
-		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement":
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "alliance", "alliance_ended":
 			cat = "deed"
 		"fight", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
@@ -619,6 +681,13 @@ func _activity_text(event: Dictionary) -> String:
 			var at := String(event.get("at", ""))
 			var place_str := (" near %s" % Data.settlement(at)["name"]) if Data.SETTLEMENTS.has(at) else ""
 			return "%s crushed %s%s." % [event.get("company", "The warband"), event.get("enemy", "the enemy"), place_str]
+		"crown_raised":
+			return "Your company raised its own crown at %s, casting off %s." % [Data.settlement(String(event["settlement"]))["name"],
+				Data.FACTIONS[String(event["from"])]["name"] if Data.FACTIONS.has(String(event["from"])) else "its liege"]
+		"alliance":
+			return "The crown and %s swore an alliance." % Data.FACTIONS[String(event["realm"])]["name"]
+		"alliance_ended":
+			return "The alliance between the crown and %s has ended." % Data.FACTIONS[String(event["realm"])]["name"]
 		"achievement":
 			return "The company earned a name: %s. %s" % [event.get("title", ""), event.get("text", "")]
 		"job_completed":
@@ -1621,6 +1690,8 @@ func _lords_day() -> void:
 		l["army"] = army
 	_garrisons_day()
 	_politics_day()
+	if not alliances.is_empty():
+		_prune_alliances()
 
 
 func _politics_day() -> void:
@@ -2239,7 +2310,7 @@ func to_dict() -> Dictionary:
 		"saved_villages": saved_villages.duplicate(),
 		"activity_log": activity_log.duplicate(true),
 		"owners": owners.duplicate(), "wars": wars.duplicate(true), "realms": realms.duplicate(true),
-		"truces": truces.duplicate(true), "tributes": tributes.duplicate(true),
+		"truces": truces.duplicate(true), "tributes": tributes.duplicate(true), "alliances": alliances.duplicate(true),
 		"garrisons": garrisons.duplicate(true),
 		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
 		"social": social.to_dict() if social != null else null,
@@ -2273,11 +2344,18 @@ func from_dict(d: Dictionary) -> void:
 			wars[String(k)] = {"since": float(raw_wars[k].get("since", 0.0))}
 	var raw_realms = d.get("realms", {})
 	for f in raw_realms:
+		if String(f) == Data.CROWN and not realms.has(Data.CROWN):
+			realms[Data.CROWN] = {"capital": "", "treasury": 0, "marshal": -1, "weariness": 0.0}
 		if realms.has(String(f)):
 			realms[String(f)]["capital"] = String(raw_realms[f].get("capital", ""))
 			realms[String(f)]["treasury"] = int(raw_realms[f].get("treasury", Lords.TREASURY_START))
 			realms[String(f)]["marshal"] = int(raw_realms[f].get("marshal", -1))
 			realms[String(f)]["weariness"] = float(raw_realms[f].get("weariness", 0.0))
+	alliances = {}
+	var raw_alliances = d.get("alliances", {})
+	if typeof(raw_alliances) == TYPE_DICTIONARY:
+		for r in raw_alliances:
+			alliances[String(r)] = {"since": float(raw_alliances[r].get("since", 0.0))}
 	truces = {}
 	var raw_truces = d.get("truces", {})
 	for k in raw_truces:

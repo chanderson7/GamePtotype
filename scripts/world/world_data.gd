@@ -16,12 +16,17 @@ const CASTLE := "castle"
 const VILLAGE := "village"
 
 const BANDITS := "bandits"
+## The player's own realm, once they raise a banner (see docs/kingdom-plan.md). It exists in
+## the world only after that, and takes the company's culture.
+const CROWN := "crown"
+static var crown_culture := Cultures.VARDISH
 
 const FACTIONS := {
 	"vardmark": {"name": "Kingdom of Vardmark", "culture": Cultures.VARDISH, "ruler": "King Aldwin", "capital": "highcliff"},
 	"kharzan": {"name": "Sultanate of Kharzan", "culture": Cultures.KHARZANI, "ruler": "Sultan Rustam", "capital": "khalun"},
 	"ryumon": {"name": "Ryumon Shogunate", "culture": Cultures.RYUMON, "ruler": "Shogun Hidemasa", "capital": "kurogane"},
 	BANDITS: {"name": "Bandits", "culture": "", "ruler": "", "capital": ""},
+	CROWN: {"name": "the Free Crown", "culture": "", "ruler": "", "capital": ""},
 }
 
 ## The wars a campaign starts with. The world sim keeps the wars after that.
@@ -134,6 +139,8 @@ static func pos(id: String) -> Vector2:
 
 
 static func culture_of(faction: String) -> String:
+	if faction == CROWN:
+		return crown_culture
 	return String(FACTIONS[faction]["culture"])
 
 
