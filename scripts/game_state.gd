@@ -86,6 +86,10 @@ var active_jobs: Array = []
 var completed_jobs: Array = []
 ## Player-held fief and estate (Feature 12).
 var player_fief: Dictionary = {}
+## The journal: the one commitment pinned to the map card, and how recent ones ended.
+var pinned_commitment := ""
+var ended_commitments: Array = []
+const ENDED_KEEP := 8
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -136,6 +140,8 @@ func new_warband() -> void:
 	active_jobs = []
 	completed_jobs = []
 	player_fief = {}
+	pinned_commitment = ""
+	ended_commitments = []
 	_heal_clock = 0.0
 	casual_mode = false
 	_next_id = 1
@@ -392,13 +398,130 @@ func _check_job_deadlines() -> void:
 		var jtitle := String(job.get("title", "Contract"))
 		if world.hour > float(job.get("deadline", INF)):
 			active_jobs.remove_at(i)
+			_end_commitment(String(job.get("id", "")), jtitle, "Expired: the deadline passed before it was done.")
 			_note("Contract expired: The deadline for '%s' has passed." % jtitle)
 			continue
 		if String(job.get("type", "")) == Jobs.TYPE_HUNT:
 			var party_id := int(job.get("target_party_id", -1))
 			if party_id >= 0 and world.party(party_id) == null and String(job.get("status", "")) != "ready_to_claim":
 				active_jobs.remove_at(i)
+				_end_commitment(String(job.get("id", "")), jtitle, "Cancelled: another force scattered the band first.")
 				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
+
+
+# ---------------------------------------------------------------- journal
+
+## Remember how a commitment ended, so the journal can explain it after the notice is gone.
+func _end_commitment(id: String, title: String, outcome: String) -> void:
+	var at: float = world.hour if world != null else 0.0
+	ended_commitments.push_front({"id": id, "title": title, "outcome": outcome, "hour": at})
+	if ended_commitments.size() > ENDED_KEEP:
+		ended_commitments.resize(ENDED_KEEP)
+	if pinned_commitment == id:
+		pinned_commitment = ""
+
+
+## Where a hunted band is now: the settlement it stands at or rides toward, or "".
+func _band_place(party_id: int) -> String:
+	var p = world.party(party_id) if world != null and party_id >= 0 else null
+	if p == null:
+		return ""
+	return String(p.next) if p.moving() and String(p.next) != "" else String(p.node)
+
+
+static func _settlement_name(id: String) -> String:
+	return String(WorldData.settlement(id)["name"]) if WorldData.SETTLEMENTS.has(id) else id
+
+
+## Everything the company has promised to do, newest duties first. Each entry:
+## id, kind, title, objective, place (a settlement to show on the map, or ""), reward, cost,
+## hours_left (-1 when there's no deadline) and blocked (why it can't be done yet, or "").
+## Reading this changes nothing.
+func commitments() -> Array:
+	var out: Array = []
+	if world == null:
+		return out
+	for job in active_jobs:
+		var hours_left := maxf(0.0, float(job.get("deadline", world.hour)) - world.hour)
+		var reward := "%d silver, %d renown" % [int(job.get("reward_silver", 0)), int(job.get("reward_renown", 0))]
+		var entry := {"id": String(job.get("id", "")), "kind": "job", "title": String(job.get("title", "Job")),
+			"objective": String(job.get("description", "")), "place": "", "reward": reward, "cost": "",
+			"hours_left": hours_left, "blocked": ""}
+		var origin := String(job.get("origin_settlement", ""))
+		match String(job.get("type", "")):
+			Jobs.TYPE_COURIER:
+				entry["place"] = String(job.get("destination_settlement", ""))
+				entry["objective"] = "Carry the dispatch to %s." % _settlement_name(entry["place"])
+			Jobs.TYPE_RELIEF:
+				var need := int(job.get("food_needed", 0))
+				entry["place"] = origin
+				entry["objective"] = "Bring %d rations to %s." % [need, _settlement_name(origin)]
+				entry["cost"] = "%d rations" % need
+				if food < need:
+					entry["blocked"] = "You carry %d rations; buy %d more first." % [food, need - food]
+			Jobs.TYPE_HUNT:
+				var target := String(job.get("target_name", "the band"))
+				if String(job.get("status", "")) == "ready_to_claim":
+					entry["place"] = origin
+					entry["objective"] = "%s is scattered. Claim the bounty at %s." % [target, _settlement_name(origin)]
+				else:
+					entry["place"] = _band_place(int(job.get("target_party_id", -1)))
+					entry["objective"] = "Hunt down %s%s." % [target,
+						(", last seen near %s" % _settlement_name(entry["place"])) if entry["place"] != "" else ""]
+		out.append(entry)
+	if has_contract():
+		var realm := contract_realm()
+		var realm_name: String = WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm
+		var enemies: PackedStringArray = []
+		for f in WorldData.FACTIONS:
+			if f != WorldData.BANDITS and f != realm and world.at_war(realm, f):
+				enemies.append(String(WorldData.FACTIONS[f]["name"]))
+		out.append({"id": "contract", "kind": "contract", "title": "Contract with %s" % realm_name,
+			"objective": ("Fight %s's enemies: %s." % [realm_name, ", ".join(enemies)]) if not enemies.is_empty()
+				else "%s is at peace; the pay still comes." % realm_name,
+			"place": world.capital_of(realm),
+			"reward": "%d silver a day, +%d silver for each enemy lord delivered" % [contract_daily_pay(), int(contract.get("bonus_per_lord", 0))],
+			"cost": "Breaking it early costs standing", "hours_left": float(int(contract.get("days_left", 0))) * 24.0, "blocked": ""})
+	for l in captive_lords():
+		out.append({"id": "captive_%d" % int(l.get("id", -1)), "kind": "captive", "title": "Captive: %s" % String(l.get("name", "a lord")),
+			"objective": "Hold him until his realm's envoy offers ransom, then decide his fate.", "place": "",
+			"reward": "%d silver ransom" % int(l.get("ransom_amount", Lords.ransom_for(int(l.get("renown", 0))))),
+			"cost": "", "hours_left": -1.0, "blocked": ""})
+	if world.social != null and bool(world.social.scheduled_ceremony.get("active", false)):
+		var c: Dictionary = world.social.scheduled_ceremony
+		var place := String(c.get("settlement_id", ""))
+		var ends := float(c.get("scheduled_at_hour", world.hour)) + float(c.get("duration_hours", 0.0))
+		out.append({"id": "ceremony", "kind": "ceremony", "title": "Wedding at %s" % _settlement_name(place),
+			"objective": "The ceremony is being prepared at %s." % _settlement_name(place), "place": place,
+			"reward": "", "cost": "%d silver, %d rations" % [int(c.get("cost_silver", 0)), int(c.get("cost_food", 0))],
+			"hours_left": maxf(0.0, ends - world.hour), "blocked": ""})
+	if has_fief():
+		var f_id := fief_id()
+		var lines: PackedStringArray = []
+		if world.is_burned(f_id):
+			lines.append("It was raided; rebuild it.")
+		var taxes := int(player_fief.get("silver", 0))
+		if taxes > 0:
+			lines.append("%d silver in taxes waits to be collected." % taxes)
+		if lines.is_empty():
+			lines.append("Keep it safe and its people fed.")
+		out.append({"id": "fief", "kind": "fief", "title": "Your fief: %s" % _settlement_name(f_id),
+			"objective": " ".join(lines), "place": f_id, "reward": "Taxes and food each day", "cost": "",
+			"hours_left": -1.0, "blocked": ""})
+	return out
+
+
+## The commitment pinned to the map card, or {} when none is (or it has ended).
+func pinned() -> Dictionary:
+	var all := commitments()
+	for c in all:
+		if c["id"] == pinned_commitment:
+			return c
+	return {}
+
+
+func pin_commitment(id: String) -> void:
+	pinned_commitment = "" if pinned_commitment == id else id
 
 
 # ---------------------------------------------------------------- fiefdom & vassalage
@@ -1073,6 +1196,8 @@ func _upkeep() -> void:
 		var realm := String(contract.get("realm", ""))
 		contract["days_left"] = int(contract["days_left"]) - 1
 		if int(contract["days_left"]) <= 0:
+			_end_commitment("contract", "Contract with %s" % (WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm),
+				"Served in full: the contract ended in good standing.")
 			add_realm_relation(realm, 10)
 			contract = {}
 			if world != null and world.player() != null:
@@ -2126,6 +2251,7 @@ func to_dict() -> Dictionary:
 		"bond_events": bond_events, "bond_records": bond_records,
 		"active_jobs": active_jobs.duplicate(true), "completed_jobs": completed_jobs.duplicate(true),
 		"player_fief": player_fief.duplicate(true),
+		"pinned_commitment": pinned_commitment, "ended_commitments": ended_commitments.duplicate(true),
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
@@ -2152,6 +2278,8 @@ func from_dict(data: Dictionary) -> bool:
 	active_jobs = data.get("active_jobs", []).duplicate(true) if typeof(data.get("active_jobs")) == TYPE_ARRAY else []
 	completed_jobs = data.get("completed_jobs", []).duplicate(true) if typeof(data.get("completed_jobs")) == TYPE_ARRAY else []
 	player_fief = data.get("player_fief", {}).duplicate(true) if typeof(data.get("player_fief")) == TYPE_DICTIONARY else {}
+	pinned_commitment = String(data.get("pinned_commitment", ""))
+	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
 	if has_fief() and world != null:
 		world.garrisons[fief_id()] = player_fief.get("garrison", [])
 	_heal_clock = float(data.get("heal_clock", 0.0))

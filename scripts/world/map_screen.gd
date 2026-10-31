@@ -89,6 +89,7 @@ var status_label: Label
 var speed_button: Button
 var warband_button: Button
 var next_button: Button
+var pin_button: Button
 var sheet_panel: PanelContainer
 var sheet_title: Label
 var sheet_body: Label
@@ -438,6 +439,16 @@ func _build_hud() -> void:
 	warband_button = _button("Menu", _on_menu)
 	warband_button.custom_minimum_size = Vector2(150, Style.TOUCH)
 	row.add_child(warband_button)
+	# The commitment pinned from the journal, one tap from its details.
+	pin_button = _button("", _open_pinned)
+	pin_button.name = "PinnedCommitment"
+	pin_button.clip_text = true
+	pin_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	pin_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	pin_button.add_theme_font_size_override("font_size", Style.SMALL)
+	pin_button.custom_minimum_size = Vector2(10, Style.TOUCH)
+	pin_button.visible = false
+	stack_top.add_child(pin_button)
 
 	# The sheet sits at the bottom of a full-screen column, so it takes the screen's width
 	# and grows upward to fit what it says.
@@ -885,7 +896,7 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		[["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["The Chronicle", _open_chronicle.bind("all")],
+		[["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["Journal", _open_journal],
 		["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]])
 
 
@@ -938,6 +949,91 @@ func _open_wars() -> void:
 		lines.append("No recent major battles or captures.")
 
 	_show_sheet("wars", "War & Politics", "\n".join(lines), [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_sheet, true]])
+
+
+# ---------------------------------------------------------------- journal
+
+## "12h left" / "3 days left", or "" when a commitment has no deadline.
+func _commitment_time(c: Dictionary, prefix: String = "") -> String:
+	var h := float(c.get("hours_left", -1.0))
+	if h < 0.0:
+		return ""
+	return prefix + ("%d days left" % int(ceil(h / 24.0)) if h >= 48.0 else "%dh left" % int(ceil(h)))
+
+
+## What the company has promised to do. Reading it takes no time.
+func _open_journal() -> void:
+	if _sheet in ["encounter", "notice", "warning"]:
+		return
+	var all: Array = GameState.commitments()
+	var lines: PackedStringArray = []
+	var buttons := []
+	if all.is_empty():
+		var rec: Dictionary = GameState.recommendation()
+		lines.append("No promises bind the company yet.")
+		lines.append("Settlements offer jobs, and realms at war hire sellswords. %s: %s" % [rec.get("title", "Next step"), rec.get("body", "")])
+	for c in all:
+		var line := "• %s%s" % [c["title"], _commitment_time(c, " · ")]
+		if c["id"] == GameState.pinned_commitment:
+			line += " · pinned"
+		if String(c["blocked"]) != "":
+			line += "\n   Waiting: %s" % c["blocked"]
+		lines.append(line)
+		buttons.append([String(c["title"]), _open_commitment.bind(String(c["id"]))])
+	if not GameState.ended_commitments.is_empty():
+		lines.append("\nRecently ended:")
+		for e in GameState.ended_commitments.slice(0, 3):
+			lines.append("• Day %d · %s: %s" % [int(float(e.get("hour", 0.0))) / 24 + 1, e.get("title", ""), e.get("outcome", "")])
+	buttons.append(["Chronicle", _open_chronicle.bind("all")])
+	buttons.append(["People & Letters", _on_people])
+	buttons.append(["Close", _close_sheet, true])
+	_show_sheet("journal", "Journal · %d active" % all.size(), "\n".join(lines), buttons)
+
+
+func _find_commitment(id: String) -> Dictionary:
+	for c in GameState.commitments():
+		if c["id"] == id:
+			return c
+	return {}
+
+
+func _open_commitment(id: String) -> void:
+	var c := _find_commitment(id)
+	if c.is_empty():
+		_open_journal()
+		return
+	var lines: PackedStringArray = [String(c["objective"])]
+	if String(c["reward"]) != "":
+		lines.append("Reward: %s" % c["reward"])
+	if String(c["cost"]) != "":
+		lines.append("Cost: %s" % c["cost"])
+	var t := _commitment_time(c)
+	if t != "":
+		lines.append("Time: %s" % t)
+	if String(c["blocked"]) != "":
+		lines.append("Waiting: %s" % c["blocked"])
+	var buttons := []
+	if String(c["place"]) != "" and Data.SETTLEMENTS.has(String(c["place"])):
+		buttons.append(["Show on map", _focus_place.bind(String(c["place"])), true])
+	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to map", _on_pin.bind(id)])
+	buttons.append(["Back to journal", _open_journal])
+	_show_sheet("commitment", String(c["title"]), "\n".join(lines), buttons)
+
+
+func _on_pin(id: String) -> void:
+	GameState.pin_commitment(id)
+	_refresh_hud()
+	_open_commitment(id)
+
+
+func _open_pinned() -> void:
+	if _sheet in ["encounter", "notice", "warning"]:
+		return
+	var pin: Dictionary = GameState.pinned()
+	if pin.is_empty():
+		_open_journal()
+	else:
+		_open_commitment(String(pin["id"]))
 
 
 ## The chronicle: the last 30 events (wars, peace, captures, sieges, company deeds)
@@ -1097,6 +1193,11 @@ func _refresh_hud() -> void:
 		var n_captives: int = GameState.captive_lords().size()
 		status_label.text += " · %d captive%s" % [n_captives, "" if n_captives == 1 else "s"]
 	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if at_risk else Style.MUTED)
+	var pin: Dictionary = GameState.pinned()
+	pin_button.visible = not pin.is_empty()
+	pin_button.disabled = modal
+	if not pin.is_empty():
+		pin_button.text = "Pinned: %s%s" % [pin["title"], _commitment_time(pin, " · ")]
 
 
 
