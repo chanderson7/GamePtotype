@@ -18,6 +18,9 @@ const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
+const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
@@ -94,6 +97,11 @@ var pin_button: Button
 var sheet_panel: PanelContainer
 var sheet_title: Label
 var sheet_body: Label
+## A lord's face and house banner, above sheets about them.
+var sheet_lord_row: HBoxContainer
+var sheet_portrait: TextureRect
+var sheet_banner: Control
+var _banner_colors: Array = []
 var sheet_row: GridContainer
 
 
@@ -477,6 +485,24 @@ func _build_hud() -> void:
 	var sv := VBoxContainer.new()
 	sv.add_theme_constant_override("separation", 12)
 	sheet_panel.add_child(sv)
+	sheet_lord_row = HBoxContainer.new()
+	sheet_lord_row.name = "LordHeader"
+	sheet_lord_row.add_theme_constant_override("separation", 12)
+	sheet_lord_row.visible = false
+	sv.add_child(sheet_lord_row)
+	sheet_portrait = TextureRect.new()
+	sheet_portrait.custom_minimum_size = Vector2(64, 84)
+	sheet_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sheet_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	sheet_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sheet_lord_row.add_child(sheet_portrait)
+	sheet_banner = Control.new()
+	sheet_banner.custom_minimum_size = Vector2(90, 84)
+	sheet_banner.draw.connect(func():
+		if _banner_colors.size() == 2:
+			sheet_banner.draw_line(Vector2(8, 4), Vector2(8, 80), Color("6b4a2a"), 4.0)
+			Heraldry.flag(sheet_banner, Vector2(10, 6), Vector2(72, 48), _banner_colors[0], _banner_colors[1], true))
+	sheet_lord_row.add_child(sheet_banner)
 	sheet_title = Style.label("", Style.LARGE, Style.TEXT)
 	sv.add_child(sheet_title)
 	sheet_body = Style.label("", Style.SMALL, Style.MUTED)
@@ -501,6 +527,7 @@ func _button(text: String, callback: Callable) -> Button:
 
 func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> void:
 	_sheet = kind
+	sheet_lord_row.visible = false
 	sheet_title.text = title
 	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
 	sheet_body.text = body
@@ -517,6 +544,17 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> v
 	if not sheet_panel.visible:
 		sheet_panel.visible = true
 		Style.ease_in(sheet_panel)
+
+
+## Put a lord's face and banner above the sheet just shown.
+func _show_lord_header(lord: Dictionary) -> void:
+	if lord.is_empty():
+		return
+	sheet_portrait.texture = CaptainArt.texture(LordVoice.portrait_record(lord))
+	sheet_portrait.visible = sheet_portrait.texture != null
+	_banner_colors = LordVoice.house_colors(lord)
+	sheet_banner.queue_redraw()
+	sheet_lord_row.visible = true
 
 
 func _close_sheet() -> void:
@@ -615,6 +653,7 @@ func _open_lord(lp) -> void:
 		buttons.append(["Attack", _on_attack_lord.bind(lp), true])
 	buttons.append(["Close", _close_sheet])
 	_show_sheet("lord", lp.name, body, buttons)
+	_show_lord_header(l)
 
 
 func _on_attack_lord(lp) -> void:
@@ -654,7 +693,8 @@ func _lord_doing(l: Dictionary, lp) -> String:
 func _open_friendly_lord_encounter(b) -> void:
 	var realm: String = Data.FACTIONS[b.faction]["name"]
 	var title := "%s of the %s" % [b.name, realm]
-	var text := "Lord %s halts his party and greets you warmly upon the road.\n\"Greetings, sellsword. What news do you bring?\"" % b.name
+	var greeter: Dictionary = world.lord_of(b)
+	var text := LordVoice.line("greet", greeter) if not greeter.is_empty() else "Lord %s halts his party and greets you upon the road." % b.name
 	var buttons := []
 	buttons.append(["News of the war", _open_wars, true])
 	if GameState.has_contract() and GameState.contract_realm() == b.faction:
@@ -664,6 +704,7 @@ func _open_friendly_lord_encounter(b) -> void:
 			buttons.append(["Ride with us", _on_follow_lord.bind(b.id)])
 	buttons.append(["Leave", _on_part_ways_friendly])
 	_show_sheet("encounter", title, text, buttons)
+	_show_lord_header(world.lord_of(b))
 
 
 func _on_part_ways_friendly() -> void:
@@ -775,7 +816,11 @@ func _open_encounter() -> void:
 		withdraw_text]
 	if grudge_text != "":
 		encounter_body = grudge_text + "\n\n" + encounter_body
+	var foe_lord: Dictionary = world.lord_of(b) if b.kind == WorldSim.LORD else {}
+	if not foe_lord.is_empty():
+		encounter_body = LordVoice.line("face", foe_lord) + "\n\n" + encounter_body
 	_show_sheet("encounter", title, encounter_body, buttons)
+	_show_lord_header(foe_lord)
 	Sound.play("alarm")
 
 

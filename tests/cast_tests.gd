@@ -1,0 +1,55 @@
+## The broader cast becomes recognizable: lords' faces, house colors and voices.
+extends SceneTree
+
+const Cultures = preload("res://scripts/data/cultures.gd")
+const Lords = preload("res://scripts/data/lords.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
+
+var failures := 0
+
+
+func check(ok: bool, message: String) -> void:
+	print(("  ok    " if ok else "  FAIL  ") + message)
+	if not ok:
+		failures += 1
+
+
+func _init() -> void:
+	await process_frame
+	var gs = root.get_node("GameState")
+	gs.persist = false
+	gs.new_campaign(Cultures.VARDISH)
+	var w = gs.world
+	var a: Dictionary = w.lords[1]
+	var b: Dictionary = w.lords[2]
+
+	var voiced := true
+	for bearing in Lords.BEARINGS:
+		var l := {"name": "Lord Test", "bearing": bearing}
+		for kind in ["greet", "face", "beaten", "victor"]:
+			voiced = voiced and LordVoice.line(kind, l).contains("Lord Test")
+	check(voiced, "every bearing has a line for meeting, facing, losing and winning, naming the lord")
+	check(LordVoice.line("face", {"name": "Lord Test", "bearing": Lords.DARING}) != LordVoice.line("face", {"name": "Lord Test", "bearing": Lords.CRUEL}),
+		"different bearings sound different")
+	check(LordVoice.portrait_record(a)["id"] != LordVoice.portrait_record(b)["id"] and LordVoice.portrait_record(a)["id"] >= LordVoice.PORTRAIT_BASE,
+		"each lord has his own face, apart from the captains'")
+	check(LordVoice.portrait_record(a) == LordVoice.portrait_record(a), "and it is the same each time")
+	var houses := {}
+	for l in w.lords:
+		houses[str(LordVoice.house_colors(l)[0])] = true
+	check(houses.size() > 3, "houses fly different colors (%d)" % houses.size())
+
+	gs.map_notice = ""
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await process_frame
+	await process_frame
+	var map = current_scene
+	map._close_sheet()
+	var lp = w.party(int(a["party"]))
+	map._open_lord(lp)
+	check(map.sheet_lord_row.visible and map.sheet_title.text == lp.name, "a lord's sheet shows his face and banner")
+	map._open_wars()
+	check(not map.sheet_lord_row.visible, "and other sheets don't")
+
+	print("\nCast tests: %d failures" % failures)
+	quit(1 if failures > 0 else 0)

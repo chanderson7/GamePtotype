@@ -20,6 +20,7 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
@@ -2496,6 +2497,11 @@ func apply_result(result: Dictionary) -> void:
 				_count_deed("chiefs")
 			if bool(result.get("lord_captured", false)):
 				_count_deed("lord")
+		# How the lord took it, in his own manner.
+		if is_lord and enemy_lid >= 0 and obj != "siege":
+			var foe: Dictionary = world.lord_by_id(enemy_lid)
+			if not foe.is_empty():
+				_note(LordVoice.line("beaten" if result.get("won", false) else "victor", foe))
 		# Notable battles leave a mark: a chronicle line, and a few days of aftermath on
 		# the map. Small skirmishes don't.
 		var place: String = world.here() if world.here() != "" else world.nearest_place(world.party_pos(world.player()))

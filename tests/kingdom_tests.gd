@@ -115,6 +115,10 @@ func _init() -> void:
 	while gs.world.hour - start < 24.0 * 30.0 and guard < 400:
 		guard += 1
 		if gs.world.encounter != -1:
+			# Ride on, as a withdrawal would: whoever stopped us leaves us be for a while.
+			var foe = gs.world.party(gs.world.encounter)
+			if foe != null:
+				foe.grace_until = gs.world.hour + 48.0
 			gs.world.encounter = -1
 		if not gs.world.pending_assault.is_empty():
 			gs.answer_assault(false)
