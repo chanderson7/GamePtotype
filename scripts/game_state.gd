@@ -2721,7 +2721,7 @@ func from_dict(data: Dictionary) -> bool:
 	last_result = data.get("last_result", {}) if typeof(data.get("last_result")) == TYPE_DICTIONARY else {}
 	_next_id = int(data.get("next_id", 1))
 	_next_captain = int(data.get("next_captain", 1))
-	fallen = data.get("fallen", []) if typeof(data.get("fallen")) == TYPE_ARRAY else []
+	fallen = data.get("fallen", []).duplicate(true) if typeof(data.get("fallen")) == TYPE_ARRAY else []
 	for memorial in fallen:
 		if typeof(memorial) == TYPE_DICTIONARY:
 			Captains.ensure_appearance(memorial)
