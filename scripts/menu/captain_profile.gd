@@ -185,6 +185,10 @@ func _record_story(captain: Dictionary, found: Dictionary, fallen: bool) -> Stri
 		battles, "battle" if battles == 1 else "battles", kills, "kill" if kills == 1 else "kills"]
 	if fallen:
 		story += " Their service ended in battle %d." % int(captain.get("battle", 0))
+		if String(captain.get("killed_by_lord_name", "")) != "":
+			story += " Slain by the host of %s." % captain["killed_by_lord_name"]
+		if bool(captain.get("avenged", false)):
+			story += " Avenged."
 	elif int(captain.get("wounded", 0)) > 0:
 		story += " They are recovering before returning to command."
 	var wounds := int(captain.get("history", {}).get("wounds", 0))

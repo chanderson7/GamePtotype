@@ -128,6 +128,12 @@ func _build() -> void:
 	for b in bonds:
 		col.add_child(_bond_row(b))
 
+	var captives: Array = GameState.captive_lords()
+	if not captives.is_empty():
+		col.add_child(_section("Captive lords"))
+		for cl in captives:
+			col.add_child(_captive_lord_row(cl))
+
 	if not GameState.fallen.is_empty():
 		col.add_child(_section("The fallen"))
 		for i in range(GameState.fallen.size() - 1, -1, -1):
@@ -413,6 +419,10 @@ func _memorial_row(f: Dictionary) -> Control:
 	text.add_child(Style.label(String(f.get("name", "")), Style.BODY))
 	var deeds := "%s · fell in battle %d · fought %d, felled %d" % [f.get("company", ""), int(f.get("battle", 0)),
 		int(f.get("battles", 0)), int(f.get("kills", 0))]
+	if f.get("killed_by_lord_name", "") != "":
+		deeds += " · slain by the men of %s" % f["killed_by_lord_name"]
+	if bool(f.get("avenged", false)):
+		deeds += " · [Avenged]"
 	var bonds: Array = f.get("bonds", [])
 	if not bonds.is_empty():
 		deeds += " · mourned by " + ", ".join(PackedStringArray(bonds))
@@ -423,8 +433,70 @@ func _memorial_row(f: Dictionary) -> Control:
 		var w := Style.label("\"%s\"" % f["words"], Style.SMALL, Style.BRASS)
 		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text.add_child(w)
+	if String(f.get("avenged_words", "")) != "":
+		var av := Style.label(f["avenged_words"], Style.SMALL, Style.PLAYER_LIGHT)
+		av.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		text.add_child(av)
 	if int(f.get("id", 0)) > 0:
 		_add_profile_tap(panel, int(f["id"]), String(f.get("name", "Captain")))
+	return panel
+
+
+func _captive_lord_row(cl: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.RULE, 2, 14))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	panel.add_child(col)
+
+	var title_row := HBoxContainer.new()
+	title_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(title_row)
+
+	var name_lbl := Style.label(String(cl.get("name", "Captive Lord")), Style.BODY, Style.BRASS)
+	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_row.add_child(name_lbl)
+
+	var realm_name: String = WorldData.FACTIONS.get(cl.get("realm", ""), {}).get("name", cl.get("realm", ""))
+	var desc := "%s · Renown %d · Held in baggage" % [realm_name, int(cl.get("renown", 0))]
+	col.add_child(Style.label(desc, Style.SMALL, Style.MUTED))
+
+	var btns := HBoxContainer.new()
+	btns.add_theme_constant_override("separation", 8)
+	col.add_child(btns)
+
+	var lord_id := int(cl["id"])
+	var ransom := int(cl.get("ransom_amount", 200))
+
+	var ransom_btn := Button.new()
+	ransom_btn.text = "Ransom · %d s" % ransom
+	ransom_btn.pressed.connect(func():
+		GameState.accept_lord_ransom(lord_id)
+		Sound.play("coins")
+		_build()
+	)
+	btns.add_child(ransom_btn)
+
+	if GameState.has_contract() and GameState.world != null and GameState.world.at_war(GameState.contract_realm(), String(cl.get("realm", ""))):
+		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
+		var deliver_btn := Button.new()
+		deliver_btn.text = "Deliver · %d s" % bonus
+		deliver_btn.pressed.connect(func():
+			GameState.deliver_lord_to_employer(lord_id)
+			Sound.play("coins")
+			_build()
+		)
+		btns.add_child(deliver_btn)
+
+	var honor_btn := Button.new()
+	honor_btn.text = "Release for honor"
+	honor_btn.pressed.connect(func():
+		GameState.release_lord_for_honor(lord_id)
+		Sound.play("page")
+		_build()
+	)
+	btns.add_child(honor_btn)
+
 	return panel
 
 

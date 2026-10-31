@@ -930,6 +930,16 @@ func _consume_events() -> void:
 			"chief_slain":
 				Sound.play("objective")
 				_tick("%s is cut down!" % String(e["chief_name"] if e["chief_name"] != "" else "Their chief"), Style.BRASS)
+			"lord_broken":
+				Sound.play("objective")
+				_float_text("THE LORD'S GUARD BREAKS", e["squad"].average_pos() + Vector2(0, -60), Style.BRASS, 1.6)
+				_tick("%s's guard is broken, and his host quails!" % String(e.get("lord_name", "The lord")), Style.PLAYER_LIGHT)
+			"lord_captured":
+				Sound.play("objective")
+				_tick("%s was captured in the press of shields!" % String(e.get("lord_name", "The lord")), Style.BRASS)
+			"lord_slain":
+				Sound.play("objective")
+				_tick("%s falls mortally wounded in the fray!" % String(e.get("lord_name", "The lord")), Style.BRASS)
 			"flanked":
 				var sq = e["squad"]
 				var where := "REAR!" if e["rear"] else "FLANK!"

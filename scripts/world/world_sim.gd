@@ -1120,21 +1120,27 @@ func _spawn_lords() -> void:
 		var houses: Array = Lords.HOUSES[cult].duplicate()
 		var castles := holdings_of(realm, Data.CASTLE)
 		var ruler := String(Data.FACTIONS[realm]["ruler"])
-		_add_lord(realm, cult, ruler, true, 200, capital_of(realm))
+		var ruler_house: String = houses[0] if not houses.is_empty() else "Crown"
+		_add_lord(realm, cult, ruler, true, 200, capital_of(realm), ruler_house)
 		for i in Lords.PER_REALM:
 			var first: String = firsts.pop_at(rng.randi_range(0, firsts.size() - 1))
 			var house: String = houses.pop_at(rng.randi_range(0, houses.size() - 1))
 			var fief: String = castles[i] if i < castles.size() else ""
 			_add_lord(realm, cult, "%s %s %s" % [Lords.title(cult), first, house], false,
-				int(Lords.START_RENOWN[i % Lords.START_RENOWN.size()]), fief)
+				int(Lords.START_RENOWN[i % Lords.START_RENOWN.size()]), fief, house)
 
 
-func _add_lord(realm: String, cult: String, name: String, ruler: bool, renown: int, fief: String) -> void:
-	var l := {"id": lords.size(), "name": name, "realm": realm, "culture": cult,
+func _add_lord(realm: String, cult: String, name: String, ruler: bool, renown: int, fief: String, house: String = "") -> void:
+	if house == "":
+		var parts := name.split(" ")
+		house = parts[-1] if not parts.is_empty() else "Noble"
+	var l := {"id": lords.size(), "name": name, "realm": realm, "culture": cult, "house": house,
 		"bearing": Lords.BEARINGS[rng.randi_range(0, Lords.BEARINGS.size() - 1)], "ruler": ruler,
 		"renown": renown, "silver": Lords.START_SILVER, "fief": fief, "party": -1, "state": "field",
 		"back_at": 0.0, "job": "", "target": "", "think_at": hour + rng.randf_range(0.0, Lords.THINK_HOURS),
-		"raiding": "", "broke_days": 0, "full": 0, "army": []}
+		"raiding": "", "broke_days": 0, "full": 0, "army": [],
+		"grudge": false, "grudge_captain_name": "", "grudge_company_name": "",
+		"captive_of": "", "ransom_at": 0.0, "ransom_amount": 0, "ransom_offered": false}
 	lords.append(l)
 	l["army"] = _lord_army(l)
 	for sq in l["army"]:
@@ -1178,7 +1184,11 @@ func _lord_army(l: Dictionary) -> Array:
 		taken.append(captain["first"])
 		out.append({"id": id, "type": type, "unit": unit, "level": level,
 			"xp": Troops.XP_PER_LEVEL if level > 1 else 0, "men": Units.full_size(unit), "culture": cult,
-			"name": Captains.company_name(captain, type), "captain": captain})
+			"name": ("%s's Guard" % l["name"]) if i == 0 else Captains.company_name(captain, type),
+			"captain": captain,
+			"is_lord": i == 0,
+			"lord_id": int(l["id"]),
+			"lord_name": String(l["name"])})
 	return out
 
 
@@ -1222,6 +1232,14 @@ func _step_lords(dt: float) -> void:
 	var has_armies := not campaign_armies.is_empty()
 	for l in lords:
 		if has_armies and not MarshalArmies.for_party(self, int(l["party"])).is_empty():
+			continue
+		if l["state"] == "prisoner":
+			if String(l.get("captive_of", "")) == "player":
+				if hour >= float(l.get("ransom_at", 0.0)) and not bool(l.get("ransom_offered", false)):
+					l["ransom_offered"] = true
+					emit_event({"type": "ransom_offer", "lord_id": l["id"], "amount": int(l.get("ransom_amount", 200)), "realm": l["realm"]})
+			elif hour >= float(l.get("ransom_at", 0.0)):
+				_resolve_ai_ransom(l)
 			continue
 		if l["state"] == "regroup":
 			if hour >= float(l["back_at"]):
@@ -1297,6 +1315,16 @@ func _think_lord(l: Dictionary, p: Party) -> void:
 					- (1.0 if bearing == Lords.HONORABLE else 0.0) - h * 0.03 + rng.randf() * 0.5
 				if score > float(best[2]):
 					best = ["raid", v, score]
+	# Grudge: seek out player when near
+	if bool(l.get("grudge", false)):
+		var ply = player()
+		if ply != null:
+			var p_node: String = ply.next if ply.moving() else ply.node
+			var h := _hours(p, from, p_node)
+			if h <= Lords.DEFEND_HOURS:
+				var score := 6.5 - h * 0.05
+				if score > float(best[2]):
+					best = ["grudge_hunt", p_node, score]
 	if best[0] == "patrol":
 		if l["job"] == "patrol" and (p.moving() or p.wait > 0.0):
 			return
@@ -1307,6 +1335,8 @@ func _think_lord(l: Dictionary, p: Party) -> void:
 	elif best[0] == "hunt":
 		var b := party(int(best[1]))
 		_set_job(l, p, "hunt", b.next if b.moving() else b.node)
+	elif best[0] == "grudge_hunt":
+		_set_job(l, p, "grudge_hunt", best[1])
 	else:
 		_set_job(l, p, best[0], best[1])
 
@@ -1713,6 +1743,14 @@ func _ai_fight(a: Party, b: Party) -> Party:
 		wl["silver"] = int(wl["silver"]) + Economy.SILVER_PER_KILL * killed
 		wl["renown"] = mini(Lords.RENOWN_MAX, int(wl["renown"]) + 1 + killed / 10)
 	emit_event({"type": "fight", "winner": winner.name, "loser": loser.name, "at": loser.node})
+	var ll := lord_of(loser)
+	if not ll.is_empty() and not wl.is_empty():
+		var roll := rng.randf()
+		if roll < 0.05:
+			kill_lord(int(ll["id"]), String(wl["name"]))
+		elif roll < 0.55:
+			capture_lord(int(ll["id"]), String(wl["realm"]))
+			emit_event({"type": "lord_captured_ai", "lord": ll["name"], "by": wl["name"], "realm": wl["realm"]})
 	for member in (right if r["won"] else left): _routed(member)
 	var defeated := MarshalArmies.for_party(self, loser.id)
 	if not defeated.is_empty(): MarshalArmies.disband(self, defeated, "Army defeated")
@@ -1735,14 +1773,16 @@ func _routed(p: Party) -> void:
 		respawns.append({"faction": p.faction, "at": hour + RESPAWN_HOURS})
 		return
 	var l := lord_of(p)
-	l["army"] = p.army
-	l["party"] = -1
-	l["state"] = "regroup"
-	l["raiding"] = ""
-	l["job"] = ""
-	l["back_at"] = hour + Lords.REGROUP_HOURS
-	if realms.has(String(l.get("realm", ""))):
-		add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED)
+	if not l.is_empty():
+		l["army"] = p.army
+		l["party"] = -1
+		if l.get("state") != "prisoner":
+			l["state"] = "regroup"
+			l["back_at"] = hour + Lords.REGROUP_HOURS
+		l["raiding"] = ""
+		l["job"] = ""
+		if realms.has(String(l.get("realm", ""))):
+			add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED)
 
 
 # ---------------------------------------------------------------- recruits
@@ -1856,6 +1896,105 @@ func win_encounter() -> void:
 	else:
 		parties.erase(b)
 		respawns.append({"faction": b.faction, "at": hour + RESPAWN_HOURS})
+
+
+## Find lord by ID
+func lord_by_id(id: int) -> Dictionary:
+	return lords[id] if id >= 0 and id < lords.size() else {}
+
+
+## Captive lords held by a specific captor (e.g. "player" or realm name)
+func captive_lords_of(captor: String) -> Array:
+	return lords.filter(func(l): return l.get("state") == "prisoner" and l.get("captive_of") == captor)
+
+
+## Capture a lord
+func capture_lord(id: int, captor: String) -> void:
+	var l: Dictionary = lord_by_id(id)
+	if l.is_empty():
+		return
+	l["state"] = "prisoner"
+	l["captive_of"] = captor
+	l["ransom_at"] = hour + (Lords.RANSOM_HOURS if captor == "player" else Lords.AI_RANSOM_HOURS)
+	l["ransom_amount"] = Lords.ransom_for(int(l.get("renown", 40)))
+	l["ransom_offered"] = false
+	if int(l.get("party", -1)) >= 0:
+		var p := party(int(l["party"]))
+		if p != null:
+			parties.erase(p)
+		l["party"] = -1
+	if realms.has(String(l.get("realm", ""))):
+		add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED)
+
+
+## Release a captive lord back to his realm to regroup
+func release_lord(id: int) -> void:
+	var l: Dictionary = lord_by_id(id)
+	if l.is_empty():
+		return
+	l["state"] = "regroup"
+	l["back_at"] = hour + Lords.REGROUP_HOURS
+	l["captive_of"] = ""
+	l["ransom_offered"] = false
+	l["party"] = -1
+
+
+## Slay a lord and crown/raise an heir of his house so the world keeps its lords.
+func kill_lord(id: int, killer: String = "") -> Dictionary:
+	var l: Dictionary = lord_by_id(id)
+	if l.is_empty():
+		return {}
+	var cult: String = String(l["culture"])
+	var house: String = String(l.get("house", ""))
+	if house == "":
+		var parts := String(l["name"]).split(" ")
+		house = parts[-1] if not parts.is_empty() else "Noble"
+	var firsts: Array = Cultures.info(cult)["first"].duplicate()
+	var new_first: String = firsts[rng.randi_range(0, firsts.size() - 1)]
+	var prev_name: String = String(l["name"])
+	var heir_name := "%s %s %s" % [Lords.title(cult), new_first, house]
+
+	l["name"] = heir_name
+	l["house"] = house
+	l["renown"] = Lords.START_RENOWN[0]
+	l["silver"] = Lords.START_SILVER
+	l["bearing"] = Lords.BEARINGS[rng.randi_range(0, Lords.BEARINGS.size() - 1)]
+	l["state"] = "regroup"
+	l["back_at"] = hour + Lords.REGROUP_HOURS * 1.5
+	l["job"] = ""
+	l["target"] = ""
+	l["raiding"] = ""
+	l["grudge"] = false
+	l["grudge_captain_name"] = ""
+	l["grudge_company_name"] = ""
+	l["captive_of"] = ""
+	l["ransom_offered"] = false
+	if int(l.get("party", -1)) >= 0:
+		var p := party(int(l["party"]))
+		if p != null:
+			parties.erase(p)
+		l["party"] = -1
+	l["army"] = _lord_army(l)
+	l["full"] = men_of(l["army"])
+	emit_event({"type": "lord_slain", "lord": prev_name, "heir": heir_name, "realm": l["realm"], "by": killer})
+	if realms.has(String(l.get("realm", ""))):
+		add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED * 1.5)
+	return l
+
+
+func _resolve_ai_ransom(l: Dictionary) -> void:
+	var captor_realm: String = String(l.get("captive_of", ""))
+	var lord_realm: String = String(l.get("realm", ""))
+	var amount: int = int(l.get("ransom_amount", 200))
+	if realms.has(captor_realm) and realms.has(lord_realm):
+		realms[captor_realm]["treasury"] = int(realms[captor_realm].get("treasury", 0)) + amount
+		realms[lord_realm]["treasury"] = maxi(0, int(realms[lord_realm].get("treasury", 0)) - amount)
+	l["state"] = "regroup"
+	l["back_at"] = hour + Lords.REGROUP_HOURS
+	l["captive_of"] = ""
+	l["ransom_offered"] = false
+	emit_event({"type": "lord_ransomed_ai", "lord": l["name"], "realm": lord_realm, "by_realm": captor_realm, "amount": amount})
+
 
 
 ## You pull back to the last settlement you passed. The time it takes passes, and the
@@ -2095,17 +2234,21 @@ func from_dict(d: Dictionary) -> void:
 ## A lord read back from JSON, with his counts as ints again.
 static func _clean_lord(e: Dictionary) -> Dictionary:
 	var l := {}
-	for k in ["name", "realm", "culture", "bearing", "fief", "state", "job", "target", "raiding"]:
+	for k in ["name", "realm", "culture", "bearing", "fief", "state", "job", "target", "raiding", "house", "grudge_captain_name", "grudge_company_name", "captive_of"]:
 		l[k] = String(e.get(k, ""))
-	for k in ["id", "renown", "silver", "party", "broke_days", "full"]:
+	for k in ["id", "renown", "silver", "party", "broke_days", "full", "ransom_amount"]:
 		l[k] = int(e.get(k, 0))
 	l["ruler"] = bool(e.get("ruler", false))
+	l["grudge"] = bool(e.get("grudge", false))
+	l["ransom_offered"] = bool(e.get("ransom_offered", false))
 	l["back_at"] = float(e.get("back_at", 0.0))
 	l["think_at"] = float(e.get("think_at", 0.0))
+	l["ransom_at"] = float(e.get("ransom_at", 0.0))
 	l["army"] = clean_army(e.get("army", []))
 	var ordered := {}
-	for k in ["id", "name", "realm", "culture", "bearing", "ruler", "renown", "silver", "fief", "party", "state",
-			"back_at", "job", "target", "think_at", "raiding", "broke_days", "full", "army"]:
+	for k in ["id", "name", "realm", "culture", "house", "bearing", "ruler", "renown", "silver", "fief", "party", "state",
+			"back_at", "job", "target", "think_at", "raiding", "broke_days", "full", "army",
+			"grudge", "grudge_captain_name", "grudge_company_name", "captive_of", "ransom_at", "ransom_amount", "ransom_offered"]:
 		ordered[k] = l[k]
 	return ordered
 
@@ -2130,6 +2273,12 @@ static func clean_army(raw: Array) -> Array:
 			squad["is_chief"] = bool(s["is_chief"])
 		if s.has("chief_name"):
 			squad["chief_name"] = String(s["chief_name"])
+		if s.has("is_lord"):
+			squad["is_lord"] = bool(s["is_lord"])
+		if s.has("lord_id"):
+			squad["lord_id"] = int(s["lord_id"])
+		if s.has("lord_name"):
+			squad["lord_name"] = String(s["lord_name"])
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY:
 			var cap: Dictionary = c.duplicate(true)

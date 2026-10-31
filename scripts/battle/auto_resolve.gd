@@ -206,9 +206,31 @@ static func resolve(player: Array, enemy: Array, rng: RandomNumberGenerator, led
 			chief_killed = true
 		else:
 			chief_escaped = true
+	var is_lord := false
+	var lord_id := -1
+	var lord_name := ""
+	for s in enemy:
+		if bool(s.get("is_lord", false)):
+			is_lord = true
+			lord_id = int(s.get("lord_id", -1))
+			lord_name = String(s.get("lord_name", ""))
+			break
+	var lord_captured := false
+	var lord_killed := false
+	var lord_escaped := false
+	if is_lord and won:
+		var roll := rng.randf()
+		if roll < 0.05:
+			lord_killed = true
+		elif roll < 0.75:
+			lord_captured = true
+		else:
+			lord_escaped = true
 	return {"won": won, "reason": "auto", "squads": squads, "lost": lost, "killed": enemy_lost,
 		"time": 0.0, "bonds": {}, "enemy_squads": enemy_squads, "objective": objective,
-		"chief_killed": chief_killed, "chief_escaped": chief_escaped}
+		"chief_killed": chief_killed, "chief_escaped": chief_escaped,
+		"is_lord": is_lord, "lord_captured": lord_captured, "lord_killed": lord_killed, "lord_escaped": lord_escaped,
+		"enemy_lord_id": lord_id, "enemy_lord_name": lord_name}
 
 
 ## Settles a siege assault. Defenders fight with their walls multiplying their strength.

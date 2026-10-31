@@ -851,8 +851,16 @@ func encounter_plan(band) -> Dictionary:
 	prng.seed = hash([band.id, int(world.hour * 10.0)])
 	var site := BattleSite.pick(world, world.party_pos(world.player()), objective, prng.randi() & 0x7fffffff)
 	var temperament := Commander.RECKLESS
+	var grudge_text := ""
+	var has_grudge := false
 	if band.kind == WorldSim.LORD:
 		var l: Dictionary = world.lord_of(band)
+		has_grudge = bool(l.get("grudge", false))
+		if has_grudge:
+			var cap_name: String = String(l.get("grudge_captain_name", ""))
+			var comp_name: String = String(l.get("grudge_company_name", ""))
+			var target_desc := comp_name if comp_name != "" else (cap_name if cap_name != "" else "your captains")
+			grudge_text = "\"You'll remember %s, I think,\" %s sneers across the line. \"Today we settle the score!\"" % [target_desc, l.get("name", "The lord")]
 		match String(l.get("bearing", "")):
 			Lords.CAUTIOUS:
 				temperament = Commander.PATIENT
@@ -867,7 +875,8 @@ func encounter_plan(band) -> Dictionary:
 	elif objective == "chief":
 		temperament = Commander.TEMPERAMENTS[prng.randi_range(0, Commander.TEMPERAMENTS.size() - 1)]
 	var can_withdraw: bool = world.can_withdraw() if world != null else true
-	return {"objective": objective, "site": site, "temperament": temperament, "can_withdraw": can_withdraw}
+	return {"objective": objective, "site": site, "temperament": temperament, "can_withdraw": can_withdraw,
+		"has_grudge": has_grudge, "grudge_text": grudge_text}
 
 
 ## The army of the party blocking the road, set up for the battle screen.
@@ -885,6 +894,19 @@ func start_encounter_battle() -> void:
 	var enemy_parties: Array = world.army_parties(band)
 	for p in enemy_parties:
 		enemy_army.append_array(WorldSim.clean_army(p.army))
+
+	var is_lord_battle: bool = band.kind == WorldSim.LORD
+	var enemy_lid: int = band.lord if is_lord_battle else -1
+	var lord_obj: Dictionary = world.lord_of(band) if is_lord_battle else {}
+	var has_grudge: bool = bool(lord_obj.get("grudge", false))
+	var bearing: String = String(lord_obj.get("bearing", ""))
+
+	if is_lord_battle and not enemy_army.is_empty():
+		enemy_army[0]["is_lord"] = true
+		enemy_army[0]["lord_id"] = enemy_lid
+		enemy_army[0]["lord_name"] = band.name
+		enemy_army[0]["has_grudge"] = has_grudge
+		enemy_army[0]["bearing"] = bearing
 
 	var allied_squads := []
 	if world.following_party != -1:
@@ -906,10 +928,12 @@ func start_encounter_battle() -> void:
 		"objective": objective,
 		"chief_name": chief_name,
 		"raid_village": band.raid_village,
-		"is_lord": band.kind == WorldSim.LORD,
-		"enemy_lord_id": band.lord if band.kind == WorldSim.LORD else -1,
+		"is_lord": is_lord_battle,
+		"enemy_lord_id": enemy_lid,
 		"enemy_faction": band.faction,
 		"allies": allied_squads,
+		"has_grudge": has_grudge,
+		"bearing": bearing,
 	}
 
 
@@ -1207,7 +1231,7 @@ func apply_result(result: Dictionary) -> void:
 		var c = s.get("captain")
 		if by_id.has(id):
 			s["men"] = int(by_id[id]["men"])
-			s["xp"] = int(s["xp"]) + int(by_id[id]["kills"])
+			s["xp"] = int(s["xp"]) + int(by_id[id].get("kills", 0))
 		if c == null:
 			continue
 		var cr = by_id.get(id, {}).get("captain")
@@ -1217,7 +1241,7 @@ func apply_result(result: Dictionary) -> void:
 				c["wounded"] = int(c["wounded"]) - 1
 			continue
 		c["battles"] = int(c["battles"]) + 1
-		c["kills"] = int(c["kills"]) + int(cr["kills"])
+		c["kills"] = int(c["kills"]) + int(cr.get("kills", 0))
 		match String(cr["fate"]):
 			"wounded":
 				c["wounded"] = Captains.WOUND_BATTLES
@@ -1227,7 +1251,15 @@ func apply_result(result: Dictionary) -> void:
 			"killed":
 				dead_ids.append(int(c["id"]))
 				fallen_captains.append(c)
-				fallen.append(_memorial(s, c, String(cr.get("words", ""))))
+				var enemy_lid_for_mem: int = int(pending_battle.get("enemy_lord_id", -1)) if bool(pending_battle.get("is_lord", false)) else -1
+				var enemy_lname_for_mem: String = String(pending_battle.get("name", "")) if bool(pending_battle.get("is_lord", false)) else ""
+				fallen.append(_memorial(s, c, String(cr.get("words", "")), enemy_lid_for_mem, enemy_lname_for_mem))
+				if enemy_lid_for_mem >= 0 and world != null:
+					var elord: Dictionary = world.lord_by_id(enemy_lid_for_mem)
+					if not elord.is_empty():
+						elord["grudge"] = true
+						elord["grudge_captain_name"] = String(c["name"])
+						elord["grudge_company_name"] = String(s.get("name", ""))
 				# A veteran from the ranks takes command, if there's anyone left to lead.
 				s["captain"] = _new_captain(String(s["type"])) if int(s["men"]) > 0 else null
 	# Reactions are created only for partners who actually survived the whole result.
@@ -1271,6 +1303,32 @@ func apply_result(result: Dictionary) -> void:
 					add_realm_relation(enemy_faction, -30)
 					_note("You attacked a lord of %s while at peace! They declare war upon you." % WorldData.FACTIONS[enemy_faction]["name"])
 				_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
+
+				# Vengeance & Lord Fate
+				if enemy_lid >= 0 and world != null:
+					var elord: Dictionary = world.lord_by_id(enemy_lid)
+					var elord_name: String = String(elord.get("name", band))
+					if bool(elord.get("grudge", false)):
+						var l_cap_name: String = String(elord.get("grudge_captain_name", ""))
+						for mem in fallen:
+							if int(mem.get("killed_by_lord_id", -1)) == enemy_lid:
+								mem["avenged"] = true
+								var deed := "slain" if result.get("lord_killed", false) else "captured"
+								mem["avenged_words"] = "Avenged: %s was %s." % [elord_name, deed]
+						elord["grudge"] = false
+						_note("Vengeance! %s, who took %s from your company, has been %s!" % [
+							elord_name,
+							l_cap_name if l_cap_name != "" else "your captain",
+							"slain" if result.get("lord_killed", false) else "brought down"
+						])
+					if result.get("lord_killed", false):
+						var heir: Dictionary = world.kill_lord(enemy_lid, "Player Warband")
+						_note("%s fell mortally wounded on the field! An heir, %s, takes up their seat." % [elord_name, heir.get("name", "kin")])
+					elif result.get("lord_captured", false):
+						world.capture_lord(enemy_lid, "player")
+						_note("%s was taken prisoner and travels in chains with your baggage." % elord_name)
+					else:
+						_note("%s cut through the rout and escaped into the hills." % elord_name)
 			elif obj == "chief":
 				if result.get("chief_killed", false):
 					got["silver"] = int(got["silver"]) * 2
@@ -1320,7 +1378,7 @@ func attack_neutral_lord(lord_id: int, party_id: int) -> void:
 	world.emit_event({"type": "encounter", "party": party_id})
 
 
-func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
+func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: int = -1, killed_by_lname: String = "") -> Dictionary:
 	var friends := []
 	for other_id in c["bonds"]:
 		var other = captain_by_id(int(other_id))
@@ -1335,7 +1393,78 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String) -> Dictionary:
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		"words": words,
 		"bonds": friends,
+		"killed_by_lord_id": killed_by_lid,
+		"killed_by_lord_name": killed_by_lname,
+		"avenged": false,
+		"avenged_words": "",
 	}
+
+
+## Lords currently held as prisoners by the player
+func captive_lords() -> Array:
+	if world == null:
+		return []
+	return world.captive_lords_of("player")
+
+
+## Accept ransom offer for a captive lord
+func accept_lord_ransom(lord_id: int) -> bool:
+	if world == null:
+		return false
+	var l: Dictionary = world.lord_by_id(lord_id)
+	if l.is_empty() or l.get("state") != "prisoner" or l.get("captive_of") != "player":
+		return false
+	var amount: int = int(l.get("ransom_amount", 200))
+	var realm: String = String(l.get("realm", ""))
+	if world.realms.has(realm):
+		world.realms[realm]["treasury"] = maxi(0, int(world.realms[realm].get("treasury", 0)) - amount)
+	silver += amount
+	add_lord_relation(lord_id, 5)
+	world.release_lord(lord_id)
+	_note("%s was ransomed back to %s for %d silver." % [
+		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm), amount
+	])
+	save_game()
+	return true
+
+
+## Deliver a captive lord to the player's mercenary employer for the contract bounty
+func deliver_lord_to_employer(lord_id: int) -> bool:
+	if world == null or not has_contract():
+		return false
+	var l: Dictionary = world.lord_by_id(lord_id)
+	if l.is_empty() or l.get("state") != "prisoner" or l.get("captive_of") != "player":
+		return false
+	var bonus: int = int(contract.get("bonus_per_lord", 100))
+	var emp: String = contract_realm()
+	silver += bonus
+	add_realm_relation(emp, 10)
+	l["captive_of"] = emp
+	l["ransom_at"] = world.hour + Lords.AI_RANSOM_HOURS
+	_note("Delivered %s into custody of your employer, %s, claiming %d silver bounty." % [
+		l["name"], WorldData.FACTIONS.get(emp, {}).get("name", emp), bonus
+	])
+	save_game()
+	return true
+
+
+## Release a captive lord for honor without ransom
+func release_lord_for_honor(lord_id: int) -> bool:
+	if world == null:
+		return false
+	var l: Dictionary = world.lord_by_id(lord_id)
+	if l.is_empty() or l.get("state") != "prisoner" or l.get("captive_of") != "player":
+		return false
+	var realm: String = String(l.get("realm", ""))
+	add_lord_relation(lord_id, 20)
+	add_realm_relation(realm, 15)
+	renown += 10
+	world.release_lord(lord_id)
+	_note("You released %s without ransom. Your chivalric mercy is celebrated throughout %s (+20 lord, +15 realm, +10 renown)." % [
+		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm)
+	])
+	save_game()
+	return true
 
 
 ## Saves the campaign. Before one has started there's nothing worth keeping.
@@ -1419,6 +1548,10 @@ func from_dict(data: Dictionary) -> bool:
 	for memorial in fallen:
 		if typeof(memorial) == TYPE_DICTIONARY:
 			Captains.ensure_appearance(memorial)
+			memorial["killed_by_lord_id"] = int(memorial.get("killed_by_lord_id", -1))
+			memorial["killed_by_lord_name"] = String(memorial.get("killed_by_lord_name", ""))
+			memorial["avenged"] = bool(memorial.get("avenged", false))
+			memorial["avenged_words"] = String(memorial.get("avenged_words", ""))
 	army = []
 	for s in data["army"]:
 		if typeof(s) != TYPE_DICTIONARY or not Troops.TYPES.has(String(s.get("type", ""))):

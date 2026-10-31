@@ -189,6 +189,9 @@ func _process(delta: float) -> void:
 			"encounter", "friendly_encounter":
 				GameState.save_game()
 				_open_encounter()
+			"ransom_offer":
+				GameState.save_game()
+				_open_ransom_sheet(int(e["lord_id"]))
 			"siege_loot":
 				GameState.silver += int(e.get("silver", 0))
 				GameState.renown += int(e.get("renown", 0))
@@ -634,6 +637,49 @@ func _on_part_ways_friendly() -> void:
 	_close_sheet()
 
 
+func _open_ransom_sheet(lord_id: int) -> void:
+	if world == null:
+		return
+	var l: Dictionary = world.lord_by_id(lord_id)
+	if l.is_empty():
+		return
+	var realm_name: String = Data.FACTIONS.get(l.get("realm", ""), {}).get("name", l.get("realm", ""))
+	var ransom: int = int(l.get("ransom_amount", 200))
+	var title := "Ransom Envoy: %s" % l.get("name", "Captive Lord")
+	var text := "An envoy rides under a banner of truce bearing an offer from %s.\n\n\"We offer %d silver for the honorable return of %s to his hall.\"" % [
+		realm_name, ransom, l.get("name", "the lord")
+	]
+	var buttons := []
+	buttons.append(["Accept Ransom (+%d s)" % ransom, _on_accept_ransom.bind(lord_id), true])
+	if GameState.has_contract() and world.at_war(GameState.contract_realm(), String(l.get("realm", ""))):
+		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
+		buttons.append(["Deliver to Employer (+%d s, +10 rel)" % bonus, _on_deliver_lord_to_employer.bind(lord_id)])
+	buttons.append(["Release for Honor (+20 rel, +10 ren)", _on_release_lord_honor.bind(lord_id)])
+	buttons.append(["Keep in Chains", _close_sheet])
+	_show_sheet("ransom", title, text, buttons)
+
+
+func _on_accept_ransom(lord_id: int) -> void:
+	GameState.accept_lord_ransom(lord_id)
+	Sound.play("coins")
+	_close_sheet()
+	_refresh_hud()
+
+
+func _on_deliver_lord_to_employer(lord_id: int) -> void:
+	GameState.deliver_lord_to_employer(lord_id)
+	Sound.play("coins")
+	_close_sheet()
+	_refresh_hud()
+
+
+func _on_release_lord_honor(lord_id: int) -> void:
+	GameState.release_lord_for_honor(lord_id)
+	Sound.play("page")
+	_close_sheet()
+	_refresh_hud()
+
+
 func _open_encounter() -> void:
 	var b = world.party(world.encounter)
 	if b == null:
@@ -660,9 +706,11 @@ func _open_encounter() -> void:
 	var site: Dictionary = plan["site"]
 	var is_ambush := objective == "ambush"
 	var can_withdraw := bool(plan.get("can_withdraw", true))
+	var has_grudge := bool(plan.get("has_grudge", false))
+	var grudge_text := String(plan.get("grudge_text", ""))
 	var title := "%s block the road" % b.name
 	if b.kind == WorldSim.LORD:
-		title = "%s blocks the road!" % b.name
+		title = ("%s seeks vengeance!" % b.name) if has_grudge else ("%s blocks the road!" % b.name)
 	else:
 		match objective:
 			"village":
@@ -688,11 +736,12 @@ func _open_encounter() -> void:
 	elif not bool(site.get("fair", true)):
 		ground = "\nThey chose their ground: %s, and they'll wait for you on it." % (
 			"the brow of a ridge" if site["type"] == "hills" else "the edge of a wood")
-	_show_sheet("encounter", title,
-		"%d squads, %d men: %s.%s\n%s%s" % [
-			b.army.size(), men, ", ".join(parts), ground, _odds_text(AutoResolve.odds(fighters, b.army, site, objective)),
-			withdraw_text],
-		buttons)
+	var encounter_body := "%d squads, %d men: %s.%s\n%s%s" % [
+		b.army.size(), men, ", ".join(parts), ground, _odds_text(AutoResolve.odds(fighters, b.army, site, objective)),
+		withdraw_text]
+	if grudge_text != "":
+		encounter_body = grudge_text + "\n\n" + encounter_body
+	_show_sheet("encounter", title, encounter_body, buttons)
 	Sound.play("alarm")
 
 
@@ -1000,6 +1049,9 @@ func _refresh_hud() -> void:
 	var at_risk: bool = GameState.food < GameState.total_men() or GameState.silver < GameState.daily_wages()
 	if at_risk:
 		status_label.text += "\nLow supplies: men may leave."
+	if not GameState.captive_lords().is_empty():
+		var n_captives: int = GameState.captive_lords().size()
+		status_label.text += " · %d captive%s" % [n_captives, "" if n_captives == 1 else "s"]
 	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if at_risk else Style.MUTED)
 
 

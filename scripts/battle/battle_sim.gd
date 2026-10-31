@@ -16,6 +16,7 @@ const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const Pathing = preload("res://scripts/battle/pathing.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 
 const ARENA := Vector2(840.0, 1260.0)
 const MID_Y := 630.0
@@ -149,6 +150,8 @@ class Squad:
 	var chief_name := ""
 	var is_ally := false
 	var lord_id := -1
+	var is_lord := false
+	var lord_name := ""
 	var soldiers: Array = []
 	var start_men := 0
 	var center := Vector2.ZERO
@@ -310,6 +313,15 @@ var chief_name := ""
 var chief_killed := false
 var chief_escaped := false
 var chief_broken := false
+var is_lord := false
+var lord_captured := false
+var lord_killed := false
+var lord_escaped := false
+var lord_broken := false
+var enemy_lord_id := -1
+var enemy_lord_name := ""
+var enemy_lord_bearing := ""
+var has_grudge := false
 ## Seconds the raiders have held the village square, toward burning it down.
 var village_burn := 0.0
 ## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
@@ -348,6 +360,15 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 	chief_killed = false
 	chief_escaped = false
 	chief_broken = false
+	is_lord = false
+	lord_captured = false
+	lord_killed = false
+	lord_escaped = false
+	lord_broken = false
+	enemy_lord_id = -1
+	enemy_lord_name = ""
+	enemy_lord_bearing = ""
+	has_grudge = false
 	village_burn = 0.0
 	scheduled_reinforcements.clear()
 	if site_or_terrain is Dictionary:
@@ -358,6 +379,14 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 		terrain = Terrain.new()
 	set_terrain(terrain)
 	armies = [_to_entries(player_army), _to_entries(enemy_army)]
+	for e in armies[ENEMY]:
+		if bool(e.get("is_lord", false)):
+			is_lord = true
+			enemy_lord_id = int(e.get("lord_id", -1))
+			enemy_lord_name = String(e.get("lord_name", ""))
+			has_grudge = bool(e.get("has_grudge", false))
+			enemy_lord_bearing = String(e.get("bearing", ""))
+			break
 	reserves = [[], []]
 	reserve_queue = [[], []]
 	for t in 2:
@@ -541,6 +570,10 @@ func _to_entries(army: Array) -> Array:
 		var c_name: String = String(entry.get("chief_name", ""))
 		var is_ally: bool = bool(entry.get("is_ally", false))
 		var lord_id: int = int(entry.get("lord_id", -1))
+		var is_l: bool = bool(entry.get("is_lord", false))
+		var l_name: String = String(entry.get("lord_name", ""))
+		var h_grudge: bool = bool(entry.get("has_grudge", false))
+		var l_bearing: String = String(entry.get("bearing", ""))
 		out.append({
 			"roster_id": id,
 			"type": String(entry["type"]),
@@ -554,6 +587,10 @@ func _to_entries(army: Array) -> Array:
 			"chief_name": c_name,
 			"is_ally": is_ally,
 			"lord_id": lord_id,
+			"is_lord": is_l,
+			"lord_name": l_name,
+			"has_grudge": h_grudge,
+			"bearing": l_bearing,
 		})
 	return out
 
@@ -784,6 +821,10 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.chief_name = String(entry.get("chief_name", ""))
 	sq.is_ally = bool(entry.get("is_ally", false))
 	sq.lord_id = int(entry.get("lord_id", -1))
+	sq.is_lord = bool(entry.get("is_lord", false))
+	sq.lord_name = String(entry.get("lord_name", ""))
+	if sq.team == ENEMY and has_grudge and enemy_lord_bearing == Lords.DARING:
+		sq.morale = 115.0
 
 	if unit_id != "" and Units.has(unit_id):
 		sq.stats = Units.stats(unit_id, sq.level)
@@ -834,6 +875,14 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 		sq.captain = lead
 		sq.info = captain
 		sq.led = Captains.LED_BOLD if captain.get("quirk", "") == Captains.BOLD else Captains.LED
+	elif sq.is_lord and not sq.soldiers.is_empty():
+		var lead = sq.soldiers[0]
+		lead.captain = true
+		lead.might = Captains.DAMAGE_MULT
+		lead.max_hp *= Captains.HP_MULT
+		lead.hp = lead.max_hp
+		sq.captain = lead
+		sq.info = {"name": sq.lord_name, "id": sq.lord_id}
 	_move_formation(sq, at)
 	squads.append(sq)
 	return sq
@@ -2071,6 +2120,16 @@ func _captain_falls(sq, victim, rescue: bool = true) -> void:
 			chief_killed = true
 			chief_escaped = false
 			events.append({"type": "chief_slain", "squad": sq, "chief_name": sq.chief_name})
+	if sq.is_lord:
+		_trigger_lord_shock(sq)
+		if roll <= Lords.DEATH_CHANCE_PERCENT:
+			lord_killed = true
+			lord_captured = false
+			events.append({"type": "lord_slain", "squad": sq, "lord_name": sq.lord_name, "lord_id": sq.lord_id})
+		else:
+			lord_captured = true
+			lord_killed = false
+			events.append({"type": "lord_captured", "squad": sq, "lord_name": sq.lord_name, "lord_id": sq.lord_id})
 	events.append({"type": "captain_down", "squad": sq, "pos": victim.pos, "fate": sq.captain_fate,
 		"roll": roll, "needed": chance + 1, "rescued": holding or friends,
 		"holding": holding, "friends": friends, "lucky": sq.info.get("quirk", "") == Captains.LUCKY})
@@ -2135,6 +2194,9 @@ func rout(sq) -> void:
 	if sq.is_bodyguard or sq.is_chief:
 		_trigger_chief_shock(sq)
 		_chief_caught(sq)
+	if sq.is_lord:
+		_trigger_lord_shock(sq)
+		_lord_caught(sq)
 	_check_reserve_reinforcements(sq.team)
 
 
@@ -2161,6 +2223,43 @@ func _trigger_chief_shock(sq) -> void:
 	for other in squads:
 		if other != sq and other.team == sq.team and other.is_active():
 			other.drop_morale(35.0)
+
+
+func _lord_caught(sq) -> void:
+	if not sq.engaged:
+		return
+	var lord_cap = sq.captain
+	if lord_cap == null and not sq.soldiers.is_empty():
+		lord_cap = sq.soldiers[0]
+	if lord_cap != null and lord_cap.alive:
+		var by = nearest_enemy_squad(sq.team, lord_cap.pos, CHIEF_CAUGHT_RANGE)
+		if by != null:
+			by.kills += 1
+		_remove(lord_cap)
+		corpses.append({"pos": lord_cap.pos, "team": sq.team, "type": sq.type})
+		_captain_falls(sq, lord_cap, false)
+	else:
+		var roll := rng.randi_range(1, 100)
+		sq.death_roll = roll
+		if roll <= Lords.DEATH_CHANCE_PERCENT:
+			lord_killed = true
+			lord_captured = false
+			events.append({"type": "lord_slain", "squad": sq, "lord_name": sq.lord_name, "lord_id": sq.lord_id})
+		else:
+			lord_captured = true
+			lord_killed = false
+			events.append({"type": "lord_captured", "squad": sq, "lord_name": sq.lord_name, "lord_id": sq.lord_id})
+
+
+func _trigger_lord_shock(sq) -> void:
+	if lord_broken:
+		return
+	lord_broken = true
+	events.append({"type": "lord_broken", "squad": sq, "lord_name": sq.lord_name, "lord_id": sq.lord_id})
+	for other in squads:
+		if other != sq and other.team == sq.team and other.is_active():
+			other.drop_morale(35.0)
+
 
 
 func _remove(so) -> void:
@@ -2418,6 +2517,9 @@ func _finish(team: int, reason: String) -> void:
 	# stays at the head of his band.
 	if objective == OBJECTIVE_CHIEF:
 		chief_escaped = winner == PLAYER and not chief_killed
+	if is_lord and winner == PLAYER:
+		if not lord_captured and not lord_killed:
+			lord_escaped = true
 	events.append({"type": "end", "winner": team})
 
 
@@ -2476,4 +2578,6 @@ func result_for(team: int) -> Dictionary:
 				bonds[key] = bond_time[key]
 				break
 	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
-		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped}
+		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped,
+		"is_lord": is_lord, "lord_captured": lord_captured, "lord_killed": lord_killed, "lord_escaped": lord_escaped,
+		"enemy_lord_id": enemy_lord_id, "enemy_lord_name": enemy_lord_name}

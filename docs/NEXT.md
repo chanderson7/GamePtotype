@@ -44,11 +44,20 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - Meeting lords on the road (hostile lord road interception, withdrawal odds / ridden down, friendly lord dialogues, following armies).
   - Combined allied battles: `FIELD_CAP = 12` active squads per side with dynamic rear-edge reinforcements via `reserve_queue`. Allied lord squads fight under autonomous AI `Commander` (`allies_only = true`), drawn with cyan trim, excluded from tray orders.
   - 1:1 conservation of allied casualties via `return_allied_losses()`, auto-resolve loss attribution, spoils and contract capture bounties. Verified with `tests/combined_battle_tests.gd` (48 tests pass).
-- Next is Phase 4.6:
-  - Prisoners and ransom: capturing defeated lords, holding lord prisoners in party, ransom negotiations, selling to employer or releasing for relations.
-  - Inter-realm AI lord captures and ransoms in auto-resolved conflicts.
-  - Lords who remember: grudge system when a lord kills player captains or is captured, reactive encounters, and battlefield temperament shifts.
-- Then 4.7.
+- Phase 4.6 is done:
+  - Lord capture & mortality rolls: 70% capture on guard break / army collapse, 5% rare battlefield death triggering ancestral house heir succession.
+  - Captive lords in baggage: held in party custody, rendered in Warband screen and Map HUD header.
+  - Ransom negotiation options: after 48h captivity, envoy arrives offering ransom scaled by renown ($150 + \text{renown} \times 2$). Player can Accept Ransom (treasury transfer), Deliver to Employer (contract bounty + relation), Release for Honor (+20 lord / +15 realm relation, +10 renown), or Keep in Chains.
+  - AI inter-realm captures and auto-ransoms: AI lords take prisoners in auto-resolve; after 72h treasuries settle ransom and lords return home.
+  - Lords who remember & grudges: memorial logs `killed_by_lord_id` and `killed_by_lord_name` when captains die; lords gain grudge, actively hunt the player on the map (`grudge_hunt`), sneer past blood in road dialogues, and fight with altered temperament (+15 morale shock resistance for daring lords).
+  - Memorial vengeance: defeating, capturing, or slaying grudge lords resolves the grudge, creates a vengeance chronicle entry, and marks memorial records with `avenged = true` and deeds.
+  - Fully deterministic save/load persistence. Verified with `tests/prisoner_and_grudge_tests.gd` (68 tests pass).
+- Next is Phase 4.7 (Integration and polish):
+  - Map readability on phone: party size scaling by troop strength, armies grouped, bandits faded at wide zoom, banners styled by realm owner, siege camps and burned villages drawn distinctly.
+  - The Chronicle: the last 30 world & player events (wars, truces, captures, sieges, deeds, vengeance) readable directly from a dedicated map view.
+  - Dynamic audio & sound cues: war horn on declaration, siege drums near active sieges, triumph fanfare when a settlement falls.
+  - Performance profiling & phone optimization: efficient world tick, party path caching, smooth party rendering.
+  - Documentation & how-to-play: updated README, how-to-play guide, and visual presentations.
 
 ## Menu and onboarding update
 

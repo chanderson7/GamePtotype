@@ -460,6 +460,21 @@ New tunables in `scripts/data/politics.gd`; the rules run once a world day.
 - Capture and ransom: a captured lord leaves the map, his realm pays, he returns home.
 - A captain killed by a lord's men gives that lord a grudge, saved and loaded.
 
+### As built: Prisoners, ransom, and lords who remember
+
+- **Lord Capture & Mortality**: Defeating a lord in tactical battle or auto-resolve rolls capture ($70\%$ chance) if his guard squad breaks while engaged or army collapses. Battlefield mortality ($5\%$ chance) slays the lord, immediately triggering ancestral house succession: an heir of the same house inherits the seat and fief, keeping lords in the world.
+- **Captive Lords in Baggage**: Captive lords are removed from the world map (`state = "prisoner"`, `captive_of = "player"` or captor realm). Holding captives displays them in the Warband screen baggage inventory and on the Map HUD header.
+- **Ransom Negotiation Options**: After 48 hours of captivity, the captive lord's home realm dispatches an envoy offering ransom silver scaled by lord renown ($150 + \text{renown} \times 2$). The player can:
+  1. *Accept Ransom*: Collects the silver bounty from the realm's treasury; the lord returns to his hall to regroup.
+  2. *Deliver to Employer*: Under active mercenary contract, transfers the captive to the employer realm for contract bounty ($100$ silver) and $+10$ employer realm relation.
+  3. *Release for Honor*: Chivalrously releases the lord without ransom, gaining $+20$ lord relation, $+15$ home realm relation, and $+10$ company renown.
+  4. *Keep in Chains*: Retains the captive in custody for future options.
+- **AI-to-AI Inter-Realm Ransoms**: AI lords capture enemy lords in auto-resolved battles. After 72 hours in custody, treasuries automatically settle the ransom debt and the captive returns home to rebuild his retinue.
+- **Grudges & Memorial Records**: When a player captain falls in battle against an enemy lord, the fallen record in the Company Memorial logs `killed_by_lord_id` and `killed_by_lord_name`. The lord gains an active `grudge` remembering the captain and company name.
+- **Grudge AI & Altered Temperament**: Lords bearing a grudge proactively seek out and intercept the player on the map (`grudge_hunt`). In road encounters, they sneer with custom dialogue (*"You'll remember [Captain/Company], I think. Today we settle the score!"*). In battle, daring grudge lords fight with $+15$ bonus morale shock resistance.
+- **Vengeance**: Defeating, capturing, or slaying a grudge lord resolves the grudge, creates a company vengeance chronicle entry, and updates the captain's memorial entry with `avenged = true` and details of their vengeance.
+- **Verification**: Verified by dedicated test suite `tests/prisoner_and_grudge_tests.gd` (68 tests passing), covering tactical captures, mortality rolls, house succession, ransom options, AI inter-realm ransoms, grudge hunting/dialogue, memorial vengeance, and save/load persistence.
+
 ---
 
 ## 4.7 Integration and polish (~1 week)

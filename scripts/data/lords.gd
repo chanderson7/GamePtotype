@@ -116,3 +116,16 @@ const SIEGE_PREP_HOURS := 48.0
 const SIEGE_FOOD_DAYS := {"castle": 4.0, "town": 6.0}
 const VILLAGE_MILITIA_MEN := 15
 const WALLS := {"castle": 1.6, "town": 1.4}
+
+## Prisoners, ransoms, and mortality.
+const RANSOM_BASE := 150
+const RANSOM_RENOWN_MULT := 2
+const RANSOM_HOURS := 48.0
+const AI_RANSOM_HOURS := 72.0
+const DEATH_CHANCE_PERCENT := 5
+const CAPTURE_CHANCE_PERCENT := 70
+
+## Ransom silver offered for a lord based on renown.
+static func ransom_for(renown: int) -> int:
+	return RANSOM_BASE + renown * RANSOM_RENOWN_MULT
+
