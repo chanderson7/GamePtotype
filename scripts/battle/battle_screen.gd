@@ -153,6 +153,13 @@ var status_label: Label
 var power_bar: Control
 var speed_button: Button
 var tray: GridContainer
+## The tray scrolls sideways while deploying (one row of squads); in battle it fits.
+var tray_scroll: ScrollContainer
+## The scouts' verdict on the enemy commander, as a chip in the top bar while deploying.
+var scout_chip: Button
+## Camera controls, shown only once the battle is on.
+var view_row: HBoxContainer
+const SCOUT_SHORT := {"reckless": "Reckless commander", "patient": "Patient commander", "hammer": "Hammer and anvil"}
 var chip_buttons: Array = []
 var info_label: Label
 var auto_button: Button
@@ -285,13 +292,25 @@ func _layout() -> void:
 		bottom_panel.offset_top = -bottom_h
 	_view = Rect2(Vector2(8.0, top_h + 8.0), Vector2(vs.x - 16.0, vs.y - top_h - bottom_h - 16.0))
 	_fit_scale = maxf(0.1, minf(_view.size.x / Sim.ARENA.x, _view.size.y / Sim.ARENA.y))
+	# While deploying, the field fills the width; the camera keeps your half in view (see
+	# _update_camera), so only the far edge of the enemy's rear can fall off the top.
+	if _deploying():
+		_fit_scale = maxf(0.1, _view.size.x / Sim.ARENA.x)
+	_layout_tray()
 	_apply_camera()
 	queue_redraw()
 
 
 func _bottom_height() -> float:
+	if _deploying():
+		# one row of squads, a one-line hint, then Auto-place and Fight
+		return 14.0 + CHIP_H + 10.0 + 34.0 + 10.0 + Style.TOUCH + 14.0
 	var rows := _tray_rows()
 	return 14.0 + rows * CHIP_H + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + Style.TOUCH + 8.0 + 64.0 + 14.0 + Style.TOUCH + 10.0
+
+
+func _deploying() -> bool:
+	return sim != null and sim.phase == Sim.PHASE_DEPLOY
 
 
 func _tray_rows() -> int:
@@ -306,6 +325,10 @@ func _apply_camera() -> void:
 	var c := cam_center
 	c.x = clampf(c.x, half.x, Sim.ARENA.x - half.x) if half.x * 2.0 < Sim.ARENA.x else Sim.ARENA.x * 0.5
 	c.y = clampf(c.y, half.y, Sim.ARENA.y - half.y) if half.y * 2.0 < Sim.ARENA.y else Sim.ARENA.y * 0.5
+	# Deploying, a field shorter than the room for it sits down by the squad tray, leaving
+	# the space above it for the objective.
+	if _deploying() and half.y * 2.0 >= Sim.ARENA.y:
+		c.y = Sim.ARENA.y - half.y
 	cam_center = c
 	field_origin = _view.get_center() - c * field_scale + _shake_offset
 
@@ -320,6 +343,8 @@ func _update_camera(delta: float) -> void:
 		return
 	var want_zoom := 1.0
 	var want_center := Sim.ARENA * 0.5
+	if _deploying():
+		want_center.y = Sim.ARENA.y # clamped to show your whole zone and the enemy's front
 	if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
 		var box := Rect2()
 		var first := true
@@ -551,13 +576,12 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_hint("Tap the blue zone to place %s, %d %s, or drag a line to place everyone." % [
-				_card_name(e), e["men"], _name(e["type"], Sim.PLAYER, e["roster_id"]).to_lower()])
+			_hint("Tap the blue zone to place %s, or drag a line for everyone." % _card_name(e))
 			return
 	if sim.caught_on_march(Sim.PLAYER):
 		_hint("Ambushed on the march, strung out along the road! No time to form up. Press Fight.")
 		return
-	_hint("Your whole army is on the field. Tap a squad to move it, or drag a new line, then press Fight.")
+	_hint("Everyone's placed. Move a squad or drag a new line, then Fight.")
 
 
 func _tap_battle(p: Vector2, tapped) -> void:
@@ -660,6 +684,7 @@ func _start_battle() -> void:
 	Sound.play("horn")
 	selected_id = -1
 	selected_squad = null
+	_layout()
 	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.")
 
 
@@ -1313,6 +1338,46 @@ func _result_squad(squad: Dictionary) -> Control:
 	return panel
 
 
+## The squads in one swipeable row while deploying; in battle, every squad in view at once.
+func _layout_tray() -> void:
+	if tray == null:
+		return
+	var deploying := _deploying()
+	tray.columns = maxi(1, _cards.size()) if deploying else (mini(maxi(1, _cards.size()), MAX_CHIPS_PER_ROW) if _tray_rows() == 1 else ceili(_cards.size() / 2.0))
+	for b in chip_buttons:
+		b.custom_minimum_size.x = 118.0 if deploying else 0.0
+	tray_scroll.custom_minimum_size.y = CHIP_H if deploying else _tray_rows() * CHIP_H + (_tray_rows() - 1) * CHIP_GAP
+	view_row.visible = not deploying
+	info_label.visible = not deploying
+	hint_label.custom_minimum_size.y = 34.0 if deploying else 64.0
+	hint_label.max_lines_visible = 1 if deploying else 2
+	scout_chip.visible = deploying and _scouting() != ""
+	if scout_chip.visible:
+		var ai = sim.ai[Sim.ENEMY]
+		scout_chip.text = String(SCOUT_SHORT.get(String(ai.temperament).to_lower(), "Scouts' report"))
+	menu_button.icon = _glyph("menu" if deploying else "pause")
+
+
+## Small icons drawn here rather than taken from the font.
+var _glyphs := {}
+
+func _glyph(kind: String) -> Texture2D:
+	if _glyphs.has(kind):
+		return _glyphs[kind]
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var c := Color(0.93, 0.89, 0.8)
+	if kind == "menu":
+		for y in [8, 15, 22]:
+			img.fill_rect(Rect2i(6, y, 20, 3), c)
+	else:
+		img.fill_rect(Rect2i(9, 7, 5, 18), c)
+		img.fill_rect(Rect2i(18, 7, 5, 18), c)
+	var tex := ImageTexture.create_from_image(img)
+	_glyphs[kind] = tex
+	return tex
+
+
 ## Your side's result, plus what's left of the enemy, so a band that beats you stays
 ## weakened on the map.
 func _result() -> Dictionary:
@@ -1358,7 +1423,8 @@ func _build_hud() -> void:
 	var top_row := HBoxContainer.new()
 	top_row.add_theme_constant_override("separation", 12)
 	top_panel.add_child(top_row)
-	menu_button = _button("II", Vector2(Style.TOUCH + 16.0, Style.TOUCH), _on_menu)
+	menu_button = _button("", Vector2(Style.TOUCH, Style.TOUCH), _on_menu)
+	menu_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	menu_button.add_theme_font_size_override("font_size", Style.SMALL)
 	top_row.add_child(menu_button)
 	title_label = Style.label("Deploy", Style.LARGE, Style.BRASS)
@@ -1369,6 +1435,21 @@ func _build_hud() -> void:
 	status_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	top_row.add_child(status_label)
+	scout_chip = _button("", Vector2(0, 52), func(): _hint(_scouting()))
+	scout_chip.name = "ScoutChip"
+	scout_chip.add_theme_font_size_override("font_size", Style.SMALL)
+	scout_chip.add_theme_color_override("font_color", Color("f3b0a8"))
+	var chip_box := StyleBoxFlat.new()
+	chip_box.bg_color = Color("3a1c1c")
+	chip_box.border_color = Color(Style.ENEMY_LIGHT, 0.55)
+	chip_box.set_border_width_all(1)
+	chip_box.set_corner_radius_all(14)
+	chip_box.content_margin_left = 12.0
+	chip_box.content_margin_right = 12.0
+	for st in ["normal", "hover", "pressed", "focus"]:
+		scout_chip.add_theme_stylebox_override(st, chip_box)
+	scout_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top_row.add_child(scout_chip)
 	power_bar = Control.new()
 	power_bar.custom_minimum_size = Vector2(0, 44)
 	power_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1392,14 +1473,21 @@ func _build_hud() -> void:
 	col.add_theme_constant_override("separation", 10)
 	bottom_panel.add_child(col)
 
+	tray_scroll = ScrollContainer.new()
+	tray_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tray_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	tray_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(tray_scroll)
 	tray = GridContainer.new()
-	tray.columns = mini(maxi(1, _cards.size()), MAX_CHIPS_PER_ROW) if _tray_rows() == 1 else ceili(_cards.size() / 2.0)
+	tray.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tray.add_theme_constant_override("h_separation", int(CHIP_GAP))
 	tray.add_theme_constant_override("v_separation", int(CHIP_GAP))
-	col.add_child(tray)
+	tray_scroll.add_child(tray)
 	for i in _cards.size():
 		var b := _button("", Vector2(0, CHIP_H), _on_chip.bind(i))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# let a drag across the cards scroll the row
+		b.mouse_filter = Control.MOUSE_FILTER_PASS
 		b.draw.connect(_draw_chip.bind(i))
 		tray.add_child(b)
 		chip_buttons.append(b)
@@ -1430,7 +1518,7 @@ func _build_hud() -> void:
 	hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	col.add_child(hint_label)
 
-	var view_row := HBoxContainer.new()
+	view_row = HBoxContainer.new()
 	view_row.add_theme_constant_override("separation", 10)
 	col.add_child(view_row)
 	camera_button = _wide_button("View: following", _toggle_camera, view_row)
@@ -1564,7 +1652,7 @@ func _refresh_hud() -> void:
 	advance_button.visible = not deploying
 	hold_button.visible = not deploying
 	menu_button.disabled = sim.winner != -1
-	menu_button.text = "Menu" if deploying else "II"
+	menu_button.text = ""
 	speed_button.text = "2×" if speed > 1.5 else "1×"
 	pause_note.text = _scouting()
 	if deploying:
@@ -1587,8 +1675,7 @@ func _refresh_deploy() -> void:
 	fight_button.disabled = unplaced_player > 0 or sim.winner != -1
 	ability_button.visible = false
 	hold_fire_button.visible = false
-	info_label.text = _scouting()
-	info_label.add_theme_color_override("font_color", Style.BRASS)
+	info_label.text = ""
 
 
 func _refresh_battle() -> void:
@@ -1724,6 +1811,10 @@ func _draw_chip(i: int) -> void:
 	elif int(e["level"]) > 1:
 		for l in int(e["level"]) - 1:
 			b.draw_circle(Vector2(10 + l * 12, size.y - 12.0), 4.0, Style.BRASS)
+	if not battle and placed:
+		# placed: a tick in the corner
+		var t := Vector2(size.x - 22.0, size.y - 16.0)
+		b.draw_polyline(PackedVector2Array([t, t + Vector2(5, 5), t + Vector2(14, -6)]), Style.BRASS, 3.0)
 
 
 ## A fill over the ability button that drains as its cooldown runs down.
@@ -2597,12 +2688,25 @@ func _draw_floaters() -> void:
 
 
 ## The story so far, along the top of the field.
+func _ticker_box(a: float) -> StyleBoxFlat:
+	var b := StyleBoxFlat.new()
+	b.bg_color = Color(Style.NIGHT, 0.82 * a)
+	b.border_color = Color(Style.BRASS, 0.4 * a)
+	b.set_border_width_all(1)
+	b.set_corner_radius_all(12)
+	return b
+
+
 func _draw_ticker() -> void:
 	var y := _view.position.y + 30.0
 	for t in ticker:
 		var age: float = t["age"]
 		var a := clampf(float(t["life"]) - age, 0.0, 1.0) * clampf(age / 0.2, 0.0, 1.0)
 		var color: Color = t["color"]
+		# a dark pill behind each line, so it reads over grass and sand alike
+		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL).x + 28.0, _view.size.x - 16.0)
+		var pill := Rect2(Vector2(_view.get_center().x - w * 0.5, y - Style.SMALL - 2.0), Vector2(w, Style.SMALL + 14.0))
+		draw_style_box(_ticker_box(a), pill)
 		draw_string_outline(font, Vector2(_view.position.x + 12.0, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
 		draw_string(font, Vector2(_view.position.x + 12.0, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
-		y += 30.0
+		y += Style.SMALL + 18.0
