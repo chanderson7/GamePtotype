@@ -539,6 +539,9 @@ func _open_here() -> void:
 		return
 	_selected = id
 	var buttons := [["Enter", _on_enter, true], ["Wait", _on_wait], ["Warband", _on_warband], ["Close", _close_sheet]]
+	if GameState.siege_check(id)["ok"]:
+		buttons.push_front(["Storm the walls", _open_siege.bind(id), true])
+		buttons[1][2] = false
 	var offers: Array = world.offers_at(id)
 	var body := "%s\n%s\nYou are here. " % [world.describe(id), world.settlement_intelligence(id)]
 	if offers.is_empty():
@@ -1109,6 +1112,47 @@ func _on_home() -> void:
 func _on_warband() -> void:
 	GameState.save_game()
 	Scenes.go("res://scenes/main_menu.tscn")
+
+
+## Before an assault: the garrison, the walls, and the odds.
+func _open_siege(id: String) -> void:
+	var check: Dictionary = GameState.siege_check(id)
+	if not check["ok"]:
+		_open_notice(String(check["reason"]), "The walls")
+		return
+	var place: String = Data.settlement(id)["name"]
+	var realm: String = Data.FACTIONS[check["realm"]]["name"]
+	var walls: float = float(Lords.WALLS[check["kind"]])
+	var fighters: Array = GameState.army.filter(func(s): return int(s["men"]) > 0)
+	var garrison: Array = world.garrisons.get(id, [])
+	var body := "Storm %s for %s. %d men hold its walls against your %d.\n" % [place, realm, check["men"], GameState.total_men()]
+	body += "Men on foot must batter down the gate while the walls shelter the defenders' archers; then rout the garrison. A gate still standing when time runs out means the walls held."
+	if not garrison.is_empty():
+		var odds: Dictionary = AutoResolve.odds(fighters, garrison, null, "rout", walls)
+		body += "\nYour captains think the assault %s." % ("can succeed" if odds["player_wins"] else "would fail")
+	else:
+		body += "\nThe walls stand empty. It is yours for the taking."
+	_show_sheet("siege", "Storm %s" % place, body, [["Lead the assault", _on_storm.bind(id), true],
+		["Send them in", _on_storm_send.bind(id)], ["Back", _open_here]])
+
+
+func _on_storm(id: String) -> void:
+	if world.garrisons.get(id, []).is_empty():
+		_on_storm_send(id)
+		return
+	GameState.start_siege_battle(id)
+	GameState.save_game()
+	Scenes.go("res://scenes/battle.tscn")
+
+
+func _on_storm_send(id: String) -> void:
+	GameState.auto_resolve_siege(id)
+	_close_sheet()
+	_refresh_hud()
+	_sync_layers()
+	if GameState.map_notice != "":
+		_open_notice(GameState.map_notice, "The assault")
+		GameState.map_notice = ""
 
 
 func _on_fight() -> void:

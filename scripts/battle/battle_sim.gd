@@ -49,6 +49,22 @@ const OBJECTIVE_ROUT := "rout"
 const OBJECTIVE_CHIEF := "chief"
 const OBJECTIVE_AMBUSH := "ambush"
 const OBJECTIVE_VILLAGE := "village"
+## Storm a walled castle or town: break the gate, then rout the garrison.
+const OBJECTIVE_SIEGE := "siege"
+## The wall: one row of cells across the field, with the gate in its middle. The garrison
+## deploys behind it (toward the top); the attackers come from the bottom.
+const WALL_ROW := 16
+const GATE_COLS := [13, 14]
+const WALL_Y := (WALL_ROW + 0.5) * 30.0
+const GATE_CENTER := Vector2((13 + 1) * 30.0, (WALL_ROW + 0.5) * 30.0)
+## Gate strength by kind of settlement, in blows; each attacker on foot within GATE_REACH
+## of the gate strikes it once a second (horsemen at half that).
+const GATE_HP := {"castle": 900.0, "town": 700.0}
+const GATE_REACH := 46.0
+const GATE_HORSE := 0.5
+## Defenders this close behind the wall take arrows at this share.
+const WALL_COVER := 75.0
+const WALL_ARROWS := 0.5
 
 ## At most 12 squads per side on the field at once; excess squads wait in reserve.
 const FIELD_CAP := 12
@@ -324,6 +340,10 @@ var enemy_lord_bearing := ""
 var has_grudge := false
 ## Seconds the raiders have held the village square, toward burning it down.
 var village_burn := 0.0
+## Siege state: the gate's strength left (0 once broken) and its full strength.
+var gate_hp := 0.0
+var gate_max := 0.0
+var siege_kind := "castle"
 ## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
 var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
@@ -370,6 +390,8 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 	enemy_lord_bearing = ""
 	has_grudge = false
 	village_burn = 0.0
+	gate_hp = 0.0
+	gate_max = 0.0
 	scheduled_reinforcements.clear()
 	if site_or_terrain is Dictionary:
 		terrain = BattleSite.generate(site_or_terrain)
@@ -408,6 +430,65 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 		_setup_chief()
 	elif objective == OBJECTIVE_VILLAGE:
 		_setup_village_waves()
+	elif objective == OBJECTIVE_SIEGE:
+		_setup_siege()
+
+
+## Raise the wall across open ground and close the gate. The gate cells stay open to
+## pathing, so attackers make for the gate, but no one can walk through until it breaks.
+func _setup_siege(kind: String = "") -> void:
+	if kind != "":
+		siege_kind = kind
+	var t := Terrain.new()
+	for cx in Terrain.COLS:
+		if not GATE_COLS.has(cx):
+			t.rock[WALL_ROW * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
+	set_terrain(t)
+	gate_max = float(GATE_HP.get(siege_kind, GATE_HP["castle"]))
+	gate_hp = gate_max
+	_close_gate(true)
+
+
+func _close_gate(closed: bool) -> void:
+	_foot = terrain.foot_speed.duplicate()
+	_horse = terrain.horse_speed.duplicate()
+	if closed:
+		for cx in GATE_COLS:
+			_foot[WALL_ROW * Terrain.COLS + cx] = 0.0
+			_horse[WALL_ROW * Terrain.COLS + cx] = 0.0
+
+
+func gate_open() -> bool:
+	return objective != OBJECTIVE_SIEGE or gate_hp <= 0.0
+
+
+## Attackers at the gate batter it; when it gives, the way in is open.
+func _batter_gate(dt: float) -> void:
+	var blows := 0.0
+	for sq in squads:
+		if sq.team != PLAYER or not sq.is_active() or sq.routing or bool(sq.stats["ranged"]):
+			continue
+		var weight := GATE_HORSE if sq.type == Troops.CAVALRY else 1.0
+		for so in sq.soldiers:
+			if so.alive and so.pos.distance_to(GATE_CENTER) <= GATE_REACH:
+				blows += weight
+	if blows <= 0.0:
+		return
+	gate_hp = maxf(0.0, gate_hp - blows * dt)
+	if gate_hp <= 0.0:
+		_close_gate(false)
+		events.append({"type": "gate_breached"})
+
+
+## How many of each side's men are inside the walls.
+func men_inside_walls() -> Array:
+	var count := [0, 0]
+	for sq in squads:
+		if sq.is_active() and not sq.routing:
+			for so in sq.soldiers:
+				if so.alive and so.pos.y < WALL_Y - 15.0:
+					count[sq.team] += 1
+	return count
 
 
 func set_objective(obj: String, c_name: String = "") -> void:
@@ -603,6 +684,8 @@ func roster(team: int) -> Array:
 
 
 func deploy_zone(team: int) -> Rect2:
+	if objective == OBJECTIVE_SIEGE and team == ENEMY:
+		return Rect2(20.0, 30.0, ARENA.x - 40.0, WALL_Y - 45.0 - 30.0)
 	if team == PLAYER:
 		var top := MID_Y + DEPLOY_GAP
 		return Rect2(20.0, top, ARENA.x - 40.0, ARENA.y - 30.0 - top)
@@ -684,7 +767,11 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 		var x: float = s[2]
 		if jitter > 0.0:
 			x += rng.randf_range(-jitter, jitter)
-		place(team, s[0]["roster_id"], Vector2(x, MID_Y + depth if team == PLAYER else MID_Y - depth))
+		var y := MID_Y + depth if team == PLAYER else MID_Y - depth
+		if objective == OBJECTIVE_SIEGE and team == ENEMY:
+			# A garrison forms up just behind its wall.
+			y = WALL_Y - 50.0 - (depth - front)
+		place(team, s[0]["roster_id"], Vector2(x, y))
 
 
 ## Ambushed: the player's warband stands in its marching column, with no time to form up
@@ -1408,6 +1495,8 @@ func step(dt: float = STEP) -> void:
 		_burn_village(dt)
 		if winner != -1:
 			return
+	if objective == OBJECTIVE_SIEGE and gate_hp > 0.0:
+		_batter_gate(dt)
 	_check_end()
 
 
@@ -1780,6 +1869,10 @@ func _update_soldier(so, sq, dt: float) -> void:
 
 func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 	var before: Vector2 = so.pos
+	# While the gate holds, anyone making for the far side of the wall crowds the gate.
+	if objective == OBJECTIVE_SIEGE and gate_hp > 0.0 and (before.y > WALL_Y) != (dest.y > WALL_Y):
+		var side := 1.0 if before.y > WALL_Y else -1.0
+		dest = Vector2(clampf(before.x, GATE_CENTER.x - 30.0, GATE_CENTER.x + 30.0), GATE_CENTER.y + side * 20.0)
 	if _rough:
 		so.pos = _rough_step(before, dest, speed * dt, so.squad.type == Troops.CAVALRY)
 	else:
@@ -2050,6 +2143,10 @@ func _update_projectiles(dt: float) -> void:
 					wall_block += float(vs.mechanics["shield_wall_boost"])
 				wall_block *= (1.0 - p.piercing)
 				dmg *= (1.0 - minf(0.95, wall_block))
+			# Defenders behind their wall
+			if objective == OBJECTIVE_SIEGE and vs.team == ENEMY and p.target.pos.y < WALL_Y \
+					and p.target.pos.y > WALL_Y - WALL_COVER:
+				dmg *= WALL_ARROWS
 			# Armor on target
 			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
 			dmg *= (1.0 - minf(0.8, eff_armor))
@@ -2476,6 +2573,10 @@ func _burn_village(dt: float) -> void:
 
 
 func _check_end() -> void:
+	# A gate still standing when time runs out: the walls held.
+	if objective == OBJECTIVE_SIEGE and time >= TIME_LIMIT and gate_hp > 0.0 and has_active(ENEMY):
+		_finish(ENEMY, "walls_held")
+		return
 	if objective == OBJECTIVE_VILLAGE and time >= VILLAGE_DURATION:
 		var count := men_in_village()
 		if count[PLAYER] > count[ENEMY]:
@@ -2587,5 +2688,6 @@ func result_for(team: int) -> Dictionary:
 				break
 	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
 		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped,
+		"gate_breached": objective == OBJECTIVE_SIEGE and gate_hp <= 0.0,
 		"is_lord": is_lord, "lord_captured": lord_captured, "lord_killed": lord_killed, "lord_escaped": lord_escaped,
 		"enemy_lord_id": enemy_lord_id, "enemy_lord_name": enemy_lord_name}

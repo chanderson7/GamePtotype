@@ -412,6 +412,113 @@ func _check_job_deadlines() -> void:
 				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
 
 
+# ---------------------------------------------------------------- sieges
+
+## The realm the company fights for: its employer under contract, or its liege as a
+## landed vassal. "" for a free company.
+func siege_realm() -> String:
+	if has_contract():
+		return contract_realm()
+	if has_fief():
+		return fief_realm()
+	return ""
+
+
+## Whether the company can storm the walls of `id` now. {ok, reason, realm, kind, men}.
+func siege_check(id: String) -> Dictionary:
+	var out := {"ok": false, "reason": "", "realm": "", "kind": "", "men": 0}
+	if world == null or not WorldData.SETTLEMENTS.has(id):
+		return out
+	var kind := String(WorldData.settlement(id)["type"])
+	out["kind"] = kind
+	if not Lords.WALLS.has(kind):
+		out["reason"] = "Only castles and towns have walls to storm."
+		return out
+	var realm := siege_realm()
+	out["realm"] = realm
+	var owner: String = world.owner_of(id)
+	if realm == "":
+		out["reason"] = "A free company takes no walls. Serve a realm at war first."
+		return out
+	if owner == realm or not world.at_war(realm, owner):
+		out["reason"] = "Your realm is not at war with its holder."
+		return out
+	if world.here() != id:
+		out["reason"] = "Ride to its walls first."
+		return out
+	if total_men() == 0:
+		out["reason"] = "You have no men to lead."
+		return out
+	out["men"] = world.men_of(world.garrisons.get(id, []))
+	out["ok"] = true
+	return out
+
+
+## Set up the assault on `id` for the battle screen.
+func start_siege_battle(id: String) -> void:
+	var check := siege_check(id)
+	if not check["ok"]:
+		return
+	var owner: String = world.owner_of(id)
+	pending_battle = {
+		"enemy": WorldSim.clean_army(world.garrisons.get(id, [])), "culture": WorldData.culture_of(owner),
+		"temperament": "", "name": "The garrison of %s" % WorldData.settlement(id)["name"],
+		"party_id": -1, "site": null, "objective": "siege", "siege_target": id,
+		"siege_kind": check["kind"], "siege_realm": check["realm"], "enemy_faction": owner, "allies": [],
+	}
+
+
+## Storm the walls without leading the men: settled at once, with the walls counted.
+func auto_resolve_siege(id: String) -> Dictionary:
+	start_siege_battle(id)
+	if pending_battle.is_empty():
+		return {}
+	if pending_battle["enemy"].is_empty():
+		var empty := {"won": true, "lost": 0, "killed": 0, "squads": {}, "enemy_squads": {}, "objective": "siege"}
+		apply_result(empty)
+		return empty
+	var fighters := army.filter(func(sq): return int(sq["men"]) > 0)
+	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, null, "rout",
+		float(Lords.WALLS[String(pending_battle["siege_kind"])]))
+	result["objective"] = "siege"
+	apply_result(result)
+	return result
+
+
+func _siege_outcome(result: Dictionary, how: String) -> void:
+	var id := String(pending_battle.get("siege_target", ""))
+	var realm := String(pending_battle.get("siege_realm", ""))
+	if id == "" or not WorldData.SETTLEMENTS.has(id):
+		return
+	var place: String = WorldData.settlement(id)["name"]
+	var was: String = world.owner_of(id)
+	if result.get("won", false):
+		world.garrisons[id] = []
+		if realm != "" and world.at_war(realm, was):
+			world.set_owner(id, realm)
+			world.emit_event({"type": "captured", "realm": realm, "settlement": id, "from": was})
+		var got := Economy.spoils(int(result.get("killed", 0)))
+		got["silver"] = int(got["silver"]) + 200
+		got["renown"] = int(got["renown"]) + 30
+		silver += int(got["silver"])
+		food += int(got["food"])
+		renown += int(got["renown"])
+		add_realm_relation(realm, 15)
+		add_realm_relation(was, -20)
+		_note("%s falls to your assault! %s Claimed %d silver and %d renown; %s now flies the banner of %s." % [
+			place, how, got["silver"], got["renown"], place, WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm])
+	else:
+		# What's left of the garrison stays on the walls.
+		var left: Dictionary = result.get("enemy_squads", {})
+		var garrison: Array = world.garrisons.get(id, [])
+		for sq in garrison:
+			var after = left.get(int(sq["id"]))
+			if after != null:
+				sq["men"] = int(after.get("men", sq["men"]))
+		world.garrisons[id] = garrison.filter(func(sq): return int(sq["men"]) > 0)
+		_note("The assault on %s failed. %s The survivors fall back from the walls." % [place, how])
+
+
 # ---------------------------------------------------------------- journal
 
 ## Remember how a commitment ended, so the journal can explain it after the notice is gone.
@@ -2026,7 +2133,9 @@ func apply_result(result: Dictionary) -> void:
 		var is_lord: bool = bool(pending_battle.get("is_lord", false))
 		var enemy_faction: String = String(pending_battle.get("enemy_faction", ""))
 		var enemy_lid: int = int(pending_battle.get("enemy_lord_id", -1))
-		if result.get("won", false):
+		if obj == "siege":
+			_siege_outcome(result, how)
+		elif result.get("won", false):
 			world.win_encounter()
 			var got := Economy.spoils(int(result.get("killed", 0)))
 			if has_specialization(Captains.QUARTERMASTER):

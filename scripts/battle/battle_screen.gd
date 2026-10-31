@@ -198,6 +198,7 @@ func _ready() -> void:
 		if pending.has("allies") and not pending["allies"].is_empty():
 			player_host.append_array(pending["allies"])
 			has_allies = true
+		sim.siege_kind = String(pending.get("siege_kind", "castle"))
 		sim.setup(player_host, pending["enemy"], 0, site, obj)
 		if has_allies:
 			sim.allied_ai = Commander.new(Sim.PLAYER, "", true)
@@ -215,6 +216,8 @@ func _ready() -> void:
 			_tick("OBJECTIVE: Hold the village square for 2 minutes!", Style.BRASS)
 		Sim.OBJECTIVE_AMBUSH:
 			_tick("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
+		Sim.OBJECTIVE_SIEGE:
+			_tick("SIEGE: Break the gate, then rout the garrison!", Style.BRASS)
 		_:
 			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	Sound.play_battle()
@@ -872,9 +875,54 @@ func _missile_sound(p) -> String:
 
 # ---------------------------------------------------------------- events
 
+## The wall across the field, its battlements, and the gate with how much it has left.
+func _draw_walls() -> void:
+	var top := Sim.WALL_ROW * Terrain.CELL
+	var cell := Terrain.CELL
+	var stone := Color("7d776c")
+	var dark := Color("4e4a43")
+	for cx in Terrain.COLS:
+		if Sim.GATE_COLS.has(cx):
+			continue
+		var r := Rect2(cx * cell, top, cell, cell)
+		draw_rect(r, stone)
+		draw_rect(Rect2(r.position + Vector2(0, cell - 6.0), Vector2(cell, 6.0)), dark)
+		# battlements on the garrison's side
+		draw_rect(Rect2(r.position + Vector2(3.0, -7.0), Vector2(10.0, 7.0)), stone)
+		draw_rect(Rect2(r.position + Vector2(17.0, -7.0), Vector2(10.0, 7.0)), stone)
+		draw_line(r.position + Vector2(cell, 0), r.position + Vector2(cell, cell), dark, 1.0)
+	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
+	if sim.gate_hp > 0.0:
+		var share := sim.gate_hp / maxf(1.0, sim.gate_max)
+		draw_rect(gate, Color("6b4a2a"))
+		for i in 6:
+			var x := gate.position.x + 4.0 + i * (gate.size.x - 8.0) / 5.0
+			draw_line(Vector2(x, gate.position.y + 2.0), Vector2(x, gate.end.y - 2.0), Color("3e2a17"), 2.0)
+		draw_line(gate.position + Vector2(0, 9), gate.position + Vector2(gate.size.x, 9), Color("2b2b2b"), 3.0)
+		draw_line(gate.position + Vector2(0, 21), gate.position + Vector2(gate.size.x, 21), Color("2b2b2b"), 3.0)
+		# how much the gate has left, below it where the attackers can see
+		var bar := Rect2(gate.position + Vector2(-20.0, cell + 10.0), Vector2(gate.size.x + 40.0, 8.0))
+		draw_rect(bar, Color(0, 0, 0, 0.55))
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * share, bar.size.y)), Color(1.0, 0.65, 0.25, 0.95))
+		if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
+			draw_string(font, bar.position + Vector2(-40.0, 34.0), "Gate %d%%" % int(ceil(share * 100.0)),
+				HORIZONTAL_ALIGNMENT_CENTER, bar.size.x + 80.0, Style.SMALL, Style.BRASS)
+	else:
+		# splintered timbers either side of the breach
+		for i in 5:
+			var a := gate.position + Vector2(4.0 + i * 11.0, 4.0 + (i % 2) * 14.0)
+			draw_line(a, a + Vector2(9.0, 6.0 - (i % 3) * 5.0), Color("6b4a2a"), 3.0)
+
+
 func _consume_events() -> void:
 	for e in sim.events:
 		match e["type"]:
+			"gate_breached":
+				_burst(Sim.GATE_CENTER, "charge", Style.BRASS, 1.0)
+				_float_text("THE GATE IS BROKEN!", Sim.GATE_CENTER + Vector2(0, -60), Style.BRASS, 2.0)
+				_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT)
+				Sound.play("charge", 0.0, 0.05, 0.6)
+				_shake = maxf(_shake, 8.0)
 			"rout":
 				var sq = e["squad"]
 				_broke_at[sq] = _clock
@@ -1050,6 +1098,7 @@ func _show_result() -> void:
 		"rout": ["Their army broke and fled.", "Your army broke and fled."],
 		"time": ["Time ran out with more of your army still standing.", "Time ran out with more of theirs still standing."],
 		"retreat": ["The enemy withdrew.", "You pulled your army off the field."],
+		"walls_held": ["", "The gate held. The garrison kept its walls."],
 		"village_held": ["You held the village square until the raiders gave up.", ""],
 		"village_lost": ["", "The raiders held the village square when time ran out."],
 		"village_burned": ["", "The raiders held the square long enough to fire the village."],
@@ -2002,6 +2051,8 @@ func _draw_zones() -> void:
 func _draw_objectives() -> void:
 	if sim == null:
 		return
+	if sim.objective == Sim.OBJECTIVE_SIEGE:
+		_draw_walls()
 	if sim.objective == Sim.OBJECTIVE_VILLAGE:
 		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
 		draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))

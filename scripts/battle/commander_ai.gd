@@ -211,6 +211,12 @@ func update(sim, dt: float) -> void:
 				sim.rout(sq)
 
 	_use_abilities(sim)
+	# A garrison keeps to its walls until the gate gives.
+	if sim.objective == Sim.OBJECTIVE_SIEGE and team == Sim.ENEMY and not sim.gate_open():
+		for sq in sim.squads:
+			if sq.team == team and sq.is_active() and not sq.routing and sq.order != "hold" and not sq.engaged:
+				sim.order_hold(sq)
+		return
 	if contact_at < 0.0 and _in_contact(sim):
 		contact_at = sim.time
 	if not committed:
