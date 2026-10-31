@@ -79,6 +79,19 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - UI integrations: notice board offers and deliverable contract claim cards on `settlement_screen.gd`, active tasks and deadlines in `main_menu.gd` Warband screen, and campaign guidance in `game_state.recommendation()`.
   - Chronicle activity feed integration (`job_completed` deed events) and complete save/load persistence.
   - Verified with `tests/settlement_jobs_tests.gd` (70 tests pass, 0 failures).
+- **A First Fief Before a Kingdom (Feature 12)** is done:
+  - Vassalage & Fealty: sellsword company swearing fealty requires renown >= 50 and standing >= 20 with employer/friendly realm. Converts 30-day mercenary contract into permanent vassalage (`world.player().faction = realm`). Available unassigned crown villages/castles granted by crown decree with cultural titles (*Lord*, *Emir*, *Jito*).
+  - Estate Economy & Production: daily settlement taxes (50 base for village, 90 for castle) and granary food rations (12 base for village, 20 for castle). Estate storage holds up to 1,500 silver; collected on-site via `collect_fief_taxes()` and `collect_fief_food()`.
+  - Garrison Management & Soldier Healing: player can station roving squads into estate garrison and withdraw them, respecting squad caps and preserving at least 1 field squad. Stationed garrison squads heal 1 wounded soldier daily in `_fief_day()`.
+  - Manor Improvements & Reconstruction:
+    - `granary`: +15 food/day, storage expanded to 250 rations (300 silver).
+    - `fortifications`: +15 militia, +35% defense strength (450 silver).
+    - `mill`: +30 silver/day taxes (400 silver).
+    - `repair_fief`: reconstructs burned/raided village, clearing damaged state (200 silver).
+  - Loss, Recapture & Raid Defense: stationed garrison squads and fortified palisades resist and repulse roaming lord raids in `world_sim._burn()`. Fief marked as `lost = true` when settlement is captured by enemy realm in `set_owner()`; restored to governance when liberated.
+  - UI Integrations: dedicated "Your Fief & Manor" overview card on `settlement_screen.gd` with treasury/granary collection, garrison transfer roster, and improvement builders. Warband screen estate overview card on `main_menu.gd`. Strategic recommendation guidance for uncollected taxes and ruined estate reconstruction in `game_state.recommendation()`.
+  - Chronicle events (`fief_granted`, `fief_defended`, `fief_lost`) and complete save/load roundtrip persistence.
+  - Verified with `tests/fief_tests.gd` (62 tests pass, 0 failures).
 
 ## Menu and onboarding update
 

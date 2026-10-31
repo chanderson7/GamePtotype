@@ -15,6 +15,7 @@ const Relationships = preload("res://scripts/data/relationships.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
+const Fiefs = preload("res://scripts/data/fiefs.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -103,6 +104,8 @@ func _build() -> void:
 	if GameState.is_at_war_with(owner):
 		_add_hostile_notice(col, owner)
 	else:
+		if GameState.is_player_fief(place):
+			_add_fief_management(col)
 		_add_contract(col, owner)
 		_add_provisions(col)
 		_add_recruits(col)
@@ -245,8 +248,35 @@ func _add_contract(col: VBoxContainer, owner: String) -> void:
 	if not kind in [WorldData.CASTLE, WorldData.TOWN]:
 		return
 
-	col.add_child(_section("Mercenary commission"))
 	var faction_name: String = WorldData.FACTIONS[owner]["name"]
+
+	if GameState.has_fief():
+		col.add_child(_section("Fealty & Lordship"))
+		if GameState.fief_realm() == owner:
+			col.add_child(_note("Sworn vassal of the %s · Lord of %s" % [faction_name, WorldData.settlement(GameState.fief_id())["name"]], Style.BRASS))
+		else:
+			var other_name: String = WorldData.FACTIONS[GameState.fief_realm()]["name"]
+			col.add_child(_note("Your company is already sworn in fealty to the %s." % other_name, Style.MUTED))
+		return
+
+	if GameState.can_petition_fief(owner):
+		col.add_child(_section("Fealty & Fiefdom"))
+		col.add_child(_note("The crown recognizes your valor and standing (%d renown, %d relation). You may swear fealty as a vassal of the %s and receive governance of a fief." % [
+			GameState.renown, GameState.relation_with_realm(owner), faction_name
+		], Style.BRASS))
+		var fief_candidates: Array = GameState.available_fiefs_for_grant(owner)
+		for fid in fief_candidates:
+			var fname := String(WorldData.settlement(fid)["name"])
+			var ftype := String(WorldData.settlement(fid)["type"]).capitalize()
+			var btn := _button("Swear Fealty and Claim %s (%s)" % [fname, ftype], func():
+				if GameState.accept_fealty_and_fief(fid, owner):
+					Sound.play("charge")
+					_build()
+			)
+			Style.make_primary(btn)
+			col.add_child(btn)
+
+	col.add_child(_section("Mercenary commission"))
 
 	if GameState.has_contract():
 		if GameState.contract_realm() == owner:
@@ -290,6 +320,199 @@ func _on_cancel_contract() -> void:
 	GameState.break_contract()
 	Sound.play("alarm")
 	_build()
+
+
+func _add_fief_management(col: VBoxContainer) -> void:
+	col.add_child(_section("Your Fief & Manor"))
+
+	var fief: Dictionary = GameState.player_fief
+	var cult: String = String(WorldData.settlement(place)["faction"])
+	var title: String = Fiefs.title_for(cult)
+	var s_name: String = String(WorldData.settlement(place)["name"])
+	var r_name: String = String(WorldData.FACTIONS.get(String(fief.get("realm", "")), {}).get("name", "Realm"))
+
+	# Header card
+	var header_panel := PanelContainer.new()
+	var h_margin := MarginContainer.new()
+	h_margin.add_theme_constant_override("margin_left", 14)
+	h_margin.add_theme_constant_override("margin_right", 14)
+	h_margin.add_theme_constant_override("margin_top", 12)
+	h_margin.add_theme_constant_override("margin_bottom", 12)
+	header_panel.add_child(h_margin)
+	var h_v := VBoxContainer.new()
+	h_v.add_theme_constant_override("separation", 6)
+	h_margin.add_child(h_v)
+
+	var title_lbl := Style.label("%s of %s" % [title, s_name], Style.LARGE, Style.BRASS)
+	h_v.add_child(title_lbl)
+	h_v.add_child(Style.label("Sworn vassal of the %s · Seat of your company" % r_name, Style.SMALL, Style.TEXT))
+
+	var is_b: bool = GameState.world != null and GameState.world.is_burned(place)
+	var daily_t: int = Fiefs.daily_tax(fief, is_b)
+	var daily_f: int = Fiefs.daily_food(fief, is_b)
+	var cur_silver: int = int(fief.get("silver", 0))
+	var cur_food: int = int(fief.get("food", 0))
+	var max_f: int = Fiefs.max_food_capacity(fief)
+
+	var stats_text := "Estate Treasury: %d / %d silver (+%d/day) · Granary: %d / %d rations (+%d/day)" % [
+		cur_silver, Fiefs.MAX_STORAGE_SILVER, daily_t, cur_food, max_f, daily_f
+	]
+	if is_b:
+		stats_text += "\n[Raided and Damaged: Tax and grain yields crippled]"
+	var stats_lbl := Style.label(stats_text, Style.BODY, Style.MUTED if not is_b else Style.ENEMY_LIGHT)
+	stats_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	h_v.add_child(stats_lbl)
+
+	# Buttons to collect taxes and food
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 10)
+	h_v.add_child(btn_row)
+
+	var collect_tax_btn := _button("Collect Taxes (%d silver)" % cur_silver, func():
+		var got: int = GameState.collect_fief_taxes()
+		if got > 0:
+			Sound.play("coins")
+			_build()
+	)
+	collect_tax_btn.disabled = cur_silver <= 0
+	if cur_silver > 0:
+		Style.make_primary(collect_tax_btn)
+	btn_row.add_child(collect_tax_btn)
+
+	var collect_food_btn := _button("Take Food (%d rations)" % cur_food, func():
+		var got: int = GameState.collect_fief_food()
+		if got > 0:
+			Sound.play("coins")
+			_build()
+	)
+	collect_food_btn.disabled = cur_food <= 0
+	btn_row.add_child(collect_food_btn)
+	col.add_child(header_panel)
+
+	# Garrison Management Card
+	col.add_child(_section("Fief Garrison"))
+	var g_panel := PanelContainer.new()
+	var g_margin := MarginContainer.new()
+	g_margin.add_theme_constant_override("margin_left", 14)
+	g_margin.add_theme_constant_override("margin_right", 14)
+	g_margin.add_theme_constant_override("margin_top", 12)
+	g_margin.add_theme_constant_override("margin_bottom", 12)
+	g_panel.add_child(g_margin)
+	var g_v := VBoxContainer.new()
+	g_v.add_theme_constant_override("separation", 8)
+	g_margin.add_child(g_v)
+
+	var garrison: Array = fief.get("garrison", [])
+	if garrison.is_empty():
+		g_v.add_child(_note("No squads are currently stationed in the garrison. Troops in garrison heal wounds and protect your estate from raiders."))
+	else:
+		for i in garrison.size():
+			var sq: Dictionary = garrison[i]
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 10)
+			g_v.add_child(row)
+
+			var c = sq.get("captain")
+			var c_str := String(c.get("name", "Captain")) if c != null else "Company"
+			var w_cnt := int(sq.get("wounded", 0))
+			var men_str := "%d men" % int(sq["men"])
+			if w_cnt > 0:
+				men_str += " (+%d wounded)" % w_cnt
+			var sq_lbl := Style.label("%s (%s · %s)" % [String(sq.get("name", "Squad")), c_str, men_str], Style.BODY, Style.TEXT)
+			sq_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(sq_lbl)
+
+			var withdraw_btn := _button("Take into Warband", func():
+				if GameState.withdraw_squad_from_fief(i):
+					_build()
+			)
+			withdraw_btn.disabled = GameState.army.size() >= GameState.squad_cap()
+			row.add_child(withdraw_btn)
+
+	# Station active squad into garrison
+	if GameState.army.size() > 1:
+		var st_lbl := Style.label("Station squad from warband into garrison:", Style.SMALL, Style.MUTED)
+		g_v.add_child(st_lbl)
+		var st_flow := HBoxContainer.new()
+		st_flow.add_theme_constant_override("separation", 8)
+		g_v.add_child(st_flow)
+		for sq in GameState.army:
+			var sid: int = int(sq["id"])
+			var btn := _button("Station %s" % String(sq.get("name", "Squad")), func():
+				if GameState.station_squad_in_fief(sid):
+					_build()
+			)
+			st_flow.add_child(btn)
+	col.add_child(g_panel)
+
+	# Manor Improvements Card
+	col.add_child(_section("Manor Improvements & Reconstruction"))
+	var imp_panel := PanelContainer.new()
+	var imp_margin := MarginContainer.new()
+	imp_margin.add_theme_constant_override("margin_left", 14)
+	imp_margin.add_theme_constant_override("margin_right", 14)
+	imp_margin.add_theme_constant_override("margin_top", 12)
+	imp_margin.add_theme_constant_override("margin_bottom", 12)
+	imp_panel.add_child(imp_margin)
+	var imp_v := VBoxContainer.new()
+	imp_v.add_theme_constant_override("separation", 8)
+	imp_margin.add_child(imp_v)
+
+	if is_b:
+		var rep_row := HBoxContainer.new()
+		rep_row.add_theme_constant_override("separation", 10)
+		imp_v.add_child(rep_row)
+		var rep_desc := Style.label("Rebuild the burned village and restore peasant granaries.", Style.BODY, Style.ENEMY_LIGHT)
+		rep_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rep_row.add_child(rep_desc)
+		var rep_btn := _button("Rebuild Estate (%d silver)" % Fiefs.REPAIR_COST, func():
+			var r: Dictionary = GameState.repair_fief()
+			if r.get("ok", false):
+				Sound.play("coins")
+				_build()
+		)
+		rep_btn.disabled = GameState.silver < Fiefs.REPAIR_COST
+		if GameState.silver >= Fiefs.REPAIR_COST:
+			Style.make_primary(rep_btn)
+		rep_row.add_child(rep_btn)
+
+	var imps: Dictionary = fief.get("improvements", {})
+	for ikey in [Fiefs.IMPROVEMENT_GRANARY, Fiefs.IMPROVEMENT_FORTIFICATIONS, Fiefs.IMPROVEMENT_MILL]:
+		var idef: Dictionary = Fiefs.IMPROVEMENTS[ikey]
+		var built: bool = bool(imps.get(ikey, false))
+		var i_row := HBoxContainer.new()
+		i_row.add_theme_constant_override("separation", 10)
+		imp_v.add_child(i_row)
+
+		var i_text := VBoxContainer.new()
+		i_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		i_row.add_child(i_text)
+
+		var iname := String(idef["name"]) + (" [Built]" if built else "")
+		i_text.add_child(Style.label(iname, Style.BODY, Style.BRASS if built else Style.TEXT))
+		var idesc := Style.label(String(idef["description"]), Style.SMALL, Style.MUTED)
+		idesc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		i_text.add_child(idesc)
+
+		if not built:
+			var cost: int = int(idef["cost"])
+			var b_btn := _button("Construct (%d silver)" % cost, func():
+				var r: Dictionary = GameState.build_fief_improvement(ikey)
+				if r.get("ok", false):
+					Sound.play("coins")
+					_build()
+			)
+			b_btn.disabled = GameState.silver < cost
+			i_row.add_child(b_btn)
+	col.add_child(imp_panel)
+
+	# Renounce option
+	var ren_btn := _button("Renounce Fealty (Forfeit fief to crown, -25 relation)", func():
+		GameState.renounce_fief()
+		Sound.play("alarm")
+		_build()
+	)
+	col.add_child(ren_btn)
 
 
 func _add_court(col: VBoxContainer) -> void:

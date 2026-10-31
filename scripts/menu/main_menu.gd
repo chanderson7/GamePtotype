@@ -13,6 +13,7 @@ const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
+const Fiefs = preload("res://scripts/data/fiefs.gd")
 
 var _scroll: ScrollContainer
 
@@ -105,6 +106,14 @@ func _build() -> void:
 		note_text += "\nContract: %s · +%d silver/day (%d days left)" % [
 			emp_name, GameState.contract_daily_pay(), int(GameState.contract.get("days_left", 0))
 		]
+	elif GameState.has_fief():
+		var r_name: String = WorldData.FACTIONS[GameState.fief_realm()]["name"]
+		var s_name: String = WorldData.settlement(GameState.fief_id())["name"]
+		var f_silver: int = int(GameState.player_fief.get("silver", 0))
+		var f_garr: int = int(GameState.player_fief.get("garrison", []).size())
+		note_text += "\nFiefdom: %s (%s) · %d in garrison · %d silver in estate treasury" % [
+			s_name, r_name, f_garr, f_silver
+		]
 	col.add_child(_note(note_text))
 	col.add_child(_sort_control())
 	var sorted := _sorted_roster(GameState.army)
@@ -132,6 +141,10 @@ func _build() -> void:
 	else:
 		for job in GameState.active_jobs:
 			col.add_child(_active_job_row(job))
+
+	if GameState.has_fief():
+		col.add_child(_section("Your Fiefdom"))
+		col.add_child(_fief_overview_row())
 
 	col.add_child(_section("Bonds"))
 	var bonds: Array = GameState.bonds()
@@ -425,6 +438,38 @@ func _active_job_row(job: Dictionary) -> Control:
 		int(job.get("reward_relation", 0))
 	]
 	v.add_child(Style.label(status_text, Style.SMALL, Style.MUTED))
+	return panel
+
+
+func _fief_overview_row() -> Control:
+	var panel := PanelContainer.new()
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	panel.add_child(margin)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	margin.add_child(v)
+
+	var fid := GameState.fief_id()
+	var s_name := String(WorldData.settlement(fid)["name"])
+	var r_name := String(WorldData.FACTIONS[GameState.fief_realm()]["name"])
+	var title_lbl := Style.label("Seat of Governance: %s (%s)" % [s_name, r_name], Style.LARGE, Style.BRASS)
+	v.add_child(title_lbl)
+
+	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
+	var f_silver := int(GameState.player_fief.get("silver", 0))
+	var f_food := int(GameState.player_fief.get("food", 0))
+	var f_garr: int = int(GameState.player_fief.get("garrison", []).size())
+	var status_text := "Garrison: %d squads · Estate Treasury: %d silver · Granary: %d rations" % [
+		f_garr, f_silver, f_food
+	]
+	if is_b:
+		status_text += " · [Raid Damage: Needs Reconstruction]"
+	v.add_child(Style.label(status_text, Style.BODY, Style.TEXT if not is_b else Style.ENEMY_LIGHT))
 	return panel
 
 

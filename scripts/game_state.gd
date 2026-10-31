@@ -20,6 +20,7 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
+const Fiefs = preload("res://scripts/data/fiefs.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -83,6 +84,8 @@ var hired_heroes: Array = []
 var active_jobs: Array = []
 ## Completed jobs log.
 var completed_jobs: Array = []
+## Player-held fief and estate (Feature 12).
+var player_fief: Dictionary = {}
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -132,6 +135,7 @@ func new_warband() -> void:
 	hired_heroes = []
 	active_jobs = []
 	completed_jobs = []
+	player_fief = {}
 	_heal_clock = 0.0
 	casual_mode = false
 	_next_id = 1
@@ -397,6 +401,250 @@ func _check_job_deadlines() -> void:
 				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
 
 
+# ---------------------------------------------------------------- fiefdom & vassalage
+
+func has_fief() -> bool:
+	return not player_fief.is_empty() and String(player_fief.get("settlement_id", "")) != ""
+
+
+func fief_id() -> String:
+	return String(player_fief.get("settlement_id", ""))
+
+
+func is_player_fief(settlement_id: String) -> bool:
+	return has_fief() and fief_id() == settlement_id
+
+
+func fief_realm() -> String:
+	return String(player_fief.get("realm", ""))
+
+
+func can_petition_fief(realm: String) -> bool:
+	if has_fief() or world == null:
+		return false
+	if renown < Fiefs.MIN_RENOWN or relation_with_realm(realm) < Fiefs.MIN_RELATION:
+		return false
+	if is_at_war_with(realm):
+		return false
+	return not available_fiefs_for_grant(realm).is_empty()
+
+
+func available_fiefs_for_grant(realm: String) -> Array:
+	if world == null:
+		return []
+	var candidates := []
+	for s_id in world.holdings_of(realm):
+		var kind: String = String(WorldData.settlement(s_id).get("type", ""))
+		if kind == WorldData.TOWN:
+			continue
+		var held_by_lord := false
+		for l in world.lords:
+			if String(l.get("fief", "")) == s_id and String(l.get("realm", "")) == realm:
+				held_by_lord = true
+				break
+		if not held_by_lord:
+			candidates.append(s_id)
+	return candidates
+
+
+func accept_fealty_and_fief(settlement_id: String, realm: String) -> bool:
+	if not can_petition_fief(realm):
+		return false
+	var candidates := available_fiefs_for_grant(realm)
+	if not candidates.has(settlement_id):
+		return false
+
+	if has_contract():
+		contract = {}
+
+	player_fief = {
+		"settlement_id": settlement_id,
+		"realm": realm,
+		"silver": 0,
+		"food": 20,
+		"improvements": {
+			Fiefs.IMPROVEMENT_GRANARY: false,
+			Fiefs.IMPROVEMENT_FORTIFICATIONS: false,
+			Fiefs.IMPROVEMENT_MILL: false,
+		},
+		"garrison": [],
+		"granted_at": world.hour if world != null else 0.0,
+		"lost": false,
+	}
+
+	if world != null:
+		if world.player() != null:
+			world.player().faction = realm
+		world.garrisons[settlement_id] = []
+		add_realm_relation(realm, 20)
+		var s_name := String(WorldData.settlement(settlement_id)["name"])
+		var r_name := String(WorldData.FACTIONS[realm]["name"])
+		var cult := String(WorldData.FACTIONS[realm]["culture"])
+		var title := Fiefs.title_for(cult)
+		_note("Swore fealty to the %s! Granted lordship of %s as %s of %s." % [
+			r_name, s_name, title, s_name
+		])
+		world.emit_event({
+			"type": "fief_granted",
+			"company": "Your warband",
+			"settlement": settlement_id,
+			"realm": realm,
+		})
+
+	save_game()
+	return true
+
+
+func renounce_fief() -> void:
+	if not has_fief():
+		return
+	var s_name := String(WorldData.settlement(fief_id())["name"])
+	var r := fief_realm()
+	player_fief = {}
+	if world != null and world.player() != null:
+		world.player().faction = ""
+	add_realm_relation(r, -25)
+	_note("You renounced your fealty to the %s, forfeiting %s." % [
+		WorldData.FACTIONS.get(r, {}).get("name", "crown"), s_name
+	])
+	save_game()
+
+
+func _fief_day() -> void:
+	if not has_fief() or world == null:
+		return
+	if bool(player_fief.get("lost", false)):
+		return
+	var is_b: bool = bool(world.is_burned(fief_id()))
+	var tax := Fiefs.daily_tax(player_fief, is_b)
+	var prov := Fiefs.daily_food(player_fief, is_b)
+	player_fief["silver"] = mini(Fiefs.MAX_STORAGE_SILVER, int(player_fief.get("silver", 0)) + tax)
+	player_fief["food"] = mini(Fiefs.max_food_capacity(player_fief), int(player_fief.get("food", 0)) + prov)
+
+	var g: Array = player_fief.get("garrison", [])
+	for sq in g:
+		var w: int = int(sq.get("wounded", 0))
+		if w > 0:
+			sq["wounded"] = w - 1
+			sq["men"] = int(sq["men"]) + 1
+
+
+func collect_fief_taxes() -> int:
+	if not has_fief():
+		return 0
+	var collected := int(player_fief.get("silver", 0))
+	player_fief["silver"] = 0
+	silver += collected
+	_note("Collected %d silver from estate taxes at %s." % [collected, WorldData.settlement(fief_id())["name"]])
+	save_game()
+	return collected
+
+
+func collect_fief_food(amount: int = -1) -> int:
+	if not has_fief():
+		return 0
+	var available := int(player_fief.get("food", 0))
+	var take := available if amount <= 0 else mini(amount, available)
+	player_fief["food"] = available - take
+	food += take
+	_note("Collected %d food rations from estate granaries at %s." % [take, WorldData.settlement(fief_id())["name"]])
+	save_game()
+	return take
+
+
+func station_squad_in_fief(squad_id: int) -> bool:
+	if not has_fief() or world == null:
+		return false
+	var s_idx := -1
+	for i in army.size():
+		if int(army[i]["id"]) == squad_id:
+			s_idx = i
+			break
+	if s_idx == -1 or army.size() <= 1:
+		return false
+	var squad: Dictionary = army[s_idx]
+	army.remove_at(s_idx)
+	if not player_fief.has("garrison"):
+		player_fief["garrison"] = []
+	player_fief["garrison"].append(squad)
+	world.garrisons[fief_id()] = player_fief["garrison"]
+	_note("Stationed %s in the garrison of %s." % [String(squad.get("name", "Squad")), WorldData.settlement(fief_id())["name"]])
+	save_game()
+	return true
+
+
+func withdraw_squad_from_fief(garrison_index: int) -> bool:
+	if not has_fief() or world == null:
+		return false
+	var g: Array = player_fief.get("garrison", [])
+	if garrison_index < 0 or garrison_index >= g.size():
+		return false
+	if army.size() >= squad_cap():
+		return false
+	var squad: Dictionary = g[garrison_index]
+	g.remove_at(garrison_index)
+	army.append(squad)
+	world.garrisons[fief_id()] = g
+	_note("Withdrew %s from the garrison into the active warband." % String(squad.get("name", "Squad")))
+	save_game()
+	return true
+
+
+func build_fief_improvement(improvement_key: String) -> Dictionary:
+	if not has_fief() or not Fiefs.IMPROVEMENTS.has(improvement_key):
+		return {"ok": false, "reason": "Invalid improvement"}
+	var imp: Dictionary = Fiefs.IMPROVEMENTS[improvement_key]
+	var cost := int(imp["cost"])
+	if silver < cost:
+		return {"ok": false, "reason": "Insufficient silver (%d needed)" % cost}
+	var imps: Dictionary = player_fief.get("improvements", {})
+	if bool(imps.get(improvement_key, false)):
+		return {"ok": false, "reason": "Already constructed"}
+	silver -= cost
+	imps[improvement_key] = true
+	player_fief["improvements"] = imps
+	_note("Constructed %s at %s (%d silver)." % [imp["name"], WorldData.settlement(fief_id())["name"], cost])
+	save_game()
+	return {"ok": true}
+
+
+func repair_fief() -> Dictionary:
+	if not has_fief() or world == null or not world.is_burned(fief_id()):
+		return {"ok": false, "reason": "Fief is not damaged"}
+	if silver < Fiefs.REPAIR_COST:
+		return {"ok": false, "reason": "Insufficient silver (%d needed)" % Fiefs.REPAIR_COST}
+	silver -= Fiefs.REPAIR_COST
+	world.burned.erase(fief_id())
+	_note("Repaired village and granaries at %s (%d silver)." % [WorldData.settlement(fief_id())["name"], Fiefs.REPAIR_COST])
+	save_game()
+	return {"ok": true}
+
+
+func _on_fief_transferred(id: String, realm: String, was: String) -> void:
+	if not is_player_fief(id):
+		return
+	var s_name := String(WorldData.settlement(id)["name"])
+	if realm != fief_realm():
+		var captor_name := String(WorldData.FACTIONS.get(realm, {}).get("name", "the enemy"))
+		player_fief["lost"] = true
+		_note("Catastrophe! Your fief of %s has fallen to the %s!" % [s_name, captor_name])
+		world.emit_event({"type": "fief_lost", "company": "Your warband", "settlement": id, "by": captor_name})
+	elif bool(player_fief.get("lost", false)):
+		player_fief["lost"] = false
+		_note("Rejoice! Your fief of %s has been liberated and returned to your governance!" % s_name)
+	save_game()
+
+
+func _on_fief_burned(raider: String) -> void:
+	if not has_fief():
+		return
+	var cur_silver := int(player_fief.get("silver", 0))
+	player_fief["silver"] = int(cur_silver * 0.5)
+	var s_name := String(WorldData.settlement(fief_id())["name"])
+	_note("Disaster! Raiders led by %s burned your fief of %s and looted the estate treasury!" % [raider, s_name])
+	save_game()
+
+
 func squad_by_id(id: int) -> Dictionary:
 	for s in army:
 		if int(s["id"]) == id:
@@ -474,6 +722,15 @@ func recommendation() -> Dictionary:
 					return {"title": "Bounty hunt", "body": "Hunt down %s near %s before deadline (%.0fh remaining)." % [
 						job.get("target_name", "the marauders"), String(WorldData.settlement(job.get("origin_settlement", ""))["name"]),
 						hrs_left], "action": "map", "place": ""}
+	if has_fief():
+		var f_id := fief_id()
+		if world.is_burned(f_id):
+			return {"title": "Fief in ruins", "body": "%s was raided and damaged. Return home to reconstruct it." % WorldData.settlement(f_id)["name"],
+				"action": "place", "place": f_id}
+		var uncollected_tax := int(player_fief.get("silver", 0))
+		if uncollected_tax >= 150:
+			return {"title": "Collect estate taxes", "body": "%d silver in estate taxes waits at %s." % [uncollected_tax, WorldData.settlement(f_id)["name"]],
+				"action": "place", "place": f_id}
 	var close_bond := _closest_bond_goal()
 	if not close_bond.is_empty():
 		return {"title": "A bond is taking shape", "body": "%s are %.1f points from rank %s. Fighting beside one another strengthens it." % [
@@ -800,6 +1057,7 @@ func settle() -> void:
 	while _paid_day < today:
 		_paid_day += 1
 		_upkeep()
+		_fief_day()
 
 
 ## One day's wages and food. Whatever can't be paid or fed is a share of the men going
@@ -1867,6 +2125,7 @@ func to_dict() -> Dictionary:
 		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair, "bond_intro_ids": bond_intro_ids,
 		"bond_events": bond_events, "bond_records": bond_records,
 		"active_jobs": active_jobs.duplicate(true), "completed_jobs": completed_jobs.duplicate(true),
+		"player_fief": player_fief.duplicate(true),
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
@@ -1892,6 +2151,9 @@ func from_dict(data: Dictionary) -> bool:
 	hired_heroes = data.get("hired_heroes", []) if typeof(data.get("hired_heroes")) == TYPE_ARRAY else []
 	active_jobs = data.get("active_jobs", []).duplicate(true) if typeof(data.get("active_jobs")) == TYPE_ARRAY else []
 	completed_jobs = data.get("completed_jobs", []).duplicate(true) if typeof(data.get("completed_jobs")) == TYPE_ARRAY else []
+	player_fief = data.get("player_fief", {}).duplicate(true) if typeof(data.get("player_fief")) == TYPE_DICTIONARY else {}
+	if has_fief() and world != null:
+		world.garrisons[fief_id()] = player_fief.get("garrison", [])
 	_heal_clock = float(data.get("heal_clock", 0.0))
 	silver = int(data.get("silver", Economy.START_SILVER))
 	food = int(data.get("food", -1))

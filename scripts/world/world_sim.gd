@@ -23,6 +23,7 @@ const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const SocialSim = preload("res://scripts/world/social_sim.gd")
 const Politics = preload("res://scripts/data/politics.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
+const Fiefs = preload("res://scripts/data/fiefs.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -59,7 +60,7 @@ const ACTIVITY_TYPES := {
 	"lord_captured": true, "lord_captured_ai": true, "lord_slain": true,
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
-	"job_completed": true,
+	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
 }
 
 
@@ -438,6 +439,8 @@ func set_owner(id: String, realm: String) -> void:
 	emit_event({"type": "captured", "settlement": id, "realm": realm, "from": was})
 	if social != null:
 		social.on_settlement_captured(id, realm, was, self)
+	if game_state != null and game_state.has_method("_on_fief_transferred"):
+		game_state._on_fief_transferred(id, realm, was)
 
 
 ## "Castle of the Kingdom of Vardmark · Vardish": what a place is, whose it is now, and who
@@ -513,7 +516,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "war"
 		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
 			cat = "siege"
-		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed":
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost":
 			cat = "deed"
 		"fight", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
@@ -614,6 +617,28 @@ func _activity_text(event: Dictionary) -> String:
 			return "%s crushed %s%s." % [event.get("company", "The warband"), event.get("enemy", "the enemy"), place_str]
 		"job_completed":
 			return "%s completed the contract '%s'." % [event.get("company", "The warband"), event.get("title", "Contract")]
+		"fief_granted":
+			var s_id: String = String(event.get("settlement", ""))
+			var s_name := String(Data.settlement(s_id)["name"]) if Data.SETTLEMENTS.has(s_id) else "a fief"
+			return "%s was granted lordship of %s as a vassal of the %s." % [
+				event.get("company", "The warband"),
+				s_name,
+				Data.FACTIONS.get(event.get("realm", ""), {}).get("name", "crown")
+			]
+		"fief_defended":
+			var s_id: String = String(event.get("settlement", ""))
+			var s_name := String(Data.settlement(s_id)["name"]) if Data.SETTLEMENTS.has(s_id) else "the estate"
+			return "The defenders of %s repulsed the raiding party of %s." % [
+				s_name,
+				event.get("enemy", "raiders")
+			]
+		"fief_lost":
+			var s_id: String = String(event.get("settlement", ""))
+			var s_name := String(Data.settlement(s_id)["name"]) if Data.SETTLEMENTS.has(s_id) else "A fief"
+			return "%s has fallen to %s!" % [
+				s_name,
+				event.get("by", "the enemy")
+			]
 	return ""
 
 
@@ -1163,6 +1188,8 @@ func _garrisons_day() -> void:
 	for id in garrisons:
 		var army: Array = garrisons[id]
 		var kind := String(Data.settlement(id)["type"])
+		if not Lords.GARRISON_RECRUITS_PER_DAY.has(kind):
+			continue
 		var budget := mini(int(Lords.GARRISON_RECRUITS_PER_DAY[kind]),
 			garrison_capacity(id) - men_of(army))
 		var realm: Dictionary = realms[owner_of(id)]
@@ -1509,12 +1536,23 @@ func _burn(l: Dictionary, village: String) -> void:
 	if is_burned(village):
 		return
 	var lp := party(int(l.get("party", -1)))
+	var is_pf: bool = game_state != null and game_state.is_player_fief(village)
 	if lp != null and not lp.army.is_empty():
 		var militia := village_militia(village)
 		var lord_men := men_of(lp.army)
 		var militia_men := men_of(militia)
-		# A severely depleted lord with fewer men than the local militia gets repulsed
-		if lord_men < militia_men and rng.randf() < 0.6:
+		var garrison_squads: Array = garrisons.get(village, [])
+		var has_forts: bool = is_pf and bool(game_state.player_fief.get("improvements", {}).get(Fiefs.IMPROVEMENT_FORTIFICATIONS, false))
+		var bonus_militia := 15 if has_forts else 0
+		var def_men := militia_men + men_of(garrison_squads) + bonus_militia
+		if has_forts:
+			def_men = int(def_men * 1.35)
+		if def_men > lord_men and rng.randf() < 0.75:
+			emit_event({"type": "fief_defended", "settlement": village, "enemy": String(l["name"])})
+			if is_pf:
+				game_state._note("Your garrison and militia at %s repulsed the raiding party of %s!" % [Data.settlement(village)["name"], l["name"]])
+			return
+		elif lord_men < militia_men and rng.randf() < 0.6:
 			emit_event({"type": "raid_repulsed", "village": village, "by_militia": true, "lord": l["name"]})
 			return
 		# Resisting militia inflicts light skirmish attrition (0-2 casualties)
@@ -1532,6 +1570,8 @@ func _burn(l: Dictionary, village: String) -> void:
 	if realms.has(v_owner):
 		add_weariness(v_owner, Politics.WEARINESS_LOST_VILLAGE)
 	emit_event({"type": "burned", "village": village, "by": String(l["name"])})
+	if is_pf:
+		game_state._on_fief_burned(String(l["name"]))
 
 
 ## A day's money. Each realm takes in its places' dues and pays its lords' wages; a lord

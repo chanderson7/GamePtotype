@@ -65,7 +65,7 @@ They are not calendar estimates.
 | 9 | Captain development and optional bond stories | Following | M–L | Current captain IDs/bonds; stable campaign economy |
 | 10 | Farah and Kaede's complete routes | Implemented 2026-10-30 | L | Shared social eligibility and journal |
 | 11 | Recovery options and campaign achievements | Later | M–L | Stable battle results and campaign statistics |
-| 12 | A first fief, then playable sieges | Later expansion | L | Stable complete Phase 4 loop |
+| 12 | A first fief before a kingdom | Implemented 2026-10-31 | L | Stable complete Phase 4 loop |
 
 **Minimum useful release:** 1–5 with a simple journal. The world changes and the player can
 participate. Allied reserve battles, prisoners, new romance routes and land ownership can
@@ -389,19 +389,21 @@ Treat these as two separate releases after the campaign economy is stable.
 saves preserve current outcomes; goals reference real events, pay once if later rewarded,
 and do not require romance or a particular culture.
 
-### 12 — A first fief before a kingdom
+### 12 — A first fief before a kingdom — implemented
 
 **Player value:** a durable home gives the company a place worth defending.
 
-Begin with one awarded fief, a small treasury view, garrison management and one repair or
-supply investment. Define loss, recapture, obligations to the realm and resident relocation
-before adding buildings. Vassalage should be a deliberate political commitment.
-
-Then prototype one playable siege location using the same defenders and capture rules as
-auto-resolve. Validate phone controls, navigation and performance before adding more maps.
-
-A player-founded kingdom, succession politics and a large construction tree should follow
-successful fief playtests. They should not be prerequisites for the next playable release.
+Implemented:
+- Fealty petitioning and swearing fealty (requires renown >= 50, relation >= 20, unassigned crown village/castle). Converts mercenary contract into permanent vassalage (`world.player().faction = realm`).
+- Cultural lord titles (*Lord* of Vardmark, *Emir* of Kharzan, *Jito* of Ryumon).
+- Daily settlement taxes (base 50 silver for village, 90 for castle) and granary food rations (base 12 for village, 20 for castle), capped at 1,500 silver storage.
+- Garrison squad stationing and withdrawal preserving squad cap and field viability; daily garrison healing restores 1 wounded soldier per squad.
+- Manor investments and reconstruction: granary (+15 food/day, 250 cap), fortifications (+15 militia, +35% defense strength against raids), water mill (+30 silver/day taxes), village repairs.
+- Raid defense: stationed garrisons and fortifications dynamically defend against roaming lord raids in `_burn()`.
+- Loss and recapture: capture transfers mark fief as `lost = true`; liberating returns it to player governance.
+- Renunciation: players can renounce fealty, clearing the fief and suffering a -25 relation penalty.
+- UI integrations: settlement screen manor card, warband screen fiefdom card, and dynamic campaign guidance.
+- Test verification: `tests/fief_tests.gd` (62 tests pass, 0 failures).
 
 ## 6. Suggested delivery packages
 
