@@ -1167,12 +1167,25 @@ func _check_rivers() -> void:
 	_expect(clear, "no tree, peak or dune stands in a river")
 
 
+## Step the clock `hours`, waving on friendly lords who stop to talk (the "Leave" button).
+func _ride(w: WorldSim, hours: float) -> void:
+	var left := hours
+	while left > 0.000001:
+		var before := w.hour
+		w.step(left)
+		left -= w.hour - before
+		var e = w.party(w.encounter) if w.encounter != -1 else null
+		if e == null or e.kind != WorldSim.LORD or w.relation_to_player(e.faction) != "friendly":
+			return
+		w.encounter = -1
+
+
 func _check_travel() -> void:
 	var w := _quiet_world(2)
 	var hours := w.hours_to("khalun")
 	var set_out := w.hour
 	w.travel("khalun")
-	w.step(hours)
+	_ride(w, hours)
 	_expect(w.here() == "khalun" and absf(w.hour - set_out - hours) < 0.01,
 		"a ride from Highcliff to Khalun takes the time the map says (%.1f hours)" % hours)
 
@@ -1181,14 +1194,14 @@ func _check_travel() -> void:
 		+ WorldData.pos("kettlebrook").distance_to(WorldData.pos("hamazaki")) / WorldSim.SEA_SPEED
 	hours = w.hours_to("hamazaki")
 	w.travel("hamazaki")
-	w.step(hours + 0.01)
+	_ride(w, hours + 0.01)
 	_expect(absf(hours - by_hand) < 0.01 and w.here() == "hamazaki", "sea lanes are slower than roads (%.1f hours to Hamazaki)" % hours)
 
 	var before := w.hour
 	w.step(5.0)
 	_expect(w.hour == before, "the clock stands still while the warband does")
 	w.wait(8.0)
-	w.step(20.0)
+	_ride(w, 20.0)
 	_expect(absf(w.hour - before - 8.0) < 0.001, "waiting eight hours takes eight hours")
 
 
@@ -1560,11 +1573,16 @@ func _check_lords() -> void:
 		lp.path = []
 	w._lord_fights()
 	var beaten: Dictionary = v if int(v["party"]) == -1 else k
-	var fought: bool = (int(v["party"]) == -1) != (int(k["party"]) == -1) and beaten["state"] == "regroup"
-	w.hour = float(beaten["back_at"]) + 0.1
-	w._step_lords(0.0)
-	_expect(fought and beaten["state"] == "field" and w.party(int(beaten["party"])).node == w.seat_of(beaten),
-		"lords at war who meet fight it out, and the loser regroups at his seat a day later")
+	# The loser may be taken prisoner (see prisoner_and_grudge_tests); otherwise he regroups.
+	var fought: bool = (int(v["party"]) == -1) != (int(k["party"]) == -1) \
+		and (beaten["state"] == "regroup" or beaten["state"] == "prisoner")
+	var regrouped := true
+	if beaten["state"] == "regroup":
+		w.hour = float(beaten["back_at"]) + 0.1
+		w._step_lords(0.0)
+		regrouped = beaten["state"] == "field" and w.party(int(beaten["party"])).node == w.seat_of(beaten)
+	_expect(fought and regrouped,
+		"lords at war who meet fight it out, and the loser is taken or regroups at his seat a day later")
 
 	# A raid left alone burns the village: no dues, no recruits, until it's rebuilt.
 	var raider: Dictionary = w.lords.filter(func(l): return l["realm"] == "kharzan" and l["state"] == "field")[0]

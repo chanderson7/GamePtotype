@@ -997,7 +997,8 @@ func _check_encounter() -> void:
 				encounter = lp.id
 				emit_event({"type": "encounter", "party": lp.id})
 				return
-			elif rel == "friendly":
+			elif rel == "friendly" and player().moving():
+				# A friendly lord stops to talk on the road, not while you rest in town.
 				encounter = lp.id
 				lp.grace_until = hour + 12.0
 				emit_event({"type": "friendly_encounter", "party": lp.id})
@@ -2458,7 +2459,8 @@ static func clean_army(raw: Array) -> Array:
 			var raw_history = cap.get("history", {})
 			if typeof(raw_history) == TYPE_DICTIONARY:
 				cap["history"] = {"wounds": int(raw_history.get("wounds", 0)),
-					"fallen_friends": raw_history.get("fallen_friends", []).duplicate() if typeof(raw_history.get("fallen_friends", [])) == TYPE_ARRAY else []}
+					"fallen_friends": raw_history.get("fallen_friends", []).duplicate() if typeof(raw_history.get("fallen_friends", [])) == TYPE_ARRAY else [],
+					"scars": raw_history.get("scars", []).duplicate() if typeof(raw_history.get("scars", [])) == TYPE_ARRAY else []}
 			squad["captain"] = cap
 		out.append(squad)
 	return out

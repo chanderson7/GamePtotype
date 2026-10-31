@@ -202,8 +202,13 @@ func _check_ceremony_and_pacts() -> void:
 	_expect(soc.scheduled_ceremony.get("cost_silver", 0) == Relationships.PUBLIC_CEREMONY_SILVER, "public ceremony costs 100 silver")
 
 	# Advance world by 6 hours
+	# Friendly lords who stop to talk are waved on, as the "Leave" button does.
 	w.wait(6.5)
-	w.step(6.5)
+	for i in 20:
+		w.step(6.5)
+		if w.encounter == -1:
+			break
+		w.encounter = -1
 
 	_expect(soc.scheduled_ceremony.get("completed", false), "ceremony completed after 6 hours")
 	var rel: Dictionary = soc.get_relationship(RomanceStories.EDDA)

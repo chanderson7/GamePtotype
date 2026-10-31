@@ -606,7 +606,9 @@ func _hero_row(hero: Dictionary) -> Control:
 	text.add_child(Style.label(name_str + " ★", Style.BODY, Style.BRASS))
 	var role_line := "%s · %s" % [Units.troop_name({"unit": hero.get("unit", "")}, cult), spec]
 	text.add_child(Style.label(role_line, Style.SMALL, Style.TEXT))
-	text.add_child(Style.label(String(hero.get("bio", "")), Style.SMALL, Style.MUTED))
+	var bio := Style.label(String(hero.get("bio", "")), Style.SMALL, Style.MUTED)
+	bio.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.add_child(bio)
 
 	var quote := Style.label("\"%s\"" % String(hero.get("dialogue", "")), Style.SMALL, Style.TEXT)
 	quote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

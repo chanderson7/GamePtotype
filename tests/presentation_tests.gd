@@ -40,7 +40,7 @@ func _run() -> void:
 	gs = root.get_node("GameState")
 	sound = root.get_node("Sound")
 	gs.persist = false
-	sound.settings_path = "/private/tmp/bannerfall-presentation-%d.cfg" % OS.get_process_id()
+	sound.settings_path = "user://bannerfall-presentation-%d.cfg" % OS.get_process_id()
 	sound.set_text_scale(1.0)
 	sound.set_reduced_motion(false)
 	sound.set_illustrations(true)
@@ -301,6 +301,9 @@ func _check_ui() -> void:
 	gs.world.player().node = "highcliff"
 	gs.world.player().next = ""
 	root.get_node("Scenes").settlement_arrival_pending = true
+	# Visiting restocks recruit offers and jobs that are due; that is the visit, not the arrival card.
+	gs.world.offers_at("highcliff")
+	gs.world.jobs_at("highcliff")
 	var arrival_baseline: Dictionary = gs.to_dict().duplicate(true)
 	await open_scene("settlement")
 	check(current_scene.find_child("LocationIllustration", true, false) != null, "capital arrival shows its culture-specific illustration")
