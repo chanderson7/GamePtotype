@@ -345,7 +345,11 @@ static func campaign(seed_value: int, days: int) -> Dictionary:
 	while w.hour < days * 24.0 and guard < 50000 and gs.total_men() > 0:
 		guard += 1
 		gs.map_notice = ""
-		if w.encounter != -1:
+		if w.encounter != -1 and w.party(w.encounter) != null and w.party(w.encounter).kind == w.LORD \
+				and w.relation_to_player(w.party(w.encounter).faction) == "friendly":
+			# A friendly lord stopping to talk: say farewell, as the "Leave" button does.
+			w.encounter = -1
+		elif w.encounter != -1:
 			# Like a player reading the scouts' report: withdraw from a fight the odds say
 			# you'd lose, unless it's an ambush and there's no getting away.
 			var band = w.party(w.encounter)

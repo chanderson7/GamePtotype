@@ -134,6 +134,8 @@ static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array
 		"specialization": "",
 		"bonds": {},
 		"history": {"wounds": 0, "fallen_friends": [], "scars": []},
+		"is_hero": false,
+		"hero_id": "",
 	}
 
 
