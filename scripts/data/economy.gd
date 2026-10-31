@@ -63,7 +63,8 @@ static func daily_wage(squad: Dictionary) -> float:
 	var wage_mult: float = Units.wage_mult(unit_id) if Units.has(unit_id) else 1.0
 	var level := int(squad.get("level", 1))
 	var per_man := float(WAGE.get(role, 1.0)) * (1.0 + WAGE_PER_LEVEL * (level - 1)) * wage_mult
-	return per_man * int(squad.get("men", 0))
+	var headcount: int = int(squad.get("men", 0)) + int(squad.get("wounded", 0))
+	return per_man * headcount
 
 
 ## Silver to train a squad from its level to the next.

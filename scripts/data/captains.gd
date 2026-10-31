@@ -18,7 +18,30 @@ const STEADFAST := "Steadfast" # steadies the squad
 const FRAGILE := "Fragile"     # the squad's nerve goes
 const TEMPERAMENTS := [VENGEFUL, STEADFAST, FRAGILE]
 
-## A second trait, or none.
+## Specializations earned by veteran captains (Phase 5)
+const SCOUT := "Scout"
+const QUARTERMASTER := "Quartermaster"
+const DRILLMASTER := "Drillmaster"
+const CHAMPION := "Champion"
+const SPECIALIZATIONS := [SCOUT, QUARTERMASTER, DRILLMASTER, CHAMPION]
+
+const SPECIALIZATION_TITLES := {
+	SCOUT: "Eye of the Host",
+	QUARTERMASTER: "Master of Provisions",
+	DRILLMASTER: "Forgemaster of Ranks",
+	CHAMPION: "Hero of the Vanguard",
+}
+
+const SPECIALIZATION_DESCRIPTIONS := {
+	SCOUT: "Extends scouting sight on the road by 30%, reveals exact enemy numbers, and halves ambush risk.",
+	QUARTERMASTER: "Reduces company food consumption by 20%, yields +15% battlefield spoils, and halves desertion risk.",
+	DRILLMASTER: "Awards +25% combat experience and cuts recruit experience dilution in half.",
+	CHAMPION: "Squad deals +15% melee damage and charge impact; captain gains +25% bonus vitality.",
+}
+
+const SPECIALIZATION_BATTLES := 5
+const SPECIALIZATION_KILLS := 15
+const CASUAL_WOUND_BATTLES := 3
 const LUCKY := "Lucky"   # better odds on the death roll
 const MENTOR := "Mentor" # bonds grow faster
 const BOLD := "Bold"     # the squad holds its nerve better under them
@@ -108,9 +131,16 @@ static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array
 		"wounded": 0,
 		"battles": 0,
 		"kills": 0,
+		"specialization": "",
 		"bonds": {},
-		"history": {"wounds": 0, "fallen_friends": []},
+		"history": {"wounds": 0, "fallen_friends": [], "scars": []},
 	}
+
+
+static func can_specialize(captain: Dictionary) -> bool:
+	if String(captain.get("specialization", "")) != "":
+		return false
+	return int(captain.get("battles", 0)) >= SPECIALIZATION_BATTLES or int(captain.get("kills", 0)) >= SPECIALIZATION_KILLS
 
 
 ## A stable portrait for new captains and old saves. Old memorial entries did not

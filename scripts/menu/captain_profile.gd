@@ -39,6 +39,8 @@ func _build() -> void:
 	hero.add_child(identity)
 	identity.add_child(Page.note(String(found.get("company", "The company")), Style.LARGE, Style.TEXT))
 	identity.add_child(Page.note(String(found.get("unit_name", "Captain")), Style.BODY, Style.MUTED))
+	if bool(captain.get("is_hero", false)):
+		identity.add_child(Page.note("★ Unique Companion", Style.SMALL, Style.BRASS))
 	if not fallen:
 		identity.add_child(Page.note(Captains.traits(captain), Style.BODY, Style.BRASS))
 
@@ -51,6 +53,11 @@ func _build() -> void:
 		col.add_child(_detail(temperament, String(Captains.TRAIT_TEXT.get(temperament, "shapes how they lead under pressure"))))
 		if quirk != "":
 			col.add_child(_detail(quirk, String(Captains.TRAIT_TEXT.get(quirk, "marks their way of command"))))
+		var spec := String(captain.get("specialization", ""))
+		if spec != "":
+			var spec_title: String = Captains.SPECIALIZATION_TITLES.get(spec, spec)
+			var spec_desc: String = Captains.SPECIALIZATION_DESCRIPTIONS.get(spec, "")
+			col.add_child(_detail("%s: %s" % [spec, spec_title], spec_desc))
 
 	col.add_child(_heading("Campaign record"))
 	col.add_child(Page.note(_record_story(captain, found, fallen), Style.BODY, Style.TEXT))
@@ -64,6 +71,8 @@ func _build() -> void:
 	col.add_child(record)
 
 	if not fallen:
+		if Captains.can_specialize(captain):
+			_add_specialization_choices(col, captain)
 		_add_progress(col, found["squad"])
 		_add_bonds(col, captain)
 		_add_living_history(col, captain)
@@ -160,13 +169,33 @@ func _add_bonds(col: VBoxContainer, captain: Dictionary) -> void:
 		col.add_child(Page.note("No lasting bond yet. Captains grow close by fighting near one another.", Style.BODY, Style.MUTED))
 
 
+func _add_specialization_choices(col: VBoxContainer, captain: Dictionary) -> void:
+	col.add_child(_heading("Veteran Specialization"))
+	col.add_child(Page.note("This captain has led through the crucible of battle and qualifies for a veteran promotion. Choose a specialization for the company:", Style.BODY, Style.TEXT))
+	for spec in Captains.SPECIALIZATIONS:
+		var title: String = Captains.SPECIALIZATION_TITLES[spec]
+		var desc: String = Captains.SPECIALIZATION_DESCRIPTIONS[spec]
+		var btn := Page.button("%s: %s\n%s" % [spec, title, desc], func():
+			if GameState.specialize_captain(int(captain["id"]), spec):
+				Sound.play("charge")
+				for child in get_children():
+					remove_child(child)
+					child.queue_free()
+				_build()
+		)
+		col.add_child(btn)
+
+
 func _add_living_history(col: VBoxContainer, captain: Dictionary) -> void:
 	var history: Dictionary = captain.get("history", {})
 	var friends: Array = history.get("fallen_friends", [])
-	if friends.is_empty():
-		return
-	col.add_child(_heading("Fallen friends"))
-	col.add_child(Page.note("Carries the memory of %s." % ", ".join(PackedStringArray(friends)), Style.BODY, Style.TEXT))
+	if not friends.is_empty():
+		col.add_child(_heading("Fallen friends"))
+		col.add_child(Page.note("Carries the memory of %s." % ", ".join(PackedStringArray(friends)), Style.BODY, Style.TEXT))
+	var scars: Array = history.get("scars", [])
+	if not scars.is_empty():
+		col.add_child(_heading("Battle Scars"))
+		col.add_child(Page.note("Bears lasting scars: %s." % ", ".join(PackedStringArray(scars)), Style.BODY, Style.TEXT))
 
 
 func _add_memorial_bonds(col: VBoxContainer, captain: Dictionary) -> void:

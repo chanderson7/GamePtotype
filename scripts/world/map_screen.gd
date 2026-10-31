@@ -580,8 +580,9 @@ func _open_lord(lp) -> void:
 	if fief != "" and not l.get("ruler", false):
 		who += ", holding %s" % Data.settlement(fief)["name"]
 	var bearing := String(l.get("bearing", ""))
-	var body := "%s. %s: %s.\nAbout %d men in %d squads. %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
-		int(round(men / 10.0)) * 10, lp.army.size(), _lord_doing(l, lp)]
+	var strength_text := "%d men" % men if GameState.has_specialization(Captains.SCOUT) else "About %d men" % (int(round(men / 10.0)) * 10)
+	var body := "%s. %s: %s.\n%s in %d squads. %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
+		strength_text, lp.army.size(), _lord_doing(l, lp)]
 	if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == lp.faction:
 		if world.following_party == lp.id:
 			buttons.append(["Stop following", _on_stop_following])

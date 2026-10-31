@@ -92,8 +92,12 @@ func _build() -> void:
 
 
 	col.add_child(_section("Your warband"))
-	var note_text := "%d men in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
-		GameState.total_men(), GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
+	var wounded_total := GameState.total_wounded()
+	var men_desc := "%d men" % GameState.total_men()
+	if wounded_total > 0:
+		men_desc += " (+%d wounded)" % wounded_total
+	var note_text := "%s in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
+		men_desc, GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
 		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]
 	if GameState.has_contract():
 		var emp_name: String = WorldData.FACTIONS[GameState.contract_realm()]["name"]
@@ -289,15 +293,22 @@ func _squad_row(s: Dictionary) -> Control:
 	var who: Label
 	if c == null:
 		who = Style.label("No captain", Style.SMALL, Style.ENEMY_LIGHT)
-	elif int(c.get("wounded", 0)) > 0:
-		who = Style.label("%s · wounded, back in %d" % [c["name"], c["wounded"]], Style.SMALL, Style.ENEMY_LIGHT)
 	else:
-		who = Style.label("%s · %s" % [c["name"], Captains.traits(c)], Style.SMALL, Style.MUTED)
+		var hero_star := "★ " if bool(c.get("is_hero", false)) else ""
+		var spec_tag := " · %s" % c["specialization"] if String(c.get("specialization", "")) != "" else ""
+		if int(c.get("wounded", 0)) > 0:
+			who = Style.label("%s%s · wounded, back in %d%s" % [hero_star, c["name"], c["wounded"], spec_tag], Style.SMALL, Style.ENEMY_LIGHT)
+		else:
+			who = Style.label("%s%s%s · %s" % [hero_star, c["name"], spec_tag, Captains.traits(c)], Style.SMALL, Style.MUTED)
 	who.text = "%s · %s" % [Units.troop_name(s, GameState.culture), who.text]
 	who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who.custom_minimum_size = Vector2(10, 0)
 	text.add_child(who)
-	text.add_child(_meter("Strength · %d/%d" % [men, full], men, full,
+	var wounded: int = int(s.get("wounded", 0))
+	var str_label := "Strength · %d/%d" % [men, full]
+	if wounded > 0:
+		str_label += " (+%d wounded)" % wounded
+	text.add_child(_meter(str_label, men, full,
 		Style.MORALE_HIGH if men >= full * 0.65 else (Style.MORALE_MID if men >= full * 0.35 else Style.MORALE_LOW)))
 	var xp := int(s.get("xp", 0))
 	var xp_target := maxi(Troops.XP_PER_LEVEL, level * Troops.XP_PER_LEVEL)
@@ -312,7 +323,8 @@ func _squad_row(s: Dictionary) -> Control:
 		row.add_child(Style.label("Lv%d+" % level, Style.SMALL, Style.BRASS))
 	elif level > 1:
 		row.add_child(Style.label("Lv%d" % level, Style.SMALL, Style.BRASS))
-	row.add_child(Style.label("%d/%d" % [men, full], Style.BODY, Style.TEXT if men >= full else Style.ENEMY_LIGHT))
+	var count_text := "%d/%d" % [men, full] if wounded == 0 else "%d(+%d)/%d" % [men, wounded, full]
+	row.add_child(Style.label(count_text, Style.BODY, Style.TEXT if men >= full else Style.ENEMY_LIGHT))
 	if c != null:
 		_add_profile_tap(panel, int(c.get("id", -1)), String(c.get("name", "Captain")))
 	return panel

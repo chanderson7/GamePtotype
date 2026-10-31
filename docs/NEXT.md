@@ -59,7 +59,17 @@ and a reusable company camp—is implemented; siege resolution remains the next 
   - Performance & path caching: $O(1)$ Dijkstra route caching in `_path_cache`, with automatic invalidation on settlement conquest.
   - Documentation and test suite: verified by `tests/integration_and_polish_tests.gd` (48 tests pass).
 - Phase 4 is complete! All milestones (4.1 through 4.7) implemented, integrated, and verified.
-- Next is Phase 5 (Captains and men: wounded men who heal, captain skills and promotions, named heroes, casual mode).
+- Phase 5 is done (Captains & Men):
+  - **5.1 Recoverable Troop Casualties & Healing**: Tactical battle and auto-resolve losses split into 50% killed and 50% wounded. Wounded soldiers travel in baggage (`squad.wounded`), consume rations and wages, and heal naturally over time (1 man per squad every 12h marching; 6h resting in camp/settlements). Recovered troops preserve their earned XP, avoiding town recruitment dilution.
+  - **5.2 Casual Mode Campaign Setting**: Explicit toggle in Settings and New Campaign (`casual_mode: bool`). When active, captains who fail the death roll suffer a severe wound (`wounded = 3` battles, lasting scar logged in history) rather than permanent death, while regular soldiers take casualties under standard rules.
+  - **5.3 Captain Specializations & Promotions**: Veterans (5 battles or 15 kills) qualify for earned specialization tracks: Scout (+30% sight, exact enemy strength revealed, 50% reduced ambush risk), Quartermaster (-20% food consumption, +15% spoils, halves desertion risk), Drillmaster (+25% squad XP, cuts recruit dilution in half), Champion (+15% squad melee damage, captain +25% HP, reduced fall shock).
+  - **5.4 Unique Named Heroes (Companions)**: Three authored wanderers in taverns (Sir Katherine of the Pale in Highcliff, Tariq Windrunner in Khalun, Mori the Unbroken in Kurogane) with distinct portraits, dialogues, backgrounds, and hiring mechanics.
+  - **5.5 Bond Reflections & UI Polish**: Authored camp reflection vignettes for C, B, and A bonds; wounded soldiers rendered on Warband roster (`14/20 (+4 wounded)`); profile specialization promotion picker.
+  - **Test Verification**: Verified with 4 new dedicated test suites (124 tests total, 0 failures):
+    - `tests/casualty_and_healing_tests.gd` (32 tests pass)
+    - `tests/casual_mode_tests.gd` (20 tests pass)
+    - `tests/captain_development_tests.gd` (31 tests pass)
+    - `tests/hero_companion_tests.gd` (41 tests pass)
 
 ## Menu and onboarding update
 

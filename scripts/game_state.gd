@@ -18,6 +18,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const Heroes = preload("res://scripts/data/heroes.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -73,6 +74,12 @@ var map_notice := ""
 var desertion_warning := ""
 ## Battles the autoplay smoke test has fought this run.
 var autoplay_battles := 0
+## Casual mode: captains suffer severe wounds instead of permanent death.
+var casual_mode := false
+## Unique heroes recruited by the player.
+var hired_heroes: Array = []
+## Progress toward healing wounded soldiers (12h road / 6h rest per man).
+var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
 var persist := true
 var rng := RandomNumberGenerator.new()
@@ -117,6 +124,9 @@ func new_warband() -> void:
 	contract = {}
 	map_notice = ""
 	desertion_warning = ""
+	hired_heroes = []
+	_heal_clock = 0.0
+	casual_mode = false
 	_next_id = 1
 	_next_captain = 1
 	renown = 0
@@ -135,7 +145,7 @@ func _new_squad(type: String, squad_culture: String = "") -> Dictionary:
 	var captain := _new_captain(type, c)
 	var unit_id := Units.recruit(c, type)
 	var full := Units.full_size(unit_id)
-	var squad := {"id": _next_id, "type": type, "unit": unit_id, "men": full, "xp": 0, "level": 1,
+	var squad := {"id": _next_id, "type": type, "unit": unit_id, "men": full, "wounded": 0, "xp": 0, "level": 1,
 		"pending_branch": false, "culture": c, "name": Captains.company_name(captain, type), "captain": captain}
 	_next_id += 1
 	return squad
@@ -158,12 +168,93 @@ func total_men() -> int:
 	return n
 
 
+func total_wounded() -> int:
+	var n := 0
+	for s in army:
+		n += int(s.get("wounded", 0))
+	return n
+
+
+func total_headcount() -> int:
+	return total_men() + total_wounded()
+
+
 func is_wounded() -> bool:
 	for s in army:
 		var full := Units.full_size(s.get("unit", "")) if Units.has(s.get("unit", "")) else Troops.full_size(s["type"])
-		if int(s["men"]) < full:
+		if int(s["men"]) < full or int(s.get("wounded", 0)) > 0:
 			return true
 	return false
+
+
+func has_specialization(spec: String) -> bool:
+	for s in army:
+		var c = s.get("captain")
+		if c != null and String(c.get("specialization", "")) == spec:
+			return true
+	return false
+
+
+func specialize_captain(captain_id: int, spec: String) -> bool:
+	if not Captains.SPECIALIZATIONS.has(spec):
+		return false
+	var c = captain_by_id(captain_id)
+	if c == null or not Captains.can_specialize(c):
+		return false
+	c["specialization"] = spec
+	_note("%s has specialized as %s (%s)." % [c["name"], spec, Captains.SPECIALIZATION_TITLES.get(spec, "")])
+	save_game()
+	return true
+
+
+func available_heroes_at(settlement_id: String) -> Array:
+	var out := []
+	for hid in Heroes.HEROES:
+		if hired_heroes.has(hid):
+			continue
+		var h: Dictionary = Heroes.HEROES[hid]
+		if String(h.get("origin_settlement", "")) == settlement_id:
+			out.append(h.duplicate(true))
+	return out
+
+
+func recruit_hero(hero_id: String) -> bool:
+	if hired_heroes.has(hero_id) or not Heroes.HEROES.has(hero_id):
+		return false
+	if army.size() >= squad_cap():
+		return false
+	var h: Dictionary = Heroes.hero(hero_id)
+	var cost := int(h.get("cost", 200))
+	if silver < cost:
+		return false
+	silver -= cost
+	hired_heroes.append(hero_id)
+	var captain := Heroes.make_hero_captain(h, _next_captain)
+	_next_captain += 1
+	var unit_id: String = String(h.get("unit", ""))
+	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(h.get("type", Troops.INFANTRY)))
+	var squad := {
+		"id": _next_id,
+		"type": String(h.get("type", Troops.INFANTRY)),
+		"unit": unit_id,
+		"men": full,
+		"wounded": 0,
+		"xp": 30,
+		"level": 2 if Units.tier(unit_id) >= 2 else 1,
+		"pending_branch": false,
+		"culture": String(h.get("culture", culture)),
+		"name": Captains.company_name(captain, String(h.get("type", Troops.INFANTRY))),
+		"captain": captain,
+	}
+	_next_id += 1
+	army.append(squad)
+	_note("Recruited %s to your company." % String(h.get("name", "Hero")))
+	save_game()
+	return true
+
+
+func sighting_distance_mult() -> float:
+	return 1.3 if has_specialization(Captains.SCOUT) else 1.0
 
 
 func squad_by_id(id: int) -> Dictionary:
@@ -195,7 +286,13 @@ func daily_wages() -> int:
 
 ## Days the food lasts at one ration per man.
 func food_days() -> int:
-	return food / maxi(1, total_men())
+	var head := total_headcount()
+	if head <= 0:
+		return 999
+	var daily_food := head
+	if has_specialization(Captains.QUARTERMASTER):
+		daily_food = maxi(1, int(ceil(head * 0.8)))
+	return food / daily_food
 
 
 # ---------------------------------------------------------------- guidance
@@ -302,8 +399,12 @@ func reinforce_squad(id: int) -> bool:
 	if cost <= 0 or cost > silver:
 		return false
 	silver -= cost
-	s["xp"] = int(int(s["xp"]) * int(s["men"]) / float(full))
+	var dilution_ratio := float(s["men"]) / float(full)
+	if has_specialization(Captains.DRILLMASTER):
+		dilution_ratio = 1.0 - (1.0 - dilution_ratio) * 0.5
+	s["xp"] = int(int(s["xp"]) * dilution_ratio)
 	s["men"] = full
+	s["wounded"] = 0
 	save_game()
 	return true
 
@@ -421,13 +522,45 @@ func food_cost(rations: int) -> int:
 	return int(ceil(rations * float(Economy.FOOD_PRICE.get(kind, 0.3))))
 
 
+func is_resting() -> bool:
+	if world == null:
+		return true
+	var p = world.player()
+	if p == null:
+		return true
+	return not p.moving() or p.wait > 0.0
+
+
+func _tick_healing(hours: float) -> void:
+	if hours <= 0.0 or total_wounded() == 0:
+		if total_wounded() == 0:
+			_heal_clock = 0.0
+		return
+	var speed_mult := 2.0 if is_resting() else 1.0
+	_heal_clock += hours * speed_mult
+	while _heal_clock >= 12.0:
+		_heal_clock -= 12.0
+		var step_healed := false
+		for s in army:
+			var w: int = int(s.get("wounded", 0))
+			if w > 0:
+				s["wounded"] = w - 1
+				s["men"] = int(s["men"]) + 1
+				step_healed = true
+		if not step_healed:
+			_heal_clock = 0.0
+			break
+	if total_wounded() == 0:
+		_heal_clock = 0.0
+
+
 ## Let time pass on the map, then settle wages and food for every day that ended.
 func advance(hours: float) -> void:
-	if world == null:
-		return
-	world.step(hours)
-	drain_social_settlements()
-	settle()
+	if world != null:
+		world.step(hours)
+		drain_social_settlements()
+		settle()
+	_tick_healing(hours)
 
 
 func drain_social_settlements() -> void:
@@ -509,8 +642,8 @@ func settle() -> void:
 ## without, and up to DESERTION of them leave: a short day costs a few men, an empty
 ## purse costs one man in ten.
 func _upkeep() -> void:
-	var men := total_men()
-	if men == 0:
+	var head := total_headcount()
+	if head == 0:
 		return
 	if has_contract():
 		var pay := contract_daily_pay()
@@ -526,14 +659,20 @@ func _upkeep() -> void:
 			_note("Your mercenary contract with %s has concluded in good standing." % r_name)
 			if world != null:
 				world.emit_event({"type": "contract_ended", "company": "Your warband", "realm": realm})
-	var eaten := mini(food, men)
+	var food_needed := head
+	if has_specialization(Captains.QUARTERMASTER):
+		food_needed = maxi(1, int(ceil(head * 0.8)))
+	var eaten := mini(food, food_needed)
 	food -= eaten
 	var wages := daily_wages()
 	var paid := mini(silver, wages)
 	silver -= paid
-	var hungry := 1.0 - float(eaten) / men
+	var hungry := 1.0 - float(eaten) / maxf(1.0, float(food_needed))
 	var unpaid := 1.0 - float(paid) / maxf(1.0, wages)
-	var share := Economy.DESERTION * maxf(hungry, unpaid)
+	var desertion_rate := Economy.DESERTION
+	if has_specialization(Captains.QUARTERMASTER):
+		desertion_rate *= 0.5
+	var share := desertion_rate * maxf(hungry, unpaid)
 	if share <= 0.0:
 		return
 	var left := 0
@@ -795,6 +934,13 @@ func bond_conversation(a_id: int, b_id: int) -> Dictionary:
 				remembered.append(fallen_name)
 	if not remembered.is_empty():
 		passages.append("Before they rise, they speak the names of the absent: %s. The silence afterward is shared, not empty." % ", ".join(PackedStringArray(remembered)))
+	match rank:
+		"C":
+			passages.append("The bond between them is forged in iron (Rank C). Across the watchfire, a shared nod is all that is spoken — when shields lock tomorrow, each knows the other's flank is secure.")
+		"B":
+			passages.append("Their fellowship runs deep as blood (Rank B). Passing bread and sharpening whetstones in silence, they have pulled each other through the press of pikes and the rain of arrows.")
+		"A":
+			passages.append("An unbreakable oath of the vanguard (Rank A). Standing together against impossible odds, their names and deeds will forever be spoken together in the annals of the company.")
 	passages.append(_bond_voice_line(a, b))
 	return {"a": a, "b": b, "rank": rank, "points": points, "shared_battles": shared, "passages": passages}
 
@@ -841,6 +987,8 @@ func encounter_objective(band) -> String:
 		return "chief"
 	var ppos: Vector2 = world.party_pos(world.player())
 	if MapTerrain.shared().wooded(ppos) and not world.is_sea(band.node, band.next):
+		if has_specialization(Captains.SCOUT) and rng.randf() < 0.5:
+			return "rout"
 		return "ambush"
 	return "rout"
 
@@ -1001,7 +1149,11 @@ func describe_result(result: Dictionary) -> Array:
 		var cr: Dictionary = r["captain"]
 		match String(cr["fate"]):
 			"killed":
-				lines.append("%s fell. Rolled %d, needed %d to live." % [c["name"], cr["roll"], cr["needed"]])
+				if casual_mode:
+					lines.append("%s was grievously wounded (rolled %d, needed %d) and will sit out %d battles." % [
+						c["name"], cr["roll"], cr["needed"], Captains.CASUAL_WOUND_BATTLES])
+				else:
+					lines.append("%s fell. Rolled %d, needed %d to live." % [c["name"], cr["roll"], cr["needed"]])
 			"wounded":
 				lines.append("%s was wounded (rolled %d, needed %d) and will sit out %d battles." % [
 					c["name"], cr["roll"], cr["needed"], Captains.WOUND_BATTLES])
@@ -1038,11 +1190,13 @@ func battle_report(result: Dictionary) -> Dictionary:
 		var before_xp := int(squad.get("xp", 0))
 		var after_xp := before_xp + battle_kills
 		var level := int(squad.get("level", Troops.level_for(before_xp)))
+		var lost_count := maxi(0, before_men - after_men)
+		var wounded_count := int(round(lost_count * 0.5))
 		var row := {
 			"id": id, "name": String(squad.get("name", "Company")),
 			"unit_name": Units.troop_name(squad, culture),
 			"men_before": before_men, "men_after": after_men,
-			"lost": maxi(0, before_men - after_men), "kills": battle_kills,
+			"lost": lost_count, "wounded": wounded_count, "kills": battle_kills,
 			"xp_before": before_xp, "xp_after": after_xp,
 			"level_before": level, "level_after": Troops.level_for(after_xp),
 			"training_ready": Troops.level_for(after_xp) > level,
@@ -1053,6 +1207,9 @@ func battle_report(result: Dictionary) -> Dictionary:
 		var captain = squad.get("captain")
 		var captain_result = outcome.get("captain")
 		if typeof(captain) == TYPE_DICTIONARY and typeof(captain_result) == TYPE_DICTIONARY:
+			var fate_str := String(captain_result.get("fate", "standing"))
+			if casual_mode and fate_str == "killed":
+				fate_str = "wounded"
 			captain_rows.append({
 				"id": int(captain.get("id", 0)),
 				"appearance_id": Captains.ensure_appearance(captain),
@@ -1060,7 +1217,7 @@ func battle_report(result: Dictionary) -> Dictionary:
 				"first": String(captain.get("first", "Captain")),
 				"company": String(squad.get("name", "Company")),
 				"culture": String(captain.get("culture", culture)),
-				"fate": String(captain_result.get("fate", "standing")),
+				"fate": fate_str,
 				"roll": int(captain_result.get("roll", 0)),
 				"needed": int(captain_result.get("needed", 0)),
 				"kills": int(captain_result.get("kills", 0)),
@@ -1096,6 +1253,9 @@ func battle_report(result: Dictionary) -> Dictionary:
 	var rewards := {"silver": 0, "food": 0, "renown": 0}
 	if won and world != null and not pending_battle.is_empty():
 		rewards = Economy.spoils(killed)
+		if has_specialization(Captains.QUARTERMASTER):
+			rewards["silver"] = int(round(rewards["silver"] * 1.15))
+			rewards["food"] = int(round(rewards["food"] * 1.15))
 		var objective := String(pending_battle.get("objective", "rout"))
 		if objective == "chief" and bool(result.get("chief_killed", false)):
 			rewards["silver"] = int(rewards["silver"]) * 2
@@ -1108,7 +1268,9 @@ func battle_report(result: Dictionary) -> Dictionary:
 		story = "%s bore the hardest fighting, cutting down %d." % [strongest["name"], strongest["kills"]]
 		story += " The company held the field." if won else " The survivors withdrew."
 	if lost > 0:
-		story += " %d %s did not return." % [lost, "soldier" if lost == 1 else "soldiers"]
+		var wounded_count := int(round(lost * 0.5))
+		var killed_count := lost - wounded_count
+		story += " %d casualties (%d slain, %d wounded in baggage)." % [lost, killed_count, wounded_count]
 	return {
 		"won": won, "lost": lost, "killed": killed,
 		"reason": String(result.get("reason", "")), "story": story,
@@ -1234,8 +1396,17 @@ func apply_result(result: Dictionary) -> void:
 		var id := int(s["id"])
 		var c = s.get("captain")
 		if by_id.has(id):
-			s["men"] = int(by_id[id]["men"])
-			s["xp"] = int(s["xp"]) + int(by_id[id].get("kills", 0))
+			var prev_men := int(s["men"])
+			var end_men := int(by_id[id]["men"])
+			var lost_men := maxi(0, prev_men - end_men)
+			var wounded_count := int(round(lost_men * 0.5))
+			s["wounded"] = int(s.get("wounded", 0)) + wounded_count
+			s["men"] = end_men
+			var kills := int(by_id[id].get("kills", 0))
+			var earned_xp := kills
+			if has_specialization(Captains.DRILLMASTER):
+				earned_xp = int(ceil(kills * 1.25))
+			s["xp"] = int(s["xp"]) + earned_xp
 		if c == null:
 			continue
 		var cr = by_id.get(id, {}).get("captain")
@@ -1249,23 +1420,37 @@ func apply_result(result: Dictionary) -> void:
 		match String(cr["fate"]):
 			"wounded":
 				c["wounded"] = Captains.WOUND_BATTLES
-				var history: Dictionary = c.get("history", {"wounds": 0, "fallen_friends": []})
+				var history: Dictionary = c.get("history", {"wounds": 0, "fallen_friends": [], "scars": []})
 				history["wounds"] = int(history.get("wounds", 0)) + 1
 				c["history"] = history
 			"killed":
-				dead_ids.append(int(c["id"]))
-				fallen_captains.append(c)
-				var enemy_lid_for_mem: int = int(pending_battle.get("enemy_lord_id", -1)) if bool(pending_battle.get("is_lord", false)) else -1
-				var enemy_lname_for_mem: String = String(pending_battle.get("name", "")) if bool(pending_battle.get("is_lord", false)) else ""
-				fallen.append(_memorial(s, c, String(cr.get("words", "")), enemy_lid_for_mem, enemy_lname_for_mem))
-				if enemy_lid_for_mem >= 0 and world != null:
-					var elord: Dictionary = world.lord_by_id(enemy_lid_for_mem)
-					if not elord.is_empty():
-						elord["grudge"] = true
-						elord["grudge_captain_name"] = String(c["name"])
-						elord["grudge_company_name"] = String(s.get("name", ""))
-				# A veteran from the ranks takes command, if there's anyone left to lead.
-				s["captain"] = _new_captain(String(s["type"])) if int(s["men"]) > 0 else null
+				if casual_mode:
+					c["wounded"] = Captains.CASUAL_WOUND_BATTLES
+					var history: Dictionary = c.get("history", {"wounds": 0, "fallen_friends": [], "scars": []})
+					history["wounds"] = int(history.get("wounds", 0)) + 1
+					if not history.has("scars"):
+						history["scars"] = []
+					var scar_desc := "Grievous Battle Wound (Battle %d)" % battles
+					if not history["scars"].has(scar_desc):
+						history["scars"].append(scar_desc)
+					c["history"] = history
+					_note("%s suffered a grievous wound in battle %d, but survived (sits out %d battles)." % [
+						c["name"], battles, Captains.CASUAL_WOUND_BATTLES
+					])
+				else:
+					dead_ids.append(int(c["id"]))
+					fallen_captains.append(c)
+					var enemy_lid_for_mem: int = int(pending_battle.get("enemy_lord_id", -1)) if bool(pending_battle.get("is_lord", false)) else -1
+					var enemy_lname_for_mem: String = String(pending_battle.get("name", "")) if bool(pending_battle.get("is_lord", false)) else ""
+					fallen.append(_memorial(s, c, String(cr.get("words", "")), enemy_lid_for_mem, enemy_lname_for_mem))
+					if enemy_lid_for_mem >= 0 and world != null:
+						var elord: Dictionary = world.lord_by_id(enemy_lid_for_mem)
+						if not elord.is_empty():
+							elord["grudge"] = true
+							elord["grudge_captain_name"] = String(c["name"])
+							elord["grudge_company_name"] = String(s.get("name", ""))
+					# A veteran from the ranks takes command, if there's anyone left to lead.
+					s["captain"] = _new_captain(String(s["type"])) if int(s["men"]) > 0 else null
 	# Reactions are created only for partners who actually survived the whole result.
 	for fallen_captain in fallen_captains:
 		_record_bond_loss(fallen_captain)
@@ -1293,6 +1478,9 @@ func apply_result(result: Dictionary) -> void:
 		if result.get("won", false):
 			world.win_encounter()
 			var got := Economy.spoils(int(result.get("killed", 0)))
+			if has_specialization(Captains.QUARTERMASTER):
+				got["silver"] = int(round(got["silver"] * 1.15))
+				got["food"] = int(round(got["food"] * 1.15))
 			if is_lord:
 				got["silver"] = int(got["silver"]) + 150
 				got["renown"] = int(got["renown"]) + 15
@@ -1501,6 +1689,7 @@ func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
 		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
 		"silver": silver, "food": food, "renown": renown, "paid_day": _paid_day,
+		"casual_mode": casual_mode, "hired_heroes": hired_heroes.duplicate(), "heal_clock": _heal_clock,
 		"realm_relations": realm_relations.duplicate(true), "lord_relations": lord_relations.duplicate(true),
 		"contract": contract.duplicate(true),
 		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair, "bond_intro_ids": bond_intro_ids,
@@ -1526,6 +1715,9 @@ func from_dict(data: Dictionary) -> bool:
 		world = WorldSim.new()
 		world.from_dict(data["world"])
 	battles = int(data.get("battles", 0))
+	casual_mode = bool(data.get("casual_mode", false))
+	hired_heroes = data.get("hired_heroes", []) if typeof(data.get("hired_heroes")) == TYPE_ARRAY else []
+	_heal_clock = float(data.get("heal_clock", 0.0))
 	silver = int(data.get("silver", Economy.START_SILVER))
 	food = int(data.get("food", -1))
 	renown = int(data.get("renown", 0))
@@ -1576,7 +1768,7 @@ func from_dict(data: Dictionary) -> bool:
 			if level >= 2:
 				pending_branch = true
 		var squad := {"id": int(s.get("id", 0)), "type": String(s["type"]), "unit": unit_id,
-			"men": int(s.get("men", 0)), "xp": xp, "level": level, "pending_branch": pending_branch,
+			"men": int(s.get("men", 0)), "wounded": int(s.get("wounded", 0)), "xp": xp, "level": level, "pending_branch": pending_branch,
 			"culture": sq_culture, "name": String(s.get("name", "")), "captain": null}
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY:
@@ -1611,14 +1803,18 @@ func _clean_captain(c: Dictionary, type: String) -> Dictionary:
 	if typeof(raw) == TYPE_DICTIONARY:
 		for k in raw:
 			bonds[str(int(float(k)))] = float(raw[k])
-	var history := {"wounds": 0, "fallen_friends": []}
+	var history := {"wounds": 0, "fallen_friends": [], "scars": []}
 	if typeof(c.get("history")) == TYPE_DICTIONARY:
 		history["wounds"] = int(c["history"].get("wounds", 0))
 		history["fallen_friends"] = c["history"].get("fallen_friends", []) if typeof(c["history"].get("fallen_friends")) == TYPE_ARRAY else []
+		history["scars"] = c["history"].get("scars", []) if typeof(c["history"].get("scars")) == TYPE_ARRAY else []
 	var clean := {
 		"id": int(c.get("id", 0)), "name": String(c.get("name", "Nameless")), "first": String(c.get("first", "Nameless")),
 		"culture": String(c.get("culture", Cultures.VARDISH)), "type": type, "temperament": String(c.get("temperament", Captains.STEADFAST)), "quirk": String(c.get("quirk", "")),
 		"wounded": int(c.get("wounded", 0)), "battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0)),
+		"specialization": String(c.get("specialization", "")),
+		"is_hero": bool(c.get("is_hero", false)),
+		"hero_id": String(c.get("hero_id", "")),
 		"bonds": bonds, "history": history,
 	}
 	clean["appearance_id"] = String(c.get("appearance_id", ""))

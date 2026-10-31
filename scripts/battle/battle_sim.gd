@@ -870,7 +870,12 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 				lead = so
 		lead.captain = true
 		lead.might = Captains.DAMAGE_MULT
-		lead.max_hp *= Captains.HP_MULT
+		var hp_mult: float = Captains.HP_MULT
+		if String(captain.get("specialization", "")) == Captains.CHAMPION:
+			hp_mult *= 1.25
+			for so in sq.soldiers:
+				so.might *= 1.15
+		lead.max_hp *= hp_mult
 		lead.hp = lead.max_hp
 		sq.captain = lead
 		sq.info = captain
@@ -2099,7 +2104,10 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 func _captain_falls(sq, victim, rescue: bool = true) -> void:
 	sq.captain = null
 	sq.led = Captains.LEADERLESS
-	sq.drop_morale(Captains.FALL_SHOCK)
+	var fall_shock := Captains.FALL_SHOCK
+	if typeof(sq.info) == TYPE_DICTIONARY and String(sq.info.get("specialization", "")) == Captains.CHAMPION:
+		fall_shock = maxf(5.0, fall_shock - 10.0)
+	sq.drop_morale(fall_shock)
 	if sq.mechanics.get("ronin", false):
 		sq.fury = Captains.FURY_SECONDS
 	var holding: bool = rescue and sq.alive_n >= sq.start_men * 0.5

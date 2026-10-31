@@ -10,6 +10,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 
 var _tutorial: Button
+var _mode_button: Button
 var _starting := false
 
 func _ready() -> void:
@@ -44,6 +45,12 @@ func _ready() -> void:
 	_tutorial.toggled.connect(func(on: bool): _tutorial.text = "Tutorial: %s (optional)" % ("on" if on else "off"))
 	_tutorial.custom_minimum_size.y = Style.TOUCH
 	col.add_child(_tutorial)
+	_mode_button = Button.new()
+	_mode_button.toggle_mode = true
+	_mode_button.text = "Mode: Iron Company (Default)"
+	_mode_button.toggled.connect(func(on: bool): _mode_button.text = "Mode: Casual (Captains survive severe wounds)" if on else "Mode: Iron Company (Default)")
+	_mode_button.custom_minimum_size.y = Style.TOUCH
+	col.add_child(_mode_button)
 	for c in Cultures.ORDER:
 		col.add_child(_card(c))
 	var back := Button.new()
@@ -97,6 +104,8 @@ func _on_pick(culture: String) -> void:
 		return
 	_starting = true
 	GameState.new_campaign(culture)
+	GameState.casual_mode = _mode_button.button_pressed
+	GameState.save_game()
 	if _tutorial.button_pressed:
 		Scenes.tutorial_return = "res://scenes/world_map.tscn"
 		Scenes.go("res://scenes/tutorial.tscn")

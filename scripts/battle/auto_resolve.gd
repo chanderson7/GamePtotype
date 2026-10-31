@@ -93,7 +93,8 @@ static func strength(army: Array, foes: Array, site = null, is_player: bool = tr
 			for t in mix:
 				var b := float(bonus.get(t, 1.0))
 				counter += float(mix[t]) / foe_men * (1.0 + (b - 1.0) * COUNTER_WEIGHT)
-		total += men * float(VALUE.get(type, 1.0)) * power * power * counter * (_quality(Units.mechanics(unit_id, level)) if trained else 1.0)
+		var champ_mult := 1.15 if (s.get("captain") != null and String(s["captain"].get("specialization", "")) == Captains.CHAMPION) else 1.0
+		total += men * float(VALUE.get(type, 1.0)) * power * power * counter * (_quality(Units.mechanics(unit_id, level)) if trained else 1.0) * champ_mult
 
 	if site is Dictionary:
 		var st: String = site.get("type", "open")

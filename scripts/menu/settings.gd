@@ -40,6 +40,17 @@ func _build() -> void:
 		Sound.set_romance_invitations(not Sound.romance_invitations_enabled())
 		update_rom_text.call())
 	col.add_child(rom_btn)
+	col.add_child(Page.note("CAMPAIGN MODE"))
+	col.add_child(Page.note("In Iron Company, fallen captains roll for permanent death. In Casual Mode, captains suffer severe battle wounds instead."))
+	var mode_btn: Button = null
+	var update_mode_text = func():
+		if mode_btn != null:
+			mode_btn.text = "Mode: %s" % ("Casual (Captains cannot permanently die)" if GameState.casual_mode else "Iron Company (Default)")
+	mode_btn = Page.button("Mode: %s" % ("Casual (Captains cannot permanently die)" if GameState.casual_mode else "Iron Company (Default)"), func():
+		GameState.casual_mode = not GameState.casual_mode
+		GameState.save_game()
+		update_mode_text.call())
+	col.add_child(mode_btn)
 	var back := Page.button("Back", _back, true)
 	col.add_child(back)
 	var heading := col.get_child(0) as Control

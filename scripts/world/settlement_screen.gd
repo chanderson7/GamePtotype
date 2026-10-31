@@ -105,6 +105,7 @@ func _build() -> void:
 		_add_contract(col, owner)
 		_add_provisions(col)
 		_add_recruits(col)
+		_add_tavern_heroes(col)
 		_add_squads(col)
 		_add_court(col)
 
@@ -345,6 +346,58 @@ func _add_recruits(col: VBoxContainer) -> void:
 	if offers.is_empty():
 		var back: float = float(GameState.world.offers_back.get(place, GameState.world.hour)) - GameState.world.hour
 		col.add_child(_note("Nobody else here is looking for work. More will come in about %d hours." % maxi(1, int(ceil(back)))))
+
+
+func _add_tavern_heroes(col: VBoxContainer) -> void:
+	var heroes: Array = GameState.available_heroes_at(place)
+	if heroes.is_empty():
+		return
+	col.add_child(_section("Tavern & Wanderers"))
+	for hero in heroes:
+		col.add_child(_hero_row(hero))
+
+
+func _hero_row(hero: Dictionary) -> Control:
+	var hid := String(hero.get("id", ""))
+	var name_str := String(hero.get("name", "Hero"))
+	var cost := int(hero.get("cost", 250))
+	var type := String(hero.get("type", Troops.INFANTRY))
+	var cult := String(hero.get("culture", Cultures.VARDISH))
+	var spec := String(hero.get("specialization", ""))
+	var panel := PanelContainer.new()
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
+	v.add_child(head)
+	head.add_child(_portrait(type, cult))
+
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 2)
+	head.add_child(text)
+	text.add_child(Style.label(name_str + " ★", Style.BODY, Style.BRASS))
+	var role_line := "%s · %s" % [Units.troop_name({"unit": hero.get("unit", "")}, cult), spec]
+	text.add_child(Style.label(role_line, Style.SMALL, Style.TEXT))
+	text.add_child(Style.label(String(hero.get("bio", "")), Style.SMALL, Style.MUTED))
+
+	var quote := Style.label("\"%s\"" % String(hero.get("dialogue", "")), Style.SMALL, Style.TEXT)
+	quote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(quote)
+
+	var can_hire: bool = GameState.silver >= cost and GameState.army.size() < GameState.squad_cap()
+	var hire_btn := _button("Recruit %s (%d silver)" % [String(hero.get("first", name_str)), cost], func():
+		if GameState.recruit_hero(hid):
+			Sound.play("charge")
+			_build()
+	)
+	hire_btn.disabled = not can_hire
+	if can_hire:
+		Style.make_primary(hire_btn)
+	v.add_child(hire_btn)
+	return panel
 
 
 func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
