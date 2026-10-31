@@ -125,8 +125,11 @@ static func settlement_state(world, id: String) -> Dictionary:
 		var share := float(held) / maxf(1.0, float(capacity))
 		garrison = "thin" if share < 0.4 else ("strong" if share >= 0.8 else "steady")
 
+	var besieged: bool = world.has_method("siege_info") and not world.siege_info(id).is_empty()
 	var condition := "healthy"
-	if raid_active or (burned and rebuild_progress < 0.5):
+	if besieged:
+		condition = "besieged"
+	elif raid_active or (burned and rebuild_progress < 0.5):
 		condition = "damaged"
 	elif burned:
 		condition = "recovering"
@@ -137,6 +140,8 @@ static func settlement_state(world, id: String) -> Dictionary:
 
 	var sentence := ""
 	match condition:
+		"besieged":
+			sentence = "An army is camped beneath the walls; the gates are shut and every sack in the granary is counted."
 		"damaged":
 			sentence = "Raiders are active beyond the fields; work has stopped and smoke hangs over the road." if raid_active else "Charred roofs and empty plots show the recent raid; rebuilding has only begun."
 		"recovering":
@@ -173,7 +178,7 @@ static func settlement_state(world, id: String) -> Dictionary:
 		"id": id, "type": String(info["type"]), "culture": Data.culture_of(built_by),
 		"built_by": built_by, "owner": owner, "relation": relation,
 		"occupied": owner != built_by, "condition": condition, "sentence": sentence,
-		"raid_active": raid_active, "burned": burned, "rebuild_progress": rebuild_progress,
+		"raid_active": raid_active, "burned": burned, "besieged": besieged, "rebuild_progress": rebuild_progress,
 		"garrison": garrison, "garrison_men": held, "garrison_capacity": capacity,
 		"services": available_services, "props": props,
 		"night": time_band(float(world.hour)) == "night",

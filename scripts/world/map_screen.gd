@@ -1508,7 +1508,32 @@ func _draw() -> void:
 			_draw_party(t["lord"], "lord", Cultures.color(Data.culture_of(t["lord"].faction)), px)
 		else:
 			_draw_party(world.player(), "rider", Cultures.color(world.culture), px)
+	_draw_sieges(px)
 	_draw_aftermath(px)
+
+
+## A siege ring and the besiegers' tents around every settlement under siege, in the
+## besieging realm's colors.
+func _draw_sieges(px: float) -> void:
+	for army in world.campaign_armies:
+		if String(army.get("state", "")) != "besieging":
+			continue
+		var id := String(army["target"])
+		if not Data.SETTLEMENTS.has(id):
+			continue
+		var c := _to_screen(Data.pos(id))
+		var color: Color = Style.BRASS if String(army["realm"]) == Data.CROWN else Cultures.color(Data.culture_of(String(army["realm"])))
+		var r := 34.0 * px
+		# a broken ring: the lines drawn around the walls
+		for i in 12:
+			var a0 := float(i) / 12.0 * TAU
+			draw_arc(c, r, a0, a0 + TAU / 24.0, 6, Color(0, 0, 0, 0.55), 5.0 * px)
+			draw_arc(c, r, a0, a0 + TAU / 24.0, 6, color, 2.5 * px)
+		# the besiegers' camp: a few tents outside the ring
+		for i in 4:
+			var t := c + Vector2.from_angle(PI * 0.15 + float(i) * TAU / 4.0) * (r + 9.0 * px)
+			draw_colored_polygon(PackedVector2Array([t + Vector2(-5, 3) * px, t + Vector2(0, -5) * px, t + Vector2(5, 3) * px]), color.lightened(0.25))
+			draw_line(t + Vector2(-5, 3) * px, t + Vector2(5, 3) * px, Color(0, 0, 0, 0.6), 1.5 * px)
 
 
 ## A few days' aftermath beside the places it touched: crossed blades where a battle was

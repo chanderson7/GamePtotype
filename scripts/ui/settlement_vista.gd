@@ -52,6 +52,7 @@ func _draw() -> void:
 	var sky_color := culture_color.darkened(0.77 if night else 0.62)
 	if condition == "damaged": sky_color = sky_color.lerp(Color("57494a"), 0.42)
 	elif condition == "recovering": sky_color = sky_color.lerp(Color("8c7451"), 0.18)
+	elif condition == "besieged": sky_color = sky_color.lerp(Color("6e4a3c"), 0.3)
 	draw_rect(sky, sky_color)
 	draw_circle(Vector2(size.x * (0.78 if culture != Cultures.KHARZANI else 0.22), size.y * 0.24), 30.0,
 		Color("d7d9da") if night else Color(Style.BRASS, 0.7))

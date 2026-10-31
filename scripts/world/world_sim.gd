@@ -377,6 +377,32 @@ func realm_strength(realm: String) -> int:
 	return total
 
 
+## The siege of `id`, if an army is camped beneath it: {army, realm, attackers, defenders,
+## walls, food_hours, assault_hours, relief}. The same state the assault is settled from.
+## {} when there is no siege.
+func siege_info(id: String) -> Dictionary:
+	for army in campaign_armies:
+		if String(army.get("target", "")) != id or String(army.get("state", "")) != "besieging":
+			continue
+		var attackers := 0
+		for m in army["members"]:
+			var p := party(int(m))
+			if p != null:
+				attackers += men_of(p.army)
+		var owner := owner_of(id)
+		var relief := 0
+		for l in lords:
+			var lp := party(int(l.get("party", -1)))
+			if l.get("realm", "") == owner and lp != null and String(l.get("state", "")) == "field" \
+					and Data.pos(lp.node).distance_to(Data.pos(id)) < 400.0:
+				relief += 1
+		return {"army": int(army["id"]), "realm": String(army["realm"]), "attackers": attackers,
+			"defenders": men_of(garrison_at(id)), "walls": float(Lords.WALLS.get(String(Data.settlement(id)["type"]), 1.0)),
+			"food_hours": maxf(0.0, float(army.get("siege_food_until", hour)) - hour),
+			"assault_hours": maxf(0.0, float(army.get("siege_prep_until", hour)) - hour), "relief": relief}
+	return {}
+
+
 ## Recent events that leave a mark on the map for a few days: [{place, kind, fade}], kind
 ## "battle" or "banner", fade 1 (fresh) to 0 (gone). The chronicle keeps them for good.
 const AFTERMATH_DAYS := 3.0
@@ -591,8 +617,11 @@ func settlement_intelligence(id: String) -> String:
 		for army in campaign_armies:
 			if String(army.get("target", "")) == id and String(army.get("state", "")) != "returning":
 				if String(army.get("state", "")) == "besieging":
-					var prep_left := maxf(0.0, float(army.get("siege_prep_until", 0.0)) - hour)
-					danger = "under siege by %s (assault in %d hrs)" % [Data.FACTIONS[army["realm"]]["name"], int(ceil(prep_left))]
+					var info := siege_info(id)
+					danger = "under siege by %s: %d men against %d behind walls (x%.1f); food for %d days; assault in %d hrs%s" % [
+						Data.FACTIONS[info["realm"]]["name"], info["attackers"], info["defenders"], info["walls"],
+						int(ceil(info["food_hours"] / 24.0)), int(ceil(info["assault_hours"])),
+						"; relief may come" if int(info["relief"]) > 0 else "; no relief in sight"]
 				else:
 					danger = "marshal army advancing here"
 				break
