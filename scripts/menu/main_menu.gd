@@ -14,8 +14,11 @@ const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
+const CampMoments = preload("res://scripts/data/camp_moments.gd")
 
 var _scroll: ScrollContainer
+var _fallen_section: Control
+var _flicker: Tween
 
 
 func _ready() -> void:
@@ -57,6 +60,10 @@ func _build() -> void:
 
 	col.add_child(Style.label("Warband", 72, Style.BRASS))
 	col.add_child(_camp_header())
+	col.add_child(_camp_tableau())
+	var moment := _camp_moment()
+	if moment != null:
+		col.add_child(moment)
 	var people := String(Cultures.info(GameState.culture)["people"])
 	var w = GameState.world
 	if w != null:
@@ -160,7 +167,8 @@ func _build() -> void:
 			col.add_child(_captive_lord_row(cl))
 
 	if not GameState.fallen.is_empty():
-		col.add_child(_section("The fallen"))
+		_fallen_section = _section("The fallen")
+		col.add_child(_fallen_section)
 		for i in range(GameState.fallen.size() - 1, -1, -1):
 			col.add_child(_memorial_row(GameState.fallen[i]))
 
@@ -195,7 +203,14 @@ func _camp_header() -> Control:
 	var camp := StoryArt.location("company_camp", 0)
 	camp.name = "WarbandCampIllustration"
 	camp.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	camp.modulate = _camp_light()
 	stage.add_child(camp)
+	# Firelight: a slow, slight flicker; still when motion is reduced.
+	if not Style.motion_reduced():
+		var base := camp.modulate
+		_flicker = camp.create_tween().set_loops()
+		_flicker.tween_property(camp, "modulate", base * Color(1.06, 1.0, 0.92), 1.7).set_trans(Tween.TRANS_SINE)
+		_flicker.tween_property(camp, "modulate", base, 2.1).set_trans(Tween.TRANS_SINE)
 	var banner := Control.new()
 	banner.name = "CompanyBanner"
 	banner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -209,6 +224,120 @@ func _camp_header() -> Control:
 		Heraldry.flag(banner, at + Vector2(4, 4), Vector2(108, 70), color, color.darkened(0.42), true, Troops.INFANTRY, false, true))
 	stage.add_child(banner)
 	return stage
+
+
+## The camp's light by the hour on the map: night is dark and blue, dawn and dusk warm.
+func _camp_light() -> Color:
+	var w = GameState.world
+	if w == null:
+		return Color.WHITE
+	var h := int(w.hour) % 24
+	if h < 5 or h >= 21:
+		return Color(0.55, 0.6, 0.85)
+	if h < 8 or h >= 18:
+		return Color(1.0, 0.85, 0.7)
+	return Color.WHITE
+
+
+## The captains around the fire: those fit for duty stand ready, the wounded rest. Each
+## opens the captain's profile. The fallen are remembered below, not here.
+func _camp_tableau() -> Control:
+	var box := VBoxContainer.new()
+	box.name = "CampTableau"
+	box.add_theme_constant_override("separation", 6)
+	var ready := 0
+	var resting := 0
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 8)
+	flow.add_theme_constant_override("v_separation", 8)
+	for s in GameState.army:
+		var c = s.get("captain")
+		if not (c is Dictionary):
+			continue
+		var hurt := int(c.get("wounded", 0)) > 0
+		if hurt:
+			resting += 1
+		else:
+			ready += 1
+		var token := Button.new()
+		token.name = "CampCaptain_%d" % int(c.get("id", 0))
+		token.text = "%s%s" % [String(c.get("first", c.get("name", "Captain"))), " · resting" if hurt else ""]
+		token.add_theme_font_size_override("font_size", Style.SMALL)
+		token.custom_minimum_size = Vector2(0, Style.TOUCH)
+		if Style.illustrations_on():
+			token.icon = CaptainArt.texture(c)
+			token.expand_icon = true
+			token.add_theme_constant_override("icon_max_width", 34)
+		if hurt:
+			token.modulate = Color(0.75, 0.75, 0.82)
+		token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))
+		flow.add_child(token)
+	var summary := "Around the fire: %d ready%s" % [ready, (", %d resting" % resting) if resting > 0 else ""]
+	if not GameState.fallen.is_empty():
+		summary += " · %d remembered" % GameState.fallen.size()
+	box.add_child(_note(summary))
+	box.add_child(flow)
+	return box
+
+
+## One optional moment from what happened to the company, or nothing on a quiet visit.
+func _camp_moment() -> Control:
+	var m: Dictionary = CampMoments.pick(GameState)
+	if m.is_empty():
+		return null
+	var panel := PanelContainer.new()
+	panel.name = "CampMoment"
+	panel.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.BRASS, 2, 14))
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	v.add_child(Style.label(String(m["title"]).to_upper(), Style.SMALL, Style.BRASS))
+	var text := Style.label(String(m["text"]), Style.BODY, Style.TEXT)
+	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(text)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	v.add_child(row)
+	var go_text: String = {"captain": "See captain", "bond": "Spend time together", "memorial": "Remember", "map": ""}.get(String(m.get("action", "")), "")
+	if go_text != "":
+		var go := Button.new()
+		go.text = go_text
+		go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		go.custom_minimum_size = Vector2(0, Style.TOUCH)
+		go.pressed.connect(_on_moment.bind(m))
+		row.add_child(go)
+	var done := Button.new()
+	done.text = "Let it be"
+	done.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	done.custom_minimum_size = Vector2(0, Style.TOUCH)
+	done.pressed.connect(_on_moment_dismiss.bind(String(m["key"])))
+	row.add_child(done)
+	return panel
+
+
+func _on_moment(m: Dictionary) -> void:
+	CampMoments.dismiss(GameState, String(m["key"]))
+	GameState.save_game()
+	match String(m.get("action", "")):
+		"captain":
+			_open_captain(int(m.get("captain_id", 0)))
+		"bond":
+			_open_bond(int(m.get("a_id", 0)), int(m.get("b_id", 0)))
+		"memorial":
+			_build()
+			_jump_to_fallen.call_deferred()
+
+
+func _jump_to_fallen() -> void:
+	await get_tree().process_frame
+	if _fallen_section != null and is_instance_valid(_fallen_section) and _scroll != null:
+		_scroll.scroll_vertical = int(_fallen_section.position.y)
+
+
+func _on_moment_dismiss(key: String) -> void:
+	CampMoments.dismiss(GameState, key)
+	GameState.save_game()
+	_build()
 
 
 func _upkeep_forecast() -> Label:

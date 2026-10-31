@@ -1,7 +1,7 @@
 # Bannerfall: game feel and immersion roadmap
 
 - **Date:** 2026-10-30
-- **Status:** Packages A and B implemented locally; Package C is the next immersion slice
+- **Status:** Packages A, B and C implemented; Package D is the next immersion slice
 - **Goal:** make every part of the campaign feel responsive, grounded and connected while
   preserving the current simulation rules.
 

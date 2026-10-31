@@ -90,6 +90,8 @@ var player_fief: Dictionary = {}
 var pinned_commitment := ""
 var ended_commitments: Array = []
 const ENDED_KEEP := 8
+## Camp moments the player has already seen (see camp_moments.gd).
+var camp_seen: Array = []
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -142,6 +144,7 @@ func new_warband() -> void:
 	player_fief = {}
 	pinned_commitment = ""
 	ended_commitments = []
+	camp_seen = []
 	_heal_clock = 0.0
 	casual_mode = false
 	_next_id = 1
@@ -2252,6 +2255,7 @@ func to_dict() -> Dictionary:
 		"active_jobs": active_jobs.duplicate(true), "completed_jobs": completed_jobs.duplicate(true),
 		"player_fief": player_fief.duplicate(true),
 		"pinned_commitment": pinned_commitment, "ended_commitments": ended_commitments.duplicate(true),
+		"camp_seen": camp_seen.duplicate(),
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
@@ -2280,6 +2284,7 @@ func from_dict(data: Dictionary) -> bool:
 	player_fief = data.get("player_fief", {}).duplicate(true) if typeof(data.get("player_fief")) == TYPE_DICTIONARY else {}
 	pinned_commitment = String(data.get("pinned_commitment", ""))
 	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
+	camp_seen = data.get("camp_seen", []).duplicate() if typeof(data.get("camp_seen")) == TYPE_ARRAY else []
 	if has_fief() and world != null:
 		world.garrisons[fief_id()] = player_fief.get("garrison", [])
 	_heal_clock = float(data.get("heal_clock", 0.0))
