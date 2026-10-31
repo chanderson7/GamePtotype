@@ -24,6 +24,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 
 const TOP_BAR := 96.0
@@ -1158,6 +1159,14 @@ func _show_result() -> void:
 		"village_burned": ["", "The raiders held the square long enough to fire the village."],
 	}
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
+	# Where it happened, so the map and the chronicle tell the same story.
+	var w = GameState.world
+	if w != null and not GameState.pending_battle.is_empty():
+		var place: String = String(GameState.pending_battle.get("siege_target", ""))
+		if place == "":
+			place = w.here() if w.here() != "" else w.nearest_place(w.party_pos(w.player()))
+		if WorldData.SETTLEMENTS.has(place):
+			why = ("Fought at %s. " if GameState.pending_battle.has("siege_target") else "Fought near %s. ") % WorldData.settlement(place)["name"] + why
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
 	Sound.stinger("victory" if won else "defeat")

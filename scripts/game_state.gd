@@ -2496,6 +2496,13 @@ func apply_result(result: Dictionary) -> void:
 				_count_deed("chiefs")
 			if bool(result.get("lord_captured", false)):
 				_count_deed("lord")
+		# Notable battles leave a mark: a chronicle line, and a few days of aftermath on
+		# the map. Small skirmishes don't.
+		var place: String = world.here() if world.here() != "" else world.nearest_place(world.party_pos(world.player()))
+		report["place"] = place
+		if int(result.get("killed", 0)) + int(result.get("lost", 0)) >= 30 or obj in ["siege", "village", "chief"] or is_lord:
+			world.emit_event({"type": "battle_fought", "at": place, "won": bool(result.get("won", false)),
+				"killed": int(result.get("killed", 0)), "lost": int(result.get("lost", 0))})
 		for line in fates:
 			_note(line)
 		settle()

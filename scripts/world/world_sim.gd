@@ -61,7 +61,7 @@ const ACTIVITY_TYPES := {
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
-	"achievement": true, "crown_raised": true, "alliance": true, "alliance_ended": true,
+	"achievement": true, "battle_fought": true, "crown_raised": true, "alliance": true, "alliance_ended": true,
 }
 
 
@@ -377,6 +377,46 @@ func realm_strength(realm: String) -> int:
 	return total
 
 
+## Recent events that leave a mark on the map for a few days: [{place, kind, fade}], kind
+## "battle" or "banner", fade 1 (fresh) to 0 (gone). The chronicle keeps them for good.
+const AFTERMATH_DAYS := 3.0
+const AFTERMATH_MAX := 8
+
+func aftermath() -> Array:
+	var out := []
+	var seen := {}
+	for e in activity_log:
+		var age := hour - float(e.get("hour", hour))
+		if age >= AFTERMATH_DAYS * 24.0:
+			break
+		var kind := ""
+		match String(e.get("type", "")):
+			"battle_fought", "fight", "siege_assault":
+				kind = "battle"
+			"captured", "crown_raised":
+				kind = "banner"
+		var place := String(e.get("place", ""))
+		if kind == "" or not Data.SETTLEMENTS.has(place) or seen.has(place + kind):
+			continue
+		seen[place + kind] = true
+		out.append({"place": place, "kind": kind, "fade": 1.0 - age / (AFTERMATH_DAYS * 24.0)})
+		if out.size() >= AFTERMATH_MAX:
+			break
+	return out
+
+
+## The settlement nearest `p`, by distance.
+func nearest_place(p: Vector2) -> String:
+	var best := ""
+	var best_d := INF
+	for id in Data.SETTLEMENTS:
+		var d := Data.pos(id).distance_squared_to(p)
+		if d < best_d:
+			best_d = d
+			best = id
+	return best
+
+
 ## Raise the crown at `seat`: a new realm, which its former holder goes to war with.
 func declare_crown(seat: String) -> void:
 	var liege := owner_of(seat)
@@ -584,7 +624,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "siege"
 		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "alliance", "alliance_ended":
 			cat = "deed"
-		"fight", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
+		"fight", "battle_fought", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
 		_:
 			cat = "war"
@@ -681,6 +721,9 @@ func _activity_text(event: Dictionary) -> String:
 			var at := String(event.get("at", ""))
 			var place_str := (" near %s" % Data.settlement(at)["name"]) if Data.SETTLEMENTS.has(at) else ""
 			return "%s crushed %s%s." % [event.get("company", "The warband"), event.get("enemy", "the enemy"), place_str]
+		"battle_fought":
+			return "Your company %s near %s: %d of theirs fell, %d of yours." % ["won a battle" if bool(event.get("won", false)) else "was beaten",
+				Data.settlement(String(event["at"]))["name"], int(event.get("killed", 0)), int(event.get("lost", 0))]
 		"crown_raised":
 			return "Your company raised its own crown at %s, casting off %s." % [Data.settlement(String(event["settlement"]))["name"],
 				Data.FACTIONS[String(event["from"])]["name"] if Data.FACTIONS.has(String(event["from"])) else "its liege"]

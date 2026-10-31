@@ -16,6 +16,13 @@ const LINES := {
 		Captains.FRAGILE: "%s's place at the fire stays empty. Nobody can bring themselves to sit there.",
 		"": "%s's place at the fire stays empty.",
 	},
+	# %s is the mourner, then the fallen.
+	"mourn": {
+		Captains.VENGEFUL: "%s sits by %s's empty place, turning a blade over and over, and swears it will be paid back.",
+		Captains.STEADFAST: "%s keeps %s's place at the fire, and pours a cup there that no one drinks.",
+		Captains.FRAGILE: "%s can't look at %s's empty place. They sit with their back to it all night.",
+		"": "%s keeps %s's place at the fire.",
+	},
 	"wounded": {
 		Captains.VENGEFUL: "%s lies by the fire, bandaged and furious, counting the battles until they can ride again.",
 		Captains.STEADFAST: "%s rests by the fire, bandaged, and tells the young ones it's nothing.",
@@ -37,10 +44,32 @@ const LINES := {
 }
 
 
-static func line(kind: String, temperament: String, name: String) -> String:
+static func line(kind: String, temperament: String, name: String, other: String = "") -> String:
 	var options: Dictionary = LINES.get(kind, {})
 	var text := String(options.get(temperament, options.get("", "%s")))
+	if other != "":
+		return text % [name, other]
 	return text % name if text.contains("%s") else text
+
+
+## A captain still with the company, by id.
+static func _living(gs, id: int):
+	for s in gs.army:
+		var c = s.get("captain")
+		if c is Dictionary and int(c.get("id", -1)) == id:
+			return c
+	return null
+
+
+## A living captain who was bonded to the fallen `f`: the one to mourn them.
+static func _mourner(gs, f: Dictionary):
+	for entry in f.get("bonds", []):
+		var first := String(entry).split(" (")[0]
+		for s in gs.army:
+			var c = s.get("captain")
+			if c is Dictionary and String(c.get("first", "")) == first:
+				return c
+	return null
 
 
 static func _captain_name(c) -> String:
@@ -62,9 +91,12 @@ static func candidates(gs) -> Array:
 	# A captain who fell in the last battle.
 	for f in gs.fallen:
 		if int(f.get("battle", -1)) == gs.battles and gs.battles > 0:
+			var mourner = _mourner(gs, f)
+			var text := line("fallen", String(f.get("temperament", "")), _captain_name(f))
+			if mourner != null:
+				text = line("mourn", String(mourner.get("temperament", "")), _captain_name(mourner), _captain_name(f))
 			out.append({"key": "fallen_%d" % int(f.get("id", 0)), "kind": "fallen", "title": "An empty place",
-				"text": line("fallen", String(f.get("temperament", "")), _captain_name(f)),
-				"action": "memorial", "captain_id": int(f.get("id", 0))})
+				"text": text, "action": "memorial", "captain_id": int(f.get("id", 0))})
 	# A bond that reached a new rank and is waiting to be seen.
 	for e in gs.bond_events:
 		if String(e.get("kind", "")) == "rank":
@@ -82,15 +114,24 @@ static func candidates(gs) -> Array:
 	var last: Dictionary = gs.last_result
 	if not last.is_empty() and gs.battles > 0:
 		var won := bool(last.get("won", false))
+		# The captain who did the most, if they're still with the company; else anyone fit.
 		var lead = null
-		for s in gs.army:
-			if s.get("captain") is Dictionary and int(s["captain"].get("wounded", 0)) == 0:
-				lead = s["captain"]
-				break
+		var best := -1
+		for row in last.get("captains", []):
+			var c = _living(gs, int(row.get("id", -1)))
+			if c != null and String(row.get("fate", "")) != "killed" and int(row.get("kills", 0)) > best:
+				best = int(row.get("kills", 0))
+				lead = c
+		if lead == null:
+			for s in gs.army:
+				if s.get("captain") is Dictionary and int(s["captain"].get("wounded", 0)) == 0:
+					lead = s["captain"]
+					break
 		out.append({"key": "battle_%d" % gs.battles, "kind": "victory" if won else "defeat",
 			"title": "After the victory" if won else "After the defeat",
 			"text": line("victory" if won else "defeat", String(lead.get("temperament", "")) if lead != null else "", _captain_name(lead)) \
-				+ " Lost %d, cut down %d." % [int(last.get("lost", 0)), int(last.get("killed", 0))],
+				+ (" The fight near %s: lost %d, cut down %d." % [_place_name(String(last.get("place", ""))), int(last.get("lost", 0)), int(last.get("killed", 0))]
+					if String(last.get("place", "")) != "" else " Lost %d, cut down %d." % [int(last.get("lost", 0)), int(last.get("killed", 0))]),
 			"action": "captain" if lead != null else "", "captain_id": int(lead.get("id", 0)) if lead != null else -1})
 	# A captain recovering from a wound.
 	for s in gs.army:
@@ -102,6 +143,11 @@ static func candidates(gs) -> Array:
 				"action": "captain", "captain_id": int(c.get("id", 0))})
 			break
 	return out
+
+
+static func _place_name(id: String) -> String:
+	const WorldData = preload("res://scripts/world/world_data.gd")
+	return String(WorldData.settlement(id)["name"]) if WorldData.SETTLEMENTS.has(id) else id
 
 
 ## Remember that a moment was seen, so the same one never returns.

@@ -1508,6 +1508,26 @@ func _draw() -> void:
 			_draw_party(t["lord"], "lord", Cultures.color(Data.culture_of(t["lord"].faction)), px)
 		else:
 			_draw_party(world.player(), "rider", Cultures.color(world.culture), px)
+	_draw_aftermath(px)
+
+
+## A few days' aftermath beside the places it touched: crossed blades where a battle was
+## fought, a fresh banner where a place changed hands. They fade, then vanish.
+func _draw_aftermath(px: float) -> void:
+	for a in world.aftermath():
+		var at := _to_screen(Data.pos(String(a["place"]))) + Vector2(22.0, -26.0) * px
+		var alpha: float = 0.35 + 0.65 * float(a["fade"])
+		if String(a["kind"]) == "battle":
+			for side in [-1.0, 1.0]:
+				var tip := at + Vector2(-7.0 * side, -7.0) * px
+				var hilt := at + Vector2(6.0 * side, 6.0) * px
+				draw_line(tip, hilt, Color(0, 0, 0, 0.6 * alpha), 4.0 * px)
+				draw_line(tip, hilt, Color(Style.ENEMY_LIGHT, alpha), 2.0 * px)
+		else:
+			at += Vector2(10.0, 0) * px
+			draw_line(at + Vector2(0, 8) * px, at + Vector2(0, -10) * px, Color(0.25, 0.18, 0.1, alpha), 2.0 * px)
+			draw_colored_polygon(PackedVector2Array([at + Vector2(0, -10) * px, at + Vector2(11, -6) * px, at + Vector2(0, -2) * px]),
+				Color(Style.BRASS, alpha))
 
 
 func _draw_settlement(id: String, px: float) -> void:
