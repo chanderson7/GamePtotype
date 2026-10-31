@@ -92,10 +92,6 @@ var _resource_icons := {}
 var status_label: Label
 var speed_button: Button
 var warband_button: Button
-var next_button: Button
-## The goal chip in the top bar: the pinned journal entry, or the next step. (pin_button
-## and next_button are the same chip.)
-var pin_button: Button
 var status_progress: ProgressBar
 var day_icon: TextureRect
 ## Bottom of the screen, in thumb reach: the Warband, and pause / play / fast.
@@ -488,19 +484,6 @@ func _build_hud() -> void:
 	status_progress.add_theme_stylebox_override("background", bg)
 	status_progress.add_theme_stylebox_override("fill", fill)
 	status_box.add_child(status_progress)
-	next_button = _button("", _on_goal)
-	next_button.name = "NextStepButton"
-	next_button.clip_text = true
-	next_button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	next_button.add_theme_font_size_override("font_size", Style.SMALL)
-	next_button.add_theme_color_override("font_color", Style.BRASS)
-	next_button.custom_minimum_size = Vector2(0, 48)
-	next_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	next_button.add_theme_stylebox_override("normal", _pill_box(Color("3b2f14"), Color(Style.BRASS, 0.55)))
-	next_button.add_theme_stylebox_override("hover", _pill_box(Color("4a3a18"), Color(Style.BRASS, 0.7)))
-	next_button.add_theme_stylebox_override("pressed", _pill_box(Color("2e2410"), Color(Style.BRASS, 0.7)))
-	row.add_child(next_button)
-	pin_button = next_button
 
 	# In thumb reach at the bottom: the Warband, and the clock's controls.
 	bottom_bar = MarginContainer.new()
@@ -1035,7 +1018,7 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		([["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars], ["Journal", _open_journal]]
+		([["Next step", _open_recommendation, true], ["Journal", _open_journal], ["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars]]
 		+ ([["Your Crown", _open_crown]] if GameState.is_crowned() else [])
 		+ [["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]]))
 
@@ -1112,6 +1095,8 @@ func _open_journal() -> void:
 		var rec: Dictionary = GameState.recommendation()
 		lines.append("No promises bind the company yet.")
 		lines.append("Settlements offer jobs, and realms at war hire sellswords. %s: %s" % [rec.get("title", "Next step"), rec.get("body", "")])
+	# The pinned entry leads the list.
+	all.sort_custom(func(a, b): return a["id"] == GameState.pinned_commitment and b["id"] != GameState.pinned_commitment)
 	for c in all:
 		var line := "• %s%s" % [c["title"], _commitment_time(c, " · ")]
 		if c["id"] == GameState.pinned_commitment:
@@ -1155,7 +1140,7 @@ func _open_commitment(id: String) -> void:
 	var buttons := []
 	if String(c["place"]) != "" and Data.SETTLEMENTS.has(String(c["place"])):
 		buttons.append(["Show on map", _focus_place.bind(String(c["place"])), true])
-	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to map", _on_pin.bind(id)])
+	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to top", _on_pin.bind(id)])
 	buttons.append(["Back to journal", _open_journal])
 	_show_sheet("commitment", String(c["title"]), "\n".join(lines), buttons)
 
@@ -1164,16 +1149,6 @@ func _on_pin(id: String) -> void:
 	GameState.pin_commitment(id)
 	_refresh_hud()
 	_open_commitment(id)
-
-
-func _open_pinned() -> void:
-	if _sheet in ["encounter", "notice", "warning"]:
-		return
-	var pin: Dictionary = GameState.pinned()
-	if pin.is_empty():
-		_open_journal()
-	else:
-		_open_commitment(String(pin["id"]))
 
 
 ## The chronicle: the last 30 events (wars, peace, captures, sieges, company deeds)
@@ -1437,14 +1412,6 @@ func _on_time(rate: float) -> void:
 	_refresh_hud()
 
 
-## The goal chip opens the pinned journal entry, or the next step.
-func _on_goal() -> void:
-	if not GameState.pinned().is_empty():
-		_open_pinned()
-	else:
-		_open_recommendation()
-
-
 func _pill_box(color: Color, border: Color = Color(1, 1, 1, 0.12)) -> StyleBoxFlat:
 	var b := StyleBoxFlat.new()
 	b.bg_color = color
@@ -1553,7 +1520,6 @@ func _refresh_hud() -> void:
 	bottom_bar.visible = not sheet_panel.visible
 	var modal := _sheet in ["encounter", "notice", "warning"]
 	warband_button.disabled = modal
-	next_button.disabled = modal
 	for b in [pause_button, play_button, fast_button]:
 		b.disabled = modal or _sheet == "menu"
 	for badge in resource_buttons.values():
@@ -1591,12 +1557,6 @@ func _refresh_hud() -> void:
 		var n_captives: int = GameState.captive_lords().size()
 		status_label.text += " · %d captive%s" % [n_captives, "" if n_captives == 1 else "s"]
 	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if at_risk else Style.MUTED)
-	# The goal chip: the pinned journal entry, else the game's next step.
-	var pin: Dictionary = GameState.pinned()
-	if not pin.is_empty():
-		next_button.text = "Pinned: %s%s" % [pin["title"], _commitment_time(pin, " · ")]
-	else:
-		next_button.text = "Next: %s" % String(GameState.recommendation().get("title", "Carry on"))
 	_update_progress(p)
 
 

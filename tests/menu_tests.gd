@@ -102,10 +102,11 @@ func _run() -> void:
 	check(current_scene.scene_file_path.ends_with("world_map.tscn"), "map Settings returns to the map")
 	check(current_scene.resource_buttons.size() == 3 and current_scene.resource_buttons["silver"].icon != null,
 		"silver, food and renown have labeled icon controls in the HUD")
-	check(current_scene.find_child("NextStepButton", true, false) != null, "map exposes the contextual next step without opening a menu")
+	check(current_scene.find_child("NextStepButton", true, false) == null, "the top bar carries no goal chip")
 	current_scene._close_sheet()
-	var chip: Button = current_scene.find_child("NextStepButton", true, false)
-	check(chip.text.begins_with("Next: ") or chip.text.begins_with("Pinned: "), "the goal chip names the next step instead of a bare Next")
+	current_scene._on_menu()
+	check(button("Next step") != null, "the next step is one tap away in the menu")
+	current_scene._close_sheet()
 	gs.world.wait(6.0)
 	current_scene._on_time(0.0)
 	var held: float = gs.world.hour

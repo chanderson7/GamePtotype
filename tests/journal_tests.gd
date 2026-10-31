@@ -97,7 +97,9 @@ func _init() -> void:
 	check(map._selected == "thornwall" and w.hour == hour and w.player().moving() == moving,
 		"Show on map focuses the place without starting travel or time")
 	map._on_pin(String(relief["id"]))
-	check(map.pin_button.visible and map.pin_button.text.contains("Relief"), "a pinned commitment shows on the map card")
+	map._open_journal()
+	var lines: PackedStringArray = map.sheet_body.text.split("\n")
+	check(lines[0].contains(String(relief["title"])) and lines[0].contains("pinned"), "a pinned commitment leads the journal")
 
 	print("\nJournal tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
