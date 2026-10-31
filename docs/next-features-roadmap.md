@@ -55,16 +55,16 @@ They are not calendar estimates.
 | --- | --- | --- | --- | --- |
 | 0 | Integration and save-readiness pass | Release gate | S–M | Current local changes |
 | 1 | Marshal armies | Implemented 2026-10-29 | M | Existing lords, routes and garrisons |
-| 2 | Siege campaigns and captures | Next | L | 1 |
+| 2 | Siege campaigns and captures | Implemented 2026-10-31 (AI sieges; playable assault battle) | L | 1 |
 | 3 | Campaign journal and useful map links | Implemented 2026-10-31 (commitments, map links, pin card) | M | Existing events; extend with 1–5 |
-| 4 | War, peace and a readable war overview | Next | M | 2 |
-| 5 | Mercenary contracts and lord encounters | Next major player feature | L | 4 and journal basics |
-| 6 | Allied battles and real house assistance | Following | L | 1, 5 and political eligibility |
-| 7 | Prisoners, ransom and remembered rivals | Following | M–L | 5; ownership rules from 6 |
-| 8 | Small settlement jobs for independent companies | Following | M | Journal; reuses current encounters |
-| 9 | Captain development and optional bond stories | Following | M–L | Current captain IDs/bonds; stable campaign economy |
+| 4 | War, peace and a readable war overview | Implemented | M | 2 |
+| 5 | Mercenary contracts and lord encounters | Implemented | L | 4 and journal basics |
+| 6 | Allied battles and real house assistance | Implemented | L | 1, 5 and political eligibility |
+| 7 | Prisoners, ransom and remembered rivals | Implemented | M–L | 5; ownership rules from 6 |
+| 8 | Small settlement jobs for independent companies | Implemented | M | Journal; reuses current encounters |
+| 9 | Captain development and optional bond stories | Implemented | M–L | Current captain IDs/bonds; stable campaign economy |
 | 10 | Farah and Kaede's complete routes | Implemented 2026-10-30 | L | Shared social eligibility and journal |
-| 11 | Recovery options and campaign achievements | Later | M–L | Stable battle results and campaign statistics |
+| 11 | Recovery options and campaign achievements | Implemented 2026-10-31 (recovery in Phase 5; company deeds) | M–L | Stable battle results and campaign statistics |
 | 12 | A first fief before a kingdom | Implemented 2026-10-31 | L | Stable complete Phase 4 loop |
 
 **Minimum useful release:** 1–5 with a simple journal. The world changes and the player can

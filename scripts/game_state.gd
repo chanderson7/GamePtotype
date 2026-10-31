@@ -18,6 +18,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const Achievements = preload("res://scripts/data/achievements.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
@@ -92,6 +93,11 @@ var ended_commitments: Array = []
 const ENDED_KEEP := 8
 ## Camp moments the player has already seen (see camp_moments.gd).
 var camp_seen: Array = []
+## Company deeds (achievements.gd): those earned {id: {day}}, running counts for the ones
+## that count events, and the name the company chose to carry ("" for none).
+var deeds: Dictionary = {}
+var deed_counts: Dictionary = {}
+var company_title := ""
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -145,6 +151,9 @@ func new_warband() -> void:
 	pinned_commitment = ""
 	ended_commitments = []
 	camp_seen = []
+	deeds = {}
+	deed_counts = {}
+	company_title = ""
 	_heal_clock = 0.0
 	casual_mode = false
 	_next_id = 1
@@ -362,6 +371,7 @@ func complete_job(job_id: String) -> Dictionary:
 
 	active_jobs.remove_at(target_index)
 	completed_jobs.append(job)
+	_award_deeds()
 
 	var r_silver := int(job.get("reward_silver", 0))
 	var r_renown := int(job.get("reward_renown", 0))
@@ -410,6 +420,32 @@ func _check_job_deadlines() -> void:
 				active_jobs.remove_at(i)
 				_end_commitment(String(job.get("id", "")), jtitle, "Cancelled: another force scattered the band first.")
 				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
+
+
+# ---------------------------------------------------------------- deeds
+
+func _count_deed(id: String) -> void:
+	deed_counts[id] = int(deed_counts.get(id, 0)) + 1
+
+
+## Award the deeds newly reached: a note, a chronicle entry, and a name to carry.
+func _award_deeds() -> void:
+	for id in Achievements.check(self):
+		var d: Dictionary = Achievements.DEEDS[id]
+		_note("A deed to remember: the company is now known as %s." % d["title"])
+		if world != null:
+			world.emit_event({"type": "achievement", "title": String(d["title"]), "text": String(d["goal"])})
+
+
+## Carry a name the company has earned, or none ("").
+func set_company_title(id: String) -> bool:
+	if id == "":
+		company_title = ""
+		return true
+	if not deeds.has(id):
+		return false
+	company_title = id
+	return true
 
 
 # ---------------------------------------------------------------- sieges
@@ -1291,6 +1327,7 @@ func settle() -> void:
 		_paid_day += 1
 		_upkeep()
 		_fief_day()
+	_award_deeds()
 
 
 ## One day's wages and food. Whatever can't be paid or fed is a share of the men going
@@ -1306,6 +1343,7 @@ func _upkeep() -> void:
 		var realm := String(contract.get("realm", ""))
 		contract["days_left"] = int(contract["days_left"]) - 1
 		if int(contract["days_left"]) <= 0:
+			_count_deed("contract")
 			_end_commitment("contract", "Contract with %s" % (WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm),
 				"Served in full: the contract ended in good standing.")
 			add_realm_relation(realm, 10)
@@ -2220,6 +2258,16 @@ func apply_result(result: Dictionary) -> void:
 				_note("%s beat you. %s The survivors regroup at %s, half a day later." % [band, how, home])
 			else:
 				_note("%s cut down your whole warband." % band)
+		if result.get("won", false):
+			match obj:
+				"village":
+					_count_deed("villages")
+				"siege":
+					_count_deed("walls")
+			if bool(result.get("chief_killed", false)):
+				_count_deed("chiefs")
+			if bool(result.get("lord_captured", false)):
+				_count_deed("lord")
 		for line in fates:
 			_note(line)
 		settle()
@@ -2365,6 +2413,7 @@ func to_dict() -> Dictionary:
 		"player_fief": player_fief.duplicate(true),
 		"pinned_commitment": pinned_commitment, "ended_commitments": ended_commitments.duplicate(true),
 		"camp_seen": camp_seen.duplicate(),
+		"deeds": deeds.duplicate(true), "deed_counts": deed_counts.duplicate(), "company_title": company_title,
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
@@ -2394,6 +2443,11 @@ func from_dict(data: Dictionary) -> bool:
 	pinned_commitment = String(data.get("pinned_commitment", ""))
 	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
 	camp_seen = data.get("camp_seen", []).duplicate() if typeof(data.get("camp_seen")) == TYPE_ARRAY else []
+	deeds = data.get("deeds", {}).duplicate(true) if typeof(data.get("deeds")) == TYPE_DICTIONARY else {}
+	deed_counts = data.get("deed_counts", {}).duplicate() if typeof(data.get("deed_counts")) == TYPE_DICTIONARY else {}
+	for k in deed_counts:
+		deed_counts[k] = int(deed_counts[k])
+	company_title = String(data.get("company_title", ""))
 	if has_fief() and world != null:
 		world.garrisons[fief_id()] = player_fief.get("garrison", [])
 	_heal_clock = float(data.get("heal_clock", 0.0))

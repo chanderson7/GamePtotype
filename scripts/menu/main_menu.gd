@@ -15,6 +15,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const CampMoments = preload("res://scripts/data/camp_moments.gd")
+const Achievements = preload("res://scripts/data/achievements.gd")
 
 var _scroll: ScrollContainer
 var _fallen_section: Control
@@ -59,6 +60,10 @@ func _build() -> void:
 	margin.add_child(col)
 
 	col.add_child(Style.label("Warband", 72, Style.BRASS))
+	if GameState.company_title != "" and Achievements.DEEDS.has(GameState.company_title):
+		var known := Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], Style.BODY, Style.BRASS)
+		known.name = "CompanyTitle"
+		col.add_child(known)
 	col.add_child(_camp_header())
 	col.add_child(_camp_tableau())
 	var moment := _camp_moment()
@@ -165,6 +170,9 @@ func _build() -> void:
 		col.add_child(_section("Captive lords"))
 		for cl in captives:
 			col.add_child(_captive_lord_row(cl))
+
+	col.add_child(_section("Deeds"))
+	col.add_child(_deeds_panel())
 
 	if not GameState.fallen.is_empty():
 		_fallen_section = _section("The fallen")
@@ -313,6 +321,45 @@ func _camp_moment() -> Control:
 	done.pressed.connect(_on_moment_dismiss.bind(String(m["key"])))
 	row.add_child(done)
 	return panel
+
+
+## The company's deeds: what it has done, how far along the rest are, and the names
+## earned. A name is only a name: no bonuses come with it.
+func _deeds_panel() -> Control:
+	var box := VBoxContainer.new()
+	box.name = "DeedsPanel"
+	box.add_theme_constant_override("separation", 8)
+	var earned := 0
+	for id in Achievements.ORDER:
+		var d: Dictionary = Achievements.DEEDS[id]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var text: Label
+		if Achievements.done(GameState, id):
+			earned += 1
+			text = Style.label("★ %s · %s Day %d." % [String(d["title"]).capitalize(), d["goal"], int(GameState.deeds[id].get("day", 1))], Style.SMALL, Style.BRASS)
+		else:
+			var need := int(d["need"])
+			var have := Achievements.progress(GameState, id)
+			text = Style.label("%s%s" % [d["goal"], (" (%d/%d)" % [have, need]) if need > 1 else ""], Style.SMALL, Style.MUTED)
+		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(text)
+		if Achievements.done(GameState, id):
+			var carried: bool = GameState.company_title == id
+			var b := Button.new()
+			b.name = "CarryTitle_%s" % id
+			b.text = "Carried" if carried else "Carry name"
+			b.add_theme_font_size_override("font_size", Style.SMALL)
+			b.custom_minimum_size = Vector2(0, Style.TOUCH)
+			b.pressed.connect(func():
+				GameState.set_company_title("" if carried else id)
+				GameState.save_game()
+				_build())
+			row.add_child(b)
+		box.add_child(row)
+	box.add_child(_note("%d of %d deeds. They are yours to chase or ignore; the campaign never ends on one." % [earned, Achievements.ORDER.size()]))
+	return box
 
 
 func _on_moment(m: Dictionary) -> void:
