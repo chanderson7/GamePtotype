@@ -1700,6 +1700,13 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		facing = -1.0
 	var frame := int(_clock * 6.0) % 2 if moving else 0
 	var mine := sprite == "rider"
+	# A marshal's host is drawn as one: the marshal under the realm's great standard, with
+	# the column behind, and a badge for what the army is doing.
+	var host: bool = not army.is_empty() and army["state"] != "gathering" and p.id == int(army["leader"])
+	if host:
+		var host_sprite := "marshal/" + Data.culture_of(p.faction)
+		if MapArt.has(host_sprite):
+			sprite = host_sprite
 
 	# Shadow on ground
 	draw_set_transform(base + Vector2(0, 2), 0.0, Vector2(1.0, 0.35))
@@ -1723,8 +1730,36 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		draw_polyline(PackedVector2Array([base + Vector2(0, -r), base + Vector2(r, 0), base + Vector2(0, r),
 			base + Vector2(-r, 0), base + Vector2(0, -r)]), b_col, 2.0)
 
-	# Heraldic banner / pennant by owner
-	var pole_x := 7.0 * px * facing
+	if host:
+		_draw_army_badge(base + Vector2(0, -34.0) * px * strength_scale, String(army["state"]), px)
+	# Heraldic banner / pennant by owner (a host carries its own great standard)
+	if not (host and sprite.begins_with("marshal/")):
+		_draw_pennant(base, 7.0 * px * facing, px, strength_scale, color, party_alpha, facing, p)
+	_draw_party_sprite(base, sprite, frame, color, px, facing, strength_scale, party_alpha)
+
+
+## What a marshal's army is about, in a small badge: marching on, besieging, or going home.
+func _draw_army_badge(at: Vector2, state: String, px: float) -> void:
+	var r := 7.0 * px
+	draw_circle(at, r + 1.5 * px, Color(0, 0, 0, 0.6))
+	draw_circle(at, r, Style.NIGHT)
+	draw_arc(at, r, 0.0, TAU, 20, Style.BRASS, 1.5 * px)
+	var c := Style.BRASS
+	match state:
+		"marching":
+			draw_polyline(PackedVector2Array([at + Vector2(-3, -4) * px, at + Vector2(2, 0) * px, at + Vector2(-3, 4) * px]), c, 1.8 * px)
+		"returning":
+			draw_polyline(PackedVector2Array([at + Vector2(3, -4) * px, at + Vector2(-2, 0) * px, at + Vector2(3, 4) * px]), c, 1.8 * px)
+		"besieging":
+			# a little tower: the walls they sit before
+			draw_rect(Rect2(at + Vector2(-3.5, -1.5) * px, Vector2(7, 5) * px), c)
+			for x in [-3.5, -0.5, 2.5]:
+				draw_rect(Rect2(at + Vector2(x, -4) * px, Vector2(1.5, 2) * px), c)
+		_:
+			draw_circle(at, 2.0 * px, c)
+
+
+func _draw_pennant(base: Vector2, pole_x: float, px: float, strength_scale: float, color: Color, party_alpha: float, facing: float, p) -> void:
 	var pole_top := base + Vector2(pole_x, -14.0 * px * strength_scale)
 	var pole_bot := base + Vector2(pole_x, 1.0 * px)
 	var pole_col := Color(0.25, 0.22, 0.18, party_alpha)
@@ -1740,7 +1775,8 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 	draw_colored_polygon(flag_pts, flag_col)
 	draw_polyline(flag_pts, Color(0.12, 0.1, 0.08, 0.8 * party_alpha), 1.0)
 
-	# Party sprite
+
+func _draw_party_sprite(base: Vector2, sprite: String, frame: int, color: Color, px: float, facing: float, strength_scale: float, party_alpha: float) -> void:
 	draw_set_transform(base, 0.0, Vector2(px * facing * strength_scale, px * strength_scale))
 	var tex_col := Color(1, 1, 1, party_alpha)
 	draw_texture(MapArt.texture(sprite, frame, color), -MapArt.pivot(sprite), tex_col)

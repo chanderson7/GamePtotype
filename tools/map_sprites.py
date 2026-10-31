@@ -457,6 +457,62 @@ def lord(frame):
     return g
 
 
+def marshal(frame, culture):
+    """A marshal's host on the march: the marshal mounted under the realm's great standard,
+    with a line of foot behind, dressed by culture: Vardish steel and kite shields, Kharzani
+    turbans and a horse-tail standard, Ryumon lacquer under tall nobori banners."""
+    g = Grid(34, 26)
+    lift = 1 if frame == 1 else 0
+    head, head_shade = {"vardish": ("m", "M"), "kharzani": ("c", "C"), "ryumon": ("b", "B")}[culture]
+    # the column on foot behind, three abreast in two files
+    for i, x in enumerate((2, 7, 12, 17)):
+        step = (frame + i) % 2
+        y0 = 13 + (i % 2)
+        g.rect(x, y0 + 2, x + 2, y0 + 5, "T" if i % 2 == 0 else "t")
+        g.disc(x + 1.0, y0 + 0.8, 1.2, head, shade=head_shade)
+        g.rect(x, y0 + 6, x, y0 + 8 - step, "n")
+        g.rect(x + 2, y0 + 6 - step, x + 2, y0 + 8, "n")
+        if culture == "vardish":
+            g.rect(x - 1, y0 + 2, x - 1, y0 + 5, "L")   # kite shield edge
+        g.line(x + 3, y0 - 4, x + 3, y0 + 7, "w")       # spear
+        g.set(x + 3, y0 - 5, "m")
+    # the great standard
+    if culture == "ryumon":
+        # tall nobori: narrow vertical banners on crossbar poles
+        for x in (6, 15):
+            g.line(x, 0, x, 13, "W")
+            g.line(x, 0, x + 3, 0, "W")
+            g.rect(x + 1, 1, x + 3, 9, "T")
+            g.rect(x + 1, 9, x + 3, 9, "t")
+            g.set(x + 2, 3, "L")
+    else:
+        g.line(22, 0, 22, 14, "W")
+        g.rect(23, 0, 31, 6, "T")
+        g.rect(23, 6, 31, 6, "t")
+        g.set(31, 1, ".")
+        g.set(31, 5, ".")
+        g.disc(26.5, 3.0, 1.4, "g")
+        if culture == "kharzani":
+            g.line(21, 1, 21, 4, "C")    # horse-tail on the staff
+            g.line(20, 2, 20, 5, "c")
+    # the marshal, mounted and barded in the realm's colors
+    g.rect(19, 18 - lift, 30, 20 - lift, "q")
+    g.rect(19, 20 - lift, 30, 20 - lift, "Q")
+    g.rect(20, 18 - lift, 28, 19 - lift, "T")
+    g.rect(30, 15 - lift, 32, 18 - lift, "q")
+    g.set(33, 16 - lift, "q")
+    for x, up in ((20, 0), (22, 1), (27, 1), (29, 0)):
+        down = (up + frame) % 2
+        g.rect(x, 21 - lift, x, 23 - down, "n")
+    g.rect(23, 13 - lift, 26, 17 - lift, "T")
+    g.set(26, 14 - lift, "t")
+    g.disc(24.5, 11.5 - lift, 1.5, head, shade=head_shade)
+    g.set(24, 10 - lift, "g")
+    g.set(25, 10 - lift, "g")
+    g.outline()
+    return g
+
+
 SETTLEMENTS = {
     "vardish/town": vardish_town, "vardish/castle": vardish_castle, "vardish/village": vardish_village,
     "kharzani/town": kharzani_town, "kharzani/castle": kharzani_castle, "kharzani/village": kharzani_village,
@@ -475,6 +531,9 @@ def build_all():
         g = fn()
         # Settlements and terrain stand on the bottom middle of their sprite.
         out[name] = {"frames": [g.rows()], "pivot": (g.w / 2.0, g.h - 1.0)}
+    for culture in ("vardish", "kharzani", "ryumon"):
+        frames = [marshal(f, culture) for f in range(2)]
+        out["marshal/" + culture] = {"frames": [f.rows() for f in frames], "pivot": (frames[0].w / 2.0, frames[0].h - 1.0)}
     for name, fn in (("rider", rider), ("bandits", bandits), ("lord", lord)):
         frames = [fn(f) for f in range(2)]
         out[name] = {"frames": [f.rows() for f in frames], "pivot": (frames[0].w / 2.0, frames[0].h - 1.0)}

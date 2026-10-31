@@ -310,6 +310,19 @@ Run the infantry/cavalry silhouette comparison, then make the three capital plat
 marshal markers. Add state badges, culture/type fallbacks and asset-lifetime management.
 Validate capture banners, army transitions, narrow screens and dense battle visibility.
 
+#### Partly built — 2026-10-31
+
+- **Marshal markers:** three culture-specific marshal hosts are drawn by `tools/map_sprites.py`
+  (`marshal/vardish`, `marshal/kharzani`, `marshal/ryumon`): the marshal mounted under the
+  realm's great standard with a column of foot behind, dressed by culture (steel and kite
+  shields; turbans and a horse-tail standard; lacquer under nobori). The map draws an army's
+  leader with them, in the owner's swapped colors, with a state badge (marching, besieging,
+  returning). Members keep their cohort rings.
+- **Still to make:** the three capital plates, and Package C's result/remembrance vignettes and
+  village/castle plates. These are painted illustrations like the shipped portraits and camp,
+  so they need the same external image workflow and provenance notes in
+  `assets/captain-art-manifest.md`; procedural pixel art would not match them.
+
 ### Package C: consequences and the wider world
 
 Add the result/remembrance vignettes, village/castle plates and Edda props. Introduce later
