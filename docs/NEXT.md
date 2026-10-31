@@ -70,6 +70,15 @@ and a reusable company camp—is implemented; siege resolution remains the next 
     - `tests/casual_mode_tests.gd` (20 tests pass)
     - `tests/captain_development_tests.gd` (31 tests pass)
     - `tests/hero_companion_tests.gd` (41 tests pass)
+- **Settlement Jobs & Local Contracts (Feature 8)** is done:
+  - Three core reusable contract templates for independent company work between wars:
+    1. `hunt`: "Bounty: Hunt Marauders" (160 silver, 5 renown, 5 standing, 72h deadline, nearest live roaming bandit band). Auto-completes upon battle victory; cancels fairly without penalty if target is eliminated by another lord/militia.
+    2. `courier`: "Courier: Urgent Dispatch" (110 silver, 3 renown, 5 standing, dynamic travel deadline scaled to distance). Delivers sealed dispatches to magistrates, bailiffs, or elders at distant settlements.
+    3. `relief`: "Relief: Village Provisions" (80 silver, 5 renown, 10 standing, 96h deadline). Delivers 15 food rations to dry village granaries, replenishing local recruit offers.
+  - Strict 3-job cap (`MAX_ACTIVE_JOBS = 3`) and 72h refresh timer (`REFRESH_HOURS = 72.0`). Safe abandon mechanic prevents silver/standing exploits.
+  - UI integrations: notice board offers and deliverable contract claim cards on `settlement_screen.gd`, active tasks and deadlines in `main_menu.gd` Warband screen, and campaign guidance in `game_state.recommendation()`.
+  - Chronicle activity feed integration (`job_completed` deed events) and complete save/load persistence.
+  - Verified with `tests/settlement_jobs_tests.gd` (70 tests pass, 0 failures).
 
 ## Menu and onboarding update
 

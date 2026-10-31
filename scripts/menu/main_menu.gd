@@ -12,6 +12,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
+const Jobs = preload("res://scripts/data/jobs.gd")
 
 var _scroll: ScrollContainer
 
@@ -124,6 +125,13 @@ func _build() -> void:
 			wounded_roster.add_child(_squad_row(s))
 	if GameState.army.is_empty():
 		roster.add_child(Style.label("Your warband is gone. Raise a new one.", Style.BODY, Style.ENEMY_LIGHT))
+
+	col.add_child(_section("Active contracts"))
+	if GameState.active_jobs.is_empty():
+		col.add_child(_note("No active contracts. Visit settlements to take on bounties, courier dispatches, or relief jobs."))
+	else:
+		for job in GameState.active_jobs:
+			col.add_child(_active_job_row(job))
 
 	col.add_child(_section("Bonds"))
 	var bonds: Array = GameState.bonds()
@@ -369,6 +377,55 @@ func _note(text: String, color: Color = Style.MUTED) -> Label:
 	var l := Style.label(text, Style.SMALL, color)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	return l
+
+
+func _active_job_row(job: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	panel.add_child(margin)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	margin.add_child(v)
+
+	var h := HBoxContainer.new()
+	h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(h)
+
+	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.BRASS)
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(title_lbl)
+
+	var jid: String = String(job.get("id", ""))
+	var abandon_btn := Button.new()
+	abandon_btn.text = "Abandon"
+	abandon_btn.custom_minimum_size = Vector2(100, 36)
+	abandon_btn.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	abandon_btn.pressed.connect(func():
+		GameState.abandon_job(jid)
+		_build()
+	)
+	h.add_child(abandon_btn)
+
+	var desc_lbl := Style.label(String(job.get("description", "")), Style.BODY, Style.TEXT)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(desc_lbl)
+
+	var w = GameState.world
+	var cur_hour: float = w.hour if w != null else 0.0
+	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - cur_hour)
+	var status_text := "Deadline: %.0fh remaining · Reward: %d silver, +%d renown, +%d standing" % [
+		hrs_left,
+		int(job.get("reward_silver", 0)),
+		int(job.get("reward_renown", 0)),
+		int(job.get("reward_relation", 0))
+	]
+	v.add_child(Style.label(status_text, Style.SMALL, Style.MUTED))
+	return panel
 
 
 func _bond_row(bond: Dictionary) -> Control:

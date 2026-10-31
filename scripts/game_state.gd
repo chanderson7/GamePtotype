@@ -19,6 +19,7 @@ const Units = preload("res://scripts/data/units.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
+const Jobs = preload("res://scripts/data/jobs.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -78,6 +79,10 @@ var autoplay_battles := 0
 var casual_mode := false
 ## Unique heroes recruited by the player.
 var hired_heroes: Array = []
+## Active small settlement jobs / contracts accepted by the company.
+var active_jobs: Array = []
+## Completed jobs log.
+var completed_jobs: Array = []
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -125,6 +130,8 @@ func new_warband() -> void:
 	map_notice = ""
 	desertion_warning = ""
 	hired_heroes = []
+	active_jobs = []
+	completed_jobs = []
 	_heal_clock = 0.0
 	casual_mode = false
 	_next_id = 1
@@ -257,6 +264,139 @@ func sighting_distance_mult() -> float:
 	return 1.3 if has_specialization(Captains.SCOUT) else 1.0
 
 
+# ---------------------------------------------------------------- settlement jobs
+
+func jobs_at(settlement_id: String) -> Array:
+	if world == null:
+		return []
+	return world.jobs_at(settlement_id)
+
+
+func accept_job(settlement_id: String, index: int) -> bool:
+	if world == null or active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS:
+		return false
+	var list := jobs_at(settlement_id)
+	if index < 0 or index >= list.size():
+		return false
+	var candidate: Dictionary = list[index]
+	if String(candidate.get("type", "")) == Jobs.TYPE_HUNT:
+		var target_pid: int = int(candidate.get("target_party_id", -1))
+		for aj in active_jobs:
+			if String(aj.get("type", "")) == Jobs.TYPE_HUNT and int(aj.get("target_party_id", -1)) == target_pid:
+				return false
+	var job: Dictionary = world.take_job(settlement_id, index)
+	if job.is_empty():
+		return false
+	active_jobs.append(job)
+	_note("Accepted contract: '%s'." % String(job.get("title", "Contract")))
+	save_game()
+	return true
+
+
+func abandon_job(job_id: String) -> bool:
+	for i in active_jobs.size():
+		if String(active_jobs[i].get("id", "")) == job_id:
+			var title := String(active_jobs[i].get("title", "Contract"))
+			active_jobs.remove_at(i)
+			_note("Abandoned contract: '%s'." % title)
+			save_game()
+			return true
+	return false
+
+
+func active_jobs_completable_at(settlement_id: String) -> Array:
+	var out := []
+	for job in active_jobs:
+		match String(job.get("type", "")):
+			Jobs.TYPE_COURIER:
+				if String(job.get("destination_settlement", "")) == settlement_id and can_complete_job(job):
+					out.append(job)
+			Jobs.TYPE_RELIEF:
+				if String(job.get("origin_settlement", "")) == settlement_id and can_complete_job(job):
+					out.append(job)
+			Jobs.TYPE_HUNT:
+				if can_complete_job(job):
+					out.append(job)
+	return out
+
+
+func can_complete_job(job: Dictionary) -> bool:
+	if world == null:
+		return false
+	var deadline := float(job.get("deadline", INF))
+	if world.hour > deadline:
+		return false
+	match String(job.get("type", "")):
+		Jobs.TYPE_HUNT:
+			return String(job.get("status", "")) == "ready_to_claim"
+		Jobs.TYPE_COURIER:
+			return world.here() == String(job.get("destination_settlement", ""))
+		Jobs.TYPE_RELIEF:
+			return world.here() == String(job.get("origin_settlement", "")) and food >= int(job.get("food_needed", 0))
+	return false
+
+
+func complete_job(job_id: String) -> Dictionary:
+	var target_index := -1
+	var job := {}
+	for i in active_jobs.size():
+		if String(active_jobs[i].get("id", "")) == job_id:
+			target_index = i
+			job = active_jobs[i]
+			break
+	if target_index == -1 or not can_complete_job(job):
+		return {"ok": false, "reason": "Contract terms are not fulfilled."}
+
+	active_jobs.remove_at(target_index)
+	completed_jobs.append(job)
+
+	var r_silver := int(job.get("reward_silver", 0))
+	var r_renown := int(job.get("reward_renown", 0))
+	var r_rel := int(job.get("reward_relation", 0))
+
+	silver += r_silver
+	renown += r_renown
+
+	if String(job.get("type", "")) == Jobs.TYPE_RELIEF:
+		var needed := int(job.get("food_needed", 0))
+		food = maxi(0, food - needed)
+		if world != null:
+			var v_id := String(job.get("origin_settlement", ""))
+			world.offers[v_id] = world._new_offers(v_id)
+
+	if world != null and r_rel > 0:
+		var target_settlement: String = String(job.get("destination_settlement", job.get("origin_settlement", "")))
+		if target_settlement != "":
+			var owner_realm: String = world.owner_of(target_settlement)
+			if owner_realm != "" and owner_realm != WorldData.BANDITS:
+				add_realm_relation(owner_realm, r_rel)
+
+	var title: String = String(job.get("title", "Contract"))
+	_note("Completed: %s. Claimed %d silver and +%d renown." % [title, r_silver, r_renown])
+	if world != null:
+		world.emit_event({"type": "job_completed", "company": "Your warband", "title": title, "at": world.here()})
+
+	save_game()
+	return {"ok": true, "reward_silver": r_silver, "reward_renown": r_renown}
+
+
+func _check_job_deadlines() -> void:
+	if world == null:
+		return
+	for i in range(active_jobs.size() - 1, -1, -1):
+		var job: Dictionary = active_jobs[i]
+		var jtitle := String(job.get("title", "Contract"))
+		if world.hour > float(job.get("deadline", INF)):
+			active_jobs.remove_at(i)
+			_note("Contract expired: The deadline for '%s' has passed." % jtitle)
+			continue
+		if String(job.get("type", "")) == Jobs.TYPE_HUNT:
+			var party_id := int(job.get("target_party_id", -1))
+			if party_id >= 0 and world.party(party_id) == null and String(job.get("status", "")) != "ready_to_claim":
+				active_jobs.remove_at(i)
+				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
+
+
 func squad_by_id(id: int) -> Dictionary:
 	for s in army:
 		if int(s["id"]) == id:
@@ -311,6 +451,29 @@ func recommendation() -> Dictionary:
 		var town := _nearest_settlement([WorldData.TOWN])
 		return {"title": "Training is ready", "body": "%d %s earned a new level. Town drillmasters can promote them." % [ready.size(),
 			"company has" if ready.size() == 1 else "companies have"], "action": "place", "place": town}
+	for job in active_jobs:
+		match String(job.get("type", "")):
+			Jobs.TYPE_COURIER:
+				var dest_id: String = String(job.get("destination_settlement", ""))
+				if dest_id != "":
+					var dest_name: String = String(WorldData.settlement(dest_id)["name"])
+					var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - world.hour)
+					return {"title": "Courier dispatch", "body": "Deliver urgent dispatch to %s before deadline (%.0fh remaining)." % [
+						dest_name, hrs_left], "action": "place", "place": dest_id}
+			Jobs.TYPE_RELIEF:
+				var orig_id: String = String(job.get("origin_settlement", ""))
+				if orig_id != "" and food >= int(job.get("food_needed", 0)):
+					var orig_name: String = String(WorldData.settlement(orig_id)["name"])
+					return {"title": "Deliver provisions", "body": "Return to %s with %d food rations to complete village relief." % [
+						orig_name, int(job.get("food_needed", 0))], "action": "place", "place": orig_id}
+			Jobs.TYPE_HUNT:
+				var p_id: int = int(job.get("target_party_id", -1))
+				var p = world.party(p_id) if p_id >= 0 else null
+				if p != null:
+					var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - world.hour)
+					return {"title": "Bounty hunt", "body": "Hunt down %s near %s before deadline (%.0fh remaining)." % [
+						job.get("target_name", "the marauders"), String(WorldData.settlement(job.get("origin_settlement", ""))["name"]),
+						hrs_left], "action": "map", "place": ""}
 	var close_bond := _closest_bond_goal()
 	if not close_bond.is_empty():
 		return {"title": "A bond is taking shape", "body": "%s are %.1f points from rank %s. Fighting beside one another strengthens it." % [
@@ -559,6 +722,7 @@ func advance(hours: float) -> void:
 	if world != null:
 		world.step(hours)
 		drain_social_settlements()
+		_check_job_deadlines()
 		settle()
 	_tick_healing(hours)
 
@@ -1076,6 +1240,7 @@ func start_encounter_battle() -> void:
 	pending_battle = {
 		"enemy": enemy_army, "culture": WorldData.culture_of(band.faction),
 		"temperament": plan["temperament"], "name": band.name,
+		"party_id": int(band.id),
 		"site": plan["site"],
 		"objective": objective,
 		"chief_name": chief_name,
@@ -1545,6 +1710,13 @@ func apply_result(result: Dictionary) -> void:
 			if not is_lord:
 				_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
 					band, how, got["silver"], got["food"], got["renown"]])
+			var b_party_id: int = int(pending_battle.get("party_id", -1))
+			var b_party_name: String = String(pending_battle.get("name", ""))
+			for job in active_jobs.duplicate():
+				if String(job.get("type", "")) == Jobs.TYPE_HUNT:
+					if (b_party_id >= 0 and int(job.get("target_party_id", -2)) == b_party_id) or (b_party_name != "" and String(job.get("target_name", "")) == b_party_name):
+						job["status"] = "ready_to_claim"
+						complete_job(String(job.get("id", "")))
 		else:
 			world.hurt_band(result.get("enemy_squads", {}))
 			world.lose_encounter()
@@ -1694,6 +1866,7 @@ func to_dict() -> Dictionary:
 		"contract": contract.duplicate(true),
 		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair, "bond_intro_ids": bond_intro_ids,
 		"bond_events": bond_events, "bond_records": bond_records,
+		"active_jobs": active_jobs.duplicate(true), "completed_jobs": completed_jobs.duplicate(true),
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
@@ -1717,6 +1890,8 @@ func from_dict(data: Dictionary) -> bool:
 	battles = int(data.get("battles", 0))
 	casual_mode = bool(data.get("casual_mode", false))
 	hired_heroes = data.get("hired_heroes", []) if typeof(data.get("hired_heroes")) == TYPE_ARRAY else []
+	active_jobs = data.get("active_jobs", []).duplicate(true) if typeof(data.get("active_jobs")) == TYPE_ARRAY else []
+	completed_jobs = data.get("completed_jobs", []).duplicate(true) if typeof(data.get("completed_jobs")) == TYPE_ARRAY else []
 	_heal_clock = float(data.get("heal_clock", 0.0))
 	silver = int(data.get("silver", Economy.START_SILVER))
 	food = int(data.get("food", -1))

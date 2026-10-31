@@ -14,6 +14,7 @@ const Units = preload("res://scripts/data/units.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
+const Jobs = preload("res://scripts/data/jobs.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -106,6 +107,7 @@ func _build() -> void:
 		_add_provisions(col)
 		_add_recruits(col)
 		_add_tavern_heroes(col)
+		_add_local_jobs(col)
 		_add_squads(col)
 		_add_court(col)
 
@@ -397,6 +399,113 @@ func _hero_row(hero: Dictionary) -> Control:
 	if can_hire:
 		Style.make_primary(hire_btn)
 	v.add_child(hire_btn)
+	return panel
+
+
+func _add_local_jobs(col: VBoxContainer) -> void:
+	var w = GameState.world
+	if w == null:
+		return
+
+	# Deliveries ready for turn-in
+	var deliverable: Array = GameState.active_jobs_completable_at(place)
+	if not deliverable.is_empty():
+		col.add_child(_section("Contract Deliveries"))
+		for job in deliverable:
+			col.add_child(_deliverable_job_card(job))
+
+	# Notice board offers
+	col.add_child(_section("Notice Board & Local Work"))
+	var active_count: int = GameState.active_jobs.size()
+	var cap_note := Style.label("Active contracts: %d / %d" % [active_count, Jobs.MAX_ACTIVE_JOBS], Style.SMALL, Style.MUTED)
+	col.add_child(cap_note)
+
+	var offers: Array = GameState.jobs_at(place)
+	if offers.is_empty():
+		col.add_child(_note("No local contracts are currently posted. Notices refresh every few days."))
+	else:
+		for i in offers.size():
+			col.add_child(_job_offer_card(offers[i], i, active_count >= Jobs.MAX_ACTIVE_JOBS))
+
+
+func _deliverable_job_card(job: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(margin)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	margin.add_child(v)
+
+	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.BRASS)
+	v.add_child(title_lbl)
+
+	var desc_lbl := Style.label(String(job.get("description", "")), Style.BODY, Style.TEXT)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(desc_lbl)
+
+	var rew_text := "Reward: %d silver · +%d renown · +%d standing" % [
+		int(job.get("reward_silver", 0)),
+		int(job.get("reward_renown", 0)),
+		int(job.get("reward_relation", 0))
+	]
+	if String(job.get("type", "")) == Jobs.TYPE_RELIEF:
+		rew_text += " (Requires %d rations)" % int(job.get("food_needed", 0))
+	v.add_child(Style.label(rew_text, Style.SMALL, Style.MUTED))
+
+	var jid: String = String(job.get("id", ""))
+	var claim_btn := _button("Complete Contract & Claim Reward", func():
+		var res: Dictionary = GameState.complete_job(jid)
+		if res.get("ok", false):
+			_paid(true)
+	)
+	Style.make_primary(claim_btn)
+	v.add_child(claim_btn)
+	return panel
+
+
+func _job_offer_card(job: Dictionary, index: int, is_capped: bool) -> Control:
+	var panel := PanelContainer.new()
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	panel.add_child(margin)
+
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	margin.add_child(v)
+
+	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.TEXT)
+	v.add_child(title_lbl)
+
+	var desc_lbl := Style.label(String(job.get("description", "")), Style.BODY, Style.MUTED)
+	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(desc_lbl)
+
+	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - (GameState.world.hour if GameState.world != null else 0.0))
+	var terms := "Deadline: %.0fh · Reward: %d silver, +%d renown, +%d standing" % [
+		hrs_left,
+		int(job.get("reward_silver", 0)),
+		int(job.get("reward_renown", 0)),
+		int(job.get("reward_relation", 0))
+	]
+	v.add_child(Style.label(terms, Style.SMALL, Style.MUTED))
+
+	var accept_btn := _button("Accept Contract" if not is_capped else "Contract Limit Reached (%d/%d)" % [Jobs.MAX_ACTIVE_JOBS, Jobs.MAX_ACTIVE_JOBS], func():
+		if GameState.accept_job(place, index):
+			Sound.play("coins")
+			_build()
+	)
+	accept_btn.disabled = is_capped
+	if not is_capped:
+		Style.make_primary(accept_btn)
+	v.add_child(accept_btn)
 	return panel
 
 

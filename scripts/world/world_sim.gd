@@ -22,6 +22,7 @@ const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const SocialSim = preload("res://scripts/world/social_sim.gd")
 const Politics = preload("res://scripts/data/politics.gd")
+const Jobs = preload("res://scripts/data/jobs.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -58,6 +59,7 @@ const ACTIVITY_TYPES := {
 	"lord_captured": true, "lord_captured_ai": true, "lord_slain": true,
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
+	"job_completed": true,
 }
 
 
@@ -120,6 +122,9 @@ var game_state = null
 ## settlement's offers come back after any are taken.
 var offers := {}
 var offers_back := {}
+## Local jobs offered at each settlement: {settlement id: [job_dict]}
+var settlement_jobs := {}
+var settlement_jobs_back := {}
 ## Who holds each settlement: id → realm. A village goes with the castle or town it's
 ## bound to.
 var owners := {}
@@ -508,7 +513,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "war"
 		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
 			cat = "siege"
-		"grudge_avenged", "contract_signed", "contract_ended", "player_victory":
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed":
 			cat = "deed"
 		"fight", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
@@ -607,6 +612,8 @@ func _activity_text(event: Dictionary) -> String:
 			var at := String(event.get("at", ""))
 			var place_str := (" near %s" % Data.settlement(at)["name"]) if Data.SETTLEMENTS.has(at) else ""
 			return "%s crushed %s%s." % [event.get("company", "The warband"), event.get("enemy", "the enemy"), place_str]
+		"job_completed":
+			return "%s completed the contract '%s'." % [event.get("company", "The warband"), event.get("title", "Contract")]
 	return ""
 
 
@@ -1865,6 +1872,30 @@ func _routed(p: Party) -> void:
 			add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED)
 
 
+# ---------------------------------------------------------------- settlement jobs
+
+func jobs_at(id: String) -> Array:
+	if not settlement_jobs.has(id) or hour >= float(settlement_jobs_back.get(id, INF)):
+		settlement_jobs[id] = _new_jobs(id)
+		settlement_jobs_back.erase(id)
+	return settlement_jobs[id]
+
+
+func take_job(id: String, index: int) -> Dictionary:
+	var list := jobs_at(id)
+	if index < 0 or index >= list.size():
+		return {}
+	var job: Dictionary = list[index]
+	list.remove_at(index)
+	if not settlement_jobs_back.has(id):
+		settlement_jobs_back[id] = hour + Jobs.REFRESH_HOURS
+	return job
+
+
+func _new_jobs(id: String) -> Array:
+	return Jobs.generate_jobs_for(id, self, rng)
+
+
 # ---------------------------------------------------------------- recruits
 
 ## Who will join you at `id`: squads of fresh recruits of the settlement's own culture.
@@ -2154,6 +2185,7 @@ func to_dict() -> Dictionary:
 		"seed": str(rng.seed), "state": str(rng.state),
 		"respawns": respawns.duplicate(true), "parties": ps,
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
+		"settlement_jobs": settlement_jobs.duplicate(true), "settlement_jobs_back": settlement_jobs_back.duplicate(),
 		"escaped_chiefs": escaped_chiefs.duplicate(true),
 		"saved_villages": saved_villages.duplicate(),
 		"activity_log": activity_log.duplicate(true),
@@ -2228,6 +2260,8 @@ func from_dict(d: Dictionary) -> void:
 	var raw_back = d.get("offers_back", {})
 	for id in raw_back:
 		offers_back[String(id)] = float(raw_back[id])
+	settlement_jobs = d.get("settlement_jobs", {}).duplicate(true)
+	settlement_jobs_back = d.get("settlement_jobs_back", {}).duplicate()
 	respawns = []
 	for r in d.get("respawns", []):
 		respawns.append({"faction": String(r["faction"]), "at": float(r["at"])})
