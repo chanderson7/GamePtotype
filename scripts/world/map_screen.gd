@@ -17,6 +17,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const Captains = preload("res://scripts/data/captains.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 184.0
