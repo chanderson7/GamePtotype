@@ -61,7 +61,7 @@ const TYPES := {
 const CHARGE_MULTIPLIER := 6.0
 const CHARGE_RUNUP := 60.0
 ## Archers caught in melee shoot rushed, at this fraction of their damage.
-const POINT_BLANK := 0.15
+const POINT_BLANK := 0.2
 ## Archers out of arrows draw short blades: this damage, reach and pace, no bonuses.
 const SIDEARM := {"damage": 7.0, "reach": 12.0, "cooldown": 1.2}
 ## Arrows aimed at a man locked in melee with your own troops miss this often: archers
