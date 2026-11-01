@@ -25,6 +25,11 @@ var autoplay := false
 var _scroll: ScrollContainer
 var _arrival_overlay: Control
 var _arrival_dismissing := false
+var _info_sheet: Control
+## The open tab, remembered per place for the session, so a conversation or a purchase
+## brings you back where you were.
+var tab := ""
+static var _tab_by_place := {}
 
 
 func _ready() -> void:
@@ -55,73 +60,366 @@ func _exit_tree() -> void:
 func _build() -> void:
 	var keep := _scroll.scroll_vertical if _scroll != null else (Scenes.settlement_scroll if Scenes.settlement_place == place else 0)
 	for child in get_children():
-		child.queue_free()
+		if child != _arrival_overlay:
+			child.queue_free()
 
 	var bg := ColorRect.new()
 	bg.color = Style.NIGHT
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
+	move_child(bg, 0)
+
+	var insets := Style.safe_insets(get_viewport())
+	var frame := VBoxContainer.new()
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.add_theme_constant_override("separation", 0)
+	add_child(frame)
 
 	_scroll = ScrollContainer.new()
-	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(_scroll)
+	frame.add_child(_scroll)
 	var margin := MarginContainer.new()
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_theme_constant_override("margin_left", 32)
 	margin.add_theme_constant_override("margin_right", 32)
-	var insets := Style.safe_insets(get_viewport())
-	margin.add_theme_constant_override("margin_top", 56 + int(insets["top"]))
-	margin.add_theme_constant_override("margin_bottom", 40 + int(insets["bottom"]))
+	margin.add_theme_constant_override("margin_top", 40 + int(insets["top"]))
+	margin.add_theme_constant_override("margin_bottom", 24)
 	_scroll.add_child(margin)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 16)
+	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 
-	var vista := SettlementVista.make(place, GameState.world)
+	var vista := SettlementVista.make(place, GameState.world, 240.0)
 	vista.name = "LocationIllustration"
 	col.add_child(vista)
-	col.add_child(Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS))
-	var presentation := TravelPresentation.settlement_state(GameState.world, place)
-	var condition := _note(String(presentation.get("sentence", "")), Style.TEXT)
-	condition.name = "SettlementCondition"
-	col.add_child(condition)
-	var recent := String(presentation.get("recent_event", ""))
-	if recent != "":
-		var recent_note := _note("Recent: %s" % recent, Style.MUTED)
-		recent_note.name = "SettlementRecentEvent"
-		col.add_child(recent_note)
-	col.add_child(_note(GameState.world.describe(place)))
-	col.add_child(_note(GameState.world.settlement_intelligence(place), Style.TEXT))
-	var days := GameState.food_days()
-	var purse := Style.label("%d silver · food for %s · wages %d a day" % [GameState.silver,
-		"1 day" if days == 1 else "%d days" % days, GameState.daily_wages()], Style.BODY, Style.TEXT)
-	purse.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(purse)
+	_add_header(col)
+	_add_wallet(col)
 
 	var owner := String(GameState.world.owner_of(place))
 	if GameState.is_at_war_with(owner):
 		_add_hostile_notice(col, owner)
 	else:
-		if GameState.is_player_fief(place):
-			_add_fief_management(col)
-		_add_contract(col, owner)
-		_add_provisions(col)
-		_add_recruits(col)
-		_add_tavern_heroes(col)
-		_add_local_jobs(col)
-		_add_squads(col)
-		_add_court(col)
+		_add_tabs(col, owner)
 
+	# Leaving stays in thumb reach, whatever the page scrolls to.
+	var bar := PanelContainer.new()
+	bar.name = "LeaveBar"
+	var bar_box := Style.box(Style.NIGHT, Style.RULE, 0, 0)
+	bar_box.border_width_top = 2
+	bar_box.content_margin_left = 32
+	bar_box.content_margin_right = 32
+	bar_box.content_margin_top = 14
+	bar_box.content_margin_bottom = 14 + insets["bottom"]
+	bar.add_theme_stylebox_override("panel", bar_box)
+	frame.add_child(bar)
 	var back := Button.new()
-	back.text = "Back to the map"
+	back.name = "LeaveButton"
+	back.text = "Leave %s" % String(WorldData.settlement(place)["name"])
 	back.custom_minimum_size = Vector2(0, 92)
-	back.add_theme_font_size_override("font_size", Style.LARGE)
+	back.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE))
 	Style.make_primary(back)
 	back.pressed.connect(_on_leave)
-	col.add_child(back)
+	bar.add_child(back)
+
+	_build_info_sheet()
+	if _arrival_overlay != null and is_instance_valid(_arrival_overlay):
+		move_child(_arrival_overlay, get_child_count() - 1)
 	_restore_scroll(keep)
+
+
+## The name, what the place is, and two coloured chips: how well it's held and how safe
+## its roads are. Everything else waits behind the info button.
+func _add_header(col: VBoxContainer) -> void:
+	var w = GameState.world
+	var title_row := HFlowContainer.new()
+	title_row.add_theme_constant_override("h_separation", 16)
+	col.add_child(title_row)
+	var title := Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS)
+	title.name = "SettlementName"
+	title_row.add_child(title)
+	var kind := Style.label(w.brief(place), Style.BODY, Style.MUTED)
+	kind.name = "SettlementKind"
+	kind.size_flags_vertical = Control.SIZE_SHRINK_END
+	title_row.add_child(kind)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	col.add_child(row)
+	var chips := HFlowContainer.new()
+	chips.name = "SettlementChips"
+	chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chips.add_theme_constant_override("h_separation", 10)
+	chips.add_theme_constant_override("v_separation", 10)
+	row.add_child(chips)
+	if w.garrisons.has(place):
+		var men: int = w.men_of(w.garrison_at(place))
+		var cap: int = w.garrison_capacity(place)
+		var tone := Style.MORALE_LOW if men < cap * 0.4 else (Style.MORALE_HIGH if men >= cap * 0.8 else Style.MORALE_MID)
+		chips.add_child(_chip("Garrison %d/%d" % [men, cap], tone))
+	var danger := String(w.settlement_danger(place))
+	if danger == "":
+		chips.add_child(_chip("Quiet roads", Style.MORALE_HIGH))
+	else:
+		var short := danger.split(";")[0].split(":")[0]
+		chips.add_child(_chip(short.substr(0, 1).to_upper() + short.substr(1), Style.MORALE_LOW))
+	var info := Button.new()
+	info.name = "InfoButton"
+	info.text = "i"
+	info.tooltip_text = "About %s" % String(WorldData.settlement(place)["name"])
+	info.custom_minimum_size = Vector2(64, 64)
+	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	info.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
+	info.add_theme_stylebox_override("normal", Style.box(Style.NIGHT, Style.RULE, 2, 40))
+	info.add_theme_stylebox_override("hover", Style.box(Style.PANEL, Style.MUTED, 2, 40))
+	info.add_theme_stylebox_override("pressed", Style.box(Style.PANEL, Style.BRASS, 2, 40))
+	info.pressed.connect(_show_info)
+	row.add_child(info)
+
+	var recent := String(TravelPresentation.settlement_state(w, place).get("recent_event", ""))
+	if recent != "":
+		var recent_note := _note("Recent: %s" % recent, Style.MUTED)
+		recent_note.name = "SettlementRecentEvent"
+		col.add_child(recent_note)
+
+
+func _chip(text: String, tone: Color) -> PanelContainer:
+	var chip := PanelContainer.new()
+	var sb := Style.box(Style.RAISED, Style.RULE, 2, 40)
+	sb.content_margin_left = 16
+	sb.content_margin_right = 18
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	chip.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	chip.add_child(h)
+	var dot := Panel.new()
+	dot.custom_minimum_size = Vector2(14, 14)
+	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	dot.add_theme_stylebox_override("panel", Style.box(tone, Color(0, 0, 0, 0), 0, 7))
+	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(dot)
+	h.add_child(Style.label(text, Style.SMALL, Style.TEXT))
+	return chip
+
+
+## Silver with what the company costs a day, and food in days, as two tiles.
+func _add_wallet(col: VBoxContainer) -> void:
+	var row := HBoxContainer.new()
+	row.name = "Wallet"
+	row.add_theme_constant_override("separation", 14)
+	col.add_child(row)
+	var days := GameState.food_days()
+	row.add_child(_tile("silver", _thousands(GameState.silver), "−%d a day" % GameState.daily_wages(), Style.TEXT))
+	row.add_child(_tile("food", "1 day" if days == 1 else "%d days" % days, "of food",
+		Style.ENEMY_LIGHT if days < 3 else Style.TEXT))
+
+
+func _tile(icon: String, value: String, sub: String, tone: Color) -> PanelContainer:
+	var tile := PanelContainer.new()
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 14)
+	tile.add_child(h)
+	var tex := TextureRect.new()
+	tex.texture = load("res://assets/ui/%s.svg" % icon)
+	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	tex.custom_minimum_size = Vector2(44, 44)
+	tex.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(tex)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	h.add_child(v)
+	v.add_child(Style.label(value, Style.LARGE, tone))
+	v.add_child(Style.label(sub, Style.SMALL, Style.MUTED))
+	return tile
+
+
+static func _thousands(n: int) -> String:
+	var digits := str(absi(n))
+	var out := ""
+	while digits.length() > 3:
+		out = "," + digits.substr(digits.length() - 3) + out
+		digits = digits.substr(0, digits.length() - 3)
+	return ("-" if n < 0 else "") + digits + out
+
+
+## One thing at a time: what's for sale, the company, paid work, the court, and your own
+## fief when this is it. Only tabs with something in them are shown.
+func _add_tabs(col: VBoxContainer, owner: String) -> void:
+	var w = GameState.world
+	var tabs: Array = []
+	if GameState.is_player_fief(place):
+		tabs.append({"id": "fief", "label": "Fief", "badge": 0})
+	var offers: int = 0 if GameState.army.size() >= GameState.squad_cap() else w.offers_at(place).size()
+	tabs.append({"id": "buy", "label": "Buy", "badge": offers + GameState.available_heroes_at(place).size()})
+	tabs.append({"id": "squads", "label": "Squads", "badge": 0})
+	tabs.append({"id": "work", "label": "Work", "badge": GameState.active_jobs_completable_at(place).size()})
+	if w.social != null and not w.social.residents_at(place).is_empty():
+		tabs.append({"id": "court", "label": "Court", "badge": 0})
+	var ids: Array = tabs.map(func(t): return t["id"])
+	var current := String(_tab_by_place.get(place, ""))
+	if not ids.has(current):
+		current = "fief" if ids.has("fief") else "buy"
+	tab = current
+
+	var bar := PanelContainer.new()
+	bar.name = "SettlementTabs"
+	var bar_box := Style.box(Style.PANEL, Style.RULE, 2, 18)
+	bar_box.content_margin_left = 6
+	bar_box.content_margin_right = 6
+	bar_box.content_margin_top = 6
+	bar_box.content_margin_bottom = 6
+	bar.add_theme_stylebox_override("panel", bar_box)
+	col.add_child(bar)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	bar.add_child(row)
+	for t in tabs:
+		var b := Button.new()
+		b.name = "Tab_%s" % t["id"]
+		b.text = String(t["label"]) + ("  %d" % t["badge"] if int(t["badge"]) > 0 else "")
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 72)
+		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		var on: bool = t["id"] == tab
+		var flat := Style.box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 14)
+		var lit := Style.box(Style.RAISED, Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
+		for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
+			b.add_theme_stylebox_override(state, lit if on else flat)
+		var ink := Style.TEXT if on else Style.MUTED
+		if int(t["badge"]) > 0 and not on:
+			ink = Style.BRASS
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			b.add_theme_color_override(c, ink)
+		b.pressed.connect(_on_tab.bind(String(t["id"])))
+		row.add_child(b)
+
+	var body := VBoxContainer.new()
+	body.name = "TabBody"
+	body.add_theme_constant_override("separation", 16)
+	col.add_child(body)
+	match tab:
+		"fief":
+			_add_fief_management(body)
+		"buy":
+			_add_provisions(body)
+			_add_recruits(body)
+			_add_tavern_heroes(body)
+		"squads":
+			_add_squads(body)
+		"work":
+			_add_local_jobs(body)
+			_add_contract(body, owner)
+		"court":
+			_add_court(body)
+
+
+func _on_tab(id: String) -> void:
+	if id == tab:
+		return
+	_tab_by_place[place] = id
+	Sound.play("click", 0.0, 0.05)
+	_build()
+
+
+## A card: a titled panel with an optional note on the right of its title.
+func _card(parent: Control, title: String, aside: String = "", aside_color: Color = Style.MUTED) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	var sb := Style.box(Style.PANEL, Style.RULE, 2, 20)
+	sb.content_margin_left = 22
+	sb.content_margin_right = 22
+	sb.content_margin_top = 18
+	sb.content_margin_bottom = 20
+	panel.add_theme_stylebox_override("panel", sb)
+	parent.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	panel.add_child(v)
+	var head := HBoxContainer.new()
+	v.add_child(head)
+	var t := _section(title)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	if aside != "":
+		head.add_child(Style.label(aside, Style.SMALL, aside_color))
+	return v
+
+
+## Everything about the place that isn't needed to act on it: its look, owner, garrison,
+## danger, services and why it matters, in a sheet that slides up from the bottom.
+func _build_info_sheet() -> void:
+	var w = GameState.world
+	var shade := ColorRect.new()
+	shade.name = "InfoSheet"
+	shade.color = Color(0.012, 0.02, 0.04, 0.6)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.visible = false
+	shade.gui_input.connect(func(e):
+		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed:
+			_hide_info())
+	add_child(shade)
+	_info_sheet = shade
+
+	var panel := PanelContainer.new()
+	panel.name = "InfoPanel"
+	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	var sb := Style.box(Style.PANEL.lightened(0.02), Style.RULE, 2, 28)
+	sb.corner_radius_bottom_left = 0
+	sb.corner_radius_bottom_right = 0
+	sb.content_margin_left = 32
+	sb.content_margin_right = 32
+	sb.content_margin_top = 18
+	sb.content_margin_bottom = 36 + Style.safe_insets(get_viewport())["bottom"]
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	panel.add_child(v)
+	var grip := Panel.new()
+	grip.custom_minimum_size = Vector2(80, 8)
+	grip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grip.add_theme_stylebox_override("panel", Style.box(Style.RULE, Color(0, 0, 0, 0), 0, 4))
+	v.add_child(grip)
+	v.add_child(Style.label("About %s" % String(WorldData.settlement(place)["name"]), Style.LARGE, Style.TEXT))
+	var condition := _note(String(TravelPresentation.settlement_state(w, place).get("sentence", "")), Style.MUTED)
+	condition.name = "SettlementCondition"
+	v.add_child(condition)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 24)
+	grid.add_theme_constant_override("v_separation", 10)
+	v.add_child(grid)
+	for line in String(w.settlement_intelligence(place)).split("\n"):
+		var parts := String(line).split(": ", true, 1)
+		if parts.size() < 2:
+			continue
+		var key := Style.label(parts[0], Style.SMALL, Style.MUTED)
+		key.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		grid.add_child(key)
+		var value := _note(parts[1].substr(0, 1).to_upper() + parts[1].substr(1), Style.TEXT)
+		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(value)
+	var close := _button("Close", _hide_info)
+	v.add_child(close)
+
+
+func _show_info() -> void:
+	if _info_sheet == null:
+		return
+	_info_sheet.visible = true
+	Style.ease_in(_info_sheet.get_child(0))
+
+
+func _hide_info() -> void:
+	if _info_sheet != null:
+		_info_sheet.visible = false
 
 
 ## Rebuilding after a tap shouldn't throw the player back to the top.
@@ -237,10 +535,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
-	col.add_child(_section("Hostile settlement"))
+	var card := _card(col, "Gates barred", "at war", Style.ENEMY_LIGHT)
 	var faction_name: String = WorldData.FACTIONS[owner]["name"]
-	var warn := _note("The sentries bar the gates to enemies of the %s. The markets, barracks, and halls are closed to your company." % faction_name, Style.ENEMY_LIGHT)
-	col.add_child(warn)
+	card.add_child(_note("The %s is at war with you. Markets, barracks and halls are closed." % faction_name, Style.ENEMY_LIGHT))
 
 
 func _add_contract(col: VBoxContainer, owner: String) -> void:
@@ -539,38 +836,42 @@ func _add_court(col: VBoxContainer) -> void:
 
 
 func _add_provisions(col: VBoxContainer) -> void:
-	col.add_child(_section("Provisions"))
 	var men := GameState.total_men()
 	var kind := String(WorldData.settlement(place)["type"])
 	var price := float(Economy.FOOD_PRICE.get(kind, 0.3))
-	var cheap := " Villages sell it cheapest." if kind != WorldData.VILLAGE else ""
-	col.add_child(_note("Every man eats a ration a day. Rations cost %.1f silver here.%s" % [price, cheap]))
+	var card := _card(col, "Provisions", "%.1f a ration" % price)
+	card.name = "ProvisionsCard"
+	var hint := "A ration per man a day" + (" · villages sell cheaper" if kind != WorldData.VILLAGE else " · cheapest here")
+	card.add_child(_note(hint))
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	col.add_child(row)
+	row.add_theme_constant_override("separation", 12)
+	card.add_child(row)
 	for d in FOOD_DAYS:
 		var rations: int = d * men
 		var cost := GameState.food_cost(rations)
-		var b := _button("%d days · %d silver" % [d, cost], _on_buy_food.bind(rations))
+		var b := _button("+%d days\n%d silver" % [d, cost], _on_buy_food.bind(rations))
+		b.name = "Food%d" % d
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.custom_minimum_size = Vector2(0, 96)
+		b.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
 		b.disabled = men == 0 or cost > GameState.silver
 		row.add_child(b)
 
 
 func _add_recruits(col: VBoxContainer) -> void:
-	col.add_child(_section("Recruits"))
 	var cap := GameState.squad_cap()
 	var full := GameState.army.size() >= cap
-	var line := "You lead %d squads, and your renown lets you lead %d." % [GameState.army.size(), cap]
-	if full:
-		line += " Win renown to lead more."
-	col.add_child(_note(line, Style.ENEMY_LIGHT if full else Style.MUTED))
+	var card := _card(col, "Recruits here", "%d/%d squads" % [GameState.army.size(), cap],
+		Style.ENEMY_LIGHT if full else Style.MUTED)
+	card.name = "RecruitsCard"
 	var offers: Array = GameState.world.offers_at(place)
 	for i in offers.size():
-		col.add_child(_offer_row(offers[i], i, full))
+		card.add_child(_offer_row(offers[i], i, full))
 	if offers.is_empty():
 		var back: float = float(GameState.world.offers_back.get(place, GameState.world.hour)) - GameState.world.hour
-		col.add_child(_note("Nobody else here is looking for work. More will come in about %d hours." % maxi(1, int(ceil(back)))))
+		card.add_child(_note("Nobody's looking for work · more in about %d hours" % maxi(1, int(ceil(back)))))
+	elif full:
+		card.add_child(_note("Company full — win renown to lead more", Style.ENEMY_LIGHT))
 
 
 func _add_tavern_heroes(col: VBoxContainer) -> void:
@@ -740,28 +1041,29 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var men := Troops.full_size(type)
 	var cost := Economy.recruit_cost(type, men)
 	var wage := Economy.daily_wage({"type": type, "men": men, "level": 1})
-	var panel := PanelContainer.new()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
-	panel.add_child(row)
 	row.add_child(_portrait(type, culture))
 	var text := _text_column(row)
 	text.add_child(Style.label(Cultures.troop_name(culture, type), Style.BODY))
 	var people := String(Cultures.info(culture)["people"])
-	text.add_child(_small("%d %s recruits · wages %d a day" % [men, people, int(ceil(wage))]))
-	var b := _button("Hire · %d" % cost, _on_hire.bind(index))
+	text.add_child(_small("%d %s · %d a day" % [men, people, int(ceil(wage))]))
+	var b := _button("Hire %d" % cost, _on_hire.bind(index))
+	b.custom_minimum_size = Vector2(150, Style.TOUCH)
 	b.disabled = full or cost > GameState.silver
+	if not b.disabled:
+		Style.make_primary(b)
 	row.add_child(b)
-	return panel
+	return row
 
 
 func _add_squads(col: VBoxContainer) -> void:
-	col.add_child(_section("Your squads"))
+	var card := _card(col, "Your squads", "%d men" % GameState.total_men())
 	if not GameState.in_town():
-		col.add_child(_note("Ride to a town to reinforce and train your squads."))
+		card.add_child(_note("Ride to a town to refill and train your squads."))
 		return
-	col.add_child(_note("Fresh men fill the gaps but water down a squad's experience. Training a squad "
-		+ "that has earned it makes its men tougher and deadlier, and raises their wages."))
+	card.add_child(_note("Fresh men water down experience · training raises wages"))
+	col = card
 	var total := 0
 	var cheapest := 0
 	for s in GameState.army:

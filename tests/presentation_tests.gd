@@ -321,8 +321,12 @@ func _check_ui() -> void:
 	current_scene._dismiss_arrival()
 	await process_frame
 	check(gs.to_dict() == arrival_baseline, "showing and dismissing arrival changes no campaign state")
-	check(_scene_has_text(current_scene, "Why it matters:") and _scene_has_text(current_scene, "Services:"),
+	check(_scene_has_text(current_scene, "Why it matters") and _scene_has_text(current_scene, "Services"),
 		"essential settlement intelligence remains readable outside the illustration")
+	current_scene._show_info()
+	check(current_scene.find_child("InfoSheet", true, false).visible, "the info button opens the place's details sheet")
+	_check_widths(current_scene)
+	current_scene._hide_info()
 	_check_widths(current_scene)
 	sound.set_text_scale(1.0)
 	await open_scene("settlement")
