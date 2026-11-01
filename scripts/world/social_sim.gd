@@ -9,6 +9,7 @@ const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const Letters = preload("res://scripts/data/letters.gd")
 
 var personal_conversations: Dictionary = {}
 var people: Dictionary = {}
@@ -29,6 +30,8 @@ var scheduled_ceremony: Dictionary = {}
 
 var _next_project_id := 1
 var _next_letter_id := 1
+## The world's hour as of the last step, for dating memories.
+var _hour := 0.0
 
 
 func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
@@ -219,6 +222,7 @@ func from_dict(data: Dictionary) -> void:
 
 func step(dt: float, world_ref: RefCounted) -> void:
 	var cur_hour: float = world_ref.hour
+	_hour = cur_hour
 
 	# 1. Advance scheduled ceremony if active.
 	if scheduled_ceremony.get("active", false) and not scheduled_ceremony.get("completed", false):
@@ -310,13 +314,12 @@ func _relocate_person(person: Dictionary, new_owner: String, world_ref: RefCount
 		new_seat = world_ref.capital_of(realm)
 
 	if new_seat != "":
+		var old_seat: String = String(person.get("residence", ""))
 		person["residence"] = new_seat
 		person["status"] = "relocated"
 		add_memory(person["id"], "Relocated to %s following the loss of %s." % [
-			WorldData.settlement(new_seat)["name"],
-			WorldData.settlement(String(person.get("residence", "")))["name"]
-		])
-		add_letter(person["id"], "relocation", "", world_ref.hour, new_seat)
+			Letters.place_name(new_seat), Letters.place_name(old_seat)])
+		add_letter(person["id"], "relocation", "", world_ref.hour, new_seat, {"old": Letters.place_name(old_seat)})
 	else:
 		person["status"] = "displaced"
 		add_memory(person["id"], "Displaced from %s." % person["residence"])
@@ -375,6 +378,12 @@ func add_memory(person_id: String, text: String) -> void:
 	if mems.size() > 30:
 		mems.pop_front()
 	people[person_id]["memories"] = mems
+	# The same memory with the day it happened, for the person's page.
+	var log: Array = people[person_id].get("memory_log", [])
+	log.append({"text": text, "day": int(_hour / 24.0) + 1})
+	if log.size() > 30:
+		log.pop_front()
+	people[person_id]["memory_log"] = log
 
 	# Also record on relationship if it's a candidate
 	for cand_id in relationships:
@@ -386,7 +395,10 @@ func add_memory(person_id: String, text: String) -> void:
 			relationships[cand_id]["memories"] = r_mems
 
 
-func add_letter(sender_id: String, template_key: String, quest_id: String, current_hour: float, destination: String) -> Dictionary:
+## A letter from `sender_id`, written now (its words are kept with it). `extra` fills the
+## letter's blanks beyond the place it's written from (e.g. {"old": the seat they left}).
+func add_letter(sender_id: String, template_key: String, quest_id: String, current_hour: float, destination: String, extra: Dictionary = {}) -> Dictionary:
+	_hour = maxf(_hour, current_hour)
 	var l := {
 		"id": "let_%d" % _next_letter_id,
 		"sender_id": sender_id,
@@ -395,11 +407,104 @@ func add_letter(sender_id: String, template_key: String, quest_id: String, curre
 		"created_hour": current_hour,
 		"read": false,
 		"acknowledged": false,
-		"destination": destination
+		"announced": false,
+		"destination": destination,
+		"extra": extra.duplicate(),
 	}
+	l["letter"] = _render_letter(l)
 	_next_letter_id += 1
 	letters.append(l)
 	return l
+
+
+## Whether you and the candidate are courting (or further along) rather than friends.
+func is_courting(candidate_id: String) -> bool:
+	var rel: Dictionary = relationships.get(candidate_id, {})
+	if bool(rel.get("romantic_intent", false)):
+		return true
+	return [Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED].has(String(rel.get("status", "")))
+
+
+func _render_letter(l: Dictionary) -> Dictionary:
+	var sender: Dictionary = people.get(String(l.get("sender_id", "")), {})
+	var cand := _personal_candidate(String(l.get("sender_id", "")))
+	var ctx: Dictionary = l.get("extra", {}).duplicate()
+	ctx["place"] = Letters.place_name(String(l.get("destination", "")))
+	ctx["hour"] = float(l.get("created_hour", 0.0))
+	ctx["sender"] = String(sender.get("name", "A friend"))
+	if not ctx.has("old"):
+		ctx["old"] = "the old seat"
+	return Letters.render(String(l.get("template_key", "")), cand, is_courting(cand), ctx)
+
+
+func get_letter(letter_id: String) -> Dictionary:
+	for l in letters:
+		if l["id"] == letter_id:
+			return l
+	return {}
+
+
+## The letter's words. Letters from saves before they had words get them now, once.
+func letter_view(l: Dictionary) -> Dictionary:
+	if not l.has("letter") or (l["letter"] as Dictionary).is_empty():
+		l["letter"] = _render_letter(l)
+	return l["letter"]
+
+
+## Letters that came while you weren't looking: shown once as a banner on the map.
+func take_unannounced() -> Array:
+	var out := []
+	for l in letters:
+		if not bool(l.get("announced", true)) and not bool(l.get("read", false)):
+			l["announced"] = true
+			out.append(l)
+	return out
+
+
+## The candidate behind a letter, or "".
+func letter_candidate(l: Dictionary) -> String:
+	return _personal_candidate(String(l.get("sender_id", "")))
+
+
+## Your reply, as it would read if sent: {salute, body, close, sign, ...}, or {}.
+func reply_preview(letter_id: String, reply_id: String, from_place: String = "") -> Dictionary:
+	var l := get_letter(letter_id)
+	if l.is_empty():
+		return {}
+	var cand := letter_candidate(l)
+	var sender: Dictionary = people.get(String(l.get("sender_id", "")), {})
+	var ctx: Dictionary = l.get("extra", {}).duplicate()
+	ctx["place"] = Letters.place_name(String(l.get("destination", "")))
+	ctx["name"] = String(sender.get("name", ""))
+	ctx["from"] = Letters.place_name(from_place) if from_place != "" else ""
+	ctx["hour"] = _hour
+	if not ctx.has("old"):
+		ctx["old"] = "the old seat"
+	return Letters.render_reply(String(l.get("template_key", "")), reply_id, is_courting(cand), ctx)
+
+
+## Send a reply to a letter (one per letter). It warms them a little, by the reply's trust.
+func reply_letter(letter_id: String, reply_id: String, from_place: String = "") -> Dictionary:
+	var l := get_letter(letter_id)
+	if l.is_empty():
+		return {"ok": false, "reason": "No such letter."}
+	if l.has("reply"):
+		return {"ok": false, "reason": "You've already answered this letter."}
+	var r := Letters.reply(String(l.get("template_key", "")), reply_id)
+	if r.is_empty():
+		return {"ok": false, "reason": "That isn't an answer to this letter."}
+	var sent := reply_preview(letter_id, reply_id, from_place)
+	l["read"] = true
+	l["reply"] = {"id": reply_id, "label": r["label"], "hour": _hour, "letter": sent}
+	var cand := letter_candidate(l)
+	var gain := int(r.get("trust", 0))
+	if cand != "" and relationships.has(cand):
+		var rel: Dictionary = relationships[cand]
+		rel["trust"] = clampi(int(rel.get("trust", 0)) + gain, Relationships.TRUST_MIN, Relationships.TRUST_MAX)
+	var sender: Dictionary = people.get(String(l.get("sender_id", "")), {})
+	if not sender.is_empty():
+		add_memory(String(sender["id"]), "You wrote back to %s: \"%s.\"" % [sender.get("name", ""), r["label"]])
+	return {"ok": true, "trust_change": gain}
 
 
 func drain_pending_settlements() -> Array:
@@ -574,6 +679,7 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 
 ## Applies a validated choice, updating state and consuming rewards once.
 func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) -> Dictionary:
+	_hour = float(context.get("current_hour", _hour))
 	var prev := preview_choice(candidate_id, choice_id, context)
 	if not prev["ok"]:
 		return prev

@@ -106,6 +106,17 @@ var paused := false
 var _trip_key := ""
 var _trip_total := 0.0
 var sheet_panel: PanelContainer
+## A letter that has just come: a banner under the top bar for a few seconds. The clock
+## keeps running.
+var letter_banner: PanelContainer
+var _banner_letter := ""
+var _banner_left := 0.0
+var _banner_title: Label
+var _banner_from: Label
+var _banner_line: Label
+var _banner_seal := Color("8e1f17")
+var unread_badge: Label
+const LETTER_BANNER_SECONDS := 9.0
 var sheet_title: Label
 var sheet_body: Label
 ## Pictures above a sheet's text: the odds of a fight, for one.
@@ -133,6 +144,7 @@ func _ready() -> void:
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	_build_layers()
 	_build_hud()
+	_build_letter_banner()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	cam_scale = _view.size.x / 640.0
@@ -153,6 +165,15 @@ func _ready() -> void:
 		GameState.map_notice = ""
 	elif world.here() != "":
 		_open_here()
+	# Back from People & Letters with a place to look at (or ride to).
+	if Scenes.map_focus != "":
+		var focus := Scenes.map_focus
+		Scenes.map_focus = ""
+		if Data.SETTLEMENTS.has(focus):
+			_selected = focus
+			cam_center = Data.pos(focus)
+			_clamp_camera()
+			_sync_layers()
 
 
 func _exit_tree() -> void:
@@ -200,6 +221,7 @@ func _process(delta: float) -> void:
 		return
 	if autoplay:
 		_autoplay()
+	_watch_letters(delta)
 	# An encounter or a note about the last battle holds the clock until it's answered.
 	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
@@ -472,6 +494,18 @@ func _build_hud() -> void:
 	warband_button.icon = _glyph("menu")
 	warband_button.custom_minimum_size = Vector2(56, 52)
 	resource_row.add_child(warband_button)
+	# Unread letters, counted on the menu button.
+	unread_badge = Style.label("", 18, Style.BRASS_INK)
+	unread_badge.name = "UnreadBadge"
+	unread_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	unread_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var ub := Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 12)
+	unread_badge.add_theme_stylebox_override("normal", ub)
+	unread_badge.custom_minimum_size = Vector2(26, 24)
+	unread_badge.position = Vector2(30, 0)
+	unread_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	unread_badge.visible = false
+	warband_button.add_child(unread_badge)
 	# Row two: what the company is doing (with how far along), and the goal chip.
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -1155,7 +1189,7 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		([["Next step", _open_recommendation, true], ["Journal", _open_journal], ["Warband", _on_warband], ["People & Letters", _on_people], ["War & Politics", _open_wars]]
+		([["Next step", _open_recommendation, true], ["Journal", _open_journal], ["Warband", _on_warband], [_people_label(), _on_people], ["War & Politics", _open_wars]]
 		+ ([["Your Crown", _open_crown]] if GameState.is_crowned() else [])
 		+ [["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]]))
 
@@ -1247,7 +1281,7 @@ func _open_journal() -> void:
 		for e in GameState.ended_commitments.slice(0, 3):
 			lines.append("• Day %d · %s: %s" % [int(float(e.get("hour", 0.0))) / 24 + 1, e.get("title", ""), e.get("outcome", "")])
 	buttons.append(["Chronicle", _open_chronicle.bind("all")])
-	buttons.append(["People & Letters", _on_people])
+	buttons.append([_people_label(), _on_people])
 	buttons.append(["Close", _close_sheet, true])
 	_show_sheet("journal", "Journal · %d active" % all.size(), "\n".join(lines), buttons)
 
@@ -1339,6 +1373,124 @@ func _focus_place(id: String) -> void:
 	_clamp_camera()
 	_sync_layers()
 	_open_preview(id)
+
+
+func _people_label() -> String:
+	var n: int = world.social.unread_letters_count() if world.social != null else 0
+	return "People & Letters (%d)" % n if n > 0 else "People & Letters"
+
+
+## The banner a newly arrived letter shows under the top bar.
+func _build_letter_banner() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 2
+	add_child(layer)
+	letter_banner = PanelContainer.new()
+	letter_banner.name = "LetterBanner"
+	letter_banner.theme = Style.make_theme()
+	letter_banner.anchor_right = 1.0
+	letter_banner.offset_left = 16.0
+	letter_banner.offset_right = -16.0
+	var sb := Style.box(Color(Style.NIGHT, 0.96), Color("6a5226"), 2, 20)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	sb.shadow_color = Color(0, 0, 0, 0.55)
+	sb.shadow_size = 14
+	letter_banner.add_theme_stylebox_override("panel", sb)
+	letter_banner.visible = false
+	layer.add_child(letter_banner)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	letter_banner.add_child(v)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 18)
+	v.add_child(top)
+	var env := Control.new()
+	env.custom_minimum_size = Vector2(110, 80)
+	env.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	env.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	env.draw.connect(func():
+		var r := Rect2(Vector2(4, 6), Vector2(102, 70))
+		env.draw_rect(Rect2(r.position + Vector2(2, 4), r.size), Color(0, 0, 0, 0.45))
+		env.draw_rect(r, Color("e6d3a5"))
+		env.draw_colored_polygon(PackedVector2Array([r.position, r.position + Vector2(r.size.x, 0), r.position + Vector2(r.size.x * 0.5, r.size.y * 0.55)]), Color("cdb47c"))
+		var c := r.position + Vector2(r.size.x * 0.5, r.size.y * 0.52)
+		env.draw_circle(c, 15, _banner_seal.darkened(0.2))
+		env.draw_circle(c - Vector2(2, 2), 12, _banner_seal))
+	top.add_child(env)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_theme_constant_override("separation", 2)
+	top.add_child(words)
+	_banner_title = Style.label("A rider brings a letter", 30, Style.BRASS)
+	var big: Font = Style.display_font()
+	if big != null:
+		_banner_title.add_theme_font_override("font", big)
+	words.add_child(_banner_title)
+	_banner_from = Style.label("", Style.SMALL, Style.TEXT)
+	words.add_child(_banner_from)
+	_banner_line = Style.label("", 22, Color("cdbf9c"))
+	var italic: Font = Style.letter_font(true)
+	if italic != null:
+		_banner_line.add_theme_font_override("font", italic)
+	_banner_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_banner_line.custom_minimum_size.x = 10
+	words.add_child(_banner_line)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	v.add_child(row)
+	var read := _button("Read it", _read_banner_letter)
+	read.name = "ReadLetter"
+	Style.make_primary(read)
+	read.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	read.size_flags_stretch_ratio = 1.6
+	row.add_child(read)
+	var later := _button("Later", func(): letter_banner.visible = false)
+	later.name = "LaterLetter"
+	later.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(later)
+
+
+## New letters show as a banner for a few seconds; the clock never stops for them.
+func _watch_letters(delta: float) -> void:
+	if world.social == null or letter_banner == null:
+		return
+	var fresh: Array = world.social.take_unannounced()
+	if not fresh.is_empty() and not autoplay:
+		_show_letter_banner(fresh[fresh.size() - 1])
+	if letter_banner.visible:
+		_banner_left -= delta
+		if _banner_left <= 0.0:
+			letter_banner.visible = false
+
+
+func _show_letter_banner(l: Dictionary) -> void:
+	var view: Dictionary = world.social.letter_view(l)
+	var sender: Dictionary = world.social.get_person(String(l.get("sender_id", "")))
+	var place := String(l.get("destination", ""))
+	_banner_letter = String(l["id"])
+	_banner_seal = Color(String(view.get("seal_color", "8e1f17")))
+	_banner_from.text = "From %s%s" % [sender.get("name", "a friend"), (", at %s" % Data.settlement(place)["name"]) if Data.SETTLEMENTS.has(place) else ""]
+	var body: Array = view.get("body", [])
+	_banner_line.text = "“%s…”" % String(body[0]).left(60).strip_edges() if not body.is_empty() else ""
+	var insets := Style.safe_insets(get_viewport())
+	letter_banner.offset_top = TOP_BAR + float(insets["top"]) + 12.0
+	letter_banner.visible = true
+	_banner_left = LETTER_BANNER_SECONDS
+	Sound.play("page", 0.0, 0.05)
+	if not Style.motion_reduced():
+		letter_banner.modulate.a = 0.0
+		letter_banner.create_tween().tween_property(letter_banner, "modulate:a", 1.0, 0.25)
+
+
+func _read_banner_letter() -> void:
+	letter_banner.visible = false
+	GameState.save_game()
+	Scenes.people_return = "res://scenes/world_map.tscn"
+	Scenes.people_letter = _banner_letter
+	Scenes.go("res://scenes/people.tscn")
 
 
 func _on_people() -> void:
@@ -1644,6 +1796,10 @@ func _on_new_campaign() -> void:
 
 func _refresh_hud() -> void:
 	var h := int(world.hour)
+	if unread_badge != null and world.social != null:
+		var unread: int = world.social.unread_letters_count()
+		unread_badge.visible = unread > 0
+		unread_badge.text = str(unread)
 	clock_label.text = "Day %d · %02d:00" % [h / 24 + 1, h % 24]
 	day_icon.texture = _glyph("moon" if h % 24 < 6 or h % 24 >= 20 else "sun")
 	var current := pause_button if paused else (fast_button if speed > 1.5 else play_button)

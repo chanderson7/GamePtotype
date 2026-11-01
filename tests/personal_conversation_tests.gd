@@ -70,6 +70,11 @@ func _run() -> void:
 	after["social"]["relationships"]["edda"]["trust"] = baseline["social"]["relationships"]["edda"]["trust"]
 	after["social"]["relationships"]["edda"]["memories"] = baseline["social"]["relationships"]["edda"]["memories"]
 	after["social"]["people"][PERSON]["memories"] = baseline["social"]["people"][PERSON]["memories"]
+	# The same memory, dated, for the person's page.
+	if baseline["social"]["people"][PERSON].has("memory_log"):
+		after["social"]["people"][PERSON]["memory_log"] = baseline["social"]["people"][PERSON]["memory_log"]
+	else:
+		after["social"]["people"][PERSON].erase("memory_log")
 	check(after == baseline, "all world, quest, pact, house, army, timer and RNG state unchanged")
 	soc = loaded.social
 	var saved: Dictionary = soc.to_dict().duplicate(true)
@@ -192,7 +197,7 @@ func _check_ui(gs) -> void:
 	change_scene_to_file("res://scenes/people.tscn")
 	await process_frame
 	await process_frame
-	check(button("Spend time / memories") != null, "People exposes personal conversations")
+	check(button("Spend time") != null, "People exposes personal conversations")
 	change_scene_to_file("res://scenes/conversation.tscn")
 	await process_frame
 	await process_frame

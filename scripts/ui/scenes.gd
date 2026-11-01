@@ -9,6 +9,11 @@ const IN := 0.25
 var settings_return := "res://scenes/title.tscn"
 var tutorial_return := "res://scenes/title.tscn"
 var people_return := "res://scenes/world_map.tscn"
+## People & Letters opens on this tab, or straight to this letter, once.
+var people_tab := ""
+var people_letter := ""
+## The map centres on this place when it next opens (then forgets it).
+var map_focus := ""
 var conversation_return := "res://scenes/settlement.tscn"
 var personal_conversation_return := "res://scenes/people.tscn"
 var captain_profile_return := "res://scenes/main_menu.tscn"

@@ -157,6 +157,27 @@ static func display_font() -> Font:
 	return _display
 
 
+## IM FELL English, a 17th-century printer's face (SIL Open Font License, see
+## assets/fonts/OFL.txt), for letters: roman for the body, italic for places and names.
+const LETTER_FONTS := {false: "res://assets/fonts/IMFellEnglish-Regular.ttf", true: "res://assets/fonts/IMFellEnglish-Italic.ttf"}
+static var _letter := {}
+
+
+static func letter_font(italic: bool = false) -> Font:
+	if _letter.has(italic):
+		return _letter[italic]
+	var path: String = LETTER_FONTS[italic]
+	var font: Font = null
+	if ResourceLoader.exists(path, "FontFile"):
+		font = load(path) as Font
+	elif FileAccess.file_exists(path):
+		var f := FontFile.new()
+		if f.load_dynamic_font(path) == OK:
+			font = f
+	_letter[italic] = font
+	return font
+
+
 static func presentation_settings() -> Node:
 	var tree := Engine.get_main_loop() as SceneTree
 	return tree.root.get_node_or_null("Sound") if tree != null else null
