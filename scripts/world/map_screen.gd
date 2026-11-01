@@ -22,6 +22,9 @@ const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const Troops = preload("res://scripts/data/troops.gd")
+const Art = preload("res://scripts/art/unit_art.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 132.0
@@ -105,6 +108,8 @@ var _trip_total := 0.0
 var sheet_panel: PanelContainer
 var sheet_title: Label
 var sheet_body: Label
+## Pictures above a sheet's text: the odds of a fight, for one.
+var sheet_extra: VBoxContainer
 ## A lord's face and house banner, above sheets about them.
 var sheet_lord_row: HBoxContainer
 var sheet_portrait: TextureRect
@@ -565,6 +570,11 @@ func _build_hud() -> void:
 	sheet_lord_row.add_child(sheet_banner)
 	sheet_title = Style.label("", Style.LARGE, Style.TEXT)
 	sv.add_child(sheet_title)
+	sheet_extra = VBoxContainer.new()
+	sheet_extra.name = "SheetExtra"
+	sheet_extra.add_theme_constant_override("separation", 10)
+	sheet_extra.visible = false
+	sv.add_child(sheet_extra)
 	sheet_body = Style.label("", Style.SMALL, Style.MUTED)
 	sheet_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	sheet_body.custom_minimum_size = Vector2(10, 0)
@@ -590,6 +600,9 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> v
 	if bottom_bar != null:
 		bottom_bar.visible = false
 	sheet_lord_row.visible = false
+	for c in sheet_extra.get_children():
+		c.queue_free()
+	sheet_extra.visible = false
 	sheet_title.text = title
 	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
 	sheet_body.text = body
@@ -898,7 +911,7 @@ func _open_encounter() -> void:
 		withdraw_text = "\nThey are faster and stronger: you cannot withdraw!"
 	else:
 		buttons.append(["Withdraw", _on_withdraw])
-		withdraw_text = "\nLead the fight, send your men in without you, or withdraw to %s and lose the hours it takes." % Data.settlement(world.player().node)["name"]
+		withdraw_text = "\nOr withdraw to %s, losing the hours it takes." % Data.settlement(world.player().node)["name"]
 
 	var ground := ""
 	if site.get("river", "") != "":
@@ -906,9 +919,10 @@ func _open_encounter() -> void:
 	elif not bool(site.get("fair", true)):
 		ground = "\nThey chose their ground: %s, and they'll wait for you on it." % (
 			"the brow of a ridge" if site["type"] == "hills" else "the edge of a wood")
-	var encounter_body := "%d squads, %d men: %s.%s\n%s%s" % [
-		b.army.size(), men, ", ".join(parts), ground, _odds_text(AutoResolve.odds(fighters, b.army, site, objective)),
-		withdraw_text]
+	var odds: Dictionary = AutoResolve.odds(fighters, b.army, site, objective)
+	var lost: int = odds["lost"]
+	var encounter_body := "%sSent in without you, you'd lose about %d %s.%s" % [
+		ground.strip_edges() + "\n" if ground != "" else "", lost, "man" if lost == 1 else "men", withdraw_text]
 	if grudge_text != "":
 		encounter_body = grudge_text + "\n\n" + encounter_body
 	var foe_lord: Dictionary = world.lord_of(b) if b.kind == WorldSim.LORD else {}
@@ -916,6 +930,7 @@ func _open_encounter() -> void:
 		var met := int(foe_lord.get("met_player", 0))
 		encounter_body = LordVoice.line("again" if met > 0 else "face", foe_lord) + "\n\n" + encounter_body
 	_show_sheet("encounter", title, encounter_body, buttons)
+	_show_odds(b, fighters, odds, men, is_ambush or not can_withdraw)
 	_show_lord_header(foe_lord)
 	Sound.play("alarm")
 
@@ -941,6 +956,98 @@ func _check_siege_proximity_sound() -> void:
 
 
 ## What your scouts make of a fight, from auto-resolve's reckoning.
+## How a fight looks at a glance: how dangerous, both sides' strength as bars, what they
+## bring, and who is quicker on the road.
+func _show_odds(b, fighters: Array, odds: Dictionary, their_men: int, trapped: bool) -> void:
+	var r: float = odds["ratio"]
+	var danger := ["Easy", Style.MORALE_HIGH, "▲"]
+	if odds["player_wins"]:
+		if r >= 0.85:
+			danger = ["Even", Style.MORALE_MID, "◆"]
+		elif r >= 0.5:
+			danger = ["Favourable", Style.MORALE_HIGH, "▲"]
+	else:
+		danger = ["Hard", Style.MORALE_LOW, "▼"] if r >= 0.5 else ["Deadly", Style.ENEMY, "✖"]
+		if r >= 0.85:
+			danger = ["Even", Style.MORALE_MID, "◆"]
+	var head := HBoxContainer.new()
+	head.name = "OddsHead"
+	head.add_theme_constant_override("separation", 12)
+	sheet_extra.add_child(head)
+	var chip := PanelContainer.new()
+	chip.name = "DangerChip"
+	var sb := Style.box(Color(danger[1]).darkened(0.55), danger[1], 2, 30)
+	sb.content_margin_left = 16
+	sb.content_margin_right = 16
+	chip.add_theme_stylebox_override("panel", sb)
+	chip.add_child(Style.label("%s %s" % [danger[2], danger[0]], Style.BODY, Color(danger[1]).lightened(0.35)))
+	head.add_child(chip)
+	var mix := HBoxContainer.new()
+	mix.name = "EnemyMix"
+	mix.add_theme_constant_override("separation", 6)
+	mix.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mix.alignment = BoxContainer.ALIGNMENT_END
+	head.add_child(mix)
+	var by_type := {}
+	for sq in b.army:
+		by_type[String(sq["type"])] = int(by_type.get(String(sq["type"]), 0)) + 1
+	var cult := Data.culture_of(b.faction)
+	for t in Troops.ORDER:
+		if not by_type.has(t):
+			continue
+		var icon := TextureRect.new()
+		icon.texture = Art.icon(t, 1, cult)
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.custom_minimum_size = Vector2(40, 40)
+		mix.add_child(icon)
+		mix.add_child(Style.label("×%d" % by_type[t], Style.SMALL, Style.TEXT))
+	var mine := 0
+	for s in fighters:
+		mine += int(s.get("men", 0))
+	var top: float = maxf(float(odds["player"]), float(odds["enemy"]))
+	sheet_extra.add_child(_odds_bar("You", mine, float(odds["player"]) / maxf(1.0, top), Style.PLAYER))
+	sheet_extra.add_child(_odds_bar("Them", their_men, float(odds["enemy"]) / maxf(1.0, top), Style.ENEMY))
+	var pace := HBoxContainer.new()
+	pace.add_theme_constant_override("separation", 10)
+	pace.add_child(Widgets.icon_rect("speed", 32.0))
+	var quick: bool = world.party_speed(b) > world.player_speed()
+	var pace_text := _pace_text(b)
+	if quick and not trapped:
+		pace_text += " · withdrawing may fail"
+	pace.add_child(Style.label(pace_text, Style.SMALL, Style.ENEMY_LIGHT if quick else Style.MUTED))
+	sheet_extra.add_child(pace)
+	sheet_extra.visible = true
+
+
+func _odds_bar(who: String, men: int, share: float, tone: Color) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var name_label := Style.label(who, Style.SMALL, Style.MUTED)
+	name_label.custom_minimum_size = Vector2(70, 0)
+	row.add_child(name_label)
+	var track := Panel.new()
+	track.custom_minimum_size = Vector2(0, 22)
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	track.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.RULE, 1, 8))
+	row.add_child(track)
+	var fill := Panel.new()
+	fill.add_theme_stylebox_override("panel", Style.box(tone, Color(0, 0, 0, 0), 0, 8))
+	fill.anchor_bottom = 1.0
+	fill.anchor_right = clampf(share, 0.04, 1.0)
+	track.add_child(fill)
+	if not Style.motion_reduced():
+		fill.anchor_right = 0.04
+		fill.create_tween().tween_property(fill, "anchor_right", clampf(share, 0.04, 1.0), 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	var count := Style.label("%d men" % men, Style.SMALL, Style.TEXT)
+	count.custom_minimum_size = Vector2(110, 0)
+	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(count)
+	return row
+
+
 func _odds_text(odds: Dictionary) -> String:
 	var r: float = odds["ratio"]
 	var call: String
