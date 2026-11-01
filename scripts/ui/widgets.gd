@@ -24,7 +24,8 @@ static var _icons: Dictionary = {}
 static func icon(key: String) -> Texture2D:
 	if _icons.has(key):
 		return _icons[key]
-	var path := String(ICONS.get(key, ""))
+	# The order and siege icons are o_<key>.svg.
+	var path := String(ICONS.get(key, "res://assets/ui/o_%s.svg" % key))
 	var tex: Texture2D = null
 	if path != "":
 		if ResourceLoader.exists(path, "Texture2D"):

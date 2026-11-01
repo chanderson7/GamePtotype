@@ -87,6 +87,34 @@ func _check_battlefield() -> void:
 		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
 			bows_on_wall = bows_on_wall and absf(sq.center.y - Sim.WALL_Y) < 60.0
 	check(bows_on_wall, "the garrison's bows stand on the wall walk")
+	# The storm plan: shields to a ladder or the ram, bows shoot; a changed plan is obeyed.
+	var foot = sim.squads[0]
+	var shooters = sim.squads[1]
+	var plan := sim.storm_plan(Sim.PLAYER)
+	check(plan.size() == 2 and ["ladder", "ram"].has(plan[foot.id]) and plan[shooters.id] == "bows",
+		"the storm plan sends the shields to a ladder or the ram and leaves the bows shooting")
+	check(sim.can_climb(foot) and not sim.can_climb(shooters), "only men on foot without shooters can be swapped onto a ladder")
+	plan[foot.id] = "ladder"
+	sim.order_storm(Sim.PLAYER, plan)
+	check(foot.use_ladders and not shooters.use_ladders and foot.order == "advance", "storming by a changed plan sends those companies up the ladders")
+	plan[foot.id] = "ram"
+	sim.order_storm(Sim.PLAYER, plan)
+	check(not foot.use_ladders, "and swapping a company back sends it to the ram")
+	# The record of the siege: who climbed first, and how many went over.
+	for s2 in foot.soldiers:
+		s2.pos = Sim.GATE_CENTER + Vector2(0, 160)
+	var up = foot.soldiers[2]
+	up.pos = lp
+	sim._batter_gate(0.001)
+	check(sim.siege_role(foot) == "climb", "a company with a man on a ladder reads as climbing")
+	up.pos = lp + Vector2(0, -40)
+	sim._batter_gate(0.001)
+	check(sim.climbed == 1 and sim.siege_log.any(func(e): return e["kind"] == "first_over" and e["squad"] == foot),
+		"the first man over the wall is remembered, with his company")
+	for s2 in foot.soldiers:
+		s2.pos = Sim.GATE_CENTER + Vector2(0, 30)
+	check(sim.siege_role(foot) == "ram", "a company at the gate reads as at the ram")
+	check(sim.siege_role(shooters) == "bows", "and archers outside the walls as shooting")
 	sim.gate_hp = 1.0
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.type == Troops.INFANTRY:

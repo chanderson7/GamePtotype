@@ -26,9 +26,25 @@ const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
 
 const TOP_BAR := 96.0
 const CHIP_H := 84.0
+## Siege cards are taller, to carry a badge saying what the company is doing.
+const SIEGE_CHIP_H := 108.0
+## The order buttons: an icon over a short word.
+const CMD_H := 104.0
+const ABILITY_ICONS := {"infantry": "shieldwall", "spearmen": "schiltron", "archers": "volley", "cavalry": "wheel"}
+## A company's siege badge: icon, word, and the pill's colours.
+const ROLE_BADGES := {
+	"ladder": ["ladder", "Ladder", Color("5a4a1a"), Color("ffe08a")],
+	"climb": ["ladder", "Climb", Color("5a4a1a"), Color("ffe08a")],
+	"ram": ["ram", "Ram", Color("5a3b1d"), Color("ffd79a")],
+	"walls": ["walls", "Walls", Color("2b5a2f"), Color("b8f5b0")],
+	"inside": ["inside", "Inside", Color("2b4f7a"), Color("bfe0ff")],
+	"bows": ["bow", "Bows", Color("3a3156"), Color("d8cdfa")],
+	"gate": ["gate", "Gate", Color("5a3b1d"), Color("ffd79a")],
+}
 const CHIP_GAP := 8.0
 const MAX_CHIPS_PER_ROW := 8
 const ORDER_WORDS := {"hold": "holding", "advance": "advancing", "attack": "attacking", "move": "marching"}
@@ -172,6 +188,20 @@ var ability_button: Button
 var hold_fire_button: Button
 ## Storming a castle: sends the foot over the walls (see BattleSim.order_storm).
 var storm_button: Button
+## The storm plan on show (squad id -> "ladder", "ram" or "bows") before it's given; the
+## battle waits while it's up. Storm! gives it, Cancel drops it.
+var _storm_plan: Dictionary = {}
+var storm_go_button: Button
+var cancel_button: Button
+var objective_chip: PanelContainer
+var objective_label: Label
+## The gate on the map: what it had last frame, damage not yet shown, and a flash.
+var _gate_seen := -1.0
+var _gate_dmg := 0.0
+var _gate_pop := 0.0
+var _gate_flash := 0.0
+## A big line over the field for a moment that turns the battle (the breach).
+var _banner := {}
 var hint_label: Label
 var roll_layer: Control
 var pause_panel: PanelContainer
@@ -245,10 +275,7 @@ func _ready() -> void:
 		Sim.OBJECTIVE_AMBUSH:
 			_tick("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
 		Sim.OBJECTIVE_SIEGE:
-			if sim.siege_defender == Sim.PLAYER:
-				_tick("SIEGE: Hold the gate until they give up!", Style.BRASS)
-			else:
-				_tick("SIEGE: Break the gate, then rout the garrison!", Style.BRASS)
+			pass  # the objective line under the top bar says it
 		_:
 			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	Sound.play_battle()
@@ -305,6 +332,8 @@ func _layout() -> void:
 	# _update_camera), so only the far edge of the enemy's rear can fall off the top.
 	if _deploying():
 		_fit_scale = maxf(0.1, _view.size.x / Sim.ARENA.x)
+	if objective_chip != null:
+		objective_chip.offset_top = top_h + 14.0
 	_layout_tray()
 	_apply_camera()
 	queue_redraw()
@@ -313,9 +342,13 @@ func _layout() -> void:
 func _bottom_height() -> float:
 	if _deploying():
 		# one row of squads, a one-line hint, then Auto-place and Fight
-		return 14.0 + CHIP_H + 10.0 + 34.0 + 10.0 + Style.TOUCH + 14.0
+		return 14.0 + CHIP_H + 10.0 + 34.0 + 10.0 + CMD_H + 14.0
 	var rows := _tray_rows()
-	return 14.0 + rows * CHIP_H + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + Style.TOUCH + 8.0 + 64.0 + 14.0 + Style.TOUCH + 10.0
+	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + CMD_H + 8.0 + 64.0 + 14.0 + Style.TOUCH + 10.0
+
+
+func _chip_h() -> float:
+	return SIEGE_CHIP_H if sim != null and sim.objective == Sim.OBJECTIVE_SIEGE and not _deploying() else CHIP_H
 
 
 func _deploying() -> bool:
@@ -377,13 +410,15 @@ func _update_camera(delta: float) -> void:
 
 func _toggle_camera() -> void:
 	_camera_hold = not _camera_hold
-	camera_button.text = "View: held" if _camera_hold else "View: following"
+	camera_button.text = "Held" if _camera_hold else "Following"
+	camera_button.icon = Widgets.icon("pin" if _camera_hold else "eye")
 
 
 func _recenter_camera() -> void:
 	_camera_hold = false
 	_camera_grace = 0.0
-	camera_button.text = "View: following"
+	camera_button.text = "Following"
+	camera_button.icon = Widgets.icon("eye")
 	_update_camera(1.0)
 
 
@@ -418,7 +453,7 @@ func _process(delta: float) -> void:
 			Sound.play("bell")
 		if float(_roll["t"]) >= ROLL_TIME:
 			_next_roll()
-	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused:
+	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty():
 		var pace := ROLL_PACE if not _roll.is_empty() else 1.0
 		if _hitstop > 0.0:
 			_hitstop -= delta
@@ -431,6 +466,7 @@ func _process(delta: float) -> void:
 			steps += 1
 		_consume_events()
 		_battle_sounds(delta)
+		_watch_gate(delta)
 		if selected_squad != null and not selected_squad.is_active():
 			selected_squad = null
 	elif sim.winner != -1 and not _result_shown and _roll.is_empty():
@@ -444,6 +480,10 @@ func _process(delta: float) -> void:
 	for t in ticker:
 		t["age"] += delta
 	ticker = ticker.filter(func(t): return t["age"] < t["life"])
+	if not _banner.is_empty():
+		_banner["age"] = float(_banner["age"]) + delta
+		if float(_banner["age"]) >= float(_banner["life"]):
+			_banner = {}
 	for burst in bursts:
 		burst["age"] += delta
 	bursts = bursts.filter(func(burst): return burst["age"] < burst["life"])
@@ -510,6 +550,8 @@ func _input(event: InputEvent) -> void:
 ## Form up along a line drawn from `a` to `b`: the selected squad alone, or the whole
 ## army (before the battle, the whole army always: it's placed there at once).
 func _order_line(a: Vector2, b: Vector2) -> void:
+	if not _storm_plan.is_empty():
+		return
 	var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
 	var spots := sim.order_line(Sim.PLAYER, a, b, only)
 	if spots.is_empty():
@@ -600,6 +642,11 @@ func _select_next_card() -> void:
 
 func _tap_battle(p: Vector2, tapped) -> void:
 	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
+	if not _storm_plan.is_empty():
+		# While the storm plan is up, a tap on one of your companies swaps its way in.
+		if mine != null and mine.is_active() and not mine.is_ally:
+			_swap_storm(mine)
+		return
 	if mine != null and mine.is_active():
 		if mine.is_ally:
 			_hint("%s are allied troops under their lord's command." % _company_or_type(mine))
@@ -663,6 +710,9 @@ func _on_chip(index: int) -> void:
 		if sq == null or not sq.is_active():
 			_hint("%s are out of the fight." % _card_name(e))
 			return
+		if not _storm_plan.is_empty():
+			_swap_storm(sq)
+			return
 		_select(null if sq == selected_squad else sq)
 		return
 	if selected_id == e["roster_id"]:
@@ -702,15 +752,75 @@ func _start_battle() -> void:
 	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.")
 
 
+## Storm the walls, first tap: the plan goes up on the field (who takes a ladder, who goes
+## to the ram) and the battle waits. Tapping a card swaps that company between ladder and
+## ram; Storm! gives the order, Cancel drops it.
 func _on_storm() -> void:
-	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
+	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1 or sim.gate_hp <= 0.0:
 		return
-	sim.order_storm(Sim.PLAYER)
+	_select(null)
+	_storm_plan = sim.storm_plan(Sim.PLAYER)
+	_hint(_storm_plan_text() + " Tap a card to swap ladder and ram.")
+
+
+func _storm_plan_text() -> String:
+	var ladders := PackedStringArray()
+	var ram := PackedStringArray()
+	for sq in sim.squads:
+		if sq.team != Sim.PLAYER or not _storm_plan.has(sq.id) or sq.is_ally:
+			continue
+		var who := _captain_first(sq)
+		if _storm_plan[sq.id] == "ladder":
+			ladders.append(who)
+		elif _storm_plan[sq.id] == "ram":
+			ram.append(who)
+	var parts := PackedStringArray()
+	if not ladders.is_empty():
+		parts.append("%s take%s the ladders" % [_and_list(ladders), "s" if ladders.size() == 1 else ""])
+	if not ram.is_empty():
+		parts.append("%s go%s to the ram" % [_and_list(ram), "es" if ram.size() == 1 else ""])
+	return "; ".join(parts) + "." if not parts.is_empty() else "Everyone advances on the walls."
+
+
+func _and_list(names: PackedStringArray) -> String:
+	if names.size() <= 1:
+		return "".join(names)
+	return ", ".join(names.slice(0, names.size() - 1)) + " and " + names[names.size() - 1]
+
+
+## A squad's captain's first name, or what the squad is.
+func _captain_first(sq) -> String:
+	if not sq.info.is_empty():
+		return String(sq.info["first"])
+	return _company_or_type(sq)
+
+
+func _on_storm_go() -> void:
+	if _storm_plan.is_empty() or sim.winner != -1:
+		_storm_plan = {}
+		return
+	sim.order_storm(Sim.PLAYER, _storm_plan)
+	_storm_plan = {}
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.is_active():
 			_mark_ordered(sq)
 	Sound.play("charge", 0.0, 0.05, 0.6)
-	_hint("Everyone advances: shield men on the flanks go up the ladders, the rest batter the gate.")
+	Sound.haptic(false)
+	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate.")
+
+
+func _on_storm_cancel() -> void:
+	_storm_plan = {}
+	_hint("Orders go to the whole army.")
+
+
+## On the storm plan, a tapped card swaps its company between ladder and ram.
+func _swap_storm(sq) -> void:
+	if not _storm_plan.has(sq.id) or not sim.can_climb(sq):
+		_hint("%s can't climb a ladder." % _company_or_type(sq))
+		return
+	_storm_plan[sq.id] = "ram" if _storm_plan[sq.id] == "ladder" else "ladder"
+	_hint(_storm_plan_text())
 
 
 func _on_advance() -> void:
@@ -1113,23 +1223,41 @@ func _consume_events() -> void:
 		match e["type"]:
 			"ram_at_gate":
 				if sim.siege_defender == Sim.PLAYER:
-					_tick("Their ram is at the gate!", Style.ENEMY_LIGHT)
+					_tick("Their ram is at the gate!", Style.ENEMY_LIGHT, "ram")
 				else:
-					_tick("The ram is at the gate!", Style.PLAYER_LIGHT)
+					_tick("The ram is at the gate!", Style.PLAYER_LIGHT, "ram")
 			"ladders_up":
 				if sim.siege_defender == Sim.PLAYER:
-					_tick("They're on the ladders! Throw them down!", Style.ENEMY_LIGHT)
+					_tick("They're on the ladders! Throw them down!", Style.ENEMY_LIGHT, "ladder")
 				else:
-					_tick("Your men are on the ladders!", Style.PLAYER_LIGHT)
+					_tick("Your men are on the ladders!", Style.PLAYER_LIGHT, "ladder")
+			"siege_moment":
+				var sq = e["squad"]
+				var mine: bool = sq.team == Sim.PLAYER
+				if e["kind"] == "first_over":
+					if mine:
+						_tick("%s are over the wall!" % _company_or_type(sq), Style.PLAYER_LIGHT, "walls")
+					else:
+						_tick("They're over the wall!", Style.ENEMY_LIGHT, "walls")
+				elif e["kind"] == "courtyard":
+					if mine:
+						_tick("%s are in the courtyard!" % _company_or_type(sq), Style.PLAYER_LIGHT, "inside")
+					else:
+						_tick("They're in the courtyard!", Style.ENEMY_LIGHT, "inside")
 			"gate_breached":
 				_burst(sim.gate_center, "charge", Style.BRASS, 1.0)
-				_float_text("THE GATE IS BROKEN!", sim.gate_center + Vector2(0, -60), Style.BRASS, 2.0)
-				if sim.siege_defender == Sim.PLAYER:
-					_tick("The gate is broken! Hold the breach!", Style.ENEMY_LIGHT)
+				_burst(sim.gate_center, "dust", Color("e9d3a0"), 1.2)
+				var defending: bool = sim.siege_defender == Sim.PLAYER
+				_banner = {"title": "The gate is broken!", "age": 0.0, "life": 1.9,
+					"sub": "Hold the breach!" if defending else "Into the courtyard!",
+					"color": Style.ENEMY_LIGHT if defending else Color("ffd77a")}
+				if defending:
+					_tick("The gate is broken! Hold the breach!", Style.ENEMY_LIGHT, "breach")
 				else:
-					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT)
+					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT, "breach")
 				Sound.play("charge", 0.0, 0.05, 0.6)
-				_shake = maxf(_shake, 8.0)
+				Sound.haptic(true)
+				_shake = maxf(_shake, 12.0)
 				Sound.duck()
 			"rout":
 				var sq = e["squad"]
@@ -1296,11 +1424,11 @@ func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
 
 
 ## A line in the ticker along the top of the field, for what's happening in the story.
-func _tick(text: String, color: Color) -> void:
+func _tick(text: String, color: Color, icon: String = "") -> void:
 	for t in ticker:
 		if t["text"] == text:
 			return
-	ticker.append({"text": text, "color": color, "age": 0.0, "life": 4.5})
+	ticker.append({"text": text, "color": color, "age": 0.0, "life": 4.5, "icon": icon})
 	if ticker.size() > 3:
 		ticker.pop_front()
 
@@ -1348,6 +1476,9 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 	for child in result_content.get_children():
 		result_content.remove_child(child)
 		child.free()
+	var siege: bool = sim.objective == Sim.OBJECTIVE_SIEGE
+	if siege:
+		result_content.add_child(_siege_vignette())
 	result_body.text = why
 	result_content.add_child(result_body)
 	var story := Style.label(String(report.get("story", "")), Style.BODY, Style.TEXT)
@@ -1355,11 +1486,20 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 	story.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	result_content.add_child(story)
 
-	var tally := HBoxContainer.new()
-	tally.add_theme_constant_override("separation", 10)
-	tally.add_child(_result_stat("LOST", int(report.get("lost", 0)), Style.ENEMY_LIGHT))
-	tally.add_child(_result_stat("ENEMY DOWN", int(report.get("killed", 0)), Style.BRASS))
-	result_content.add_child(tally)
+	if siege:
+		var defending: bool = sim.siege_defender == Sim.PLAYER
+		result_content.add_child(Widgets.tile_grid([
+			Widgets.tile("skull", str(int(report.get("lost", 0))), "your men lost", Style.ENEMY_LIGHT),
+			Widgets.tile("fight", str(int(report.get("killed", 0))), "theirs down" if defending else "garrison down", Style.BRASS),
+			Widgets.tile("ladder", str(sim.climbed), "came over the ladders" if defending else "went up the ladders"),
+			Widgets.tile("ram", str(int(sim.gate_max - sim.gate_hp)), "blows on your gate" if defending else "ram blows"),
+		]))
+	else:
+		var tally := HBoxContainer.new()
+		tally.add_theme_constant_override("separation", 10)
+		tally.add_child(_result_stat("LOST", int(report.get("lost", 0)), Style.ENEMY_LIGHT))
+		tally.add_child(_result_stat("ENEMY DOWN", int(report.get("killed", 0)), Style.BRASS))
+		result_content.add_child(tally)
 
 	var rewards: Dictionary = report.get("rewards", {})
 	if int(rewards.get("silver", 0)) + int(rewards.get("food", 0)) + int(rewards.get("renown", 0)) > 0:
@@ -1367,11 +1507,15 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		result_content.add_child(_result_note("%d silver  ·  %d food  ·  %d renown" % [
 			int(rewards.get("silver", 0)), int(rewards.get("food", 0)), int(rewards.get("renown", 0))], Style.BRASS))
 
+	if siege:
+		result_content.add_child(_result_heading("How it went"))
+		result_content.add_child(_siege_timeline())
+
 	var captains: Array = report.get("captains", [])
 	if not captains.is_empty():
 		result_content.add_child(_result_heading("Captains"))
 		for captain in captains:
-			result_content.add_child(_result_captain(captain))
+			result_content.add_child(_result_captain(captain, _siege_note(captain)))
 
 	var bonds: Array = report.get("bonds", [])
 	if not bonds.is_empty():
@@ -1413,7 +1557,7 @@ func _result_stat(caption: String, value: int, color: Color) -> Control:
 	return panel
 
 
-func _result_captain(captain: Dictionary) -> Control:
+func _result_captain(captain: Dictionary, note: String = "") -> Control:
 	var panel := PanelContainer.new()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -1430,6 +1574,8 @@ func _result_captain(captain: Dictionary) -> Control:
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(words)
 	words.add_child(_result_note("%s · %s" % [captain.get("name", "Captain"), captain.get("company", "Company")]))
+	if note != "":
+		words.add_child(_result_note(note, Style.BRASS))
 	var fate := String(captain.get("fate", "standing"))
 	var line := "%d kills · held the field" % int(captain.get("kills", 0))
 	var color := Style.MUTED
@@ -1441,6 +1587,149 @@ func _result_captain(captain: Dictionary) -> Control:
 		color = Style.ENEMY_LIGHT
 	words.add_child(_result_note(line, color))
 	return panel
+
+
+## What a captain did in the siege worth a line of their own.
+func _siege_note(captain: Dictionary) -> String:
+	if sim.objective != Sim.OBJECTIVE_SIEGE:
+		return ""
+	var notes := PackedStringArray()
+	for e in sim.siege_log:
+		var sq = e["squad"]
+		if sq == null or sq.team != Sim.PLAYER or sq.info.is_empty() or int(sq.info["id"]) != int(captain.get("id", -1)):
+			continue
+		if e["kind"] == "first_over":
+			notes.append("First over the wall")
+		elif e["kind"] == "courtyard":
+			notes.append("First into the courtyard")
+	return " · ".join(notes)
+
+
+func _clock_text(t: float) -> String:
+	return "%d:%02d" % [floori(t / 60.0), int(t) % 60]
+
+
+## The siege, moment by moment: ram, first over the wall, the gate, the courtyard, the end.
+func _siege_timeline() -> Control:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	var defending: bool = sim.siege_defender == Sim.PLAYER
+	var rows: Array = []
+	for e in sim.siege_log:
+		var sq = e["squad"]
+		var who := "Their men"
+		if sq != null and sq.team == Sim.PLAYER:
+			who = _captain_first(sq) + "'s men" if not sq.info.is_empty() else _company_or_type(sq)
+		match String(e["kind"]):
+			"ram":
+				rows.append([e["t"], "ram", "Their ram reached the gate" if defending else "The ram reached the gate", Color("ffd79a")])
+			"first_over":
+				rows.append([e["t"], "ladder", "%s first over the wall" % who, Color("ffe08a")])
+			"gate":
+				rows.append([e["t"], "breach", "The ram broke the gate", Color("ffc06a")])
+			"courtyard":
+				rows.append([e["t"], "inside", "%s took the courtyard" % who, Color("bfe0ff")])
+	var attacker_won: bool = sim.winner != sim.siege_defender
+	var end_line := "The garrison broke and ran" if attacker_won else "The walls held"
+	if defending:
+		end_line = "The garrison broke" if attacker_won else "They gave up the assault"
+	rows.append([sim.time, "objective", end_line, Color("b8f5b0") if attacker_won != defending else Style.ENEMY_LIGHT])
+	for r in rows:
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 12)
+		var dot := PanelContainer.new()
+		var db := Style.box(Color(r[3]).darkened(0.65), Color(r[3], 0.5), 1, 20)
+		dot.add_theme_stylebox_override("panel", db)
+		var ic := Widgets.icon_rect(String(r[1]), 26.0)
+		ic.modulate = r[3]
+		dot.add_child(ic)
+		h.add_child(dot)
+		var t := Style.label(_clock_text(float(r[0])), Style.SMALL, Style.BRASS)
+		t.custom_minimum_size = Vector2(64, 0)
+		t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(t)
+		var words := Style.label(String(r[2]), Style.SMALL, Style.TEXT)
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		h.add_child(words)
+		col.add_child(h)
+	return col
+
+
+## The castle's keep with whoever holds it now flying their flag, and a ribbon saying
+## whether it fell.
+func _siege_vignette() -> Control:
+	var c := Control.new()
+	c.name = "SiegeVignette"
+	c.custom_minimum_size = Vector2(0, 240)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var place := "The castle"
+	var at := String(GameState.pending_battle.get("siege_target", ""))
+	if at != "" and WorldData.SETTLEMENTS.has(at):
+		place = String(WorldData.settlement(at)["name"])
+	var attacker_won: bool = sim.winner != sim.siege_defender
+	var title := ""
+	if sim.siege_defender == Sim.ENEMY:
+		title = ("%s is taken" if attacker_won else "%s holds out") % place
+	else:
+		title = ("%s has fallen" if attacker_won else "%s holds") % place
+	var attacker_team := Sim.PLAYER if sim.siege_defender == Sim.ENEMY else Sim.ENEMY
+	var holder: int = attacker_team if attacker_won else sim.siege_defender
+	c.draw.connect(_draw_vignette.bind(c, title, Style.PLAYER if holder == Sim.PLAYER else Style.ENEMY, holder == Sim.PLAYER))
+	return c
+
+
+func _draw_vignette(c: Control, title: String, flag: Color, ours: bool) -> void:
+	var st: Dictionary = CASTLE_STYLES.get(_castle_culture, CASTLE_STYLES["vardish"])
+	var size := c.size
+	var frame := Rect2(Vector2.ZERO, size)
+	c.draw_rect(frame, Color(st["paving"]).darkened(0.35))
+	var y := 18.0
+	while y < size.y:
+		var x := fmod(y * 0.7, 46.0) - 46.0
+		while x < size.x:
+			c.draw_rect(Rect2(x, y, 34.0, 12.0), Color(Color(st["paving"]).darkened(0.2), 0.6))
+			x += 46.0
+		y += 22.0
+	var r := Rect2(size.x * 0.5 - 130.0, 34.0, 260.0, 140.0)
+	c.draw_rect(Rect2(r.position + Vector2(9, 9), r.size), Color(0, 0, 0, 0.35))
+	c.draw_rect(r, st["stone"])
+	c.draw_rect(r.grow(-9.0), st["top"])
+	var bx := r.position.x
+	while bx < r.end.x - 5.0:
+		c.draw_rect(Rect2(bx, r.position.y - 6.0, 10.0, 9.0), st["light"])
+		c.draw_rect(Rect2(bx, r.end.y - 4.0, 10.0, 9.0), st["light"])
+		bx += 18.0
+	if st["dome"]:
+		c.draw_circle(r.get_center(), r.size.y * 0.32, st["dome_color"])
+		c.draw_circle(r.get_center() - Vector2(10, 10), r.size.y * 0.1, Color(st["dome_color"]).lightened(0.3))
+	elif st["tiers"]:
+		c.draw_rect(r.grow(-22.0), st["roof"])
+		c.draw_rect(r.grow(-40.0), st["roof_light"])
+	else:
+		c.draw_rect(r.grow(-26.0), Color(st["top"]).darkened(0.15))
+	var pole := Vector2(r.end.x - 14.0, r.position.y + 10.0)
+	c.draw_line(pole, pole + Vector2(0, -44), Color("5a3a22"), 4.0)
+	var wave := 3.0 * sin(_clock * 4.0) if not Style.motion_reduced() else 0.0
+	c.draw_colored_polygon(PackedVector2Array([pole + Vector2(2, -44), pole + Vector2(50, -34 + wave), pole + Vector2(2, -22)]), flag)
+	# The ribbon.
+	var band := Rect2(0, size.y - 62.0, size.x, 62.0)
+	c.draw_rect(band, Color(Style.NIGHT, 0.88))
+	var big: Font = Style.display_font()
+	if big == null:
+		big = font
+	var fs := 34
+	while fs > 22 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > size.x - 90.0:
+		fs -= 2
+	var tw := big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var crown := Widgets.icon("crown" if ours else "breach")
+	var ink := Color("f3cf7a") if ours else Style.ENEMY_LIGHT
+	var x0 := (size.x - tw - 40.0) * 0.5
+	if crown != null:
+		c.draw_texture_rect(crown, Rect2(x0, band.position.y + 16.0, 30, 30), false, ink)
+	c.draw_string(big, Vector2(x0 + 40.0, band.position.y + 43.0), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
+	c.draw_rect(frame, Color("6d5222"), false, 2.0)
 
 
 func _result_bond(bond: Dictionary) -> Control:
@@ -1494,7 +1783,9 @@ func _layout_tray() -> void:
 	tray.columns = maxi(1, _cards.size()) if deploying else (mini(maxi(1, _cards.size()), MAX_CHIPS_PER_ROW) if _tray_rows() == 1 else ceili(_cards.size() / 2.0))
 	for b in chip_buttons:
 		b.custom_minimum_size.x = 118.0 if deploying else 0.0
-	tray_scroll.custom_minimum_size.y = CHIP_H if deploying else _tray_rows() * CHIP_H + (_tray_rows() - 1) * CHIP_GAP
+	tray_scroll.custom_minimum_size.y = CHIP_H if deploying else _tray_rows() * _chip_h() + (_tray_rows() - 1) * CHIP_GAP
+	for b in chip_buttons:
+		b.custom_minimum_size.y = CHIP_H if deploying else _chip_h()
 	view_row.visible = not deploying
 	info_label.visible = not deploying
 	hint_label.custom_minimum_size.y = 34.0 if deploying else 64.0
@@ -1648,19 +1939,22 @@ func _build_hud() -> void:
 	var buttons_row := HBoxContainer.new()
 	buttons_row.add_theme_constant_override("separation", 10)
 	col.add_child(buttons_row)
-	auto_button = _wide_button("Auto-place", _on_auto, buttons_row)
-	fight_button = _wide_button("Fight", _on_fight, buttons_row)
-	Style.make_primary(fight_button)
-	advance_button = _wide_button("Advance all", _on_advance, buttons_row)
-	Style.make_primary(advance_button)
-	hold_button = _wide_button("Hold all", _on_hold, buttons_row)
-	storm_button = _wide_button("Storm the walls", _on_storm, buttons_row)
+	auto_button = _order_button("Auto-place", "auto", _on_auto, buttons_row)
+	fight_button = _order_button("Fight", "fight", _on_fight, buttons_row, true, true)
+	advance_button = _order_button("Advance all", "advance", _on_advance, buttons_row, true)
+	hold_button = _order_button("Hold all", "hold", _on_hold, buttons_row)
+	storm_button = _order_button("Storm", "storm", _on_storm, buttons_row)
 	storm_button.name = "StormButton"
 	storm_button.visible = false
-	ability_button = _wide_button("", _on_ability, buttons_row)
+	cancel_button = _order_button("Cancel", "cancel", _on_storm_cancel, buttons_row)
+	cancel_button.name = "StormCancel"
+	cancel_button.visible = false
+	storm_go_button = _order_button("Storm!", "storm", _on_storm_go, buttons_row, true, true)
+	storm_go_button.name = "StormGo"
+	storm_go_button.visible = false
+	ability_button = _order_button("", "fight", _on_ability, buttons_row)
 	ability_button.draw.connect(_draw_ability_cooldown)
-	hold_fire_button = _wide_button("Hold fire", _on_hold_fire, buttons_row)
-	hold_fire_button.add_theme_font_size_override("font_size", Style.SMALL)
+	hold_fire_button = _order_button("Hold fire", "holdfire", _on_hold_fire, buttons_row)
 
 	hint_label = Style.label("", Style.SMALL, Style.MUTED)
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -1672,9 +1966,33 @@ func _build_hud() -> void:
 	view_row = HBoxContainer.new()
 	view_row.add_theme_constant_override("separation", 10)
 	col.add_child(view_row)
-	camera_button = _wide_button("View: following", _toggle_camera, view_row)
-	_wide_button("Re-center", _recenter_camera, view_row)
-	_wide_button("Whole company", func(): _select(null), view_row)
+	camera_button = _view_button("Following", "eye", _toggle_camera)
+	_view_button("Re-center", "center", _recenter_camera)
+	_view_button("Whole army", "company", func(): _select(null))
+
+	# The objective, under the top bar (sieges).
+	objective_chip = PanelContainer.new()
+	objective_chip.name = "ObjectiveChip"
+	var ob := Style.box(Color(Style.NIGHT, 0.92), Color("6d5222"), 2, 22)
+	ob.content_margin_left = 14.0
+	ob.content_margin_right = 20.0
+	ob.content_margin_top = 6.0
+	ob.content_margin_bottom = 6.0
+	objective_chip.add_theme_stylebox_override("panel", ob)
+	objective_chip.anchor_left = 0.5
+	objective_chip.anchor_right = 0.5
+	objective_chip.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	objective_chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	objective_chip.visible = false
+	var orow := HBoxContainer.new()
+	orow.add_theme_constant_override("separation", 10)
+	objective_chip.add_child(orow)
+	var oicon := Widgets.icon_rect("objective", 30.0)
+	oicon.modulate = Color("f3cf7a")
+	orow.add_child(oicon)
+	objective_label = Style.label("", Style.SMALL, Color("f3cf7a"))
+	orow.add_child(objective_label)
+	hud.add_child(objective_chip)
 
 	# The death roll plays over the field.
 	roll_layer = Control.new()
@@ -1697,8 +2015,11 @@ func _build_hud() -> void:
 	pv.add_child(pause_note)
 	var resume := _button("Resume", Vector2(0, Style.TOUCH), _on_menu)
 	Style.make_primary(resume)
+	_set_icon(resume, "resume", false, Style.BRASS_INK)
 	pv.add_child(resume)
 	retreat_button = _button("Retreat", Vector2(0, Style.TOUCH), _on_retreat)
+	_set_icon(retreat_button, "retreat", false, Style.ENEMY_LIGHT)
+	retreat_button.add_theme_color_override("font_color", Style.ENEMY_LIGHT)
 	pv.add_child(retreat_button)
 
 	result_scrim = ColorRect.new()
@@ -1783,6 +2104,36 @@ func _button(text: String, min_size: Vector2, callback: Callable) -> Button:
 	return b
 
 
+## An order button: an icon over a short word, or for the one big call to action (`wide`)
+## an icon beside larger words. `primary` makes it brass.
+func _order_button(text: String, icon_key: String, callback: Callable, row: HBoxContainer, primary: bool = false, wide: bool = false) -> Button:
+	var b := _wide_button(text, callback, row)
+	b.custom_minimum_size.y = CMD_H
+	b.add_theme_font_size_override("font_size", Style.LARGE if wide else Style.SMALL)
+	if primary:
+		Style.make_primary(b)
+		b.size_flags_stretch_ratio = 2.4 if wide else 1.6
+	_set_icon(b, icon_key, not wide, Style.BRASS_INK if primary else Style.TEXT)
+	return b
+
+
+func _view_button(text: String, icon_key: String, callback: Callable) -> Button:
+	var b := _wide_button(text, callback, view_row)
+	b.add_theme_font_size_override("font_size", Style.SMALL)
+	_set_icon(b, icon_key, false, Style.MUTED)
+	return b
+
+
+## Puts an icon on a button: over its words (`stacked`) or beside them.
+func _set_icon(b: Button, key: String, stacked: bool = true, tint: Color = Style.TEXT) -> void:
+	b.icon = Widgets.icon(key)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER if stacked else HORIZONTAL_ALIGNMENT_LEFT
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP if stacked else VERTICAL_ALIGNMENT_CENTER
+	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		b.add_theme_color_override(c, tint)
+	b.add_theme_color_override("icon_disabled_color", Color(tint, 0.35))
+
+
 func _wide_button(text: String, callback: Callable, row: HBoxContainer) -> Button:
 	var b := _button(text, Vector2(0, Style.TOUCH), callback)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1800,8 +2151,14 @@ func _refresh_hud() -> void:
 	speed_button.visible = not deploying
 	auto_button.visible = deploying
 	fight_button.visible = deploying
-	advance_button.visible = not deploying
-	hold_button.visible = not deploying
+	var planning := not _storm_plan.is_empty()
+	advance_button.visible = not deploying and not planning
+	hold_button.visible = not deploying and not planning
+	cancel_button.visible = planning
+	storm_go_button.visible = planning
+	objective_chip.visible = sim.objective == Sim.OBJECTIVE_SIEGE and sim.winner == -1
+	if objective_chip.visible:
+		objective_label.text = _objective_text()
 	menu_button.disabled = sim.winner != -1
 	menu_button.text = ""
 	speed_button.text = "2×" if speed > 1.5 else "1×"
@@ -1835,8 +2192,10 @@ func _refresh_battle() -> void:
 	var sq = selected_squad
 	ability_button.visible = sq != null
 	hold_fire_button.visible = sq != null and sq.ranged
+	# Storm stays in the bar for an assault, greyed out once the gate is down.
 	storm_button.visible = sq == null and sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.ENEMY \
-		and sim.gate_hp > 0.0 and sim.winner == -1
+		and sim.winner == -1 and _storm_plan.is_empty()
+	storm_button.disabled = sim.gate_hp <= 0.0
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
@@ -1862,9 +2221,11 @@ func _refresh_battle() -> void:
 		hold_button.text = "Hold"
 		var ab := Troops.ability(sq.type)
 		ability_button.text = String(ab["name"])
+		ability_button.icon = Widgets.icon(String(ABILITY_ICONS.get(sq.type, "fight")))
 		ability_button.modulate = Color(1, 1, 1, 1.0 if sim.ability_ready(sq) else 0.55)
 		ability_button.queue_redraw()
 		hold_fire_button.text = "Fire at will" if sq.hold_fire else "Hold fire"
+		hold_fire_button.icon = Widgets.icon("bow" if sq.hold_fire else "holdfire")
 	else:
 		var allies_active := 0
 		for s in sim.squads:
@@ -1875,10 +2236,29 @@ func _refresh_battle() -> void:
 		if allies_active > 0 or res_count > 0:
 			extra = " · Allies: %d · Reserves: %d" % [allies_active, res_count]
 		info_label.text = "Whole army · " + _order_summary() + extra
+		if not _storm_plan.is_empty():
+			var up := 0
+			var ram := 0
+			for id in _storm_plan:
+				up += 1 if _storm_plan[id] == "ladder" else 0
+				ram += 1 if _storm_plan[id] == "ram" else 0
+			info_label.text = "Storm plan · %d to the ladders · %d to the ram" % [up, ram]
 		advance_button.text = "Advance all"
 		hold_button.text = "Hold all"
 	advance_button.disabled = sim.winner != -1
 	hold_button.disabled = sim.winner != -1
+
+
+## The line under the top bar in a siege.
+func _objective_text() -> String:
+	var defending: bool = sim.siege_defender == Sim.PLAYER
+	if not _storm_plan.is_empty():
+		return "Storm plan · tap Storm! to go"
+	if sim.gate_hp <= 0.0:
+		return "Throw them back" if defending else "Rout the garrison"
+	if defending:
+		return "Hold the gate"
+	return "Take the walls · break the gate or climb" if _deploying() else "Take the walls"
 
 
 ## "5 holding · 2 advancing" for the squads you still have fighting.
@@ -1973,6 +2353,7 @@ func _draw_chip(i: int) -> void:
 			b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 			if sim.ability_ready(sq):
 				b.draw_circle(Vector2(size.x - 12.0, size.y - 26.0), 5.0, Style.BRASS)
+			_draw_role_badge(b, sq)
 		else:
 			b.draw_string(font, Vector2(6, size.y - 6.0), "out", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.MUTED)
 	elif int(e["level"]) > 1:
@@ -1982,6 +2363,26 @@ func _draw_chip(i: int) -> void:
 		# placed: a tick in the corner
 		var t := Vector2(size.x - 22.0, size.y - 16.0)
 		b.draw_polyline(PackedVector2Array([t, t + Vector2(5, 5), t + Vector2(14, -6)]), Style.BRASS, 3.0)
+
+
+## In a siege, a pill on the card under the name: what the company is doing (on the storm
+## plan, where it's going).
+func _draw_role_badge(b: Button, sq) -> void:
+	if sim.objective != Sim.OBJECTIVE_SIEGE:
+		return
+	var role := String(_storm_plan.get(sq.id, "")) if not _storm_plan.is_empty() else sim.siege_role(sq)
+	if not ROLE_BADGES.has(role):
+		return
+	var badge: Array = ROLE_BADGES[role]
+	var word := String(badge[1])
+	var fs := 18
+	var r := Rect2(5, 64, minf(b.size.x - 30.0, 34.0 + font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 10.0), 26)
+	var pill := Style.box(badge[2], Color(badge[3], 0.35), 1, 13)
+	b.draw_style_box(pill, r)
+	var tex := Widgets.icon(String(badge[0]))
+	if tex != null:
+		b.draw_texture_rect(tex, Rect2(r.position + Vector2(6, 3), Vector2(20, 20)), false, badge[3])
+	b.draw_string(font, r.position + Vector2(30, 19), word, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 34.0, fs, badge[3])
 
 
 ## A fill over the ability button that drains as its cooldown runs down.
@@ -2088,6 +2489,9 @@ func _draw() -> void:
 	_draw_treetops()
 	_draw_arrows()
 	_draw_settled()
+	if sim.objective == Sim.OBJECTIVE_SIEGE:
+		_draw_storm_plan()
+		_draw_gate_marker()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_standards()
 	_draw_edge_markers()
@@ -2095,6 +2499,7 @@ func _draw() -> void:
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_ticker()
+	_draw_banner()
 
 
 ## Pixel-art ground for the land the battle is in, and what grows on it.
@@ -2379,6 +2784,7 @@ func _draw_objectives() -> void:
 		return
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_walls()
+		_draw_siege_reach()
 	if sim.objective == Sim.OBJECTIVE_VILLAGE:
 		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
 		draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
@@ -2870,15 +3276,223 @@ func _ticker_box(a: float) -> StyleBoxFlat:
 
 
 func _draw_ticker() -> void:
-	var y := _view.position.y + 30.0
+	var y := _view.position.y + 30.0 + (58.0 if objective_chip != null and objective_chip.visible else 0.0)
 	for t in ticker:
 		var age: float = t["age"]
 		var a := clampf(float(t["life"]) - age, 0.0, 1.0) * clampf(age / 0.2, 0.0, 1.0)
 		var color: Color = t["color"]
 		# a dark pill behind each line, so it reads over grass and sand alike
-		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL).x + 28.0, _view.size.x - 16.0)
+		var icon := Widgets.icon(String(t.get("icon", ""))) if String(t.get("icon", "")) != "" else null
+		var lead := 34.0 if icon != null else 0.0
+		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL).x + 28.0 + lead, _view.size.x - 16.0)
 		var pill := Rect2(Vector2(_view.get_center().x - w * 0.5, y - Style.SMALL - 2.0), Vector2(w, Style.SMALL + 14.0))
 		draw_style_box(_ticker_box(a), pill)
-		draw_string_outline(font, Vector2(_view.position.x + 12.0, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
-		draw_string(font, Vector2(_view.position.x + 12.0, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
+		if icon != null:
+			var dot := Vector2(pill.position.x + 20.0, pill.get_center().y)
+			draw_circle(dot, 14.0, Color(Color("5a4a1a"), a))
+			draw_texture_rect(icon, Rect2(dot - Vector2(10, 10), Vector2(20, 20)), false, Color(Color("ffe08a"), a))
+		var tx := _view.position.x + 12.0 + lead * 0.5
+		draw_string_outline(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
+		draw_string(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
 		y += Style.SMALL + 18.0
+
+
+# ---------------------------------------------------------------- siege marks
+
+## Each blow of the ram on the gate: a flash and the damage, every so often.
+func _watch_gate(delta: float) -> void:
+	if sim.objective != Sim.OBJECTIVE_SIEGE:
+		return
+	if _gate_seen < 0.0:
+		_gate_seen = sim.gate_hp
+	if sim.gate_hp < _gate_seen:
+		_gate_dmg += _gate_seen - sim.gate_hp
+	_gate_seen = sim.gate_hp
+	_gate_pop -= delta
+	_gate_flash = maxf(0.0, _gate_flash - delta * 4.0)
+	if _gate_dmg >= 1.0 and _gate_pop <= 0.0 and sim.gate_hp > 0.0:
+		var out := 1.0 if sim.siege_defender == Sim.ENEMY else -1.0
+		_float_text("-%d" % int(_gate_dmg), sim.gate_center + Vector2(46, out * 26.0), Color("fff3c0"), 0.9)
+		_burst(sim.gate_center + Vector2(0, out * 18.0), "dust", Color("e9d3a0"), 0.5)
+		_gate_dmg = 0.0
+		_gate_pop = 0.9
+		_gate_flash = 1.0
+
+
+## A word on the field in a pill, the same size on screen however far the camera zooms.
+func _field_label(text: String, at: Vector2, fg: Color, bg: Color, edge: Color) -> void:
+	var k := 1.0 / maxf(0.1, field_scale)
+	var fs := int(17.0 * k)
+	var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+	var pad := 9.0 * k
+	var r := Rect2(at - Vector2(ts.x * 0.5 + pad, (ts.y + pad) * 0.5), Vector2(ts.x + pad * 2.0, ts.y + pad))
+	r.position.x = clampf(r.position.x, 4.0, Sim.ARENA.x - r.size.x - 4.0)
+	draw_style_box(Style.box(bg, edge, maxi(1, int(1.5 * k)), int(r.size.y * 0.5)), r)
+	draw_string(font, Vector2(r.position.x + pad, r.position.y + pad * 0.5 + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)
+
+
+## Planning an assault: where the garrison's bows on the wall can reach (red), the cover
+## under the ram's roof (blue), and the two ladders.
+func _draw_siege_reach() -> void:
+	if not _deploying() or sim.siege_defender != Sim.ENEMY:
+		return
+	var w: float = Sim.ARENA.x
+	var outside: float = sim.wall_y + Terrain.CELL * 0.5
+	var below := PackedVector2Array([Vector2(0, outside), Vector2(w, outside), Vector2(w, Sim.ARENA.y), Vector2(0, Sim.ARENA.y)])
+	var zone: Array = []
+	var deepest := outside
+	var label_x := w * 0.75
+	for sq in sim.squads:
+		if sq.team != Sim.ENEMY or not sq.ranged or not sq.is_active():
+			continue
+		var circle := PackedVector2Array()
+		for i in 64:
+			circle.append(sq.center + Vector2.from_angle(TAU * i / 64.0) * sq.reach)
+		for piece in Geometry2D.intersect_polygons(circle, below):
+			zone = _merge_zone(zone, piece)
+		if sq.center.y + sq.reach > deepest:
+			deepest = sq.center.y + sq.reach
+			label_x = sq.center.x
+	var red := Color(0.86, 0.29, 0.23)
+	for poly in zone:
+		if Geometry2D.is_polygon_clockwise(poly):
+			continue
+		draw_colored_polygon(poly, Color(red, 0.16))
+		var k := -Sim.ARENA.y
+		while k < w:
+			for seg in Geometry2D.intersect_polyline_with_polygon(PackedVector2Array([Vector2(k, outside), Vector2(k + Sim.ARENA.y, outside + Sim.ARENA.y)]), poly):
+				draw_polyline(seg, Color(red, 0.32), 3.0)
+			k += 20.0
+		for i in poly.size():
+			var a2: Vector2 = poly[i]
+			var b2: Vector2 = poly[(i + 1) % poly.size()]
+			if absf(a2.y - outside) < 1.0 and absf(b2.y - outside) < 1.0:
+				continue
+			draw_dashed_line(a2, b2, Color("ff8a6a"), 2.5, 10.0)
+	if not zone.is_empty():
+		_field_label("Wall bows reach here", Vector2(label_x, minf(deepest + 20.0, Sim.ARENA.y - 20.0)), Color("ffb3a0"), Color(Style.NIGHT, 0.9), Color("a14a3c"))
+	# The ram's roof.
+	var roof := PackedVector2Array()
+	for i in 48:
+		roof.append(sim.gate_center + Vector2.from_angle(TAU * i / 48.0) * (Sim.GATE_REACH + 14.0))
+	for piece in Geometry2D.intersect_polygons(roof, below):
+		draw_colored_polygon(piece, Color(0.31, 0.55, 1.0, 0.28))
+		draw_polyline(piece + PackedVector2Array([piece[0]]), Color("8fb8ff"), 2.0)
+	_field_label("Ram roof: arrows 40%", sim.gate_center + Vector2(0, Sim.GATE_REACH + 34.0), Color("bcd4ff"), Color(Style.NIGHT, 0.9), Color("5a7fc0"))
+	for lp in sim.ladder_points():
+		var mid: Vector2 = lp + Vector2(0, Terrain.CELL * 0.5 + 14.0)
+		draw_arc(mid, 26.0, 0.0, TAU, 32, Color("ffe08a"), 2.5)
+		_field_label("Ladder", mid + Vector2(0, 46.0), Color("ffe08a"), Color(Style.NIGHT, 0.9), Color("8a7a3a"))
+
+
+## Adds `piece` to a set of outlines, merging it with any it overlaps.
+func _merge_zone(zone: Array, piece: PackedVector2Array) -> Array:
+	var merged := piece
+	var kept: Array = []
+	for poly in zone:
+		var m := Geometry2D.merge_polygons(poly, merged)
+		var outer: Array = m.filter(func(q): return not Geometry2D.is_polygon_clockwise(q))
+		if outer.size() == 1:
+			merged = outer[0]
+			for q in m:
+				if Geometry2D.is_polygon_clockwise(q):
+					kept.append(q)
+		else:
+			kept.append(poly)
+	kept.append(merged)
+	return kept
+
+
+## The storm plan on the field: a dashed route from each company to its ladder or the ram.
+func _draw_storm_plan() -> void:
+	if _storm_plan.is_empty():
+		return
+	var foot: float = sim.wall_y + Terrain.CELL * 0.5 + 30.0
+	var groups := {}
+	for sq in sim.squads:
+		if sq.team != Sim.PLAYER or not sq.is_active() or not _storm_plan.has(sq.id):
+			continue
+		var job: String = _storm_plan[sq.id]
+		if job == "bows":
+			continue
+		var dest := Vector2(sim.gate_center.x, foot)
+		var key := "ram"
+		if job == "ladder":
+			var best := INF
+			for lp in sim.ladder_points():
+				if absf(lp.x - sq.center.x) < best:
+					best = absf(lp.x - sq.center.x)
+					dest = Vector2(lp.x, foot)
+					key = "ladder%d" % int(lp.x)
+		var col := Color("ffe08a") if job == "ladder" else Color("ffc06a")
+		var from: Vector2 = sq.center + (dest - sq.center).normalized() * 30.0
+		draw_dashed_line(from, dest, Color(0, 0, 0, 0.45), 7.0, 16.0)
+		draw_dashed_line(from, dest, col, 4.0, 16.0)
+		var dir := (dest - from).normalized()
+		draw_colored_polygon(PackedVector2Array([dest + dir * 10.0, dest - dir * 10.0 + dir.orthogonal() * 9.0, dest - dir * 10.0 - dir.orthogonal() * 9.0]), col)
+		if not groups.has(key):
+			groups[key] = {"at": dest, "names": PackedStringArray(), "job": job}
+		groups[key]["names"].append(_captain_first(sq))
+	for key in groups:
+		var g: Dictionary = groups[key]
+		var names: PackedStringArray = g["names"]
+		var at: Vector2 = Vector2(g["at"].x, g["at"].y + 30.0)
+		if g["job"] == "ladder":
+			_field_label("%s · ladder" % _and_list(names), at, Color("ffe08a"), Color("5a4a1a"), Color("ffe08a"))
+		else:
+			var who := names[0] if names.size() == 1 else "%d companies" % names.size()
+			_field_label("%s · ram" % who, at, Color("ffd79a"), Color("5a3b1d"), Color("ffc06a"))
+
+
+## The gate's own bar over the gatehouse, on the courtyard side, and a flash on each blow.
+func _draw_gate_marker() -> void:
+	if _deploying() or sim.gate_hp <= 0.0 or sim.winner != -1 or not _storm_plan.is_empty():
+		return
+	var cell := Terrain.CELL
+	var top: float = sim.wall_row * cell
+	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
+	if _gate_flash > 0.0:
+		draw_rect(gate.grow(3.0), Color(1.0, 0.95, 0.7, 0.55 * _gate_flash))
+	var k := 1.0 / maxf(0.1, field_scale)
+	var size := Vector2(128.0, 30.0) * k
+	var inward := -1.0 if sim.siege_defender == Sim.ENEMY else 1.0
+	var cy: float = (top - 26.0 - size.y * 0.5) if inward < 0.0 else (top + cell + 26.0 + size.y * 0.5)
+	var r := Rect2(Vector2(gate.get_center().x - size.x * 0.5, cy - size.y * 0.5), size)
+	draw_style_box(Style.box(Color(Style.NIGHT, 0.92), Color("6d5222"), maxi(1, int(2.0 * k)), int(9.0 * k)), r)
+	var tex := Widgets.icon("gate")
+	if tex != null:
+		draw_texture_rect(tex, Rect2(r.position + Vector2(7, 5) * k, Vector2(20, 20) * k), false, Color("f3cf7a"))
+	var share: float = sim.gate_hp / maxf(1.0, sim.gate_max)
+	var track := Rect2(r.position + Vector2(34, 11) * k, Vector2(r.size.x - 44.0 * k, 9.0 * k))
+	draw_rect(track, Color("0b0f19"))
+	draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.94, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
+
+
+## The breach: a band across the field with the news in big letters, for a moment.
+func _draw_banner() -> void:
+	if _banner.is_empty():
+		return
+	var age := float(_banner["age"])
+	var life := float(_banner["life"])
+	var a := clampf(minf(age / 0.15, (life - age) / 0.4), 0.0, 1.0)
+	var vs := get_viewport_rect().size
+	var cy := _view.get_center().y - 60.0
+	var band := Rect2(0, cy - 86.0, vs.x, 172.0)
+	draw_rect(band, Color(Style.NIGHT, 0.86 * a))
+	var col: Color = _banner["color"]
+	draw_rect(Rect2(vs.x * 0.2, band.position.y + 4.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
+	draw_rect(Rect2(vs.x * 0.2, band.end.y - 6.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
+	var tex := Widgets.icon("breach")
+	if tex != null:
+		draw_texture_rect(tex, Rect2(Vector2(vs.x * 0.5 - 22.0, band.position.y + 12.0), Vector2(44, 44)), false, Color(col, a))
+	var title := String(_banner["title"])
+	var big: Font = Style.display_font()
+	if big == null:
+		big = font
+	var fs := 52
+	while fs > 30 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > vs.x - 40.0:
+		fs -= 2
+	var ty := band.position.y + 112.0
+	draw_string_outline(big, Vector2(0, ty), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.9 * a))
+	draw_string(big, Vector2(0, ty), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
+	draw_string(font, Vector2(0, ty + 42.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, a))

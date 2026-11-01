@@ -167,6 +167,8 @@ class Soldier:
 	var might := 1.0
 	## Javelins left to throw before contact.
 	var javelins := 0
+	## On his way up a ladder (until he's over the wall).
+	var climbing := false
 
 
 class Squad:
@@ -378,6 +380,10 @@ var castle_buildings: Array = []
 var gate_blows := 0.0
 var _ladders_called := false
 var _ram_called := false
+## The siege as it happened, for the result: [{t, kind, team, roster_id}] with kind
+## "ram", "first_over", "gate" or "courtyard"; and how many men went over by the ladders.
+var siege_log: Array = []
+var climbed := 0
 ## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
 var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
@@ -430,6 +436,8 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 	gate_blows = 0.0
 	_ladders_called = false
 	_ram_called = false
+	siege_log = []
+	climbed = 0
 	scheduled_reinforcements.clear()
 	if site_or_terrain is Dictionary:
 		terrain = BattleSite.generate(site_or_terrain)
@@ -532,10 +540,17 @@ func _batter_gate(dt: float) -> void:
 				blows += weight
 			elif on_ladder(so.pos):
 				climbing += 1
+				so.climbing = true
+			elif so.climbing and inside_walls(so.pos):
+				so.climbing = false
+				climbed += 1
+				if climbed == 1:
+					_log_siege("first_over", sq)
 	gate_blows = blows
 	if blows > 0.0 and not _ram_called:
 		_ram_called = true
 		events.append({"type": "ram_at_gate"})
+		_log_siege("ram", null)
 	if climbing > 0 and not _ladders_called:
 		_ladders_called = true
 		events.append({"type": "ladders_up", "count": climbing})
@@ -545,6 +560,26 @@ func _batter_gate(dt: float) -> void:
 	if gate_hp <= 0.0:
 		_close_gate(false)
 		events.append({"type": "gate_breached"})
+		_log_siege("gate", null)
+
+
+func _log_siege(kind: String, sq) -> void:
+	siege_log.append({"t": time, "kind": kind, "team": -1 if sq == null else sq.team,
+		"roster_id": -1 if sq == null else sq.roster_id, "squad": sq})
+	if sq != null:
+		events.append({"type": "siege_moment", "kind": kind, "squad": sq})
+
+
+## After the breach: the first company of attackers to get its standard into the courtyard.
+func _watch_courtyard() -> void:
+	for e in siege_log:
+		if e["kind"] == "courtyard":
+			return
+	for sq in squads:
+		if sq.team != siege_defender and sq.is_active() and not sq.routing and inside_walls(sq.center) \
+				and absf(sq.center.y - wall_y) > 60.0:
+			_log_siege("courtyard", sq)
+			return
 
 
 ## Where the ladders stand, as points on the wall.
@@ -565,17 +600,79 @@ func on_ladder(p: Vector2) -> bool:
 ## Storm the walls: the whole force advances, fighting as it goes, and the shield men
 ## on the flanks, nearer a ladder than the gate, go over the wall by the ladders while the
 ## rest batter the gate.
-func order_storm(team: int) -> void:
+## `plan` (from storm_plan, perhaps changed) says who goes by the ladders; without one,
+## storm_plan decides.
+func order_storm(team: int, plan: Dictionary = {}) -> void:
+	if plan.is_empty():
+		plan = storm_plan(team)
 	for sq in squads:
 		if sq.team != team or not sq.is_active() or sq.routing:
 			continue
-		sq.use_ladders = false
-		if objective == OBJECTIVE_SIEGE and sq.type == Troops.INFANTRY:
+		sq.use_ladders = objective == OBJECTIVE_SIEGE and plan.get(sq.id, "") == "ladder"
+	order_all(team, "advance")
+
+
+## Who would go where if `team` stormed the walls now, by squad id: "ladder" or "ram" for
+## men on foot (shield men nearer a ladder than the gate take the ladder), "ram" for
+## horsemen, "bows" for anyone who shoots.
+func storm_plan(team: int) -> Dictionary:
+	var plan := {}
+	for sq in squads:
+		if sq.team != team or not sq.is_active() or sq.routing:
+			continue
+		if sq.ranged:
+			plan[sq.id] = "bows"
+		elif sq.type == Troops.INFANTRY:
 			var nearest_ladder := INF
 			for lp in ladder_points():
 				nearest_ladder = minf(nearest_ladder, absf(sq.center.x - lp.x))
-			sq.use_ladders = nearest_ladder < absf(sq.center.x - gate_center.x)
-	order_all(team, "advance")
+			plan[sq.id] = "ladder" if nearest_ladder < absf(sq.center.x - gate_center.x) else "ram"
+		else:
+			plan[sq.id] = "ram"
+	return plan
+
+
+## Whether a squad could be sent up a ladder instead of to the gate (men on foot only).
+func can_climb(sq) -> bool:
+	return not sq.ranged and sq.type != Troops.CAVALRY
+
+
+## What a squad is doing in a siege, for its card: "climb" (on a ladder), "walls" (over
+## the wall, near it), "inside" (in the courtyard), "ram" (at the gate), "bows" (shooting),
+## "gate" (defenders holding the gate), or "" for nothing in particular.
+func siege_role(sq) -> String:
+	if objective != OBJECTIVE_SIEGE or sq == null or not sq.is_active():
+		return ""
+	var n := 0
+	var inside := 0
+	var up := 0
+	var at_gate := 0
+	for so in sq.soldiers:
+		if not so.alive:
+			continue
+		n += 1
+		if on_ladder(so.pos):
+			up += 1
+		elif inside_walls(so.pos):
+			inside += 1
+		if so.pos.distance_to(gate_center) <= GATE_REACH + 30.0:
+			at_gate += 1
+	if n == 0:
+		return ""
+	if sq.team == siege_defender:
+		if sq.ranged and inside * 2 >= n and absf(sq.center.y - wall_y) < WALL_COVER:
+			return "walls"
+		if gate_hp > 0.0 and sq.center.distance_to(gate_center) < 140.0:
+			return "gate"
+		return "bows" if sq.ranged else ""
+	if inside * 2 >= n:
+		# Over by the ladders while the gate holds; once it's down, they're simply in.
+		return "walls" if gate_hp > 0.0 and absf(sq.center.y - wall_y) < 90.0 else "inside"
+	if up > 0:
+		return "climb"
+	if gate_hp > 0.0 and at_gate > 0:
+		return "ram"
+	return "bows" if sq.ranged else ""
 
 
 ## Whether `p` is on the garrison's side of the wall (and clear of it).
@@ -1613,8 +1710,11 @@ func step(dt: float = STEP) -> void:
 		_burn_village(dt)
 		if winner != -1:
 			return
-	if objective == OBJECTIVE_SIEGE and gate_hp > 0.0:
-		_batter_gate(dt)
+	if objective == OBJECTIVE_SIEGE:
+		if gate_hp > 0.0:
+			_batter_gate(dt)
+		else:
+			_watch_courtyard()
 	_check_end()
 
 
