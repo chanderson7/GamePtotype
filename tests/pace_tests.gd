@@ -80,12 +80,27 @@ func _init() -> void:
 
 	# A quick, small company gets away.
 	_set_company(12, Troops.CAVALRY, 3)
-	var caught := _run_chase(hp, 160)
-	check(String(hunter["job"]) != "chase" and not caught, "a small mounted company outruns a lord with %d men" % w.men_of(hp.army))
+	var gap: Array = []
+	var caught := _run_chase(hp, 160, gap)
+	check(not caught and not gap.is_empty() and float(gap[0]) > 0.0,
+		"a small mounted company outruns a lord with %d men (the gap grows by %.0f)" % [w.men_of(hp.army), float(gap[0]) if not gap.is_empty() else 0.0])
 	# A big column on foot is ridden down.
+	# A big column on foot, carrying wounded and out of food, is run down.
+	_set_company(40, Troops.INFANTRY, 6)
+	for sq in gs.army:
+		sq["wounded"] = 30
+	gs.food = 0
+	gap = []
+	caught = _run_chase(hp, 300, gap)
+	check(caught or (not gap.is_empty() and float(gap[0]) < 0.0),
+		"a slow column is run down by a lord with %d men (%s)" % [w.men_of(hp.army), "caught" if caught else "the gap closes by %.0f" % -float(gap[0])])
+	gs.food = 500
 	_set_company(70, Troops.INFANTRY, 6)
-	caught = _run_chase(hp, 600)
-	check(caught, "a big column on foot is caught by a lord with %d men" % w.men_of(hp.army))
+	# For the withdrawal check: a host of 600, a quarter mounted, a little quicker than you.
+	for i in hp.army.size():
+		hp.army[i]["men"] = int(ceil(600.0 / hp.army.size()))
+		hp.army[i]["type"] = Troops.CAVALRY if i % 4 == 0 else Troops.INFANTRY
+	w._pace_cache.clear()
 
 	# 5. Withdrawing: a slower enemy can't ride you down.
 	_set_company(12, Troops.CAVALRY, 3)
@@ -131,17 +146,24 @@ func _set_company(men: int, type: String, squads: int = 0) -> void:
 	w._pace_cache.clear()
 
 
-## The lord stands near your road with a big warband; you ride away from him. True if he
-## catches you before you get clear.
-func _run_chase(hp, lord_men: int) -> bool:
-	for sq in hp.army:
-		sq["men"] = int(ceil(float(lord_men) / hp.army.size()))
+## The lord stands at the start of the longest road and you ride away along it with a
+## head start; his warband is `lord_men` strong, a quarter of it mounted. True if he
+## catches you before you reach the far end, and in `gap` how the distance changed.
+func _run_chase(hp, lord_men: int, gap: Array = []) -> bool:
+	var per := int(ceil(float(lord_men) / hp.army.size()))
+	for i in hp.army.size():
+		hp.army[i]["men"] = per
+		hp.army[i]["type"] = Troops.CAVALRY if i % 4 == 0 else Troops.INFANTRY
 	var l: Dictionary = w.lord_of(hp)
 	l["job"] = "patrol"
 	l["raiding"] = ""
 	hp.grace_until = -1.0
 	w.encounter = -1
-	# Put you on a long road, a little way out of a town, with him in that town.
+	for b in w.bands():
+		b.grace_until = 1.0e9
+	for other in w.lord_parties():
+		if other != hp:
+			other.grace_until = 1.0e9
 	var best_a := ""
 	var best_b := ""
 	var best_len := 0.0
@@ -154,35 +176,23 @@ func _run_chase(hp, lord_men: int) -> bool:
 	var p = w.player()
 	p.node = best_a
 	p.next = best_b
-	p.along = 60.0
+	p.along = 70.0
 	p.path = []
 	p.wait = 0.0
-	# Then keep riding away along the roads from wherever you are.
 	hp.node = best_a
 	hp.next = ""
 	hp.path = []
 	hp.along = 0.0
 	hp.wait = 0.0
-	var visited := {best_a: true}
-	for i in 400:
+	w._pace_cache.clear()
+	var start: float = w.party_pos(hp).distance_to(w.party_pos(p))
+	while p.moving():
+		w.step(0.25)
 		if w.encounter == hp.id:
+			gap.append(-start)
 			return true
 		if w.encounter != -1:
 			w.party(w.encounter).grace_until = w.hour + 50.0
 			w.encounter = -1
-		if not p.moving():
-			var onward: String = ""
-			for n: Array in w._adjacent.get(p.node, []):
-				if not bool(n[1]) and not visited.has(n[0]):
-					onward = n[0]
-					break
-			if onward == "":
-				for n: Array in w._adjacent.get(p.node, []):
-					if not bool(n[1]):
-						onward = n[0]
-			visited[onward] = true
-			w.travel(onward)
-		w.step(0.25)
-		if String(l["job"]) != "chase" and i > 8:
-			return false
-	return w.encounter == hp.id
+	gap.append(w.party_pos(hp).distance_to(w.party_pos(p)) - start)
+	return false
