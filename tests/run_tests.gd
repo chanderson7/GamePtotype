@@ -1209,7 +1209,8 @@ func _check_travel() -> void:
 		"a ride from Highcliff to Khalun takes the time the map says (%.1f hours)" % hours)
 
 	w = _quiet_world(3)
-	var by_hand := WorldData.pos("highcliff").distance_to(WorldData.pos("kettlebrook")) / WorldSim.LAND_SPEED \
+	# The road at the company's own pace, then the sea lane at a ship's.
+	var by_hand := WorldData.pos("highcliff").distance_to(WorldData.pos("kettlebrook")) / w.player_speed() \
 		+ WorldData.pos("kettlebrook").distance_to(WorldData.pos("hamazaki")) / WorldSim.SEA_SPEED
 	hours = w.hours_to("hamazaki")
 	w.travel("hamazaki")

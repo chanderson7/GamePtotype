@@ -1581,7 +1581,7 @@ func _refresh_hud() -> void:
 	else:
 		status_label.text = "At %s" % Data.settlement(p.node)["name"]
 	var at_risk: bool = GameState.food < GameState.total_men() or GameState.silver < GameState.daily_wages()
-	var chaser := _chaser()
+	var chaser = _chaser()
 	if chaser != null:
 		status_label.text += "\n%s is riding after you%s" % [chaser.name,
 			" and is faster" if world.can_catch_player(chaser) else ", but you're quicker"]
