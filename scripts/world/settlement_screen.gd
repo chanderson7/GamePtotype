@@ -95,10 +95,10 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 
-	var vista := SettlementVista.make(place, GameState.world, 240.0)
+	var vista := SettlementVista.make(place, GameState.world, 320.0)
 	vista.name = "LocationIllustration"
 	col.add_child(vista)
-	_add_header(col)
+	_add_header(col, vista if vista.visible else null)
 	_add_wallet(col)
 
 	var owner := String(GameState.world.owner_of(place))
@@ -135,18 +135,42 @@ func _build() -> void:
 
 ## The name, what the place is, and two coloured chips: how well it's held and how safe
 ## its roads are. Everything else waits behind the info button.
-func _add_header(col: VBoxContainer) -> void:
+## The name and what the place is, set on the scene when there is one (or above the
+## chips when illustrations are off), and two coloured chips: how well it's held and how
+## safe its roads are. Everything else waits behind the info button.
+func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 	var w = GameState.world
-	var title_row := HFlowContainer.new()
-	title_row.add_theme_constant_override("h_separation", 16)
-	col.add_child(title_row)
 	var title := Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS)
 	title.name = "SettlementName"
-	title_row.add_child(title)
-	var kind := Style.label(w.brief(place), Style.BODY, Style.MUTED)
+	var kind := Style.label(w.brief(place), Style.BODY, Style.TEXT if vista != null else Style.MUTED)
 	kind.name = "SettlementKind"
-	kind.size_flags_vertical = Control.SIZE_SHRINK_END
-	title_row.add_child(kind)
+	if vista != null:
+		vista.fade = true
+		var pad := MarginContainer.new()
+		pad.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for side in ["left", "right"]:
+			pad.add_theme_constant_override("margin_" + side, 24)
+		pad.add_theme_constant_override("margin_bottom", 14)
+		vista.add_child(pad)
+		var stack := VBoxContainer.new()
+		stack.alignment = BoxContainer.ALIGNMENT_END
+		stack.add_theme_constant_override("separation", 0)
+		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pad.add_child(stack)
+		for label in [title, kind]:
+			label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.75))
+			label.add_theme_constant_override("shadow_offset_x", 0)
+			label.add_theme_constant_override("shadow_offset_y", 3)
+			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			stack.add_child(label)
+	else:
+		var title_row := HFlowContainer.new()
+		title_row.add_theme_constant_override("h_separation", 16)
+		col.add_child(title_row)
+		title_row.add_child(title)
+		kind.size_flags_vertical = Control.SIZE_SHRINK_END
+		title_row.add_child(kind)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -179,7 +203,18 @@ func _add_header(col: VBoxContainer) -> void:
 	info.add_theme_stylebox_override("hover", Style.box(Style.PANEL, Style.MUTED, 2, 40))
 	info.add_theme_stylebox_override("pressed", Style.box(Style.PANEL, Style.BRASS, 2, 40))
 	info.pressed.connect(_show_info)
-	row.add_child(info)
+	if vista != null:
+		# In the scene's top corner, out of the way of the title.
+		info.add_theme_stylebox_override("normal", Style.box(Color(Style.NIGHT, 0.8), Style.RULE, 2, 40))
+		info.anchor_left = 1.0
+		info.anchor_right = 1.0
+		info.offset_left = -82
+		info.offset_right = -18
+		info.offset_top = 18
+		info.offset_bottom = 82
+		vista.add_child(info)
+	else:
+		row.add_child(info)
 
 	var recent := String(TravelPresentation.settlement_state(w, place).get("recent_event", ""))
 	if recent != "":

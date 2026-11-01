@@ -10,6 +10,7 @@ const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const FIRST := "edda_spare_spoon"
 const PERSON := "person_edda"
@@ -189,6 +190,31 @@ func _check_settlement_conditions() -> void:
 			"%s has a coherent culture, type and condition composition" % id)
 		vista.free()
 	check(cultures.size() == 3 and types.size() == 3, "all three cultures and settlement types use the shared composition")
+	var scene_ok := true
+	for id in WorldData.SETTLEMENTS:
+		var o := SettlementScene.params(w, id)
+		var built := SettlementScene.build(o)
+		var img: Image = built["front"]
+		if img.get_width() != 180 or img.get_height() != 80 or img.get_pixel(90, 79).a < 1.0:
+			scene_ok = false
+	check(scene_ok, "every settlement paints a full gate scene from the live world")
+	var states := [{"condition": "besieged", "besieger": "kharzan"}, {"condition": "raided"}, {"condition": "recovering"},
+		{"night": true}, {"garrison": "thin", "prosperity": "poor"}, {"player": "ryumon", "visitors": ["crown", "kharzan"]}]
+	var painted := 0
+	for kind_id in ["ravensford", "highcliff", "thornwall", "zeyra", "khalun", "nahrabad", "takamine", "kurogane", "kawabe"]:
+		for extra in states:
+			var o := SettlementScene.params(null, kind_id)
+			o.merge(extra, true)
+			var built := SettlementScene.build(o)
+			if built["sky"] is Image and built["front"] is Image:
+				painted += 1
+	check(painted == 54, "castles, towns and villages paint under siege, raid, repair, night, a thin guard and with visitors")
+	var siege := SettlementScene.params(null, "ravensford")
+	siege.merge({"condition": "besieged", "besieger": "kharzan"}, true)
+	check(not SettlementScene.build(siege)["smokes"].is_empty(), "a besieged castle has a burning tower")
+	var raid := SettlementScene.params(null, "thornwall")
+	raid["condition"] = "raided"
+	check(SettlementScene.build(raid)["smokes"].size() >= 2, "a raided village smokes from its burnt roofs")
 	check(JSON.stringify(w.to_dict()) == baseline, "deriving all 21 settlement compositions changes no campaign state")
 	var town := TravelPresentation.settlement_state(w, "highcliff")
 	check(town["props"].has("market") and town["props"].has("smith"), "town services stage market and smith activity")
