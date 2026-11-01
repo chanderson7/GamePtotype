@@ -8,7 +8,7 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 
 ### The campaign
 
-- **A clearer Home screen.** Continue with a summary of your company, start a new campaign with an explicit replacement confirmation, or open Learn to play and Settings. Settings has its own page, reachable from Home or the map's Menu; Warband stays focused on your company.
+- **A Home screen for your company.** Your company on one card over the drifting map: the camp with your banner and title, where and when you left off, men, silver, food and renown as tiles, your captains' faces, and *Waiting for you* (unread letters, your contract, the wounded, the next step), each a tap from where it leads, then Continue. New campaign (with an explicit replacement confirmation), Learn to play and Settings sit in a small row below. The first time, Home shows the three peoples to begin with. Settings has its own page, reachable from Home or the map's Menu; Warband stays focused on your company.
 - **Optional tutorial.** Opt in when choosing your people, or replay the six-step introduction from Home or Settings. Go back, skip, or leave at any point without advancing the campaign.
 - **Resources and warnings.** Silver, food and renown have labeled icons in the map's top-right corner. Tap one for details; food is shown in days. Low supplies warn that men may leave. If they do, a saved warning names the losses and causes, explains what to fix, and pauses time until acknowledged.
 - **Your first bond.** When a surviving captain pair first reaches rank C, a one-time introduction explains morale recovery, nearby deployment, and the later B and A bonuses. Open Warband directly to review the pair; the acknowledgment is saved with the campaign.
@@ -104,7 +104,7 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 
 | Path | What it does |
 | --- | --- |
-| `scenes/title.tscn` | Home: campaign summary, Continue, New campaign, tutorial and Settings. |
+| `scenes/title.tscn` | Home: your company's card and what's waiting, Continue; or the three peoples to begin with. New campaign, tutorial and Settings. |
 | `scenes/settings.tscn`, `scenes/tutorial.tscn` | Device audio preferences and an optional six-step walkthrough. |
 | `scenes/bond_intro.tscn` | The saved first-rank-C bond introduction. |
 | `scenes/new_campaign.tscn` | Choose your people. |

@@ -51,8 +51,24 @@ func _ready() -> void:
 	_mode_button.toggled.connect(func(on: bool): _mode_button.text = "Mode: Casual (Captains survive severe wounds)" if on else "Mode: Iron Company (Default)")
 	_mode_button.custom_minimum_size.y = Style.TOUCH
 	col.add_child(_mode_button)
-	for c in Cultures.ORDER:
-		col.add_child(_card(c))
+	# The people picked on Home comes first, lit.
+	var pick := Scenes.new_campaign_pick
+	Scenes.new_campaign_pick = ""
+	var order: Array = Cultures.ORDER.duplicate()
+	if order.has(pick):
+		order.erase(pick)
+		order.push_front(pick)
+	for c in order:
+		var card := _card(c)
+		if c == pick:
+			card.name = "PickedPeople"
+			var sb := Style.box(Style.PANEL, Style.BRASS, 3, 20)
+			sb.content_margin_left = 20
+			sb.content_margin_right = 20
+			sb.content_margin_top = 18
+			sb.content_margin_bottom = 18
+			card.add_theme_stylebox_override("panel", sb)
+		col.add_child(card)
 	var back := Button.new()
 	back.text = "Back"
 	back.custom_minimum_size = Vector2(0, Style.TOUCH)

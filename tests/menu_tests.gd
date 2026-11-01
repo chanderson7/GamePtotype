@@ -32,7 +32,14 @@ func _run() -> void:
 	_check_bonds()
 	gs.world = null
 	await open("title")
-	check(button("Continue campaign") == null and button("New campaign") != null, "fresh Home offers a new campaign without a false Continue")
+	check(button("Continue") == null and button("Begin as the Vardish") != null, "fresh Home offers the three peoples without a false Continue")
+	current_scene.find_child("People_kharzani", true, false).pressed.emit()
+	check(button("Begin as the Kharzani") != null, "picking a people on Home names it on the big button")
+	button("Begin as the Kharzani").pressed.emit()
+	await transition()
+	check(current_scene.scene_file_path.ends_with("new_campaign.tscn") and current_scene.find_child("PickedPeople", true, false) != null,
+		"and the new-campaign screen opens with that people first")
+	await open("title")
 	button("Learn to play").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("tutorial.tscn"), "Home opens the optional tutorial")
@@ -41,10 +48,21 @@ func _run() -> void:
 	check(current_scene.scene_file_path.ends_with("title.tscn"), "skipping returns Home without starting a campaign")
 	gs.new_campaign(Cultures.VARDISH)
 	await open("title")
-	check(button("Continue campaign") != null and button("Music: on") == null, "saved Home offers Continue and keeps audio in Settings")
+	check(button("Continue") != null and button("Music: on") == null, "saved Home offers Continue and keeps audio in Settings")
+	check(current_scene.find_child("CampaignCard", true, false) != null and current_scene.find_child("CaptainFaces", true, false) != null,
+		"saved Home shows the company on a card with its captains")
 	check(current_scene.find_child("HomeCampIllustration", true, false) != null, "saved Home shows the company camp")
 	check(current_scene.find_child("NextStepPanel", true, false) != null and _has_text(current_scene, "Next step"),
 		"Home shows one recommendation from the current campaign")
+	gs.apply_social_choice("edda", "know_better")
+	await open("title")
+	var letters_row = current_scene.find_child("WaitLetters", true, false)
+	check(letters_row != null and _has_text(letters_row, "invited you"), "Home lists an unread letter under Waiting for you")
+	letters_row.pressed.emit()
+	await transition()
+	check(current_scene.scene_file_path.ends_with("people.tscn") and current_scene.find_child("Parchment", true, false) != null,
+		"and tapping it opens the letter")
+	await open("title")
 	button("New campaign").pressed.emit()
 	check(current_scene._confirmation.visible and gs.has_campaign(), "replacing a campaign requires an explicit confirmation")
 	current_scene._confirmation.canceled.emit()
