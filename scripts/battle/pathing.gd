@@ -71,7 +71,7 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 		return [goal]
 
 	# Fast-path: direct line of sight with no impassable cells
-	if has_line_of_sight(terrain, start, goal):
+	if has_line_of_sight(terrain, start, goal, mounted):
 		return [goal]
 
 	var c_start := terrain.cell_coords(start)
@@ -180,14 +180,14 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 	var i := 0
 	while i < raw_points.size():
 		var furthest := i
-		while furthest + 1 < raw_points.size() and has_line_of_sight(terrain, check_from, raw_points[furthest + 1]):
+		while furthest + 1 < raw_points.size() and has_line_of_sight(terrain, check_from, raw_points[furthest + 1], mounted):
 			furthest += 1
 		var pt: Vector2 = raw_points[furthest]
 		waypoints.append(pt)
 		check_from = pt
 		i = furthest + 1
 
-	if waypoints.is_empty() or not has_line_of_sight(terrain, waypoints[-1], goal):
+	if waypoints.is_empty() or not has_line_of_sight(terrain, waypoints[-1], goal, mounted):
 		waypoints.append(goal)
 	else:
 		waypoints[-1] = goal
@@ -195,16 +195,25 @@ static func find_path(terrain: Terrain, start: Vector2, goal: Vector2, mounted: 
 	return waypoints
 
 
-## Raycast across grid cells to verify line of sight with no impassable cells.
-static func has_line_of_sight(terrain: Terrain, p0: Vector2, p1: Vector2) -> bool:
+## Raycast across grid cells to verify line of sight with no impassable cells. For
+## horsemen, cells no horse can cross (a siege ladder) block it too.
+static func has_line_of_sight(terrain: Terrain, p0: Vector2, p1: Vector2, mounted: bool = false) -> bool:
 	var dist := p0.distance_to(p1)
 	if dist < 1.0:
-		return terrain.passable(p0) and terrain.passable(p1)
+		return _clear(terrain, p0, mounted) and _clear(terrain, p1, mounted)
 	var steps := maxi(1, int(ceil(dist / (Terrain.CELL * 0.4))))
 	for i in range(0, steps + 1):
 		var p := p0.lerp(p1, float(i) / float(steps))
-		if not terrain.passable(p):
+		if not _clear(terrain, p, mounted):
 			return false
+	return true
+
+
+static func _clear(terrain: Terrain, p: Vector2, mounted: bool) -> bool:
+	if not terrain.passable(p):
+		return false
+	if mounted and not terrain.horse_speed.is_empty():
+		return terrain.horse_speed[terrain.cell_index(p)] > 0.0
 	return true
 
 

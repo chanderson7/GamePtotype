@@ -66,9 +66,9 @@ const GATE_REACH := 46.0
 const GATE_HORSE := 0.5
 ## Defenders this close behind the wall take arrows at this share.
 const WALL_COVER := 75.0
-## Two ladders against the wall, one on each flank. Squads sent to storm the walls that are
-## nearer a ladder than the gate climb it while the gate holds, slowly (LADDER_PACE of
-## their pace) and one at a time; everyone else makes for the gate.
+## Two ladders against the wall, one on each flank. Squads on foot sent to storm the walls
+## that are nearer a ladder than the gate climb it while the gate holds, slowly (LADDER_PACE
+## of their pace) and one at a time; everyone else makes for the gate. Horses can't climb.
 const LADDER_COLS := [4, 23]
 const LADDER_PACE := 0.45
 ## What's left of an arrow that hits a man under the ram's roof at the gate.
@@ -516,9 +516,12 @@ func _close_gate(closed: bool) -> void:
 		for cx in GATE_COLS:
 			_foot[wall_row * Terrain.COLS + cx] = 0.0
 			_horse[wall_row * Terrain.COLS + cx] = 0.0
+	# Men on foot climb a ladder slowly; a horse can't climb one at all, and no route for
+	# horsemen goes that way.
 	for cx in LADDER_COLS:
 		_foot[wall_row * Terrain.COLS + cx] = LADDER_PACE
-		_horse[wall_row * Terrain.COLS + cx] = LADDER_PACE * 0.5
+		_horse[wall_row * Terrain.COLS + cx] = 0.0
+		terrain.horse_speed[wall_row * Terrain.COLS + cx] = 0.0
 
 
 func gate_open() -> bool:
@@ -2095,7 +2098,7 @@ func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 		var side := 1.0 if before.y > wall_y else -1.0
 		var cross := gate_center.x
 		var width := 30.0
-		if so.squad.use_ladders:
+		if so.squad.use_ladders and so.squad.type != Troops.CAVALRY:
 			for lp in ladder_points():
 				if absf(before.x - lp.x) < absf(before.x - cross):
 					cross = lp.x
@@ -2131,7 +2134,7 @@ func _rough_step(from: Vector2, dest: Vector2, step: float, mounted: bool) -> Ve
 			step *= TerrainRules.slope_speed_mult(clampf(rise.dot(from.direction_to(dest)) * SLOPE_SCALE, -1.0, 1.0))
 	var to := from.move_toward(dest, step)
 	if to.x < 0.0 or to.x >= ARENA.x or to.y < 0.0 or to.y >= ARENA.y \
-			or _foot[int(to.y / Terrain.CELL) * Terrain.COLS + int(to.x / Terrain.CELL)] > 0.0:
+			or (_horse if mounted else _foot)[int(to.y / Terrain.CELL) * Terrain.COLS + int(to.x / Terrain.CELL)] > 0.0:
 		return to
 	return _slide(from, to)
 

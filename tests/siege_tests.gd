@@ -82,6 +82,26 @@ func _check_battlefield() -> void:
 	for i in 120:
 		sim._walk(climber, lp + Vector2(0, -120), 40.0, 0.1)
 	check(climber.pos.y > Sim.WALL_Y, "and men not sent to the ladders make for the gate")
+	# Horses can't climb: a horseman sent to a ladder stays outside, and no horse's route
+	# goes over one.
+	var hsim := Sim.new()
+	hsim.setup(_army(["cavalry"], 1), _army(["infantry"], 100), 1, null, Sim.OBJECTIVE_SIEGE)
+	hsim.start_battle()
+	var rider = hsim.squads[0].soldiers[0]
+	hsim.squads[0].use_ladders = true
+	rider.pos = lp + Vector2(0, 50)
+	for i in 200:
+		hsim._walk(rider, lp + Vector2(0, -120), 60.0, 0.1)
+	check(rider.pos.y > Sim.WALL_Y - 5.0, "a horseman can't climb a ladder")
+	var route: Array = Sim.Pathing.find_path(hsim.terrain, lp + Vector2(0, 60), lp + Vector2(0, -90), true)
+	var over_ladder := false
+	var prev: Vector2 = lp + Vector2(0, 60)
+	for wp in route:
+		for k in 21:
+			over_ladder = over_ladder or hsim.on_ladder(prev.lerp(wp, k / 20.0))
+		prev = wp
+	check(not over_ladder, "and a horseman's route over the wall never goes by a ladder")
+	hsim.dispose()
 	var bows_on_wall := true
 	for sq in sim.squads:
 		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
