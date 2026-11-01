@@ -2005,10 +2005,11 @@ func _draw() -> void:
 	var things := []
 	for id in Data.SETTLEMENTS:
 		things.append({"y": Data.pos(id).y, "settlement": id})
+	# A party at a settlement stands in front of it, not behind its walls.
 	for b in world.bands():
-		things.append({"y": world.party_pos(b).y, "band": b})
+		things.append({"y": world.party_pos(b).y + 0.25, "band": b})
 	for lp in world.visible_lord_parties():
-		things.append({"y": world.party_pos(lp).y, "lord": lp})
+		things.append({"y": world.party_pos(lp).y + 0.25, "lord": lp})
 	things.append({"y": world.party_pos(world.player()).y + 0.5, "player": true})
 	things.sort_custom(func(a, b): return a["y"] < b["y"])
 	for t in things:
@@ -2153,6 +2154,20 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		strength_scale = 1.32
 	else:
 		strength_scale = 1.45
+	# Lords ride their realm's horse with their men marching behind (one per 45 men, up to
+	# two), so size is counted rather than scaled; bandits look like their region's outlaws.
+	var rides := ""
+	if sprite == "lord" or sprite == "rider":
+		var culture := String(world.culture) if sprite == "rider" else Data.culture_of(p.faction)
+		if MapArt.has("mounted/" + culture):
+			rides = culture
+			sprite = "mounted/" + culture
+			strength_scale = 1.0
+	elif sprite == "bandits":
+		var kind := "wako" if String(p.name).contains("Wako") else Data.culture_of(p.faction)
+		if MapArt.has("outlaws/" + kind):
+			sprite = "outlaws/" + kind
+			strength_scale = 1.0
 
 	# Fading bandits at wide zoom
 	var party_alpha := 1.0
@@ -2172,6 +2187,7 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		var host_sprite := "marshal/" + Data.culture_of(p.faction)
 		if MapArt.has(host_sprite):
 			sprite = host_sprite
+			rides = ""
 
 	# Shadow on ground
 	draw_set_transform(base + Vector2(0, 2), 0.0, Vector2(1.0, 0.35))
@@ -2188,7 +2204,7 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		else:
 			# Attached army cohort member: grouped cohort ring
 			draw_arc(base, 14 * px * strength_scale, 0, TAU, 24, Color(Style.BRASS, 0.4), 1.5)
-	elif sprite == "bandits":
+	elif sprite == "bandits" or sprite.begins_with("outlaws/"):
 		var r := 15.0 * px * strength_scale
 		var b_col := Style.ENEMY_LIGHT
 		b_col.a *= party_alpha
@@ -2218,10 +2234,36 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 					t += step * 2.0
 	if host:
 		_draw_army_badge(base + Vector2(0, -34.0) * px * strength_scale, String(army["state"]), px)
-	# Heraldic banner / pennant by owner (a host carries its own great standard)
-	if not (host and sprite.begins_with("marshal/")):
-		_draw_pennant(base, 7.0 * px * facing, px, strength_scale, color, party_alpha, facing, p)
-	_draw_party_sprite(base, sprite, frame, color, px, facing, strength_scale, party_alpha)
+	if rides != "":
+		# His men behind him, then the lord, then the realm's banner by his lance (a
+		# Ryumon lord's is the flag on his back).
+		var followers := mini(2, men / 45)
+		for i in range(followers, 0, -1):
+			_draw_party_sprite(base + Vector2(-facing * (10.0 + 9.0 * (i - 1)) * px, 0.0), "follower/" + rides, frame, color, px, facing, 1.0, party_alpha)
+		_draw_party_sprite(base, sprite, frame, color, px, facing, 1.0, party_alpha)
+		var realm := _party_realm(p)
+		if rides != "ryumon" or realm == Data.CROWN:
+			var bx := 5.0 if facing > 0.0 else -13.0
+			Heraldry.realm_banner(self, realm, Rect2(base + Vector2(bx, -28.0) * px, Vector2(8.0, 13.0) * px))
+	elif sprite.begins_with("outlaws/"):
+		_draw_party_sprite(base, sprite, frame, color, px, facing, 1.0, party_alpha)
+		if p.raiding:
+			# Torches and smoke over a raid.
+			for k in 3:
+				var rise := fmod(_clock * 0.5 + k * 0.33, 1.0)
+				draw_circle(base + Vector2(-4.0 + k * 4.0, -18.0 - rise * 14.0) * px, (2.0 + rise * 3.0) * px, Color(0.3, 0.28, 0.27, 0.5 * (1.0 - rise) * party_alpha))
+			for tx in [-7.0, 6.0]:
+				var flick := 0.6 + 0.4 * sin(_clock * 13.0 + tx)
+				draw_line(base + Vector2(tx, -6.0) * px, base + Vector2(tx, -12.0) * px, Color(0.38, 0.24, 0.12, party_alpha), 1.2 * px)
+				draw_circle(base + Vector2(tx, -13.0) * px, 1.8 * px * flick, Color(1.0, 0.55, 0.15, party_alpha))
+		elif not moving:
+			# Lying in wait round a fire.
+			_draw_party_sprite(base + Vector2(0, 2.0) * px, "campfire", int(_clock * 5.0) % 2, color, px, 1.0, 1.0, party_alpha)
+	else:
+		# Heraldic banner / pennant by owner (a host carries its own great standard)
+		if not (host and sprite.begins_with("marshal/")):
+			_draw_pennant(base, 7.0 * px * facing, px, strength_scale, color, party_alpha, facing, p)
+		_draw_party_sprite(base, sprite, frame, color, px, facing, strength_scale, party_alpha)
 	if chasing:
 		# A red "!" over the hunter, bobbing.
 		var mark := base + Vector2(0, (-30.0 - 3.0 * sin(_clock * 6.0)) * px * strength_scale)
@@ -2232,6 +2274,26 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 
 
 ## What a marshal's army is about, in a small badge: marching on, besieging, or going home.
+## The banner a party flies: its realm's, or for you, your crown or your people's realm.
+func _party_realm(p) -> String:
+	if p == world.player():
+		return Data.CROWN if GameState.is_crowned() else Heraldry.realm_of_culture(String(world.culture))
+	var realm := String(p.faction)
+	return realm if Heraldry.REALM_SIZES.has(realm) else Heraldry.realm_of_culture(Data.culture_of(realm))
+
+
+## How a party's men compare with yours, as the chip under its name: ▲ stronger,
+## ◆ about even, ▼ weaker.
+func _strength_mark(men: int) -> Array:
+	var mine := maxf(1.0, float(GameState.total_men()))
+	var ratio := float(men) / mine
+	if ratio > 1.25:
+		return ["▲", Color("ffb3a0")]
+	if ratio < 0.8:
+		return ["▼", Color("b8f5b0")]
+	return ["◆", Color("ffd27a")]
+
+
 func _draw_army_badge(at: Vector2, state: String, px: float) -> void:
 	var r := 7.0 * px
 	draw_circle(at, r + 1.5 * px, Color(0, 0, 0, 0.6))
@@ -2302,7 +2364,8 @@ func _draw_labels() -> void:
 			var b_col := Color("e8d9c0")
 			if px < 2.5:
 				b_col.a = clampf((px - 2.0) / 0.5, 0.3, 1.0)
-			_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -17.0 * px - 6.0), b.name, 17, b_col)
+			_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -21.0 * px - 6.0), b.name, 17, b_col,
+				Color(Style.ENEMY_LIGHT, b_col.a * 0.8), world.men_of(b.army))
 	# Lords' names only once you're looking closely, or the map drowns in them.
 	if px >= LORD_NAMES_PX:
 		for lp in world.visible_lord_parties():
@@ -2321,18 +2384,37 @@ func _draw_labels() -> void:
 				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -25.0 * px - 6.0), title, 16,
 					Cultures.color(Data.culture_of(lp.faction)).lightened(0.55))
 			else:
-				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -23.0 * px - 6.0), String(lp.name), 15,
-					Cultures.color(Data.culture_of(lp.faction)).lightened(0.45))
+				var rel := String(world.relation_to_player(lp.faction))
+				var edge := Style.ENEMY_LIGHT if rel == "hostile" else (Style.BRASS if rel in ["friendly", "allied", "employer"] else Color("6d7699"))
+				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -32.0 * px - 6.0), String(lp.name), 15,
+					Cultures.color(Data.culture_of(lp.faction)).lightened(0.45), edge, world.men_of(lp.army))
 
 
 ## A name on a dark plate, centered on `at` (the plate's top edge).
-func _name_plate(at: Vector2, text: String, size: int, color: Color) -> void:
+## `edge` rings the plate (red for enemies, brass for friends); `men` >= 0 adds a chip
+## with how they compare with you.
+func _name_plate(at: Vector2, text: String, size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1) -> void:
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	var rect := Rect2(at + Vector2(-w * 0.5 - 8.0, 0.0), Vector2(w + 16.0, size + 8.0))
+	var chip_text := ""
+	var chip_w := 0.0
+	var mark: Array = []
+	if men >= 0:
+		mark = _strength_mark(men)
+		chip_text = "%s %d" % [mark[0], men]
+		chip_w = font.get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, size - 3).x + 14.0
+	var rect := Rect2(at + Vector2(-(w + chip_w) * 0.5 - 8.0, 0.0), Vector2(w + chip_w + 16.0 + (6.0 if chip_w > 0.0 else 0.0), size + 8.0))
 	if _plate == null:
 		_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
-	_plate.draw(labels.get_canvas_item(), rect)
+	if edge.a > 0.0:
+		var sb := Style.box(Color(0.06, 0.07, 0.1, 0.78), edge, 2, 8)
+		sb.draw(labels.get_canvas_item(), rect)
+	else:
+		_plate.draw(labels.get_canvas_item(), rect)
 	labels.draw_string(font, rect.position + Vector2(8.0, size * 0.92 + 3.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+	if chip_w > 0.0:
+		var chip := Rect2(Vector2(rect.end.x - chip_w - 4.0, rect.position.y + 3.0), Vector2(chip_w, rect.size.y - 6.0))
+		labels.draw_style_box(Style.box(mark[1], Color(0, 0, 0, 0), 0, int(chip.size.y * 0.5)), chip)
+		labels.draw_string(font, chip.position + Vector2(7.0, chip.size.y * 0.5 + (size - 3) * 0.36), chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, size - 3, Color("14161f"))
 
 
 ## Where you're riding: a gold line through the settlements still ahead.

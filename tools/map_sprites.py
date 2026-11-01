@@ -513,6 +513,106 @@ def marshal(frame, culture):
     return g
 
 
+
+# ---------------------------------------------------------------- parties, drawn as grids
+# Each realm's lord rides his own horse (bay, sand, near black) under the realm's cloth;
+# his men march behind on foot; bandits look like their region's outlaws. Drawn pixel by
+# pixel here (facing right) rather than from shapes; the game flips them for direction.
+
+HORSE = [
+    "..................kk.....",
+    ".................knRk....",
+    "................knRRRk...",
+    "...............knRRRRRk..",
+    "...............knRRkRRRk.",
+    "..............knRRk.kRRRk",
+    ".............knRRRk..kkk.",
+    "...kkkkkkkkkknRRRk.......",
+    "..kRRRRRRRRRRRRRRk.......",
+    ".kRRRRRRRRRRRRRRRk.......",
+    "kRkRRRRRRRRRRRRRRk.......",
+    "n.kRRRRRRRRRRRRRk........",
+]
+HORSE_LEGS = [
+    ["n..kRk.kRk..kRk.kRk......",
+     "n..kRk.kRk..kRk.kRk......",
+     "...kRk..kRk.kRk..kRk.....",
+     "...knk..knk.knk..knk....."],
+    ["n..kRk.kRk..kRk.kRk......",
+     "n...kRkkRk...kRkkRk......",
+     "....kRkRk....kRkRk.......",
+     "....knknk....knknk......."],
+]
+CLOTH = ["...kTTTTTTTTk...", "..kTLTTTTTTLTk..", "..ktgtgtgtgtgk.."]
+RIDERS = {
+    "vardish": ["...kkk.......k..", "..kmmmk.....kmk.", "..kmkkk.....kwTT", "..kmmmk.....kwk.", ".kTTTTTk....kwk.",
+                "kfTTLTTk....kwk.", "kffLLLTskkkkkwk.", "kfTTLTTk....kwk.", ".kfTTTk.....kwk.", "..kTTk......kwk."],
+    "kharzani": ["..kkkk.......k.", ".kffffk.....kmk", ".kfgffk....kmk.", "..kssk....kmk..", ".kTTTTk..kmk...",
+                 "kTTLTTTkkmk....", "kTTTTTTskk.....", "kgggggk........", ".kTTTTk........", "..kTTk........."],
+    "ryumon": ["kkkkk..k.k.....", "k111k..kgk.....", "kTTTk.kbbbk....", "kTkTkkbbbbbk...", "kTTTk..kssk..k.",
+               ".W...kTbTbk.kmk", ".W..kbTbTbskkw.", ".W..kTbTbTk..w.", ".W..kbTbTbk..w.", ".W...kbbk....w."],
+}
+HORSE_COAT = {"vardish": ("R", "n"), "kharzani": ("y", "n"), "ryumon": ("q", "k")}
+FOOT = {
+    "vardish": ["......k.", "..kkkkmk", ".kmmmkwk", "..kssk.w", ".kTTTTkw", ".kTLTTsw", ".kTTTTkw", "..tttt.w", "..kRkRkw", "..kRkRk.", "..knkn.."],
+    "kharzani": ["..kkk...", ".kfffk..", ".kfgfk.k", "..kssk.k", ".kTTTTkk", ".kTTTTsk", ".kTTTTkk", "..TTTT.k", "..kYkYk.", "..kYkYk.", "..knkn.."],
+    "ryumon": ["......k.", "..kkkkmk", ".kbbbbwk", "kbbbbbbk", "..kssk.w", ".kTbTbkw", ".kbTbTsw", ".kTbTbkw", "..kbbk.w", "..kQkQkw", "..knkn.."],
+}
+OUTLAWS = {
+    "vardish": ["..kkkk....", ".kHHHHk...", ".kHkssk...", "kHHHHHk.kk", "khhhhhHkmk", "khhhhhhkwk", ".khhhhhsw.", ".khhhhhk..", "..kHkHk...", "..kHkHk...", "..knkn...."],
+    "kharzani": ["..kkkk....", ".kyyyyk...", ".kykkyk...", ".kssyyk..k", "kyyyyyykmk", "kyYyyyyskm", "kyyYyyyk.k", ".kyyyyyk..", "..kYkYk...", "..kYkYk...", "..knkn...."],
+    "ryumon": ["...kkkk...", "..kyyyyk..", "kyyyyyyyyk", "kYYYYYYYYk", "..kssk...k", ".kbbbbbkmk", ".kbBbbbskk", ".kbbBbbk..", "..kbkbk...", "..kbkbk...", "..knkn...."],
+    "wako": ["..kkkkk...", ".kooooOk..", ".kssssk...", "..ksk....k", ".k1o1o1kmk", ".ko1o1oskk", ".k1o1o1k..", "..kssk....", "..kWkWk...", "..kWkWk...", "..knkn...."],
+}
+CAMPFIRE = [
+    ["...o.....", "..o0o..o.", ".o000oo0o", "..o0O00o.", ".kWWWWWk.", "kWk...kWk"],
+    [".....o...", "..o.o0o..", ".o0o000o.", "..o00O0..", ".kWWWWWk.", "kWk...kWk"],
+]
+
+
+def _paste(canvas, rows, x0, y0, flip=False):
+    for y, r in enumerate(rows):
+        if flip:
+            r = r[::-1]
+        for x, ch in enumerate(r):
+            if ch != "." and 0 <= y0 + y < len(canvas) and 0 <= x0 + x < len(canvas[0]):
+                canvas[y0 + y][x0 + x] = ch
+
+
+def _canvas(w, h):
+    return [["."] * w for _ in range(h)]
+
+
+def _rows(canvas):
+    return ["".join(r) for r in canvas]
+
+
+def mounted(culture, frame):
+    """A lord of `culture` in the saddle: horse, the realm's cloth, the rider."""
+    coat, mane = HORSE_COAT[culture]
+    c = _canvas(26, 26)
+    horse = [r.replace("R", coat).replace("n", mane) for r in HORSE + HORSE_LEGS[frame]]
+    _paste(c, horse, 0, 10)
+    _paste(c, CLOTH, 2, 17)
+    _paste(c, RIDERS[culture], 4, 9 - (1 if frame == 1 else 0))
+    return _rows(c)
+
+
+def follower(culture, frame):
+    rows = FOOT[culture]
+    return rows if frame == 0 else rows[1:] + ["." * len(rows[0])]
+
+
+def outlaw_band(kind, frame):
+    """Three of a region's outlaws together."""
+    fig = OUTLAWS[kind]
+    c = _canvas(26, 16)
+    bob = 1 if frame == 1 else 0
+    _paste(c, fig, 0, 4)
+    _paste(c, fig, 8, 1 + bob, flip=True)
+    _paste(c, fig, 15, 5)
+    return _rows(c)
+
 SETTLEMENTS = {
     "vardish/town": vardish_town, "vardish/castle": vardish_castle, "vardish/village": vardish_village,
     "kharzani/town": kharzani_town, "kharzani/castle": kharzani_castle, "kharzani/village": kharzani_village,
@@ -537,6 +637,18 @@ def build_all():
     for name, fn in (("rider", rider), ("bandits", bandits), ("lord", lord)):
         frames = [fn(f) for f in range(2)]
         out[name] = {"frames": [f.rows() for f in frames], "pivot": (frames[0].w / 2.0, frames[0].h - 1.0)}
+    for culture in ("vardish", "kharzani", "ryumon"):
+        out["mounted/" + culture] = {"frames": [mounted(culture, f) for f in range(2)], "pivot": (13.0, 25.0)}
+        out["follower/" + culture] = {"frames": [follower(culture, f) for f in range(2)], "pivot": (4.0, 10.0)}
+    for kind in ("vardish", "kharzani", "ryumon", "wako"):
+        out["outlaws/" + kind] = {"frames": [outlaw_band(kind, f) for f in range(2)], "pivot": (13.0, 15.0)}
+    out["campfire"] = {"frames": CAMPFIRE, "pivot": (4.5, 5.0)}
+    for name, spr in out.items():
+        for rows in spr["frames"]:
+            assert len(set(len(r) for r in rows)) == 1, name
+            for r in rows:
+                for ch in r:
+                    assert ch == "." or ch in PALETTE or ch in TEAM, (name, ch)
     return out
 
 
