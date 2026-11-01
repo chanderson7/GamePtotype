@@ -113,6 +113,10 @@ func _build() -> void:
 	var note_text := "%s in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
 		men_desc, GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
 		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]
+	if GameState.world != null:
+		var pace: float = GameState.world.party_pace(GameState.world.player())
+		note_text += "\nPace on the road %d%s" % [roundi(GameState.world.player_speed()),
+			" · light and quick" if pace >= 1.05 else (" · a heavy column" if pace < 0.9 else "")]
 	if GameState.has_contract():
 		var emp_name: String = WorldData.FACTIONS[GameState.contract_realm()]["name"]
 		note_text += "\nContract: %s · +%d silver/day (%d days left)" % [

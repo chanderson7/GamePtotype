@@ -31,6 +31,22 @@ const SEA_SPEED := 25.0
 const BANDIT_SPEED := 34.0
 ## A bandit band this close to the player blocks the road.
 const ENCOUNTER_RADIUS := 30.0
+## Pace on the map, as a share of a party's base speed. A small company is quicker than
+## a big one (PACE_PER_MAN slower for every man, between PACE_MIN and PACE_MAX), a mounted
+## one quicker again (up to PACE_HORSE more when every man rides), and wounded men and an
+## empty larder slow you down.
+const PACE_TOP := 1.15
+const PACE_PER_MAN := 0.0012
+const PACE_MIN := 0.7
+const PACE_MAX := 1.15
+const PACE_HORSE := 0.25
+const PACE_WOUNDED := 0.2
+const PACE_HUNGRY := 0.85
+## A hostile lord sees you this far off, and gives chase if he's this much stronger. He
+## gives up once you're LOST_SIGHT away.
+const SIGHT := 150.0
+const LOST_SIGHT := 230.0
+const CHASE_STRONGER := 1.2
 ## A beaten band is replaced this many hours later.
 const RESPAWN_HOURS := 24.0
 ## Hours a band lingers at a village before moving on.
@@ -103,6 +119,8 @@ var hour := 0.0
 const START_HOUR := 8.0
 var culture := Cultures.VARDISH
 var parties: Array = []
+## Each party's pace this tick (see party_pace), worked out once a tick.
+var _pace_cache := {}
 ## Bands waiting to come back: [{faction, at}].
 var respawns: Array = []
 ## Registry of escaped bandit chiefs: [{name, culture, grudge, escaped_at, times_beaten}].
@@ -943,11 +961,74 @@ func road_length(a: String, b: String) -> float:
 
 
 func _speed(p: Party, a: String, b: String) -> float:
+	if p.kind != BAND and is_sea(a, b):
+		return SEA_SPEED
+	return _base_speed(p, a, b) * party_pace(p)
+
+
+## A party's speed before its size and state: bandits, lords and you each have their own.
+func _base_speed(p: Party, a: String, b: String) -> float:
 	if p.kind == BAND:
 		return BANDIT_SPEED
 	if is_sea(a, b):
 		return SEA_SPEED
 	return Lords.SPEED if p.kind == LORD else LAND_SPEED
+
+
+## How much faster or slower than its base speed a party of `men` moves, `horse` of them
+## mounted and `wounded` of the rest carried in the baggage.
+static func pace(men: int, horse: int = 0, wounded: int = 0) -> float:
+	var m := clampf(PACE_TOP - float(men) * PACE_PER_MAN, PACE_MIN, PACE_MAX)
+	m *= 1.0 + PACE_HORSE * float(horse) / maxf(1.0, float(men))
+	m *= 1.0 - PACE_WOUNDED * float(wounded) / maxf(1.0, float(men + wounded))
+	return m
+
+
+## A party's pace right now. Your company's is your own warband's; a lord marching in a
+## campaign army keeps the whole army's.
+func party_pace(p: Party) -> float:
+	if _pace_cache.has(p.id):
+		return float(_pace_cache[p.id])
+	var squads: Array = p.army
+	var hungry := false
+	if p.kind == PLAYER:
+		var gs = _active_game_state()
+		if gs != null:
+			squads = gs.army
+			hungry = int(gs.food) <= 0
+	elif p.kind == LORD and not campaign_armies.is_empty():
+		var host: Dictionary = MarshalArmies.for_party(self, p.id)
+		if not host.is_empty():
+			squads = []
+			for id in host["members"]:
+				var member := party(int(id))
+				if member != null:
+					squads.append_array(member.army)
+	var men := 0
+	var horse := 0
+	var wounded := 0
+	for sq in squads:
+		var n := int(sq.get("men", 0))
+		men += n
+		wounded += int(sq.get("wounded", 0))
+		if String(sq.get("type", "")) == Troops.CAVALRY:
+			horse += n
+	var m := pace(men, horse, wounded) * (PACE_HUNGRY if hungry else 1.0)
+	_pace_cache[p.id] = m
+	return m
+
+
+## Your speed on land, in map units an hour, and whether `other` can catch you.
+func player_speed() -> float:
+	return LAND_SPEED * party_pace(player())
+
+
+func party_speed(p: Party) -> float:
+	return _base_speed(p, p.node, p.node) * party_pace(p)
+
+
+func can_catch_player(p: Party) -> bool:
+	return party_speed(p) > player_speed()
 
 
 ## The quickest way from `from` to `to` by road, as the settlements to pass through
@@ -995,12 +1076,13 @@ func path(from: String, to: String, band_realm: String = "") -> Array:
 	return out.duplicate()
 
 
-## Hours for the player to ride `route` starting from `from`.
+## Hours for the player to ride `route` starting from `from`, at the company's pace.
 func route_hours(from: String, route: Array) -> float:
 	var hours := 0.0
 	var a := from
+	var land := player_speed()
 	for b in route:
-		hours += road_length(a, b) / (SEA_SPEED if is_sea(a, b) else LAND_SPEED)
+		hours += road_length(a, b) / (SEA_SPEED if is_sea(a, b) else land)
 		a = b
 	return hours
 
@@ -1069,6 +1151,7 @@ func step(hours: float) -> void:
 		var dt := minf(TICK, left)
 		left -= dt
 		hour += dt
+		_pace_cache.clear()
 		_move_player(dt)
 		for b in bands():
 			_move_band(b, dt)
@@ -1536,10 +1619,48 @@ func _step_lords(dt: float) -> void:
 			p.wait = maxf(0.0, p.wait - dt)
 			if p.wait <= 0.0 and String(l["raiding"]) != "":
 				_burn(l, String(l["raiding"]))
+		if _chase(l, p):
+			continue
 		if hour >= float(l["think_at"]) or (not p.moving() and p.wait <= 0.0 and l["job"] != "home"):
 			l["think_at"] = hour + Lords.THINK_HOURS
 			_think_lord(l, p)
 	_lord_fights()
+
+
+## A hostile lord who sees your company and is clearly stronger rides after it, and keeps
+## after it while it stays in sight. Whether he catches you is down to who's quicker.
+## True while he's chasing (he does nothing else meanwhile).
+func _chase(l: Dictionary, p: Party) -> bool:
+	var ply := player()
+	var chasing := String(l["job"]) == "chase"
+	var hostile := relation_to_player(p.faction) == "hostile" and hour >= p.grace_until and encounter == -1
+	var d := party_pos(p).distance_to(party_pos(ply))
+	if chasing:
+		if not hostile or d > LOST_SIGHT:
+			l["job"] = ""
+			l["think_at"] = hour
+			emit_event({"type": "chase_ended", "party": p.id})
+			return false
+	else:
+		if not hostile or d > SIGHT or String(l["raiding"]) != "" or String(l["job"]) == "home":
+			return false
+		var mine := 0
+		var gs = _active_game_state()
+		if gs != null:
+			mine = int(gs.total_men())
+		if float(men_of(p.army)) < float(mine) * CHASE_STRONGER:
+			return false
+		emit_event({"type": "chased", "party": p.id})
+	var goal: String = ply.next if ply.moving() else ply.node
+	if not chasing or String(l["target"]) != goal or (not p.moving() and p.node != goal):
+		l["job"] = "chase"
+		_set_job(l, p, "chase", goal)
+		if not p.moving() and p.node == goal and ply.moving():
+			# He's where you were headed from: take your road after you.
+			p.next = ply.node if ply.node != goal else ply.next
+			p.path = []
+			p.along = 0.0
+	return true
 
 
 ## What a lord does next. He goes home when his warband is spent or his purse is empty;
@@ -1636,7 +1757,7 @@ func _hours(p: Party, from: String, to: String) -> float:
 					h = 0.0
 					var at: String = a
 					for nxt in route:
-						h += road_length(at, nxt) / _speed(p, at, nxt)
+						h += road_length(at, nxt) / _base_speed(p, at, nxt)
 						at = nxt
 				_lord_hours["%s>%s" % [a, b]] = h
 	return float(_lord_hours.get("%s>%s" % [from, to], INF))
@@ -1675,6 +1796,8 @@ func _lord_arrives(l: Dictionary, p: Party) -> void:
 				l["job"] = ""
 		"home":
 			p.wait = Lords.THINK_HOURS
+		"chase":
+			pass
 		_:
 			p.wait = rng.randf_range(Lords.LINGER_MIN, Lords.LINGER_MAX)
 			l["job"] = "patrol"
@@ -2163,8 +2286,9 @@ func can_withdraw() -> bool:
 	if b == null or b.kind != LORD:
 		return true
 	var p := player()
-	var p_speed: float = _speed(p, p.node, p.next if p.next != "" else p.node)
-	var e_speed: float = _speed(b, b.node, b.next if b.next != "" else b.node)
+	_pace_cache.clear()
+	var p_speed: float = player_speed()
+	var e_speed: float = party_speed(b)
 	var p_men: int = men_of(p.army)
 	var e_men: int = men_of(b.army)
 	if e_speed > p_speed and float(e_men) > float(p_men) * 1.3:

@@ -65,8 +65,9 @@ const GARRISON_RECRUITS_PER_DAY := {"castle": 4, "town": 6}
 ## Renown stops growing here.
 const RENOWN_MAX := 400
 
-## Map units an hour.
-const SPEED := 36.0
+## Map units an hour, before the size and make-up of the warband (see WorldSim.pace):
+## the same as yours, so who catches whom comes down to who travels lighter.
+const SPEED := 40.0
 ## Hours between a lord's decisions.
 const THINK_HOURS := 3.0
 ## He goes home to refill below this share of his full warband, and rides out again above

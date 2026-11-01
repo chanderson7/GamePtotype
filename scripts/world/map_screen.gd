@@ -226,6 +226,8 @@ func _process(delta: float) -> void:
 					Data.settlement(String(e.get("target", "")))["name"],
 					int(e.get("silver", 0)), int(e.get("renown", 0))
 				], "Siege Victory")
+			"chased":
+				Sound.play("alarm", 0.0, 0.05)
 			"war":
 				Sound.play_war_horn()
 			"captured":
@@ -673,8 +675,8 @@ func _open_band(b) -> void:
 	var men := 0
 	for sq in b.army:
 		men += int(sq["men"])
-	_show_sheet("band", b.name, "Bandits roaming the %s: %d squads, %d men. Ride into them to fight." % [
-		Data.FACTIONS[b.faction]["name"], b.army.size(), men], [["Close", _close_sheet]])
+	_show_sheet("band", b.name, "Bandits roaming the %s: %d squads, %d men. Ride into them to fight.\n%s." % [
+		Data.FACTIONS[b.faction]["name"], b.army.size(), men, _pace_text(b)], [["Close", _close_sheet]])
 
 
 ## A lord on the road: who he is, how strong, and what he's about.
@@ -689,8 +691,8 @@ func _open_lord(lp) -> void:
 			var men: int = world.men_of(member.army)
 			total += men
 			names.append("%s — %d men" % [member.name, men])
-		var body := "%s · %d men\nDestination: %s\n\n%s" % [String(army["state"]).capitalize(), total,
-			Data.settlement(army["destination"])["name"], "\n".join(names)]
+		var body := "%s · %d men\nDestination: %s\n%s.\n\n%s" % [String(army["state"]).capitalize(), total,
+			Data.settlement(army["destination"])["name"], _pace_text(lp), "\n".join(names)]
 		if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == army["realm"]:
 			if world.following_party == lp.id or world.following_party == int(army["leader"]):
 				buttons.append(["Stop following", _on_stop_following])
@@ -712,8 +714,8 @@ func _open_lord(lp) -> void:
 		who += ", holding %s" % Data.settlement(fief)["name"]
 	var bearing := String(l.get("bearing", ""))
 	var strength_text := "%d men" % men if GameState.has_specialization(Captains.SCOUT) else "About %d men" % (int(round(men / 10.0)) * 10)
-	var body := "%s. %s: %s.\n%s in %d squads. %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
-		strength_text, lp.army.size(), _lord_doing(l, lp)]
+	var body := "%s. %s: %s.\n%s in %d squads. %s.\n%s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
+		strength_text, lp.army.size(), _lord_doing(l, lp), _pace_text(lp)]
 	if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == lp.faction:
 		if world.following_party == lp.id:
 			buttons.append(["Stop following", _on_stop_following])
@@ -744,10 +746,33 @@ func _on_stop_following() -> void:
 	_close_sheet()
 
 
+## The hostile lord riding after you, if any.
+func _chaser():
+	for l in world.lords:
+		if String(l.get("job", "")) == "chase" and String(l.get("state", "")) == "field":
+			var lp = world.party(int(l["party"]))
+			if lp != null:
+				return lp
+	return null
+
+
+## Who's quicker on the road, you or them, in words.
+func _pace_text(p) -> String:
+	var theirs: float = world.party_speed(p)
+	var mine: float = world.player_speed()
+	if theirs > mine * 1.02:
+		return "Faster than you (%d to your %d): they can catch you" % [roundi(theirs), roundi(mine)]
+	if theirs < mine * 0.98:
+		return "Slower than you (%d to your %d): you can outrun them" % [roundi(theirs), roundi(mine)]
+	return "As quick as you (%d)" % roundi(mine)
+
+
 func _lord_doing(l: Dictionary, lp) -> String:
 	var target := String(l.get("target", ""))
 	var place := String(Data.settlement(target)["name"]) if Data.SETTLEMENTS.has(target) else ""
 	match String(l.get("job", "")):
+		"chase":
+			return "Riding after your company"
 		"raid":
 			return "Burning %s" % place if String(l.get("raiding", "")) != "" else "Riding to raid %s" % place
 		"defend":
@@ -1556,7 +1581,12 @@ func _refresh_hud() -> void:
 	else:
 		status_label.text = "At %s" % Data.settlement(p.node)["name"]
 	var at_risk: bool = GameState.food < GameState.total_men() or GameState.silver < GameState.daily_wages()
-	if at_risk:
+	var chaser := _chaser()
+	if chaser != null:
+		status_label.text += "\n%s is riding after you%s" % [chaser.name,
+			" and is faster" if world.can_catch_player(chaser) else ", but you're quicker"]
+		at_risk = true
+	elif at_risk:
 		status_label.text += "\nLow supplies: men may leave."
 	if not GameState.captive_lords().is_empty():
 		var n_captives: int = GameState.captive_lords().size()
