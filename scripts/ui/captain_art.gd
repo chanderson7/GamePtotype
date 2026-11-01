@@ -34,7 +34,7 @@ static func _face_key(captain: Dictionary) -> String:
 	return "%d|%s|%s|%s|%s|%s|%s|%d|%d|%d" % [int(captain.get("id", 0)), String(captain.get("culture", "")),
 		String(captain.get("first", captain.get("name", ""))), String(captain.get("type", "")),
 		String(captain.get("temperament", "")), String(captain.get("quirk", "")),
-		"bandaged" if int(captain.get("wounded", 0)) > 0 else "",
+		("bandaged" if int(captain.get("wounded", 0)) > 0 else "") + String(captain.get("noble", "")) + String(captain.get("house", "")),
 		CaptainFace.rank(captain), mini(3, int(history.get("wounds", 0))), 1 if int(captain.get("battles", 0)) >= 20 else 0]
 
 

@@ -123,7 +123,16 @@ static func image(captain: Dictionary, backdrop: bool = false) -> Image:
 	var accent: Color = cloth[2]
 
 	# Shoulders and clothes.
-	_outfit(img, f, main, trim, accent, String(captain.get("type", "")))
+	var noble := String(captain.get("noble", ""))
+	if noble != "":
+		# A lord dresses in the colours of their house.
+		var house := Color(String(captain.get("house", main.to_html(false))))
+		# Dyed cloth, not paint: a little muted and darker than the banner.
+		main = house.lerp(Color(house.get_luminance(), house.get_luminance(), house.get_luminance()), 0.3).darkened(0.18)
+		accent = Color(String(captain.get("house_dark", accent.to_html(false))))
+	_outfit(img, f, main, trim, accent, "" if noble != "" else String(captain.get("type", "")))
+	if noble != "":
+		_regalia_body(img, f, main)
 	# Neck.
 	_rect(img, 20, 44, 8, 6, skin_dark)
 	_rect(img, 20, 44, 3, 6, skin)
@@ -189,6 +198,8 @@ static func image(captain: Dictionary, backdrop: bool = false) -> Image:
 	_beard(img, f, hair, hair_dark, skin)
 	# Hair or headwear on top.
 	_hair(img, f, hair, hair_dark, main, trim, cx, rx)
+	if String(captain.get("noble", "")) == "ruler":
+		_circlet(img, f)
 
 	# Scars: one for each time wounded, up to three, in places worked out once.
 	var scars := mini(3, int(captain.get("history", {}).get("wounds", 0)))
@@ -222,7 +233,7 @@ static func image(captain: Dictionary, backdrop: bool = false) -> Image:
 	_outline(img)
 	if not backdrop:
 		return img
-	var back := _backdrop(String(f["culture"]))
+	var back := _backdrop(String(f["culture"]), String(captain.get("house", "")))
 	back.blend_rect(img, Rect2i(0, 0, W, H), Vector2i.ZERO)
 	return back
 
@@ -316,8 +327,10 @@ static func _mouth(img: Image, f: Dictionary, temperament: String, quirk: String
 const BACKDROPS := {"vardish": Color("3d5c94"), "kharzani": Color("9c6a36"), "ryumon": Color("8e3238")}
 
 
-static func _backdrop(culture: String) -> Image:
+static func _backdrop(culture: String, house: String = "") -> Image:
 	var tint: Color = BACKDROPS.get(culture, BACKDROPS["vardish"])
+	if house != "":
+		tint = Color(house).darkened(0.15)
 	var back := Image.create(W, H, false, Image.FORMAT_RGBA8)
 	for y in H:
 		for x in W:
@@ -548,6 +561,52 @@ static func _ryumon(img: Image, garment: int, main: Color, trim: Color, accent: 
 			_band(img, 13, 52, 22, 1, main.darkened(0.35))
 			_crest(img, 21, 55, Color("eae3d4"))
 			_band(img, 18, 44, 12, 4, Color("eae3d4"))
+
+
+## A noble's mantle over their clothes: a fur collar (or, in the Ryumon lands, stiff
+## shoulder wings) and a gold chain of office across the chest.
+static func _regalia_body(img: Image, f: Dictionary, house: Color) -> void:
+	var gold := Color("d8b048")
+	if String(f["culture"]) == "ryumon":
+		# Kataginu: stiff winged shoulders in the house colour, edged in gold.
+		for y in range(46, 52):
+			for x in W:
+				var reach := 14 + (y - 46) * 2
+				if absf(float(x) + 0.5 - 24.0) <= float(reach) and absf(float(x) + 0.5 - 24.0) > 6.0:
+					_put(img, x, y, house.lightened(0.1) if y < 49 else house)
+		_band(img, 2, 51, 44, 1, gold)
+	else:
+		# A band of fur round the shoulders, flecked light and dark.
+		var fur := Color("e6dccb") if String(f["culture"]) == "vardish" else Color("cfae74")
+		for y in range(45, 51):
+			for x in W:
+				var reach := 13 + (y - 45) * 2
+				if absf(float(x) + 0.5 - 24.0) <= float(reach) and (y < 49 or absf(float(x) + 0.5 - 24.0) > 8.0):
+					var fleck := (x * 7 + y * 3) % 5 == 0
+					var c := fur.darkened(0.25) if fleck else fur
+					if _body(x, y) or y < 48:
+						img.set_pixel(x, y, c)
+	# The chain of office: a sagging gold line with a medallion.
+	for x in range(13, 36):
+		var sag := int(round(4.0 * (1.0 - pow((float(x) - 24.0) / 11.0, 2.0))))
+		_put(img, x, 51 + sag, gold)
+	_band(img, 22, 55, 5, 5, gold)
+	_band(img, 23, 56, 3, 3, Color("a8322c"))
+
+
+## A ruler's gold circlet over the brow, set with a stone.
+static func _circlet(img: Image, f: Dictionary) -> void:
+	var gold := Color("e0b84a")
+	var y := 18 if String(f["hair"]) in ["turban", "wrap"] else 20
+	for x in range(13, 36):
+		if img.get_pixel(x, y).a > 0.0 or img.get_pixel(x, y + 1).a > 0.0:
+			img.set_pixel(x, y, gold)
+			img.set_pixel(x, y + 1, gold.darkened(0.25))
+	for x in [16, 24, 32]:
+		img.set_pixel(x, y - 1, gold)
+		img.set_pixel(x, y - 2, gold.lightened(0.2))
+	img.set_pixel(24, y, Color("3a6ad8"))
+	img.set_pixel(24, y + 1, Color("2a4aa0"))
 
 
 ## A round family crest, five pixels across.

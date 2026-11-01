@@ -53,8 +53,22 @@ static func line(kind: String, lord: Dictionary) -> String:
 
 ## A captain-like record for the portrait catalog, stable for this lord.
 static func portrait_record(lord: Dictionary) -> Dictionary:
+	var colors := house_colors(lord)
+	# Their bearing shows in the face, as a captain's temper does.
+	var temper := ""
+	var quirk := ""
+	match String(lord.get("bearing", "")):
+		Lords.DARING:
+			quirk = "Bold"
+		Lords.CAUTIOUS, Lords.HONORABLE:
+			temper = "Steadfast"
+		Lords.CRUEL:
+			temper = "Vengeful"
 	return {"id": PORTRAIT_BASE + int(lord.get("id", 0)), "culture": String(lord.get("culture", Cultures.VARDISH)),
-		"name": String(lord.get("name", ""))}
+		"name": String(lord.get("name", "")), "temperament": temper, "quirk": quirk,
+		"noble": "ruler" if bool(lord.get("ruler", false)) else "lord",
+		"house": (colors[0] as Color).to_html(false), "house_dark": (colors[1] as Color).to_html(false),
+		"battles": 20 if int(lord.get("renown", 0)) >= 300 else 0}
 
 
 ## The colors of their house: the realm's own, turned by the house's name so houses differ.
