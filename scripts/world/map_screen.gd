@@ -260,6 +260,11 @@ func _autoplay() -> void:
 	if _sheet == "warning":
 		_acknowledge_desertion()
 	if _sheet == "encounter":
+		var met = world.party(world.encounter) if world.encounter != -1 else null
+		if met != null and met.kind == WorldSim.LORD and world.relation_to_player(met.faction) == "friendly":
+			# A friendly lord stopping to greet you is not a fight: wave them on.
+			_on_part_ways_friendly()
+			return
 		if GameState.autoplay_battles == 0:
 			_on_fight()
 		else:
