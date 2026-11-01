@@ -20,6 +20,8 @@ var active_bond_a_id := -1
 var active_bond_b_id := -1
 var warband_scroll := 0
 var warband_sort := 0
+## The Warband tab last open.
+var warband_tab := "camp"
 var settlement_scroll := 0
 var settlement_place := ""
 ## Set only by the map's Enter action, so returning from a conversation does not replay

@@ -16,14 +16,18 @@ const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const CampMoments = preload("res://scripts/data/camp_moments.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
 
 var _scroll: ScrollContainer
+## The open tab: camp, companies or deeds.
+var _tab := "camp"
 var _fallen_section: Control
 var _flicker: Tween
 
 
 func _ready() -> void:
 	theme = Style.make_theme()
+	_tab = Scenes.warband_tab
 	Sound.set_loop("camp")
 	_build()
 
@@ -43,149 +47,124 @@ func _build() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bg)
 
+	var insets := Style.safe_insets(get_viewport())
+	var frame := VBoxContainer.new()
+	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	frame.add_theme_constant_override("separation", 0)
+	add_child(frame)
 	_scroll = ScrollContainer.new()
-	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	add_child(_scroll)
+	frame.add_child(_scroll)
 	var margin := MarginContainer.new()
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	margin.add_theme_constant_override("margin_left", 36)
-	margin.add_theme_constant_override("margin_right", 36)
-	var insets := Style.safe_insets(get_viewport())
-	margin.add_theme_constant_override("margin_top", 64 + int(insets["top"]))
-	margin.add_theme_constant_override("margin_bottom", 40 + int(insets["bottom"]))
+	margin.add_theme_constant_override("margin_left", 32)
+	margin.add_theme_constant_override("margin_right", 32)
+	margin.add_theme_constant_override("margin_top", 48 + int(insets["top"]))
+	margin.add_theme_constant_override("margin_bottom", 24)
 	_scroll.add_child(margin)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 
-	col.add_child(Style.label("Warband", 72, Style.BRASS))
+	# Who you are, where, and what you have.
+	var title_row := HFlowContainer.new()
+	title_row.add_theme_constant_override("h_separation", 16)
+	col.add_child(title_row)
+	title_row.add_child(Style.label("Warband", 64, Style.BRASS))
+	var people := String(Cultures.info(GameState.culture)["people"])
+	var w = GameState.world
+	var where_text := people
+	if w != null:
+		where_text = "%s · day %d · near %s" % [people, int(w.hour) / 24 + 1, String(WorldData.settlement(w.player().node)["name"])]
+	var where := Style.label(where_text, Style.SMALL, Style.MUTED)
+	where.size_flags_vertical = Control.SIZE_SHRINK_END
+	title_row.add_child(where)
 	if GameState.company_title != "" and Achievements.DEEDS.has(GameState.company_title):
 		var known := Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], Style.BODY, Style.BRASS)
 		known.name = "CompanyTitle"
 		col.add_child(known)
-	col.add_child(_camp_header())
-	col.add_child(_camp_tableau())
-	var moment := _camp_moment()
-	if moment != null:
-		col.add_child(moment)
-	var people := String(Cultures.info(GameState.culture)["people"])
-	var w = GameState.world
-	if w != null:
-		var where := String(WorldData.settlement(w.player().node)["name"])
-		col.add_child(Style.label("%s · day %d · near %s" % [people, int(w.hour) / 24 + 1, where], Style.BODY, Style.MUTED))
-	else:
-		col.add_child(Style.label(people, Style.BODY, Style.MUTED))
-	var days := GameState.food_days()
-	var purse := Style.label("%d silver · food for %s · %d renown" % [GameState.silver,
-		"1 day" if days == 1 else "%d days" % days, GameState.renown], Style.BODY, Style.TEXT)
-	purse.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(purse)
+	col.add_child(_tiles())
 	col.add_child(_upkeep_forecast())
 
+	var tabs := [
+		{"id": "camp", "label": "Camp", "badge": 1 if CampMoments.pick(GameState).size() > 0 else 0},
+		{"id": "companies", "label": "Companies", "badge": 0},
+		{"id": "deeds", "label": "Deeds & work", "badge": GameState.active_jobs.size()},
+	]
+	col.add_child(Widgets.tab_bar(tabs, _tab, _on_tab, "WarbandTabs"))
+
+	# Every tab is built, and only the open one shown, so links into any of them work.
+	var camp := VBoxContainer.new()
+	camp.name = "CampTab"
+	var companies := VBoxContainer.new()
+	companies.name = "CompaniesTab"
+	var deeds := VBoxContainer.new()
+	deeds.name = "DeedsTab"
+	for t in [camp, companies, deeds]:
+		t.add_theme_constant_override("separation", 16)
+		col.add_child(t)
+	camp.visible = _tab == "camp"
+	companies.visible = _tab == "companies"
+	deeds.visible = _tab == "deeds"
+
+	# --- Camp: the fire, who's there, the last fight, bonds and the remembered.
+	camp.add_child(_camp_header())
+	camp.add_child(_camp_tableau())
+	var moment := _camp_moment()
+	if moment != null:
+		camp.add_child(moment)
 	var last: Dictionary = GameState.last_result
 	if not last.is_empty():
 		var won: bool = last["won"]
-		var line := "Last battle: %s. Lost %d men, cut down %d." % ["Victory" if won else "Defeat", last["lost"], last["killed"]]
-		var last_label := Style.label(line, Style.BODY, Style.BRASS if won else Style.ENEMY_LIGHT)
-		last_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		col.add_child(last_label)
+		var lc := Widgets.card(camp, "Last battle", "Victory" if won else "Defeat", Style.BRASS if won else Style.ENEMY_LIGHT)
+		lc.add_child(_note("Lost %d men, cut down %d." % [last["lost"], last["killed"]], Style.TEXT))
+	var bc := Widgets.card(camp, "Bonds")
+	var bonds: Array = GameState.bonds()
+	if bonds.is_empty():
+		bc.add_child(_note("None yet. Captains who fight side by side grow close, and fight better near each other."))
+	for b in bonds:
+		bc.add_child(_bond_row(b))
+	var captives: Array = GameState.captive_lords()
+	if not captives.is_empty():
+		var cc := Widgets.card(camp, "Captive lords")
+		for cl in captives:
+			cc.add_child(_captive_lord_row(cl))
+	if not GameState.fallen.is_empty():
+		var fc := Widgets.card(camp, "The fallen", "%d remembered" % GameState.fallen.size())
+		_fallen_section = fc.get_parent()
+		for i in range(GameState.fallen.size() - 1, -1, -1):
+			fc.add_child(_memorial_row(GameState.fallen[i]))
 
-	var back := Button.new()
-	back.custom_minimum_size = Vector2(0, 92)
-	back.add_theme_font_size_override("font_size", Style.LARGE)
-	Style.make_primary(back)
-	if w != null:
-		back.text = "Back to the map"
-		back.pressed.connect(func(): Scenes.go("res://scenes/world_map.tscn"))
-	else:
-		back.text = "To battle"
-		back.disabled = GameState.total_men() == 0
-		back.pressed.connect(_on_battle)
-	col.add_child(back)
-
-
-	col.add_child(_section("Your warband"))
+	# --- Companies: the roster, and refilling it.
 	var wounded_total := GameState.total_wounded()
-	var men_desc := "%d men" % GameState.total_men()
-	if wounded_total > 0:
-		men_desc += " (+%d wounded)" % wounded_total
-	var note_text := "%s in %d squads, of the %d your renown lets you lead · wages %d silver a day · %s, %d won" % [
-		men_desc, GameState.army.size(), GameState.squad_cap(), GameState.daily_wages(),
+	var summary := "%d of %d squads your renown allows · %s, %d won" % [GameState.army.size(), GameState.squad_cap(),
 		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]
-	if GameState.world != null:
-		var pace: float = GameState.world.party_pace(GameState.world.player())
-		note_text += "\nPace on the road %d%s" % [roundi(GameState.world.player_speed()),
-			" · light and quick" if pace >= 1.05 else (" · a heavy column" if pace < 0.9 else "")]
+	if wounded_total > 0:
+		summary += " · %d wounded in the baggage" % wounded_total
 	if GameState.has_contract():
-		var emp_name: String = WorldData.FACTIONS[GameState.contract_realm()]["name"]
-		note_text += "\nContract: %s · +%d silver/day (%d days left)" % [
-			emp_name, GameState.contract_daily_pay(), int(GameState.contract.get("days_left", 0))
-		]
-	elif GameState.has_fief():
-		var r_name: String = WorldData.FACTIONS[GameState.fief_realm()]["name"]
-		var s_name: String = WorldData.settlement(GameState.fief_id())["name"]
-		var f_silver: int = int(GameState.player_fief.get("silver", 0))
-		var f_garr: int = int(GameState.player_fief.get("garrison", []).size())
-		note_text += "\nFiefdom: %s (%s) · %d in garrison · %d silver in estate treasury" % [
-			s_name, r_name, f_garr, f_silver
-		]
-	col.add_child(_note(note_text))
-	col.add_child(_sort_control())
+		summary += "\nContract: %s · +%d silver a day (%d days left)" % [WorldData.FACTIONS[GameState.contract_realm()]["name"],
+			GameState.contract_daily_pay(), int(GameState.contract.get("days_left", 0))]
+	companies.add_child(_note(summary))
+	companies.add_child(_sort_control())
 	var sorted := _sorted_roster(GameState.army)
 	var active := sorted.filter(func(s): return s.get("captain") == null or int(s["captain"].get("wounded", 0)) <= 0)
 	var wounded := sorted.filter(func(s): return s.get("captain") != null and int(s["captain"].get("wounded", 0)) > 0)
+	companies.add_child(_section("Active companies"))
 	var roster := VBoxContainer.new()
 	roster.add_theme_constant_override("separation", 8)
-	col.add_child(_section("Active companies"))
-	col.add_child(roster)
+	companies.add_child(roster)
 	for s in active:
 		roster.add_child(_squad_row(s))
 	if not wounded.is_empty():
-		col.add_child(_section("Wounded captains"))
+		companies.add_child(_section("Wounded captains"))
 		var wounded_roster := VBoxContainer.new()
 		wounded_roster.add_theme_constant_override("separation", 8)
-		col.add_child(wounded_roster)
+		companies.add_child(wounded_roster)
 		for s in wounded:
 			wounded_roster.add_child(_squad_row(s))
 	if GameState.army.is_empty():
 		roster.add_child(Style.label("Your warband is gone. Raise a new one.", Style.BODY, Style.ENEMY_LIGHT))
-
-	col.add_child(_section("Active contracts"))
-	if GameState.active_jobs.is_empty():
-		col.add_child(_note("No active contracts. Visit settlements to take on bounties, courier dispatches, or relief jobs."))
-	else:
-		for job in GameState.active_jobs:
-			col.add_child(_active_job_row(job))
-
-	if GameState.has_fief():
-		col.add_child(_section("Your Fiefdom"))
-		col.add_child(_fief_overview_row())
-
-	col.add_child(_section("Bonds"))
-	var bonds: Array = GameState.bonds()
-	if bonds.is_empty():
-		col.add_child(_note("None yet. Captains grow close by fighting side by side, and bonded pairs fight better near each other."))
-	for b in bonds:
-		col.add_child(_bond_row(b))
-
-	var captives: Array = GameState.captive_lords()
-	if not captives.is_empty():
-		col.add_child(_section("Captive lords"))
-		for cl in captives:
-			col.add_child(_captive_lord_row(cl))
-
-	col.add_child(_section("Deeds"))
-	col.add_child(_deeds_panel())
-
-	if not GameState.fallen.is_empty():
-		_fallen_section = _section("The fallen")
-		col.add_child(_fallen_section)
-		for i in range(GameState.fallen.size() - 1, -1, -1):
-			col.add_child(_memorial_row(GameState.fallen[i]))
-
-
-	# Fresh men are found in towns.
 	if GameState.in_town():
 		var total := 0
 		var cheapest := 0
@@ -199,11 +178,65 @@ func _build() -> void:
 		rest.custom_minimum_size = Vector2(0, Style.TOUCH)
 		rest.disabled = total == 0 or cheapest > GameState.silver
 		rest.pressed.connect(_on_reinforce)
-		col.add_child(rest)
+		companies.add_child(rest)
 	else:
-		col.add_child(_note("Ride to a town to reinforce and train."))
+		companies.add_child(_note("Ride to a town to reinforce and train."))
+
+	# --- Deeds & work: contracts, your fief, and what the company is known for.
+	var jc := Widgets.card(deeds, "Active contracts", "%d" % GameState.active_jobs.size())
+	if GameState.active_jobs.is_empty():
+		jc.add_child(_note("None. Settlements' notice boards post bounties, dispatches and relief work."))
+	else:
+		for job in GameState.active_jobs:
+			jc.add_child(_active_job_row(job))
+	if GameState.has_fief():
+		var fcard := Widgets.card(deeds, "Your fiefdom")
+		fcard.add_child(_fief_overview_row())
+	var dcard := Widgets.card(deeds, "Deeds")
+	dcard.add_child(_deeds_panel())
+
+	# Back to the map, always in reach.
+	var back := Button.new()
+	back.name = "BackButton"
+	Style.make_primary(back)
+	if w != null:
+		back.text = "Back to the map"
+		back.pressed.connect(func(): Scenes.go("res://scenes/world_map.tscn"))
+	else:
+		back.text = "To battle"
+		back.disabled = GameState.total_men() == 0
+		back.pressed.connect(_on_battle)
+	frame.add_child(Widgets.bottom_bar(back, insets, "BackBar"))
 	_restore_scroll(keep)
 
+
+## Silver (and what a day costs), food, renown, and men (with the wounded), as tiles.
+func _tiles() -> Control:
+	var days := GameState.food_days()
+	var net := GameState.contract_daily_pay() - GameState.daily_wages()
+	var wounded := GameState.total_wounded()
+	var pace_text := ""
+	if GameState.world != null:
+		var pace: float = GameState.world.party_pace(GameState.world.player())
+		pace_text = " · pace %d%s" % [roundi(GameState.world.player_speed()), " quick" if pace >= 1.05 else (" slow" if pace < 0.9 else "")]
+	var grid := Widgets.tile_grid([
+		Widgets.tile("silver", Widgets.thousands(GameState.silver), "%s%d a day" % ["+" if net > 0 else "−", absi(net)]),
+		Widgets.tile("food", "1 day" if days == 1 else "%d days" % days, "of food", Style.ENEMY_LIGHT if days < 3 else Style.TEXT),
+		Widgets.tile("men", "%d men" % GameState.total_men(), ("+%d wounded" % wounded if wounded > 0 else "all fit") + pace_text),
+		Widgets.tile("renown", "%d" % GameState.renown, "renown"),
+	], 2)
+	grid.name = "WarbandTiles"
+	return grid
+
+
+func _on_tab(id: String) -> void:
+	if id == _tab:
+		return
+	_tab = id
+	Scenes.warband_tab = id
+	Sound.play("click", 0.0, 0.05)
+	_scroll.scroll_vertical = 0
+	_build()
 
 
 func _camp_header() -> Control:
@@ -380,9 +413,14 @@ func _on_moment(m: Dictionary) -> void:
 
 
 func _jump_to_fallen() -> void:
+	if _tab != "camp":
+		_tab = "camp"
+		Scenes.warband_tab = "camp"
+		_build()
+	await get_tree().process_frame
 	await get_tree().process_frame
 	if _fallen_section != null and is_instance_valid(_fallen_section) and _scroll != null:
-		_scroll.scroll_vertical = int(_fallen_section.position.y)
+		_scroll.scroll_vertical = int(_fallen_section.global_position.y - _scroll.global_position.y + _scroll.scroll_vertical)
 
 
 func _on_moment_dismiss(key: String) -> void:
