@@ -2213,6 +2213,7 @@ func battle_report(result: Dictionary) -> Dictionary:
 				"needed": int(captain_result.get("needed", 0)),
 				"kills": int(captain_result.get("kills", 0)),
 				"words": String(captain_result.get("words", "")),
+				"face": Captains.face_record(captain),
 			})
 
 	var bond_rows := []
@@ -2235,6 +2236,8 @@ func battle_report(result: Dictionary) -> Dictionary:
 			"b_appearance_id": Captains.ensure_appearance(b),
 			"a_culture": String(a.get("culture", culture)),
 			"b_culture": String(b.get("culture", culture)),
+			"a_face": Captains.face_record(a),
+			"b_face": Captains.face_record(b),
 			"before": before, "earned": earned, "after": after,
 			"rank_before": Captains.rank_letter(before),
 			"rank_after": Captains.rank_letter(after),

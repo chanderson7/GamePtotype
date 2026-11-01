@@ -145,6 +145,17 @@ static func can_specialize(captain: Dictionary) -> bool:
 	return int(captain.get("battles", 0)) >= SPECIALIZATION_BATTLES or int(captain.get("kills", 0)) >= SPECIALIZATION_KILLS
 
 
+## Everything a captain's face is drawn from, to keep with a report or a memory so the
+## face shown later is the face they had.
+static func face_record(c: Dictionary) -> Dictionary:
+	var history: Dictionary = c.get("history", {}) if typeof(c.get("history", {})) == TYPE_DICTIONARY else {}
+	return {"id": int(c.get("id", 0)), "first": String(c.get("first", "")), "name": String(c.get("name", "")),
+		"culture": String(c.get("culture", Cultures.VARDISH)), "type": String(c.get("type", "")),
+		"temperament": String(c.get("temperament", "")), "quirk": String(c.get("quirk", "")),
+		"battles": int(c.get("battles", 0)), "wounded": int(c.get("wounded", 0)),
+		"history": {"wounds": int(history.get("wounds", 0))}}
+
+
 ## A stable portrait for new captains and old saves. Old memorial entries did not
 ## retain an id, so their name supplies a small deterministic fallback key.
 static func ensure_appearance(captain: Dictionary) -> String:

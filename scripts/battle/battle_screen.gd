@@ -1277,7 +1277,14 @@ func _result_captain(captain: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	panel.add_child(row)
-	row.add_child(CaptainArt.portrait(captain, Vector2(54, 72)))
+	var face: Dictionary = captain.get("face", captain)
+	if String(captain.get("fate", "")) == "wounded":
+		face = face.duplicate(true)
+		face["wounded"] = maxi(1, int(face.get("wounded", 0)))
+	var portrait := CaptainArt.portrait(face, Vector2(54, 72))
+	if String(captain.get("fate", "")) == "killed":
+		portrait.modulate = Color(0.55, 0.55, 0.6)
+	row.add_child(portrait)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(words)
@@ -1300,8 +1307,8 @@ func _result_bond(bond: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 9)
 	panel.add_child(row)
-	var a := {"appearance_id": bond.get("a_appearance_id", "fallback"), "culture": bond.get("a_culture", Cultures.VARDISH)}
-	var b := {"appearance_id": bond.get("b_appearance_id", "fallback"), "culture": bond.get("b_culture", Cultures.VARDISH)}
+	var a: Dictionary = bond.get("a_face", {"id": bond.get("a_id", 0), "first": bond.get("a_name", ""), "culture": bond.get("a_culture", Cultures.VARDISH)})
+	var b: Dictionary = bond.get("b_face", {"id": bond.get("b_id", 0), "first": bond.get("b_name", ""), "culture": bond.get("b_culture", Cultures.VARDISH)})
 	row.add_child(CaptainArt.portrait(a, Vector2(40, 54)))
 	row.add_child(CaptainArt.portrait(b, Vector2(40, 54)))
 	var rank := String(bond.get("rank_after", ""))
