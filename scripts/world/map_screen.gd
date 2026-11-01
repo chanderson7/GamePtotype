@@ -2033,12 +2033,40 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		draw_polyline(PackedVector2Array([base + Vector2(0, -r), base + Vector2(r, 0), base + Vector2(0, r),
 			base + Vector2(-r, 0), base + Vector2(0, -r)]), b_col, 2.0)
 
+	# A hostile lord near you: how far he sees, and if he's after you, the line of the chase.
+	var chasing := false
+	if p.kind == WorldSim.LORD and army.is_empty() and world.relation_to_player(p.faction) == "hostile":
+		var me: Vector2 = world.party_pos(world.player())
+		var d: float = at.distance_to(me)
+		chasing = String(world.lord_of(p).get("job", "")) == "chase"
+		if d < WorldSim.SIGHT * 2.0 or chasing:
+			var r: float = _to_screen(at + Vector2(WorldSim.SIGHT, 0)).x - base.x
+			var fade := clampf(1.0 - (d - WorldSim.SIGHT) / WorldSim.SIGHT, 0.15, 1.0)
+			draw_arc(base, r, 0.0, TAU, 64, Color(Style.ENEMY, 0.22 * fade), 2.0)
+		if chasing:
+			var to := _to_screen(me)
+			var dir := (to - base)
+			var length := dir.length()
+			if length > 1.0:
+				dir /= length
+				var step := 12.0 * px
+				var t := fmod(_clock * 30.0, step * 2.0)
+				while t < length - 10.0 * px:
+					draw_line(base + dir * t, base + dir * minf(t + step, length - 10.0 * px), Color(Style.ENEMY_LIGHT, 0.85), 2.5)
+					t += step * 2.0
 	if host:
 		_draw_army_badge(base + Vector2(0, -34.0) * px * strength_scale, String(army["state"]), px)
 	# Heraldic banner / pennant by owner (a host carries its own great standard)
 	if not (host and sprite.begins_with("marshal/")):
 		_draw_pennant(base, 7.0 * px * facing, px, strength_scale, color, party_alpha, facing, p)
 	_draw_party_sprite(base, sprite, frame, color, px, facing, strength_scale, party_alpha)
+	if chasing:
+		# A red "!" over the hunter, bobbing.
+		var mark := base + Vector2(0, (-30.0 - 3.0 * sin(_clock * 6.0)) * px * strength_scale)
+		draw_circle(mark, 8.0 * px, Style.ENEMY_DARK)
+		draw_arc(mark, 8.0 * px, 0.0, TAU, 20, Style.ENEMY_LIGHT, 2.0)
+		draw_line(mark + Vector2(0, -4.5) * px, mark + Vector2(0, 1.5) * px, Color.WHITE, 2.4 * px)
+		draw_circle(mark + Vector2(0, 4.2) * px, 1.3 * px, Color.WHITE)
 
 
 ## What a marshal's army is about, in a small badge: marching on, besieging, or going home.
