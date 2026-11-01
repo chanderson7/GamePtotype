@@ -209,6 +209,8 @@ func from_dict(data: Dictionary) -> void:
 	for person in people.values():
 		for key in ["age", "lord_id"]:
 			if person.has(key): person[key] = int(person[key])
+		for m in person.get("memory_log", []):
+			m["day"] = int(m.get("day", 1))
 	for house in houses.values():
 		if house.has("standing"): house["standing"] = int(house["standing"])
 	for relationship in relationships.values():
