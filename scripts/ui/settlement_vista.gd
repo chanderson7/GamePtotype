@@ -6,6 +6,7 @@ const Data = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 
 var place := ""
@@ -82,9 +83,9 @@ func _draw() -> void:
 		draw_texture_rect(tex, rect, false, tint)
 
 	var relation := String(state.get("relation", "neutral"))
-	_draw_banner(Vector2(size.x * 0.19, size.y * 0.34), owner_color, 1.0, owner_culture, relation)
+	_draw_banner(Vector2(size.x * 0.19, size.y * 0.34), owner_color, 1.0, owner, relation)
 	if capital:
-		_draw_banner(Vector2(size.x * 0.77, size.y * 0.29), owner_color, 1.15, owner_culture, relation)
+		_draw_banner(Vector2(size.x * 0.77, size.y * 0.29), owner_color, 1.15, owner, relation)
 		# A small brass crown makes a capital readable even in grayscale.
 		var crown := PackedVector2Array([
 			Vector2(size.x * 0.46, 24), Vector2(size.x * 0.49, 10), Vector2(size.x * 0.52, 24),
@@ -98,23 +99,13 @@ func _draw() -> void:
 		_draw_night_lights(kind, condition)
 
 
-func _draw_banner(at: Vector2, color: Color, scale: float, culture: String, relation: String) -> void:
-	draw_line(at, at + Vector2(0, 88) * scale, Color("6b4a2a"), 5.0 * scale)
+## The holder's banner on its pole, with a finial in the colour of how they stand with
+## you (brass for friends, red for enemies).
+func _draw_banner(at: Vector2, _color: Color, scale: float, realm: String, relation: String) -> void:
 	var mark := Style.BRASS if relation == "friendly" else (Style.ENEMY_LIGHT if relation == "hostile" else Style.TEXT)
-	var flag := Rect2(at + Vector2(4, 5) * scale, Vector2(58, 36) * scale)
-	match culture:
-		Cultures.KHARZANI:
-			draw_colored_polygon(PackedVector2Array([flag.position, flag.position + Vector2(flag.size.x, flag.size.y * 0.5), flag.position + Vector2(0, flag.size.y)]), color)
-			draw_polyline(PackedVector2Array([flag.position, flag.position + Vector2(flag.size.x, flag.size.y * 0.5), flag.position + Vector2(0, flag.size.y)]), mark, 2.0 * scale)
-		Cultures.RYUMON:
-			flag.size = Vector2(34, 58) * scale
-			draw_rect(flag, color)
-			draw_line(flag.position + Vector2(flag.size.x * 0.18, 0), flag.position + Vector2(flag.size.x * 0.18, flag.size.y), mark, 2.0 * scale)
-		_:
-			draw_rect(flag, color)
-			draw_colored_polygon(PackedVector2Array([flag.position + Vector2(flag.size.x, 0), flag.position + flag.size, flag.position + Vector2(flag.size.x * 0.72, flag.size.y * 0.5)]), color.darkened(0.32))
-			draw_line(flag.position, flag.position + Vector2(flag.size.x * 0.72, flag.size.y), mark, 2.0 * scale)
-	draw_circle(flag.position + flag.size * Vector2(0.42, 0.5), 5.0 * scale, mark)
+	var box := Rect2(at, Vector2(70, 96) * scale)
+	var top := Heraldry.realm_banner(self, realm if Heraldry.REALM_SIZES.has(realm) else "bandits", box)
+	draw_circle(top + Vector2(0, 3.0 * scale), 6.0 * scale, mark)
 
 
 func _draw_fields(kind: String, condition: String, color: Color) -> void:

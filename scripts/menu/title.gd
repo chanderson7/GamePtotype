@@ -179,11 +179,10 @@ func _campaign_card() -> PanelContainer:
 	who.offset_bottom = -12
 	hero.add_child(who)
 	var flag := Control.new()
-	flag.custom_minimum_size = Vector2(56, 84)
-	var cloth: Color = info["color"]
-	flag.draw.connect(func():
-		flag.draw_line(Vector2(5, 0), Vector2(5, 84), Color("cbb27a"), 3.0)
-		Heraldry.flag(flag, Vector2(7, 4), Vector2(46, 56), cloth, cloth.darkened(0.45), true))
+	flag.name = "CompanyBanner"
+	flag.custom_minimum_size = Vector2(64, 88)
+	var realm := "crown" if GameState.is_crowned() else Heraldry.realm_of_culture(GameState.culture)
+	flag.draw.connect(func(): Heraldry.realm_banner(flag, realm, Rect2(Vector2.ZERO, flag.size)))
 	who.add_child(flag)
 	var names := VBoxContainer.new()
 	names.size_flags_vertical = Control.SIZE_SHRINK_END
@@ -451,13 +450,10 @@ func _people_card(culture: String) -> Button:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	b.add_child(row)
 	var flag := Control.new()
-	flag.custom_minimum_size = Vector2(70, 110)
+	flag.custom_minimum_size = Vector2(84, 120)
 	flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cloth: Color = info["color"]
-	flag.draw.connect(func():
-		flag.draw_line(Vector2(6, 0), Vector2(6, 110), Color("cbb27a"), 3.0)
-		Heraldry.flag(flag, Vector2(8, 6), Vector2(58, 76), cloth, cloth.darkened(0.45), true))
+	flag.draw.connect(func(): Heraldry.realm_banner(flag, Heraldry.realm_of_culture(culture), Rect2(Vector2.ZERO, flag.size)))
 	row.add_child(flag)
 	var v := VBoxContainer.new()
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL

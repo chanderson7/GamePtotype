@@ -51,6 +51,7 @@ func _run() -> void:
 	check(button("Continue") != null and button("Music: on") == null, "saved Home offers Continue and keeps audio in Settings")
 	check(current_scene.find_child("CampaignCard", true, false) != null and current_scene.find_child("CaptainFaces", true, false) != null,
 		"saved Home shows the company on a card with its captains")
+	check(current_scene.find_child("CompanyBanner", true, false) != null, "and under its realm's banner")
 	check(current_scene.find_child("HomeCampIllustration", true, false) != null, "saved Home shows the company camp")
 	check(current_scene.find_child("NextStepPanel", true, false) != null and _has_text(current_scene, "Next step"),
 		"Home shows one recommendation from the current campaign")

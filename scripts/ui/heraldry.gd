@@ -52,3 +52,152 @@ static func glyph(ci: CanvasItem, type: String, c: Vector2, k: float, ink: Color
 			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(11, 0) * k, c + Vector2(6, -3) * k, c + Vector2(6, 3) * k]), ink)
 		Troops.CAVALRY:
 			ci.draw_arc(c + Vector2(0, 1) * k, 7.0 * k, PI * 0.72, PI * 2.28, 18, ink, 3.5 * k)
+
+
+# ---------------------------------------------------------------- realm banners
+
+## Each realm's banner: its shape, its size in design units (the cloth, without the
+## pole), and how it's drawn. Vardmark hangs a pointed gonfalon from a crossbar with a
+## silver keep on blue; Kharzan flies a swallowtail with a crimson sun over teal waters on
+## saffron; Ryumon raises a tall nobori with three crossed arrows on red; the Free Crown
+## a gold crown on night; bandits a torn rag with crossed knives.
+const REALM_SIZES := {
+	"vardmark": Vector2(84, 122), "kharzan": Vector2(104, 64), "ryumon": Vector2(66, 124),
+	"crown": Vector2(90, 90), "bandits": Vector2(86, 104),
+}
+const SILVER := Color("e8ebf2")
+const POLE := Color("8a6a3a")
+const FINIAL := Color("cbb27a")
+
+
+## The banner for a culture's realm.
+static func realm_of_culture(culture: String) -> String:
+	match culture:
+		"kharzani": return "kharzan"
+		"ryumon": return "ryumon"
+	return "vardmark"
+
+
+## The realm's banner on its pole, fitted into `box` on `ci` (call from a draw callback).
+## `grey` washes it out (a realm that has fallen). `base` is the draw transform already in
+## use (a zoomed battlefield), kept and restored. Returns where the pole's finial is.
+static func realm_banner(ci: CanvasItem, realm: String, box: Rect2, pole: bool = true, grey: bool = false,
+		base: Transform2D = Transform2D.IDENTITY) -> Vector2:
+	if not REALM_SIZES.has(realm):
+		realm = "bandits"
+	var cloth: Vector2 = REALM_SIZES[realm]
+	# Room for the pole: a crossbar above a gonfalon, a staff beside the rest.
+	var lead := Vector2(0.0, 0.14) if realm == "vardmark" else Vector2(0.14, 0.06)
+	if not pole:
+		lead = Vector2.ZERO
+	var avail := box.size / (Vector2.ONE + lead)
+	var k := minf(avail.x / cloth.x, avail.y / cloth.y)
+	var drawn := cloth * k
+	var origin := box.position + Vector2(lead.x * drawn.x, lead.y * drawn.y)
+	var finial := Vector2(origin.x + drawn.x * 0.5, box.position.y) if realm == "vardmark" else Vector2(origin.x - 2.0 * k, box.position.y)
+	if pole:
+		var w := maxf(1.5, 3.5 * k)
+		if realm == "vardmark":
+			var mid := origin.x + drawn.x * 0.5
+			ci.draw_line(Vector2(mid, box.position.y), Vector2(mid, box.end.y), POLE, w)
+			ci.draw_line(Vector2(origin.x - 4.0 * k, origin.y - 1.0 * k), Vector2(origin.x + drawn.x + 4.0 * k, origin.y - 1.0 * k), POLE, w)
+			ci.draw_circle(Vector2(mid, box.position.y + w), w * 1.2, FINIAL)
+		else:
+			var x := origin.x - 2.0 * k
+			ci.draw_line(Vector2(x, box.position.y), Vector2(x, box.end.y), POLE if realm != "ryumon" else Color("2a1d14"), w)
+			ci.draw_circle(Vector2(x, box.position.y + w), w * 1.2, FINIAL)
+	ci.draw_set_transform_matrix(base * Transform2D(0.0, Vector2(k, k), 0.0, origin))
+	match realm:
+		"vardmark": _vardmark(ci)
+		"kharzan": _kharzan(ci)
+		"ryumon": _ryumon(ci)
+		"crown": _crown(ci)
+		_: _bandits(ci)
+	ci.draw_set_transform_matrix(base)
+	if grey:
+		ci.draw_rect(Rect2(origin, drawn), Color(0.2, 0.2, 0.22, 0.55))
+	return finial
+
+
+static func _poly(ci: CanvasItem, pts: Array, color: Color) -> void:
+	ci.draw_colored_polygon(PackedVector2Array(pts), color)
+
+
+static func _outline(ci: CanvasItem, pts: Array, color: Color, width: float) -> void:
+	var line := PackedVector2Array(pts)
+	line.append(pts[0])
+	ci.draw_polyline(line, color, width)
+
+
+static func _vardmark(ci: CanvasItem) -> void:
+	var shape := [Vector2(0, 0), Vector2(84, 0), Vector2(84, 96), Vector2(42, 122), Vector2(0, 96)]
+	_poly(ci, shape, Color("3459b8"))
+	# The keep: a wall with two crenellated towers, a gate, and a tower roof with a pennant.
+	_poly(ci, [Vector2(24, 84), Vector2(24, 48), Vector2(30, 48), Vector2(30, 40), Vector2(36, 40), Vector2(36, 48),
+		Vector2(48, 48), Vector2(48, 40), Vector2(54, 40), Vector2(54, 48), Vector2(60, 48), Vector2(60, 84)], SILVER)
+	var door := [Vector2(36, 84)]
+	for i in 9:
+		door.append(Vector2(42, 70) + Vector2.from_angle(PI + PI * i / 8.0) * 6.0)
+	door.append(Vector2(48, 84))
+	_poly(ci, door, Color("3459b8"))
+	_poly(ci, [Vector2(33, 30), Vector2(51, 30), Vector2(42, 18)], SILVER)
+	ci.draw_rect(Rect2(41, 9, 2, 10), SILVER)
+	_poly(ci, [Vector2(43, 9), Vector2(52, 9), Vector2(49, 12), Vector2(52, 15), Vector2(43, 15)], Color("c9473d"))
+	_outline(ci, shape, SILVER, 4.0)
+	_outline(ci, shape, Color("10131e"), 1.5)
+
+
+static func _kharzan(ci: CanvasItem) -> void:
+	var shape := [Vector2(0, 0), Vector2(104, 0), Vector2(82, 32), Vector2(104, 64), Vector2(0, 64)]
+	_poly(ci, shape, Color("d9962b"))
+	var sun := Vector2(32, 28)
+	ci.draw_circle(sun, 12.0, Color("a8261c"))
+	for i in 8:
+		var d := Vector2.from_angle(TAU * i / 8.0)
+		ci.draw_line(sun + d * 17.0, sun + d * 22.0, Color("a8261c"), 3.2)
+	# Two rows of waves, kept inside the swallowtail's notch.
+	for y in [50.0, 58.0]:
+		var pts := PackedVector2Array()
+		var x := 0.0
+		while x <= 88.0:
+			pts.append(Vector2(x, y - sin(x / 20.0 * TAU) * 3.0))
+			x += 2.0
+		ci.draw_polyline(pts, Color("1f7a6e"), 4.0)
+	_outline(ci, shape, Color("2a1708"), 2.0)
+
+
+static func _ryumon(ci: CanvasItem) -> void:
+	ci.draw_rect(Rect2(0, 0, 66, 124), Color("b8352a"))
+	ci.draw_rect(Rect2(0, 0, 66, 16), Color("f1ece0"))
+	var c := Vector2(33, 62)
+	ci.draw_circle(c, 25.0, Color("14161f"))
+	var ink := Color("f1ece0")
+	for turn in [0.0, deg_to_rad(-38.0), deg_to_rad(38.0)]:
+		var r := func(p: Vector2) -> Vector2: return c + p.rotated(turn)
+		ci.draw_line(r.call(Vector2(0, 18)), r.call(Vector2(0, -14)), ink, 2.6)
+		_poly(ci, [r.call(Vector2(0, -22)), r.call(Vector2(-5.5, -13)), r.call(Vector2(5.5, -13))], ink)
+		for f in [12.0, 16.0]:
+			ci.draw_line(r.call(Vector2(0, f)), r.call(Vector2(-5, f + 6.0)), ink, 2.0)
+			ci.draw_line(r.call(Vector2(0, f)), r.call(Vector2(5, f + 6.0)), ink, 2.0)
+	ci.draw_rect(Rect2(0, 0, 66, 124), Color("2a1d14"), false, 2.0)
+	for y in [26.0, 58.0, 90.0]:
+		ci.draw_rect(Rect2(-4, y, 6, 4), Color("2a1d14"))
+
+
+static func _crown(ci: CanvasItem) -> void:
+	ci.draw_rect(Rect2(0, 0, 90, 90), Color("1d1a2a"))
+	ci.draw_rect(Rect2(4, 4, 82, 82), Style.BRASS, false, 8.0)
+	_poly(ci, [Vector2(24, 56), Vector2(20, 30), Vector2(33, 42), Vector2(45, 24), Vector2(57, 42), Vector2(70, 30), Vector2(66, 56)], Style.BRASS)
+	ci.draw_rect(Rect2(22, 58, 46, 7), Style.BRASS)
+	ci.draw_rect(Rect2(0, 0, 90, 90), Color("0a0a10"), false, 2.0)
+
+
+static func _bandits(ci: CanvasItem) -> void:
+	var rag := [Vector2(0, 0), Vector2(84, 0), Vector2(80, 18), Vector2(86, 32), Vector2(78, 44), Vector2(83, 60),
+		Vector2(73, 70), Vector2(77, 84), Vector2(63, 78), Vector2(53, 90), Vector2(45, 80), Vector2(31, 88),
+		Vector2(27, 76), Vector2(15, 80), Vector2(18, 64), Vector2(12, 54)]
+	_poly(ci, rag, Color("2a2522"))
+	ci.draw_line(Vector2(22, 32), Vector2(62, 72), Color("b8b0a4"), 5.0)
+	ci.draw_line(Vector2(62, 32), Vector2(22, 72), Color("b8b0a4"), 5.0)
+	ci.draw_line(Vector2(18, 28), Vector2(26, 36), Color("8a2a20"), 7.0)
+	ci.draw_line(Vector2(66, 28), Vector2(58, 36), Color("8a2a20"), 7.0)

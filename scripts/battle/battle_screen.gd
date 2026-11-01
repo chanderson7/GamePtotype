@@ -132,6 +132,9 @@ var _enemy_culture := Cultures.VARDISH
 var _biome := Cultures.VARDISH
 ## Whose castle a siege is fought at: the people who built it, for its look.
 var _castle_culture := Cultures.VARDISH
+## Whose banners fly in a siege: the garrison's realm, and your own side's.
+var _garrison_realm := "vardmark"
+var _my_realm := "vardmark"
 var _doodads: Array = []
 ## Broad patches of lighter and darker ground: [{pos, r, light}].
 var _patches: Array = []
@@ -265,6 +268,15 @@ func _ready() -> void:
 	if siege_at != "" and WorldData.SETTLEMENTS.has(siege_at):
 		_castle_culture = WorldData.culture_of(WorldData.settlement(siege_at)["faction"])
 		_biome = _castle_culture
+		if GameState.world != null:
+			_garrison_realm = String(GameState.world.owner_of(siege_at))
+	_my_realm = Heraldry.realm_of_culture(GameState.culture)
+	if GameState.is_crowned():
+		_my_realm = WorldData.CROWN
+	elif not GameState.contract.is_empty() and Heraldry.REALM_SIZES.has(String(GameState.contract.get("realm", ""))):
+		_my_realm = String(GameState.contract["realm"])
+	if sim.siege_defender == Sim.PLAYER and GameState.world != null and siege_at != "":
+		_my_realm = String(GameState.world.owner_of(siege_at))
 	_setup_terrain_visuals()
 	_scatter_doodads()
 	match sim.objective:
@@ -1126,9 +1138,9 @@ func _draw_walls() -> void:
 				draw_rect(r.grow(-20.0), Color(st["top"]).darkened(0.15))
 			# the realm's flag over the keep
 			var pole := Vector2(r.end.x - 10.0, r.position.y + 8.0)
-			draw_line(pole, pole + Vector2(0, -46), Color("5a3a22"), 3.0)
-			var fc := Style.ENEMY if sim.siege_defender == Sim.ENEMY else Style.PLAYER
-			draw_colored_polygon(PackedVector2Array([pole + Vector2(1, -46), pole + Vector2(36, -38), pole + Vector2(1, -28)]), fc)
+			var held := _garrison_realm if sim.siege_defender == Sim.ENEMY else _my_realm
+			Heraldry.realm_banner(self, held if Heraldry.REALM_SIZES.has(held) else "bandits", Rect2(pole + Vector2(-2, -62), Vector2(46, 64)),
+				true, false, Transform2D(0.0, Vector2(field_scale, field_scale), 0.0, field_origin))
 		else:
 			draw_rect(r, st["roof"])
 			draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.5)), st["roof_light"])
@@ -1676,11 +1688,12 @@ func _siege_vignette() -> Control:
 		title = ("%s has fallen" if attacker_won else "%s holds") % place
 	var attacker_team := Sim.PLAYER if sim.siege_defender == Sim.ENEMY else Sim.ENEMY
 	var holder: int = attacker_team if attacker_won else sim.siege_defender
-	c.draw.connect(_draw_vignette.bind(c, title, Style.PLAYER if holder == Sim.PLAYER else Style.ENEMY, holder == Sim.PLAYER))
+	var held := _my_realm if holder == Sim.PLAYER else _garrison_realm
+	c.draw.connect(_draw_vignette.bind(c, title, held if Heraldry.REALM_SIZES.has(held) else "bandits", holder == Sim.PLAYER))
 	return c
 
 
-func _draw_vignette(c: Control, title: String, flag: Color, ours: bool) -> void:
+func _draw_vignette(c: Control, title: String, realm: String, ours: bool) -> void:
 	var st: Dictionary = CASTLE_STYLES.get(_castle_culture, CASTLE_STYLES["vardish"])
 	var size := c.size
 	var frame := Rect2(Vector2.ZERO, size)
@@ -1709,10 +1722,7 @@ func _draw_vignette(c: Control, title: String, flag: Color, ours: bool) -> void:
 		c.draw_rect(r.grow(-40.0), st["roof_light"])
 	else:
 		c.draw_rect(r.grow(-26.0), Color(st["top"]).darkened(0.15))
-	var pole := Vector2(r.end.x - 14.0, r.position.y + 10.0)
-	c.draw_line(pole, pole + Vector2(0, -44), Color("5a3a22"), 4.0)
-	var wave := 3.0 * sin(_clock * 4.0) if not Style.motion_reduced() else 0.0
-	c.draw_colored_polygon(PackedVector2Array([pole + Vector2(2, -44), pole + Vector2(50, -34 + wave), pole + Vector2(2, -22)]), flag)
+	Heraldry.realm_banner(c, realm, Rect2(Vector2(r.end.x - 12.0, 8.0), Vector2(130, 124)))
 	# The ribbon.
 	var band := Rect2(0, size.y - 62.0, size.x, 62.0)
 	c.draw_rect(band, Color(Style.NIGHT, 0.88))

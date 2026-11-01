@@ -86,11 +86,8 @@ func _card(culture: String) -> Control:
 	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
 	var flag := Control.new()
-	flag.custom_minimum_size = Vector2(52, 44)
-	flag.draw.connect(func():
-		var color: Color = info["color"]
-		flag.draw_line(Vector2(4, 2), Vector2(4, 44), Color("6b4a2a"), 3.0)
-		Heraldry.flag(flag, Vector2(5, 4), Vector2(44, 32), color, color.darkened(0.45), false))
+	flag.custom_minimum_size = Vector2(64, 84)
+	flag.draw.connect(func(): Heraldry.realm_banner(flag, Heraldry.realm_of_culture(culture), Rect2(Vector2.ZERO, flag.size)))
 	head.add_child(flag)
 	var name := Style.label(String(info["realm"]), Style.LARGE, info["color"].lightened(0.25))
 	name.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -2099,6 +2099,12 @@ func _draw_settlement(id: String, px: float) -> void:
 	if String(presentation.get("garrison", "none")) == "thin" and String(s["type"]) != Data.VILLAGE:
 		draw_arc(Vector2.ZERO, MapArt.size(sprite).x * 0.58, 0.18, PI - 0.18, 14, Style.ENEMY_LIGHT, 1.5)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Castles and towns fly their holder's banner.
+	if String(s["type"]) != Data.VILLAGE and condition != "damaged":
+		var tall: float = MapArt.size(sprite).y * px
+		var holder := String(world.owner_of(id))
+		Heraldry.realm_banner(self, holder if Heraldry.REALM_SIZES.has(holder) else "bandits",
+			Rect2(c + Vector2(w * 0.22, -tall - 10.0 * px), Vector2(9.0, 13.0) * px))
 
 	# Siege camps drawn around besieged settlements
 	if world.is_sieged(id):
@@ -2251,6 +2257,12 @@ func _draw_pennant(base: Vector2, pole_x: float, px: float, strength_scale: floa
 	var pole_bot := base + Vector2(pole_x, 1.0 * px)
 	var pole_col := Color(0.25, 0.22, 0.18, party_alpha)
 	draw_line(pole_bot, pole_top, pole_col, 1.5)
+	# Close enough to see, a party carries its realm's own banner; far off, a pennant.
+	var realm := "bandits" if p.kind == WorldSim.BAND else String(p.faction)
+	if px >= 1.6 and party_alpha >= 0.99 and Heraldry.REALM_SIZES.has(realm):
+		var h := 15.0 * px * strength_scale
+		Heraldry.realm_banner(self, realm, Rect2(base + Vector2(pole_x - 1.5 * px, -h), Vector2(h * 0.72, h)))
+		return
 	var flutter := sin(_clock * 7.0 + float(p.id)) * 2.0 * px
 	var flag_pts := PackedVector2Array([
 		pole_top,
