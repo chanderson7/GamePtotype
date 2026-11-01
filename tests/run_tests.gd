@@ -978,6 +978,25 @@ func _check_units() -> void:
 		"halberdiers' sweep cuts through footmen (%.1f footmen left standing, against %.1f facing plain spearmen)" % [
 			float(standing[1]) / DUEL_SEEDS, float(standing[0]) / DUEL_SEEDS])
 
+	# Horse archers stand off and shoot at an enemy in bowshot, and only ride clear when
+	# it closes to sword reach (they used to wheel away from anything within range).
+	var spent := 0
+	for s in range(1, 4):
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.CAVALRY, "unit": "kharzani_horse_archers", "men": 16, "level": 2}],
+			[{"id": 2, "type": Troops.INFANTRY, "unit": "vardish_men_at_arms", "men": 20, "level": 2}], s)
+		sim.place(Sim.PLAYER, 1, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y + 100.0))
+		sim.place(Sim.ENEMY, 2, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y - 100.0))
+		sim.start_battle()
+		sim.order_all(Sim.PLAYER, "advance")
+		var ha = sim.squads[0] if sim.squads[0].team == Sim.PLAYER else sim.squads[1]
+		var start: int = ha.arrows
+		while sim.time < 15.0 and sim.winner == -1:
+			sim.step()
+		spent += start - ha.arrows
+		sim.dispose()
+	_expect(spent >= 3 * 16 * 3, "horse archers keep shooting at a foe in bowshot (%d arrows in 15 s, 3 fights)" % spent)
+
 	# 2. Branch choices balance: see _check_branches, with --balance.
 
 	# 3. Save migration (version 3 to 4)

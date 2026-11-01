@@ -37,6 +37,8 @@ const ROUT_SPEED := 1.4
 ## Morale a squad loses in all when every one of its men takes a charging horseman's hit.
 const CHARGE_SHOCK := 30.0
 const ENGAGE_RANGE := 60.0
+## Horse archers with arrows left wheel away from an enemy this close: about sword reach.
+const HORSE_ARCHER_CLOSE := 40.0
 ## A squad standing still turns to face enemy squads this close.
 const FACE_RANGE := 280.0
 ## How far out of its way (in arena units) an advancing squad goes to fight a squad it
@@ -1630,8 +1632,10 @@ func _update_squad(sq, dt: float) -> void:
 		var slack := 20.0 if sq.ranged and not sq.hold_fire else ENGAGE_RANGE
 		sq.engaged = _in_range(sq, foe, reach + slack)
 	if sq.engaged:
-		if is_skirmisher and sq.mechanics.get("horse_archer", false) and not sq.wheeling and sq.engaged_for >= 0.3:
-			# Horse archers ride clear when engaged in melee while arrows remain
+		if is_skirmisher and sq.mechanics.get("horse_archer", false) and not sq.wheeling and sq.engaged_for >= 0.3 \
+				and _in_range(sq, foe, HORSE_ARCHER_CLOSE):
+			# Horse archers ride clear when the enemy closes to melee while arrows remain,
+			# not merely when it comes within bowshot
 			_start_wheel(sq)
 			return
 		if not was_engaged:

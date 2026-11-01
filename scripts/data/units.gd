@@ -141,12 +141,12 @@ const UNITS := {
 	},
 
 	# --- Tier 2 ---
-	# Infantry A: Javelin askari (2 javelins each, speed +10%)
+	# Infantry A: Javelin askari (3 javelins each, speed +10%)
 	"kharzani_javelin_askari": {
 		"role": Troops.INFANTRY, "culture": Cultures.KHARZANI, "tier": 2, "branch_of": "kharzani_infantry",
-		"name": "Javelin askari", "blurb": "Agile skirmishers hurling twin javelins before closing in melee.",
+		"name": "Javelin askari", "blurb": "Agile skirmishers hurling a brace of javelins before closing in melee.",
 		"stats": {"speed": 44.0},
-		"mechanics": {"javelins": 2},
+		"mechanics": {"javelins": 3},
 		"cost_mult": 1.15, "wage_mult": 1.1,
 	},
 	# Infantry B: Guard askari (armor 0.2, steady)
@@ -173,19 +173,19 @@ const UNITS := {
 		"mechanics": {},
 		"cost_mult": 1.0, "wage_mult": 0.8,
 	},
-	# Archers A: Composite bowmen (range +15%, reload -15%)
+	# Archers A: Composite bowmen (range +15%, reload -15%, health +10%)
 	"kharzani_composite_bowmen": {
 		"role": Troops.ARCHERS, "culture": Cultures.KHARZANI, "tier": 2, "branch_of": "kharzani_archers",
 		"name": "Composite bowmen", "blurb": "Horn-and-sinew composite bows shooting further and faster.",
-		"stats": {"range": 287.5, "cooldown": 1.275},
+		"stats": {"range": 287.5, "cooldown": 1.275, "hp": 396.0},
 		"mechanics": {},
 		"cost_mult": 1.2, "wage_mult": 1.2,
 	},
-	# Archers B: Desert archers (speed +20%, step back from foot)
+	# Archers B: Desert archers (speed +20%, health +10%, step back from foot)
 	"kharzani_desert_archers": {
 		"role": Troops.ARCHERS, "culture": Cultures.KHARZANI, "tier": 2, "branch_of": "kharzani_archers",
 		"name": "Desert archers", "blurb": "Fleet-footed archers who step back and maintain distance as foot close.",
-		"stats": {"speed": 48.0},
+		"stats": {"speed": 48.0, "hp": 396.0},
 		"mechanics": {"kite": true},
 		"cost_mult": 1.15, "wage_mult": 1.1,
 	},
@@ -241,11 +241,11 @@ const UNITS := {
 		"mechanics": {"steady": true},
 		"cost_mult": 1.3, "wage_mult": 1.3,
 	},
-	# Infantry B: Ronin (damage +25%, always Vengeful when captain falls)
+	# Infantry B: Ronin (damage +15%, always Vengeful when captain falls)
 	"ryumon_ronin": {
 		"role": Troops.INFANTRY, "culture": Cultures.RYUMON, "tier": 2, "branch_of": "ryumon_infantry",
 		"name": "Ronin", "blurb": "Fierce masterless warriors who fly into red fury if their captain falls.",
-		"stats": {"damage": 16.25},
+		"stats": {"damage": 15.0},
 		"mechanics": {"ronin": true},
 		"cost_mult": 1.15, "wage_mult": 1.0,
 	},
@@ -265,11 +265,11 @@ const UNITS := {
 		"mechanics": {"sweep": true},
 		"cost_mult": 1.25, "wage_mult": 1.25,
 	},
-	# Archers A: Yumi samurai (range +10%, fight like infantry when caught)
+	# Archers A: Yumi samurai (range +4%, health +5%, fight like infantry when caught)
 	"ryumon_yumi_samurai": {
 		"role": Troops.ARCHERS, "culture": Cultures.RYUMON, "tier": 2, "branch_of": "ryumon_archers",
 		"name": "Yumi samurai", "blurb": "Armored samurai archers who draw razor-sharp swords in close melee.",
-		"stats": {"range": 275.0, "hp": 480.0, "reach": 12.0},
+		"stats": {"range": 260.0, "hp": 380.0, "reach": 12.0},
 		"mechanics": {"samurai_sidearm": true},
 		"cost_mult": 1.3, "wage_mult": 1.3,
 	},
@@ -281,19 +281,19 @@ const UNITS := {
 		"mechanics": {"volley_cooldown_mult": 0.7},
 		"cost_mult": 1.15, "wage_mult": 1.1,
 	},
-	# Cavalry A: Mounted samurai (lance, steady)
+	# Cavalry A: Mounted samurai (heavy cavalry)
 	"ryumon_mounted_samurai": {
 		"role": Troops.CAVALRY, "culture": Cultures.RYUMON, "tier": 2, "branch_of": "ryumon_cavalry",
-		"name": "Mounted samurai", "blurb": "Armored cavalry charging with heavy yari and steadfast resolve.",
+		"name": "Mounted samurai", "blurb": "Armored cavalry charging home with heavy yari.",
 		"stats": {},
-		"mechanics": {"lance": true, "steady": true},
+		"mechanics": {},
 		"cost_mult": 1.35, "wage_mult": 1.35,
 	},
-	# Cavalry B: Mounted archers (5 arrows, good melee)
+	# Cavalry B: Mounted archers (2 arrows, good melee)
 	"ryumon_mounted_archers": {
 		"role": Troops.CAVALRY, "culture": Cultures.RYUMON, "tier": 2, "branch_of": "ryumon_cavalry",
 		"name": "Mounted archers", "blurb": "Mobile samurai who loose arrows on approach before charging home.",
-		"stats": {"damage": 36.0, "cooldown": 1.5, "range": 200.0, "ranged": true, "arrows": 5, "size": 16},
+		"stats": {"damage": 36.0, "cooldown": 1.5, "range": 200.0, "ranged": true, "arrows": 2, "size": 16},
 		"mechanics": {"horse_archer": true, "good_melee": true},
 		"cost_mult": 1.35, "wage_mult": 1.35,
 	},

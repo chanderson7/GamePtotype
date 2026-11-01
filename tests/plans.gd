@@ -169,18 +169,19 @@ static func _tactician(sim, state: Dictionary) -> void:
 				sim.order_line(me, sq.center - across * 60.0, sq.center + across * 60.0, sq)
 				sim.order_advance(sq)
 	if sim.objective == Sim.OBJECTIVE_VILLAGE and not state.has("square"):
-		# Defending a village: the line forms across the square and stays in it, and the
-		# raiders have to come to it, wave by wave.
+		# Defending a village: the line forms in the middle of the square, the raiders have
+		# to come to it, and once they're on it the line takes the fight to them, as on
+		# any other field.
 		state["square"] = true
 		var c: Vector2 = Sim.VILLAGE_ZONE_CENTER
-		sim.order_line(me, c + Vector2(-Sim.VILLAGE_ZONE_RADIUS, 30.0), c + Vector2(Sim.VILLAGE_ZONE_RADIUS, 30.0))
+		sim.order_line(me, c + Vector2(-Sim.VILLAGE_ZONE_RADIUS * 0.7, 0.0), c + Vector2(Sim.VILLAGE_ZONE_RADIUS * 0.7, 0.0))
 	var lines_met := false
 	for sq in sim.squads:
 		if sq.team == me and sq.is_active() and sq.engaged and not sq.ranged:
 			lines_met = true
 	if lines_met and state["contact_at"] < 0.0:
 		state["contact_at"] = sim.time
-	if not state["released"] and sim.objective != Sim.OBJECTIVE_VILLAGE:
+	if not state["released"]:
 		var met: float = state["contact_at"]
 		state["released"] = (met >= 0.0 and sim.time - met > RECEIVE_SECONDS) or sim.time > RELEASE_AFTER
 	for sq in sim.squads:

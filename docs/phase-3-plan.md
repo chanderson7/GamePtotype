@@ -327,10 +327,10 @@ archers in a Vardish army).
 
 | Role | Vardish: heavy, disciplined | Kharzani: fast, shooting | Ryumon: elite warriors |
 |---|---|---|---|
-| Infantry | **Men-at-arms**: armor 0.3, shield wall stronger, speed ×0.9 / **Sergeants**: damage +15%, speed +10%, wage −15% | **Javelin askari**: 2 javelins each, speed +10% / **Guard askari**: armor 0.2, steady | **Hatamoto**: 16 elite, damage +20%, health +20%, steady / **Ronin**: damage +25%, always Vengeful when their captain falls |
+| Infantry | **Men-at-arms**: armor 0.3, shield wall stronger, speed ×0.9 / **Sergeants**: damage +15%, speed +10%, wage −15% | **Javelin askari**: 3 javelins each, speed +10% / **Guard askari**: armor 0.2, steady | **Hatamoto**: 16 elite, damage +20%, health +20%, steady / **Ronin**: damage +15%, always Vengeful when their captain falls |
 | Spearmen | **Pikemen**: reach 32, longer schiltron, speed ×0.9 / **Halberdiers**: sweep, bonus vs infantry ×1.2, vs horse ×1.8 | **Spear guard**: armor 0.2, steady / **Levy spears**: 24 men, wage −20%, health −10% | **Yari ashigaru**: reach 30, 24 men / **Naginata**: sweep, vs horse ×2.0, vs infantry ×1.15 |
-| Archers | **Crossbowmen**: piercing 0.7, damage +30%, reload +40%, range 210 / **Longbowmen**: range 290, reload −10% | **Composite bowmen**: range +15%, reload −15% / **Desert archers**: speed +20%, step back from foot | **Yumi samurai**: fight like infantry when caught, range +10% / **Ashigaru archers**: 24 men, volley cooldown −30% |
-| Cavalry | **Knights**: armor 0.35, charge ×7.5, speed ×0.9 / **Mounted sergeants**: speed +15%, wheel cooldown −40%, wage −15% | **Horse archers** (signature): 8 arrows, weak melee / **Faris lancers**: charge ×7, speed +10% | **Mounted samurai**: lance, steady / **Mounted archers**: 5 arrows, good melee |
+| Archers | **Crossbowmen**: piercing 0.7, damage +30%, reload +40%, range 210 / **Longbowmen**: range 290, reload −10% | **Composite bowmen**: range +15%, reload −15%, health +10% / **Desert archers**: speed +20%, health +10%, step back from foot | **Yumi samurai**: fight like infantry when caught, range +4%, health +5% / **Ashigaru archers**: 24 men, volley cooldown −30% |
+| Cavalry | **Knights**: armor 0.35, charge ×7.5, speed ×0.9 / **Mounted sergeants**: speed +15%, wheel cooldown −40%, wage −15% | **Horse archers** (signature): 8 arrows, weak melee / **Faris lancers**: charge ×7, speed +10% | **Mounted samurai**: heavy cavalry / **Mounted archers**: 2 arrows, good melee |
 
 Level 3 of a branch: +10% damage and health (today's `power_for`), plus that branch's
 strength again at half size.
