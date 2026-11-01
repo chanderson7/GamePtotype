@@ -10,6 +10,23 @@ func snapshot(w) -> Dictionary:
 	var out := {}
 	for p in w.lord_parties(): out[p.id] = p.army.duplicate(true)
 	return out
+## Two saves match, allowing for the last digits a float loses on its way through JSON.
+func same(a, b) -> bool:
+	return _same(JSON.parse_string(JSON.stringify(a)), JSON.parse_string(JSON.stringify(b)))
+func _same(a, b) -> bool:
+	if a is float or b is float:
+		return (a is float or a is int) and (b is float or b is int) and absf(float(a) - float(b)) < 0.0001
+	if a is Dictionary and b is Dictionary:
+		if a.size() != b.size(): return false
+		for k in a:
+			if not b.has(k) or not _same(a[k], b[k]): return false
+		return true
+	if a is Array and b is Array:
+		if a.size() != b.size(): return false
+		for i in a.size():
+			if not _same(a[i], b[i]): return false
+		return true
+	return a == b
 func tick(w, hours: int) -> void:
 	for i in hours * 4:
 		w.hour += 0.25
@@ -36,7 +53,7 @@ func _init() -> void:
 	restored.from_dict(saved)
 	tick(w, 8)
 	tick(restored, 8)
-	check(JSON.parse_string(JSON.stringify(w.to_dict())) == JSON.parse_string(JSON.stringify(restored.to_dict())), "muster save resumes deterministically")
+	check(same(w.to_dict(), restored.to_dict()), "muster save resumes deterministically")
 	var marched := false
 	for i in 96:
 		tick(w, 1)
@@ -51,7 +68,7 @@ func _init() -> void:
 	traveling.from_dict(JSON.parse_string(JSON.stringify(w.to_dict())))
 	tick(w, 3)
 	tick(traveling, 3)
-	check(JSON.parse_string(JSON.stringify(w.to_dict())) == JSON.parse_string(JSON.stringify(traveling.to_dict())), "marching save resumes deterministically")
+	check(same(w.to_dict(), traveling.to_dict()), "marching save resumes deterministically")
 	var owners: Dictionary = w.owners.duplicate()
 	for a in w.campaign_armies.duplicate(): w.make_peace(a["realm"], a["target_owner"])
 	tick(w, 150)

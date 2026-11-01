@@ -121,6 +121,7 @@ var culture := Cultures.VARDISH
 var parties: Array = []
 ## Each party's pace this tick (see party_pace), worked out once a tick.
 var _pace_cache := {}
+var _pace_hour := -1.0
 ## Bands waiting to come back: [{faction, at}].
 var respawns: Array = []
 ## Registry of escaped bandit chiefs: [{name, culture, grudge, escaped_at, times_beaten}].
@@ -987,6 +988,9 @@ static func pace(men: int, horse: int = 0, wounded: int = 0) -> float:
 ## A party's pace right now. Your company's is your own warband's; a lord marching in a
 ## campaign army keeps the whole army's.
 func party_pace(p: Party) -> float:
+	if _pace_hour != hour:
+		_pace_cache.clear()
+		_pace_hour = hour
 	if _pace_cache.has(p.id):
 		return float(_pace_cache[p.id])
 	var squads: Array = p.army
