@@ -1,23 +1,41 @@
-## Shared captain portrait catalog. Portraits are decorative: when illustrations are
-## disabled, callers keep their normal text and troop-icon fallbacks.
+## Shared captain portrait catalog: every captain's own face, drawn by CaptainFace from
+## who they are and what has happened to them. Portraits are decorative: when
+## illustrations are disabled, callers keep their normal text and troop-icon fallbacks.
 extends RefCounted
 
 const Style = preload("res://scripts/ui/style.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const CaptainFace = preload("res://scripts/art/captain_face.gd")
 
 static var _textures: Dictionary = {}
+static var _faces: Dictionary = {}
 
 
 static func texture(captain: Dictionary) -> Texture2D:
 	if not Style.illustrations_on():
 		return null
+	# Old saves still carry a painted appearance id; it no longer chooses the face, but
+	# keep it filled in so nothing that reads it breaks.
 	Captains.ensure_appearance(captain)
-	var appearance := String(captain.get("appearance_id", "fallback"))
-	var path := "res://assets/portraits/captain_%s.png" % appearance
-	var result := _load(path)
-	if result == null and appearance != "fallback":
-		result = _load("res://assets/portraits/captain_fallback.png")
-	return result
+	var key := _face_key(captain)
+	if _faces.has(key):
+		return _faces[key]
+	var tex: Texture2D = CaptainFace.texture(captain)
+	if _faces.size() > 400:
+		_faces.clear()
+	_faces[key] = tex
+	return tex
+
+
+## Everything that changes how a captain looks: who they are, and how their career has
+## marked them.
+static func _face_key(captain: Dictionary) -> String:
+	var history: Dictionary = captain.get("history", {}) if typeof(captain.get("history", {})) == TYPE_DICTIONARY else {}
+	return "%d|%s|%s|%s|%s|%s|%s|%d|%d|%d" % [int(captain.get("id", 0)), String(captain.get("culture", "")),
+		String(captain.get("first", captain.get("name", ""))), String(captain.get("type", "")),
+		String(captain.get("temperament", "")), String(captain.get("quirk", "")),
+		"bandaged" if int(captain.get("wounded", 0)) > 0 else "",
+		CaptainFace.rank(captain), mini(3, int(history.get("wounds", 0))), 1 if int(captain.get("battles", 0)) >= 20 else 0]
 
 
 static func portrait(captain: Dictionary, size: Vector2 = Vector2(60, 80)) -> TextureRect:

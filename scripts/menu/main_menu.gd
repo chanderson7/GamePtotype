@@ -278,8 +278,8 @@ func _camp_tableau() -> Control:
 		token.custom_minimum_size = Vector2(0, Style.TOUCH)
 		if Style.illustrations_on():
 			token.icon = CaptainArt.texture(c)
-			token.expand_icon = true
-			token.add_theme_constant_override("icon_max_width", 34)
+			token.add_theme_constant_override("icon_max_width", 48)
+			token.add_theme_constant_override("h_separation", 8)
 		if hurt:
 			token.modulate = Color(0.75, 0.75, 0.82)
 		token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))

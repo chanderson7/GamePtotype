@@ -55,7 +55,10 @@ const BRASS := Color("c9a243")
 static func features(captain: Dictionary) -> Dictionary:
 	var culture := String(captain.get("culture", "vardish"))
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([int(captain.get("id", 0)), culture, String(captain.get("first", ""))])
+	var who := String(captain.get("first", ""))
+	if who == "":
+		who = String(captain.get("name", ""))
+	rng.seed = hash([int(captain.get("id", 0)), culture, who])
 	var f := {
 		"culture": culture,
 		"skin": _weighted(rng, SKIN_WEIGHTS.get(culture, SKIN_WEIGHTS["vardish"])),
@@ -101,7 +104,7 @@ static func _weighted(rng: RandomNumberGenerator, weights: Array) -> int:
 
 ## The face as it is now. `captain` may carry history.wounds (scars), battles and level
 ## (grey hair, rank pin).
-static func image(captain: Dictionary) -> Image:
+static func image(captain: Dictionary, backdrop: bool = false) -> Image:
 	var f := features(captain)
 	var img := Image.create(W, H, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -162,18 +165,7 @@ static func image(captain: Dictionary) -> Image:
 	var brow_col := hair_dark if String(f["hair"]) not in ["turban", "wrap", "shaved"] else Color("2a1c16")
 	if greying:
 		brow_col = brow_col.lerp(GREY, 0.4)
-	match int(f["brow"]):
-		0:
-			_rect(img, 18, 26, 4, 1, brow_col)
-			_rect(img, 26, 26, 4, 1, brow_col)
-		1:
-			_rect(img, 18, 27, 2, 1, brow_col)
-			_rect(img, 20, 26, 2, 1, brow_col)
-			_rect(img, 26, 26, 2, 1, brow_col)
-			_rect(img, 28, 27, 2, 1, brow_col)
-		_:
-			_rect(img, 18, 26, 4, 2, brow_col)
-			_rect(img, 26, 26, 4, 2, brow_col)
+	_brows(img, f, String(captain.get("temperament", "")), brow_col, skin_dark)
 	match int(f["nose"]):
 		0:
 			_rect(img, 24, 30, 1, 3, skin_dark)
@@ -184,15 +176,7 @@ static func image(captain: Dictionary) -> Image:
 		_:
 			_rect(img, 25, 31, 1, 2, skin_dark)
 	var lip := skin.darkened(0.38).lerp(Color("8a3b36"), 0.25)
-	match int(f["mouth"]):
-		0:
-			_rect(img, 22, 36, 5, 1, lip)
-		1:
-			_rect(img, 22, 36, 4, 1, lip)
-			img.set_pixel(26, 35, lip)
-		_:
-			_rect(img, 22, 36, 5, 1, lip)
-			img.set_pixel(21, 37, lip)
+	_mouth(img, f, String(captain.get("temperament", "")), String(captain.get("quirk", "")), lip)
 	if int(f["age"]) >= 1:
 		# Lines from nose to mouth.
 		img.set_pixel(20, 34, skin_dark)
@@ -221,19 +205,130 @@ static func image(captain: Dictionary) -> Image:
 			if img.get_pixel(px, py) in [skin, skin_dark, skin_light]:
 				img.set_pixel(px, py, scar_col)
 
-	# Rank: a brass pin on the collar from level 2, and a second at level 3.
-	var level := int(captain.get("level", 1))
+	# Rank: a brass pin on the collar for a seasoned captain, a second for a veteran.
+	var level := rank(captain)
 	if level >= 2:
 		_rect(img, 14, 52, 2, 2, BRASS)
 	if level >= 3:
 		_rect(img, 32, 52, 2, 2, BRASS)
 
+	# Still recovering from a wound: a bandage round the brow.
+	if int(captain.get("wounded", 0)) > 0:
+		for x in range(14, 35):
+			if img.get_pixel(x, 23).a > 0.0:
+				img.set_pixel(x, 23, Color("e8e2d4"))
+				img.set_pixel(x, 24, Color("cfc7b4") if x < 31 else Color("b7ae9a"))
+		img.set_pixel(30, 24, Color("a8322c"))
 	_outline(img)
-	return img
+	if not backdrop:
+		return img
+	var back := _backdrop(String(f["culture"]))
+	back.blend_rect(img, Rect2i(0, 0, W, H), Vector2i.ZERO)
+	return back
 
 
-static func texture(captain: Dictionary) -> ImageTexture:
-	return ImageTexture.create_from_image(image(captain))
+## 1 to 3: a captain's standing, by the battles they've seen (or a level, when given).
+static func rank(captain: Dictionary) -> int:
+	if captain.has("level"):
+		return int(captain["level"])
+	var battles := int(captain.get("battles", 0))
+	return 1 + (1 if battles >= SEASONED else 0) + (1 if battles >= VETERAN else 0)
+
+
+const SEASONED := 8
+const VETERAN := 20
+
+
+static func texture(captain: Dictionary, backdrop: bool = true) -> ImageTexture:
+	return ImageTexture.create_from_image(image(captain, backdrop))
+
+
+## The captain's temper shows in the brows: knitted in anger for the vengeful, level for
+## the steadfast, raised and worried for the fragile. Others keep the brows they were born with.
+static func _brows(img: Image, f: Dictionary, temperament: String, c: Color, crease: Color) -> void:
+	var thick := int(f["brow"]) == 2
+	match temperament:
+		"Vengeful":
+			for p in [Vector2i(18, 26), Vector2i(19, 26), Vector2i(20, 27), Vector2i(21, 27),
+					Vector2i(26, 27), Vector2i(27, 27), Vector2i(28, 26), Vector2i(29, 26)]:
+				img.set_pixel(p.x, p.y, c)
+				if thick:
+					img.set_pixel(p.x, p.y - 1, c)
+			img.set_pixel(24, 27, crease)
+		"Fragile":
+			for p in [Vector2i(18, 27), Vector2i(19, 26), Vector2i(20, 26), Vector2i(21, 25),
+					Vector2i(26, 25), Vector2i(27, 26), Vector2i(28, 26), Vector2i(29, 27)]:
+				img.set_pixel(p.x, p.y, c)
+		"Steadfast":
+			_rect(img, 18, 26, 4, 2 if thick else 1, c)
+			_rect(img, 26, 26, 4, 2 if thick else 1, c)
+		_:
+			match int(f["brow"]):
+				0:
+					_rect(img, 18, 26, 4, 1, c)
+					_rect(img, 26, 26, 4, 1, c)
+				1:
+					_rect(img, 18, 27, 2, 1, c)
+					_rect(img, 20, 26, 2, 1, c)
+					_rect(img, 26, 26, 2, 1, c)
+					_rect(img, 28, 27, 2, 1, c)
+				_:
+					_rect(img, 18, 26, 4, 2, c)
+					_rect(img, 26, 26, 4, 2, c)
+
+
+## And the mouth: a hard frown, a level line, a small unsure one; the lucky grin, the bold
+## half-smile.
+static func _mouth(img: Image, f: Dictionary, temperament: String, quirk: String, lip: Color) -> void:
+	if quirk == "Lucky" and temperament != "Vengeful":
+		_rect(img, 22, 36, 5, 1, lip)
+		img.set_pixel(21, 35, lip)
+		img.set_pixel(27, 35, lip)
+		return
+	if quirk == "Bold" and temperament != "Fragile":
+		_rect(img, 22, 36, 4, 1, lip)
+		img.set_pixel(26, 35, lip)
+		return
+	match temperament:
+		"Vengeful":
+			_rect(img, 22, 36, 5, 1, lip)
+			img.set_pixel(21, 37, lip)
+			img.set_pixel(27, 37, lip)
+		"Steadfast":
+			_rect(img, 22, 36, 5, 1, lip)
+		"Fragile":
+			_rect(img, 23, 36, 3, 1, lip)
+			img.set_pixel(22, 37, lip)
+		_:
+			match int(f["mouth"]):
+				0:
+					_rect(img, 22, 36, 5, 1, lip)
+				1:
+					_rect(img, 22, 36, 4, 1, lip)
+					img.set_pixel(26, 35, lip)
+				_:
+					_rect(img, 22, 36, 5, 1, lip)
+					img.set_pixel(21, 37, lip)
+
+
+## A soft glow of the captain's land behind them, fading to nothing at the edges, so the
+## portrait sits on any panel.
+const BACKDROPS := {"vardish": Color("3d5c94"), "kharzani": Color("9c6a36"), "ryumon": Color("8e3238")}
+
+
+static func _backdrop(culture: String) -> Image:
+	var tint: Color = BACKDROPS.get(culture, BACKDROPS["vardish"])
+	var back := Image.create(W, H, false, Image.FORMAT_RGBA8)
+	for y in H:
+		for x in W:
+			var dx := (float(x) + 0.5 - 24.0) / 24.0
+			var dy := (float(y) + 0.5 - 30.0) / 30.0
+			var d := sqrt(dx * dx + dy * dy)
+			var a := clampf(1.0 - d, 0.0, 1.0)
+			# Banded in a few steps, to keep it pixel art rather than a smooth gradient.
+			a = floorf(a * 4.0) / 4.0
+			back.set_pixel(x, y, Color(tint.r, tint.g, tint.b, minf(1.0, a * 1.3)))
+	return back
 
 
 # ---------------------------------------------------------------- parts
