@@ -114,6 +114,8 @@ var _enemy_culture := Cultures.VARDISH
 ## The land the battle is fought in, which sets the ground and what grows on it, and
 ## the rocks and bushes scattered over the field: [{name, pos, scale, flip}].
 var _biome := Cultures.VARDISH
+## Whose castle a siege is fought at: the people who built it, for its look.
+var _castle_culture := Cultures.VARDISH
 var _doodads: Array = []
 ## Broad patches of lighter and darker ground: [{pos, r, light}].
 var _patches: Array = []
@@ -168,6 +170,8 @@ var advance_button: Button
 var hold_button: Button
 var ability_button: Button
 var hold_fire_button: Button
+## Storming a castle: sends the foot over the walls (see BattleSim.order_storm).
+var storm_button: Button
 var hint_label: Label
 var roll_layer: Control
 var pause_panel: PanelContainer
@@ -226,6 +230,11 @@ func _ready() -> void:
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
 	# Bandits fight in their own realm; a battle off the map is fought in yours.
 	_biome = _enemy_culture if not pending.is_empty() else GameState.culture
+	_castle_culture = _enemy_culture
+	var siege_at := String(pending.get("siege_target", ""))
+	if siege_at != "" and WorldData.SETTLEMENTS.has(siege_at):
+		_castle_culture = WorldData.culture_of(WorldData.settlement(siege_at)["faction"])
+		_biome = _castle_culture
 	_setup_terrain_visuals()
 	_scatter_doodads()
 	match sim.objective:
@@ -693,6 +702,17 @@ func _start_battle() -> void:
 	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.")
 
 
+func _on_storm() -> void:
+	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
+		return
+	sim.order_storm(Sim.PLAYER)
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active():
+			_mark_ordered(sq)
+	Sound.play("charge", 0.0, 0.05, 0.6)
+	_hint("Everyone advances: shield men on the flanks go up the ladders, the rest batter the gate.")
+
+
 func _on_advance() -> void:
 	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
 		return
@@ -940,51 +960,167 @@ func _missile_sound(p) -> String:
 
 # ---------------------------------------------------------------- events
 
-## The wall across the field, its battlements, and the gate with how much it has left.
+## Each land builds its own: [stone, stone light, stone dark, wall walk, courtyard paving,
+## roof, roof light, keep top]; and whether towers are round, keeps domed or tiered.
+const CASTLE_STYLES := {
+	"vardish": {"stone": Color("8a8d94"), "light": Color("b0b3ba"), "dark": Color("5b5e66"), "walk": Color("9a9da4"),
+		"paving": Color("6b6e74"), "roof": Color("4a5262"), "roof_light": Color("5e687c"), "top": Color("6e7178"),
+		"round": false, "dome": false, "tiers": false, "dome_color": Color("3a8a8a")},
+	"kharzani": {"stone": Color("c99a5c"), "light": Color("e2bc80"), "dark": Color("94683a"), "walk": Color("d6aa6c"),
+		"paving": Color("b89a62"), "roof": Color("e8dcc4"), "roof_light": Color("f4ead8"), "top": Color("b07e48"),
+		"round": true, "dome": true, "tiers": false, "dome_color": Color("3a8a8a")},
+	"ryumon": {"stone": Color("7a7468"), "light": Color("f0ece2"), "dark": Color("55504a"), "walk": Color("e8e2d4"),
+		"paving": Color("8a8478"), "roof": Color("2a2a34"), "roof_light": Color("3c3c4a"), "top": Color("f0ece2"),
+		"round": false, "dome": false, "tiers": true, "dome_color": Color("3a8a8a")},
+}
+## Towers along the wall, by column (clear of the gate and the ladders).
+const TOWER_COLS := [1, 9, 18, 26]
+
+
+## The castle: its courtyard with the keep and houses, the wall with its towers and
+## battlements, the gatehouse and its gate (cracking as it weakens), the ladders, and the
+## ram when it's at work.
 func _draw_walls() -> void:
-	var top: float = sim.wall_row * Terrain.CELL
-	# battlements face the attackers' side; the gate's bar shows on the attackers' side
-	var out := 1.0 if sim.siege_defender == Sim.ENEMY else -1.0
+	var st: Dictionary = CASTLE_STYLES.get(_castle_culture, CASTLE_STYLES["vardish"])
 	var cell := Terrain.CELL
-	var stone := Color("7d776c")
-	var dark := Color("4e4a43")
-	for cx in Terrain.COLS:
-		if Sim.GATE_COLS.has(cx):
-			continue
-		var r := Rect2(cx * cell, top, cell, cell)
-		draw_rect(r, stone)
-		draw_rect(Rect2(r.position + Vector2(0, cell - 6.0), Vector2(cell, 6.0)), dark)
-		# battlements on the garrison's side
-		var lip: float = cell if sim.siege_defender == Sim.PLAYER else -7.0
-		draw_rect(Rect2(r.position + Vector2(3.0, lip), Vector2(10.0, 7.0)), stone)
-		draw_rect(Rect2(r.position + Vector2(17.0, lip), Vector2(10.0, 7.0)), stone)
-		draw_line(r.position + Vector2(cell, 0), r.position + Vector2(cell, cell), dark, 1.0)
+	var top: float = sim.wall_row * cell
+	var w: float = Sim.ARENA.x
+	# `inward` points from the wall into the courtyard.
+	var inward := -1.0 if sim.siege_defender == Sim.ENEMY else 1.0
+	var court := Rect2(0, 0, w, top) if inward < 0.0 else Rect2(0, top + cell, w, Sim.ARENA.y - top - cell)
+	draw_rect(court, Color(st["paving"], 0.55))
+	for cy in range(int(court.position.y / cell), int(court.end.y / cell)):
+		for cx in Terrain.COLS:
+			if (cx * 7 + cy * 13) % 5 == 0:
+				draw_rect(Rect2(cx * cell + 3.0 + (cy % 2) * 12.0, cy * cell + 4.0, 14.0, 9.0), Color(Color(st["paving"]).lightened(0.12), 0.45))
+	# Buildings.
+	for b in sim.castle_buildings:
+		var cr: Rect2i = b["cell"]
+		var r := Rect2(cr.position.x * cell, cr.position.y * cell, cr.size.x * cell, cr.size.y * cell).grow(-3.0)
+		draw_rect(Rect2(r.position + Vector2(7, 7), r.size), Color(0, 0, 0, 0.35))
+		if String(b["kind"]) == "keep":
+			draw_rect(r, st["stone"])
+			draw_rect(r.grow(-7.0), st["top"])
+			var x := r.position.x
+			while x < r.end.x - 4.0:
+				draw_rect(Rect2(x, r.position.y - 4.0, 8.0, 7.0), st["light"])
+				draw_rect(Rect2(x, r.end.y - 3.0, 8.0, 7.0), st["light"])
+				x += 14.0
+			if st["dome"]:
+				draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.32, st["dome_color"])
+				draw_circle(r.get_center() - Vector2(8, 8), minf(r.size.x, r.size.y) * 0.1, Color(st["dome_color"]).lightened(0.3))
+			elif st["tiers"]:
+				draw_rect(r.grow(-16.0), st["roof"])
+				draw_rect(r.grow(-30.0), st["roof_light"])
+			else:
+				draw_rect(r.grow(-20.0), Color(st["top"]).darkened(0.15))
+			# the realm's flag over the keep
+			var pole := Vector2(r.end.x - 10.0, r.position.y + 8.0)
+			draw_line(pole, pole + Vector2(0, -46), Color("5a3a22"), 3.0)
+			var fc := Style.ENEMY if sim.siege_defender == Sim.ENEMY else Style.PLAYER
+			draw_colored_polygon(PackedVector2Array([pole + Vector2(1, -46), pole + Vector2(36, -38), pole + Vector2(1, -28)]), fc)
+		else:
+			draw_rect(r, st["roof"])
+			draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.5)), st["roof_light"])
+			draw_line(Vector2(r.position.x, r.get_center().y), Vector2(r.end.x, r.get_center().y), Color(st["roof"]).darkened(0.3), 2.0)
+			if st["dome"]:
+				draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.28, st["dome_color"])
+	# The wall: its body, a wall walk on the inside, battlements on the outside.
+	var body := Rect2(0, top, w, cell)
+	draw_rect(Rect2(body.position + Vector2(0, 8.0 * -inward), body.size), Color(0, 0, 0, 0.3))
+	draw_rect(body, st["stone"])
+	var walk_y := top + (cell - 4.0 if inward > 0.0 else -10.0)
+	draw_rect(Rect2(0, walk_y, w, 14.0), st["walk"])
+	var outer_y := top + (cell if inward < 0.0 else -8.0)
+	var x2 := 0.0
+	while x2 < w:
+		draw_rect(Rect2(x2 + 2.0, outer_y, 9.0, 8.0), st["light"])
+		x2 += 15.0
+	draw_rect(Rect2(0, top + cell - 5.0 if inward < 0.0 else top, w, 5.0), st["dark"])
+	# Towers.
+	for tc in TOWER_COLS:
+		var tr := Rect2(tc * cell - 6.0, top - 14.0, cell + 12.0, cell + 28.0)
+		draw_rect(Rect2(tr.position + Vector2(5, 6), tr.size), Color(0, 0, 0, 0.3))
+		draw_rect(tr, st["stone"])
+		if st["round"]:
+			draw_circle(tr.get_center(), tr.size.x * 0.36, st["roof"])
+			draw_circle(tr.get_center(), tr.size.x * 0.2, st["roof_light"])
+		elif st["tiers"]:
+			draw_rect(tr.grow(-5.0), st["roof"])
+			draw_rect(tr.grow(-11.0), st["roof_light"])
+		else:
+			draw_rect(tr.grow(-5.0), st["top"])
+			var bx := tr.position.x
+			while bx < tr.end.x - 3.0:
+				draw_rect(Rect2(bx, tr.position.y - 4.0, 6.0, 5.0), st["light"])
+				bx += 10.0
+	# The gatehouse and its gate.
 	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
+	for side in [-1.0, 1.0]:
+		var gx := gate.position.x - 34.0 if side < 0.0 else gate.end.x + 4.0
+		var gt := Rect2(gx, top - 18.0, 30.0, cell + 36.0)
+		draw_rect(Rect2(gt.position + Vector2(5, 6), gt.size), Color(0, 0, 0, 0.3))
+		draw_rect(gt, st["stone"])
+		draw_rect(gt.grow(-5.0), st["top"])
+	var share := sim.gate_hp / maxf(1.0, sim.gate_max)
 	if sim.gate_hp > 0.0:
-		var share := sim.gate_hp / maxf(1.0, sim.gate_max)
-		draw_rect(gate, Color("6b4a2a"))
-		for i in 6:
-			var x := gate.position.x + 4.0 + i * (gate.size.x - 8.0) / 5.0
-			draw_line(Vector2(x, gate.position.y + 2.0), Vector2(x, gate.end.y - 2.0), Color("3e2a17"), 2.0)
-		draw_line(gate.position + Vector2(0, 9), gate.position + Vector2(gate.size.x, 9), Color("2b2b2b"), 3.0)
-		draw_line(gate.position + Vector2(0, 21), gate.position + Vector2(gate.size.x, 21), Color("2b2b2b"), 3.0)
-		# how much the gate has left, below it where the attackers can see
-		var bar := Rect2(gate.position + Vector2(-20.0, cell + 10.0 if out > 0.0 else -18.0), Vector2(gate.size.x + 40.0, 8.0))
-		draw_rect(bar, Color(0, 0, 0, 0.55))
-		draw_rect(Rect2(bar.position, Vector2(bar.size.x * share, bar.size.y)), Color(1.0, 0.65, 0.25, 0.95))
-		if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
-			draw_string(font, bar.position + Vector2(-40.0, 34.0 if out > 0.0 else -10.0), "Gate %d%%" % int(ceil(share * 100.0)),
-				HORIZONTAL_ALIGNMENT_CENTER, bar.size.x + 80.0, Style.SMALL, Style.BRASS)
+		draw_rect(gate, Color("2a1a10"))
+		for i in 7:
+			var gx2 := gate.position.x + 3.0 + i * (gate.size.x - 6.0) / 6.0
+			draw_line(Vector2(gx2, gate.position.y), Vector2(gx2, gate.end.y), Color("8a8f98"), 2.0)
+		for j in 4:
+			var gy := gate.position.y + 3.0 + j * (gate.size.y - 6.0) / 3.0
+			draw_line(Vector2(gate.position.x, gy), Vector2(gate.end.x, gy), Color("8a8f98"), 2.0)
+		# cracks as it weakens
+		var cracks := int((1.0 - share) * 6.0)
+		for k in cracks:
+			var a := gate.position + Vector2(6.0 + (k * 17) % int(gate.size.x - 12.0), 3.0 + (k * 7) % 10)
+			draw_polyline(PackedVector2Array([a, a + Vector2(5, 7), a + Vector2(1, 14), a + Vector2(6, 22)]), Color("e8a03c"), 2.0)
 	else:
-		# splintered timbers either side of the breach
 		for i in 5:
-			var a := gate.position + Vector2(4.0 + i * 11.0, 4.0 + (i % 2) * 14.0)
-			draw_line(a, a + Vector2(9.0, 6.0 - (i % 3) * 5.0), Color("6b4a2a"), 3.0)
+			var a2 := gate.position + Vector2(4.0 + i * 11.0, 4.0 + (i % 2) * 14.0)
+			draw_line(a2, a2 + Vector2(9.0, 6.0 - (i % 3) * 5.0), Color("6b4a2a"), 3.0)
+	# Ladders against the outside of the wall.
+	for lp in sim.ladder_points():
+		var foot := Vector2(lp.x, top + (cell + 30.0 if inward < 0.0 else -30.0))
+		var head := Vector2(lp.x, top + (-4.0 if inward < 0.0 else cell + 4.0))
+		for rail in [-7.0, 7.0]:
+			draw_line(foot + Vector2(rail, 0), head + Vector2(rail * 0.7, 0), Color("8a5a2a"), 3.0)
+		var t := 0.0
+		while t <= 1.0:
+			var p := foot.lerp(head, t)
+			draw_line(p + Vector2(-7, 0), p + Vector2(7, 0), Color("8a5a2a"), 2.0)
+			t += 0.12
+	# The ram under its roof, swinging while men work it.
+	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0:
+		var swing := 4.0 * sin(_clock * 7.0) if not Style.motion_reduced() else 0.0
+		var outside := -inward
+		var shed := Rect2(gate.get_center().x - 18.0, 0, 36.0, 46.0)
+		shed.position.y = (gate.end.y + 4.0) if outside > 0.0 else (gate.position.y - 50.0)
+		draw_rect(Rect2(shed.position + Vector2(4, 4), shed.size), Color(0, 0, 0, 0.3))
+		draw_rect(shed, Color("6e4629"))
+		var py := shed.position.y + 4.0
+		while py < shed.end.y:
+			draw_line(Vector2(shed.position.x, py), Vector2(shed.end.x, py), Color("4a2f1c"), 2.0)
+			py += 7.0
+		var log_tip := Vector2(gate.get_center().x, gate.end.y - 4.0 if outside > 0.0 else gate.position.y + 4.0) + Vector2(0, swing * outside)
+		draw_line(log_tip, log_tip + Vector2(0, 58.0 * outside), Color("c09060"), 8.0)
+		draw_circle(log_tip, 5.0, Color("5b5e66"))
 
 
 func _consume_events() -> void:
 	for e in sim.events:
 		match e["type"]:
+			"ram_at_gate":
+				if sim.siege_defender == Sim.PLAYER:
+					_tick("Their ram is at the gate!", Style.ENEMY_LIGHT)
+				else:
+					_tick("The ram is at the gate!", Style.PLAYER_LIGHT)
+			"ladders_up":
+				if sim.siege_defender == Sim.PLAYER:
+					_tick("They're on the ladders! Throw them down!", Style.ENEMY_LIGHT)
+				else:
+					_tick("Your men are on the ladders!", Style.PLAYER_LIGHT)
 			"gate_breached":
 				_burst(sim.gate_center, "charge", Style.BRASS, 1.0)
 				_float_text("THE GATE IS BROKEN!", sim.gate_center + Vector2(0, -60), Style.BRASS, 2.0)
@@ -1518,6 +1654,9 @@ func _build_hud() -> void:
 	advance_button = _wide_button("Advance all", _on_advance, buttons_row)
 	Style.make_primary(advance_button)
 	hold_button = _wide_button("Hold all", _on_hold, buttons_row)
+	storm_button = _wide_button("Storm the walls", _on_storm, buttons_row)
+	storm_button.name = "StormButton"
+	storm_button.visible = false
 	ability_button = _wide_button("", _on_ability, buttons_row)
 	ability_button.draw.connect(_draw_ability_cooldown)
 	hold_fire_button = _wide_button("Hold fire", _on_hold_fire, buttons_row)
@@ -1687,6 +1826,7 @@ func _refresh_deploy() -> void:
 	fight_button.disabled = unplaced_player > 0 or sim.winner != -1
 	ability_button.visible = false
 	hold_fire_button.visible = false
+	storm_button.visible = false
 	info_label.text = ""
 
 
@@ -1695,6 +1835,8 @@ func _refresh_battle() -> void:
 	var sq = selected_squad
 	ability_button.visible = sq != null
 	hold_fire_button.visible = sq != null and sq.ranged
+	storm_button.visible = sq == null and sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.ENEMY \
+		and sim.gate_hp > 0.0 and sim.winner == -1
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
@@ -1759,6 +1901,19 @@ func _draw_power() -> void:
 	var w := power_bar.size.x
 	var h := 26.0
 	var y := (power_bar.size.y - h) * 0.5
+	var siege: bool = sim.objective == Sim.OBJECTIVE_SIEGE
+	if siege:
+		# A siege keeps the gate in view under the balance of strength.
+		h = 22.0
+		y = 0.0
+		var gy := h + 8.0
+		var share := sim.gate_hp / maxf(1.0, sim.gate_max)
+		var label := "Gate %d%%" % int(ceil(share * 100.0)) if sim.gate_hp > 0.0 else "Gate broken"
+		power_bar.draw_string(font, Vector2(0, gy + 11.0), label, HORIZONTAL_ALIGNMENT_LEFT, 120.0, 16, Style.BRASS if sim.gate_hp > 0.0 else Style.PLAYER_LIGHT)
+		var track := Rect2(118.0, gy, w - 118.0, 10.0)
+		power_bar.draw_rect(track, Style.NIGHT)
+		power_bar.draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.91, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
+		power_bar.draw_rect(track, Style.RULE, false, 1.0)
 	var mine := float(sim.men_on_field(Sim.PLAYER))
 	var theirs := float(sim.men_on_field(Sim.ENEMY))
 	var split := w * (mine / maxf(1.0, mine + theirs))
@@ -2178,6 +2333,9 @@ func _scatter_doodads() -> void:
 		"ryumon": ["bush", "bush", "bush", "rock0", "rock1"]}.get(_biome, ["bush", "bush", "rock0", "rock1"])
 	for i in 18:
 		var pos := Vector2(rng.randf_range(20.0, Sim.ARENA.x - 20.0), rng.randf_range(20.0, Sim.ARENA.y - 20.0))
+		# Nothing grows in a castle's courtyard, or on its wall.
+		if sim != null and sim.objective == Sim.OBJECTIVE_SIEGE and (sim.inside_walls(pos) or absf(pos.y - sim.wall_y) < 60.0):
+			continue
 		_doodads.append({"name": kinds[rng.randi_range(0, kinds.size() - 1)], "pos": pos,
 			"scale": rng.randf_range(1.4, 2.2), "flip": 1.0 if rng.randf() < 0.5 else -1.0})
 	for i in 12:

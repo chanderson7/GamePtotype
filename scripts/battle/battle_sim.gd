@@ -61,11 +61,29 @@ const WALL_Y := (WALL_ROW + 0.5) * 30.0
 const GATE_CENTER := Vector2((13 + 1) * 30.0, (WALL_ROW + 0.5) * 30.0)
 ## Gate strength by kind of settlement, in blows; each attacker on foot within GATE_REACH
 ## of the gate strikes it once a second (horsemen at half that).
-const GATE_HP := {"castle": 900.0, "town": 700.0}
+const GATE_HP := {"castle": 750.0, "town": 600.0}
 const GATE_REACH := 46.0
 const GATE_HORSE := 0.5
 ## Defenders this close behind the wall take arrows at this share.
 const WALL_COVER := 75.0
+## Two ladders against the wall, one on each flank. Squads sent to storm the walls that are
+## nearer a ladder than the gate climb it while the gate holds, slowly (LADDER_PACE of
+## their pace) and one at a time; everyone else makes for the gate.
+const LADDER_COLS := [4, 23]
+const LADDER_PACE := 0.45
+## What's left of an arrow that hits a man under the ram's roof at the gate.
+const RAM_ROOF := 0.4
+## How far either side of the gate the garrison's bows stand on the wall walk.
+const WALL_BOWS_OFFSET := 200.0
+## The courtyard behind the wall: the keep and the houses, as cell rectangles counted from
+## the garrison's own edge of the field. Nobody walks through them.
+const CASTLE_BUILDINGS := [
+	{"kind": "keep", "cell": Rect2i(11, 1, 6, 4)},
+	{"kind": "house", "cell": Rect2i(1, 1, 3, 2)},
+	{"kind": "house", "cell": Rect2i(5, 2, 2, 2)},
+	{"kind": "house", "cell": Rect2i(21, 2, 2, 2)},
+	{"kind": "house", "cell": Rect2i(24, 1, 3, 2)},
+]
 const WALL_ARROWS := 0.5
 
 ## At most 12 squads per side on the field at once; excess squads wait in reserve.
@@ -192,6 +210,8 @@ class Squad:
 	var engaged := false
 	var morale := 100.0
 	var routing := false
+	## Sent to storm the walls by a ladder (see BattleSim.order_storm).
+	var use_ladders := false
 	var escaped := 0
 	var kills := 0
 	# Copied from the troop stats at spawn, since the hot loops read them every tick.
@@ -352,6 +372,12 @@ var siege_defender := ENEMY
 var wall_row := WALL_ROW
 var wall_y := WALL_Y
 var gate_center := GATE_CENTER
+## The courtyard's buildings this battle, in cells (see CASTLE_BUILDINGS), and how many
+## men battered the gate on the last step (the ram is drawn while anyone does).
+var castle_buildings: Array = []
+var gate_blows := 0.0
+var _ladders_called := false
+var _ram_called := false
 ## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
 var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
@@ -400,6 +426,10 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 	village_burn = 0.0
 	gate_hp = 0.0
 	gate_max = 0.0
+	castle_buildings = []
+	gate_blows = 0.0
+	_ladders_called = false
+	_ram_called = false
 	scheduled_reinforcements.clear()
 	if site_or_terrain is Dictionary:
 		terrain = BattleSite.generate(site_or_terrain)
@@ -452,8 +482,19 @@ func _setup_siege(kind: String = "") -> void:
 	gate_center = Vector2(GATE_CENTER.x, wall_y)
 	var t := Terrain.new()
 	for cx in Terrain.COLS:
-		if not GATE_COLS.has(cx):
+		if not GATE_COLS.has(cx) and not LADDER_COLS.has(cx):
 			t.rock[wall_row * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
+	# The keep and houses stand in the courtyard, on the garrison's side.
+	castle_buildings = []
+	for b in CASTLE_BUILDINGS:
+		var r: Rect2i = b["cell"]
+		var cells := r
+		if siege_defender == PLAYER:
+			cells = Rect2i(r.position.x, Terrain.ROWS - r.position.y - r.size.y, r.size.x, r.size.y)
+		castle_buildings.append({"kind": b["kind"], "cell": cells})
+		for cy in range(cells.position.y, cells.end.y):
+			for cx in range(cells.position.x, cells.end.x):
+				t.rock[cy * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
 	set_terrain(t)
 	gate_max = float(GATE_HP.get(siege_kind, GATE_HP["castle"]))
 	gate_hp = gate_max
@@ -467,6 +508,9 @@ func _close_gate(closed: bool) -> void:
 		for cx in GATE_COLS:
 			_foot[wall_row * Terrain.COLS + cx] = 0.0
 			_horse[wall_row * Terrain.COLS + cx] = 0.0
+	for cx in LADDER_COLS:
+		_foot[wall_row * Terrain.COLS + cx] = LADDER_PACE
+		_horse[wall_row * Terrain.COLS + cx] = LADDER_PACE * 0.5
 
 
 func gate_open() -> bool:
@@ -476,19 +520,62 @@ func gate_open() -> bool:
 ## Attackers at the gate batter it; when it gives, the way in is open.
 func _batter_gate(dt: float) -> void:
 	var blows := 0.0
+	var climbing := 0
 	for sq in squads:
 		if sq.team == siege_defender or not sq.is_active() or sq.routing or bool(sq.stats["ranged"]):
 			continue
 		var weight := GATE_HORSE if sq.type == Troops.CAVALRY else 1.0
 		for so in sq.soldiers:
-			if so.alive and so.pos.distance_to(gate_center) <= GATE_REACH:
+			if not so.alive:
+				continue
+			if so.pos.distance_to(gate_center) <= GATE_REACH:
 				blows += weight
+			elif on_ladder(so.pos):
+				climbing += 1
+	gate_blows = blows
+	if blows > 0.0 and not _ram_called:
+		_ram_called = true
+		events.append({"type": "ram_at_gate"})
+	if climbing > 0 and not _ladders_called:
+		_ladders_called = true
+		events.append({"type": "ladders_up", "count": climbing})
 	if blows <= 0.0:
 		return
 	gate_hp = maxf(0.0, gate_hp - blows * dt)
 	if gate_hp <= 0.0:
 		_close_gate(false)
 		events.append({"type": "gate_breached"})
+
+
+## Where the ladders stand, as points on the wall.
+func ladder_points() -> Array:
+	var out := []
+	for cx in LADDER_COLS:
+		out.append(Vector2((cx + 0.5) * Terrain.CELL, wall_y))
+	return out
+
+
+## Whether `p` is on a ladder, climbing the wall.
+func on_ladder(p: Vector2) -> bool:
+	if objective != OBJECTIVE_SIEGE or absf(p.y - wall_y) > Terrain.CELL * 0.5:
+		return false
+	return LADDER_COLS.has(int(p.x / Terrain.CELL))
+
+
+## Storm the walls: the whole force advances, fighting as it goes, and the shield men
+## on the flanks, nearer a ladder than the gate, go over the wall by the ladders while the
+## rest batter the gate.
+func order_storm(team: int) -> void:
+	for sq in squads:
+		if sq.team != team or not sq.is_active() or sq.routing:
+			continue
+		sq.use_ladders = false
+		if objective == OBJECTIVE_SIEGE and sq.type == Troops.INFANTRY:
+			var nearest_ladder := INF
+			for lp in ladder_points():
+				nearest_ladder = minf(nearest_ladder, absf(sq.center.x - lp.x))
+			sq.use_ladders = nearest_ladder < absf(sq.center.x - gate_center.x)
+	order_all(team, "advance")
 
 
 ## Whether `p` is on the garrison's side of the wall (and clear of it).
@@ -702,8 +789,8 @@ func roster(team: int) -> Array:
 func deploy_zone(team: int) -> Rect2:
 	if objective == OBJECTIVE_SIEGE and team == siege_defender:
 		if team == ENEMY:
-			return Rect2(20.0, 30.0, ARENA.x - 40.0, wall_y - 45.0 - 30.0)
-		return Rect2(20.0, wall_y + 45.0, ARENA.x - 40.0, ARENA.y - 30.0 - (wall_y + 45.0))
+			return Rect2(20.0, 30.0, ARENA.x - 40.0, wall_y - 18.0 - 30.0)
+		return Rect2(20.0, wall_y + 18.0, ARENA.x - 40.0, ARENA.y - 30.0 - (wall_y + 18.0))
 	if team == PLAYER:
 		var top := MID_Y + DEPLOY_GAP
 		return Rect2(20.0, top, ARENA.x - 40.0, ARENA.y - 30.0 - top)
@@ -780,6 +867,12 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 	for i in mini(2, cav.size()):
 		spots.append([cav[i], front + 110.0, 100.0 if i == 0 else ARENA.x - 100.0])
 	_add_rows(spots, cav.slice(2), back + 24.0, Vector2(300.0, ARENA.x - 300.0))
+	var wall_bows := 0
+	if objective == OBJECTIVE_SIEGE and team == siege_defender:
+		# The bows take the wall walk first; the foot forms up behind them.
+		var bows := spots.filter(func(sp): return String(sp[0].get("type", "")) == Troops.ARCHERS)
+		var rest := spots.filter(func(sp): return String(sp[0].get("type", "")) != Troops.ARCHERS)
+		spots = bows + rest
 	for s in spots:
 		var depth: float = s[1]
 		var x: float = s[2]
@@ -787,8 +880,15 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 			x += rng.randf_range(-jitter, jitter)
 		var y := MID_Y + depth if team == PLAYER else MID_Y - depth
 		if objective == OBJECTIVE_SIEGE and team == siege_defender:
-			# A garrison forms up just behind its wall.
+			# A garrison forms up just behind its wall, its bows up on the wall walk.
 			y = wall_y - 50.0 - (depth - front) if team == ENEMY else wall_y + 50.0 + (depth - front)
+			if String(s[0].get("type", "")) == Troops.ARCHERS:
+				# Bows go up on the wall walk either side of the gate, clear of the breach,
+				# with the foot massed behind the gate itself.
+				y = wall_y - 34.0 if team == ENEMY else wall_y + 34.0
+				x = gate_center.x + (WALL_BOWS_OFFSET if wall_bows % 2 == 0 else -WALL_BOWS_OFFSET) \
+					+ float(wall_bows / 2) * 80.0 * (1.0 if wall_bows % 2 == 0 else -1.0)
+				wall_bows += 1
 		place(team, s[0]["roster_id"], Vector2(x, y))
 
 
@@ -1889,10 +1989,23 @@ func _update_soldier(so, sq, dt: float) -> void:
 
 func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 	var before: Vector2 = so.pos
-	# While the gate holds, anyone making for the far side of the wall crowds the gate.
+	# While the gate holds, anyone making for the far side of the wall makes for the nearest
+	# way over: the gate, or for men on foot a ladder, which they climb one at a time.
 	if objective == OBJECTIVE_SIEGE and gate_hp > 0.0 and (before.y > wall_y) != (dest.y > wall_y):
 		var side := 1.0 if before.y > wall_y else -1.0
-		dest = Vector2(clampf(before.x, gate_center.x - 30.0, gate_center.x + 30.0), gate_center.y + side * 20.0)
+		var cross := gate_center.x
+		var width := 30.0
+		if so.squad.use_ladders:
+			for lp in ladder_points():
+				if absf(before.x - lp.x) < absf(before.x - cross):
+					cross = lp.x
+					width = 8.0
+		if cross == gate_center.x:
+			dest = Vector2(clampf(before.x, cross - width, cross + width), gate_center.y + side * 20.0)
+		elif on_ladder(before) or before.distance_to(Vector2(cross, wall_y + side * 22.0)) < 14.0:
+			dest = Vector2(cross, wall_y - side * 32.0)
+		else:
+			dest = Vector2(clampf(before.x, cross - width, cross + width), wall_y + side * 22.0)
 	if _rough:
 		so.pos = _rough_step(before, dest, speed * dt, so.squad.type == Troops.CAVALRY)
 	else:
@@ -2167,6 +2280,10 @@ func _update_projectiles(dt: float) -> void:
 			if objective == OBJECTIVE_SIEGE and vs.team == siege_defender and inside_walls(p.target.pos) \
 					and absf(p.target.pos.y - wall_y) < WALL_COVER:
 				dmg *= WALL_ARROWS
+			# Attackers working the ram are under its roof
+			if objective == OBJECTIVE_SIEGE and vs.team != siege_defender and gate_hp > 0.0 \
+					and p.target.pos.distance_to(gate_center) <= GATE_REACH + 14.0:
+				dmg *= RAM_ROOF
 			# Armor on target
 			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
 			dmg *= (1.0 - minf(0.8, eff_armor))

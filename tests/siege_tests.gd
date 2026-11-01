@@ -52,8 +52,8 @@ func _check_battlefield() -> void:
 	for cx in Terrain.COLS:
 		var p := Vector2(cx * 30.0 + 15.0, Sim.WALL_Y)
 		var blocked: bool = not sim.terrain.passable(p)
-		wall_ok = wall_ok and (blocked != Sim.GATE_COLS.has(cx))
-	check(wall_ok, "a wall crosses the field with the gate the only way through")
+		wall_ok = wall_ok and (blocked != (Sim.GATE_COLS.has(cx) or Sim.LADDER_COLS.has(cx)))
+	check(wall_ok, "a wall crosses the field, with the gate and two ladders the only ways over")
 	sim.start_battle()
 	var behind := true
 	var garrison := 0
@@ -69,6 +69,24 @@ func _check_battlefield() -> void:
 	for i in 40:
 		sim._walk(so, Sim.GATE_CENTER + Vector2(0, -120), 40.0, 0.1)
 	check(so.pos.y > Sim.WALL_Y - 5.0, "no one walks through the shut gate")
+	# Men sent to storm the walls by a ladder climb it while the gate holds; others don't.
+	var climber = sim.squads[0].soldiers[1]
+	var lp: Vector2 = sim.ladder_points()[0]
+	climber.pos = lp + Vector2(0, 50)
+	sim.squads[0].use_ladders = true
+	for i in 120:
+		sim._walk(climber, lp + Vector2(0, -120), 40.0, 0.1)
+	check(climber.pos.y < Sim.WALL_Y - 15.0, "men sent up a ladder climb over the wall while the gate holds")
+	sim.squads[0].use_ladders = false
+	climber.pos = lp + Vector2(0, 50)
+	for i in 120:
+		sim._walk(climber, lp + Vector2(0, -120), 40.0, 0.1)
+	check(climber.pos.y > Sim.WALL_Y, "and men not sent to the ladders make for the gate")
+	var bows_on_wall := true
+	for sq in sim.squads:
+		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
+			bows_on_wall = bows_on_wall and absf(sq.center.y - Sim.WALL_Y) < 60.0
+	check(bows_on_wall, "the garrison's bows stand on the wall walk")
 	sim.gate_hp = 1.0
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.type == Troops.INFANTRY:
