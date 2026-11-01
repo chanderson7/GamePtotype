@@ -127,7 +127,34 @@ static func label(text: String, size: int = 22, color: Color = TEXT) -> Label:
 	l.text = text
 	l.add_theme_font_size_override("font_size", text_size(size))
 	l.add_theme_color_override("font_color", color)
+	if size >= TITLE_SIZE:
+		var face := display_font()
+		if face != null:
+			l.add_theme_font_override("font", face)
 	return l
+
+
+## Titles this size and up are set in the display face.
+const TITLE_SIZE := 48
+const DISPLAY_FONT := "res://assets/fonts/Cinzel-Bold.ttf"
+static var _display: Font = null
+static var _display_tried := false
+
+
+## Cinzel, a Roman-inscription serif (SIL Open Font License, see assets/fonts/OFL.txt),
+## for screen titles and names. Loaded straight from the file when the editor's import
+## cache isn't there.
+static func display_font() -> Font:
+	if _display_tried:
+		return _display
+	_display_tried = true
+	if ResourceLoader.exists(DISPLAY_FONT, "FontFile"):
+		_display = load(DISPLAY_FONT) as Font
+	elif FileAccess.file_exists(DISPLAY_FONT):
+		var f := FontFile.new()
+		if f.load_dynamic_font(DISPLAY_FONT) == OK:
+			_display = f
+	return _display
 
 
 static func presentation_settings() -> Node:

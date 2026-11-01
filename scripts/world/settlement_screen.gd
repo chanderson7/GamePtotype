@@ -195,12 +195,9 @@ func _chip(text: String, tone: Color) -> PanelContainer:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
 	chip.add_child(h)
-	var dot := Panel.new()
-	dot.custom_minimum_size = Vector2(14, 14)
-	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	dot.add_theme_stylebox_override("panel", Style.box(tone, Color(0, 0, 0, 0), 0, 7))
-	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	h.add_child(dot)
+	# A shape as well as a colour, so the good, middling and bad read without colour.
+	var shape := "▲" if tone == Style.MORALE_HIGH else ("◆" if tone == Style.MORALE_MID else "▼")
+	h.add_child(Style.label(shape, Style.SMALL, tone))
 	h.add_child(Style.label(text, Style.SMALL, Style.TEXT))
 	return chip
 
