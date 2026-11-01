@@ -16,6 +16,7 @@ const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -26,6 +27,9 @@ var _scroll: ScrollContainer
 var _arrival_overlay: Control
 var _arrival_dismissing := false
 var _info_sheet: Control
+## What the money and food tiles showed last, so a change can count up to the new value.
+var _shown_silver := -1
+var _shown_food := -1
 ## The open tab, remembered per place for the session, so a conversation or a purchase
 ## brings you back where you were.
 var tab := ""
@@ -209,39 +213,18 @@ func _add_wallet(col: VBoxContainer) -> void:
 	row.add_theme_constant_override("separation", 14)
 	col.add_child(row)
 	var days := GameState.food_days()
-	row.add_child(_tile("silver", _thousands(GameState.silver), "−%d a day" % GameState.daily_wages(), Style.TEXT))
-	row.add_child(_tile("food", "1 day" if days == 1 else "%d days" % days, "of food",
-		Style.ENEMY_LIGHT if days < 3 else Style.TEXT))
-
-
-func _tile(icon: String, value: String, sub: String, tone: Color) -> PanelContainer:
-	var tile := PanelContainer.new()
-	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 14)
-	tile.add_child(h)
-	var tex := TextureRect.new()
-	tex.texture = load("res://assets/ui/%s.svg" % icon)
-	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tex.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	tex.custom_minimum_size = Vector2(44, 44)
-	tex.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(tex)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 0)
-	h.add_child(v)
-	v.add_child(Style.label(value, Style.LARGE, tone))
-	v.add_child(Style.label(sub, Style.SMALL, Style.MUTED))
-	return tile
-
-
-static func _thousands(n: int) -> String:
-	var digits := str(absi(n))
-	var out := ""
-	while digits.length() > 3:
-		out = "," + digits.substr(digits.length() - 3) + out
-		digits = digits.substr(0, digits.length() - 3)
-	return ("-" if n < 0 else "") + digits + out
+	var silver_tile := Widgets.tile("silver", Widgets.thousands(GameState.silver), "−%d a day" % GameState.daily_wages())
+	var food_tile := Widgets.tile("food", "1 day" if days == 1 else "%d days" % days, "of food",
+		Style.ENEMY_LIGHT if days < 3 else Style.TEXT)
+	row.add_child(silver_tile)
+	row.add_child(food_tile)
+	# After a purchase the numbers count to their new values, and flash.
+	if _shown_silver >= 0 and _shown_silver != GameState.silver:
+		Widgets.tick_to(silver_tile.find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v))
+	if _shown_food >= 0 and _shown_food != days:
+		Widgets.tick_to(food_tile.find_child("Value", true, false), _shown_food, days, func(v): return "1 day" if v == 1 else "%d days" % v)
+	_shown_silver = GameState.silver
+	_shown_food = days
 
 
 ## One thing at a time: what's for sale, the company, paid work, the court, and your own
@@ -263,37 +246,7 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 		current = "fief" if ids.has("fief") else "buy"
 	tab = current
 
-	var bar := PanelContainer.new()
-	bar.name = "SettlementTabs"
-	var bar_box := Style.box(Style.PANEL, Style.RULE, 2, 18)
-	bar_box.content_margin_left = 6
-	bar_box.content_margin_right = 6
-	bar_box.content_margin_top = 6
-	bar_box.content_margin_bottom = 6
-	bar.add_theme_stylebox_override("panel", bar_box)
-	col.add_child(bar)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	bar.add_child(row)
-	for t in tabs:
-		var b := Button.new()
-		b.name = "Tab_%s" % t["id"]
-		b.text = String(t["label"]) + ("  %d" % t["badge"] if int(t["badge"]) > 0 else "")
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 72)
-		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
-		var on: bool = t["id"] == tab
-		var flat := Style.box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 14)
-		var lit := Style.box(Style.RAISED, Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
-		for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
-			b.add_theme_stylebox_override(state, lit if on else flat)
-		var ink := Style.TEXT if on else Style.MUTED
-		if int(t["badge"]) > 0 and not on:
-			ink = Style.BRASS
-		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-			b.add_theme_color_override(c, ink)
-		b.pressed.connect(_on_tab.bind(String(t["id"])))
-		row.add_child(b)
+	col.add_child(Widgets.tab_bar(tabs, tab, _on_tab, "SettlementTabs"))
 
 	var body := VBoxContainer.new()
 	body.name = "TabBody"

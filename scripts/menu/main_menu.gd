@@ -21,6 +21,7 @@ const Widgets = preload("res://scripts/ui/widgets.gd")
 var _scroll: ScrollContainer
 ## The open tab: camp, companies or deeds.
 var _tab := "camp"
+var _shown_silver := -1
 var _fallen_section: Control
 var _flicker: Tween
 
@@ -226,6 +227,9 @@ func _tiles() -> Control:
 		Widgets.tile("renown", "%d" % GameState.renown, "renown"),
 	], 2)
 	grid.name = "WarbandTiles"
+	if _shown_silver >= 0 and _shown_silver != GameState.silver:
+		Widgets.tick_to(grid.get_child(0).find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v))
+	_shown_silver = GameState.silver
 	return grid
 
 

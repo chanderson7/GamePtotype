@@ -567,6 +567,11 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 	if sim.place(Sim.PLAYER, selected_id, p) == null:
 		_hint("No room there. Try a more open spot.")
 		return
+	# The squad lands: a ring closes on the spot and dust kicks up.
+	if not Style.motion_reduced():
+		_burst(p, "land", Style.BRASS, 0.35)
+		_burst(p, "dust", _ground_dust(p), 0.45)
+	Sound.haptic()
 	_select_next_card()
 
 
@@ -2367,6 +2372,8 @@ func _draw_bursts() -> void:
 			"rout":
 				draw_arc(pos, 20.0 + 42.0 * t, 0.0, TAU, 30, color, 3.0)
 				draw_arc(pos, 9.0 + 25.0 * t, 0.0, TAU, 24, Color(color, color.a * 0.55), 2.0)
+			"land":
+				draw_arc(pos, 46.0 - 28.0 * t, 0.0, TAU, 32, Color(color, color.a * (1.0 - t)), 3.0)
 			"dust":
 				for i in 5:
 					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
