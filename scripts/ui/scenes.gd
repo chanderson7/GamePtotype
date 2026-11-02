@@ -9,6 +9,9 @@ const IN := 0.25
 var settings_return := "res://scenes/title.tscn"
 var tutorial_return := "res://scenes/title.tscn"
 var people_return := "res://scenes/world_map.tscn"
+var saves_return := "res://scenes/title.tscn"
+## The saves screen opens asking whether to go back to this save, once.
+var saves_confirm := ""
 ## People & Letters opens on this tab, or straight to this letter, once.
 var people_tab := ""
 var people_letter := ""

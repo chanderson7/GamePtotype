@@ -52,6 +52,7 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 - **Camp feels like home.** The Warband's camp shows every captain at the fire, ready or resting with wounds, each a tap from their profile, under the light of the hour. One optional moment at a time comes from what really happened: a captain mourned by the friend they were bonded to, the captain who fought hardest speaking of the last battle and where it was fought, a shortage, a wound.
 - **Consequences that linger.** Notable battles are recorded where they happened, and for three days the map marks them with crossed blades, and changes of hands with a fresh banner, before they fade into the chronicle.
 - **Saved as you go**, on the device (`user://campaign.json`): after every arrival, encounter and battle, and every few seconds on the road. Continue from the title screen.
+- **Saves of your own and going back**: up to 8 saves from the campaign menu, plus two the game keeps for you (just before your last battle, and when you last entered a settlement), in `user://saves/`. Revert, or tap any save, to see what going back would undo before it loads. An **Ironman** campaign (chosen at the start) has only the autosave.
 
 ### The battles
 
@@ -146,6 +147,7 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `scripts/world/settlement_screen.gd` | The settlement screen. Shows prices and passes taps to the campaign; never changes the rules. |
 | `scripts/ui/heraldry.gd` | Flags and troop glyphs, shared by the battle's standards and the map's pennants. |
 | `scripts/game_state.gd` | The campaign (an autoload): your culture, the warband, its purse, food and renown, hiring and training, daily upkeep, battle results and the save file. |
+| `scripts/save_slots.gd` | Saves beyond the autosave: your own (up to 8), before battle and on arrival, each with a summary so the list and the "what going back undoes" sheet never load a campaign. |
 | `scripts/ui/style.gd` | Shared colors and UI theme. |
 | `tests/run_tests.gd` | Headless checks of the rules. |
 | `tests/plans.gd` | Scripted players for the balance check, and a scripted campaign for the economy check. |

@@ -12,6 +12,7 @@ const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 
 
 var _tutorial: Button
+var _ironman: Button
 var _casual := false
 var _mode_holder: Control
 var _mode_note: Label
@@ -66,6 +67,28 @@ func _ready() -> void:
 	_mode_holder.size_flags_stretch_ratio = 1.4
 	options.add_child(_mode_holder)
 	_show_mode()
+	# Ironman: one save, kept as you go, and no going back.
+	var iron_row := PanelContainer.new()
+	var iron_box := Style.box(Style.PANEL, Style.RULE, 2, 18)
+	iron_box.content_margin_left = 18
+	iron_box.content_margin_right = 10
+	iron_box.content_margin_top = 10
+	iron_box.content_margin_bottom = 10
+	iron_row.add_theme_stylebox_override("panel", iron_box)
+	var iron_line := HBoxContainer.new()
+	iron_line.add_theme_constant_override("separation", 14)
+	iron_row.add_child(iron_line)
+	var iron_words := VBoxContainer.new()
+	iron_words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	iron_words.add_theme_constant_override("separation", 0)
+	iron_line.add_child(iron_words)
+	iron_words.add_child(Style.label("Ironman", Style.SMALL, Style.TEXT))
+	var iron_note := Style.label("One save, kept as you go. No saving your own, no going back.", 19, Style.MUTED)
+	iron_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	iron_words.add_child(iron_note)
+	_ironman = Widgets.switch(false, func(_on: bool): pass, "IronmanSwitch", "Ironman")
+	iron_line.add_child(_ironman)
+	col.add_child(iron_row)
 	_mode_note = Style.label("", Style.SMALL, Style.MUTED)
 	_mode_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(_mode_note)
@@ -154,6 +177,7 @@ func _on_pick(culture: String) -> void:
 	_starting = true
 	GameState.new_campaign(culture)
 	GameState.casual_mode = _casual
+	GameState.ironman = _ironman.button_pressed
 	GameState.save_game()
 	if _tutorial.button_pressed:
 		Scenes.tutorial_return = "res://scenes/world_map.tscn"

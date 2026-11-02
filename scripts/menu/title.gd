@@ -14,6 +14,7 @@ const Widgets = preload("res://scripts/ui/widgets.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
+const SaveSlots = preload("res://scripts/save_slots.gd")
 ## The light over the title's map: early morning.
 const DAWN := Color(1.0, 0.88, 0.76)
 
@@ -236,6 +237,22 @@ func _campaign_card() -> PanelContainer:
 	go.pressed.connect(_on_continue)
 	bv.add_child(go)
 	go.grab_focus.call_deferred()
+	# Your other saves, under Continue. Ironman has only the one.
+	var saves := SaveSlots.list().size()
+	if GameState.ironman:
+		var iron := Style.label("Ironman · saved as you go", 19, Style.MUTED)
+		iron.name = "IronmanNote"
+		iron.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		bv.add_child(iron)
+	elif saves > 0:
+		var load := Button.new()
+		load.name = "LoadSave"
+		load.text = "Load a save · %d" % saves
+		load.custom_minimum_size = Vector2(0, 84)
+		load.pressed.connect(func():
+			Scenes.saves_return = "res://scenes/title.tscn"
+			Scenes.go("res://scenes/saves.tscn"))
+		bv.add_child(load)
 	return card
 
 

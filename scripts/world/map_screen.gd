@@ -26,6 +26,7 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
+const SaveSlots = preload("res://scripts/save_slots.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 132.0
@@ -1306,7 +1307,7 @@ func _on_wait() -> void:
 
 
 func _on_enter() -> void:
-	GameState.save_game()
+	GameState.save_on_arrival(String(world.player().node))
 	Scenes.settlement_arrival_pending = true
 	Scenes.go("res://scenes/settlement.tscn")
 
@@ -1314,10 +1315,90 @@ func _on_enter() -> void:
 func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
-	_show_sheet("menu", "Campaign menu", "Time is paused. Your progress saves automatically.",
-		([["Next step", _open_recommendation, true], ["Journal", _open_journal], ["Warband", _on_warband], [_people_label(), _on_people], ["War & Politics", _open_wars]]
+	var saving: Array = [] if GameState.ironman else [["Save game", _on_save_game, true], ["Revert", _on_revert], ["All saves", _on_saves]]
+	_show_sheet("menu", "Campaign menu", "",
+		saving + ([["Next step", _open_recommendation, GameState.ironman], ["Journal", _open_journal], ["Warband", _on_warband], [_people_label(), _on_people], ["War & Politics", _open_wars]]
 		+ ([["Your Crown", _open_crown]] if GameState.is_crowned() else [])
 		+ [["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]]))
+	sheet_extra.add_child(_last_save_card())
+	sheet_extra.visible = true
+	if not GameState.ironman and SaveSlots.latest().is_empty():
+		for b in sheet_row.get_children():
+			if b is Button and b.text == "Revert":
+				b.disabled = true
+
+
+## When you last saved and what's happened since, or what Ironman means.
+func _last_save_card() -> Control:
+	var card := PanelContainer.new()
+	card.name = "LastSave"
+	var sb := Style.box(Style.NIGHT, Style.RULE, 2, 16)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 12
+	sb.content_margin_bottom = 12
+	card.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	card.add_child(row)
+	var words := VBoxContainer.new()
+	words.add_theme_constant_override("separation", 2)
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if GameState.ironman:
+		words.add_child(Style.label("Ironman", Style.BODY, Style.BRASS))
+		var n := Style.label("The game saves as you go. There's no going back.", Style.SMALL, Style.MUTED)
+		n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(n)
+		row.add_child(words)
+		return card
+	var last := SaveSlots.latest()
+	if last.is_empty():
+		words.add_child(Style.label("No saves yet", Style.BODY, Style.TEXT))
+		words.add_child(Style.label("Save to keep a moment you can come back to.", Style.SMALL, Style.MUTED))
+		row.add_child(words)
+		return card
+	var s: Dictionary = last["summary"]
+	var scene: Dictionary = s.get("scene", {})
+	if Style.illustrations_on() and not scene.is_empty():
+		var pic := SettlementVista.from_preset(scene, 86.0)
+		pic.custom_minimum_size = Vector2(194, 86)
+		pic.size_flags_horizontal = 0
+		row.add_child(pic)
+	words.add_child(Style.label("Last save: Day %d · %02d:00" % [int(s["day"]), int(s["hour"]) % 24], Style.BODY, Style.TEXT))
+	words.add_child(Style.label("%s · %s" % [last["name"], SaveSlots.when(float(last["saved"]))], Style.SMALL, Style.MUTED))
+	var fought := GameState.battles - int(s["battles"])
+	if fought > 0:
+		words.add_child(Style.label("%d battle%s fought since" % [fought, "" if fought == 1 else "s"], Style.SMALL, Style.MORALE_MID))
+	for c in words.get_children():
+		(c as Label).clip_text = true
+		(c as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(words)
+	return card
+
+
+func _on_save_game() -> void:
+	var e := SaveSlots.save_own(GameState)
+	if e.is_empty():
+		# All eight spaces are used: choose one to save over.
+		_on_saves()
+		return
+	GameState.save_game()
+	_on_menu()
+
+
+## Go back to the newest save, after seeing what it undoes.
+func _on_revert() -> void:
+	var last := SaveSlots.latest()
+	if last.is_empty():
+		return
+	Scenes.saves_confirm = String(last["id"])
+	_on_saves()
+
+
+func _on_saves() -> void:
+	GameState.save_game()
+	Scenes.saves_return = "res://scenes/world_map.tscn"
+	Scenes.go("res://scenes/saves.tscn")
 
 
 func _open_wars() -> void:
@@ -1719,7 +1800,7 @@ func _on_assault_answer(fight: bool) -> void:
 	GameState.answer_assault(fight)
 	_close_sheet()
 	if fight and not GameState.pending_battle.is_empty():
-		GameState.save_game()
+		GameState.save_before_battle()
 		Scenes.go("res://scenes/battle.tscn")
 	_refresh_hud()
 
@@ -1811,7 +1892,7 @@ func _on_storm(id: String) -> void:
 		_on_storm_send(id)
 		return
 	GameState.start_siege_battle(id)
-	GameState.save_game()
+	GameState.save_before_battle()
 	Scenes.go("res://scenes/battle.tscn")
 
 
@@ -1827,7 +1908,7 @@ func _on_storm_send(id: String) -> void:
 
 func _on_fight() -> void:
 	GameState.start_encounter_battle()
-	GameState.save_game()
+	GameState.save_before_battle()
 	Scenes.go("res://scenes/battle.tscn")
 
 

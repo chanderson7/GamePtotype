@@ -24,6 +24,7 @@ const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
+const SaveSlots = preload("res://scripts/save_slots.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -81,6 +82,8 @@ var desertion_warning := ""
 var autoplay_battles := 0
 ## Casual mode: captains suffer severe wounds instead of permanent death.
 var casual_mode := false
+## Ironman: the autosave is the only save. No saves of your own, no going back.
+var ironman := false
 ## Unique heroes recruited by the player.
 var hired_heroes: Array = []
 ## Active small settlement jobs / contracts accepted by the company.
@@ -123,6 +126,9 @@ func new_campaign(culture_id: String) -> void:
 	new_warband()
 	world = WorldSim.new()
 	world.setup(rng.randi(), culture)
+	# The last campaign's saves go with it.
+	if persist or SaveSlots.dir != SaveSlots.DEFAULT_DIR:
+		SaveSlots.clear()
 	save_game()
 
 
@@ -158,6 +164,7 @@ func new_warband() -> void:
 	company_title = ""
 	_heal_clock = 0.0
 	casual_mode = false
+	ironman = false
 	_next_id = 1
 	_next_captain = 1
 	renown = 0
@@ -2711,11 +2718,24 @@ func save_game() -> bool:
 	return DirAccess.rename_absolute(temporary, SAVE_PATH) == OK
 
 
+## Save, and keep this moment as the before-battle save, so a lost fight can be undone.
+func save_before_battle() -> void:
+	save_game()
+	SaveSlots.checkpoint(self, SaveSlots.BATTLE, "Before battle · " + String(pending_battle.get("name", "a fight")))
+
+
+## Save, and keep this moment as the save made on entering `id`.
+func save_on_arrival(id: String) -> void:
+	save_game()
+	if WorldData.SETTLEMENTS.has(id):
+		SaveSlots.checkpoint(self, SaveSlots.ARRIVAL, "Entering " + String(WorldData.settlement(id)["name"]))
+
+
 func to_dict() -> Dictionary:
 	return {"version": SAVE_VERSION, "culture": culture, "army": army, "fallen": fallen, "battles": battles,
 		"wins": wins, "next_id": _next_id, "next_captain": _next_captain,
 		"silver": silver, "food": food, "renown": renown, "paid_day": _paid_day,
-		"casual_mode": casual_mode, "hired_heroes": hired_heroes.duplicate(), "heal_clock": _heal_clock,
+		"casual_mode": casual_mode, "ironman": ironman, "hired_heroes": hired_heroes.duplicate(), "heal_clock": _heal_clock,
 		"realm_relations": realm_relations.duplicate(true), "lord_relations": lord_relations.duplicate(true),
 		"contract": contract.duplicate(true),
 		"bond_intro_seen": bond_intro_seen, "bond_intro_pair": bond_intro_pair, "bond_intro_ids": bond_intro_ids,
@@ -2747,6 +2767,7 @@ func from_dict(data: Dictionary) -> bool:
 		world.from_dict(data["world"])
 	battles = int(data.get("battles", 0))
 	casual_mode = bool(data.get("casual_mode", false))
+	ironman = bool(data.get("ironman", false))
 	hired_heroes = data.get("hired_heroes", []) if typeof(data.get("hired_heroes")) == TYPE_ARRAY else []
 	active_jobs = data.get("active_jobs", []).duplicate(true) if typeof(data.get("active_jobs")) == TYPE_ARRAY else []
 	completed_jobs = data.get("completed_jobs", []).duplicate(true) if typeof(data.get("completed_jobs")) == TYPE_ARRAY else []

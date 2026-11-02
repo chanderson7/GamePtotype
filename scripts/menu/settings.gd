@@ -3,6 +3,7 @@ extends Control
 const Page = preload("res://scripts/ui/menu_page.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
+const SaveSlots = preload("res://scripts/save_slots.gd")
 
 func _ready() -> void:
 	_build()
@@ -37,6 +38,12 @@ func _build() -> void:
 		GameState.save_game()
 		_build(), "CampaignMode"))
 	col.add_child(Page.note("In Iron Company, fallen captains can die for good. In Casual, they take severe wounds instead.", Style.SMALL))
+	if GameState.has_campaign():
+		col.add_child(Page.note("SAVING"))
+		var saving := Page.note("Ironman: the game keeps one save as you go, and there's no going back. Chosen when the campaign began." if GameState.ironman
+			else "Save your own from the campaign menu (up to %d). The game also keeps one before each battle and one when you enter a settlement." % SaveSlots.MAX_OWN, Style.SMALL)
+		saving.name = "SavingNote"
+		col.add_child(saving)
 	col.add_child(Page.note("LEARN TO PLAY"))
 	col.add_child(Page.button("Open tutorial", func():
 		Scenes.tutorial_return = "res://scenes/settings.tscn"

@@ -11,6 +11,8 @@ const FRAME := 1.0 / 8.0
 
 var place := ""
 var world = null
+## A scene kept with a save: painted as it was then, not as the place is now.
+var preset := {}
 ## Darken the bottom of the picture so a title set on it reads.
 var fade := false
 
@@ -41,11 +43,21 @@ func _ready() -> void:
 	resized.connect(_fit)
 
 
+## The scene from a save's summary (SettlementScene.params, kept as it was).
+static func from_preset(params: Dictionary, height: float = 120.0) -> Control:
+	var vista := make(String(params.get("id", "")), null, height)
+	vista.preset = params.duplicate(true)
+	return vista
+
+
 ## Paints the scene again from the world as it is now.
 func refresh() -> void:
-	if place == "" or not Data.SETTLEMENTS.has(place):
+	if not preset.is_empty():
+		_scene = SettlementScene.build(preset)
+	elif place == "" or not Data.SETTLEMENTS.has(place):
 		return
-	_scene = SettlementScene.build(SettlementScene.params(world, place))
+	else:
+		_scene = SettlementScene.build(SettlementScene.params(world, place))
 	_sky = ImageTexture.create_from_image(_scene["sky"])
 	_front = ImageTexture.create_from_image(_scene["front"])
 	_clouds = ImageTexture.create_from_image(_scene["clouds"]) if _scene["clouds"] != null else null
