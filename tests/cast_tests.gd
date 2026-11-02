@@ -47,7 +47,9 @@ func _init() -> void:
 	map._close_sheet()
 	var lp = w.party(int(a["party"]))
 	map._open_lord(lp)
-	check(map.sheet_lord_row.visible and map.sheet_title.text == lp.name, "a lord's sheet shows his face and banner")
+	var header = map.sheet_extra.find_child("SheetHeader", true, false)
+	check(header != null and header.find_child("SheetName", true, false).text == lp.name and header.get_child_count() >= 3,
+		"a lord's sheet shows his face, banner and name")
 	map._open_wars()
 	check(not map.sheet_lord_row.visible, "and other sheets don't")
 

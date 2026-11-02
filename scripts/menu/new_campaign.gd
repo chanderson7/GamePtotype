@@ -7,10 +7,14 @@ const Cultures = preload("res://scripts/data/cultures.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 
 
 var _tutorial: Button
-var _mode_button: Button
+var _casual := false
+var _mode_holder: Control
+var _mode_note: Label
 var _starting := false
 
 func _ready() -> void:
@@ -39,18 +43,33 @@ func _ready() -> void:
 		+ "and starts at its capital. You can ride anywhere.", Style.SMALL, Style.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(intro)
-	_tutorial = Button.new()
-	_tutorial.toggle_mode = true
-	_tutorial.text = "Tutorial: off (optional)"
-	_tutorial.toggled.connect(func(on: bool): _tutorial.text = "Tutorial: %s (optional)" % ("on" if on else "off"))
-	_tutorial.custom_minimum_size.y = Style.TOUCH
-	col.add_child(_tutorial)
-	_mode_button = Button.new()
-	_mode_button.toggle_mode = true
-	_mode_button.text = "Mode: Iron Company (Default)"
-	_mode_button.toggled.connect(func(on: bool): _mode_button.text = "Mode: Casual (Captains survive severe wounds)" if on else "Mode: Iron Company (Default)")
-	_mode_button.custom_minimum_size.y = Style.TOUCH
-	col.add_child(_mode_button)
+	# The tutorial as a switch, the mode as a choice of two, side by side.
+	var options := HBoxContainer.new()
+	options.add_theme_constant_override("separation", 14)
+	col.add_child(options)
+	var tut_row := PanelContainer.new()
+	tut_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var tut_box := Style.box(Style.PANEL, Style.RULE, 2, 18)
+	tut_box.content_margin_left = 18
+	tut_box.content_margin_right = 10
+	tut_row.add_theme_stylebox_override("panel", tut_box)
+	var tut_line := HBoxContainer.new()
+	tut_row.add_child(tut_line)
+	var tut_label := Style.label("Tutorial", Style.SMALL, Style.TEXT)
+	tut_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tut_line.add_child(tut_label)
+	_tutorial = Widgets.switch(false, func(_on: bool): pass, "TutorialSwitch", "Tutorial")
+	tut_line.add_child(_tutorial)
+	options.add_child(tut_row)
+	_mode_holder = MarginContainer.new()
+	_mode_holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_mode_holder.size_flags_stretch_ratio = 1.4
+	options.add_child(_mode_holder)
+	_show_mode()
+	_mode_note = Style.label("", Style.SMALL, Style.MUTED)
+	_mode_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(_mode_note)
+	_show_mode()
 	# The people picked on Home comes first, lit.
 	var pick := Scenes.new_campaign_pick
 	Scenes.new_campaign_pick = ""
@@ -76,12 +95,29 @@ func _ready() -> void:
 	col.add_child(back)
 
 
+## Iron Company or Casual, the picked one lit, with what it means underneath.
+func _show_mode() -> void:
+	for c in _mode_holder.get_children():
+		c.queue_free()
+	_mode_holder.add_child(Widgets.segmented(["Iron Company", "Casual"], 1 if _casual else 0, func(i: int):
+		_casual = i == 1
+		_show_mode(), "ModeChoice"))
+	if _mode_note != null:
+		_mode_note.text = "Casual: captains survive what would kill them, with severe wounds." if _casual else "Iron Company: fallen captains can die for good."
+
+
 func _card(culture: String) -> Control:
 	var info := Cultures.info(culture)
 	var panel := PanelContainer.new()
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
 	panel.add_child(v)
+	# The card opens on the capital's gate, so the choice looks like a place.
+	var capital_id := String(WorldData.capital_of_culture(culture))
+	if Style.illustrations_on():
+		var scene := SettlementVista.make(capital_id, null, 260.0)
+		scene.name = "CapitalScene_%s" % culture
+		v.add_child(scene)
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
@@ -117,7 +153,7 @@ func _on_pick(culture: String) -> void:
 		return
 	_starting = true
 	GameState.new_campaign(culture)
-	GameState.casual_mode = _mode_button.button_pressed
+	GameState.casual_mode = _casual
 	GameState.save_game()
 	if _tutorial.button_pressed:
 		Scenes.tutorial_return = "res://scenes/world_map.tscn"

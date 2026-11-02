@@ -101,10 +101,16 @@ func _draw() -> void:
 			draw_rect(Rect2(l.x, l.y, 1, 2), Color("c9473d"))
 	draw_set_transform(Vector2.ZERO)
 	if fade:
-		var h := size.y * 0.5
+		# Darkest under the title, easing out two thirds of the way up.
+		var top_y := size.y * 0.34
+		var mid_y := size.y * 0.62
 		var clear := Color(Style.NIGHT, 0.0)
-		draw_polygon(PackedVector2Array([Vector2(0, size.y - h), Vector2(size.x, size.y - h), Vector2(size.x, size.y), Vector2(0, size.y)]),
-			PackedColorArray([clear, clear, Color(Style.NIGHT, 0.9), Color(Style.NIGHT, 0.9)]))
+		var half := Color(Style.NIGHT, 0.6)
+		var dark := Color(Style.NIGHT, 0.94)
+		draw_polygon(PackedVector2Array([Vector2(0, top_y), Vector2(size.x, top_y), Vector2(size.x, mid_y), Vector2(0, mid_y)]),
+			PackedColorArray([clear, clear, half, half]))
+		draw_polygon(PackedVector2Array([Vector2(0, mid_y), Vector2(size.x, mid_y), Vector2(size.x, size.y), Vector2(0, size.y)]),
+			PackedColorArray([half, half, dark, dark]))
 
 
 ## A plume that widens and leans downwind as it rises, thinning out, its puffs moving up.

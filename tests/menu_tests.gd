@@ -140,8 +140,9 @@ func _run() -> void:
 	check(current_scene.sheet_title.text == "Food" and current_scene.sheet_body.text.contains("rations"), "resource icons explain their values when tapped")
 	current_scene._close_sheet()
 	current_scene._open_preview("highcliff")
-	check(current_scene.sheet_body.text.contains("Kingdom of Vardmark") and current_scene.sheet_body.text.contains("away")
-		and not current_scene.sheet_body.text.contains("Why it matters:") and current_scene.sheet_body.text.split("\n").size() <= 3,
+	var extra = current_scene.sheet_extra
+	check(extra.find_child("SheetHeader", true, false) != null and _has_text(extra, "Kingdom of Vardmark") and _has_text(extra, "away")
+		and not _has_text(extra, "Why it matters:") and current_scene.sheet_body.text == "",
 		"settlement preview stays brief: what it is, who holds it and how far (the details wait inside)")
 	current_scene._close_sheet()
 	gs.world.emit_event({"type": "fight", "winner": "King Aldwin", "loser": "a raiding band", "at": "highcliff"})
@@ -219,12 +220,11 @@ func _run() -> void:
 	check(current_scene.find_children("CaptainAndTroopArt", "HBoxContainer", true, false).size() == gs.army.size(),
 		"captain portraits keep their tactical troop icons beside them")
 	check(button("Music: on") == null, "Warband no longer houses audio settings")
-	var sort: OptionButton = current_scene.find_child("WarbandSort", true, false)
-	sort.select(4)
-	sort.item_selected.emit(4)
+	var sort = current_scene.find_child("WarbandSort", true, false)
+	sort.find_child("Tab_4", true, false).pressed.emit()
 	await process_frame
 	await process_frame
-	check(scenes.warband_sort == 4 and current_scene.find_child("WarbandSort", true, false).selected == 4,
+	check(scenes.warband_sort == 4 and int(current_scene.find_child("WarbandSort", true, false).get_meta("picked", -1)) == 4,
 		"Warband remembers the selected captain-name sort")
 	var camp_talk := button("Spend time at camp · new")
 	check(camp_talk != null and _has_text(current_scene, "shared battle") and _has_text(current_scene, "morale each second"),

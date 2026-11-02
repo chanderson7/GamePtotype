@@ -20,6 +20,7 @@ const Lords = preload("res://scripts/data/lords.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Troops = preload("res://scripts/data/troops.gd")
@@ -638,8 +639,10 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> v
 		c.queue_free()
 	sheet_extra.visible = false
 	sheet_title.text = title
+	sheet_title.visible = true
 	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
 	sheet_body.text = body
+	sheet_body.visible = body != ""
 	sheet_row.columns = 1 if buttons.size() <= 1 else 2
 	for c in sheet_row.get_children():
 		c.queue_free()
@@ -689,8 +692,22 @@ func _open_preview(id: String) -> void:
 	var danger: String = world.settlement_danger(id)
 	if danger != "":
 		body += "\n" + danger.substr(0, 1).to_upper() + danger.substr(1) + "."
-	_show_sheet("preview", String(Data.settlement(id)["name"]), body,
+	_show_sheet("preview", String(Data.settlement(id)["name"]), "",
 		[["Ride there", _on_travel.bind(id), true], ["Close", _close_sheet]])
+	if Style.illustrations_on():
+		var scene := SettlementVista.make(id, world, 200.0)
+		scene.name = "PreviewScene"
+		sheet_extra.add_child(scene)
+	var owner := String(world.owner_of(id))
+	var rel := String(world.relation_to_player(owner))
+	var chips := [Widgets.chip("%s away%s" % [_hours_text(hours), sea], Style.MORALE_MID, "◆")]
+	if rel == "hostile":
+		chips.append(Widgets.chip("At war with your realm", Style.MORALE_LOW))
+	if danger != "":
+		chips.append(Widgets.chip(danger.split(";")[0].split(":")[0].capitalize(), Style.MORALE_LOW))
+	else:
+		chips.append(Widgets.chip("Quiet roads", Style.MORALE_HIGH))
+	_sheet_header(null, owner, String(Data.settlement(id)["name"]), world.brief(id), chips)
 
 
 func _open_here() -> void:
@@ -720,11 +737,108 @@ func _open_here() -> void:
 
 
 func _open_band(b) -> void:
-	var men := 0
-	for sq in b.army:
-		men += int(sq["men"])
-	_show_sheet("band", b.name, "Bandits roaming the %s: %d squads, %d men. Ride into them to fight.\n%s." % [
-		Data.FACTIONS[b.faction]["name"], b.army.size(), men, _pace_text(b)], [["Close", _close_sheet]])
+	var men: int = world.men_of(b.army)
+	var near := _near_place(world.party_pos(b))
+	var what := "Raiding %s" % Data.settlement(b.raid_village)["name"] if b.raiding and Data.SETTLEMENTS.has(b.raid_village) else "Roaming near %s" % near
+	_show_sheet("band", b.name, "%d squads of the %s's outlaws. Ride into them to fight." % [b.army.size(), _realm_short(b.faction)],
+		[["Ride at them", _on_ride_at.bind(b), true], ["Close", _close_sheet]])
+	var kind := "wako" if String(b.name).contains("Wako") else Data.culture_of(b.faction)
+	var pic := _sprite_picture("outlaws/" + kind if MapArt.has("outlaws/" + kind) else "bandits", Color("4a4038"), Data.culture_of(b.faction))
+	_sheet_header(pic, "bandits", b.name, "Outlaws of %s" % _realm_short(b.faction),
+		[_men_chip(men), _pace_chip(b), Widgets.chip(what, Style.MORALE_LOW if b.raiding else Style.MORALE_MID)])
+
+
+## Ride for where a band is heading, to meet it on the road.
+func _on_ride_at(b) -> void:
+	var to: String = b.node
+	if b.moving() and b.next != "" and b.along > world.road_length(b.node, b.next) * 0.5:
+		to = b.next
+	if world.travel(to) or world.here() == to:
+		_close_sheet()
+
+
+## The settlement nearest a point on the map, by name.
+func _near_place(at: Vector2) -> String:
+	var best := ""
+	var dist := INF
+	for id in Data.SETTLEMENTS:
+		var d := at.distance_to(Data.pos(id))
+		if d < dist:
+			dist = d
+			best = String(Data.settlement(id)["name"])
+	return best
+
+
+## How a party's men compare with yours, as a chip.
+func _men_chip(men: int, about: bool = false) -> PanelContainer:
+	var mine := maxf(1.0, float(GameState.total_men()))
+	var ratio := float(men) / mine
+	var text := ("About %d men" % (int(round(men / 10.0)) * 10)) if about else "%d men" % men
+	if ratio > 1.25:
+		return Widgets.chip(text + " · stronger", Style.MORALE_LOW, "▲")
+	if ratio < 0.8:
+		return Widgets.chip(text + " · weaker", Style.MORALE_HIGH, "▼")
+	return Widgets.chip(text + " · evenly matched", Style.MORALE_MID, "◆")
+
+
+## Who's quicker on the road, as a chip.
+func _pace_chip(p) -> PanelContainer:
+	var theirs: float = world.party_speed(p)
+	var mine: float = world.player_speed()
+	if theirs > mine * 1.02:
+		return Widgets.chip("They're faster (%d to %d)" % [roundi(theirs), roundi(mine)], Style.MORALE_LOW)
+	if theirs < mine * 0.98:
+		return Widgets.chip("You're faster (%d to %d)" % [roundi(mine), roundi(theirs)], Style.MORALE_HIGH)
+	return Widgets.chip("As quick as you (%d)" % roundi(mine), Style.MORALE_MID)
+
+
+## A map sprite on a patch of its own ground, scaled up crisp, for a sheet's picture.
+func _sprite_picture(sprite: String, color: Color, culture: String) -> Control:
+	var panel := PanelContainer.new()
+	var ground := {"kharzani": Color("b89a62"), "ryumon": Color("5f8a62")}.get(culture, Color("5d7a40")) as Color
+	panel.add_theme_stylebox_override("panel", Style.box(ground, Style.RULE, 2, 14))
+	panel.custom_minimum_size = Vector2(150, 96)
+	var pic := TextureRect.new()
+	pic.texture = MapArt.texture(sprite, 0, color)
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.custom_minimum_size = Vector2(140, 88)
+	panel.add_child(pic)
+	return panel
+
+
+## The top of a sheet: a picture, the realm's banner, the name and a line about it, then a
+## row of chips. Replaces the plain title.
+func _sheet_header(pic: Control, realm: String, title: String, sub: String, chips: Array) -> void:
+	sheet_title.visible = false
+	sheet_lord_row.visible = false
+	sheet_extra.visible = true
+	var row := HBoxContainer.new()
+	row.name = "SheetHeader"
+	row.add_theme_constant_override("separation", 14)
+	if pic != null:
+		pic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(pic)
+	if realm != "":
+		var flag := Widgets.banner(realm, Vector2(44, 60))
+		flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(flag)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	words.add_theme_constant_override("separation", 2)
+	var name_label := Style.label(title, Style.LARGE, Style.TEXT)
+	name_label.name = "SheetName"
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(name_label)
+	var sub_label := Style.label(sub, Style.SMALL, Style.MUTED)
+	sub_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(sub_label)
+	row.add_child(words)
+	sheet_extra.add_child(row)
+	if not chips.is_empty():
+		sheet_extra.add_child(Widgets.chip_row(chips))
 
 
 ## A lord on the road: who he is, how strong, and what he's about.
@@ -772,8 +886,19 @@ func _open_lord(lp) -> void:
 	elif rel == "neutral":
 		buttons.append(["Attack", _on_attack_lord.bind(lp), true])
 	buttons.append(["Close", _close_sheet])
-	_show_sheet("lord", lp.name, body, buttons)
-	_show_lord_header(l)
+	_show_sheet("lord", lp.name, "%s. %s: %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, "")], buttons)
+	var face := TextureRect.new()
+	face.texture = CaptainArt.texture(LordVoice.portrait_record(l))
+	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	face.custom_minimum_size = Vector2(72, 92)
+	var realm_id := String(l.get("realm", lp.faction))
+	var rel_chip := Widgets.chip({"hostile": "At war with you", "friendly": "Friendly", "allied": "Your ally", "employer": "Your employer"}.get(rel, "Neutral"),
+		Style.MORALE_LOW if rel == "hostile" else (Style.MORALE_HIGH if rel in ["friendly", "allied", "employer"] else Style.MORALE_MID))
+	_sheet_header(face, realm_id if Heraldry.REALM_SIZES.has(realm_id) else _party_realm(lp), lp.name,
+		("Ruler" if l.get("ruler", false) else "Lord") + " of %s · %d squads" % [_realm_short(lp.faction), lp.army.size()],
+		[_men_chip(men, not GameState.has_specialization(Captains.SCOUT)), _pace_chip(lp), Widgets.chip(_lord_doing(l, lp), Style.MORALE_MID, "◆"), rel_chip])
 
 
 func _on_attack_lord(lp) -> void:
@@ -1196,54 +1321,97 @@ func _on_menu() -> void:
 
 
 func _open_wars() -> void:
-	var lines: Array[String] = []
-	lines.append("=== WARS & TRUCES ===")
-	if world.wars.is_empty():
-		lines.append("All realms are currently at peace.")
-	else:
-		for k in world.wars:
-			var parts: PackedStringArray = k.split("|")
-			var r0: String = Data.FACTIONS[parts[0]]["name"]
-			var r1: String = Data.FACTIONS[parts[1]]["name"]
-			var days_war: int = int((world.hour - float(world.wars[k].get("since", 0.0))) / 24.0)
-			lines.append("• %s vs %s · %d days at war" % [r0, r1, days_war])
-
-	if not world.truces.is_empty():
-		for k in world.truces:
-			var parts: PackedStringArray = k.split("|")
-			var r0: String = Data.FACTIONS[parts[0]]["name"]
-			var r1: String = Data.FACTIONS[parts[1]]["name"]
-			var days_left: int = int(ceil(maxf(0.0, float(world.truces[k].get("until", 0.0)) - world.hour) / 24.0))
-			lines.append("• Truce: %s and %s · %d days remaining" % [r0, r1, days_left])
-
-	if not world.tributes.is_empty():
-		for t in world.tributes:
-			var f_name: String = Data.FACTIONS[t["from"]]["name"]
-			var to_name: String = Data.FACTIONS[t["to"]]["name"]
-			lines.append("• Tribute: %s pays %d silver/day to %s (%d days left)" % [f_name, t["daily"], to_name, t["days_left"]])
-
-	lines.append("\n=== REALMS ===")
-	for f in ["vardmark", "kharzan", "ryumon"] + ([Data.CROWN] if GameState.is_crowned() else []):
-		var fn: String = Data.FACTIONS[f]["name"]
-		var str_val: int = world.realm_strength(f)
+	_show_sheet("wars", "War & Politics", "", [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_sheet, true]])
+	sheet_extra.visible = true
+	# The realms: each with its banner, its strength against the strongest, how weary of
+	# war it is, and what it holds.
+	sheet_extra.add_child(Widgets.section("Realms"))
+	var realms: Array = ["vardmark", "kharzan", "ryumon"] + ([Data.CROWN] if GameState.is_crowned() else [])
+	var strongest := 1
+	for f in realms:
+		strongest = maxi(strongest, int(world.realm_strength(f)))
+	for f in realms:
+		var row := HBoxContainer.new()
+		row.name = "Realm_%s" % f
+		row.add_theme_constant_override("separation", 16)
+		row.add_child(Widgets.banner(f, Vector2(54, 72)))
+		var col := VBoxContainer.new()
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_theme_constant_override("separation", 4)
+		row.add_child(col)
+		var holdings: int = world.holdings_of(f).size()
+		col.add_child(Style.label(String(Data.FACTIONS[f]["name"]), Style.BODY, Style.TEXT))
+		col.add_child(Style.label("%s · %d holding%s" % [String(Data.FACTIONS[f].get("ruler", "")), holdings, "" if holdings == 1 else "s"], Style.SMALL, Style.MUTED))
+		var men: int = world.realm_strength(f)
 		var wear: float = world.weariness_of(f)
-		var holdings_count: int = world.holdings_of(f).size()
-		lines.append("• %s: %d men · Weariness %d%% · %d holdings" % [fn, str_val, int(wear), holdings_count])
-
-	lines.append("\n=== RECENT WAR EVENTS ===")
-	var event_count := 0
+		var grid := GridContainer.new()
+		grid.columns = 3
+		grid.add_theme_constant_override("h_separation", 12)
+		grid.add_theme_constant_override("v_separation", 4)
+		col.add_child(grid)
+		grid.add_child(Style.label("Strength", Style.SMALL, Style.MUTED))
+		grid.add_child(Widgets.meter(float(men) / strongest, Color(String(REALM_INK.get(f, "a9c4ff")))))
+		grid.add_child(Style.label("%d men" % men, Style.SMALL, Style.TEXT))
+		grid.add_child(Style.label("Weariness", Style.SMALL, Style.MUTED))
+		grid.add_child(Widgets.meter(wear / 100.0, Style.MORALE_LOW))
+		grid.add_child(Style.label("%d%%" % int(wear), Style.SMALL, Style.TEXT))
+		sheet_extra.add_child(row)
+	# Wars and truces, banner against banner.
+	sheet_extra.add_child(Widgets.section("Wars & truces"))
+	var pairs := 0
+	for k in world.wars:
+		var parts: PackedStringArray = k.split("|")
+		var days := int((world.hour - float(world.wars[k].get("since", 0.0))) / 24.0)
+		sheet_extra.add_child(_versus(parts[0], parts[1], "at war · %s" % ("since today" if days < 1 else "%d day%s" % [days, "" if days == 1 else "s"]), Style.MORALE_LOW, "⚔"))
+		pairs += 1
+	for k in world.truces:
+		var parts: PackedStringArray = k.split("|")
+		var left := int(ceil(maxf(0.0, float(world.truces[k].get("until", 0.0)) - world.hour) / 24.0))
+		sheet_extra.add_child(_versus(parts[0], parts[1], "truce · %d day%s left" % [left, "" if left == 1 else "s"], Style.MORALE_HIGH, "☮"))
+		pairs += 1
+	if pairs == 0:
+		sheet_extra.add_child(Style.label("Every realm is at peace.", Style.SMALL, Style.MUTED))
+	for t in world.tributes:
+		sheet_extra.add_child(Style.label("%s pays %s %d silver a day · %d days left" % [_realm_short(t["from"]), _realm_short(t["to"]), int(t["daily"]), int(t["days_left"])], Style.SMALL, Style.MUTED))
+	# The latest news of war, with the day.
+	sheet_extra.add_child(Widgets.section("Lately"))
+	var shown := 0
 	for entry in world.activity_log:
-		var kind: String = entry.get("type", "")
-		if kind in ["war", "peace", "captured", "fight", "siege_assault"]:
-			var h := int(float(entry.get("hour", 0.0)))
-			lines.append("Day %d · %s" % [h / 24 + 1, entry.get("text", "")])
-			event_count += 1
-			if event_count >= 5:
+		if String(entry.get("type", "")) in ["war", "peace", "captured", "fight", "siege_assault"]:
+			var news := Style.label("Day %d · %s" % [int(float(entry.get("hour", 0.0))) / 24 + 1, String(entry.get("text", ""))], Style.SMALL, Style.TEXT)
+			news.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			sheet_extra.add_child(news)
+			shown += 1
+			if shown >= 3:
 				break
-	if event_count == 0:
-		lines.append("No recent major battles or captures.")
+	if shown == 0:
+		var quiet := Style.label("No great battles or captures yet. When a castle falls or a truce is signed, it's told here.", Style.SMALL, Style.MUTED)
+		quiet.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		sheet_extra.add_child(quiet)
 
-	_show_sheet("wars", "War & Politics", "\n".join(lines), [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_sheet, true]])
+
+const REALM_INK := {"vardmark": "4a74d1", "kharzan": "d9962b", "ryumon": "c9473d", "crown": "8a7cc0"}
+const REALM_SHORT := {"vardmark": "Vardmark", "kharzan": "Kharzan", "ryumon": "Ryumon", "crown": "the Crown"}
+
+
+func _realm_short(f: String) -> String:
+	return String(REALM_SHORT.get(f, Data.FACTIONS.get(f, {}).get("name", f)))
+
+
+## One war or truce: both realms' banners and names, and what stands between them.
+func _versus(a: String, b: String, text: String, tone: Color, mark: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.add_child(Widgets.banner(a, Vector2(34, 46)))
+	var left := Style.label(_realm_short(a), Style.SMALL, Style.TEXT)
+	row.add_child(left)
+	var mid := Style.label("%s %s" % [mark, text], Style.SMALL, tone)
+	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mid.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	row.add_child(mid)
+	row.add_child(Style.label(_realm_short(b), Style.SMALL, Style.TEXT))
+	row.add_child(Widgets.banner(b, Vector2(34, 46)))
+	return row
 
 
 # ---------------------------------------------------------------- journal
@@ -2355,46 +2523,68 @@ func _draw_labels() -> void:
 			labels.draw_circle(c, 26.0 * px * 0.5, Color(LAMP, 0.10 * night))
 			labels.draw_circle(c, 14.0 * px * 0.5, Color(LAMP, 0.14 * night))
 	_draw_route()
+	_taken.clear()
 	for id in Data.SETTLEMENTS:
 		var s := Data.settlement(id)
 		var size := Style.SMALL if s["type"] != Data.VILLAGE else 19
 		_name_plate(_to_screen(s["pos"]) + Vector2(0, 8.0 + px * 2.0), String(s["name"]), size,
 			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
+	# Parties' plates step up out of the way of any name already placed.
 	for b in world.bands():
 		if px >= 2.0:
 			var b_col := Color("e8d9c0")
 			if px < 2.5:
 				b_col.a = clampf((px - 2.0) / 0.5, 0.3, 1.0)
-			_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -21.0 * px - 6.0), b.name, 17, b_col,
-				Color(Style.ENEMY_LIGHT, b_col.a * 0.8), world.men_of(b.army))
-	# Lords' names only once you're looking closely, or the map drowns in them.
+			_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -21.0 * px - 6.0), b.name, PARTY_PLATE, b_col,
+				Color(Style.ENEMY_LIGHT, b_col.a * 0.8), world.men_of(b.army), true)
+	# Lords' names only once you're looking closely, or the map drowns in them. The plate
+	# shows the name they go by; the full title is on their sheet.
 	if px >= LORD_NAMES_PX:
 		for lp in world.visible_lord_parties():
 			var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
+			var ink := Cultures.color(Data.culture_of(lp.faction)).lightened(0.6)
 			if not army.is_empty() and army["state"] != "gathering":
 				if lp.id != int(army["leader"]):
 					if px < 2.8:
 						continue
-					_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -21.0 * px - 6.0), "%s (Cohort)" % lp.name, 14,
-						Cultures.color(Data.culture_of(lp.faction)).lightened(0.35))
+					_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -21.0 * px - 6.0), "%s's cohort" % short_lord_name(lp.name), PARTY_PLATE - 2,
+						ink, Color(0, 0, 0, 0), -1, true)
 					continue
 				var total_men := 0
 				for m in world.MarshalArmies.members(world, army):
 					total_men += world.men_of(m.army)
-				var title := "MARSHAL ARMY · %s (%d men)" % [lp.name, total_men]
-				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -25.0 * px - 6.0), title, 16,
-					Cultures.color(Data.culture_of(lp.faction)).lightened(0.55))
+				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -25.0 * px - 6.0), "Marshal %s" % short_lord_name(lp.name), PARTY_PLATE,
+					ink, Style.BRASS, total_men, true)
 			else:
 				var rel := String(world.relation_to_player(lp.faction))
 				var edge := Style.ENEMY_LIGHT if rel == "hostile" else (Style.BRASS if rel in ["friendly", "allied", "employer"] else Color("6d7699"))
-				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -32.0 * px - 6.0), String(lp.name), 15,
-					Cultures.color(Data.culture_of(lp.faction)).lightened(0.45), edge, world.men_of(lp.army))
+				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -32.0 * px - 6.0), short_lord_name(lp.name), PARTY_PLATE,
+					ink, edge, world.men_of(lp.army), true)
+
+
+## Text size of a party's name plate: the same as a village's name.
+const PARTY_PLATE := 19
+## Words that come before a lord's own name, dropped on the map's plates.
+const LORD_TITLES := ["Lord", "Lady", "Ser", "Sir", "Dame", "Emir", "Emira", "Bey", "Amir", "Sheikh", "Daimyo", "Lady-Daimyo", "Tono", "Hime"]
+## Plates already placed this frame, so later ones can step out of their way.
+var _taken: Array[Rect2] = []
+
+
+## The name a lord goes by on the map: "Lord Ansel Brightwater" is "Ansel". Rulers keep
+## their title ("King Aldwin"), which is short already.
+static func short_lord_name(full: String) -> String:
+	var words := full.split(" ", false)
+	if words.size() >= 2 and LORD_TITLES.has(words[0]):
+		return words[1]
+	if words.size() >= 3:
+		return "%s %s" % [words[0], words[1]]
+	return full
 
 
 ## A name on a dark plate, centered on `at` (the plate's top edge).
 ## `edge` rings the plate (red for enemies, brass for friends); `men` >= 0 adds a chip
 ## with how they compare with you.
-func _name_plate(at: Vector2, text: String, size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1) -> void:
+func _name_plate(at: Vector2, text: String, size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1, dodge: bool = false) -> void:
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var chip_text := ""
 	var chip_w := 0.0
@@ -2404,6 +2594,17 @@ func _name_plate(at: Vector2, text: String, size: int, color: Color, edge: Color
 		chip_text = "%s %d" % [mark[0], men]
 		chip_w = font.get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, size - 3).x + 14.0
 	var rect := Rect2(at + Vector2(-(w + chip_w) * 0.5 - 8.0, 0.0), Vector2(w + chip_w + 16.0 + (6.0 if chip_w > 0.0 else 0.0), size + 8.0))
+	if dodge:
+		for attempt in 4:
+			var hit := false
+			for other in _taken:
+				if other.grow(2.0).intersects(rect):
+					hit = true
+					break
+			if not hit:
+				break
+			rect.position.y -= rect.size.y + 4.0
+	_taken.append(rect)
 	if _plate == null:
 		_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
 	if edge.a > 0.0:

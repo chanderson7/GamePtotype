@@ -369,38 +369,75 @@ func _camp_moment() -> Control:
 func _deeds_panel() -> Control:
 	var box := VBoxContainer.new()
 	box.name = "DeedsPanel"
-	box.add_theme_constant_override("separation", 8)
+	box.add_theme_constant_override("separation", 10)
 	var earned := 0
 	for id in Achievements.ORDER:
 		var d: Dictionary = Achievements.DEEDS[id]
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
-		var text: Label
-		if Achievements.done(GameState, id):
+		var done := Achievements.done(GameState, id)
+		var need := int(d["need"])
+		var have := need if done else Achievements.progress(GameState, id)
+		if done:
 			earned += 1
-			text = Style.label("★ %s · %s Day %d." % [String(d["title"]).capitalize(), d["goal"], int(GameState.deeds[id].get("day", 1))], Style.SMALL, Style.BRASS)
+		var row := PanelContainer.new()
+		row.name = "Deed_%s" % id
+		var sb := Style.box(Style.NIGHT, Style.BRASS.darkened(0.35) if done else Style.RULE, 2, 14)
+		sb.content_margin_left = 12
+		sb.content_margin_right = 12
+		sb.content_margin_top = 10
+		sb.content_margin_bottom = 10
+		row.add_theme_stylebox_override("panel", sb)
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 14)
+		row.add_child(line)
+		# Its icon on a tile: brass and ticked once the deed is done.
+		var tile := PanelContainer.new()
+		tile.custom_minimum_size = Vector2(56, 56)
+		tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		tile.add_theme_stylebox_override("panel", Style.box(Style.BRASS if done else Style.RAISED, Color(0, 0, 0, 0), 0, 14))
+		var ic := Widgets.icon_rect(String(DEED_ICONS.get(id, "renown")), 34.0)
+		ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if done:
+			ic.modulate = Color("1a1420")
+		tile.add_child(ic)
+		line.add_child(tile)
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.add_theme_constant_override("separation", 6)
+		line.add_child(words)
+		var text: Label
+		if done:
+			text = Style.label("%s · Day %d" % [String(d["title"]).capitalize(), int(GameState.deeds[id].get("day", 1))], Style.SMALL, Style.BRASS)
 		else:
-			var need := int(d["need"])
-			var have := Achievements.progress(GameState, id)
-			text = Style.label("%s%s" % [d["goal"], (" (%d/%d)" % [have, need]) if need > 1 else ""], Style.SMALL, Style.MUTED)
+			text = Style.label(String(d["goal"]).trim_suffix("."), Style.SMALL, Style.TEXT)
 		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(text)
-		if Achievements.done(GameState, id):
+		words.add_child(text)
+		var progress := HBoxContainer.new()
+		progress.add_theme_constant_override("separation", 10)
+		progress.add_child(Widgets.meter(float(have) / maxf(1.0, float(need)), Style.BRASS if done else Style.PLAYER_LIGHT.darkened(0.25), 12.0))
+		progress.add_child(Style.label("%d/%d" % [have, need], Style.SMALL, Style.MUTED))
+		words.add_child(progress)
+		if done:
 			var carried: bool = GameState.company_title == id
 			var b := Button.new()
 			b.name = "CarryTitle_%s" % id
 			b.text = "Carried" if carried else "Carry name"
 			b.add_theme_font_size_override("font_size", Style.SMALL)
 			b.custom_minimum_size = Vector2(0, Style.TOUCH)
+			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			b.pressed.connect(func():
 				GameState.set_company_title("" if carried else id)
 				GameState.save_game()
 				_build())
-			row.add_child(b)
+			line.add_child(b)
 		box.add_child(row)
 	box.add_child(_note("%d of %d deeds. They are yours to chase or ignore; the campaign never ends on one." % [earned, Achievements.ORDER.size()]))
 	return box
+
+
+## The icon on each deed's tile.
+const DEED_ICONS := {"contract": "company", "jobs": "book", "villages": "shieldwall", "chiefs": "skull", "lord": "lock",
+	"walls": "walls", "veteran": "heart", "pact": "talk", "fief": "keep", "renown": "renown"}
 
 
 func _on_moment(m: Dictionary) -> void:
@@ -452,22 +489,13 @@ func _upkeep_forecast() -> Label:
 	return _note(text, Style.ENEMY_LIGHT if after_silver < 0 or after_food < 0 else Style.MUTED)
 
 
+## How to order the companies, as a row of choices; the picked one is lit.
 func _sort_control() -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	var label := Style.label("Sort companies", Style.SMALL, Style.MUTED)
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(label)
-	var choice := OptionButton.new()
-	choice.name = "WarbandSort"
-	for text in ["Roster order", "Troop role", "Strength", "Experience", "Captain"]:
-		choice.add_item(text)
-	choice.selected = clampi(Scenes.warband_sort, 0, choice.item_count - 1)
-	choice.custom_minimum_size = Vector2(245, Style.TOUCH)
-	choice.item_selected.connect(_on_sort)
-	row.add_child(choice)
-	return row
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	col.add_child(Widgets.section("Sort companies"))
+	col.add_child(Widgets.segmented(["Roster", "Role", "Strength", "Experience", "Captain"], clampi(Scenes.warband_sort, 0, 4), _on_sort, "WarbandSort"))
+	return col
 
 
 func _on_sort(index: int) -> void:

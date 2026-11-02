@@ -461,6 +461,11 @@ func _build_people(col: VBoxContainer) -> void:
 			col.add_child(_person_card(cand))
 		else:
 			col.add_child(_stranger_row(cand))
+	# So a short list doesn't look like the whole of it.
+	var more := Style.label("More people turn up as you travel: lords at court, captains' kin, envoys on the road. Anyone you meet is kept here.", Style.SMALL, Style.MUTED)
+	more.name = "PeopleHint"
+	more.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(more)
 
 
 func _person_card(cand: String) -> PanelContainer:

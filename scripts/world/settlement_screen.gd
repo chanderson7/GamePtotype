@@ -13,6 +13,7 @@ const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
@@ -153,11 +154,23 @@ func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 			pad.add_theme_constant_override("margin_" + side, 24)
 		pad.add_theme_constant_override("margin_bottom", 14)
 		vista.add_child(pad)
+		# The holder's banner beside the name.
+		var line := HBoxContainer.new()
+		line.alignment = BoxContainer.ALIGNMENT_BEGIN
+		line.size_flags_vertical = Control.SIZE_SHRINK_END
+		line.add_theme_constant_override("separation", 16)
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pad.add_child(line)
+		var flag := Widgets.banner(String(w.owner_of(place)), Vector2(46, 62))
+		flag.name = "SettlementBanner"
+		flag.size_flags_vertical = Control.SIZE_SHRINK_END
+		line.add_child(flag)
 		var stack := VBoxContainer.new()
 		stack.alignment = BoxContainer.ALIGNMENT_END
+		stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		stack.add_theme_constant_override("separation", 0)
 		stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		pad.add_child(stack)
+		line.add_child(stack)
 		for label in [title, kind]:
 			label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.75))
 			label.add_theme_constant_override("shadow_offset_x", 0)
@@ -1074,7 +1087,30 @@ func _squad_row(s: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
-	row.add_child(_portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture))))
+	# The captain's face, as in the Warband, with the troop's own icon at its corner.
+	var art := Control.new()
+	art.custom_minimum_size = Vector2(72, 84)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var face_tex: Texture2D = CaptainArt.texture(s["captain"]) if s.get("captain") != null else null
+	if face_tex != null:
+		var face := TextureRect.new()
+		face.name = "SquadCaptain"
+		face.texture = face_tex
+		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		art.add_child(face)
+		var badge := _portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture)))
+		badge.custom_minimum_size = Vector2(34, 34)
+		badge.size = Vector2(34, 34)
+		badge.position = Vector2(44, 52)
+		art.add_child(badge)
+	else:
+		var icon := _portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture)))
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		art.add_child(icon)
+	row.add_child(art)
 	var text := _text_column(row)
 	var title := String(s.get("name", ""))
 	var name_label := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)

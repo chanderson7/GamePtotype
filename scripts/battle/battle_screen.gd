@@ -138,6 +138,13 @@ var _my_realm := "vardmark"
 var _doodads: Array = []
 ## Broad patches of lighter and darker ground: [{pos, r, light}].
 var _patches: Array = []
+## The land past the field's edge, and marks on the field itself, for looks only: trees
+## and paddies beyond the edge, a track, crop strips or wind ripples on the ground.
+var _beyond: Array = []
+var _track := PackedVector2Array()
+var _strips := Rect2()
+var _ripples: Array = []
+var _paddies: Array = []
 ## The culture each squad was raised in, by "team/roster id", which dresses its men.
 var _cultures := {}
 ## When the next clash of steel sounds, and how many arrows were in the air last frame.
@@ -2516,8 +2523,10 @@ func _draw() -> void:
 func _draw_field() -> void:
 	var px := Art.GRASS_PIXEL
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
-	draw_texture_rect(Art.ground(_biome), Rect2(Vector2.ZERO, Sim.ARENA / px), true)
+	# The ground runs on past the field, so the screen never shows a dark band around it.
+	draw_texture_rect(Art.ground(_biome), Rect2(-BEYOND / px, (Sim.ARENA + BEYOND * 2.0) / px), true)
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_ground_marks()
 
 	# Elevation shading & contour lines
 	if _height_tex != null:
@@ -2534,8 +2543,76 @@ func _draw_field() -> void:
 		var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
 		draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
 		draw_texture(Art.frame(d["name"], 0, 0, _biome), -Art.pivot(d["name"], _biome))
+	for d in _beyond:
+		var name := String(d["name"])
+		if MapArt.has(name):
+			# Trees are the map's own, as in the field's woods.
+			draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+			var p: Vector2 = d["pos"]
+			var sc: float = float(d["scale"]) * 1.6
+			var sz := MapArt.size(name)
+			var flip: float = float(d["flip"])
+			draw_texture_rect(MapArt.texture(name), Rect2(p.x - sz.x * sc * 0.5 * flip, p.y - sz.y * sc, sz.x * sc * flip, sz.y * sc), false)
+		else:
+			var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
+			draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
+			draw_texture(Art.frame(name, 0, 0, _biome), -Art.pivot(name, _biome))
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.4), false, 4.0)
+	# Past the edge the land is a touch darker, so the field's bounds still read.
+	var dim := Color(0, 0, 0, 0.16)
+	draw_rect(Rect2(-BEYOND, Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y)), dim)
+	draw_rect(Rect2(Vector2(-BEYOND.x, Sim.ARENA.y), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y)), dim)
+	draw_rect(Rect2(Vector2(-BEYOND.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
+	draw_rect(Rect2(Vector2(Sim.ARENA.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
+	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.3), false, 3.0)
+
+
+## How far the drawn land reaches past the field, in field units.
+const BEYOND := Vector2(420.0, 520.0)
+
+
+## Each land's marks on the open ground, under everything else: Vardmark's cart track and
+## crop strips, Kharzan's wind ripples and dry wadi, Ryumon's stone path; and Ryumon's
+## paddies past the edge.
+func _draw_ground_marks() -> void:
+	var look: Dictionary = Art.GROUND.get(_biome, Art.GROUND["vardish"])
+	var base: Color = look["base"]
+	for paddy in _paddies:
+		var r: Rect2 = paddy
+		draw_rect(r, Color("8fb8c0"))
+		draw_rect(Rect2(r.position + Vector2(0, r.size.y - 6.0), Vector2(r.size.x, 6.0)), Color("6a5a3e"))
+		var y := r.position.y + 8.0
+		while y < r.end.y - 8.0:
+			var x := r.position.x + 6.0
+			while x < r.end.x - 4.0:
+				draw_rect(Rect2(x, y, 4, 4), Color("5c8a3c"))
+				x += 14.0
+			y += 12.0
+	if _strips.size.x > 0.0:
+		var x := _strips.position.x
+		var k := 0
+		while x < _strips.end.x:
+			draw_rect(Rect2(x, _strips.position.y, minf(18.0, _strips.end.x - x), _strips.size.y),
+				Color("b9a254") if k % 2 == 0 else Color(base.lightened(0.12)))
+			x += 18.0
+			k += 1
+		# A low hedge along its edge.
+		var hx := _strips.position.x
+		while hx < _strips.end.x:
+			draw_circle(Vector2(hx, _strips.position.y - 6.0), 7.0, Color("3e5a2e"))
+			hx += 11.0
+	for ripple in _ripples:
+		draw_polyline(ripple, Color(look["tuft"], 0.7), 3.0)
+		draw_polyline(PackedVector2Array(Array(ripple).map(func(q): return q + Vector2(0, -3))), Color(look["light"], 0.8), 2.0)
+	if _track.size() > 1:
+		var dirt := Color("8c7452") if _biome != Cultures.RYUMON else Color("9a978e")
+		var edge := Color("6f5c40") if _biome != Cultures.RYUMON else Color("77746c")
+		var width := 26.0 if _biome == Cultures.KHARZANI else 20.0
+		draw_polyline(_track, edge, width + 6.0)
+		draw_polyline(_track, dirt, width)
+		if _biome == Cultures.RYUMON:
+			for i in range(0, _track.size(), 2):
+				draw_rect(Rect2(_track[i] - Vector2(6, 4), Vector2(12, 8)), edge)
 
 
 func _draw_terrain_features() -> void:
@@ -2756,6 +2833,59 @@ func _scatter_doodads() -> void:
 	for i in 12:
 		_patches.append({"pos": Vector2(rng.randf_range(0.0, Sim.ARENA.x), rng.randf_range(0.0, Sim.ARENA.y)),
 			"r": rng.randf_range(60.0, 150.0), "light": rng.randf() < 0.5})
+	_scatter_scenery(rng)
+
+
+## The land around and under the fight, for looks only (men walk over all of it): trees
+## past the field's edge, a track and crop strips or ripples on the open ground, paddies
+## beyond Ryumon's fields. A siege keeps its ground plain around the walls.
+func _scatter_scenery(rng: RandomNumberGenerator) -> void:
+	_beyond.clear()
+	_ripples.clear()
+	_paddies.clear()
+	_track = PackedVector2Array()
+	_strips = Rect2()
+	var siege: bool = sim != null and sim.objective == Sim.OBJECTIVE_SIEGE
+	var trees: Array = {"kharzani": ["palm", "bush", "rock1", "palm"], "ryumon": ["pine", "pine", "blossom", "bush"]}.get(_biome, ["tree", "tree", "pine", "bush"])
+	var count := 26 if _biome == Cultures.KHARZANI else 70
+	var placed := 0
+	var tries := 0
+	while placed < count and tries < 600:
+		tries += 1
+		var p := Vector2(rng.randf_range(-BEYOND.x + 20.0, Sim.ARENA.x + BEYOND.x - 20.0), rng.randf_range(-BEYOND.y + 20.0, Sim.ARENA.y + BEYOND.y - 20.0))
+		if Rect2(Vector2(-30, -30), Sim.ARENA + Vector2(60, 60)).has_point(p):
+			continue
+		_beyond.append({"name": trees[rng.randi_range(0, trees.size() - 1)], "pos": p,
+			"scale": rng.randf_range(1.2, 1.7), "flip": 1.0 if rng.randf() < 0.5 else -1.0})
+		placed += 1
+	_beyond.sort_custom(func(a, b): return a["pos"].y < b["pos"].y)
+	if _biome == Cultures.RYUMON:
+		# Terraced paddies beyond one flank.
+		var side := -1.0 if rng.randf() < 0.5 else 1.0
+		for k in 5:
+			var w := 260.0 - k * 30.0
+			var x := -w - 40.0 if side < 0.0 else Sim.ARENA.x + 40.0
+			_paddies.append(Rect2(x, 120.0 + k * 210.0, w, 160.0))
+	if siege:
+		return
+	# A track wandering down the field, off to one side of the middle.
+	var tx := Sim.ARENA.x * (0.22 if rng.randf() < 0.5 else 0.78)
+	var phase := rng.randf() * TAU
+	for i in 28:
+		var y := -BEYOND.y + (Sim.ARENA.y + BEYOND.y * 2.0) * i / 27.0
+		_track.append(Vector2(tx + sin(y / 260.0 + phase) * 60.0 + y * 0.04, y))
+	match _biome:
+		Cultures.VARDISH:
+			# Crop strips in a corner, away from the track.
+			var right := tx < Sim.ARENA.x * 0.5
+			_strips = Rect2(Vector2(Sim.ARENA.x * (0.62 if right else 0.0), Sim.ARENA.y * 0.82), Vector2(Sim.ARENA.x * 0.38, Sim.ARENA.y * 0.18))
+		Cultures.KHARZANI:
+			for i in 40:
+				var c := Vector2(rng.randf_range(0.0, Sim.ARENA.x), rng.randf_range(0.0, Sim.ARENA.y))
+				var line := PackedVector2Array()
+				for k in 8:
+					line.append(c + Vector2(k * 9.0, sin(k * 0.9) * 4.0))
+				_ripples.append(line)
 
 
 ## The culture a squad's men are dressed in: the enemy's, or for one of yours, the

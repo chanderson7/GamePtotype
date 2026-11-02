@@ -1,7 +1,8 @@
 ## Device settings live outside the warband; returning never advances the campaign.
 extends Control
 const Page = preload("res://scripts/ui/menu_page.gd")
-const SoundToggles = preload("res://scripts/ui/sound_toggles.gd")
+const Style = preload("res://scripts/ui/style.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
 
 func _ready() -> void:
 	_build()
@@ -11,49 +12,35 @@ func _build() -> void:
 		remove_child(child)
 		child.queue_free()
 	var col := Page.column(self, "Settings", "Changes save automatically on this device.")
-	col.add_child(Page.note("AUDIO"))
-	col.add_child(SoundToggles.make())
-	col.add_child(Page.note("READING & PRESENTATION"))
-	col.add_child(Page.note("Larger text for dialogue and shared menus. Reduced motion removes menu scaling, Home drift and battle shake."))
-	col.add_child(Page.button("Text size: %d%%" % roundi(Sound.text_scale * 100.0), func():
-		var sizes := [1.0, 1.25, 1.5]
-		Sound.set_text_scale(sizes[(sizes.find(Sound.text_scale) + 1) % sizes.size()])
-		_build()))
-	col.add_child(Page.button("Reduced motion: %s" % ("on" if Sound.reduced_motion else "off"), func():
-		Sound.set_reduced_motion(not Sound.reduced_motion)
-		_build()))
-	col.add_child(Page.button("Illustrations: %s" % ("on" if Sound.illustrations_enabled else "off"), func():
-		Sound.set_illustrations(not Sound.illustrations_enabled)
-		_build()))
-	col.add_child(Page.button("Vibration: %s" % ("on" if Sound.haptics_enabled else "off"), func():
-		Sound.set_haptics(not Sound.haptics_enabled)
-		_build()))
+	col.add_child(Page.note("SOUND"))
+	col.add_child(_switch_row("Music", "", Sound.music_on, Sound.set_music_on))
+	col.add_child(_switch_row("Sound effects", "", Sound.sounds_on, Sound.set_sounds_on, "Sound"))
+	col.add_child(Page.note("READING & MOTION"))
+	col.add_child(Page.note("Text size", Style.BODY, Style.TEXT))
+	var sizes := [1.0, 1.25, 1.5]
+	var size_bar := Widgets.segmented(["100%", "125%", "150%"], maxi(0, sizes.find(Sound.text_scale)), func(i: int):
+		Sound.set_text_scale(sizes[i])
+		_build(), "TextSize")
+	col.add_child(size_bar)
+	col.add_child(_switch_row("Reduced motion", "No menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
+		Sound.set_reduced_motion(on)))
+	col.add_child(_switch_row("Illustrations", "Scenes and portraits throughout the game", Sound.illustrations_enabled, func(on: bool):
+		Sound.set_illustrations(on)))
+	col.add_child(_switch_row("Vibration", "", Sound.haptics_enabled, func(on: bool):
+		Sound.set_haptics(on)))
+	col.add_child(Page.note("STORY"))
+	col.add_child(_switch_row("Romance invitations", "Friendships and house pacts stay either way", Sound.romance_invitations_enabled(), func(on: bool):
+		Sound.set_romance_invitations(on)))
+	col.add_child(Page.note("CAMPAIGN MODE"))
+	col.add_child(Widgets.segmented(["Iron Company", "Casual"], 1 if GameState.casual_mode else 0, func(i: int):
+		GameState.casual_mode = i == 1
+		GameState.save_game()
+		_build(), "CampaignMode"))
+	col.add_child(Page.note("In Iron Company, fallen captains can die for good. In Casual, they take severe wounds instead.", Style.SMALL))
 	col.add_child(Page.note("LEARN TO PLAY"))
-	col.add_child(Page.note("Take a short walkthrough of travel, supplies, battles and captains. You can leave at any time."))
 	col.add_child(Page.button("Open tutorial", func():
 		Scenes.tutorial_return = "res://scenes/settings.tscn"
 		Scenes.go("res://scenes/tutorial.tscn")))
-	col.add_child(Page.note("ROMANCE INVITATIONS"))
-	col.add_child(Page.note("Controls unsolicited romantic dialogue and prompts. Friendships and house pacts remain available."))
-	var rom_btn: Button = null
-	var update_rom_text = func():
-		if rom_btn != null:
-			rom_btn.text = "Romance invitations: %s" % ("Enabled" if Sound.romance_invitations_enabled() else "Disabled")
-	rom_btn = Page.button("Romance invitations: %s" % ("Enabled" if Sound.romance_invitations_enabled() else "Disabled"), func():
-		Sound.set_romance_invitations(not Sound.romance_invitations_enabled())
-		update_rom_text.call())
-	col.add_child(rom_btn)
-	col.add_child(Page.note("CAMPAIGN MODE"))
-	col.add_child(Page.note("In Iron Company, fallen captains roll for permanent death. In Casual Mode, captains suffer severe battle wounds instead."))
-	var mode_btn: Button = null
-	var update_mode_text = func():
-		if mode_btn != null:
-			mode_btn.text = "Mode: %s" % ("Casual (Captains cannot permanently die)" if GameState.casual_mode else "Iron Company (Default)")
-	mode_btn = Page.button("Mode: %s" % ("Casual (Captains cannot permanently die)" if GameState.casual_mode else "Iron Company (Default)"), func():
-		GameState.casual_mode = not GameState.casual_mode
-		GameState.save_game()
-		update_mode_text.call())
-	col.add_child(mode_btn)
 	var back := Page.button("Back", _back, true)
 	col.add_child(back)
 	var heading := col.get_child(0) as Control
@@ -61,6 +48,26 @@ func _build() -> void:
 	# Focus starts at the top for keyboards and screen readers, without a box drawn round the title.
 	heading.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	heading.grab_focus()
+
+## A setting with an on/off switch at the right, and a short note under its name.
+func _switch_row(title: String, note: String, on: bool, setter: Callable, word: String = "") -> Control:
+	var row := HBoxContainer.new()
+	row.name = "Setting_" + title.replace(" ", "")
+	row.add_theme_constant_override("separation", 16)
+	row.custom_minimum_size = Vector2(0, 76)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", 2)
+	words.add_child(Style.label(title, Style.BODY, Style.TEXT))
+	if note != "":
+		var n := Style.label(note, Style.SMALL, Style.MUTED)
+		n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(n)
+	row.add_child(words)
+	row.add_child(Widgets.switch(on, setter, "Switch_" + title.replace(" ", ""), word if word != "" else title))
+	return row
+
 
 func _back() -> void:
 	Scenes.go(Scenes.settings_return)

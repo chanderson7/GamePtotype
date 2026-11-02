@@ -4,6 +4,7 @@
 extends RefCounted
 
 const Style = preload("res://scripts/ui/style.gd")
+const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 const ICONS := {
 	"silver": "res://assets/ui/silver.svg",
@@ -184,3 +185,109 @@ static func tick_to(label: Label, from: int, to: int, fmt: Callable) -> void:
 	var flash := label.get_theme_color("font_color")
 	label.add_theme_color_override("font_color", Style.BRASS)
 	t.tween_callback(func(): label.add_theme_color_override("font_color", flash))
+
+
+## A realm's banner on its pole, sized to fit `size`.
+static func banner(realm: String, size: Vector2) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = size
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.draw.connect(func(): Heraldry.realm_banner(c, realm if Heraldry.REALM_SIZES.has(realm) else "bandits", Rect2(Vector2.ZERO, size)))
+	return c
+
+
+## A thin bar filled to `frac` (0 to 1) in `color`, on a dark track.
+static func meter(frac: float, color: Color, height: float = 14.0) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(40, height)
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.draw.connect(func():
+		c.draw_style_box(Style.box(Style.NIGHT, Style.RULE, 2, int(height / 2)), Rect2(Vector2.ZERO, c.size))
+		var w := maxf(height, (c.size.x - 4.0) * clampf(frac, 0.0, 1.0))
+		if frac > 0.0:
+			c.draw_style_box(Style.box(color, Color(0, 0, 0, 0), 0, int(height / 2)), Rect2(Vector2(2, 2), Vector2(w, c.size.y - 4.0))))
+	return c
+
+
+## A small rounded chip: a shape in `tone` (▲ good, ◆ middling, ▼ bad, so it reads without
+## colour) and its text.
+static func chip(text: String, tone: Color, shape: String = "") -> PanelContainer:
+	var panel := PanelContainer.new()
+	var sb := Style.box(Style.RAISED, Style.RULE, 2, 40)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 16
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 8)
+	panel.add_child(h)
+	if shape == "":
+		shape = "▲" if tone == Style.MORALE_HIGH else ("◆" if tone == Style.MORALE_MID else "▼")
+	h.add_child(Style.label(shape, Style.SMALL, tone))
+	h.add_child(Style.label(text, Style.SMALL, Style.TEXT))
+	return panel
+
+
+## A row of chips that wraps.
+static func chip_row(chips: Array) -> HFlowContainer:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 8)
+	for c in chips:
+		row.add_child(c)
+	return row
+
+
+## A small grey heading in capitals, for sections within a card or sheet.
+static func section(text: String) -> Label:
+	var l := Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
+	return l
+
+
+## An on/off switch: brass with the knob right when on. `on_toggle` gets the new state.
+static func switch(on: bool, on_toggle: Callable, switch_name: String = "Switch", word: String = "") -> Button:
+	var b := Button.new()
+	b.name = switch_name
+	# The words ("Music: on") are there for screen readers and tests, drawn invisibly.
+	if word != "":
+		b.text = "%s: %s" % [word, "on" if on else "off"]
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+			b.add_theme_color_override(c, Color(0, 0, 0, 0))
+		b.add_theme_font_size_override("font_size", 1)
+	b.toggle_mode = true
+	b.button_pressed = on
+	b.custom_minimum_size = Vector2(96, 52)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.focus_mode = Control.FOCUS_ALL
+	var clear := StyleBoxEmpty.new()
+	for state in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		b.add_theme_stylebox_override(state, clear)
+	b.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Style.BRASS, 2, 28))
+	b.draw.connect(func():
+		var lit := b.button_pressed
+		var track := Rect2(Vector2(4, 6), b.size - Vector2(8, 12))
+		b.draw_style_box(Style.box(Color("c9a046") if lit else Color("2a3458"), Color(0, 0, 0, 0), 0, int(track.size.y / 2)), track)
+		var r := track.size.y / 2.0 - 4.0
+		var cx := track.end.x - r - 4.0 if lit else track.position.x + r + 4.0
+		b.draw_circle(Vector2(cx, track.get_center().y), r, Style.TEXT))
+	b.toggled.connect(func(state: bool):
+		if word != "":
+			b.text = "%s: %s" % [word, "on" if state else "off"]
+		b.queue_redraw()
+		on_toggle.call(state))
+	return b
+
+
+## A row of choices where one is picked, like a set of radio buttons drawn as one bar.
+## `on_pick` gets the picked index.
+static func segmented(options: Array, current: int, on_pick: Callable, bar_name: String = "Segments") -> PanelContainer:
+	var tabs := []
+	for i in options.size():
+		tabs.append({"id": str(i), "label": String(options[i])})
+	var bar := tab_bar(tabs, str(current), func(id: String): on_pick.call(int(id)), bar_name)
+	bar.set_meta("picked", current)
+	return bar

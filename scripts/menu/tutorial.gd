@@ -2,6 +2,7 @@
 extends Control
 const Page = preload("res://scripts/ui/menu_page.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const TutorialArt = preload("res://scripts/ui/tutorial_art.gd")
 const LESSONS := [
 	["Ride the Glass Sea", "Tap a settlement, then Ride there. Drag to look around; pinch or scroll to zoom. Double-tap to find your warband.", "Time passes only while you travel or wait. The campaign menu and encounters pause time so you can decide."],
 	["Keep your company supplied", "Watch silver and days of food on the map. Each day your men need wages and a ration each. Shortfalls cause desertion.", "Enter a settlement to buy food and hire recruits. Villages sell cheaper food; towns let you refill and train squads."],
@@ -27,6 +28,8 @@ func _build() -> void:
 	progress.show_percentage = false
 	progress.custom_minimum_size.y = 10
 	col.add_child(progress)
+	if Style.illustrations_on():
+		col.add_child(TutorialArt.make(step))
 	col.add_child(Page.note(String(lesson[0]), 38, Style.TEXT))
 	col.add_child(Page.note(String(lesson[1]), Style.BODY, Style.TEXT))
 	col.add_child(Page.note(String(lesson[2])))
