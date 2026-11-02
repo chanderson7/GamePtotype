@@ -12,26 +12,40 @@ const EDGE := Color(0.06, 0.05, 0.08)
 ## A flag on `ci` with its top-left at `at`, turned by `lean` about that corner. A
 ## swallowtail if `swallowtail`, square otherwise; `type` adds a troop glyph ("" for none);
 ## `grey` washes it out, for a squad that has broken.
+## `wave` (radians, or below zero for still cloth) ripples the cloth: the fly end moves
+## more than the hoist, as a flag in the wind does.
 static func flag(ci: CanvasItem, at: Vector2, size: Vector2, cloth: Color, dark: Color, swallowtail: bool,
-		type: String = "", grey: bool = false, lit: bool = false, lean: float = 0.0, edge: Color = EDGE) -> void:
+		type: String = "", grey: bool = false, lit: bool = false, lean: float = 0.0, edge: Color = EDGE, wave: float = -1.0) -> void:
 	if grey:
 		cloth = cloth.lerp(Color(0.45, 0.45, 0.45), 0.6)
 		dark = dark.lerp(Color(0.2, 0.2, 0.2), 0.6)
 	ci.draw_set_transform(at, lean, Vector2.ONE)
 	var w := size.x
 	var h := size.y
-	var pts: PackedVector2Array
+	var rip := func(p: Vector2) -> Vector2:
+		if wave < 0.0:
+			return p
+		var u := p.x / w
+		return p + Vector2(0.0, sin(wave + u * 4.0) * h * 0.13 * u)
+	var pts := PackedVector2Array()
+	var steps := 1 if wave < 0.0 else 6
+	for i in steps + 1:
+		pts.append(rip.call(Vector2(w * i / steps, 0)))
 	if swallowtail:
-		pts = PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w - w * 0.26, h * 0.5), Vector2(w, h), Vector2(0, h)])
-	else:
-		pts = PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, h), Vector2(0, h)])
+		pts.append(rip.call(Vector2(w - w * 0.26, h * 0.5)))
+	for i in range(steps, -1, -1):
+		pts.append(rip.call(Vector2(w * i / steps, h)))
 	ci.draw_colored_polygon(pts, cloth)
-	ci.draw_rect(Rect2(0, h - 5.0 * h / 26.0, w - (w * 0.26 if swallowtail else 0.0), 3.0 * h / 26.0), dark)
+	var band_w := w - (w * 0.26 if swallowtail else 0.0)
+	var y0 := h - 5.0 * h / 26.0
+	var y1 := y0 + 3.0 * h / 26.0
+	ci.draw_colored_polygon(PackedVector2Array([rip.call(Vector2(0, y0)), rip.call(Vector2(band_w * 0.5, y0)), rip.call(Vector2(band_w, y0)),
+		rip.call(Vector2(band_w, y1)), rip.call(Vector2(band_w * 0.5, y1)), rip.call(Vector2(0, y1))]), dark)
 	var outline := pts.duplicate()
 	outline.append(pts[0])
 	ci.draw_polyline(outline, edge, 3.0 if lit else 2.0)
 	if type != "":
-		glyph(ci, type, Vector2(w * 0.42, h * 0.48), size.y / 26.0, Style.TEXT if not grey else Color(0.85, 0.85, 0.85))
+		glyph(ci, type, rip.call(Vector2(w * 0.42, h * 0.48)), size.y / 26.0, Style.TEXT if not grey else Color(0.85, 0.85, 0.85))
 	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

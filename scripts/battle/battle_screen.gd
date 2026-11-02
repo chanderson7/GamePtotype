@@ -97,6 +97,36 @@ var bursts: Array = []
 ## Cue budget: at most this many bursts at once; critical ones (routs, falls) push out
 ## routine ones first.
 const MAX_BURSTS := 36
+## The battle's effects, all in field coordinates: sparks and spatter where blows land,
+## dust kicked up by squads on the move and by arrows coming down, men falling, gear and
+## standards left on the ground.
+var _sparks: Array = []
+var _puffs: Array = []
+var _falling: Array = []
+var _litter: Array = []
+var _fallen_flags: Array = []
+var _hit_seen := {}
+var _last_corpse = null
+var _sq_last_avg := {}
+var _sq_speed := {}
+var _puff_clock := 0.0
+## A decisive moment: the field darkens round it (and time slows, for a captain of theirs).
+var _spot := {}
+var _slow := 0.0
+## When the battle was decided, for the winners' cheer before the result.
+var _decided_at := -1.0
+const MAX_SPARKS := 260
+const MAX_PUFFS := 220
+const MAX_LITTER := 160
+const MAX_FALLING := 40
+## Seconds a man takes to fall.
+const FALL_TIME := 0.45
+## Seconds the winners cheer before the result comes up (a beat, if you lost).
+const CHEER_TIME := 1.8
+const LOSS_PAUSE := 0.8
+## How slow time runs while a captain of theirs falls, and for how long.
+const SLOW_PACE := 0.35
+const SLOW_TIME := 1.1
 const CRITICAL_BURSTS := ["rout", "fall"]
 ## A squad at or below this morale is wavering: warned before it breaks.
 const WAVER_MORALE := 35.0
@@ -465,6 +495,241 @@ func _to_field(p: Vector2) -> Vector2:
 	return (p - field_origin) / field_scale
 
 
+# ---------------------------------------------------------------- effects
+
+## Moves the battle's effects on by `delta` (0 while paused), and starts new ones for what
+## has just happened: blows landing, men falling, squads on the move.
+func _update_effects(delta: float) -> void:
+	if sim == null:
+		return
+	_slow = maxf(0.0, _slow - delta)
+	if not _spot.is_empty():
+		_spot["age"] = float(_spot["age"]) + delta
+		if float(_spot["age"]) >= float(_spot["life"]) and _roll.is_empty():
+			_spot = {}
+	for e in _sparks:
+		e["age"] += delta
+		e["p"] += e["v"] * delta
+		e["v"] *= maxf(0.0, 1.0 - delta * 5.0)
+	_sparks = _sparks.filter(func(e): return e["age"] < e["life"])
+	for e in _puffs:
+		e["age"] += delta
+		e["p"] += e["v"] * delta
+	_puffs = _puffs.filter(func(e): return e["age"] < e["life"])
+	for e in _falling:
+		e["age"] += delta
+	_falling = _falling.filter(func(e): return e["age"] < FALL_TIME)
+	if delta <= 0.0:
+		return
+	# Blows that have just landed: sparks thrown off steel away from the striker, and a
+	# spatter now and then.
+	for sq in sim.squads:
+		for so in sq.soldiers:
+			if so.flash >= 0.95 and not _hit_seen.has(so):
+				_hit_seen[so] = true
+				_blow(so)
+			elif so.flash < 0.5 and _hit_seen.has(so):
+				_hit_seen.erase(so)
+	# Men who have just fallen: each takes a moment to go down.
+	var fresh := []
+	for i in range(sim.corpses.size() - 1, -1, -1):
+		if is_same(sim.corpses[i], _last_corpse):
+			break
+		fresh.append(sim.corpses[i])
+	if not sim.corpses.is_empty():
+		_last_corpse = sim.corpses.back()
+	for c in fresh:
+		if _falling.size() < MAX_FALLING:
+			_falling.append({"corpse": c, "age": 0.0})
+	# Dust behind every squad on the move, more behind horses.
+	_puff_clock -= delta
+	var spawn := _puff_clock <= 0.0
+	if spawn:
+		_puff_clock = 0.07
+	for sq in sim.squads:
+		var now: Vector2 = sq.avg
+		var was: Vector2 = _sq_last_avg.get(sq, now)
+		_sq_last_avg[sq] = now
+		var v := (now - was) / delta
+		_sq_speed[sq] = lerpf(float(_sq_speed.get(sq, 0.0)), v.length(), 0.3)
+		if not spawn or not sq.is_active() or sq.engaged or float(_sq_speed[sq]) < 8.0:
+			continue
+		var cav: bool = sq.type == Troops.CAVALRY
+		var dir := v.normalized()
+		for k in (3 if cav else 1):
+			var at: Vector2 = now - dir * (sq.extent + randf_range(2.0, 10.0)) + dir.orthogonal() * randf_range(-1.0, 1.0) * sq.extent
+			_puff(at, -dir * randf_range(4.0, 14.0), randf_range(5.0, 8.0), 12.0 if not cav else 20.0, randf_range(1.0, 1.6), _ground_dust(at), 0.26)
+
+
+## Sparks off a blow that has just landed on `so`.
+func _blow(so) -> void:
+	# A blow throws up to nine: only start one if all of them fit.
+	if _sparks.size() + 9 > MAX_SPARKS:
+		return
+	var dir := Vector2.from_angle(randf() * TAU)
+	if so.target != null:
+		dir = (so.pos - so.target.pos).normalized()
+	var at: Vector2 = so.pos - dir * 4.0
+	for k in 6:
+		var c := Color(1.0, 0.97, 0.75) if k < 2 else (Color(1.0, 0.75, 0.3) if k < 4 else Color(0.95, 0.45, 0.15))
+		_sparks.append({"p": at, "v": dir.rotated(randf_range(-1.1, 1.1)) * randf_range(40.0, 110.0), "age": 0.0,
+			"life": randf_range(0.16, 0.32), "c": c, "size": 1.6})
+	if randf() < 0.3:
+		for k in 3:
+			_sparks.append({"p": at, "v": dir.rotated(randf_range(-0.5, 0.5)) * randf_range(18.0, 45.0), "age": 0.0,
+				"life": 0.38, "c": Color(0.55, 0.06, 0.05), "size": 1.8})
+
+
+func _puff(at: Vector2, v: Vector2, r0: float, r1: float, life: float, color: Color, alpha: float) -> void:
+	if _puffs.size() >= MAX_PUFFS:
+		_puffs.pop_front()
+	_puffs.append({"p": at, "v": v, "r0": r0, "r1": r1, "age": 0.0, "life": life, "c": color, "a": alpha})
+
+
+## A squad breaks: shields and spears dropped where its men turned to run, and its
+## standard left lying where it fell.
+func _strew(sq) -> void:
+	for so in sq.soldiers:
+		if so.alive and randf() < 0.45 and _litter.size() < MAX_LITTER:
+			_litter.append({"p": so.pos - so.facing * randf_range(4.0, 14.0), "a": randf() * TAU,
+				"team": sq.team, "shield": randf() < 0.6})
+	_fallen_flags.append({"p": sq.avg, "team": sq.team, "type": sq.type, "lean": deg_to_rad(80.0) * (1.0 if sq.team == Sim.PLAYER else -1.0)})
+
+
+## The field darkens round `at` (field coordinates) for `life` seconds.
+func _spotlight(at: Vector2, life: float) -> void:
+	_spot = {"pos": at, "age": 0.0, "life": life}
+
+
+## Sparks and spatter, over everything on the field.
+func _draw_sparks() -> void:
+	for e in _sparks:
+		var a := 1.0 - float(e["age"]) / float(e["life"])
+		var size: float = e["size"]
+		draw_rect(Rect2(e["p"] - Vector2(size, size) * 0.5, Vector2(size, size)), Color(e["c"], a))
+
+
+## Dust on the ground: kicked up behind squads and where arrows come down.
+func _draw_puffs() -> void:
+	for e in _puffs:
+		var t := float(e["age"]) / float(e["life"])
+		var r: float = lerpf(e["r0"], e["r1"], t)
+		draw_circle(e["p"], r, Color(Color(e["c"]).lightened(0.18), float(e["a"]) * (1.0 - t) * minf(1.0, t * 6.0 + 0.2)))
+
+
+## Where the lines meet: a warm glow along the front, under the men.
+func _draw_front() -> void:
+	if sim.phase != Sim.PHASE_BATTLE:
+		return
+	var pulse := 0.0 if Sound.reduced_motion else 0.02 * sin(_clock * 6.0)
+	for sq in sim.squads:
+		if not sq.engaged:
+			continue
+		var i := 0
+		for so in sq.soldiers:
+			i += 1
+			if i % 2 == 1 or not so.alive or so.target == null or not so.target.alive or so.target.squad == null or so.target.squad.team == sq.team:
+				continue
+			var mid: Vector2 = so.pos.lerp(so.target.pos, 0.5)
+			draw_circle(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
+			draw_circle(mid, 5.0, Color(1.0, 0.82, 0.45, 0.11 + pulse))
+
+
+## Where a volley will land: a shadow on the ground, darker as the arrows come down.
+func _draw_volley_shadows() -> void:
+	var groups := {}
+	for p in sim.projectiles:
+		var key := Vector2i(int(p.aim.x / 60.0), int(p.aim.y / 60.0))
+		var done: float = p.origin.distance_to(p.pos)
+		var total: float = done + p.pos.distance_to(p.aim)
+		var g: Array = groups.get(key, [Vector2.ZERO, 0, 0.0])
+		groups[key] = [Vector2(g[0]) + p.aim, int(g[1]) + 1, maxf(float(g[2]), done / maxf(1.0, total))]
+	for key in groups:
+		var g: Array = groups[key]
+		if int(g[1]) < 3:
+			continue
+		var c: Vector2 = Vector2(g[0]) / float(g[1])
+		var near: float = g[2]
+		draw_set_transform(field_origin + c * field_scale, 0.0, Vector2(field_scale, field_scale * 0.62))
+		draw_circle(Vector2.ZERO, 22.0, Color(0.08, 0.04, 0.02, 0.06 + 0.18 * near))
+		draw_arc(Vector2.ZERO, 22.0, 0.0, TAU, 36, Color(1.0, 0.82, 0.45, 0.2 + 0.4 * near), 1.6)
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+
+
+## Men going down, and what they dropped.
+func _draw_falling() -> void:
+	for e in _falling:
+		var c: Dictionary = e["corpse"]
+		var t := clampf(float(e["age"]) / FALL_TIME, 0.0, 1.0)
+		var fall := t * t
+		var p: Vector2 = c["pos"]
+		var end := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
+		var type := String(c.get("type", Troops.INFANTRY))
+		var culture := GameState.culture if int(c["team"]) == Sim.PLAYER else _enemy_culture
+		var tint := Color(1, 1, 1).lerp(Color(0.75, 0.72, 0.7), fall)
+		_sprite(type, int(c["team"]), 2 if t < 0.25 else 1, p + Vector2(0, 2.0 * fall), lerp_angle(end - 1.4, end, fall), tint, 1.0 - 0.1 * fall, culture)
+
+
+## What a fallen man leaves beside him: a dark patch, his shield, his weapon.
+func _draw_gear(c: Dictionary) -> void:
+	var p: Vector2 = c["pos"]
+	var a := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
+	draw_set_transform(field_origin + (p + Vector2(1.5, 1.5)) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.6))
+	draw_circle(Vector2.ZERO, 8.0, Color(0.33, 0.06, 0.05, 0.26))
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	var d := Vector2.from_angle(a + 1.2)
+	draw_line(p + d * 6.0, p + d * 14.0, Color(0.5, 0.37, 0.22, 0.9), 1.3)
+	draw_line(p + d * 12.5, p + d * 15.0, Color(0.82, 0.82, 0.8, 0.9), 1.6)
+	var team_col := Style.PLAYER if int(c["team"]) == Sim.PLAYER else Style.ENEMY
+	var at := p - d.rotated(0.6) * 7.5
+	draw_circle(at, 3.0, team_col.darkened(0.35))
+	draw_arc(at, 3.0, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
+
+
+## Shields and spears dropped by men who ran.
+func _draw_litter() -> void:
+	for e in _litter:
+		var p: Vector2 = e["p"]
+		if bool(e["shield"]):
+			draw_circle(p, 2.8, (Style.PLAYER if int(e["team"]) == Sim.PLAYER else Style.ENEMY).darkened(0.4))
+			draw_arc(p, 2.8, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
+		else:
+			var d := Vector2.from_angle(float(e["a"]))
+			draw_line(p - d * 7.0, p + d * 7.0, Color(0.5, 0.37, 0.22, 0.9), 1.2)
+
+
+## Standards lying where their squads broke (screen space).
+func _draw_fallen_flags() -> void:
+	for f in _fallen_flags:
+		var base := _to_screen(f["p"])
+		var lean: float = f["lean"]
+		var top := base + Vector2(sin(lean), -cos(lean)) * POLE * 0.8
+		draw_line(base, top, Color(0.32, 0.22, 0.13, 0.9), 2.5)
+		_draw_flag(self, top, FLAG * 0.75, int(f["team"]), String(f["type"]), true, false, lean)
+
+
+## A decisive moment: the field darkens round it and black bars slide in.
+func _draw_spotlight() -> void:
+	var focus_at: Vector2
+	var amount := 1.0
+	if not _roll.is_empty() and _roll.has("pos"):
+		focus_at = _to_screen(_roll["pos"])
+	elif not _spot.is_empty():
+		focus_at = _to_screen(_spot["pos"])
+		var t := float(_spot["age"]) / float(_spot["life"])
+		amount = clampf(minf(t * 6.0, (1.0 - t) * 4.0), 0.0, 1.0)
+	else:
+		return
+	var reach := _view.size.length()
+	for i in 14:
+		var r := lerpf(reach * 0.6, 130.0, float(i) / 14.0)
+		draw_circle(focus_at, r, Color(0.02, 0.02, 0.05, 0.045 * amount))
+	draw_arc(focus_at, 130.0, 0.0, TAU, 64, Color(1.0, 0.85, 0.5, 0.45 * amount), 2.5)
+	var bar := 46.0 * amount
+	draw_rect(Rect2(_view.position, Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85))
+	draw_rect(Rect2(_view.position + Vector2(0, _view.size.y - bar), Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85))
+
+
 # ---------------------------------------------------------------- frame
 
 func _process(delta: float) -> void:
@@ -480,7 +745,7 @@ func _process(delta: float) -> void:
 		if float(_roll["t"]) >= ROLL_TIME:
 			_next_roll()
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty():
-		var pace := ROLL_PACE if not _roll.is_empty() else 1.0
+		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
 		if _hitstop > 0.0:
 			_hitstop -= delta
 			pace = 0.0
@@ -497,8 +762,13 @@ func _process(delta: float) -> void:
 			selected_squad = null
 	elif sim.winner != -1 and not _result_shown and _roll.is_empty():
 		_consume_events()
-		if _roll.is_empty():
+		# The winners cheer a moment before the result comes up.
+		if _decided_at < 0.0:
+			_decided_at = _clock
+		var wait := CHEER_TIME if sim.winner == Sim.PLAYER else LOSS_PAUSE
+		if _roll.is_empty() and _clock - _decided_at >= wait:
 			_show_result()
+	_update_effects(0.0 if paused else delta)
 	_update_camera(delta)
 	for f in floaters:
 		f["age"] += delta
@@ -1096,6 +1366,8 @@ func _battle_sounds(delta: float) -> void:
 	for p in _heard:
 		if not seen.has(p):
 			_tally(landed, LANDING[String(_heard[p][0])], _heard[p][1])
+			var down: Vector2 = _heard[p][1]
+			_puff(down, Vector2(0, -6), 2.0, 6.0, 0.5, _ground_dust(down), 0.35)
 	_heard = seen
 	for kind in loosed:
 		if int(loosed[kind][0]) >= (6 if kind == "arrows" else 3):
@@ -1339,6 +1611,7 @@ func _consume_events() -> void:
 				_broke_at[sq] = _clock
 				_burst(sq.average_pos(), "rout", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.0)
 				var mine: bool = sq.team == Sim.PLAYER
+				_strew(sq)
 				# They scatter shouting; across the field, the other side cheers.
 				Sound.play_at("panic", _to_screen(sq.average_pos()), 0.0, 0.05, 0.8)
 				if mine:
@@ -1433,6 +1706,9 @@ func _captain_down(e: Dictionary) -> void:
 	_burst(e["pos"], "fall", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.1)
 	var info: Dictionary = sq.info
 	if sq.team != Sim.PLAYER:
+		# Their captain falls: time slows and the field darkens round him for a moment.
+		_spotlight(e["pos"], SLOW_TIME + 0.4)
+		_slow = SLOW_TIME
 		_float_text("%s CUT DOWN" % String(info.get("first", "Captain")).to_upper(), e["pos"], Style.PLAYER_LIGHT, 2.2)
 		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type, Sim.ENEMY).to_lower()], Style.PLAYER_LIGHT)
 		return
@@ -1440,7 +1716,7 @@ func _captain_down(e: Dictionary) -> void:
 	Sound.duck()
 	Sound.haptic(true)
 	var roll := {
-		"t": 0.0, "name": String(info.get("name", "")), "company": _company(sq.roster_id),
+		"t": 0.0, "name": String(info.get("name", "")), "company": _company(sq.roster_id), "pos": e["pos"],
 		"captain": info,
 		"roll": int(e["roll"]), "needed": int(e["needed"]), "fate": String(e["fate"]),
 		"words": String(sq.last_words), "holding": bool(e.get("holding", false)),
@@ -2561,35 +2837,53 @@ func _draw() -> void:
 	_draw_scars()
 	_draw_zones()
 	_draw_objectives()
+	var going_down := {}
+	for e in _falling:
+		going_down[e["corpse"]] = true
 	for c in sim.corpses:
+		_draw_gear(c)
+	for c in sim.corpses:
+		# A man still falling isn't a body yet.
+		if going_down.has(c):
+			continue
 		var horse: bool = c.get("type", "") == Troops.CAVALRY
 		var p: Vector2 = c["pos"]
 		# A steady, random-looking angle per body, so the dead don't spin between frames.
 		var angle := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
 		_sprite("corpse_horse" if horse else "corpse", c["team"], 0, p, angle, Color(1, 1, 1, 0.8))
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_litter()
 	_draw_stuck_arrows()
+	_draw_puffs()
+	_draw_volley_shadows()
+	_draw_front()
 	_draw_orders()
 	_draw_targets()
 	_draw_line_order()
 	_draw_bonds()
 	_draw_bursts()
+	_draw_falling()
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_shadows()
 	for sq in sim.squads:
 		_draw_men(sq)
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_treetops()
 	_draw_arrows()
+	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_sparks()
 	_draw_settled()
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_storm_plan()
 		_draw_gate_marker()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_fallen_flags()
 	_draw_standards()
 	_draw_edge_markers()
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_spotlight()
 	_draw_ticker()
 	_draw_banner()
 
@@ -3180,26 +3474,56 @@ func _draw_men(sq) -> void:
 	var type: String = sq.unit if sq.unit != "" else sq.type
 	var culture := _culture_of(sq)
 	var tint := Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE
+	var still := Sound.reduced_motion
+	# The winners cheer: weapons up, each man bobbing on his own beat.
+	var cheering: bool = sim.winner != -1 and sq.team == sim.winner and sq.is_active()
+	var shaken: bool = wavering(sq) and sim.phase == Sim.PHASE_BATTLE
+	var charging: bool = sq.type == Troops.CAVALRY and sq.is_active() and not sq.engaged and float(_sq_speed.get(sq, 0.0)) > 30.0 and not still
+	var i := -1
 	for so in sq.soldiers:
+		i += 1
 		if not so.alive:
 			continue
 		var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
 		var angle: float = so.facing.angle() + PI * 0.5
+		var at: Vector2 = so.pos
+		var glance := false
+		if cheering and not still:
+			var beat := sin(_clock * 9.0 + i * 1.7)
+			at += Vector2(0, -absf(beat) * 3.0)
+			index = 2 if beat > 0.0 else 0
+		elif shaken and i % 3 == 0:
+			# A wavering man glances back over his shoulder now and then.
+			glance = fposmod(_clock * 0.8 + i * 0.37, 1.0) < 0.22
+			if glance and not still:
+				angle += PI * 0.8
+		if charging:
+			var back: Vector2 = -so.facing
+			for k in 3:
+				var off: Vector2 = so.facing.orthogonal() * (k - 1) * 3.5
+				draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+				draw_line(so.pos + back * 11.0 + off, so.pos + back * (24.0 + k * 4.0) + off, Color(1, 1, 1, 0.35), 1.0)
 		var grow := 1.0
 		if so.captain:
 			# Captains stand a head taller, on a gold ring.
 			grow = 1.2
 			var px := field_scale * Art.pixel_size(type)
-			draw_set_transform(field_origin + so.pos * field_scale, 0.0, Vector2(px, px))
+			draw_set_transform(field_origin + at * field_scale, 0.0, Vector2(px, px))
 			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
 			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
-		_sprite(type, sq.team, index, so.pos, angle, tint, grow, culture)
+		_sprite(type, sq.team, index, at, angle, tint, grow, culture)
 		if so.flash > 0.05:
 			draw_texture(Art.flash(type, index, culture), -Art.pivot(type, culture), Color(1, 1, 1, so.flash * 0.8))
 			if so.flash > 0.35:
 				var spark := Color(1.0, 0.88, 0.54, minf(1.0, so.flash))
 				draw_line(Vector2(-7, 0), Vector2(7, 0), spark, 1.8)
 				draw_line(Vector2(0, -7), Vector2(0, 7), spark, 1.8)
+		if glance:
+			# A "!" over his head while he looks back.
+			draw_set_transform(field_origin + (at + Vector2(0, -13)) * field_scale, 0.0, Vector2(field_scale, field_scale))
+			draw_rect(Rect2(-2.0, -5.0, 4.0, 7.0), Color(1, 1, 1, 0.95))
+			draw_rect(Rect2(-0.8, -4.2, 1.6, 3.6), Style.ENEMY)
+			draw_rect(Rect2(-0.8, 0.0, 1.6, 1.2), Style.ENEMY)
 
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
@@ -3218,6 +3542,9 @@ func _draw_arrows() -> void:
 		draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
 		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
 		var screen_dir := (dir - Vector2(0, slope)).normalized()
+		# A streak behind it, so a volley reads as a flight of arrows.
+		var lifted: Vector2 = p.pos - Vector2(0, height)
+		draw_line(lifted - screen_dir * 16.0, lifted - screen_dir * 3.0, Color(1, 1, 1, 0.3), 1.0)
 		_sprite("arrow", 0, 0, p.pos - Vector2(0, height), screen_dir.angle() + PI * 0.5)
 
 
@@ -3349,7 +3676,11 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	if not sq.routing:
 		_std_tops[sq] = top
 	var edge := Style.BRASS if selected or sq.braced() else (Color("5bc0be") if sq.is_ally else Color(0.06, 0.05, 0.08))
-	_draw_flag(self, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
+	if sim.winner != -1 and sq.team == sim.winner and sq.is_active():
+		# The winners' standards glow, held high.
+		draw_circle(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
+	var wave: float = -1.0 if Sound.reduced_motion else _clock * 5.0 + sq.id * 1.3
+	_draw_flag(self, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge, wave)
 	if sq.is_bodyguard or sq.is_chief:
 		var crown_c := top + Vector2(FLAG.x * 0.5, -16.0)
 		draw_colored_polygon(PackedVector2Array([
@@ -3463,10 +3794,10 @@ func _draw_counter_hint(top: Vector2, type: String, ref_type: String) -> void:
 
 ## A team's flag on `ci`: a swallowtail for you, square for them, with a glyph for the
 ## troop type.
-func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: String, grey: bool, lit: bool, lean: float, edge: Color = Heraldry.EDGE) -> void:
+func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: String, grey: bool, lit: bool, lean: float, edge: Color = Heraldry.EDGE, wave: float = -1.0) -> void:
 	var mine := team == Sim.PLAYER
 	Heraldry.flag(ci, at, size, Style.PLAYER if mine else Style.ENEMY, Style.PLAYER_DARK if mine else Style.ENEMY_DARK,
-		mine, type, grey, lit, lean, edge)
+		mine, type, grey, lit, lean, edge, wave)
 
 
 func _draw_floaters() -> void:
