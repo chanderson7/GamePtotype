@@ -5,13 +5,14 @@ drums, brass and bells, played from the scores below, then written to WAV and en
 to Ogg Vorbis with ffmpeg into assets/audio/. The same script always renders the same
 files.
 
-Music:
+Music (the orchestral pieces are in tools/orchestral.py, played by recorded instruments;
+the synthesized versions below stand in when the samples aren't fetched):
   title       The Glass Sea: horn over harp and strings, D minor.
   vardish     Vardmark: lute and recorder over a hurdy-gurdy drone, D dorian, in three.
   kharzani    Kharzan: oud and ney over a frame drum's maqsum, D hijaz.
   ryumon      The Ryumon isles: koto and shakuhachi with taiko, E in-scale.
-  battle_low  Battle: war drums and a driving low ostinato. Always on.
-  battle_high Battle: horns and snares, the same length, faded in as the fighting grows.
+  battle(...) The first battle music (two layers), kept for reference; the game now plays
+              the layered orchestral battle music in tools/orchestral.py.
   victory, defeat   Short stingers.
 Sound effects: clicks, coins, horns, clashes, volleys of arrows, crossbow bolts, javelins
 and horse archers, a charge, a rout, dice, a bell, promotion and bond cues, footsteps,
@@ -22,6 +23,7 @@ what rings across its ends is what rings across them when it loops.
     python3 tools/music.py            # everything
     python3 tools/music.py sfx        # only the sound effects
     python3 tools/music.py vardish    # one piece
+    python3 tools/music.py 'base_*'   # every piece whose name starts with base_
 """
 import os
 import shutil
@@ -1031,14 +1033,26 @@ SFX = {
 }
 MUSIC = {
     "title": title, "vardish": vardish, "kharzani": kharzani, "ryumon": ryumon,
-    "battle_low": lambda: battle("low"), "battle_high": lambda: battle("high"),
     "victory": victory, "defeat": defeat,
 }
 
 
+def _orchestral():
+    """The recorded-orchestra pieces (tools/orchestral.py), when the samples are here;
+    without them the synthesized title, battle and stingers are kept."""
+    import sampler
+    if not sampler.available():
+        print("No samples at %s: run tools/fetch_samples.sh for the orchestral pieces." % sampler.ROOT)
+        return {}
+    import orchestral
+    return orchestral.MUSIC
+
+
 def main(which):
-    for name, fn in MUSIC.items():
-        if which in ("all", "music", name):
+    pieces = dict(MUSIC)
+    pieces.update(_orchestral())
+    for name, fn in pieces.items():
+        if which in ("all", "music", name) or (which.endswith("*") and name.startswith(which[:-1])):
             write(os.path.join(OUT, "music", name + ".ogg"), fn(), quality=3)
     for name, fn in SFX.items():
         if which in ("all", "sfx", name):

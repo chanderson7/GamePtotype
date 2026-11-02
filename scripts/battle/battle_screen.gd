@@ -297,7 +297,8 @@ func _ready() -> void:
 			pass  # the objective line under the top bar says it
 		_:
 			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
-	Sound.play_battle()
+	# The enemy's people set the music; an assault on walls has its own.
+	Sound.play_battle("siege" if sim.objective == Sim.OBJECTIVE_SIEGE else _enemy_culture)
 	# A river runs through a ford; birds sing in a wood.
 	Sound.set_loop(AMBIENCE.get(_terrain_site_type, ""))
 	# The enemy lines up first, so you can see what you're facing while you deploy.
@@ -765,6 +766,7 @@ func _on_fight() -> void:
 func _start_battle() -> void:
 	sim.start_battle()
 	Sound.play("horn")
+	Sound.battle_clash()
 	selected_id = -1
 	selected_squad = null
 	_layout()
@@ -1030,11 +1032,15 @@ func _battle_sounds(delta: float) -> void:
 	var active := 0
 	var foot_moving := false
 	var cavalry_moving := false
+	# Who is winning: the men still standing on each side, weighed by their morale.
+	var strength := [0.0, 0.0]
 	for sq in sim.squads:
 		if sq.is_active():
 			active += 1
 			if sq.engaged:
 				engaged += 1
+			if not sq.routing:
+				strength[sq.team] += float(sq.alive_count()) * clampf(sq.morale / 100.0, 0.15, 1.0)
 			if sq.team == Sim.PLAYER and not sq.engaged and sq.order != "hold":
 				if sq.type == Troops.CAVALRY:
 					cavalry_moving = true
@@ -1056,6 +1062,9 @@ func _battle_sounds(delta: float) -> void:
 			_prev_order[sq] = sq.order
 	Sound.set_movement_loop("hooves" if cavalry_moving else ("footsteps" if foot_moving else ""))
 	Sound.set_battle_intensity(float(engaged) / maxf(1.0, active) * 1.6)
+	var total: float = strength[Sim.PLAYER] + strength[Sim.ENEMY]
+	if sim.phase == Sim.PHASE_BATTLE and total > 0.0:
+		Sound.set_battle_balance((strength[Sim.PLAYER] - strength[Sim.ENEMY]) / total * 1.5)
 	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
 		_clash_clock -= delta * speed * (0.5 + engaged * 0.35)
 		if _clash_clock <= 0.0:

@@ -51,8 +51,12 @@ const DUCK_DB := -9.0
 var _track := ""
 var _music: Array[AudioStreamPlayer] = []
 var _current := 0
-var _upper: AudioStreamPlayer
+## The battle's layers, played in step once the fighting starts: drums and ostinato
+## (always), the tune (with the fighting), and a winning and a losing layer.
+var _layers := {}
 var _intensity := 0.0
+var _balance := 0.0
+var _battle_realm := ""
 var _stinger: AudioStreamPlayer
 var _loop: AudioStreamPlayer
 var _loop_alt: AudioStreamPlayer
@@ -71,8 +75,10 @@ func _ready() -> void:
 	_make_bus("Sounds")
 	for i in 2:
 		_music.append(_player("Music"))
-	_upper = _player("Music")
+	for key in BATTLE_LAYERS:
+		_layers[key] = _player("Music")
 	_stinger = _player("Music")
+	_stinger.finished.connect(_after_stinger)
 	_loop = _player("Sounds")
 	_loop_alt = _player("Sounds")
 	_movement_loop = _player("Sounds")
@@ -83,20 +89,38 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	# The battle's upper layer follows the fighting, slowly.
-	if _upper.playing:
-		var want := MUSIC_DB + linear_to_db(maxf(0.02, _intensity))
-		_upper.volume_db = move_toward(_upper.volume_db, want, delta * 12.0)
+	# The battle's upper layers follow the fighting, slowly.
+	var base: AudioStreamPlayer = _layers["base"]
+	if base.playing and not _layers_fading:
+		_toward("high", _intensity, delta)
+		_toward("win", clampf((_balance - 0.15) / 0.45, 0.0, 1.0), delta)
+		_toward("lose", clampf((-_balance - 0.1) / 0.45, 0.0, 1.0), delta)
+
+
+func _toward(key: String, level: float, delta: float) -> void:
+	var p: AudioStreamPlayer = _layers[key]
+	var want := MUSIC_DB + linear_to_db(maxf(0.02, level))
+	p.volume_db = move_toward(p.volume_db, want, delta * 12.0)
 
 
 # ---------------------------------------------------------------- music
 
-## Fade into the named piece (title, vardish, kharzani, ryumon), unless it's already on.
+## The battle music's layers (all one length, in step) and its tempo.
+const BATTLE_LAYERS := ["base", "high", "win", "lose"]
+const BATTLE_REALMS := ["vardish", "kharzani", "ryumon", "siege"]
+## Seconds in a bar of the battle music (120 beats a minute, four to the bar).
+const BATTLE_BAR := 2.0
+## Where a quiet battle layer rests: the floor _toward() fades down to.
+const LAYER_FLOOR_DB := MUSIC_DB - 34.0
+var _layers_fading := false
+
+
+## Fade into the named piece (title, vardish, kharzani, ryumon, ...), unless it's already on.
 func play_music(name: String) -> void:
 	if name == _track:
 		return
 	_track = name
-	_stop_upper()
+	_stop_layers()
 	var old := _music[_current]
 	_current = 1 - _current
 	var next := _music[_current]
@@ -107,14 +131,33 @@ func play_music(name: String) -> void:
 	_fade(old, SILENT_DB, FADE, true)
 
 
-## The battle music: the low layer at once, the upper one in step with it and silent
-## until the fighting starts.
-func play_battle() -> void:
-	play_music("battle_low")
-	_upper.stream = _stream(MUSIC_PATH % "battle_high", true)
-	_upper.volume_db = SILENT_DB
+## The battle begins: while you deploy, the realm's drone and heartbeat drum. `realm` is
+## whose music it is (the enemy's people), or "siege" for an assault on walls.
+func play_battle(realm: String = "vardish") -> void:
+	_battle_realm = realm if BATTLE_REALMS.has(realm) else "vardish"
 	_intensity = 0.0
-	_upper.play(_music[_current].get_playback_position())
+	_balance = 0.0
+	play_music("deploy_" + _battle_realm)
+
+
+## The lines are ordered forward: the full battle music, every layer starting together,
+## the drums and ostinato at once and the rest silent until the fight calls for them.
+func battle_clash() -> void:
+	if _battle_realm == "" or _layers["base"].playing:
+		return
+	_track = "battle"
+	var names := {"base": "base_%s" % _battle_realm, "high": "high_%s" % _battle_realm, "win": "turn_win", "lose": "turn_lose"}
+	_layers_fading = false
+	for key in BATTLE_LAYERS:
+		var p: AudioStreamPlayer = _layers[key]
+		p.stream = _stream(MUSIC_PATH % names[key], true)
+		# The upper layers wait just under hearing, so they answer the fight quickly.
+		p.volume_db = SILENT_DB if key == "base" else LAYER_FLOOR_DB
+	for key in BATTLE_LAYERS:
+		_layers[key].play(0.0)
+	_fade(_layers["base"], MUSIC_DB, 0.8)
+	for p in _music:
+		_fade(p, SILENT_DB, 1.2, true)
 
 
 ## How much of the field is fighting, from 0 to 1.
@@ -122,20 +165,49 @@ func set_battle_intensity(value: float) -> void:
 	_intensity = clampf(value, 0.0, 1.0)
 
 
-## A short piece over the end of a battle: the music stops for it.
+## Who is winning, from -1 (your lines are breaking) to 1 (theirs are).
+func set_battle_balance(value: float) -> void:
+	_balance = clampf(value, -1.0, 1.0)
+
+
+## A short piece over the end of a battle. It waits for the next half bar of the battle
+## music so the music ends on the beat, then a quiet piece plays under the results.
 func stinger(name: String) -> void:
-	_track = ""
-	_stop_upper()
+	_track = "stinger:" + name
+	_battle_realm = ""
+	var wait := 0.0
+	var base: AudioStreamPlayer = _layers["base"]
+	if base.playing:
+		var half := BATTLE_BAR / 2.0
+		wait = half - fmod(base.get_playback_position(), half)
+		if wait < 0.12:
+			wait += half
 	for p in _music:
 		_fade(p, SILENT_DB, 0.4, true)
+	if wait > 0.0:
+		await get_tree().create_timer(wait).timeout
+		if _track != "stinger:" + name:
+			return
+	_stop_layers(0.25)
 	_stinger.stream = _stream(MUSIC_PATH % name, false)
 	_stinger.volume_db = MUSIC_DB + 3.0
 	_stinger.play()
 
 
-func _stop_upper() -> void:
-	if _upper.playing:
-		_fade(_upper, SILENT_DB, 0.6, true)
+## After the stinger, the quiet piece for the results (unless something else has
+## started meanwhile).
+func _after_stinger() -> void:
+	if _track.begins_with("stinger:"):
+		var won := _track == "stinger:victory"
+		play_music("rest_victory" if won else "rest_defeat")
+
+
+func _stop_layers(seconds: float = 0.6) -> void:
+	if not _layers["base"].playing:
+		return
+	_layers_fading = true
+	for key in BATTLE_LAYERS:
+		_fade(_layers[key], SILENT_DB, seconds, true)
 
 
 # ---------------------------------------------------------------- effects

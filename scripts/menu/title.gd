@@ -34,8 +34,18 @@ func _ready() -> void:
 		GameState.new_campaign(Cultures.VARDISH)
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn")
 		return
-	Sound.play_music("title")
+	# A first visit hears the Glass Sea; with a campaign under way, your own realm's tune by
+	# the campfire, the fire crackling under it.
+	if GameState.has_campaign():
+		Sound.play_music("camp_" + GameState.culture)
+		Sound.set_loop("camp")
+	else:
+		Sound.play_music("title")
 	_build()
+
+
+func _exit_tree() -> void:
+	Sound.set_loop("")
 
 
 func _build() -> void:

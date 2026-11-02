@@ -15,3 +15,6 @@ Thumbs.db
 
 # Python bytecode from the tools
 __pycache__/
+
+# Recorded instruments for tools/music.py (fetched by tools/fetch_samples.sh)
+/tools/samples/
