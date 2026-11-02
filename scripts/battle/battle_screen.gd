@@ -151,6 +151,11 @@ var _cultures := {}
 var _clash_clock := 0.0
 ## The missiles in the air last frame, so each volley is heard once.
 var _heard := {}
+## The ram's swing last frame, to hear each blow land.
+var _ram_swing := 0.0
+## Which blows each kind of fighter trades: a pick from these banks for each clash.
+const BLOWS := {Troops.INFANTRY: ["sword", "shield", "sword"], Troops.SPEARMEN: ["spear", "shield", "spear"],
+	Troops.CAVALRY: ["heavy", "sword"], Troops.ARCHERS: ["sword", "shield"]}
 ## Player companies that have already sounded their low-morale warning this battle.
 var _low_morale_heard := {}
 ## A press on the field: where it went down (on screen and on the field), where it is
@@ -325,6 +330,7 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	Sound.set_loop("")
 	Sound.set_movement_loop("")
+	Sound.end_battle_sounds()
 	if sim != null:
 		sim.dispose()
 
@@ -765,7 +771,7 @@ func _on_fight() -> void:
 
 func _start_battle() -> void:
 	sim.start_battle()
-	Sound.play("horn")
+	_call("start", Sim.PLAYER)
 	Sound.battle_clash()
 	selected_id = -1
 	selected_squad = null
@@ -1034,11 +1040,13 @@ func _battle_sounds(delta: float) -> void:
 	var cavalry_moving := false
 	# Who is winning: the men still standing on each side, weighed by their morale.
 	var strength := [0.0, 0.0]
+	var fighting := []
 	for sq in sim.squads:
 		if sq.is_active():
 			active += 1
 			if sq.engaged:
 				engaged += 1
+				fighting.append(sq)
 			if not sq.routing:
 				strength[sq.team] += float(sq.alive_count()) * clampf(sq.morale / 100.0, 0.15, 1.0)
 			if sq.team == Sim.PLAYER and not sq.engaged and sq.order != "hold":
@@ -1065,23 +1073,60 @@ func _battle_sounds(delta: float) -> void:
 	var total: float = strength[Sim.PLAYER] + strength[Sim.ENEMY]
 	if sim.phase == Sim.PHASE_BATTLE and total > 0.0:
 		Sound.set_battle_balance((strength[Sim.PLAYER] - strength[Sim.ENEMY]) / total * 1.5)
+	# The din of the melee under everything, and over it single blows where the lines meet,
+	# of the kinds the men fighting there trade.
+	Sound.set_melee(clampf(float(engaged) / 6.0, 0.0, 1.0) if sim.phase == Sim.PHASE_BATTLE else 0.0)
+	Sound.set_field_distance(1.0 - (cam_zoom - 1.0) / maxf(0.01, MAX_ZOOM - 1.0))
 	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
-		_clash_clock -= delta * speed * (0.5 + engaged * 0.35)
+		_clash_clock -= delta * speed * (0.6 + engaged * 0.3)
 		if _clash_clock <= 0.0:
-			_clash_clock = randf_range(0.18, 0.4)
-			Sound.play("clash%d" % randi_range(1, 3), randf_range(-6.0, 0.0), 0.15)
-	# Each kind of missile has its own sound, played when enough of them go up at once.
+			_clash_clock = randf_range(0.22, 0.5)
+			var sq = fighting[randi() % fighting.size()]
+			var kinds: Array = BLOWS.get(sq.type, ["sword"])
+			Sound.play_at(String(kinds[randi() % kinds.size()]), _to_screen(sq.average_pos()), randf_range(-5.0, 0.0), 0.08)
+	# Each kind of missile has its own sound going up, where it was loosed, and coming down,
+	# where it lands, played when enough of them fly at once.
 	var loosed := {}
+	var landed := {}
 	var seen := {}
 	for p in sim.projectiles:
-		seen[p] = true
+		seen[p] = [_missile_sound(p), p.pos]
 		if not _heard.has(p):
-			var kind := _missile_sound(p)
-			loosed[kind] = int(loosed.get(kind, 0)) + 1
+			_tally(loosed, String(seen[p][0]), p.origin)
+	for p in _heard:
+		if not seen.has(p):
+			_tally(landed, LANDING[String(_heard[p][0])], _heard[p][1])
 	_heard = seen
 	for kind in loosed:
-		if int(loosed[kind]) >= (6 if kind == "arrows" else 3):
-			Sound.play(kind, 0.0, 0.08, 0.6)
+		if int(loosed[kind][0]) >= (6 if kind == "arrows" else 3):
+			Sound.play_at(kind, _to_screen(loosed[kind][1] / float(loosed[kind][0])), 0.0, 0.08, 0.6)
+	for kind in landed:
+		if int(landed[kind][0]) >= (4 if kind == "arrows_land" else 2):
+			Sound.play_at(kind, _to_screen(landed[kind][1] / float(landed[kind][0])), 0.0, 0.08, 0.25)
+	# The ram: a blow each time it swings home.
+	if sim.objective == Sim.OBJECTIVE_SIEGE and sim.gate_hp > 0.0 and sim.gate_blows > 0.0:
+		var swing := sin(_clock * 7.0)
+		if _ram_swing < 0.9 and swing >= 0.9:
+			Sound.play_at("ram", _to_screen(sim.gate_center), 0.0, 0.05)
+		_ram_swing = swing
+
+
+## The sound of each missile coming down.
+const LANDING := {"arrows": "arrows_land", "horsebow": "arrows_land", "crossbow": "bolts_land", "javelin": "javelins_land"}
+
+
+## Count a missile of `kind` at `pos` into `tally` (kind -> [count, summed position]).
+func _tally(tally: Dictionary, kind: String, pos: Vector2) -> void:
+	var t: Array = tally.get(kind, [0, Vector2.ZERO])
+	tally[kind] = [int(t[0]) + 1, Vector2(t[1]) + pos]
+
+
+## A side's call (its realm's horn, shawm or conch): "start", "charge" or "retreat".
+func _call(which: String, team: int) -> void:
+	var culture := String(GameState.culture) if team == Sim.PLAYER else _enemy_culture
+	if not ["vardish", "kharzani", "ryumon"].has(culture):
+		culture = "vardish"
+	Sound.play("call_%s_%s" % [which, culture], 0.0, 0.0, 4.0)
 
 
 ## The sound a missile makes going up: a javelin, a crossbow bolt, a horse archer's
@@ -1255,6 +1300,7 @@ func _consume_events() -> void:
 				else:
 					_tick("The ram is at the gate!", Style.PLAYER_LIGHT, "ram")
 			"ladders_up":
+				Sound.play_at("ladders", _to_screen(Vector2(sim.gate_center.x, sim.wall_y)))
 				if sim.siege_defender == Sim.PLAYER:
 					_tick("They're on the ladders! Throw them down!", Style.ENEMY_LIGHT, "ladder")
 				else:
@@ -1262,6 +1308,7 @@ func _consume_events() -> void:
 			"siege_moment":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
+				Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
 				if e["kind"] == "first_over":
 					if mine:
 						_tick("%s are over the wall!" % _company_or_type(sq), Style.PLAYER_LIGHT, "walls")
@@ -1283,7 +1330,7 @@ func _consume_events() -> void:
 					_tick("The gate is broken! Hold the breach!", Style.ENEMY_LIGHT, "breach")
 				else:
 					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT, "breach")
-				Sound.play("charge", 0.0, 0.05, 0.6)
+				Sound.play_at("gate_break", _to_screen(sim.gate_center))
 				Sound.haptic(true)
 				_shake = maxf(_shake, 12.0)
 				Sound.duck()
@@ -1291,8 +1338,13 @@ func _consume_events() -> void:
 				var sq = e["squad"]
 				_broke_at[sq] = _clock
 				_burst(sq.average_pos(), "rout", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.0)
-				Sound.play("rout", 0.0, 0.1, 0.8)
 				var mine: bool = sq.team == Sim.PLAYER
+				# They scatter shouting; across the field, the other side cheers.
+				Sound.play_at("panic", _to_screen(sq.average_pos()), 0.0, 0.05, 0.8)
+				if mine:
+					_call("retreat", Sim.PLAYER)
+				else:
+					Sound.play("cheer", -2.0, 0.04, 4.0)
 				_float_text("BROKEN", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT, 1.6)
 				if mine:
 					Sound.duck()
@@ -1307,7 +1359,15 @@ func _consume_events() -> void:
 					_burst(e["pos"], "charge", Style.BRASS, 0.55)
 					_burst(e["pos"], "dust", _ground_dust(e["pos"]), 0.8)
 					_float_text("CHARGE!", e["pos"], Style.BRASS)
-					Sound.play("charge", 0.0, 0.06, 0.6)
+					# Horsemen thunder in; men on foot roar and crash into the line.
+					var at := _to_screen(e["pos"])
+					if sq.type == Troops.CAVALRY:
+						Sound.play_at("cav_impact", at, 0.0, 0.05, 0.6)
+					else:
+						Sound.play_at("warcry", at, 0.0, 0.05, 1.2)
+						Sound.play_at("heavy", at, 2.0, 0.08)
+					if sq.team == Sim.PLAYER:
+						_call("charge", Sim.PLAYER)
 					if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
 						_shake = maxf(_shake, 5.0)
 						_hitstop = HITSTOP
@@ -1317,6 +1377,7 @@ func _consume_events() -> void:
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
 				_float_text("OUT OF ARROWS", sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+				Sound.play_at("quiver_empty", _to_screen(sq.average_pos()))
 				if mine:
 					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.")
 			"captain_down":
@@ -1327,16 +1388,17 @@ func _consume_events() -> void:
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
 				if sq.type == Troops.ARCHERS:
-					Sound.play("arrows", 2.0, 0.05, 0.3)
+					Sound.play_at("arrows", _to_screen(sq.average_pos()), 2.0, 0.05, 0.3)
 				_float_text(String(e["name"]).to_upper(), sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
 				if not mine:
 					_tick("Their %s: %s." % [_name(sq.type, Sim.ENEMY).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
 			"braced":
 				var sq = e["squad"]
 				_float_text("BRACED", sq.average_pos() + Vector2(0, -50), Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
+				Sound.play_at("brace", _to_screen(sq.average_pos()), 0.0, 0.05, 0.4)
 			"reinforcements":
 				if int(e["team"]) == Sim.ENEMY:
-					Sound.play("alarm", 0.0, 0.0, 2.0)
+					Sound.play("reinforce_" + (_enemy_culture if ["vardish", "kharzani", "ryumon"].has(_enemy_culture) else "vardish"), 0.0, 0.0, 2.0)
 					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT)
 			"chief_broken":
 				Sound.play("objective")
@@ -1358,7 +1420,7 @@ func _consume_events() -> void:
 			"flanked":
 				var sq = e["squad"]
 				var where := "REAR!" if e["rear"] else "FLANK!"
-				Sound.play("clash%d" % randi_range(1, 3), 3.0, 0.1, 0.3)
+				Sound.play_at("heavy", _to_screen(e["pos"]), 3.0, 0.1, 0.3)
 				_float_text(where, e["pos"], Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
 				if sq.team == Sim.PLAYER and e["rear"]:
 					_tick("%s are hit from behind!" % _company_or_type(sq), Style.ENEMY_LIGHT)
@@ -1367,6 +1429,7 @@ func _consume_events() -> void:
 
 func _captain_down(e: Dictionary) -> void:
 	var sq = e["squad"]
+	Sound.play_at("captain_down", _to_screen(e["pos"]), 0.0 if sq.team == Sim.PLAYER else -4.0)
 	_burst(e["pos"], "fall", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.1)
 	var info: Dictionary = sq.info
 	if sq.team != Sim.PLAYER:
@@ -1492,6 +1555,9 @@ func _show_result() -> void:
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
 	Sound.stinger("victory" if won else "defeat")
+	Sound.end_battle_sounds()
+	if won:
+		Sound.play("cheer", 0.0, 0.03)
 	_rebuild_result(GameState.battle_report(_pending_result), why)
 	result_panel.visible = true
 	result_scrim.visible = true

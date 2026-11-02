@@ -24,6 +24,7 @@ what rings across its ends is what rings across them when it loops.
     python3 tools/music.py sfx        # only the sound effects
     python3 tools/music.py vardish    # one piece
     python3 tools/music.py 'base_*'   # every piece whose name starts with base_
+    python3 tools/music.py battle_sfx # the battle sounds built on recorded hits (tools/battle_sfx.py)
 """
 import os
 import shutil
@@ -1048,14 +1049,28 @@ def _orchestral():
     return orchestral.MUSIC
 
 
+def _battle_sfx():
+    """The battle's sounds built on recorded metal and wood (tools/battle_sfx.py), when the
+    samples are here; they replace the synthesized footsteps, hooves, crossbow and morale cue."""
+    import sampler
+    if not sampler.available():
+        return {}
+    import battle_sfx
+    return battle_sfx.SFX
+
+
 def main(which):
     pieces = dict(MUSIC)
     pieces.update(_orchestral())
+    sounds = dict(SFX)
+    recorded = _battle_sfx()
+    sounds.update(recorded)
     for name, fn in pieces.items():
         if which in ("all", "music", name) or (which.endswith("*") and name.startswith(which[:-1])):
             write(os.path.join(OUT, "music", name + ".ogg"), fn(), quality=3)
-    for name, fn in SFX.items():
-        if which in ("all", "sfx", name):
+    for name, fn in sounds.items():
+        if which in ("all", "sfx", name) or (which == "battle_sfx" and name in recorded) \
+                or (which.endswith("*") and name.startswith(which[:-1])):
             x = fn()
             x = x / (np.max(np.abs(x)) + 1e-9) * 0.89
             write(os.path.join(OUT, "sfx", name + ".ogg"), x, quality=4)

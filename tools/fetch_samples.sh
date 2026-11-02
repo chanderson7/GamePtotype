@@ -36,6 +36,20 @@ cat > .git/info/sparse-checkout <<'LIST'
 /Percussion/Tamb1-Hit*
 /VSCO 1 Percussion/drums/tenor/
 /VSCO 1 Percussion/drums/bass/
+/Percussion/Anvil*
+/Percussion/BrakeDrum*
+/Percussion/Claves*
+/Percussion/LogDrum*
+/Percussion/Ratchet*
+/Percussion/gongscrape*
+/Percussion/susCymb1-scrape*
+/Percussion/susCymb1-hitstick*
+/Percussion/cymbal-crashshort*
+/VSCO 1 Percussion/varMetal/Cymbals/
+/VSCO 1 Percussion/varMetal/Gong/gong_smack*
+/VSCO 1 Percussion/varMetal/Gong/gong_scrape*
+/VSCO 1 Percussion/varWood/log_drum/
+/VSCO 1 Percussion/varWood/Camo's Shaker/
 LIST
 git -c gc.auto=0 checkout -q HEAD
 echo "Samples ready in tools/samples/vsco"

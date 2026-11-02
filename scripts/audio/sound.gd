@@ -1,8 +1,9 @@
 ## Music and sound for every screen (an autoload). One piece of music at a time,
-## crossfading into the next; the battle's two layers kept in step, the upper one
-## swelling as more of the field is fighting; a small pool of players for effects; and a
-## click and a little give on every button. Music and sound can each be switched off,
-## and the choice is kept on the device.
+## crossfading into the next; the battle's layers kept in step and faded by the fight; a
+## pool of players for effects, and another for battle sounds placed where they happen
+## (left or right on the screen, quieter and duller far off), each in its group (melee,
+## missiles, voices, cues) through a limiter; and a click and a little give on every
+## button. Music and sound can each be switched off, and the choice is kept on the device.
 ##
 ## The audio itself is rendered by tools/music.py into assets/audio/.
 extends Node
@@ -27,7 +28,29 @@ const SFX_DB := {
 	"road_open": -25.0, "road_night": -26.0, "settlement_edge": -26.0,
 	"settlement_vardish": -27.0, "settlement_kharzani": -27.0, "settlement_ryumon": -27.0,
 	"objective": -6.0,
+	"sword": -12.0, "shield": -12.0, "spear": -12.0, "heavy": -11.0, "melee_bed": -15.0,
+	"arrows_land": -13.0, "bolts_land": -12.0, "javelins_land": -11.0, "quiver_empty": -12.0,
+	"warcry": -10.0, "panic": -12.0, "cheer": -9.0, "gasp": -12.0,
+	"cav_impact": -6.0, "brace": -9.0, "captain_down": -6.0,
+	"ram": -7.0, "gate_break": -4.0, "ladders": -9.0,
+	"call_start": -5.0, "call_charge": -7.0, "call_retreat": -7.0, "reinforce": -8.0,
 }
+## Sounds recorded in several takes: "sword" plays one of sword_1..sword_12, never the
+## same one twice running.
+const BANKS := {"sword": 12, "shield": 12, "spear": 12, "heavy": 12, "arrows_land": 3, "bolts_land": 2,
+	"javelins_land": 2, "warcry": 3, "panic": 2, "cheer": 2, "ram": 3}
+## The most of one battle sound that may sound at once; more than that, and the newest waits.
+const CAPS := {"sword": 3, "shield": 3, "spear": 3, "heavy": 2, "arrows_land": 2, "bolts_land": 2,
+	"javelins_land": 2, "warcry": 2, "panic": 2, "cheer": 1, "ram": 1, "brace": 2, "cav_impact": 2}
+## Which group (and bus) each battle sound plays in. Anything else is a cue.
+const GROUPS := {
+	"Melee": ["sword", "shield", "spear", "heavy", "clash1", "clash2", "clash3", "cav_impact", "brace", "charge", "melee_bed", "ram", "gate_break", "ladders"],
+	"Missiles": ["arrows", "crossbow", "javelin", "horsebow", "arrows_land", "bolts_land", "javelins_land", "quiver_empty"],
+	"Voices": ["warcry", "panic", "cheer", "gasp", "rout", "captain_down"],
+}
+const POOL_2D := 16
+## How far (in screen pixels) a battle sound carries before it fades out entirely.
+const HEARING := 2400.0
 const POOL := 10
 
 ## Tests may use a disposable preference file without touching device settings.
@@ -64,6 +87,12 @@ var _loop_current := 0
 var _loop_name := ""
 var _movement_loop: AudioStreamPlayer
 var _pool: Array[AudioStreamPlayer] = []
+var _pool_2d: Array[AudioStreamPlayer2D] = []
+var _last_take := {}
+var _melee_bed: AudioStreamPlayer
+var _melee := 0.0
+## Battle sounds placed so far, by name (for tests, and so a headless run can see them).
+var placed := {}
 var _streams := {}
 var _last := {}
 var _fades := {}
@@ -73,6 +102,22 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_make_bus("Music")
 	_make_bus("Sounds")
+	# Battle groups: melee, missiles and voices pass through "Field" (dulled when the view is
+	# far off); cues go straight to Sounds. A limiter on Sounds keeps a big moment clean.
+	_make_bus("Field", "Sounds")
+	for group in ["Melee", "Missiles", "Voices"]:
+		_make_bus(group, "Field")
+	_make_bus("Cues", "Sounds")
+	var sounds_bus := AudioServer.get_bus_index("Sounds")
+	if AudioServer.get_bus_effect_count(sounds_bus) == 0:
+		var limiter := AudioEffectHardLimiter.new()
+		limiter.ceiling_db = -0.5
+		AudioServer.add_bus_effect(sounds_bus, limiter)
+	var field_bus := AudioServer.get_bus_index("Field")
+	if AudioServer.get_bus_effect_count(field_bus) == 0:
+		var dull := AudioEffectLowPassFilter.new()
+		dull.cutoff_hz = 20000.0
+		AudioServer.add_bus_effect(field_bus, dull)
 	for i in 2:
 		_music.append(_player("Music"))
 	for key in BATTLE_LAYERS:
@@ -84,11 +129,29 @@ func _ready() -> void:
 	_movement_loop = _player("Sounds")
 	for i in POOL:
 		_pool.append(_player("Sounds"))
+	for i in POOL_2D:
+		var p := AudioStreamPlayer2D.new()
+		p.max_distance = HEARING
+		p.attenuation = 1.6
+		p.panning_strength = 1.6
+		add_child(p)
+		_pool_2d.append(p)
+	_melee_bed = _player("Melee")
 	_load_settings()
 	get_tree().node_added.connect(_on_node_added)
 
 
 func _process(delta: float) -> void:
+	# The din of the melee follows how much of the field is fighting.
+	if _melee > 0.0 and not _melee_bed.playing and sounds_on:
+		_melee_bed.stream = _stream(SFX_PATH % "melee_bed", true)
+		_melee_bed.volume_db = SILENT_DB
+		_melee_bed.play()
+	if _melee_bed.playing:
+		var want_bed := float(SFX_DB["melee_bed"]) + linear_to_db(maxf(0.01, _melee))
+		_melee_bed.volume_db = move_toward(_melee_bed.volume_db, want_bed, delta * 18.0)
+		if _melee <= 0.0 and _melee_bed.volume_db <= -55.0:
+			_melee_bed.stop()
 	# The battle's upper layers follow the fighting, slowly.
 	var base: AudioStreamPlayer = _layers["base"]
 	if base.playing and not _layers_fading:
@@ -223,7 +286,7 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 	_last[name] = now
 	if now < _duck_until and CONTACT.has(name):
 		volume_db += DUCK_DB
-	var stream := _stream(SFX_PATH % name, false)
+	var stream := _stream(SFX_PATH % take(name), false)
 	if stream == null:
 		return
 	var p: AudioStreamPlayer = null
@@ -235,9 +298,107 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 		p = _pool[0]
 		_pool.push_back(_pool.pop_front())
 	p.stream = stream
-	p.volume_db = float(SFX_DB.get(name, -8.0)) + volume_db
+	p.volume_db = _base_db(name) + volume_db
 	p.pitch_scale = pitch * (1.0 + randf_range(-jitter, jitter))
+	p.bus = group_of(name)
 	p.play()
+
+
+## The file to play for `name`: one of its takes if it has several (never the one just
+## played), else the name itself.
+func take(name: String) -> String:
+	var n := int(BANKS.get(name, 0))
+	if n <= 1:
+		return name if n == 0 else name + "_1"
+	var last := int(_last_take.get(name, 0))
+	var pick := randi_range(1, n - 1)
+	if pick >= last:
+		pick += 1
+	_last_take[name] = pick
+	return "%s_%d" % [name, pick]
+
+
+## The bus a sound plays on: its battle group, or Cues.
+func group_of(name: String) -> String:
+	for group in GROUPS:
+		if (GROUPS[group] as Array).has(_family(name)):
+			return group
+	return "Cues" if _family(name) != "click" else "Sounds"
+
+
+## "call_start_vardish" -> "call_start", "sword" -> "sword".
+func _family(name: String) -> String:
+	for prefix in ["call_start", "call_charge", "call_retreat", "reinforce"]:
+		if name.begins_with(prefix):
+			return prefix
+	return name
+
+
+func _base_db(name: String) -> float:
+	return float(SFX_DB.get(name, SFX_DB.get(_family(name), -8.0)))
+
+
+## A battle sound where it happens: `at` is its place on the screen, so it sounds from
+## that side, and quieter the farther it is from the middle of the view.
+func play_at(name: String, at: Vector2, volume_db: float = 0.0, jitter: float = 0.0, gap: float = 0.0, pitch: float = 1.0) -> void:
+	if not sounds_on:
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	var key := "@" + name
+	if gap > 0.0 and now - float(_last.get(key, -99.0)) < gap:
+		return
+	var cap := int(CAPS.get(name, 3))
+	var busy := 0
+	var free: AudioStreamPlayer2D = null
+	for q in _pool_2d:
+		if q.playing:
+			if String(q.get_meta("family", "")) == name:
+				busy += 1
+		elif free == null:
+			free = q
+	if busy >= cap or free == null:
+		return
+	_last[key] = now
+	if now < _duck_until and (CONTACT.has(name) or GROUPS["Melee"].has(name) or GROUPS["Missiles"].has(name)):
+		volume_db += DUCK_DB
+	var stream := _stream(SFX_PATH % take(name), false)
+	if stream == null:
+		return
+	free.stream = stream
+	free.bus = group_of(name)
+	free.global_position = at
+	free.volume_db = _base_db(name) + volume_db
+	free.pitch_scale = pitch * (1.0 + randf_range(-jitter, jitter))
+	free.set_meta("family", name)
+	free.play()
+	placed[name] = int(placed.get(name, 0)) + 1
+
+
+## How much of the field is locked in melee, from 0 to 1: the din follows it.
+func set_melee(level: float) -> void:
+	_melee = clampf(level, 0.0, 1.0)
+
+
+## How far out the battle view is, from 0 (close in) to 1 (the whole field): far off, the
+## fighting sounds duller and a little quieter.
+func set_field_distance(far: float) -> void:
+	var f := clampf(far, 0.0, 1.0)
+	var bus := AudioServer.get_bus_index("Field")
+	if bus == -1:
+		return
+	var dull := AudioServer.get_bus_effect(bus, 0) as AudioEffectLowPassFilter
+	if dull != null:
+		dull.cutoff_hz = lerpf(20000.0, 4500.0, f)
+	AudioServer.set_bus_volume_db(bus, lerpf(0.0, -4.0, f))
+
+
+## The battle is over: its din and everything placed on the field stop.
+func end_battle_sounds() -> void:
+	_melee = 0.0
+	_melee_bed.stop()
+	for q in _pool_2d:
+		q.stop()
+	set_field_distance(0.0)
 
 
 ## A restrained arrival accent whose instrument and pitch reflect the place's culture.
@@ -400,13 +561,13 @@ func _squash(b: BaseButton, to: float) -> void:
 
 # ---------------------------------------------------------------- plumbing
 
-func _make_bus(name: String) -> void:
+func _make_bus(name: String, send: String = "Master") -> void:
 	if AudioServer.get_bus_index(name) != -1:
 		return
 	AudioServer.add_bus()
 	var i := AudioServer.bus_count - 1
 	AudioServer.set_bus_name(i, name)
-	AudioServer.set_bus_send(i, "Master")
+	AudioServer.set_bus_send(i, send)
 
 
 func _player(bus: String) -> AudioStreamPlayer:
