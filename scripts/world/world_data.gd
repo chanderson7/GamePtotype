@@ -114,6 +114,29 @@ const RIVERS := [
 		Vector2(695, 342)]},
 ]
 
+## For looks only: how the land runs on past the map's edge, so a camera that sees beyond
+## it finds more coast, hills and desert rather than flat colour. The mainland's coast
+## carries on north past the top and bends away south-east past the right; the world sim
+## never reads these.
+const LAND_BEYOND := [
+	Vector2(-1000, -1000), Vector2(660, -1000), Vector2(630, -700), Vector2(660, -480), Vector2(610, -330),
+	Vector2(655, -190), Vector2(595, -90), Vector2(600, 0), Vector2(620, 120), Vector2(580, 300), Vector2(540, 520),
+	Vector2(460, 620), Vector2(330, 680), Vector2(300, 820), Vector2(330, 960), Vector2(480, 1000),
+	Vector2(700, 1040), Vector2(900, 1100), Vector2(1000, 1150), Vector2(1060, 1215), Vector2(1150, 1245),
+	Vector2(1230, 1320), Vector2(1330, 1365), Vector2(1500, 1400), Vector2(2000, 1430), Vector2(2000, 2600),
+	Vector2(-1000, 2600),
+]
+const VARDMARK_BEYOND := [
+	Vector2(-1000, -1000), Vector2(660, -1000), Vector2(630, -700), Vector2(660, -480), Vector2(610, -330),
+	Vector2(655, -190), Vector2(595, -90), Vector2(600, 0), Vector2(620, 120), Vector2(580, 300), Vector2(540, 520),
+	Vector2(460, 620), Vector2(330, 680), Vector2(300, 820), Vector2(0, 860), Vector2(-1000, 880),
+]
+## Small isles off the eastern edge, past where anyone sails.
+const ISLES_BEYOND := [
+	[Vector2(1030, 540), Vector2(1078, 556), Vector2(1100, 615), Vector2(1080, 690), Vector2(1040, 682), Vector2(1018, 610)],
+	[Vector2(1040, 900), Vector2(1072, 912), Vector2(1080, 950), Vector2(1050, 968), Vector2(1030, 940)],
+]
+
 ## Where each realm's land is tinted on the map (drawn over the coastlines).
 const REALM_TINT := {
 	"vardmark": [
@@ -215,6 +238,32 @@ static func realm_shape(faction: String) -> PackedVector2Array:
 	return _realms[faction]
 
 
+## The mainland and Vardmark as they run on past the map's edge, ragged like the coast
+## (inside the map they match coast(0) and realm_shape("vardmark") exactly).
+static func land_beyond() -> PackedVector2Array:
+	if not _beyond.has("land"):
+		_beyond["land"] = _ragged(LAND_BEYOND)
+	return _beyond["land"]
+
+
+static func vardmark_beyond() -> PackedVector2Array:
+	if not _beyond.has("vardmark"):
+		_beyond["vardmark"] = _ragged(VARDMARK_BEYOND)
+	return _beyond["vardmark"]
+
+
+static func isles_beyond() -> Array:
+	if not _beyond.has("isles"):
+		_beyond["isles"] = ISLES_BEYOND.map(func(points): return _ragged(points))
+	return _beyond["isles"]
+
+
+static var _beyond := {}
+
+
+## A corner of the frame the outlines past the map's edge close on, far out of sight.
+static func _far_frame(p: Vector2) -> bool:
+	return p.x <= -1000.0 or p.y <= -1000.0 or p.x >= 2000.0 or p.y >= 2600.0
 static var _coasts: Array = []
 static var _realms := {}
 ## How far the shore wanders from a straight line, in map units, and how finely.
@@ -236,7 +285,7 @@ static func _ragged(points: Array) -> PackedVector2Array:
 		var a: Vector2 = points[k]
 		var b: Vector2 = points[(k + 1) % points.size()]
 		out.append(a)
-		if on_border(a, b):
+		if on_border(a, b) or _far_frame(a) or _far_frame(b):
 			continue
 		var steps := int(a.distance_to(b) / SHORE_STEP)
 		var side := (b - a).normalized().orthogonal()

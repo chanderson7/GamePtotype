@@ -5,6 +5,8 @@ shader_type canvas_item;
 
 uniform sampler2D terrain : filter_linear;
 uniform vec2 map_size = vec2(1000.0, 1600.0);
+// The land picture starts here, in map units (it reaches past the map's edge).
+uniform vec2 map_origin = vec2(0.0, 0.0);
 uniform vec4 beach : source_color = vec4(0.86, 0.79, 0.6, 1.0);
 
 varying vec2 map_pos;
@@ -26,8 +28,8 @@ void vertex() {
 }
 
 void fragment() {
-	vec2 uv = map_pos / map_size;
-	// Past the map's edge the land runs on, plain: no shore, no hills.
+	vec2 uv = (map_pos - map_origin) / map_size;
+	// At the far edge of the land picture the land runs on, plain.
 	float inside = smoothstep(0.0, 0.03, uv.x) * smoothstep(1.0, 0.97, uv.x)
 		* smoothstep(0.0, 0.02, uv.y) * smoothstep(1.0, 0.98, uv.y);
 	vec4 t = mix(vec4(1.0, 1.0, 1.0, 0.2), texture(terrain, uv), inside);

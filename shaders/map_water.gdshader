@@ -5,6 +5,8 @@ shader_type canvas_item;
 
 uniform sampler2D terrain : filter_linear;
 uniform vec2 map_size = vec2(1000.0, 1600.0);
+// The land picture starts here, in map units (it reaches past the map's edge).
+uniform vec2 map_origin = vec2(0.0, 0.0);
 uniform vec2 cam_center = vec2(500.0, 800.0);
 uniform float cam_scale = 1.0;
 uniform vec2 view_center = vec2(360.0, 640.0);
@@ -27,8 +29,8 @@ float noise(vec2 p) {
 
 void fragment() {
 	vec2 map_pos = cam_center + (UV * rect_size - view_center) / cam_scale;
-	vec2 uv = map_pos / map_size;
-	// Past the map's edge it's open sea.
+	vec2 uv = (map_pos - map_origin) / map_size;
+	// Past the far edge of the land picture it's open sea.
 	float inside = smoothstep(0.0, 0.03, uv.x) * smoothstep(1.0, 0.97, uv.x)
 		* smoothstep(0.0, 0.02, uv.y) * smoothstep(1.0, 0.98, uv.y);
 	vec4 t = texture(terrain, uv) * inside;

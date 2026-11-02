@@ -6,8 +6,14 @@ extends RefCounted
 
 const Data = preload("res://scripts/world/world_data.gd")
 
-## Texels across and down the land picture.
-const TEX_SIZE := Vector2i(128, 200)
+## How far past the map's edge the land picture and the decor reach, in map units: as far
+## as the camera can see at its widest.
+const BEYOND := 320.0
+## Where the land picture starts and how much of the world it covers, in map units.
+const ORIGIN := Vector2(-BEYOND, -BEYOND)
+const EXTENT := Data.SIZE + Vector2(BEYOND, BEYOND) * 2.0
+## Texels across and down the land picture (about 8 map units each).
+const TEX_SIZE := Vector2i(210, 280)
 ## Map units per pixel of a terrain sprite.
 const DECOR_PIXEL := 2.0
 ## Woods and peaks keep this far from settlements and roads, in map units.
@@ -80,21 +86,48 @@ func inland(p: Vector2) -> float:
 	return _texel(p).g
 
 
-## The realm whose land `p` is on, or "" at sea.
+## The realm whose land `p` is on, or "" at sea. Past the map's edge this follows the
+## land as it's drawn there (the isles off the east look like Ryumon's).
 func realm_at(p: Vector2) -> String:
-	var land := Data.land_at(p)
+	var land := looks_land(p)
 	if land == -1:
 		return ""
-	if land == 1:
+	if land >= 1:
 		return "ryumon"
-	if Geometry2D.is_point_in_polygon(p, Data.realm_shape("vardmark")):
+	if Geometry2D.is_point_in_polygon(p, Data.vardmark_beyond()):
 		return "vardmark"
 	return "kharzan"
 
 
+## Which land the map draws at `p`, inside the map or past its edge: 0 the mainland, 1
+## Ryumon, 2 an isle beyond the edge, -1 sea. Inside the map it matches Data.land_at.
+static func looks_land(p: Vector2) -> int:
+	if _boxes.is_empty():
+		_boxes = [_box(Data.coast(1))] + Data.isles_beyond().map(func(isle): return _box(isle))
+	if _boxes[0].has_point(p) and Geometry2D.is_point_in_polygon(p, Data.coast(1)):
+		return 1
+	var isles: Array = Data.isles_beyond()
+	for i in isles.size():
+		if _boxes[i + 1].has_point(p) and Geometry2D.is_point_in_polygon(p, isles[i]):
+			return 2
+	if Geometry2D.is_point_in_polygon(p, Data.land_beyond()):
+		return 0
+	return -1
+
+
+static var _boxes: Array = []
+
+
+static func _box(points: PackedVector2Array) -> Rect2:
+	var r := Rect2(points[0], Vector2.ZERO)
+	for q in points:
+		r = r.expand(q)
+	return r.grow(1.0)
+
+
 func _texel(p: Vector2) -> Color:
-	var x := clampi(int(p.x / Data.SIZE.x * TEX_SIZE.x), 0, TEX_SIZE.x - 1)
-	var y := clampi(int(p.y / Data.SIZE.y * TEX_SIZE.y), 0, TEX_SIZE.y - 1)
+	var x := clampi(int((p.x - ORIGIN.x) / EXTENT.x * TEX_SIZE.x), 0, TEX_SIZE.x - 1)
+	var y := clampi(int((p.y - ORIGIN.y) / EXTENT.y * TEX_SIZE.y), 0, TEX_SIZE.y - 1)
 	return image.get_pixel(x, y)
 
 
@@ -102,20 +135,41 @@ func _paint() -> void:
 	var w := TEX_SIZE.x
 	var h := TEX_SIZE.y
 	var mask := Image.create_empty(w, h, false, Image.FORMAT_L8)
-	for y in h:
-		for x in w:
-			var p := Vector2((x + 0.5) / w * Data.SIZE.x, (y + 0.5) / h * Data.SIZE.y)
-			mask.set_pixel(x, y, Color.WHITE if Data.land_at(p) != -1 else Color.BLACK)
+	for poly in [Data.land_beyond(), Data.coast(1)] + Data.isles_beyond():
+		_fill(mask, poly)
 	var soft := _blurred(mask, 1)
 	var mid := _blurred(mask, 2)
 	var wide := _blurred(mask, 4)
 	image = Image.create_empty(w, h, false, Image.FORMAT_RGBA8)
 	for y in h:
 		for x in w:
-			var p := Vector2((x + 0.5) / w * Data.SIZE.x, (y + 0.5) / h * Data.SIZE.y)
+			var p := _texel_pos(x, y)
 			var m := mid.get_pixel(x, y).r
 			image.set_pixel(x, y, Color(soft.get_pixel(x, y).r, m, wide.get_pixel(x, y).r, height_at(p) * m))
 	texture = ImageTexture.create_from_image(image)
+
+
+## Fills the texels whose centres lie inside `poly`, a row at a time: where the row
+## crosses the outline, sorted, gives the runs of land.
+func _fill(mask: Image, poly: PackedVector2Array) -> void:
+	for y in TEX_SIZE.y:
+		var py := _texel_pos(0, y).y
+		var xs: Array[float] = []
+		for k in poly.size():
+			var a := poly[k]
+			var b := poly[(k + 1) % poly.size()]
+			if (a.y <= py) != (b.y <= py):
+				xs.append(a.x + (py - a.y) / (b.y - a.y) * (b.x - a.x))
+		xs.sort()
+		for i in range(0, xs.size() - 1, 2):
+			var x0 := maxi(0, ceili((xs[i] - ORIGIN.x) / EXTENT.x * TEX_SIZE.x - 0.5))
+			var x1 := mini(TEX_SIZE.x - 1, floori((xs[i + 1] - ORIGIN.x) / EXTENT.x * TEX_SIZE.x - 0.5))
+			for x in range(x0, x1 + 1):
+				mask.set_pixel(x, y, Color.WHITE)
+
+
+func _texel_pos(x: int, y: int) -> Vector2:
+	return ORIGIN + Vector2((x + 0.5) / TEX_SIZE.x * EXTENT.x, (y + 0.5) / TEX_SIZE.y * EXTENT.y)
 
 
 ## The mask halved `times` times and stretched back: a cheap, smooth blur.
@@ -142,8 +196,8 @@ func _place_decor() -> void:
 				flat.append({"name": FIELDS[realm_at(p)], "pos": p, "scale": 1.0, "flip": 1.0})
 	# Peaks where the land rises highest, spaced well apart.
 	var peaks := []
-	for gy in range(15, int(Data.SIZE.y), 30):
-		for gx in range(15, int(Data.SIZE.x), 30):
+	for gy in range(int(ORIGIN.y) + 15, int(ORIGIN.y + EXTENT.y), 30):
+		for gx in range(int(ORIGIN.x) + 15, int(ORIGIN.x + EXTENT.x), 30):
 			var p := Vector2(gx, gy) + Vector2(rng.randf_range(-9, 9), rng.randf_range(-9, 9))
 			if not _clear(p, 16.0) or height_at(p) * inland(p) < 0.68 or rng.randf() > 0.6:
 				continue
@@ -151,8 +205,8 @@ func _place_decor() -> void:
 				"flip": 1.0 if rng.randf() < 0.5 else -1.0})
 	# Woods, dunes and the odd lone tree on a finer grid.
 	var growth := []
-	for gy in range(6, int(Data.SIZE.y), 12):
-		for gx in range(6, int(Data.SIZE.x), 12):
+	for gy in range(int(ORIGIN.y) + 6, int(ORIGIN.y + EXTENT.y), 12):
+		for gx in range(int(ORIGIN.x) + 6, int(ORIGIN.x + EXTENT.x), 12):
 			var p := Vector2(gx, gy) + Vector2(rng.randf_range(-4, 4), rng.randf_range(-4, 4))
 			if not _clear(p, 0.0) or _near(peaks, p, 22.0):
 				continue
@@ -185,8 +239,11 @@ func _growth(realm: String, woods: float, height: float, rng: RandomNumberGenera
 ## On land, off the beach, and clear of settlements, roads and rivers by `extra` more than
 ## usual.
 func _clear(p: Vector2, extra: float) -> bool:
-	if Data.land_at(p) == -1 or _texel(p).r < 0.9:
+	# The land picture already knows the shore; past the map's edge nothing else stands.
+	if _texel(p).r < 0.9:
 		return false
+	if p.x < -40.0 or p.y < -40.0 or p.x > Data.SIZE.x + 40.0 or p.y > Data.SIZE.y + 40.0:
+		return true
 	for id in Data.SETTLEMENTS:
 		if p.distance_to(Data.pos(id)) < CLEAR_OF_PLACES + extra:
 			return false

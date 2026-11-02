@@ -55,7 +55,8 @@ func shader_material(shader: Shader) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
 	m.shader = shader
 	m.set_shader_parameter("terrain", MapTerrain.shared().texture)
-	m.set_shader_parameter("map_size", Data.SIZE)
+	m.set_shader_parameter("map_size", MapTerrain.EXTENT)
+	m.set_shader_parameter("map_origin", MapTerrain.ORIGIN)
 	return m
 
 
@@ -77,22 +78,24 @@ func point_camera(center: Vector2, zoom: float, view_center: Vector2, screen: Ve
 		m.set_shader_parameter("rect_size", screen)
 
 
-## The land, in map units: each realm in its own color, run off past the map's edge.
+## The land, in map units: each realm in its own color, running on past the map's edge
+## as more coast and country (and a few isles off the east) rather than stopping.
 func _draw_land() -> void:
-	land_layer.draw_colored_polygon(_past_border(Data.coast(0)), LAND["kharzan"])
-	land_layer.draw_colored_polygon(_past_border(Data.realm_shape("vardmark")), LAND["vardmark"])
+	land_layer.draw_colored_polygon(Data.land_beyond(), LAND["kharzan"])
+	land_layer.draw_colored_polygon(Data.vardmark_beyond(), LAND["vardmark"])
 	land_layer.draw_colored_polygon(Data.coast(1), LAND["ryumon"])
+	for isle in Data.isles_beyond():
+		land_layer.draw_colored_polygon(isle, LAND["ryumon"])
 
 
 ## The shore, the border, fields, roads, and everything standing on the land, in map
 ## units. Drawn once; the camera only moves the layer.
 func _draw_detail() -> void:
-	for i in Data.LAND.size():
-		var ring := Data.coast(i)
+	for ring in [Data.land_beyond(), Data.coast(1)] + Data.isles_beyond():
 		for k in ring.size():
-			var a := ring[k]
-			var b := ring[(k + 1) % ring.size()]
-			if not Data.on_border(a, b):
+			var a: Vector2 = ring[k]
+			var b: Vector2 = ring[(k + 1) % ring.size()]
+			if not _far(a) or not _far(b):
 				detail_layer.draw_line(a, b, COAST, 2.2)
 	_draw_border()
 	_draw_rivers()
@@ -134,7 +137,7 @@ func _draw_border() -> void:
 ## glint down its middle. Where a road crosses, pale shallows show the ford under the road.
 func _draw_rivers() -> void:
 	for r in Data.RIVERS:
-		var line := river_line(r["points"])
+		var line := river_line(_from_beyond(r["points"]))
 		_draw_river_pass(line, RIVER_BANK, 1.0, 1.6)
 		_draw_river_pass(line, RIVER, 1.0, 0.0)
 		_draw_river_pass(line, RIVER_SHINE, 0.3, 0.0)
@@ -176,19 +179,16 @@ func _draw_roads() -> void:
 			detail_layer.draw_line(a, b, ROAD, 3.0)
 
 
-## A land outline with the corners on the map's edge pushed far out, so the land runs
-## on past the edge of the map instead of stopping at it.
-func _past_border(points: PackedVector2Array) -> PackedVector2Array:
-	var out := points.duplicate()
-	for i in out.size():
-		var p := out[i]
-		if p.x <= 0.0:
-			p.x = -900.0
-		elif p.x >= Data.SIZE.x:
-			p.x = Data.SIZE.x + 900.0
-		if p.y <= 0.0:
-			p.y = -900.0
-		elif p.y >= Data.SIZE.y:
-			p.y = Data.SIZE.y + 900.0
-		out[i] = p
-	return out
+## A corner of the outlines' far frame, well out of sight.
+static func _far(p: Vector2) -> bool:
+	return p.x <= -1000.0 or p.y <= -1000.0 or p.x >= 2000.0 or p.y >= 2600.0
+
+
+## A river that rises at the map's edge runs in from past it instead of starting there.
+static func _from_beyond(points: Array) -> Array:
+	var first: Vector2 = points[0]
+	var near_edge := first.x < 20.0 or first.y < 20.0 or first.x > Data.SIZE.x - 20.0 or first.y > Data.SIZE.y - 20.0
+	if not near_edge or points.size() < 2:
+		return points
+	var away: Vector2 = (first - points[1]).normalized()
+	return [first + away * 360.0 + away.orthogonal() * 30.0, first + away * 170.0 - away.orthogonal() * 20.0] + points
