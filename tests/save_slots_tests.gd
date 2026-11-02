@@ -114,6 +114,11 @@ func _init() -> void:
 	await process_frame
 	check(_button(map, "Save game") != null and _button(map, "Revert") != null and _find(map, "LastSave") != null,
 		"the campaign menu has Save game, Revert and the last save")
+	check(_find(map, "MenuNextStep") != null and _find(map, "Menu_Warband") != null and _find(map, "Menu_Journal") != null
+		and _find(map, "Menu_People") != null and _find(map, "Menu_War") != null and _find(map, "CloseMenu") != null,
+		"and big cards for Next step, Warband, Journal, People and War, with an ✕ to close")
+	(_find(map, "CloseMenu") as Button).pressed.emit()
+	check(map._sheet == "", "the ✕ closes it")
 	var title = await _open("res://scenes/title.tscn")
 	var load_button := _find(title, "LoadSave") as Button
 	check(load_button != null and load_button.text.ends_with("· %d" % SaveSlots.list().size()), "Home offers Load a save")

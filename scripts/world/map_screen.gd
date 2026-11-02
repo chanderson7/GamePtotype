@@ -1315,65 +1315,257 @@ func _on_enter() -> void:
 func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
-	var saving: Array = [] if GameState.ironman else [["Save game", _on_save_game, true], ["Revert", _on_revert], ["All saves", _on_saves]]
-	_show_sheet("menu", "Campaign menu", "",
-		saving + ([["Next step", _open_recommendation, GameState.ironman], ["Journal", _open_journal], ["Warband", _on_warband], [_people_label(), _on_people], ["War & Politics", _open_wars]]
-		+ ([["Your Crown", _open_crown]] if GameState.is_crowned() else [])
-		+ [["Settings", _on_settings], ["Home", _on_home], ["Close", _close_sheet]]))
-	sheet_extra.add_child(_last_save_card())
+	_show_sheet("menu", "Campaign menu", "", [])
+	sheet_title.visible = false
 	sheet_extra.visible = true
-	if not GameState.ironman and SaveSlots.latest().is_empty():
-		for b in sheet_row.get_children():
-			if b is Button and b.text == "Revert":
-				b.disabled = true
+	sheet_extra.add_child(_menu_header())
+	sheet_extra.add_child(_last_save_card())
+	sheet_extra.add_child(_menu_next_step())
+	var grid := GridContainer.new()
+	grid.name = "MenuCards"
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 14)
+	sheet_extra.add_child(grid)
+	var men: int = GameState.total_men()
+	var companies: int = GameState.army.size()
+	grid.add_child(_menu_card("Warband", "company", "%d men\n%d %s" % [men, companies, "company" if companies == 1 else "companies"], _on_warband))
+	var open: int = GameState.commitments().size()
+	grid.add_child(_menu_card("Journal", "journal", "%d commitment%s" % [open, "" if open == 1 else "s"] if open > 0 else "Nothing pending", _open_journal))
+	var unread: int = world.social.unread_letters_count() if world.social != null else 0
+	grid.add_child(_menu_card(_people_label(), "mail", "%d unread" % unread if unread > 0 else "No new letters", _on_people, unread))
+	grid.add_child(_menu_card("War & Politics", "battle", _war_status(), _open_wars))
+	if GameState.is_crowned():
+		grid.add_child(_menu_card("Your Crown", "crown", "%d held" % GameState.crown_holdings().size(), _open_crown))
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 14)
+	sheet_extra.add_child(foot)
+	for spec in [["Settings", "gear", _on_settings], ["Home", "home", _on_home]]:
+		var f := _quiet_button(String(spec[0]), spec[2])
+		f.add_theme_stylebox_override("normal", Style.box(Color(0, 0, 0, 0), Style.RULE, 2, 18))
+		f.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var inner := HBoxContainer.new()
+		inner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		inner.alignment = BoxContainer.ALIGNMENT_CENTER
+		inner.add_theme_constant_override("separation", 14)
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		f.add_child(inner)
+		var pic := Widgets.icon_rect(String(spec[1]), 32.0)
+		pic.modulate = Style.MUTED
+		inner.add_child(pic)
+		inner.add_child(Style.label(String(spec[0]), Style.BODY, Style.MUTED))
+		foot.add_child(f)
 
 
-## When you last saved and what's happened since, or what Ironman means.
+## "Campaign menu  Paused" with an ✕ to close.
+func _menu_header() -> Control:
+	var row := HBoxContainer.new()
+	row.name = "MenuHeader"
+	row.add_theme_constant_override("separation", 14)
+	var t := Style.label("Campaign menu", 36, Style.TEXT)
+	var face: Font = Style.display_font()
+	if face != null:
+		t.add_theme_font_override("font", face)
+	row.add_child(t)
+	var paused := Style.label("Paused", 22, Style.MUTED)
+	paused.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	paused.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(paused)
+	var x := _icon_button("Close", "cancel", _close_sheet, 72.0)
+	x.name = "CloseMenu"
+	x.add_theme_stylebox_override("normal", Style.box(Style.RAISED, Style.RULE, 2, 36))
+	row.add_child(x)
+	return row
+
+
+## A button whose words are kept (for tests and screen readers) but drawn by its children.
+func _quiet_button(text: String, callback: Callable) -> Button:
+	var b := _button(text, callback)
+	b.clip_text = true
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color", "font_disabled_color"]:
+		b.add_theme_color_override(c, Color(0, 0, 0, 0))
+	return b
+
+
+## A small square button: an icon over a word.
+func _icon_button(text: String, icon: String, callback: Callable, side: float = 88.0, word: String = "") -> Button:
+	var b := _quiet_button(text, callback)
+	b.custom_minimum_size = Vector2(side, side)
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 2)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(v)
+	var pic := Widgets.icon_rect(icon, 36.0 if word != "" else 30.0)
+	pic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(pic)
+	if word != "":
+		var l := Style.label(word, 17, Style.MUTED)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(l)
+	b.set_meta("art", v)
+	return b
+
+
+## When you last saved, with Save, Revert and All saves beside it; or what Ironman means.
 func _last_save_card() -> Control:
 	var card := PanelContainer.new()
 	card.name = "LastSave"
-	var sb := Style.box(Style.NIGHT, Style.RULE, 2, 16)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 14
+	var sb := Style.box(Style.NIGHT, Style.RULE, 2, 22)
+	sb.content_margin_left = 22
+	sb.content_margin_right = 12
 	sb.content_margin_top = 12
 	sb.content_margin_bottom = 12
 	card.add_theme_stylebox_override("panel", sb)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 16)
+	row.add_theme_constant_override("separation", 12)
 	card.add_child(row)
 	var words := VBoxContainer.new()
-	words.add_theme_constant_override("separation", 2)
+	words.add_theme_constant_override("separation", 0)
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(words)
 	if GameState.ironman:
 		words.add_child(Style.label("Ironman", Style.BODY, Style.BRASS))
-		var n := Style.label("The game saves as you go. There's no going back.", Style.SMALL, Style.MUTED)
+		var n := Style.label("The game saves as you go. There's no going back.", 20, Style.MUTED)
 		n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		words.add_child(n)
-		row.add_child(words)
 		return card
 	var last := SaveSlots.latest()
 	if last.is_empty():
 		words.add_child(Style.label("No saves yet", Style.BODY, Style.TEXT))
-		words.add_child(Style.label("Save to keep a moment you can come back to.", Style.SMALL, Style.MUTED))
-		row.add_child(words)
-		return card
-	var s: Dictionary = last["summary"]
-	var scene: Dictionary = s.get("scene", {})
-	if Style.illustrations_on() and not scene.is_empty():
-		var pic := SettlementVista.from_preset(scene, 86.0)
-		pic.custom_minimum_size = Vector2(194, 86)
-		pic.size_flags_horizontal = 0
-		row.add_child(pic)
-	words.add_child(Style.label("Last save: Day %d · %02d:00" % [int(s["day"]), int(s["hour"]) % 24], Style.BODY, Style.TEXT))
-	words.add_child(Style.label("%s · %s" % [last["name"], SaveSlots.when(float(last["saved"]))], Style.SMALL, Style.MUTED))
-	var fought := GameState.battles - int(s["battles"])
-	if fought > 0:
-		words.add_child(Style.label("%d battle%s fought since" % [fought, "" if fought == 1 else "s"], Style.SMALL, Style.MORALE_MID))
+		words.add_child(Style.label("Save a moment to come back to", 20, Style.MUTED))
+	else:
+		var s: Dictionary = last["summary"]
+		words.add_child(Style.label("Saved Day %d · %02d:00" % [int(s["day"]), int(s["hour"]) % 24], Style.BODY, Style.TEXT))
+		var fought := GameState.battles - int(s["battles"])
+		var since := "%d battle%s since" % [fought, "" if fought == 1 else "s"] if fought > 0 else SaveSlots.when(float(last["saved"]))
+		words.add_child(Style.label("%s · %s" % [s["place_name"], since], 20, Style.MORALE_MID if fought > 0 else Style.MUTED))
 	for c in words.get_children():
 		(c as Label).clip_text = true
 		(c as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	row.add_child(words)
+	var save := _icon_button("Save game", "save", _on_save_game, 88.0, "Save")
+	Style.make_primary(save)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+		save.add_theme_color_override(c, Color(0, 0, 0, 0))
+	var art: Control = save.get_meta("art")
+	(art.get_child(0) as TextureRect).modulate = Style.BRASS_INK
+	(art.get_child(1) as Label).add_theme_color_override("font_color", Style.BRASS_INK)
+	row.add_child(save)
+	var revert := _icon_button("Revert", "revert", _on_revert, 88.0, "Revert")
+	revert.disabled = last.is_empty()
+	revert.get_meta("art").get_child(0).modulate = Style.BRASS if not last.is_empty() else Color(Style.MUTED, 0.4)
+	row.add_child(revert)
+	var all := _icon_button("All saves", "saves", _on_saves, 88.0, "All")
+	all.get_meta("art").get_child(0).modulate = Style.BRASS
+	row.add_child(all)
 	return card
+
+
+## The next step as a gold card that names it.
+func _menu_next_step() -> Control:
+	var rec: Dictionary = GameState.recommendation()
+	var b := _quiet_button("Next step", _open_recommendation)
+	b.name = "MenuNextStep"
+	b.custom_minimum_size = Vector2(0, 104)
+	Style.make_primary(b)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
+		b.add_theme_color_override(c, Color(0, 0, 0, 0))
+	var row := HBoxContainer.new()
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 22
+	row.offset_right = -22
+	row.add_theme_constant_override("separation", 18)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	var flag := Widgets.icon_rect("objective", 42.0)
+	flag.modulate = Style.BRASS_INK
+	row.add_child(flag)
+	var words := VBoxContainer.new()
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", -2)
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(words)
+	words.add_child(Style.label("NEXT STEP", 17, Color(Style.BRASS_INK, 0.7)))
+	var what := Style.label(String(rec.get("title", "See what to do next")), Style.BODY, Style.BRASS_INK)
+	what.clip_text = true
+	what.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	words.add_child(what)
+	var go := Style.label("›", 40, Style.BRASS_INK)
+	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(go)
+	return b
+
+
+## A big card: an icon in a tile, the name, and a line of what's there; a red count when
+## something waits unread.
+func _menu_card(text: String, icon: String, status: String, callback: Callable, badge: int = 0) -> Control:
+	var b := _quiet_button(text, callback)
+	b.name = "Menu_" + text.split(" ")[0]
+	b.custom_minimum_size = Vector2(0, 136)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := HBoxContainer.new()
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 18
+	row.offset_right = -10
+	row.add_theme_constant_override("separation", 16)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	var tile := PanelContainer.new()
+	tile.custom_minimum_size = Vector2(76, 76)
+	tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.add_theme_stylebox_override("panel", Style.box(Color("141a2e"), Color(0, 0, 0, 0), 0, 18))
+	row.add_child(tile)
+	var pic := Widgets.icon_rect(icon, 44.0)
+	pic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if icon != "battle":
+		pic.modulate = Style.BRASS
+	tile.add_child(pic)
+	var words := VBoxContainer.new()
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", 0)
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(words)
+	var name := Style.label(text.split(" (")[0], Style.BODY, Style.TEXT)
+	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(name)
+	var line := Style.label(status, 20, Style.MUTED)
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(line)
+	if badge > 0:
+		var dot := Style.label(str(badge), 20, Color.WHITE)
+		dot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		dot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		dot.add_theme_stylebox_override("normal", Style.box(Style.ENEMY, Color(0, 0, 0, 0), 0, 18))
+		dot.custom_minimum_size = Vector2(36, 36)
+		dot.size = Vector2(36, 36)
+		dot.anchor_left = 1.0
+		dot.anchor_right = 1.0
+		dot.offset_left = -30
+		dot.offset_right = 6
+		dot.offset_top = -10
+		dot.offset_bottom = 26
+		b.add_child(dot)
+	return b
+
+
+## Your home realm's wars in a few words.
+func _war_status() -> String:
+	var mine := String(Data.realm_of_culture(GameState.culture))
+	var foes: PackedStringArray = []
+	for key in world.wars:
+		var parts: PackedStringArray = String(key).split("|")
+		if parts.has(mine):
+			var other := parts[1] if parts[0] == mine else parts[0]
+			foes.append(_realm_short(other))
+	if not foes.is_empty():
+		return "At war with " + " and ".join(foes)
+	return "Wars elsewhere" if not world.wars.is_empty() else "Peace across the sea"
 
 
 func _on_save_game() -> void:
