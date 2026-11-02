@@ -132,8 +132,30 @@ const REAR_SHOCK := 6.0
 const BRACE_SET := 2.0
 const BRACE_SECONDS := 6.0
 const BRACE_POWER := 1.35
+## The share of a frontal blow a braced line fighting in formation still takes.
+const BRACE_GUARD := 0.75
+## How much longer a brace lasts when squads fight in formation.
+const LINE_BRACE := 2.0
 ## Room kept between a marching squad and an enemy squad it goes around.
 const STEER_MARGIN := 55.0
+## Formation melee: a squad keeps its line when it fights. Each man holds his place (stepping
+## up as the men in front of him fall), fights a foe ahead of him in his own lane, and steps
+## out of line only as far as this to reach one; horsemen ride further in.
+const FORMATION_LEASH := 10.0
+const CAV_LEASH := 22.0
+## How far round from straight ahead a man looks for a foe (as the cosine of the angle).
+const FRONT_CONE := 0.25
+## How much a foe off to the side, outside a man's own lane, counts against him.
+const LANE_WEIGHT := 1.6
+# A front-rank man with no one ahead (where his line overlaps a shorter one) may step this
+# far out of his place to fold in on the enemy's flank.
+const WING_LEASH := 40.0
+## How fast (radians a second) a fighting squad's line turns to face the squad it fights.
+const LINE_TURN := 0.5
+## How fast a squad closes up to the enemy, as a share of its pace.
+const CLOSE_PACE := 0.6
+## How much further out a squad already fighting stays engaged, so contact doesn't flicker.
+const ENGAGE_GRACE := 30.0
 ## Crowding and nearby-enemy lookups use a grid of CELL-sized squares over the field.
 ## A cell must be wider than the closest two men can stand, so neighbors are always in
 ## the same or an adjacent cell.
@@ -155,6 +177,8 @@ class Soldier:
 	var flash := 0.0
 	var runup := 0.0
 	var slot := Vector2.ZERO
+	## His place while his squad fights: his own file, but stepped up as the men in front fall.
+	var line_slot := Vector2.ZERO
 	var push := Vector2.ZERO
 	# For the screen only: distance walked (drives the walk cycle) and time left on the
 	# strike pose.
@@ -231,6 +255,10 @@ class Squad:
 	var alive_n := 0
 	var avg := Vector2.ZERO
 	var extent := 0.0
+	## How many ranks deep the squad stands while it fights in line.
+	var ranks := 1
+	## Whether its front rank has met the enemy's (fighting in line).
+	var in_contact := false
 	# Captain: the soldier leading the squad (null if none or fallen), his record from
 	# the warband, and what happened to him.
 	var captain = null
@@ -326,6 +354,8 @@ class Projectile:
 
 
 var rng := RandomNumberGenerator.new()
+## Squads keep their lines in a fight (false: every man for himself, as before).
+var formation_melee := true
 var phase := PHASE_DEPLOY
 var time := 0.0
 var squads: Array = []
@@ -1790,7 +1820,9 @@ func _update_squad(sq, dt: float) -> void:
 			"advance":
 				foe = _advance_focus(sq, avg)
 			"hold":
-				foe = nearest_enemy_squad(sq.team, avg, reach + ENGAGE_RANGE + 50.0)
+				# Once it's fighting, a holding squad keeps its foe a little further out, so
+				# the contact doesn't flicker on and off as the ranks settle.
+				foe = nearest_enemy_squad(sq.team, avg, reach + ENGAGE_RANGE + 50.0 + (ENGAGE_GRACE if sq.engaged and _line_fight(sq, sq.focus) else 0.0))
 			_:
 				foe = null # marching to a point ignores enemies until it arrives
 	sq.focus = foe
@@ -1833,7 +1865,7 @@ func _update_squad(sq, dt: float) -> void:
 	sq.engaged = false
 	if foe != null:
 		var slack := 20.0 if sq.ranged and not sq.hold_fire else ENGAGE_RANGE
-		sq.engaged = _in_range(sq, foe, reach + slack)
+		sq.engaged = _in_range(sq, foe, reach + slack + (ENGAGE_GRACE if was_engaged and _line_fight(sq, foe) else 0.0))
 	if sq.engaged:
 		if is_skirmisher and sq.mechanics.get("horse_archer", false) and not sq.wheeling and sq.engaged_for >= 0.3 \
 				and _in_range(sq, foe, HORSE_ARCHER_CLOSE):
@@ -1845,13 +1877,19 @@ func _update_squad(sq, dt: float) -> void:
 			var can_brace: bool = sq.order == "hold" and sq.still >= BRACE_SET and not sq.ranged
 			if can_brace and _rough and terrain.water_at(sq.center) == Terrain.WATER_SHALLOW:
 				can_brace = false
-			sq.brace = BRACE_SECONDS if can_brace else 0.0
+			# Line fights last longer than a scramble, so a braced line's edge does too.
+			sq.brace = (BRACE_SECONDS * (LINE_BRACE if _line_fight(sq, foe) else 1.0)) if can_brace else 0.0
 			if sq.brace > 0.0:
 				events.append({"type": "braced", "squad": sq})
-		sq.brace = maxf(0.0, sq.brace - dt)
+		# A braced line's advantage runs from when the lines actually meet.
+		if not in_line(sq) or sq.in_contact:
+			sq.brace = maxf(0.0, sq.brace - dt)
 		sq.engaged_for += dt
 		sq.still = 0.0
-		sq.center = sq.center.lerp(avg, 0.15)
+		if in_line(sq):
+			_hold_the_line(sq, foe, dt)
+		else:
+			sq.center = sq.center.lerp(avg, 0.15)
 		return
 	sq.engaged_for = 0.0
 	sq.brace = 0.0
@@ -1903,6 +1941,212 @@ func _update_squad(sq, dt: float) -> void:
 			want = (threat.avg - sq.center).normalized()
 		if sq.facing.dot(want) < 0.995:
 			sq.facing = sq.facing.slerp(want, minf(1.0, dt * 2.5)).normalized()
+
+
+# ---------------------------------------------------------------- formation melee
+
+## Whether `sq`, fighting now, keeps its line: men on foot in hand-to-hand fighting. Not
+## archers still shooting; not horsemen, who ride in, wheel and cut at flanks rather than
+## stand in a line; not a squad caught in a ford, where no one keeps his footing, let alone
+## his place; and not in a siege, where walls and ladders take men one at a time.
+func in_line(sq) -> bool:
+	if not formation_melee or not sq.engaged or sq.wheeling or objective == OBJECTIVE_SIEGE:
+		return false
+	# Lines form where two lines meet. Against a loose foe (horse, skirmishers, men
+	# floundering in a ford) the fight breaks up into a melee as before.
+	return _keeps_rank(sq) and (sq.focus == null or _keeps_rank(sq.focus))
+
+
+## Whether this squad and its foe fight as two lines. Only then do the line's extras apply
+## (contact that holds a little further out, a longer brace); a loose fight keeps the old rules.
+func _line_fight(sq, foe) -> bool:
+	return formation_melee and foe != null and objective != OBJECTIVE_SIEGE and _keeps_rank(sq) and _keeps_rank(foe)
+
+
+## Whether a squad can hold its ranks in a fight: only line troops on foot. Horsemen and
+## bowmen (light troops, even with their quivers empty) fight loose, and nobody keeps his
+## ranks standing in a ford.
+func _keeps_rank(sq) -> bool:
+	if sq.type == Troops.CAVALRY or sq.routing or bool(sq.stats.get("ranged", false)):
+		return false
+	return not (_rough and terrain.water_at(sq.center) == Terrain.WATER_SHALLOW)
+
+
+## A fighting squad: its line turns slowly to face the squad it fights and closes up until
+## the front ranks meet, then stands. Its place doesn't drift with its men.
+func _hold_the_line(sq, foe, dt: float) -> void:
+	_rank_up(sq)
+	var near_edge := INF
+	for o in foe.soldiers:
+		if o.alive:
+			near_edge = minf(near_edge, (o.pos - sq.center).dot(sq.facing))
+	if near_edge == INF:
+		return
+	var front: float = (sq.ranks - 1) * 0.5 * _line_spacing(sq)
+	var gap: float = near_edge - front - sq.radius - foe.radius
+	var close := _fighting_reach(sq) * 0.7
+	sq.in_contact = gap <= close + 6.0
+	# Still closing, the line wheels slowly to face its foe; once the lines meet, it stands
+	# square to them, so two lines in contact don't turn round each other.
+	var to: Vector2 = foe.avg - sq.center
+	if gap > close * 1.5 and to.length() > 1.0 and not sq.schiltron():
+		var turn: float = sq.facing.angle_to(to.normalized())
+		sq.facing = sq.facing.rotated(clampf(turn, -LINE_TURN * dt, LINE_TURN * dt)).normalized()
+	# A squad holding its ground stands and lets the enemy come to it.
+	if gap > close and not sq.schiltron() and sq.order != "hold":
+		var step: float = minf(gap - close, _pace(sq) * CLOSE_PACE * dt)
+		sq.center = _slide(sq.center, _clamp_to_arena(sq.center + sq.facing * step))
+	_make_room(sq, dt)
+
+
+## A fighting line doesn't stand on a friendly squad: it sidesteps along its front until the
+## two stand side by side (so two squads sent at one foe take its front and its flank).
+func _make_room(sq, dt: float) -> void:
+	if sq.schiltron():
+		return
+	var side: Vector2 = sq.facing.orthogonal()
+	var my_half: float = _half_front(sq)
+	var my_depth: float = (sq.ranks - 1) * 0.5 * _line_spacing(sq) + sq.radius
+	for f in squads:
+		if f == sq or f.team != sq.team or not f.is_active() or f.routing:
+			continue
+		var rel: Vector2 = f.center - sq.center
+		var along: float = absf(rel.dot(sq.facing))
+		var lat: float = rel.dot(side)
+		var need: float = (my_half + _half_front(f)) * 0.9
+		if along > my_depth + f.extent * 0.6 + 6.0 or absf(lat) >= need:
+			continue
+		var away: float = -signf(lat) if absf(lat) > 0.5 else (1.0 if sq.id < f.id else -1.0)
+		var shift: float = minf(need - absf(lat), _pace(sq) * 0.5 * dt)
+		sq.center = _slide(sq.center, _clamp_to_arena(sq.center + side * away * shift))
+
+
+## Half the width of a squad's front.
+func _half_front(sq) -> float:
+	var men: int = maxi(1, sq.alive_n)
+	var files: int = sq.files if sq.files > 0 else _files(men)
+	return (mini(files, men) - 1) * 0.5 * _line_spacing(sq) + sq.radius
+
+
+func _line_spacing(sq) -> float:
+	return sq.radius * 2.0 + 5.0
+
+
+## Each man's place in the fighting line: his own file, the ranks closed up from the front
+## as men fall, so the man behind steps into the gap. A schiltron keeps its ring.
+func _rank_up(sq) -> void:
+	if sq.schiltron():
+		for so in sq.soldiers:
+			so.line_slot = so.slot
+		return
+	var spacing := _line_spacing(sq)
+	var files := {}
+	for so in sq.soldiers:
+		if so.alive:
+			var key := int(round(so.slot.x))
+			if not files.has(key):
+				files[key] = []
+			files[key].append(so)
+	var deepest := 1
+	for key in files:
+		var col: Array = files[key]
+		col.sort_custom(func(a, b): return a.slot.y < b.slot.y)
+		deepest = maxi(deepest, col.size())
+	for key in files:
+		var col: Array = files[key]
+		for i in col.size():
+			col[i].line_slot = Vector2(col[i].slot.x, (i - (deepest - 1) * 0.5) * spacing)
+	sq.ranks = deepest
+
+
+## A man in a fighting line: he fights a foe ahead of him in his own lane, stepping out of
+## his place only a little to reach one; with no foe in reach he holds his place.
+func _fight_in_line(so, sq, speed: float, dt: float) -> void:
+	var home: Vector2 = sq.center + _slot_world(so.line_slot, sq.facing, sq.team)
+	if not _open_ground(home):
+		home = _passable_slot(sq.center, home)
+	var reach: float = _fighting_reach(sq) * sq.range_mult
+	var leash := CAV_LEASH if sq.type == Troops.CAVALRY else FORMATION_LEASH
+	if not _line_target_ok(so, sq, reach + leash):
+		so.target = _line_target(so, sq, reach + leash)
+		if so.target == null and so.line_slot.y <= -(sq.ranks - 1) * 0.5 * _line_spacing(sq) + 1.0:
+			so.target = _wing_target(so, sq, reach + WING_LEASH)
+	if so.target != null and so.target.pos.distance_to(home) > reach + leash + so.radius + so.target.radius + 12.0:
+		leash = WING_LEASH
+	if so.target == null:
+		so.facing = sq.facing
+		so.runup += _walk(so, home, speed, dt)
+		return
+	var tpos: Vector2 = so.target.pos
+	if tpos != so.pos:
+		so.facing = (tpos - so.pos).normalized()
+	var gap: float = so.pos.distance_to(tpos) - so.target.radius - so.radius
+	if gap > reach:
+		var stop_at: Vector2 = tpos + tpos.direction_to(so.pos) * (so.radius + so.target.radius + maxf(0.0, reach - 0.05))
+		var off := stop_at - home
+		if off.length() > leash:
+			stop_at = home + off.normalized() * leash
+		var moved := _walk(so, stop_at, speed, dt)
+		if gap > reach + 20.0:
+			so.runup += moved
+	elif so.cooldown <= 0.0:
+		_strike(so, sq, so.target, gap)
+		so.swing = 0.3
+		so.cooldown = sq.cooldown * rng.randf_range(0.85, 1.15)
+		so.runup = 0.0
+
+
+## Whether a man's foe is still his to fight: alive, not running, ahead of him (or right on
+## him), and within his reach plus a step.
+func _line_target_ok(so, sq, limit: float) -> bool:
+	var t = so.target
+	if t == null or not t.alive or t.squad.team == sq.team or t.squad.routing:
+		return false
+	var d: float = so.pos.distance_to(t.pos)
+	if d > limit + so.radius + t.radius + 12.0:
+		return false
+	if d <= so.radius + t.radius + 4.0:
+		return true
+	return (t.pos - so.pos).dot(sq.facing) / maxf(d, 0.01) >= FRONT_CONE
+
+
+## The foe a man in line takes: the nearest ahead of him, favouring one in his own lane
+## over one off to the side; failing that, anyone right on him.
+func _line_target(so, sq, limit: float):
+	var best = null
+	var best_score := INF
+	for e in _nearby(so.pos, limit + so.radius + 12.0):
+		if e.squad.team == sq.team or e.squad.routing:
+			continue
+		var rel: Vector2 = e.pos - so.pos
+		var d := rel.length()
+		var adjacent: bool = d <= so.radius + e.radius + 4.0
+		var ahead: float = rel.dot(sq.facing) / maxf(d, 0.01)
+		if not adjacent and ahead < FRONT_CONE:
+			continue
+		var score: float = d + LANE_WEIGHT * absf(rel.cross(sq.facing))
+		if score < best_score:
+			best_score = score
+			best = e
+	return best
+
+
+## Where a longer line overlaps a shorter one, its end men fold in: the nearest foe beside
+## or ahead of a front-rank man who has no one in front of him.
+func _wing_target(so, sq, limit: float):
+	var best = null
+	var best_d := INF
+	for e in _nearby(so.pos, limit + so.radius + 12.0):
+		if e.squad.team == sq.team or e.squad.routing:
+			continue
+		var rel: Vector2 = e.pos - so.pos
+		var d := rel.length()
+		if rel.dot(sq.facing) / maxf(d, 0.01) < -0.3:
+			continue
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
 
 
 ## Marching pace: a shield wall shuffles forward at half speed.
@@ -2060,6 +2304,10 @@ func _update_soldier(so, sq, dt: float) -> void:
 		if not _open_ground(slot_dest):
 			slot_dest = _passable_slot(sq.center, slot_dest)
 		so.runup += _walk(so, slot_dest, speed * 1.25, dt)
+		return
+
+	if in_line(sq):
+		_fight_in_line(so, sq, speed, dt)
 		return
 
 	if not _target_ok(so, sq):
@@ -2411,9 +2659,12 @@ func _stick(p, at: Vector2) -> void:
 func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, side: int = FRONT) -> void:
 	if not victim.alive:
 		return
+	var vs = victim.squad
+	# A braced line fighting in formation takes the blows to its front on locked shields.
+	if side == FRONT and vs.brace > 0.0 and in_line(vs):
+		dmg *= BRACE_GUARD
 	victim.hp -= dmg
 	victim.flash = 1.0
-	var vs = victim.squad
 	if charge:
 		vs.drop_morale(CHARGE_SHOCK / float(vs.start_men))
 	if side != FRONT:
