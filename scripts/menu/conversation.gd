@@ -85,6 +85,7 @@ func _build() -> void:
 	_col.add_child(leave_btn)
 	var heading := _col.get_child(0) as Control
 	heading.focus_mode = Control.FOCUS_ALL
+	heading.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	heading.grab_focus()
 
 

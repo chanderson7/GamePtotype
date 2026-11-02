@@ -58,6 +58,8 @@ func _build() -> void:
 	col.add_child(back)
 	var heading := col.get_child(0) as Control
 	heading.focus_mode = Control.FOCUS_ALL
+	# Focus starts at the top for keyboards and screen readers, without a box drawn round the title.
+	heading.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	heading.grab_focus()
 
 func _back() -> void:

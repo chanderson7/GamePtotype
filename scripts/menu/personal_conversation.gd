@@ -56,6 +56,7 @@ func _build() -> void:
 	# Focus the heading without scrolling past the passage to the bottom controls.
 	var title := _col.get_child(0) as Control
 	title.focus_mode = Control.FOCUS_ALL
+	title.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	title.grab_focus()
 
 func _build_list(social, person: Dictionary, record: Dictionary) -> void:

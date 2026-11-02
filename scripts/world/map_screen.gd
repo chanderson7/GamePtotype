@@ -125,7 +125,7 @@ var sheet_extra: VBoxContainer
 var sheet_lord_row: HBoxContainer
 var sheet_portrait: TextureRect
 var sheet_banner: Control
-var _banner_colors: Array = []
+var _banner_realm := ""
 var sheet_row: GridContainer
 
 
@@ -598,9 +598,9 @@ func _build_hud() -> void:
 	sheet_banner = Control.new()
 	sheet_banner.custom_minimum_size = Vector2(90, 84)
 	sheet_banner.draw.connect(func():
-		if _banner_colors.size() == 2:
-			sheet_banner.draw_line(Vector2(8, 4), Vector2(8, 80), Color("6b4a2a"), 4.0)
-			Heraldry.flag(sheet_banner, Vector2(10, 6), Vector2(72, 48), _banner_colors[0], _banner_colors[1], true))
+		# The lord's realm banner, the same one their party flies on the map.
+		if _banner_realm != "":
+			Heraldry.realm_banner(sheet_banner, _banner_realm, Rect2(4, 2, 76, 80)))
 	sheet_lord_row.add_child(sheet_banner)
 	sheet_title = Style.label("", Style.LARGE, Style.TEXT)
 	sv.add_child(sheet_title)
@@ -661,7 +661,8 @@ func _show_lord_header(lord: Dictionary) -> void:
 		return
 	sheet_portrait.texture = CaptainArt.texture(LordVoice.portrait_record(lord))
 	sheet_portrait.visible = sheet_portrait.texture != null
-	_banner_colors = LordVoice.house_colors(lord)
+	var realm := String(lord.get("realm", ""))
+	_banner_realm = realm if Heraldry.REALM_SIZES.has(realm) else Heraldry.realm_of_culture(String(lord.get("culture", "")))
 	sheet_banner.queue_redraw()
 	sheet_lord_row.visible = true
 
