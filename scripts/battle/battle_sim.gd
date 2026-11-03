@@ -46,6 +46,15 @@ const FACE_RANGE := 280.0
 const COUNTER_PULL := 140.0
 ## An advancing squad only switches targets for one this much more attractive.
 const RETARGET_MARGIN := 80.0
+## How much less attractive an enemy is when every side of it is already taken.
+const CROWD_PENALTY := 400.0
+## How many foot squads go in against one enemy before the rest look elsewhere.
+const MAX_ON_ONE := 2
+## Within about 45 degrees counts as the same side.
+const SIDE_CONE := 0.7
+## For foot, a flank costs this much more to make for than the front, the rear twice as
+## much (the other way round for horse).
+const SIDE_DETOUR := 40.0
 
 const OBJECTIVE_ROUT := "rout"
 const OBJECTIVE_CHIEF := "chief"
@@ -233,6 +242,11 @@ class Squad:
 	var range_mult := 1.0
 	var order_target = null
 	var focus = null
+	## Which way out from its foe it is making for (fixed when it chose it, so a foe that
+	## turns doesn't lead it round in circles), so two squads don't pile onto the same side
+	## of the same enemy. ZERO: none free, it waits as a reserve.
+	var attack_dir := Vector2.ZERO
+	var attack_foe = null
 	var engaged := false
 	var morale := 100.0
 	var routing := false
@@ -356,6 +370,9 @@ class Projectile:
 var rng := RandomNumberGenerator.new()
 ## Squads keep their lines in a fight (false: every man for himself, as before).
 var formation_melee := true
+## Attack positions: each squad going for an enemy takes a free side of it; with none
+## free it picks another enemy, or waits behind the fight as a reserve.
+var attack_positions := true
 var phase := PHASE_DEPLOY
 var time := 0.0
 var squads: Array = []
@@ -1845,6 +1862,8 @@ func _update_squad(sq, dt: float) -> void:
 	elif foe != null:
 		sq.goal = foe.avg
 		chasing = true
+		if _uses_sides(sq):
+			sq.goal = _attack_goal(sq, foe)
 	else:
 		sq.goal = sq.center
 
@@ -1865,6 +1884,10 @@ func _update_squad(sq, dt: float) -> void:
 	sq.engaged = false
 	if foe != null:
 		var slack := 20.0 if sq.ranged and not sq.hold_fire else ENGAGE_RANGE
+		# A squad making for a side of its foe joins the fight once it's there, and a reserve
+		# once the enemy is on it, not when it passes near on the way.
+		if not was_engaged and _uses_sides(sq) and sq.attack_foe == foe and not _on_its_side(sq, foe):
+			slack = 6.0
 		sq.engaged = _in_range(sq, foe, reach + slack + (ENGAGE_GRACE if was_engaged and _line_fight(sq, foe) else 0.0))
 	if sq.engaged:
 		if is_skirmisher and sq.mechanics.get("horse_archer", false) and not sq.wheeling and sq.engaged_for >= 0.3 \
@@ -1941,6 +1964,156 @@ func _update_squad(sq, dt: float) -> void:
 			want = (threat.avg - sq.center).normalized()
 		if sq.facing.dot(want) < 0.995:
 			sq.facing = sq.facing.slerp(want, minf(1.0, dt * 2.5)).normalized()
+
+
+# ---------------------------------------------------------------- attack positions
+
+## Whether `sq` picks a side of its foe to attack from: squads closing to fight hand to
+## hand, not archers shooting from where they stand, and not at the walls of a siege.
+func _uses_sides(sq) -> bool:
+	return attack_positions and objective != OBJECTIVE_SIEGE and not sq.engaged and not sq.wheeling \
+		and not (sq.ranged and not sq.hold_fire)
+
+
+## The four ways out from `foe`: its front, its two flanks and its rear.
+func _side_dirs(foe) -> Array:
+	var f: Vector2 = foe.facing if foe.facing != Vector2.ZERO else Vector2.UP
+	return [f, f.orthogonal(), -f.orthogonal(), -f]
+
+
+## Which way from `foe` the squad `o` stands.
+func _bearing(o, foe) -> Vector2:
+	var rel: Vector2 = o.avg - foe.avg
+	return rel.normalized() if rel != Vector2.ZERO else Vector2.ZERO
+
+
+## Whether `sq` has reached the side of `foe` it was making for.
+func _on_its_side(sq, foe) -> bool:
+	return sq.attack_dir != Vector2.ZERO and _bearing(sq, foe).dot(sq.attack_dir) > SIDE_CONE
+
+
+## The ways out from `foe` that other squads of `sq`'s side hold or are making for.
+## With `foot_only`, only foot squads': horse don't count toward the limit of two.
+func _taken_sides(sq, foe, foot_only := false) -> Array:
+	var taken := []
+	for o in squads:
+		if o == sq or o.team != sq.team or not o.is_active() or o.focus != foe:
+			continue
+		if o.ranged and not o.hold_fire:
+			continue
+		var d := Vector2.ZERO
+		if o.engaged:
+			d = _bearing(o, foe)
+		elif o.attack_foe == foe and o.attack_dir != Vector2.ZERO:
+			d = o.attack_dir
+		if d == Vector2.ZERO or (foot_only and o.type == Troops.CAVALRY):
+			continue
+		taken.append(d)
+	return taken
+
+
+## The ways out from `foe` (front, flanks, rear) still free for `sq` to take. Two foot
+## squads to an enemy, its front and a flank; any more would only crowd each other. Horse
+## don't count toward the two: they ride in on any side still open.
+func _free_sides(sq, foe) -> Array:
+	var taken := _taken_sides(sq, foe)
+	var held := _taken_sides(sq, foe, true).size()
+	var free := []
+	var dirs := _side_dirs(foe)
+	for k in 4:
+		var clash := false
+		for t in taken:
+			if t.dot(dirs[k]) > SIDE_CONE:
+				clash = true
+		if clash:
+			continue
+		if held >= MAX_ON_ONE and sq.type != Troops.CAVALRY:
+			continue
+		free.append(dirs[k])
+	return free
+
+
+## How far `foe` reaches out from its middle toward `dir`.
+func _reach_out(foe, dir: Vector2) -> float:
+	var far := 0.0
+	for so in foe.soldiers:
+		if so.alive:
+			far = maxf(far, (so.pos - foe.avg).dot(dir))
+	return far + foe.radius
+
+
+## Where `sq` heads to take the side of `foe` that way `dir`: straight to it when it's on
+## that side already, otherwise round the corner first, clear of the front it's avoiding.
+func _side_point(sq, foe, dir: Vector2) -> Vector2:
+	var at := _side_spot(sq, foe, dir)
+	var rel: Vector2 = sq.center - foe.avg
+	if rel.dot(dir) > 0.0:
+		return at
+	var across := dir.orthogonal()
+	if rel.dot(across) < 0.0:
+		across = -across
+	var wide: float = _reach_out(foe, across) + sq.extent + _fighting_reach(sq) + ENGAGE_RANGE * 0.5
+	return at + across * wide
+
+
+## The spot just off the side of `foe` that way `dir`, where `sq` meets it.
+func _side_spot(sq, foe, dir: Vector2) -> Vector2:
+	return foe.avg + dir * (_reach_out(foe, dir) + sq.radius + 4.0)
+
+
+## How far `sq` has to go to take that side of `foe`, round the corner if need be. Foot
+## would rather take the front, then a flank, then the rear; horse the other way round,
+## leaving the front to the foot.
+func _side_cost(sq, foe, dir: Vector2) -> float:
+	var via := _side_point(sq, foe, dir)
+	var cost: float = sq.center.distance_to(via) + via.distance_to(_side_spot(sq, foe, dir))
+	var front: Vector2 = _side_dirs(foe)[0]
+	var steps := 0.0 if dir.dot(front) > SIDE_CONE else (2.0 if dir.dot(-front) > SIDE_CONE else 1.0)
+	if sq.type == Troops.CAVALRY:
+		steps = 2.0 - steps
+	return cost + SIDE_DETOUR * steps
+
+
+## Where an attacking squad heads: the side of its foe it chose (kept while no one else
+## has it), else the best free one, front first, else a reserve post behind a friend
+## already fighting that foe. Told to attack this one, it goes in even if every side is
+## taken, from where it stands.
+func _attack_goal(sq, foe) -> Vector2:
+	if sq.attack_foe != foe:
+		sq.attack_dir = Vector2.ZERO
+	sq.attack_foe = foe
+	if sq.attack_dir != Vector2.ZERO:
+		# Its own place is its own until another squad is on that same side.
+		var clash := false
+		for t in _taken_sides(sq, foe):
+			if t.dot(sq.attack_dir) > SIDE_CONE:
+				clash = true
+		if not clash:
+			return _side_point(sq, foe, sq.attack_dir)
+	var best := Vector2.ZERO
+	var best_cost := INF
+	for d in _free_sides(sq, foe):
+		var cost := _side_cost(sq, foe, d)
+		if cost < best_cost:
+			best_cost = cost
+			best = d
+	if best == Vector2.ZERO and sq.order == "attack":
+		best = _bearing(sq, foe)
+	sq.attack_dir = best
+	if best != Vector2.ZERO:
+		return _side_point(sq, foe, best)
+	var friend = null
+	for o in squads:
+		if o.team == sq.team and o != sq and o.is_active() and o.focus == foe and o.engaged and o.type != Troops.CAVALRY:
+			if friend == null or o.avg.distance_to(sq.center) < friend.avg.distance_to(sq.center):
+				friend = o
+	if friend != null:
+		return friend.avg + _bearing(friend, foe) * (friend.extent + sq.extent + 24.0)
+	# No line of its own to stand behind: wait on its own side, just out of the fight.
+	var away: Vector2 = _bearing(sq, foe)
+	if away == Vector2.ZERO:
+		away = Vector2.DOWN if sq.team == PLAYER else Vector2.UP
+	return foe.avg + away * (_reach_out(foe, away) + _fighting_reach(sq) + ENGAGE_RANGE + sq.extent)
 
 
 # ---------------------------------------------------------------- formation melee
@@ -2218,6 +2391,8 @@ func target_score(sq, foe, from: Vector2) -> float:
 	elif Troops.COUNTERED_BY[sq.type] == foe.type:
 		score += COUNTER_PULL
 	score -= (100.0 - float(foe.morale)) * 0.8
+	if _uses_sides(sq) and _free_sides(sq, foe).is_empty():
+		score += CROWD_PENALTY
 	# Terrain: Cavalry don't choose targets across water or through woods
 	if sq.type == Troops.CAVALRY and _rough:
 		if terrain.in_woods(foe.avg) or terrain.in_woods(from):

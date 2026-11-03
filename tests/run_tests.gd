@@ -448,6 +448,9 @@ func _check_flanks() -> void:
 ## squad breaks, riders lost].
 func _hammer(seed_value: int, from_behind: bool) -> Array:
 	var sim := Sim.new()
+	# This compares where the blow lands. With attack positions the horse sent in
+	# "head-on" would pick a flank or the rear by itself (see attack_positions_tests.gd).
+	sim.attack_positions = false
 	sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}],
 		[{"id": 2, "type": Troops.INFANTRY, "men": 20}, {"id": 3, "type": Troops.CAVALRY, "men": 16}], seed_value)
 	var mine = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
