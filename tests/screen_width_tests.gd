@@ -50,8 +50,10 @@ func _init() -> void:
 	gs.renown = 1085
 	gs.silver = 4954
 	gs.add_realm_relation("vardmark", 40)
-	gs.accept_fealty_and_fief("kettlebrook", "vardmark")
-	gs.world.player().node = "kettlebrook"
+	# A crown needs walls: its seat is a castle.
+	gs.player_fief = {"settlement_id": "ravensford", "realm": "vardmark", "silver": 0, "food": 20,
+		"improvements": {}, "garrison": [], "granted_at": 0.0, "lost": false}
+	gs.world.player().node = "ravensford"
 	gs.contract = {}
 	gs.declare_crown()
 	var taken := 0

@@ -18,6 +18,7 @@ const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -282,6 +283,8 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	var tabs: Array = []
 	if GameState.is_player_fief(place):
 		tabs.append({"id": "fief", "label": "Fief", "badge": 0})
+	elif GameState.is_crowned() and GameState.crown_fiefs().has(place):
+		tabs.append({"id": "crown", "label": "Crown", "badge": 0})
 	var offers: int = 0 if GameState.army.size() >= GameState.squad_cap() else w.offers_at(place).size()
 	tabs.append({"id": "buy", "label": "Buy", "badge": offers + GameState.available_heroes_at(place).size()})
 	tabs.append({"id": "squads", "label": "Squads", "badge": 0})
@@ -291,7 +294,7 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	var ids: Array = tabs.map(func(t): return t["id"])
 	var current := String(_tab_by_place.get(place, ""))
 	if not ids.has(current):
-		current = "fief" if ids.has("fief") else "buy"
+		current = "fief" if ids.has("fief") else ("crown" if ids.has("crown") else "buy")
 	tab = current
 
 	col.add_child(Widgets.tab_bar(tabs, tab, _on_tab, "SettlementTabs"))
@@ -303,6 +306,8 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	match tab:
 		"fief":
 			_add_fief_management(body)
+		"crown":
+			_add_crown_holding(body)
 		"buy":
 			_add_provisions(body)
 			_add_recruits(body)
@@ -617,6 +622,64 @@ func _on_cancel_contract() -> void:
 	_build()
 
 
+## A castle or town of your crown that isn't your seat: who holds it for you, its
+## garrison, and your squads standing with it.
+func _add_crown_holding(col: VBoxContainer) -> void:
+	var w = GameState.world
+	var s_name := String(WorldData.settlement(place)["name"])
+	col.add_child(_section("%s of %s" % [String(WorldData.settlement(place)["type"]).capitalize(), GameState.crown_title()]))
+	var holder: Dictionary = GameState.holder_of(place)
+	col.add_child(_note("Held for you by %s." % holder["name"] if not holder.is_empty() else "No lord holds it for you. Grant it to one of your sworn lords.", Style.TEXT))
+	var income := int(Lords.INCOME.get(String(WorldData.settlement(place)["type"]), 0))
+	col.add_child(_note("Pays %d silver a day: half to your purse, half to the crown treasury (%d), which raises its garrison." % [income, GameState.crown_treasury()]))
+	# Grant it.
+	var lords: Array = GameState.crown_lords().filter(func(l): return String(l.get("fief", "")) != place)
+	if not lords.is_empty():
+		col.add_child(_section("Grant %s" % s_name))
+		for l in lords:
+			var lid := int(l["id"])
+			var holds := String(l.get("fief", ""))
+			var b := _button("Grant to %s%s" % [l["name"], (" (holds %s)" % WorldData.settlement(holds)["name"]) if holds != "" else ""], func():
+				if GameState.grant_fief(place, lid):
+					Sound.play("horn")
+					_build())
+			b.name = "Grant_%d" % lid
+			col.add_child(b)
+	if not holder.is_empty():
+		var hid := int(holder["id"])
+		var r := _button("Take it back from %s (%d Regard)" % [holder["name"], GameState.REVOKE_REGARD], func():
+			if GameState.revoke_fief(hid):
+				_build())
+		r.name = "Revoke"
+		col.add_child(r)
+	# Its garrison, and your squads in it.
+	col.add_child(_section("Garrison"))
+	col.add_child(_note("%d of %d men." % [w.men_of(w.garrison_at(place)), w.garrison_capacity(place)], Style.TEXT))
+	for sq in GameState.stationed_at(place):
+		var sid := int(sq["id"])
+		var b := _button("Take back %s (%d men)" % [String(sq.get("name", "squad")), int(sq["men"])], func():
+			if GameState.withdraw_from_holding(sid):
+				_build())
+		b.name = "Withdraw_%d" % sid
+		col.add_child(b)
+	if GameState.army.size() > 1:
+		col.add_child(_note("Station a squad of yours with the garrison:"))
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 8)
+		flow.add_theme_constant_override("v_separation", 8)
+		for sq in GameState.army:
+			var sid := int(sq["id"])
+			var b := Button.new()
+			b.name = "Station_%d" % sid
+			b.text = "Station %s" % String(sq.get("name", "squad"))
+			b.pressed.connect(func():
+				if GameState.station_in_holding(sid):
+					Sound.play("click")
+					_build())
+			flow.add_child(b)
+		col.add_child(flow)
+
+
 func _add_fief_management(col: VBoxContainer) -> void:
 	col.add_child(_section("Your Fief & Manor"))
 
@@ -641,7 +704,10 @@ func _add_fief_management(col: VBoxContainer) -> void:
 	var title_lbl := Style.label("%s of %s" % [title, s_name], Style.LARGE, Style.BRASS)
 	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	h_v.add_child(title_lbl)
-	h_v.add_child(_note("Sworn vassal of %s · Seat of your company" % WorldData.the_realm(r_name), Style.TEXT))
+	if GameState.is_crowned() and String(fief.get("realm", "")) == WorldData.CROWN:
+		h_v.add_child(_note("Seat of your crown · ruler of %s" % GameState.crown_title(), Style.TEXT))
+	else:
+		h_v.add_child(_note("Sworn vassal of %s · Seat of your company" % WorldData.the_realm(r_name), Style.TEXT))
 
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(place)
 	var daily_t: int = Fiefs.daily_tax(fief, is_b)
@@ -809,7 +875,9 @@ func _add_fief_management(col: VBoxContainer) -> void:
 			i_row.add_child(b_btn)
 	col.add_child(imp_panel)
 
-	# Renounce option
+	# Renounce option: a vassal can give up their fief; a ruler has no one to give it to.
+	if GameState.is_crowned():
+		return
 	var ren_btn := _button("Renounce Fealty (Forfeit fief to crown, -25 relation)", func():
 		GameState.renounce_fief()
 		Sound.play("alarm")

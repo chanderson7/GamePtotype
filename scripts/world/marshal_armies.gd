@@ -162,11 +162,13 @@ static func tick(w, dt: float) -> void:
 		if w.hour < float(w.army_ready_at.get(realm, 0.0)): continue
 		if w.campaign_armies.any(func(a): return a["realm"] == realm): continue
 		w.army_ready_at[realm] = w.hour + Lords.ARMY_RETRY_HOURS
-		create(w, realm)
+		var _formed := create(w, realm)
 
-static func create(w, realm: String) -> void:
+## Gather an army of `realm`'s lords against its nearest enemy, or against `target` when
+## its ruler names one (your crown's call to arms). Returns whether one formed.
+static func create(w, realm: String, target: String = "") -> bool:
 	var muster: String = w.capital_of(realm)
-	if muster == "": return
+	if muster == "": return false
 	var eligible: Array = []
 	for lord in w.lords:
 		var p = w.party(int(lord["party"]))
@@ -174,12 +176,13 @@ static func create(w, realm: String) -> void:
 		if w.men_of(p.army) < int(lord["full"]) * Lords.ARMY_READY_SHARE or not reachable(w, p, muster): continue
 		eligible.append(lord)
 	eligible.sort_custom(func(a, b): return int(a["renown"]) > int(b["renown"]) if a["renown"] != b["renown"] else int(a["id"]) < int(b["id"]))
-	if eligible.size() < Lords.ARMY_MIN_MEMBERS: return
+	if eligible.size() < Lords.ARMY_MIN_MEMBERS: return false
 	var marshal: Dictionary = eligible[0]
 	var p = w.party(int(marshal["party"]))
-	var best := ""
+	var best := target
 	var score := INF
 	for id in Data.SETTLEMENTS:
+		if target != "": break
 		if Data.is_village(id) or not w.at_war(realm, w.owner_of(id)): continue
 		var h: float = w._hours(p, muster, id)
 		if is_inf(h): continue
@@ -188,7 +191,7 @@ static func create(w, realm: String) -> void:
 		if value < score:
 			score = value
 			best = id
-	if best == "": return
+	if best == "": return false
 	var army := {"id": w.next_army_id, "realm": realm, "leader": p.id, "members": [], "state": "gathering", "muster": muster,
 		"target": best, "target_owner": w.owner_of(best), "destination": muster, "deadline": w.hour + Lords.ARMY_MUSTER_HOURS,
 		"expires": w.hour + Lords.ARMY_EXPEDITION_HOURS, "reason": ""}
@@ -200,6 +203,19 @@ static func create(w, realm: String) -> void:
 	w.campaign_armies.append(army)
 	w.realms[realm]["marshal"] = int(marshal["id"])
 	w.emit_event({"type": "army_formed", "army": army["id"], "realm": realm, "marshal": marshal["name"], "target": best})
+	return true
+
+
+## Lords of `realm` who could answer a call to arms now.
+static func ready_lords(w, realm: String) -> Array:
+	var muster: String = w.capital_of(realm)
+	var out := []
+	for lord in w.lords:
+		var p = w.party(int(lord["party"]))
+		if lord["realm"] != realm or p == null or lord["raiding"] != "" or not for_party(w, p.id).is_empty(): continue
+		if w.men_of(p.army) < int(lord["full"]) * Lords.ARMY_READY_SHARE or muster == "" or not reachable(w, p, muster): continue
+		out.append(lord)
+	return out
 
 static func _resolve_relief(w, army: Dictionary, relief_party) -> bool:
 	var p = leader(w, army)

@@ -136,7 +136,7 @@ func _init() -> void:
 	await process_frame
 	current_scene._close_sheet()
 	current_scene._open_crown()
-	check(current_scene.sheet_title.text == "Your Crown", "the campaign menu opens your crown")
+	check(current_scene._kingdom != null and current_scene._kingdom.find_child("CrownTitle", true, false) != null, "the campaign menu opens your crown")
 
 	print("\nKingdom tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)

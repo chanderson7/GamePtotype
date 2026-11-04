@@ -50,6 +50,11 @@ const WAGE_SHARE := 0.5
 const START_SILVER := 300
 ## Lords' recruits come out of the treasury only while it keeps this much back for wages.
 const TREASURY_RESERVE := 2000
+## A young crown's treasury starts empty: it keeps only this much back, or its garrisons
+## would never be raised.
+const CROWN_RESERVE := 200
+## Hours between a lord's thoughts while riding at your side.
+const ESCORT_THINK_HOURS := 1.0
 ## Standing garrisons: towns house more men, castles a greater share of trained troops.
 ## Each role is one squad; the first TRAINED squads use their culture's first branch.
 const GARRISON_ROLES := {

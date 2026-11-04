@@ -526,6 +526,7 @@ func _root_replies() -> Array:
 			out.append({"id": "ride", "text": "Let us ride with you.", "tag": "follow their army", "act": func():
 				wants_follow.emit(pid)
 				_leave()})
+	out.append_array(_order_replies())
 	out.append_array(_crown_replies())
 	var ch := LordTalk.challenge_check(gs, lord)
 	if bool(ch["ok"]) or String(lord.get("realm", "")) != Data.CROWN:
@@ -539,6 +540,32 @@ func _root_replies() -> Array:
 func _realm_name() -> String:
 	var r := String(lord.get("realm", ""))
 	return String(Data.FACTIONS[r]["name"]) if Data.FACTIONS.has(r) else r
+
+
+## Orders, for a lord sworn to you.
+func _order_replies() -> Array:
+	if String(lord.get("realm", "")) != Data.CROWN or int(lord.get("party", -1)) < 0:
+		return []
+	var lid := int(lord["id"])
+	var order: Dictionary = lord.get("order", {}) if lord.get("order") is Dictionary else {}
+	var kind := String(order.get("kind", ""))
+	var out := []
+	if kind != "follow":
+		out.append({"id": "order_follow", "text": "Ride with me.", "tag": "order · they follow you and join your fights", "tone": "gold", "act": func():
+			gs.order_lord(lid, "follow")
+			_show("\"At your side, then.\"", [_note("%s rides with you." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Good.")])})
+	var hold := String(lord.get("fief", ""))
+	if hold == "" or not gs.crown_holdings().has(hold):
+		hold = world.capital_of(Data.CROWN)
+	if hold != "" and not (kind == "guard" and String(order.get("target", "")) == hold):
+		out.append({"id": "order_guard", "text": "Hold %s for the crown." % Data.settlement(hold)["name"], "tag": "order · they guard it", "act": func():
+			gs.order_lord(lid, "guard", hold)
+			_show("\"It will stand.\"", [_note("%s will hold %s." % [LordTalk.short_name(lord), Data.settlement(hold)["name"]], Style.BRASS)], [_leave_reply("Good.")])})
+	if kind != "":
+		out.append({"id": "order_free", "text": "Go about the realm's business.", "tag": "order · they choose for themselves", "act": func():
+			gs.order_lord(lid, "")
+			_show("\"As you say.\"", [], [_leave_reply("Go well.")])})
+	return out
 
 
 ## The crown lines: open once you're crowned, shown locked before so you know they're coming.
@@ -837,7 +864,13 @@ func _beat_sworn() -> void:
 	var fief := String(r["fief"])
 	var replies := []
 	if fief != "":
-		replies.append({"id": "hold", "text": "Hold %s for the crown." % Data.settlement(fief)["name"], "tag": "they guard their lands", "act": _leave})
+		var lid := int(lord["id"])
+		replies.append({"id": "hold", "text": "Hold %s for the crown." % Data.settlement(fief)["name"], "tag": "order · they guard their lands", "act": func():
+			gs.order_lord(lid, "guard", fief)
+			_leave()})
+		replies.append({"id": "order_follow", "text": "Ride with me.", "tag": "order · they follow you and join your fights", "act": func():
+			gs.order_lord(lid, "follow")
+			_leave()})
 	replies.append(_leave_reply("Ride well, and raise your men."))
 	_refresh_regard()
 	_show("\"Then hear it plainly: House %s stands with your crown, as long as your crown stands.\"" % String(lord.get("house", "")), [card], replies)

@@ -29,6 +29,7 @@ const Widgets = preload("res://scripts/ui/widgets.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordConversation = preload("res://scripts/world/lord_conversation.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 132.0
@@ -98,6 +99,8 @@ var _toast_label: Label
 var _toast_tween: Tween
 ## The lord you're talking to, face to face (lord_conversation.gd), or null.
 var _talk = null
+## Your crown's screen while it's open, or null.
+var _kingdom = null
 ## Why the last friendly lord stopped you ("first", "news", "army").
 var _stop_reason := ""
 ## The free-floating HUD layer: the toast sits on it, outside any layout.
@@ -1085,7 +1088,7 @@ func _open_lord(lp) -> void:
 			names.append("%s — %d men" % [member.name, men])
 		var body := "%s · %d men\nDestination: %s\n%s.\n\n%s" % [String(army["state"]).capitalize(), total,
 			Data.settlement(army["destination"])["name"], _pace_text(lp), "\n".join(names)]
-		if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == army["realm"]:
+		if rel == "friendly" and (army["realm"] == Data.CROWN or GameState.has_contract() and GameState.contract_realm() == army["realm"]):
 			if world.following_party == lp.id or world.following_party == int(army["leader"]):
 				buttons.append(["Stop following", _on_stop_following])
 			else:
@@ -2219,6 +2222,10 @@ func _build_letter_banner() -> void:
 func _watch_letters(delta: float) -> void:
 	if world.social == null or letter_banner == null:
 		return
+	# A letter waits while you talk to a lord or rule your crown.
+	if _sheet == "talk":
+		letter_banner.visible = false
+		return
 	var fresh: Array = world.social.take_unannounced()
 	if not fresh.is_empty() and not autoplay:
 		_show_letter_banner(fresh[fresh.size() - 1])
@@ -2335,39 +2342,24 @@ func _on_raise_crown() -> void:
 
 
 ## The crown: what it holds, who it fights, who stands with it.
-func _open_crown() -> void:
-	var lines: PackedStringArray = []
-	var held: Array = GameState.crown_holdings()
-	var names: PackedStringArray = []
-	for id in held:
-		names.append(String(Data.settlement(id)["name"]))
-	lines.append("Holds: %s." % ", ".join(names) if not names.is_empty() else "Holds nothing. Without a seat the crown is only a name.")
-	lines.append("Crown treasury: %d silver (raises garrisons)." % int(world.realms[Data.CROWN].get("treasury", 0)))
-	var buttons := []
-	var enemies: Array = world.crown_enemies()
-	if enemies.is_empty():
-		lines.append("At war with no one.")
-	for r in enemies:
-		var check: Dictionary = GameState.crown_peace_check(r)
-		lines.append("At war with %s.%s" % [Data.FACTIONS[r]["name"], "" if check["ok"] else " " + String(check["reason"])])
-		if check["ok"]:
-			buttons.append(["Sue %s for peace" % Data.FACTIONS[r]["name"], _on_crown_peace.bind(r)])
-	for r in world.alliances:
-		lines.append("Allied with %s." % Data.FACTIONS[r]["name"])
-	for r in GameState.crown_allies_possible():
-		buttons.append(["Ally with %s" % Data.FACTIONS[r]["name"], _on_crown_ally.bind(r)])
-	buttons.append(["Close", _close_sheet, true])
-	_show_sheet("crown", "Your Crown", "\n".join(lines), buttons)
-
-
-func _on_crown_ally(realm: String) -> void:
-	GameState.propose_alliance(realm)
-	_open_crown()
-
-
-func _on_crown_peace(realm: String) -> void:
-	GameState.sue_for_peace(realm)
-	_open_crown()
+## Your crown's own screen (kingdom_screen.gd), over the map; the map holds still.
+func _open_crown(start_tab: String = "realm") -> void:
+	_close_sheet()
+	if _kingdom != null and is_instance_valid(_kingdom):
+		_kingdom.queue_free()
+	_sheet = "talk"
+	bottom_bar.visible = false
+	_kingdom = KingdomScreen.open(_hud, GameState, start_tab)
+	_kingdom.closed.connect(func():
+		_kingdom = null
+		_sheet = ""
+		bottom_bar.visible = true
+		_refresh_hud())
+	_kingdom.wants_place.connect(func(id: String):
+		_kingdom = null
+		_sheet = ""
+		bottom_bar.visible = true
+		_focus_place(id))
 
 
 ## Before an assault: the garrison, the walls, and the odds.
@@ -2797,7 +2789,7 @@ func _draw_sieges(px: float) -> void:
 		if not Data.SETTLEMENTS.has(id):
 			continue
 		var c := _to_screen(Data.pos(id))
-		var color: Color = Style.BRASS if String(army["realm"]) == Data.CROWN else Cultures.color(Data.culture_of(String(army["realm"])))
+		var color: Color = Data.crown_color if String(army["realm"]) == Data.CROWN else Cultures.color(Data.culture_of(String(army["realm"])))
 		var r := 34.0 * px
 		# a broken ring: the lines drawn around the walls
 		for i in 12:
@@ -2835,7 +2827,7 @@ func _draw_settlement(id: String, px: float) -> void:
 	var c := _to_screen(s["pos"])
 	# Built by its own people, flying its holder's colors.
 	var culture := Data.culture_of(s["faction"])
-	var colors := Style.BRASS if world.owner_of(id) == Data.CROWN else Cultures.color(Data.culture_of(world.owner_of(id)))
+	var colors := Data.crown_color if world.owner_of(id) == Data.CROWN else Cultures.color(Data.culture_of(world.owner_of(id)))
 	var sprite := "%s/%s" % [culture, s["type"]]
 	var w: float = MapArt.size(sprite).x * px
 	draw_set_transform(c + Vector2(0, 2), 0.0, Vector2(1.0, 0.32))

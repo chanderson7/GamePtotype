@@ -20,13 +20,20 @@ const BANDITS := "bandits"
 ## the world only after that, and takes the company's culture.
 const CROWN := "crown"
 static var crown_culture := Cultures.VARDISH
+## What the player names their crown, and its colour on banners and the map.
+const CROWN_NAME := "the Free Crown"
+const CROWN_COLORS := [Color("d9a944"), Color("c8443c"), Color("4a74d1"), Color("4f9a5a"), Color("8a6cc0"), Color("c9ced8")]
+const CROWN_COLOR_NAMES := ["Gold", "Crimson", "Azure", "Green", "Violet", "Silver"]
+static var crown_color := Color("d9a944")
 
-const FACTIONS := {
+## Realms by id. A static var, not a const, only so the crown's name can be the one the
+## player gives it (set_crown_name); nothing else here changes.
+static var FACTIONS := {
 	"vardmark": {"name": "Kingdom of Vardmark", "culture": Cultures.VARDISH, "ruler": "King Aldwin", "capital": "highcliff"},
 	"kharzan": {"name": "Sultanate of Kharzan", "culture": Cultures.KHARZANI, "ruler": "Sultan Rustam", "capital": "khalun"},
 	"ryumon": {"name": "Ryumon Shogunate", "culture": Cultures.RYUMON, "ruler": "Shogun Hidemasa", "capital": "kurogane"},
 	BANDITS: {"name": "Bandits", "culture": "", "ruler": "", "capital": ""},
-	CROWN: {"name": "the Free Crown", "culture": "", "ruler": "", "capital": ""},
+	CROWN: {"name": CROWN_NAME, "culture": "", "ruler": "", "capital": ""},
 }
 
 ## The wars a campaign starts with. The world sim keeps the wars after that.
@@ -176,6 +183,17 @@ static func capital_of_culture(culture: String) -> String:
 
 ## A realm's name with "the" before it, unless it has one already ("the Free Crown"), so
 ## a line reads "a vassal of the Kingdom of Vardmark" and never "of the the Free Crown".
+## Name the crown (empty for the default) and colour it.
+static func set_crown(name: String, color_index: int) -> void:
+	FACTIONS[CROWN]["name"] = name.strip_edges() if name.strip_edges() != "" else CROWN_NAME
+	crown_color = CROWN_COLORS[clampi(color_index, 0, CROWN_COLORS.size() - 1)]
+
+
+## A name at the start of a sentence: its first letter raised, nothing else changed.
+static func title_case(name: String) -> String:
+	return name.left(1).to_upper() + name.substr(1)
+
+
 static func the_realm(name: String) -> String:
 	return name if name.to_lower().begins_with("the ") else "the " + name
 

@@ -5,6 +5,7 @@ extends RefCounted
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const WorldData = preload("res://scripts/world/world_data.gd")
 
 const EDGE := Color(0.06, 0.05, 0.08)
 
@@ -199,10 +200,11 @@ static func _ryumon(ci: CanvasItem) -> void:
 
 
 static func _crown(ci: CanvasItem) -> void:
+	var ink: Color = WorldData.crown_color
 	ci.draw_rect(Rect2(0, 0, 90, 90), Color("1d1a2a"))
-	ci.draw_rect(Rect2(4, 4, 82, 82), Style.BRASS, false, 8.0)
-	_poly(ci, [Vector2(24, 56), Vector2(20, 30), Vector2(33, 42), Vector2(45, 24), Vector2(57, 42), Vector2(70, 30), Vector2(66, 56)], Style.BRASS)
-	ci.draw_rect(Rect2(22, 58, 46, 7), Style.BRASS)
+	ci.draw_rect(Rect2(4, 4, 82, 82), ink, false, 8.0)
+	_poly(ci, [Vector2(24, 56), Vector2(20, 30), Vector2(33, 42), Vector2(45, 24), Vector2(57, 42), Vector2(70, 30), Vector2(66, 56)], ink)
+	ci.draw_rect(Rect2(22, 58, 46, 7), ink)
 	ci.draw_rect(Rect2(0, 0, 90, 90), Color("0a0a10"), false, 2.0)
 
 

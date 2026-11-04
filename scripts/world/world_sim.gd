@@ -80,7 +80,7 @@ const ACTIVITY_TYPES := {
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
-	"achievement": true, "battle_fought": true, "crown_raised": true, "lord_sworn": true, "alliance": true, "alliance_ended": true,
+	"achievement": true, "battle_fought": true, "crown_raised": true, "crown_fallen": true, "crown_victory": true, "fief_given": true, "lord_sworn": true, "alliance": true, "alliance_ended": true,
 }
 
 
@@ -692,7 +692,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "war"
 		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
 			cat = "siege"
-		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "alliance", "alliance_ended", "lord_sworn":
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "crown_fallen", "crown_victory", "fief_given", "alliance", "alliance_ended", "lord_sworn":
 			cat = "deed"
 		"fight", "battle_fought", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
@@ -802,6 +802,12 @@ func _activity_text(event: Dictionary) -> String:
 				Data.FACTIONS[String(event["from"])]["name"] if Data.FACTIONS.has(String(event["from"])) else "its liege"]
 		"alliance":
 			return "The crown and %s swore an alliance." % Data.FACTIONS[String(event["realm"])]["name"]
+		"crown_fallen":
+			return "Your crown has fallen: it holds nothing, and its lords have gone back to their old allegiances."
+		"crown_victory":
+			return "%s holds every realm's capital. The Glass Sea has one crown now." % Data.title_case(String(Data.FACTIONS[Data.CROWN]["name"]))
+		"fief_given":
+			return "%s was granted %s by your crown." % [event.get("lord", "A lord"), Data.settlement(String(event["settlement"]))["name"]]
 		"alliance_ended":
 			return "The alliance between the crown and %s has ended." % Data.FACTIONS[String(event["realm"])]["name"]
 		"achievement":
@@ -1477,6 +1483,11 @@ func _start_garrisons() -> void:
 		garrisons[id] = army
 
 
+## What a realm's treasury keeps back before it pays for recruits.
+func reserve_of(realm: String) -> int:
+	return Lords.CROWN_RESERVE if realm == Data.CROWN else Lords.TREASURY_RESERVE
+
+
 ## Refill survivors first, then replace missing squads, up to the settlement's cap.
 ## Buy only affordable men; an empty treasury neither creates troops nor goes negative.
 func _garrisons_day() -> void:
@@ -1497,7 +1508,7 @@ func _garrisons_day() -> void:
 				break
 			var unit := String(sq["unit"])
 			var add := mini(budget, Units.full_size(unit) - int(sq["men"]))
-			var available := maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE)
+			var available := maxi(0, int(realm["treasury"]) - reserve_of(owner_of(id)))
 			var unit_cost := int(Economy.recruit_cost(unit, 1))
 			var escrow_paid := 0
 			if social != null:
@@ -1712,6 +1723,8 @@ func _chase(l: Dictionary, p: Party) -> bool:
 ## otherwise he weighs defending his realm's villages, hunting bandits, raiding the enemy
 ## and patrolling, by his bearing.
 func _think_lord(l: Dictionary, p: Party) -> void:
+	if _follow_order(l, p):
+		return
 	var bearing := String(l["bearing"])
 	var men := men_of(p.army)
 	var full := maxi(1, int(l["full"]))
@@ -1788,6 +1801,66 @@ func _think_lord(l: Dictionary, p: Party) -> void:
 		_set_job(l, p, best[0], best[1])
 
 
+## A crown lord under your orders: hold a place, or ride at your side. True while the
+## order stands (they think of nothing else); an order that can't be kept is dropped.
+func _follow_order(l: Dictionary, p: Party) -> bool:
+	var order: Dictionary = l.get("order", {}) if l.get("order") is Dictionary else {}
+	if order.is_empty():
+		return false
+	if String(l.get("realm", "")) != Data.CROWN:
+		l.erase("order")
+		return false
+	var men := men_of(p.army)
+	# A spent warband goes home to refill whatever it was told.
+	if men < int(l["full"]) * Lords.REFILL_BELOW and seat_of(l) != "":
+		return false
+	match String(order.get("kind", "")):
+		"guard":
+			var at := String(order.get("target", ""))
+			if not Data.SETTLEMENTS.has(at) or owner_of(at) != Data.CROWN:
+				l.erase("order")
+				return false
+			if p.node == at and not p.moving():
+				l["job"] = "guard"
+				l["target"] = at
+				p.wait = Lords.THINK_HOURS
+			elif String(l["job"]) != "guard" or String(l["target"]) != at:
+				_set_job(l, p, "guard", at)
+			return true
+		"follow":
+			var ply := player()
+			if ply == null:
+				return false
+			var to: String = ply.next if ply.moving() else ply.node
+			l["think_at"] = hour + Lords.ESCORT_THINK_HOURS
+			if p.node == to and not p.moving():
+				l["job"] = "escort"
+				l["target"] = to
+				p.wait = Lords.ESCORT_THINK_HOURS
+			elif String(l["target"]) != to or not p.moving():
+				_set_job(l, p, "escort", to)
+			return true
+	l.erase("order")
+	return false
+
+
+## Crown lords riding at your side, close enough to join a fight you're in.
+func escorts() -> Array:
+	var out := []
+	var ply := player()
+	if ply == null:
+		return out
+	var at := party_pos(ply)
+	for l in lords:
+		var order: Dictionary = l.get("order", {}) if l.get("order") is Dictionary else {}
+		if String(order.get("kind", "")) != "follow":
+			continue
+		var lp := party(int(l.get("party", -1)))
+		if lp != null and party_pos(lp).distance_to(at) <= ENCOUNTER_RADIUS * 3.0:
+			out.append(lp)
+	return out
+
+
 ## Hours for lord's party `p` to ride from `from` to `to`. The roads never change, so
 ## every pair is worked out once.
 func _hours(p: Party, from: String, to: String) -> float:
@@ -1839,8 +1912,10 @@ func _lord_arrives(l: Dictionary, p: Party) -> void:
 				emit_event({"type": "raid_started", "party": p.id, "village": p.node, "hours": Lords.RAID_HOURS})
 			else:
 				l["job"] = ""
-		"home":
+		"home", "guard":
 			p.wait = Lords.THINK_HOURS
+		"escort":
+			p.wait = Lords.ESCORT_THINK_HOURS
 		"chase":
 			pass
 		_:
@@ -2058,6 +2133,7 @@ func _evaluate_balance_of_power() -> void:
 
 
 func _evaluate_war_declarations() -> void:
+	_rivals_of_the_crown()
 	var pairs := [["vardmark", "kharzan"]]
 	for pair in pairs:
 		var a: String = pair[0]
@@ -2074,6 +2150,80 @@ func _evaluate_war_declarations() -> void:
 				var aggressor := a if str_a >= str_b else b
 				var defender := b if aggressor == a else a
 				declare_war(aggressor, defender)
+
+
+## A crown that has grown worth fearing draws rivals: a rested realm stronger than it, not
+## allied with it and under no truce, may declare war on it. The crown's own strength
+## counts your company.
+const CROWN_RIVAL_HOLDINGS := 2
+const CROWN_RIVAL_CHANCE := 0.12
+func _rivals_of_the_crown() -> void:
+	if not realms.has(Data.CROWN) or holdings_of(Data.CROWN).size() < CROWN_RIVAL_HOLDINGS:
+		return
+	var crown := realm_strength(Data.CROWN)
+	var gs = _active_game_state()
+	if gs != null:
+		crown += int(gs.total_men())
+	for r in realms:
+		if r == Data.CROWN or at_war(r, Data.CROWN) or has_truce(r, Data.CROWN) or alliances.has(r):
+			continue
+		if weariness_of(r) > Politics.WAR_READY_WEARINESS or realm_strength(r) < crown:
+			continue
+		if rng.randf() < CROWN_RIVAL_CHANCE:
+			declare_war(r, Data.CROWN, false, "a rival crown")
+			return
+
+
+## What peace between `a` and `b` would cost: the wearier pays tribute a day for a while.
+## {from, to, daily, days}; daily 0 when they're about as weary as each other.
+func peace_terms(a: String, b: String) -> Dictionary:
+	var w_a := weariness_of(a)
+	var w_b := weariness_of(b)
+	var diff := absf(w_a - w_b)
+	var loser := a if w_a > w_b else b
+	var daily := 0
+	if diff >= 5.0:
+		daily = int(clampf(Politics.TRIBUTE_BASE + diff * Politics.TRIBUTE_PER_WEARINESS_DIFF,
+			float(Politics.TRIBUTE_BASE), float(Politics.TRIBUTE_MAX)))
+	return {"from": loser, "to": b if loser == a else a, "daily": daily, "days": Politics.TRIBUTE_DAYS}
+
+
+## The crown falls: it holds nothing. Its lords go back to the realms they came from (or
+## their people's), its wars, truces, alliances, armies and tributes end, and the realm is
+## gone. Returns the names of the lords who left.
+func dissolve_crown() -> Array:
+	var gone := []
+	if not realms.has(Data.CROWN):
+		return gone
+	for army in campaign_armies.duplicate():
+		if String(army["realm"]) == Data.CROWN:
+			MarshalArmies.disband(self, army, "The crown has fallen")
+	for l in lords:
+		if String(l.get("realm", "")) != Data.CROWN:
+			continue
+		var back := String(l.get("sworn_from", ""))
+		if not realms.has(back) or back == Data.CROWN:
+			back = Data.realm_of_culture(String(l.get("culture", "")))
+		l["realm"] = back
+		l["fief"] = ""
+		l.erase("order")
+		l["bought"] = 0
+		var lp := party(int(l.get("party", -1)))
+		if lp != null:
+			lp.faction = back
+		gone.append(String(l["name"]))
+	for key in wars.keys():
+		if String(key).split("|").has(Data.CROWN):
+			wars.erase(key)
+	for key in truces.keys():
+		if String(key).split("|").has(Data.CROWN):
+			truces.erase(key)
+	tributes = tributes.filter(func(t): return String(t.get("from", "")) != Data.CROWN and String(t.get("to", "")) != Data.CROWN)
+	alliances = {}
+	army_ready_at.erase(Data.CROWN)
+	realms.erase(Data.CROWN)
+	emit_event({"type": "crown_fallen"})
+	return gone
 
 
 ## A day's recruits for a lord at his seat, as many as his purse allows, up to his
@@ -2106,7 +2256,7 @@ func _refill(l: Dictionary, army: Array) -> void:
 			escrow_paid = social.consume_escrow_for_recruitment(str(l["id"]), "lord", add, unit_cost)
 		var rem_cost := maxi(0, cost - escrow_paid)
 		var realm: Dictionary = realms[l["realm"]]
-		if rem_cost > int(l["silver"]) + maxi(0, int(realm["treasury"]) - Lords.TREASURY_RESERVE):
+		if rem_cost > int(l["silver"]) + maxi(0, int(realm["treasury"]) - reserve_of(String(l["realm"]))):
 			break
 		var own := mini(rem_cost, int(l["silver"]))
 		l["silver"] = int(l["silver"]) - own
@@ -2783,6 +2933,9 @@ static func _clean_lord(e: Dictionary) -> Dictionary:
 	# Whether this lord has stopped to greet you on the road.
 	if e.has("greeted"):
 		ordered["greeted"] = int(e["greeted"])
+	# What you've ordered a crown lord to do.
+	if e.get("order") is Dictionary and not (e["order"] as Dictionary).is_empty():
+		ordered["order"] = {"kind": String(e["order"].get("kind", "")), "target": String(e["order"].get("target", ""))}
 	# A lord won to your crown: the realm they came from, and whether silver did it.
 	if e.has("sworn_from"):
 		ordered["sworn_from"] = String(e["sworn_from"])

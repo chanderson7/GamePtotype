@@ -104,6 +104,12 @@ var camp_seen: Array = []
 var deeds: Dictionary = {}
 var deed_counts: Dictionary = {}
 var company_title := ""
+## Your crown: the name and colour you give it, whether it has won the Glass Sea, and how
+## many days it has held nothing (it falls after CROWN_FALL_DAYS).
+var crown_name := ""
+var crown_color := 0
+var crown_won := false
+var crown_empty_days := 0
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -163,6 +169,11 @@ func new_warband() -> void:
 	deeds = {}
 	deed_counts = {}
 	company_title = ""
+	crown_name = ""
+	crown_color = 0
+	crown_won = false
+	crown_empty_days = 0
+	WorldData.set_crown("", 0)
 	_heal_clock = 0.0
 	casual_mode = false
 	ironman = false
@@ -454,6 +465,8 @@ func crown_check() -> Dictionary:
 		return {"ok": false, "reason": "The crown is already raised."}
 	if not has_fief() or bool(player_fief.get("lost", false)):
 		return {"ok": false, "reason": "A crown needs a seat: hold a fief of your own first."}
+	if String(WorldData.settlement(fief_id())["type"]) == WorldData.VILLAGE:
+		return {"ok": false, "reason": "A crown needs walls: your seat is a village. Hold a castle or a town."}
 	if has_contract():
 		return {"ok": false, "reason": "Serve out or break your contract first."}
 	if renown < CROWN_RENOWN:
@@ -489,6 +502,8 @@ func crown_holdings() -> Array:
 ## garrisons. The fief itself pays through the fief as before.
 func _crown_day() -> void:
 	if not is_crowned():
+		return
+	if _crown_fate():
 		return
 	for name in LordTalk.bought_lords_day(self):
 		_note("%s thinks too little of you now to stay bought, and rides back to their old allegiance, castle and all." % name)
@@ -579,12 +594,277 @@ func crown_peace_check(realm: String) -> Dictionary:
 	return {"ok": true, "reason": ""}
 
 
+## Peace: whoever is wearier of the war pays the other tribute for a while.
 func sue_for_peace(realm: String) -> bool:
 	if not crown_peace_check(realm)["ok"]:
 		return false
-	world.make_peace(WorldData.CROWN, realm)
+	var terms: Dictionary = world.peace_terms(WorldData.CROWN, realm)
+	world._sign_peace_treaty(WorldData.CROWN, realm)
 	add_realm_relation(realm, 30)
-	_note("%s accepts peace with your crown. A truce holds." % WorldData.FACTIONS[realm]["name"])
+	var t := ""
+	if int(terms["daily"]) > 0:
+		t = " They pay you %d silver a day for %d days." % [int(terms["daily"]), int(terms["days"])] if terms["to"] == WorldData.CROWN \
+			else " Your treasury pays them %d silver a day for %d days." % [int(terms["daily"]), int(terms["days"])]
+	_note("%s accepts peace with your crown. A truce holds.%s" % [WorldData.FACTIONS[realm]["name"], t])
+	save_game()
+	return true
+
+
+# ---------------------------------------------------------------- ruling the crown
+
+const CROWN_FALL_DAYS := 3
+const GRANT_REGARD := 15
+const REVOKE_REGARD := -25
+const DISPOSSESSED_REGARD := -15
+const DRAW_REGARD := -2
+const TREASURY_STEP := 500
+const DECLARE_RELATION := -30
+
+
+## Name your crown and choose its colour.
+func set_crown_identity(name: String, color_index: int) -> void:
+	crown_name = name.strip_edges().left(32)
+	crown_color = clampi(color_index, 0, WorldData.CROWN_COLORS.size() - 1)
+	WorldData.set_crown(crown_name, crown_color)
+	save_game()
+
+
+func crown_title() -> String:
+	return String(WorldData.FACTIONS[WorldData.CROWN]["name"])
+
+
+## Every realm's first capital: hold them all and the Glass Sea is yours.
+func crown_capitals() -> Array:
+	var out := []
+	for r in ["vardmark", "kharzan", "ryumon"]:
+		out.append(String(WorldData.FACTIONS[r]["capital"]))
+	return out
+
+
+## Once a day: the crown wins when it holds every capital, and falls when it has held
+## nothing for CROWN_FALL_DAYS. True if it fell.
+func _crown_fate() -> bool:
+	var held := crown_holdings()
+	if held.is_empty():
+		crown_empty_days += 1
+		if crown_empty_days >= CROWN_FALL_DAYS:
+			fall_crown()
+			return true
+		_note("Your crown holds nothing. Take back a castle or a town within %d day%s, or it falls." % [
+			CROWN_FALL_DAYS - crown_empty_days, "" if CROWN_FALL_DAYS - crown_empty_days == 1 else "s"])
+		return false
+	crown_empty_days = 0
+	if not crown_won and crown_capitals().all(func(id): return held.has(id)):
+		crown_won = true
+		renown += 100
+		world.emit_event({"type": "crown_victory"})
+		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Glass Sea has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like." % WorldData.title_case(crown_title())
+	return false
+
+
+## The crown falls: its lords go back to their old allegiances, its wars end, and the
+## company is free again, to raise a banner another day.
+func fall_crown() -> void:
+	if not is_crowned():
+		return
+	var gone: Array = world.dissolve_crown()
+	player_fief = {}
+	world.player().faction = ""
+	crown_won = false
+	crown_empty_days = 0
+	map_notice = "Your crown has fallen. It held nothing, and %s. The company rides free again; hold a castle or a town and you may raise a banner anew." % (
+		"its lords have gone back to their old allegiances" if not gone.is_empty() else "no lord was left to serve it")
+	save_game()
+
+
+## Castles and towns of the crown other than your seat: the ones you rule through lords.
+func crown_fiefs() -> Array:
+	return crown_holdings().filter(func(id): return String(WorldData.settlement(id)["type"]) != WorldData.VILLAGE and id != fief_id())
+
+
+## The crown lord holding `id`, or {}.
+func holder_of(id: String) -> Dictionary:
+	for l in crown_lords():
+		if String(l.get("fief", "")) == id:
+			return l
+	return {}
+
+
+func grant_check(id: String, lord_id: int) -> Dictionary:
+	var l: Dictionary = world.lord_by_id(lord_id) if world != null else {}
+	if not is_crowned() or not crown_fiefs().has(id):
+		return {"ok": false, "reason": "Only your crown's castles and towns, not your own seat, can be granted."}
+	if l.is_empty() or String(l.get("realm", "")) != WorldData.CROWN:
+		return {"ok": false, "reason": "Only a lord sworn to you can hold your land."}
+	if String(l.get("fief", "")) == id:
+		return {"ok": false, "reason": "They already hold it."}
+	return {"ok": true, "reason": ""}
+
+
+## Grant a castle or town to a sworn lord: their seat now, where they rest and refill.
+## Whoever held it before loses it, and resents it.
+func grant_fief(id: String, lord_id: int) -> bool:
+	if not grant_check(id, lord_id)["ok"]:
+		return false
+	var l: Dictionary = world.lord_by_id(lord_id)
+	var before := holder_of(id)
+	if not before.is_empty():
+		before["fief"] = ""
+		add_lord_relation(int(before["id"]), DISPOSSESSED_REGARD)
+	l["fief"] = id
+	add_lord_relation(lord_id, GRANT_REGARD)
+	world.emit_event({"type": "fief_given", "lord": String(l["name"]), "settlement": id})
+	_note("You grant %s to %s (+%d Regard)." % [WorldData.settlement(id)["name"], l["name"], GRANT_REGARD])
+	save_game()
+	return true
+
+
+func revoke_fief(lord_id: int) -> bool:
+	var l: Dictionary = world.lord_by_id(lord_id) if world != null else {}
+	if l.is_empty() or String(l.get("realm", "")) != WorldData.CROWN or String(l.get("fief", "")) == "":
+		return false
+	var was := String(l["fief"])
+	l["fief"] = ""
+	add_lord_relation(lord_id, REVOKE_REGARD)
+	_note("You take %s back from %s (%d Regard)." % [WorldData.settlement(was)["name"], l["name"], REVOKE_REGARD])
+	save_game()
+	return true
+
+
+func crown_treasury() -> int:
+	return int(world.realms[WorldData.CROWN].get("treasury", 0)) if is_crowned() else 0
+
+
+## What the crown takes in a day: dues to your purse and to the treasury.
+func crown_income() -> Dictionary:
+	var dues := 0
+	for id in crown_holdings():
+		if id == fief_id() or world.is_burned(id):
+			continue
+		dues += int(Lords.INCOME.get(String(WorldData.settlement(id)["type"]), 0))
+	return {"purse": dues / 2, "treasury": dues - dues / 2}
+
+
+## Take silver from the treasury for your purse. Your lords notice.
+func draw_treasury(amount: int) -> bool:
+	if not is_crowned() or amount <= 0 or crown_treasury() < amount:
+		return false
+	world.realms[WorldData.CROWN]["treasury"] = crown_treasury() - amount
+	silver += amount
+	for l in crown_lords():
+		add_lord_relation(int(l["id"]), DRAW_REGARD)
+	_note("You draw %d silver from the treasury. Your lords notice (%d Regard each)." % [amount, DRAW_REGARD])
+	save_game()
+	return true
+
+
+## Put silver of your own into the treasury, for garrisons and your lords' men.
+func fund_treasury(amount: int) -> bool:
+	if not is_crowned() or amount <= 0 or silver < amount:
+		return false
+	silver -= amount
+	world.realms[WorldData.CROWN]["treasury"] = crown_treasury() + amount
+	save_game()
+	return true
+
+
+## Station one of your squads in a crown castle or town you're at (your seat has its own
+## garrison page). It stands with the garrison until you take it back.
+func station_in_holding(squad_id: int) -> bool:
+	var id: String = world.here() if world != null else ""
+	if not crown_fiefs().has(id):
+		return false
+	var sq := squad_by_id(squad_id)
+	if sq.is_empty() or army.size() <= 1:
+		return false
+	army.erase(sq)
+	sq["stationed_by_company"] = true
+	var g: Array = world.garrisons.get(id, [])
+	g.append(sq)
+	world.garrisons[id] = g
+	_note("%s stands with the garrison of %s." % [String(sq.get("name", "The squad")), WorldData.settlement(id)["name"]])
+	save_game()
+	return true
+
+
+func stationed_at(id: String) -> Array:
+	return world.garrison_at(id).filter(func(sq): return bool(sq.get("stationed_by_company", false))) if world != null else []
+
+
+func withdraw_from_holding(squad_id: int) -> bool:
+	var id: String = world.here() if world != null else ""
+	for sq in stationed_at(id):
+		if int(sq["id"]) == squad_id:
+			world.garrisons[id].erase(sq)
+			sq.erase("stationed_by_company")
+			army.append(sq)
+			save_game()
+			return true
+	return false
+
+
+## Order a sworn lord: "guard" a holding, "follow" you (they join your fights), or "" to
+## let them go about the realm's business.
+func order_lord(lord_id: int, kind: String, target: String = "") -> bool:
+	var l: Dictionary = world.lord_by_id(lord_id) if world != null else {}
+	if l.is_empty() or String(l.get("realm", "")) != WorldData.CROWN:
+		return false
+	if kind == "":
+		l.erase("order")
+	elif kind == "guard" and crown_holdings().has(target):
+		l["order"] = {"kind": "guard", "target": target}
+	elif kind == "follow":
+		l["order"] = {"kind": "follow", "target": ""}
+	else:
+		return false
+	l["think_at"] = world.hour
+	save_game()
+	return true
+
+
+## Call your lords to arms against an enemy castle or town: {ok, reason}.
+func call_check(target: String) -> Dictionary:
+	if not is_crowned():
+		return {"ok": false, "reason": "You have no crown to call to arms."}
+	if world.campaign_armies.any(func(a): return String(a["realm"]) == WorldData.CROWN):
+		return {"ok": false, "reason": "Your army is already in the field."}
+	if not Lords.WALLS.has(String(WorldData.settlement(target)["type"])) or not world.at_war(WorldData.CROWN, world.owner_of(target)):
+		return {"ok": false, "reason": "Name a castle or town of a realm you're at war with."}
+	var ready: Array = MarshalArmies.ready_lords(world, WorldData.CROWN)
+	if ready.size() < Lords.ARMY_MIN_MEMBERS:
+		return {"ok": false, "reason": "You need %d lords ready to ride (%d are)." % [Lords.ARMY_MIN_MEMBERS, ready.size()]}
+	return {"ok": true, "reason": ""}
+
+
+func call_to_arms(target: String) -> bool:
+	if not call_check(target)["ok"]:
+		return false
+	if not MarshalArmies.create(world, WorldData.CROWN, target):
+		return false
+	_note("Your lords gather at %s to march on %s. Ride with them from the army's sheet." % [
+		WorldData.settlement(world.capital_of(WorldData.CROWN))["name"], WorldData.settlement(target)["name"]])
+	save_game()
+	return true
+
+
+func war_check(realm: String) -> Dictionary:
+	if not is_crowned() or not world.realms.has(realm) or realm == WorldData.CROWN:
+		return {"ok": false, "reason": ""}
+	if world.at_war(WorldData.CROWN, realm):
+		return {"ok": false, "reason": "Already at war."}
+	if world.allied_with_crown(realm):
+		return {"ok": false, "reason": "They're your allies."}
+	if world.has_truce(WorldData.CROWN, realm):
+		return {"ok": false, "reason": "A truce holds for %d more days." % ceili((world.truce_until(WorldData.CROWN, realm) - world.hour) / 24.0)}
+	return {"ok": true, "reason": ""}
+
+
+func declare_crown_war(realm: String) -> bool:
+	if not war_check(realm)["ok"]:
+		return false
+	world.declare_war(WorldData.CROWN, realm, false, "your crown's declaration")
+	add_realm_relation(realm, DECLARE_RELATION)
+	_note("Your crown declares war on %s." % WorldData.FACTIONS[realm]["name"])
 	save_game()
 	return true
 
@@ -2076,6 +2356,18 @@ func start_encounter_battle() -> void:
 						entry["culture"] = WorldData.culture_of(ap.faction)
 						allied_squads.append(entry)
 
+	# Crown lords riding at your side join in.
+	for ep in world.escorts():
+		if ep.id == world.following_party or ep.id == band.id:
+			continue
+		for sq in ep.army:
+			if int(sq.get("men", 0)) > 0:
+				var entry: Dictionary = sq.duplicate(true)
+				entry["is_ally"] = true
+				entry["lord_id"] = ep.lord
+				entry["culture"] = WorldData.culture_of(ep.faction)
+				allied_squads.append(entry)
+
 	pending_battle = {
 		"enemy": enemy_army, "culture": WorldData.culture_of(band.faction),
 		"temperament": plan["temperament"], "name": band.name,
@@ -2753,6 +3045,7 @@ func to_dict() -> Dictionary:
 		"pinned_commitment": pinned_commitment, "ended_commitments": ended_commitments.duplicate(true),
 		"camp_seen": camp_seen.duplicate(),
 		"deeds": deeds.duplicate(true), "deed_counts": deed_counts.duplicate(), "company_title": company_title,
+		"crown_name": crown_name, "crown_color": crown_color, "crown_won": crown_won, "crown_empty_days": crown_empty_days,
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"world": world.to_dict() if world != null else null}
 
@@ -2782,6 +3075,11 @@ func from_dict(data: Dictionary) -> bool:
 	player_fief = data.get("player_fief", {}).duplicate(true) if typeof(data.get("player_fief")) == TYPE_DICTIONARY else {}
 	if world != null and world.realms.has(WorldData.CROWN):
 		WorldData.crown_culture = culture
+	crown_name = String(data.get("crown_name", ""))
+	crown_color = int(data.get("crown_color", 0))
+	crown_won = bool(data.get("crown_won", false))
+	crown_empty_days = int(data.get("crown_empty_days", 0))
+	WorldData.set_crown(crown_name, crown_color)
 	pinned_commitment = String(data.get("pinned_commitment", ""))
 	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
 	camp_seen = data.get("camp_seen", []).duplicate() if typeof(data.get("camp_seen")) == TYPE_ARRAY else []
