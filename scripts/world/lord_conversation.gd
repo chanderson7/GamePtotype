@@ -18,6 +18,7 @@ const Lords = preload("res://scripts/data/lords.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const HallScene = preload("res://scripts/ui/hall_scene.gd")
 
 ## Places with a painted picture of their own.
 const PAINTED := ["ravensford", "qasr_hamra", "kitayama"]
@@ -36,7 +37,8 @@ signal wants_follow(party_id: int)
 var gs = null
 var world = null
 var lord: Dictionary = {}
-## "road" (met on the road), "hostile" (they've blocked your road), "captive" (at your camp).
+## "road" (met on the road), "hostile" (they've blocked your road), "captive" (at your
+## camp), "hall" (indoors, at a settlement where you both are).
 var mode := "road"
 ## Why they stopped you: "first", "news", "army" or "" (you asked to talk).
 var reason := ""
@@ -116,6 +118,8 @@ func _layout() -> void:
 func place_id() -> String:
 	if mode == "captive":
 		return "company_camp"
+	if mode == "hall" and world.here() != "":
+		return world.here()
 	var p = world.player()
 	if p != null and not p.moving() and Data.SETTLEMENTS.has(p.node):
 		return p.node
@@ -141,6 +145,11 @@ func caption() -> String:
 	var when := time_word(world.hour)
 	if mode == "captive":
 		return "Your camp · %s · captive" % when
+	if mode == "hall" and Data.SETTLEMENTS.has(id):
+		var g: Dictionary = world.gathering_at(id)
+		if world.gathering_on(g):
+			return "In the hall at %s · %s · %s" % [Data.settlement(id)["name"], world.gathering_name(g), when]
+		return "In the hall at %s · %s" % [Data.settlement(id)["name"], when]
 	var info: Dictionary = Data.settlement(id) if Data.SETTLEMENTS.has(id) else {}
 	if info.is_empty():
 		return "On the road · %s" % when
@@ -167,7 +176,11 @@ func _build_stage() -> void:
 	add_child(_stage)
 	var id := place_id()
 	var when := time_word(world.hour)
-	if id in PAINTED or id == "company_camp":
+	if mode == "hall" and Data.SETTLEMENTS.has(id):
+		var owner: String = world.owner_of(id)
+		var flag := owner if Heraldry.REALM_SIZES.has(owner) else Heraldry.realm_of_culture(Data.culture_of(owner))
+		_backdrop = HallScene.rect(Data.culture_of(Data.settlement(id)["faction"]), flag, when, id.hash())
+	elif id in PAINTED or id == "company_camp":
 		var art := TextureRect.new()
 		art.name = "Painted"
 		art.texture = StoryArt.texture("res://assets/locations/%s.png" % id)
@@ -495,7 +508,19 @@ func _beat_greet() -> void:
 		words = "My liege. %s is held, and my riders are ready." % (Data.settlement(String(lord["fief"]))["name"] if String(lord.get("fief", "")) != "" else "All")
 	elif reason == "first":
 		words = "So you're the captain everyone's talking about. %s. %s" % [_house_line(), words]
-	_show("\"%s\"" % words, [], _root_replies())
+	var extras := []
+	if mode == "hall":
+		var g: Dictionary = world.gathering_at(place_id())
+		if world.gathering_on(g) and int(g.get("host_lord", -1)) == int(lord["id"]):
+			words = "Welcome to my table, captain. Eat, drink; the speeches come later."
+		elif world.gathering_on(g) and int(g.get("host_lord", -1)) < 0:
+			words = "Captain. Your table's the talk of the realm tonight, and your wine is better than your reputation."
+		elif world.gathering_on(g):
+			words = "Captain. Come to drink %s's wine with the rest of us?" % gs.gathering_host_name(g)
+		var bonus: int = gs.first_word(lord)
+		if bonus > 0:
+			extras.append(_note("+%d Regard · first word at the table" % bonus))
+	_show("\"%s\"" % words, extras, _root_replies())
 
 
 func _house_line() -> String:
@@ -516,7 +541,7 @@ func _root_replies() -> Array:
 	if not LordTalk.stories(gs, lord).is_empty():
 		out.append({"id": "story", "text": "A story for the road?", "tag": "talk · builds Regard", "act": _beat_stories})
 	var army_ride: bool = gs.has_contract() and gs.contract_realm() == String(lord.get("realm", "")) and int(lord.get("party", -1)) >= 0
-	if army_ride:
+	if army_ride and mode != "hall":
 		var pid := int(lord["party"])
 		if world.following_party == pid:
 			out.append({"id": "part", "text": "I'll ride my own road now.", "tag": "stop riding with them", "act": func():
@@ -529,12 +554,43 @@ func _root_replies() -> Array:
 	out.append_array(_order_replies())
 	out.append_array(_crown_replies())
 	var ch := LordTalk.challenge_check(gs, lord)
+	if mode == "hall":
+		# No swords under a host's roof: a challenge is a duel outside the walls at dawn.
+		if String(lord.get("realm", "")) != Data.CROWN:
+			var dc := LordTalk.duel_check(gs, lord)
+			out.append({"id": "outside", "text": "Meet me outside the walls at dawn.",
+				"tag": ("a duel · no swords under %s roof" % _roof_possessive()) if bool(dc["ok"]) else String(dc["reason"]),
+				"tone": "red" if bool(dc["ok"]) else "locked", "act": _beat_duel})
+		out.append(_leave_reply(_hall_goodbye()))
+		return out
 	if bool(ch["ok"]) or String(lord.get("realm", "")) != Data.CROWN:
 		out.append({"id": "sword", "text": "Draw your sword.",
 			"tag": ("challenge · means war with %s" % _realm_name()) if bool(ch["ok"]) and bool(ch["war"]) else ("challenge" if bool(ch["ok"]) else String(ch["reason"])),
 			"tone": "red" if bool(ch["ok"]) or LordTalk.duel_check(gs, lord)["ok"] else "locked", "act": _beat_challenge.bind(false)})
 	out.append(_leave_reply())
 	return out
+
+
+## Whose roof this is, for the guest right: the host of a gathering, else the holder.
+func _roof_of() -> String:
+	var id := place_id()
+	var g: Dictionary = world.gathering_at(id)
+	if world.gathering_on(g):
+		var who: String = gs.gathering_host_name(g)
+		return "your" if who == "you" else who
+	var holder: Dictionary = world.holder_lord(id)
+	if not holder.is_empty():
+		return "your" if int(holder["id"]) == int(lord["id"]) else LordTalk.short_name(holder)
+	return "this"
+
+
+func _roof_possessive() -> String:
+	var who := _roof_of()
+	return who if who in ["your", "this"] else who + "'s"
+
+
+func _hall_goodbye() -> String:
+	return "Enjoy the feast." if world.gathering_on(world.gathering_at(place_id())) else "Good day."
 
 
 func _realm_name() -> String:
@@ -607,7 +663,8 @@ func _beat_news() -> void:
 	if not bool(lord.get("ruler", false)) and String(lord.get("realm", "")) != Data.CROWN:
 		replies.append({"id": "king", "text": "And what will %s do?" % LordTalk.ruler_name(lord),
 			"tag": "their view of their ruler" + (" · counts toward crowns" if gs.is_crowned() else ""), "act": _beat_king})
-	replies.append({"id": "chronicle", "text": "More in the chronicle.", "tag": "opens War & Politics", "act": func(): wants_news.emit()})
+	if mode != "hall":
+		replies.append({"id": "chronicle", "text": "More in the chronicle.", "tag": "opens War & Politics", "act": func(): wants_news.emit()})
 	replies.append({"id": "back", "text": "Something else.", "tag": "", "act": _beat_greet_again})
 	replies.append(_leave_reply("Thank you. Safe roads."))
 	_show(speech, extras, replies)

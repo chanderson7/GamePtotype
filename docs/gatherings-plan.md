@@ -1,6 +1,17 @@
 # Lords gather: the hall, feasts and dances
 
-## What happens today
+**Status: built.** Where the build differs from the plan below:
+
+- **How often:** a 20% daily chance after a 6-day gap from the last one's end (not 12% after 10 days). With the three nights themselves, that's about one every two weeks per realm at peace.
+- **Peace feasts** are called on the next day's tick after the treaty, always by the ruler at the capital. A season gathering already announced gives way to it.
+- **Victory feasts** wait until the place isn't besieged and no enemy marshal army is within two days' ride. "Enemy army near" means a marshal army, not a lone lord.
+- **Gossip** names lords sour for reasons the world tracks: no castle, their castle lost or burned, a village of theirs burned, or their realm sick of the war (weariness 40+). "A fief given to a rival" isn't tracked, so it isn't used. A sour lord found by gossip also counts as having doubted their ruler when you make your case.
+- **Dancing with someone you court** has its own cap (+1 trust for each of the first three dances) instead of using the visits' cap, so it never takes a visit's trust. The memory is kind "dance" (its own icon), and opening it shows the place.
+- **Hosting** lives on your seat's **Fief** tab: a crowned seat has a Fief tab, not a Crown tab. A bought lord who comes and is below 0 Regard is brought back to 0, which eases their unrest.
+- **Dice:** gatherings roll from their own dice, saved with the world, so the rest of the world rolls as it did before them.
+- **Not in a village:** the Court tab shows at villages only when someone lives there or your wedding is there.
+
+## Before this
 
 - **Talking to a lord happens only on the map.** You tap their party while it's near you (map_screen `_open_lord` → Talk). It works even when the party is parked outside a castle.
 - **The Court tab is narrow.** It appears only where Edda, Farah or Kaede live (`SocialSim.residents_at` keeps only romance candidates), and it lists only them. A lord sitting at Highcliff can't be found from inside Highcliff.
@@ -126,7 +137,7 @@ The mockup halls were drawn with the same primitives the GDScript version will u
 ## Rules
 
 **When a gathering is held:**
-- Once a day per realm, if the realm is at war with no one, holds no gathering, and its last one ended at least 10 days ago: a 12% chance, so one about every two weeks.
+- Once a day per realm, if the realm is at war with no one, holds no gathering, and its last one ended at least 6 days ago: a 20% chance, so one about every two weeks.
 - Peace feast: signing a peace treaty schedules one at the ruler's capital within 2 days.
 - Victory feast: taking a castle or town schedules one there when the war's sieges have ended (a realm still at war holds it only if no enemy army is within two days).
 

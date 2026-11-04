@@ -29,6 +29,7 @@ const Widgets = preload("res://scripts/ui/widgets.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordConversation = preload("res://scripts/world/lord_conversation.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const Gatherings = preload("res://scripts/data/gatherings.gd")
 const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
@@ -133,6 +134,8 @@ var sheet_panel: PanelContainer
 var letter_banner: PanelContainer
 var _banner_letter := ""
 var _banner_left := 0.0
+## The gathering the banner invites you to, or -1 when it brings a letter.
+var _banner_invite := -1
 var _banner_title: Label
 var _banner_from: Label
 var _banner_line: Label
@@ -1264,6 +1267,11 @@ func _lord_doing(l: Dictionary, lp) -> String:
 			return "Hunting bandits near %s" % place
 		"home":
 			return "Resting at %s, raising men" % place if not lp.moving() else "Riding home to %s" % place
+		"gather":
+			var feast: Dictionary = world.gathering_by_id(int(l.get("gather_id", 0)))
+			if feast.is_empty():
+				return "Resting at court in %s" % place if not lp.moving() else "Riding to court at %s" % place
+			return ("At %s at %s" if not lp.moving() else "Riding to %s at %s") % [world.gathering_name(feast), place]
 		_:
 			return "Riding to %s" % place if lp.moving() and place != "" else "Keeping watch over their lands"
 
@@ -2095,6 +2103,11 @@ func _open_commitment(id: String) -> void:
 		buttons.append(["Show on map", _focus_place.bind(String(c["place"])), true])
 	if id.begins_with("captive_"):
 		buttons.append(["Talk", _open_talk.bind(int(id.trim_prefix("captive_")), "captive"), true])
+	if id.begins_with("gathering_"):
+		var gid := int(id.trim_prefix("gathering_"))
+		if world.here() != String(c["place"]):
+			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true])
+		buttons.append(["Who's coming", _open_guest_list.bind(gid)])
 	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to top", _on_pin.bind(id)])
 	buttons.append(["Back to journal", _open_journal])
 	_show_sheet("commitment", String(c["title"]), "\n".join(lines), buttons)
@@ -2248,6 +2261,9 @@ func _watch_letters(delta: float) -> void:
 	var fresh: Array = world.social.take_unannounced()
 	if not fresh.is_empty() and not autoplay:
 		_show_letter_banner(fresh[fresh.size() - 1])
+	var invites: Array = GameState.take_new_invitations()
+	if not invites.is_empty() and not autoplay and not letter_banner.visible:
+		_show_invite_banner(invites[invites.size() - 1])
 	if letter_banner.visible:
 		_banner_left -= delta
 		if _banner_left <= 0.0:
@@ -2255,6 +2271,8 @@ func _watch_letters(delta: float) -> void:
 
 
 func _show_letter_banner(l: Dictionary) -> void:
+	_banner_invite = -1
+	_banner_title.text = "A rider brings a letter"
 	var view: Dictionary = world.social.letter_view(l)
 	var sender: Dictionary = world.social.get_person(String(l.get("sender_id", "")))
 	var place := String(l.get("destination", ""))
@@ -2273,12 +2291,86 @@ func _show_letter_banner(l: Dictionary) -> void:
 		letter_banner.create_tween().tween_property(letter_banner, "modulate:a", 1.0, 0.25)
 
 
+## An invitation to a gathering, brought like a letter, sealed in brass.
+func _show_invite_banner(g: Dictionary) -> void:
+	_banner_invite = int(g["id"])
+	_banner_title.text = "An invitation"
+	_banner_seal = Color("b8862b")
+	_banner_from.text = "From %s, at %s" % [GameState.gathering_host_name(g), Data.settlement(String(g["place"]))["name"]]
+	_banner_line.text = "“The %s, %s…”" % [String(g["name"]), GameState.gathering_when(g)]
+	var insets := Style.safe_insets(get_viewport())
+	letter_banner.offset_top = TOP_BAR + float(insets["top"]) + 12.0
+	letter_banner.visible = true
+	_banner_left = LETTER_BANNER_SECONDS
+	Sound.play("page", 0.0, 0.05)
+
+
 func _read_banner_letter() -> void:
 	letter_banner.visible = false
+	if _banner_invite >= 0:
+		_open_invitation(_banner_invite)
+		return
 	GameState.save_game()
 	Scenes.people_return = "res://scenes/world_map.tscn"
 	Scenes.people_letter = _banner_letter
 	Scenes.go("res://scenes/people.tscn")
+
+
+## An invitation: when, why you're asked, who's coming, how far.
+func _open_invitation(gid: int) -> void:
+	var g: Dictionary = world.gathering_by_id(gid)
+	if g.is_empty():
+		_close_sheet()
+		return
+	var place := String(g["place"])
+	var inv: Dictionary = GameState.gathering_invite(g)
+	var ctx := {"host": GameState.gathering_host_name(g), "name": String(g["name"]), "place": Data.settlement(place)["name"],
+		"when": GameState.gathering_when(g).trim_prefix("from "), "why": String(inv["why"])}
+	var body := Gatherings.fill(Gatherings.INVITE if bool(inv["invited"]) else Gatherings.NOT_INVITED, ctx)
+	var coming: int = world.gathering_guests(g).size()
+	body += "\n\n%d lord%s coming · %s" % [coming, "" if coming == 1 else "s", _ride_words(world.hours_to(place)) if world.here() != place else "you're there"]
+	var buttons := []
+	if world.here() != place:
+		buttons.append(["Ride there", _on_ride_to.bind(place), true])
+	buttons.append(["Who's coming", _open_guest_list.bind(gid)])
+	buttons.append(["Close", _close_sheet])
+	_show_sheet("invitation", "The %s at %s" % [String(g["name"]), Data.settlement(place)["name"]], body, buttons, "", "lantern")
+
+
+func _open_guest_list(gid: int) -> void:
+	var g: Dictionary = world.gathering_by_id(gid)
+	if g.is_empty():
+		_close_sheet()
+		return
+	var lines: PackedStringArray = []
+	var host: Dictionary = world.lord_by_id(int(g["host_lord"])) if int(g["host_lord"]) >= 0 else {}
+	if not host.is_empty():
+		lines.append("• %s · host · %s" % [LordTalk.short_name(host), LordTalk.regard_text(LordTalk.regard(GameState, host))])
+	for l in world.gathering_guests(g):
+		if l == host:
+			continue
+		lines.append("• %s · %s" % [LordTalk.short_name(l), LordTalk.regard_text(LordTalk.regard(GameState, l))])
+	if lines.is_empty():
+		lines.append("No one has answered yet.")
+	_show_sheet("invitation", "Who's coming", "\n".join(lines), [["Back", _open_invitation.bind(gid), true], ["Close", _close_sheet]])
+
+
+func _on_ride_to(place: String) -> void:
+	if world.travel(place) or world.here() == place:
+		_close_sheet()
+		_refresh_hud()
+
+
+static func _ride_words(hours: float) -> String:
+	if hours <= 3.0:
+		return "a short ride"
+	if hours <= 10.0:
+		return "a few hours' ride"
+	if hours <= 18.0:
+		return "half a day's ride"
+	if hours <= 32.0:
+		return "a day's ride"
+	return "%d days' ride" % ceili(hours / 24.0)
 
 
 func _on_people() -> void:
@@ -2810,6 +2902,7 @@ func _draw() -> void:
 	_draw_sieges(px)
 	_draw_aftermath(px)
 	_draw_wedding(px)
+	_draw_gatherings(px)
 
 
 ## A gold ring around the place your wedding will be held, while it's planned there.
@@ -2824,6 +2917,38 @@ func _draw_wedding(px: float) -> void:
 	draw_arc(c, 30.0 * px, 0.0, TAU, 48, Color("f3d27a"), 2.5 * px)
 	if ready:
 		draw_arc(c, (34.0 + pulse * 4.0) * px, 0.0, TAU, 48, Color(Style.BRASS, 0.6 - pulse * 0.4), 2.0 * px)
+
+
+## Lantern light around a hall where lords gather: a warm pool and a ring of lanterns,
+## swaying while the gathering is on.
+func _draw_gatherings(px: float) -> void:
+	for g in world.gatherings:
+		var c := _to_screen(Data.pos(String(g["place"])))
+		var on: bool = world.gathering_on(g)
+		var sway := 0.0 if Style.motion_reduced() else _clock * 1.4
+		draw_circle(c, 40.0 * px, Color(1.0, 0.7, 0.28, 0.10 if on else 0.06))
+		draw_circle(c, 26.0 * px, Color(1.0, 0.75, 0.3, 0.10 if on else 0.05))
+		for i in 8:
+			var a := TAU * float(i) / 8.0 + sway * 0.15
+			var at := c + Vector2.from_angle(a) * 30.0 * px
+			var flicker := 0.75 + 0.25 * sin(sway * 3.0 + float(i) * 1.7) if on else 0.7
+			draw_circle(at, 4.2 * px, Color(0, 0, 0, 0.45))
+			draw_circle(at, 3.0 * px, Color(1.0, 0.8, 0.42, flicker))
+			draw_circle(at, 1.4 * px, Color(1.0, 0.95, 0.75, flicker))
+
+
+## "Feast · from tomorrow · 6 lords" for the plate over a gathering.
+func _gathering_plate(g: Dictionary) -> String:
+	var night: int = world.gathering_night(g)
+	var when := ""
+	if night > 0:
+		when = "night %d of 3" % night
+	else:
+		var day := int(float(g["starts_hour"]) / 24.0)
+		var today := int(world.hour / 24.0)
+		when = "from dusk" if day == today else ("from tomorrow" if day == today + 1 else "from day %d" % (day + 1))
+	var n: int = GameState.gathering_lords(g).size() if world.gathering_on(g) else world.gathering_guests(g).size()
+	return "%s · %s · %d lord%s" % [Gatherings.upper_first(String(g["name"])), when, n, "" if n == 1 else "s"]
 
 
 ## Where the planned wedding is (while it's being made ready or is ready), or "".
@@ -3177,6 +3302,9 @@ func _draw_labels() -> void:
 		var ready := String(GameState.wedding()["state"]) == "ready"
 		_name_plate(_to_screen(Data.pos(wp)) + Vector2(0, -34.0 * px - 18.0), "Wedding · %s" % ("ready" if ready else GameState._when_text(float(GameState.wedding()["ready_hour"]))),
 			Style.SMALL - 2, Color("f3d27a"))
+	for g in world.gatherings:
+		var lift := 34.0 * px + 18.0 + (34.0 if String(g["place"]) == wp else 0.0)
+		_name_plate(_to_screen(Data.pos(String(g["place"]))) + Vector2(0, -lift), _gathering_plate(g), Style.SMALL - 2, Color("f3d891"), Style.BRASS)
 	# Parties' plates step up out of the way of any name already placed.
 	for b in world.bands():
 		if px >= 2.0:
@@ -3208,6 +3336,13 @@ func _draw_labels() -> void:
 				var edge := Style.ENEMY_LIGHT if rel == "hostile" else (Style.BRASS if rel in ["friendly", "allied", "employer"] else Color("6d7699"))
 				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -32.0 * px - 6.0), short_lord_name(lp.name), PARTY_PLATE,
 					ink, edge, world.men_of(lp.army), true)
+				# Bound for a gathering: say so under the name.
+				var l: Dictionary = world.lord_of(lp)
+				if lp.moving() and String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) > 0 and not _taken.is_empty():
+					var placed: Rect2 = _taken[_taken.size() - 1]
+					var feast: Dictionary = world.gathering_by_id(int(l["gather_id"]))
+					_name_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), "riding to the %s" % String(feast.get("name", "feast")),
+						PARTY_PLATE - 4, Color("f3d891"), Color("8a6a2a"))
 
 
 ## Text size of a party's name plate: the same as a village's name.

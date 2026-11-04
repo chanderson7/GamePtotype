@@ -112,13 +112,15 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		b.custom_minimum_size = Vector2(0, 72)
 		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		var on: bool = t["id"] == current
+		# A gold tab: something on there (a feast), lit in brass.
+		var gold := bool(t.get("gold", false))
 		var flat := Style.box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 14)
-		var lit := Style.box(Style.RAISED, Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
+		var lit := Style.box(Color("33290f") if gold else Style.RAISED, Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
 		lit.border_width_bottom = 4
-		lit.border_color = Style.PLAYER_LIGHT.darkened(0.5)
+		lit.border_color = Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5)
 		for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
 			b.add_theme_stylebox_override(state, lit if on else flat)
-		var ink := Style.TEXT if on else (Style.BRASS if badge > 0 else Style.MUTED)
+		var ink := (Color("f3d891") if gold else Style.TEXT) if on else (Style.BRASS if badge > 0 or gold else Style.MUTED)
 		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 			b.add_theme_color_override(c, ink)
 		b.pressed.connect(on_tab.bind(String(t["id"])))

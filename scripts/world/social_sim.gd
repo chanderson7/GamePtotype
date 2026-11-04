@@ -4,6 +4,7 @@
 extends RefCounted
 
 const PersonalConversations = preload("res://scripts/data/personal_conversations.gd")
+const Gatherings = preload("res://scripts/data/gatherings.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
@@ -950,6 +951,23 @@ func cancel_wedding() -> Dictionary:
 
 
 ## Keep your words with the most recent memory of `person_id` (the private vows).
+## A dance with someone you court at a gathering: a little trust (kept apart from the
+## visits' cap, up to a few dances over the courtship) and a memory. Returns the trust gained.
+func dance_with(candidate_id: String, scene_id: String, memory_text: String, place: String, _cur_hour: float) -> int:
+	var rel: Dictionary = relationships.get(candidate_id, {})
+	if rel.is_empty():
+		return 0
+	var had := int(rel.get("dances", 0))
+	var delta := 0
+	if had < Gatherings.DANCE_TRUST_CAP:
+		var old := int(rel.get("trust", 0))
+		rel["trust"] = mini(Relationships.TRUST_MAX, old + Gatherings.DANCE_TRUST)
+		delta = int(rel["trust"]) - old
+	rel["dances"] = had + 1
+	add_memory(String(rel.get("person_id", "")), memory_text, {"kind": "dance", "scene_id": scene_id, "place": place})
+	return delta
+
+
 func set_memory_words(person_id: String, words: Dictionary) -> void:
 	var log: Array = people.get(person_id, {}).get("memory_log", [])
 	if not log.is_empty():

@@ -19,6 +19,11 @@ const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
+const LordConversation = preload("res://scripts/world/lord_conversation.gd")
+const Gatherings = preload("res://scripts/data/gatherings.gd")
+const StoryArtHall = preload("res://scripts/ui/story_art.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -36,6 +41,13 @@ var _shown_food := -1
 ## brings you back where you were.
 var tab := ""
 static var _tab_by_place := {}
+## What the last thing you did at the feast came to, shown at the top of the Court tab.
+var _court_note := ""
+## A lord talk open over the screen.
+var _talk: Control = null
+## Your own gathering as you plan it: the kind and who beyond your sworn lords to ask.
+var _host_kind := 0
+var _host_ask := {"friends": true, "persuade": true, "lieges": false}
 
 
 func _ready() -> void:
@@ -289,8 +301,8 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	tabs.append({"id": "buy", "label": "Buy", "badge": offers + GameState.available_heroes_at(place).size()})
 	tabs.append({"id": "squads", "label": "Squads", "badge": 0})
 	tabs.append({"id": "work", "label": "Work", "badge": GameState.active_jobs_completable_at(place).size()})
-	if w.social != null and not w.social.residents_at(place).is_empty():
-		tabs.append({"id": "court", "label": "Court", "badge": 0})
+	if _has_court():
+		tabs.append(_court_tab())
 	var ids: Array = tabs.map(func(t): return t["id"])
 	var current := String(_tab_by_place.get(place, ""))
 	if not ids.has(current):
@@ -305,6 +317,8 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	col.add_child(body)
 	match tab:
 		"fief":
+			if GameState.is_crowned() and GameState.wedding_seat() == place:
+				_add_host_card(body)
 			_add_fief_management(body)
 		"crown":
 			_add_crown_holding(body)
@@ -886,15 +900,36 @@ func _add_fief_management(col: VBoxContainer) -> void:
 	col.add_child(ren_btn)
 
 
+## Whether the place has a hall worth a tab: every town and castle, and anywhere someone
+## lives that you'd visit.
+func _has_court() -> bool:
+	var w = GameState.world
+	if not WorldData.is_village(place):
+		return true
+	if w.social != null and not w.social.residents_at(place).is_empty():
+		return true
+	return GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == place
+
+
+## "Court · 3", or "Feast · 6" in brass while a gathering is on.
+func _court_tab() -> Dictionary:
+	var w = GameState.world
+	var g: Dictionary = w.gathering_at(place)
+	var count: int = w.lords_at(place).size() + (w.social.residents_at(place).size() if w.social != null else 0)
+	var label := "Court"
+	if w.gathering_on(g):
+		label = "Dance" if String(g["kind"]) == Gatherings.DANCE else "Feast"
+	return {"id": "court", "label": "%s · %d" % [label, count] if count > 0 else label, "badge": 0, "gold": w.gathering_on(g)}
+
+
+## The hall: during a gathering the feast and what you can do there; then who's in the
+## hall (lords stopped here, the household), who's away, and the next gathering.
 func _add_court(col: VBoxContainer) -> void:
 	var w = GameState.world
-	if w == null or w.social == null:
+	if w == null:
 		return
-	var residents: Array = w.social.residents_at(place)
+	var residents: Array = w.social.residents_at(place) if w.social != null else []
 	var wedding_here: bool = GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == place
-	if residents.is_empty() and not wedding_here:
-		return
-	col.add_child(_section("Court & Nobles"))
 	if wedding_here:
 		var who := String(w.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
 		col.add_child(_note("%s · Wedding day · everything is ready" % who, Style.BRASS))
@@ -905,27 +940,461 @@ func _add_court(col: VBoxContainer) -> void:
 			Scenes.go("res://scenes/wedding.tscn"))
 		wb.name = "BeginWedding"
 		col.add_child(wb)
+	var g: Dictionary = w.gathering_at(place)
+	var on: bool = w.gathering_on(g)
+	if not g.is_empty():
+		_add_gathering_card(col, g)
+	if _court_note != "":
+		var n := _note(_court_note, Style.BRASS)
+		n.name = "CourtNote"
+		col.add_child(n)
+	var here: Array = GameState.gathering_lords(g) if on else _hall_lords()
+	var head := HBoxContainer.new()
+	var t := _section("In the hall")
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	head.add_child(_small(str(here.size() + residents.size())))
+	col.add_child(head)
+	var list := VBoxContainer.new()
+	list.name = "Hall"
+	list.add_theme_constant_override("separation", 10)
+	col.add_child(list)
+	for l in here:
+		list.add_child(_lord_row(l, g if on else {}))
 	for person in residents:
-		var name_str := String(person.get("name", "Noble"))
-		var role_str := String(person.get("role", "Resident"))
-		var cid := String(person.get("content_id", ""))
-		var rel: Dictionary = w.social.get_relationship(cid)
-		var status_str := Relationships.status_label(String(rel.get("status", Relationships.UNKNOWN)))
-		# Something new to say: an open visit, or a letter of theirs unread.
-		var fresh := false
-		for v in w.social.available_personal_conversations(String(person.get("id", "")), GameState.personal_conversation_context()):
-			fresh = fresh or (bool(v.get("ok", false)) and not bool(v.get("replay", false)))
-		for l in w.social.letters:
-			fresh = fresh or (String(l.get("sender_id", "")) == String(person.get("id", "")) and not bool(l.get("read", false)))
-		if fresh:
-			col.add_child(_note("%s would like a word · new" % name_str, Style.BRASS))
-		var btn := _button("Speak with %s (%s · %s)" % [name_str, role_str, status_str], func():
+		list.add_child(_household_row(person))
+	if here.is_empty() and residents.is_empty():
+		list.add_child(_note("The hall is quiet. A steward keeps the fire; the lords are out on the roads."))
+	# Who's away: the holder, out on their lands.
+	var holder: Dictionary = w.holder_lord(place)
+	if not holder.is_empty() and not here.has(holder):
+		col.add_child(_section("Away"))
+		col.add_child(_away_row(holder))
+	# The next gathering, if it's somewhere else.
+	if g.is_empty():
+		var next := _next_gathering()
+		if not next.is_empty():
+			col.add_child(_note("The next gathering: %s at %s, %s." % [GameState.gathering_title(next),
+				WorldData.settlement(String(next["place"]))["name"], GameState.gathering_when(next)]))
+
+
+## The lords in the hall on an ordinary day, the holder first.
+func _hall_lords() -> Array:
+	var w = GameState.world
+	var here: Array = w.lords_at(place)
+	var holder: Dictionary = w.holder_lord(place)
+	var hid := int(holder.get("id", -1))
+	here.sort_custom(func(a, b): return int(int(a["id"]) == hid) > int(int(b["id"]) == hid))
+	return here
+
+
+## A gathering you're invited to or that's in this realm, elsewhere.
+func _next_gathering() -> Dictionary:
+	var w = GameState.world
+	var owner: String = w.owner_of(place)
+	for g in w.gatherings:
+		if String(g["place"]) != place and (String(g["realm"]) == owner or bool(GameState.gathering_invite(g)["invited"])):
+			return g
+	return {}
+
+
+## The feast: whose, which night, how many, whether you're invited, and what you can do.
+func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
+	var w = GameState.world
+	var on: bool = w.gathering_on(g)
+	var panel := PanelContainer.new()
+	panel.name = "Gathering"
+	var sb := Style.box(Color("33290f"), Style.BRASS, 2, 18)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 16
+	sb.content_margin_bottom = 18
+	panel.add_theme_stylebox_override("panel", sb)
+	col.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	panel.add_child(v)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 10)
+	var icon := Widgets.icon_rect("lantern", 34)
+	icon.modulate = Style.BRASS
+	top.add_child(icon)
+	var title := Style.label(GameState.gathering_title(g), Style.BODY, Color("f3d891"))
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(title)
+	v.add_child(top)
+	var inv: Dictionary = GameState.gathering_invite(g)
+	var lords_n: int = GameState.gathering_lords(g).size() if on else w.gathering_guests(g).size()
+	var line := "%s · %d lord%s %s · %s" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s",
+		"here" if on else "coming", ("you're invited: %s" % inv["why"]) if bool(inv["invited"]) else "you came uninvited"]
+	if int(g.get("host_lord", -1)) < 0:
+		line = "%s · %d lord%s %s · your own" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s", "here" if on else "coming"]
+	var sub := _note(line, Color("e8d9b0"))
+	v.add_child(sub)
+	if not on:
+		v.add_child(_note("The hall is being made ready. Come back when it begins.", Style.MUTED))
+		return
+	var said := Style.label(String(Gatherings.HALL.get(String(g.get("culture", "")), "")), Style.SMALL, Style.MUTED)
+	said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(said)
+	var acts := HBoxContainer.new()
+	acts.name = "Actions"
+	acts.add_theme_constant_override("separation", 8)
+	v.add_child(acts)
+	var toast: Dictionary = GameState.toast_check(g)
+	acts.add_child(_feast_action("Toast", "Raise a toast", "once · renown %d" % Gatherings.TOAST_RENOWN if bool(toast["ok"]) else String(toast["reason"]),
+		bool(toast["ok"]), func():
+			var r: Dictionary = GameState.raise_toast(g)
+			if bool(r.get("ok", false)):
+				Sound.play("horn")
+				_court_note = "%s +%d Regard with %d lord%s." % [String(r["text"]), Gatherings.TOAST_REGARD, int(r["lords"]), "" if int(r["lords"]) == 1 else "s"]
+			_build()))
+	var gift: Dictionary = GameState.gift_check(g)
+	var gift_sub := String(gift["reason"])
+	if bool(gift["ok"]):
+		gift_sub = "%d %s · host +%d" % [Gatherings.GIFT_SILVER if String(gift["what"]) == "silver" else Gatherings.GIFT_FOOD,
+			"silver" if String(gift["what"]) == "silver" else "rations", Gatherings.GIFT_REGARD]
+	if int(g.get("host_lord", -1)) >= 0:
+		acts.add_child(_feast_action("Gift", "Bring a gift", gift_sub, bool(gift["ok"]), func():
+			var r: Dictionary = GameState.bring_gift(g)
+			if bool(r.get("ok", false)):
+				Sound.play("coins")
+				_court_note = "%s %s +%d Regard; %s +%d." % [String(r["text"]), GameState.gathering_host_name(g), Gatherings.GIFT_REGARD,
+					GameState.realm_word(String(g["realm"])), Gatherings.GIFT_REALM]
+			_build()))
+	var gossip: Dictionary = GameState.gossip_check(g)
+	acts.add_child(_feast_action("Gossip", "Hear the gossip", "an hour · once a night" if bool(gossip["ok"]) else String(gossip["reason"]),
+		bool(gossip["ok"]), func():
+			var r: Dictionary = GameState.hear_gossip(g)
+			if bool(r.get("ok", false)):
+				Sound.play("page")
+				_court_note = "Gossip: %s" % String(r["text"])
+			_build()))
+	var dance: Dictionary = GameState.dance_check(g)
+	if bool(dance["ok"]):
+		var db := _button("Ask someone to dance", func():
+			_remember_scroll()
+			Scenes.dance_return = "res://scenes/settlement.tscn"
+			Scenes.go("res://scenes/dance.tscn"))
+		db.name = "Dance"
+		Style.make_primary(db)
+		v.add_child(db)
+	elif String(dance["reason"]) != "it hasn't begun":
+		v.add_child(_note("Dancing: %s." % String(dance["reason"]), Style.MUTED))
+
+
+## One of the feast's three things to do: a tall button with what it costs or why not.
+func _feast_action(id: String, text: String, sub: String, ok: bool, act: Callable) -> Button:
+	var b := Button.new()
+	b.name = "Feast_" + id
+	b.disabled = not ok
+	b.focus_mode = Control.FOCUS_NONE
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 96)
+	var box := Style.box(Color("2a2010") if ok else Color(Style.NIGHT, 0.5), Color("8a6a2a") if ok else Style.RULE, 2, 14)
+	box.content_margin_left = 8
+	box.content_margin_right = 8
+	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
+		b.add_theme_stylebox_override(state, box)
+	var v := VBoxContainer.new()
+	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_theme_constant_override("separation", 2)
+	var t := Style.label(text, Style.SMALL, Style.TEXT if ok else Style.MUTED)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(t)
+	var st := Style.label(sub, Style.SMALL - 4, Color("cdbf9c") if ok else Style.MUTED)
+	st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(st)
+	b.add_child(v)
+	b.pressed.connect(act)
+	return b
+
+
+## Your crown's own gathering: a feast or a dance at your seat, and who to ask.
+func _add_host_card(col: VBoxContainer) -> void:
+	var w = GameState.world
+	var mine: Dictionary = w.gathering_of_realm(WorldData.CROWN)
+	var v := _card(col, "Hold a gathering at %s" % WorldData.settlement(place)["name"])
+	v.get_parent().name = "HostCard"
+	if not mine.is_empty():
+		v.add_child(_note("Your %s: %s. %d lord%s coming." % [String(mine["name"]), GameState.gathering_when(mine),
+			w.gathering_guests(mine).size(), "" if w.gathering_guests(mine).size() == 1 else "s"], Style.BRASS))
+		return
+	v.add_child(_note("Three nights, %s. Guests ride in from up to two days away." % ("from tomorrow at dusk" if int(w.gathering_start_hour() / 24.0) == int(w.hour / 24.0) + 1 else "from dusk on day %d" % (int(w.gathering_start_hour() / 24.0) + 1))))
+	v.add_child(Widgets.segmented(["Feast", "Dance"], _host_kind, func(i: int):
+		_host_kind = i
+		_build(), "HostKind"))
+	var who: Dictionary = GameState.host_invitees()
+	var names := func(list: Array) -> String:
+		var out := PackedStringArray()
+		for l in list.slice(0, 3):
+			out.append(LordTalk.short_name(l) if bool(l.get("ruler", false)) else LordTalk.first_name(l))
+		if list.size() > 3:
+			out.append("%d more" % (list.size() - 3))
+		return ", ".join(out) if not out.is_empty() else "none near"
+	v.add_child(_host_row("sworn", "Your sworn lords · %d" % (who["sworn"] as Array).size(), "they always come", true, false))
+	v.add_child(_host_row("friends", "Lords who think well of you · %d" % (who["friends"] as Array).size(),
+		"Regard %d or more · %s" % [Gatherings.HOST_FRIEND_REGARD, names.call(who["friends"])], bool(_host_ask["friends"]), true))
+	v.add_child(_host_row("persuade", "Lords you want to win over · %d" % (who["persuade"] as Array).size(),
+		"they come unless they despise you (%d) · %s" % [Gatherings.HOST_SPURN, names.call(who["persuade"])], bool(_host_ask["persuade"]), true))
+	if not (who["lieges"] as Array).is_empty():
+		v.add_child(_host_row("lieges", "Their lieges · %s" % names.call(who["lieges"]),
+			"leaving out a liege whose lords you ask is a snub (%d Regard)" % Gatherings.SNUB_REGARD, bool(_host_ask["lieges"]), true))
+	v.add_child(_note("+%d Regard with each lord who comes. Lords you're winning over start %d more convinced. Bought lords' unrest eases." % [
+		Gatherings.HOST_REGARD, Gatherings.HOST_CONVICTION], Style.TEXT))
+	v.add_child(Widgets.chip_row([Widgets.chip("%d silver" % Gatherings.HOST_SILVER, Style.MORALE_MID, "·"),
+		Widgets.chip("%d rations" % Gatherings.HOST_FOOD, Style.MORALE_MID, "·"), Widgets.chip("no war, no siege nearby", Style.MORALE_MID, "·")]))
+	var check: Dictionary = GameState.host_check()
+	var send := _button("Send the invitations", func():
+		var r: Dictionary = GameState.host_gathering(Gatherings.DANCE if _host_kind == 1 else Gatherings.FEAST, _host_ask)
+		if bool(r.get("ok", false)):
+			Sound.play("horn")
+			_court_note = "Riders go out with your invitations. %d lord%s will come." % [int(r["guests"]), "" if int(r["guests"]) == 1 else "s"]
+		_build())
+	send.name = "SendInvitations"
+	send.disabled = not bool(check["ok"])
+	if bool(check["ok"]):
+		Style.make_primary(send)
+	v.add_child(send)
+	if not bool(check["ok"]):
+		v.add_child(_note(String(check["reason"]), Style.MORALE_LOW))
+	elif _court_note != "":
+		v.add_child(_note(_court_note, Style.BRASS))
+
+
+func _host_row(key: String, text: String, sub: String, on: bool, can_change: bool) -> Control:
+	var row := HBoxContainer.new()
+	row.name = "Ask_" + key
+	row.add_theme_constant_override("separation", 12)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_child(_small(text, Style.TEXT))
+	var st := _note(sub)
+	words.add_child(st)
+	row.add_child(words)
+	if can_change:
+		row.add_child(Widgets.switch(on, func(state: bool): _host_ask[key] = state, "Switch_" + key, text))
+	else:
+		row.add_child(_small("Always", Style.BRASS))
+	return row
+
+
+## A row for someone in the hall: their face, name, what they're doing, a line in brass
+## when there's something in it for you, and their Regard. Tapping opens the talk.
+func _person_row(row_name: String, face: Texture2D, who: String, doing: String, tag: String, tag_tone: Color,
+		chip_text: String, chip_tone: Color, act: Callable, faded: bool = false) -> Button:
+	var b := Button.new()
+	b.name = row_name
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 112)
+	var lit := tag != "" and not faded
+	var box := Style.box(Color(0, 0, 0, 0) if faded else Style.PANEL, Color("8a6a2a") if lit else Style.RULE, 0 if faded else 2, 16)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		b.add_theme_stylebox_override(state, box)
+	var h := HBoxContainer.new()
+	h.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	h.offset_left = 14
+	h.offset_right = -14
+	h.add_theme_constant_override("separation", 14)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(h)
+	var pic := TextureRect.new()
+	pic.texture = face
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.custom_minimum_size = Vector2(72, 96)
+	pic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if faded:
+		pic.modulate = Color(1, 1, 1, 0.55)
+	h.add_child(pic)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", 2)
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	h.add_child(words)
+	var n := _small(who, Style.MUTED if faded else Style.TEXT)
+	n.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
+	n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.add_child(n)
+	if doing != "":
+		var d := _small(doing)
+		d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		words.add_child(d)
+	if tag != "":
+		var tg := _small(tag, tag_tone)
+		tg.name = "Tag"
+		tg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		words.add_child(tg)
+	if chip_text != "":
+		var chip := PanelContainer.new()
+		var cb := Style.box(Style.RAISED, chip_tone, 2, 20)
+		cb.content_margin_left = 12
+		cb.content_margin_right = 12
+		cb.content_margin_top = 4
+		cb.content_margin_bottom = 4
+		chip.add_theme_stylebox_override("panel", cb)
+		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		chip.add_child(Style.label(chip_text, Style.SMALL, chip_tone.lightened(0.2)))
+		h.add_child(chip)
+	b.pressed.connect(act)
+	return b
+
+
+func _lord_row(l: Dictionary, g: Dictionary) -> Button:
+	var w = GameState.world
+	var lid := int(l["id"])
+	var regard := LordTalk.regard(GameState, l)
+	var sworn := String(l.get("realm", "")) == WorldData.CROWN
+	var tone := Style.MORALE_HIGH if regard >= 10 else (Style.MORALE_MID if regard >= -14 else Style.MORALE_LOW)
+	var tag := ""
+	var tag_tone := Style.BRASS
+	if not g.is_empty():
+		var bonus: int = GameState.first_word_bonus(l)
+		tag = ("first word at the table · +%d" % bonus) if bonus > 0 else "spoke at the table"
+		tag_tone = Style.BRASS if bonus > 0 else Style.MUTED
+		var mark := String((GameState.gathering_record(g)["marks"] as Dictionary).get(str(lid), ""))
+		if mark != "":
+			tag += " · " + mark
+	elif not sworn and String(LordTalk.trouble(GameState, l).get("kind", "")) == "bandits":
+		tag = "would like a word · a trouble"
+	var who := LordTalk.short_name(l)
+	if not g.is_empty() and int(g.get("host_lord", -1)) == lid:
+		who += " · host"
+	return _person_row("Lord_%d" % lid, CaptainArt.texture(LordVoice.portrait_record(l)), who, _doing_here(l), tag, tag_tone,
+		"Sworn" if sworn else "%s%d" % ["+" if regard > 0 else "", regard], Style.BRASS if sworn else tone, _open_lord_talk.bind(lid))
+
+
+func _household_row(person: Dictionary) -> Button:
+	var w = GameState.world
+	var cid := String(person.get("content_id", ""))
+	var rel: Dictionary = w.social.get_relationship(cid)
+	var status := String(rel.get("status", Relationships.UNKNOWN))
+	var fresh := false
+	for v in w.social.available_personal_conversations(String(person.get("id", "")), GameState.personal_conversation_context()):
+		fresh = fresh or (bool(v.get("ok", false)) and not bool(v.get("replay", false)))
+	var letter := false
+	for l in w.social.letters:
+		letter = letter or (String(l.get("sender_id", "")) == String(person.get("id", "")) and not bool(l.get("read", false)))
+	var tag := ""
+	if fresh:
+		tag = "would like a word · a visit is open"
+	elif letter:
+		tag = "would like a word · a letter unread"
+	var tex := StoryArtHall.texture("res://assets/portraits/%s_neutral.png" % cid)
+	var rose := Color("e58fa8")
+	var b := _person_row("Person_%s" % cid, tex, String(person.get("name", "Noble")), String(person.get("role", "")), tag, Color("f6cdd9"),
+		Relationships.status_label(status), rose, func():
 			_remember_scroll()
 			Scenes.active_candidate_id = cid
 			Scenes.active_person_id = String(person.get("id", ""))
 			Scenes.conversation_return = "res://scenes/settlement.tscn"
 			Scenes.go("res://scenes/conversation.tscn"))
-		col.add_child(btn)
+	var pic := b.get_child(0).get_child(0) as TextureRect
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	return b
+
+
+func _away_row(l: Dictionary) -> Button:
+	var w = GameState.world
+	var where := _lord_whereabouts(l)
+	var b := _person_row("Away_%d" % int(l["id"]), CaptainArt.texture(LordVoice.portrait_record(l)), LordTalk.short_name(l),
+		"%s · %s" % ["Rules from here" if bool(l.get("ruler", false)) else "Holds %s" % WorldData.settlement(place)["name"], String(where["text"])],
+		"", Style.MUTED, "Show on map" if String(where["place"]) != "" else "", Style.RULE, func():
+			if String(where["place"]) != "":
+				Scenes.map_focus = String(where["place"])
+				_on_leave(), true)
+	return b
+
+
+## What a lord in the hall is doing here, in a few words.
+func _doing_here(l: Dictionary) -> String:
+	var w = GameState.world
+	var s_name := String(WorldData.settlement(place)["name"])
+	var holder: Dictionary = w.holder_lord(place)
+	var p = w.party(int(l.get("party", -1)))
+	var men_low: bool = p != null and w.men_of(p.army) < int(l.get("full", 0)) * Lords.REFILLED
+	var holds := not holder.is_empty() and int(holder["id"]) == int(l["id"])
+	match String(l.get("job", "")):
+		"gather":
+			var g: Dictionary = w.gathering_by_id(int(l.get("gather_id", 0)))
+			if not g.is_empty():
+				if int(g.get("host_lord", -1)) == int(l["id"]):
+					return "Hosting %s" % w.gathering_name(g)
+				return "A guest at %s" % w.gathering_name(g) if w.gathering_on(g) else "Here early for %s" % w.gathering_name(g)
+			return "Resting at court a while"
+		"guard":
+			return "Holding %s for the crown" % s_name if String(l.get("realm", "")) == WorldData.CROWN else "Guarding %s" % s_name
+		"escort":
+			return "Riding with you"
+		"army":
+			return "With the marshal's army"
+		"home":
+			if holds:
+				return "%s · raising men" % ("Rules from here" if bool(l.get("ruler", false)) else "Holds %s" % s_name) if men_low else "%s · at home" % ("Rules from here" if bool(l.get("ruler", false)) else "Holds %s" % s_name)
+			return "Raising men"
+	if holds:
+		return "%s · at home" % ("Rules from here" if bool(l.get("ruler", false)) else "Holds %s" % s_name)
+	return "Visiting · resting before the road"
+
+
+## Where an absent lord is and what they're about: {text, place}.
+func _lord_whereabouts(l: Dictionary) -> Dictionary:
+	var w = GameState.world
+	if String(l.get("state", "")) == "prisoner":
+		return {"text": "a captive", "place": ""}
+	if String(l.get("state", "")) == "regroup":
+		return {"text": "gathering a new warband", "place": ""}
+	var p = w.party(int(l.get("party", -1)))
+	if p == null:
+		return {"text": "away", "place": ""}
+	var at: String = p.next if p.moving() else p.node
+	var target := String(l.get("target", ""))
+	var t_name := String(WorldData.settlement(target)["name"]) if WorldData.SETTLEMENTS.has(target) else ""
+	var text := "away"
+	match String(l.get("job", "")):
+		"gather":
+			var g: Dictionary = w.gathering_by_id(int(l.get("gather_id", 0)))
+			text = ("at %s at %s" % [w.gathering_name(g), t_name]) if not g.is_empty() else "resting at %s" % t_name
+		"raid":
+			text = "raiding %s" % t_name
+		"defend":
+			text = "riding to defend %s" % t_name
+		"hunt":
+			text = "hunting bandits near %s" % t_name
+		"army":
+			text = "with the marshal's army"
+		"guard":
+			text = "guarding %s" % t_name
+		"escort":
+			text = "riding with you"
+		"chase":
+			text = "riding after your company"
+		_:
+			text = ("riding to %s" % t_name) if p.moving() and t_name != "" else "near %s" % WorldData.settlement(at)["name"]
+	return {"text": text, "place": at}
+
+
+## Talk to a lord in the hall: the lord talk, indoors.
+func _open_lord_talk(lord_id: int) -> void:
+	if _talk != null and is_instance_valid(_talk):
+		return
+	_remember_scroll()
+	_talk = LordConversation.open(self, GameState, lord_id, "hall")
+	_talk.closed.connect(func():
+		_talk = null
+		GameState.save_game()
+		_build())
 
 
 func _add_provisions(col: VBoxContainer) -> void:

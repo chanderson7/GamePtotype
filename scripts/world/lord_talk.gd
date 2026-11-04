@@ -411,6 +411,9 @@ static func conviction(gs, l: Dictionary) -> int:
 	var c := int(round(maxf(0.0, regard(gs, l)) * REGARD_SHARE))
 	c += mini(int(t.get("jobs_done", 0)), 3) * JOB_CONVICTION
 	c += int(t.get("case", 0)) + int(t.get("silver_pts", 0))
+	# Guests at your own gathering arrive warmer to your case.
+	if gs.has_method("gathering_conviction"):
+		c += int(gs.gathering_conviction(l))
 	return maxi(0, c)
 
 

@@ -24,6 +24,7 @@ const SocialSim = preload("res://scripts/world/social_sim.gd")
 const Politics = preload("res://scripts/data/politics.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
+const Gatherings = preload("res://scripts/data/gatherings.gd")
 
 ## Map units an hour: the player on land and at sea, bandits on land.
 const LAND_SPEED := 40.0
@@ -81,6 +82,7 @@ const ACTIVITY_TYPES := {
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
 	"achievement": true, "battle_fought": true, "crown_raised": true, "crown_fallen": true, "crown_victory": true, "fief_given": true, "lord_sworn": true, "alliance": true, "alliance_ended": true, "wedding": true,
+	"gathering": true, "gathering_broken": true,
 }
 
 
@@ -187,6 +189,19 @@ var next_army_id := 1
 var burned := {}
 ## The last day the lords' purses were settled.
 var _lord_day := 0
+## Feasts and dances called or under way (gatherings.gd): {id, realm, host_lord, place,
+## kind, name, culture, starts_hour, ends_hour, reason, guests, enemies, state}.
+var gatherings: Array = []
+## When each realm's last gathering ended, so they're spread out.
+var gathering_ended: Dictionary = {}
+## A realm that took a castle or town holds a victory feast there once it's safe: realm → place.
+var victory_feasts: Dictionary = {}
+## Realms that have just made peace and will feast it at their capital: realm → true.
+var peace_feasts: Dictionary = {}
+var _next_gathering_id := 1
+var _gathering_check := -1.0
+## Gatherings draw from their own dice, so the rest of the world rolls as it did before them.
+var gather_rng := RandomNumberGenerator.new()
 var _next_id := 1
 var _adjacent := {}
 var _lord_hours := {}
@@ -237,6 +252,7 @@ func setup(seed_value: int, player_culture: String) -> void:
 	social = SocialSim.new()
 	social.setup(seed_value, lords, Data.SETTLEMENTS)
 	_lord_day = int(hour / 24.0)
+	gather_rng.seed = seed_value ^ 0x5eed6a7
 
 
 ## The map as it stands at the start of a campaign: every place in its first owner's
@@ -562,6 +578,10 @@ func make_peace(a: String, b: String, truce_days: int = Politics.TRUCE_DAYS, tri
 			"tribute_daily": tribute_daily,
 			"tribute_days": tribute_days,
 		})
+		# A realm at peace with everyone again feasts it at the capital, from the next day.
+		for r in [a, b]:
+			if realms.has(r) and r != Data.CROWN and not is_at_war(r):
+				peace_feasts[r] = true
 
 
 ## Settlement `id` passes to `realm`, with the villages bound to it. A realm that loses its
@@ -596,6 +616,8 @@ func set_owner(id: String, realm: String) -> void:
 				break
 		realms[was]["capital"] = seat
 	emit_event({"type": "captured", "settlement": id, "realm": realm, "from": was})
+	if realms.has(realm) and realm != Data.CROWN and Data.settlement(id)["type"] in [Data.CASTLE, Data.TOWN]:
+		victory_feasts[realm] = id
 	if social != null:
 		social.on_settlement_captured(id, realm, was, self)
 	if game_state != null and game_state.has_method("_on_fief_transferred"):
@@ -808,6 +830,13 @@ func _activity_text(event: Dictionary) -> String:
 			return "%s holds every realm's capital. The Glass Sea has one crown now." % Data.title_case(String(Data.FACTIONS[Data.CROWN]["name"]))
 		"wedding":
 			return "%s and the captain were married at %s." % [event.get("name", "Someone"), Data.settlement(String(event["settlement"]))["name"]]
+		"gathering":
+			var at_name: String = Data.settlement(String(event["settlement"]))["name"]
+			if String(event.get("host", "")) == "":
+				return "Your crown holds a %s at %s." % [event.get("name", "feast"), at_name]
+			return "%s holds a %s at %s." % [event.get("host", "A lord"), event.get("name", "feast"), at_name]
+		"gathering_broken":
+			return "The %s at %s broke up: %s." % [event.get("name", "feast"), Data.settlement(String(event["settlement"]))["name"], event.get("reason", "trouble")]
 		"fief_given":
 			return "%s was granted %s by your crown." % [event.get("lord", "A lord"), Data.settlement(String(event["settlement"]))["name"]]
 		"alliance_ended":
@@ -1660,11 +1689,376 @@ func is_burned(id: String) -> bool:
 	return hour < float(burned.get(id, -1.0))
 
 
+# ---------------------------------------------------------------- the hall and gatherings
+
+## The lords whose parties are stopped at `id` and could be found in its hall: the holder
+## at home, guests, lords resting on their way. Not enemies camped outside its walls.
+func lords_at(id: String) -> Array:
+	var out := []
+	var owner := owner_of(id) if Data.SETTLEMENTS.has(id) else ""
+	for l in lords:
+		if String(l.get("state", "")) != "field":
+			continue
+		var p := party(int(l.get("party", -1)))
+		if p == null or p.moving() or p.node != id:
+			continue
+		if String(l.get("job", "")) in ["chase", "raid", "grudge_hunt"] or String(l.get("raiding", "")) != "":
+			continue
+		if owner != "" and at_war(String(l.get("realm", "")), owner):
+			continue
+		out.append(l)
+	return out
+
+
+## The lord who holds `id`: its castle's lord, or the ruler at their capital. {} for none.
+func holder_lord(id: String) -> Dictionary:
+	var realm := owner_of(id)
+	for l in lords:
+		if String(l.get("realm", "")) == realm and String(l.get("fief", "")) == id and String(l.get("state", "")) != "dead":
+			return l
+	if capital_of(realm) == id:
+		for l in lords:
+			if String(l.get("realm", "")) == realm and bool(l.get("ruler", false)):
+				return l
+	return {}
+
+
+func gathering_by_id(gid: int) -> Dictionary:
+	for g in gatherings:
+		if int(g["id"]) == gid:
+			return g
+	return {}
+
+
+## The gathering called or under way at `id`, or {}.
+func gathering_at(id: String) -> Dictionary:
+	for g in gatherings:
+		if String(g["place"]) == id:
+			return g
+	return {}
+
+
+func gathering_of_realm(realm: String) -> Dictionary:
+	for g in gatherings:
+		if String(g["realm"]) == realm:
+			return g
+	return {}
+
+
+## Which night it is: 0 before it starts, then 1 to 3.
+func gathering_night(g: Dictionary) -> int:
+	if g.is_empty() or hour < float(g["starts_hour"]):
+		return 0
+	return mini(3, int((hour - float(g["starts_hour"])) / 24.0) + 1)
+
+
+func gathering_on(g: Dictionary) -> bool:
+	return not g.is_empty() and String(g["state"]) == "on" and hour >= float(g["starts_hour"]) and hour < float(g["ends_hour"])
+
+
+## The guests still bound for it or there (lords pulled into an army, taken, or gone home
+## no longer count).
+func gathering_guests(g: Dictionary) -> Array:
+	var out := []
+	for l in lords:
+		if String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) == int(g["id"]) and String(l.get("state", "")) == "field":
+			out.append(l)
+	return out
+
+
+## "the feast", "the lantern night", "the victory feast".
+func gathering_name(g: Dictionary) -> String:
+	return "the " + String(g.get("name", "feast"))
+
+
+## The first dusk at least LEAD_HOURS from now.
+func gathering_start_hour() -> float:
+	var from := hour + Gatherings.LEAD_HOURS
+	var day := floorf(from / 24.0)
+	var at := day * 24.0 + Gatherings.DUSK
+	if at < from:
+		at += 24.0
+	return at
+
+
+## Call a gathering for `realm` ("season", "peace", "victory" or "player"). Without a
+## place the ruler holds it at the capital, or a rich lord at their seat. Guests are
+## chosen and ride there at once, unless `guest_ids` names them. Returns it, or {}.
+func call_gathering(realm: String, reason: String, place: String = "", kind: String = "", guest_ids: Array = [], host_id: int = -2) -> Dictionary:
+	if not gathering_of_realm(realm).is_empty():
+		return {}
+	var host := {}
+	if host_id >= 0:
+		host = lord_by_id(host_id)
+	elif host_id == -2:
+		if place == "":
+			var rich := []
+			for l in lords:
+				var f := String(l.get("fief", ""))
+				if String(l.get("realm", "")) == realm and not bool(l.get("ruler", false)) and f != "" and owner_of(f) == realm \
+						and not Data.is_village(f) and _free_to_gather(l):
+					rich.append(l)
+			rich.sort_custom(func(a, b): return int(a["silver"]) > int(b["silver"]))
+			# A peace feast is the ruler's, at the capital.
+			if rich.is_empty() or reason == "peace" or gather_rng.randf() < Gatherings.RULER_HOSTS:
+				place = capital_of(realm)
+				for l in lords:
+					if String(l.get("realm", "")) == realm and bool(l.get("ruler", false)):
+						host = l
+			else:
+				host = rich[0]
+				place = String(host["fief"])
+		else:
+			host = holder_lord(place)
+			if host.is_empty() or String(host.get("state", "")) != "field":
+				for l in lords:
+					if String(l.get("realm", "")) == realm and bool(l.get("ruler", false)):
+						host = l
+	# You host your own (host_id -1): no lord holds the high seat.
+	if host_id != -1 and (host.is_empty() or String(host.get("state", "")) != "field"):
+		return {}
+	if place == "" or not Data.SETTLEMENTS.has(place) or owner_of(place) != realm or is_sieged(place) or is_burned(place):
+		return {}
+	if kind == "":
+		kind = Gatherings.FEAST if reason in ["peace", "victory"] or gather_rng.randf() < 0.5 else Gatherings.DANCE
+	var cult := String(host.get("culture", "")) if not host.is_empty() else Data.culture_of(Data.settlement(place)["faction"])
+	var name := Gatherings.kind_name(cult, kind)
+	if reason == "peace":
+		name = "peace feast"
+	elif reason == "victory":
+		name = "victory feast"
+	var enemies := []
+	for r in realms:
+		if at_war(realm, r):
+			enemies.append(r)
+	var start := gathering_start_hour()
+	var g := {"id": _next_gathering_id, "realm": realm, "host_lord": int(host.get("id", -1)), "place": place,
+		"kind": kind, "name": name, "culture": cult, "starts_hour": start, "ends_hour": start + Gatherings.LENGTH_HOURS,
+		"reason": reason, "guests": [], "enemies": enemies, "state": "announced", "broken_reason": ""}
+	_next_gathering_id += 1
+	var ids := guest_ids if reason == "player" else _choose_guests(g)
+	for lid in ids:
+		var l := lord_by_id(int(lid))
+		if not l.is_empty() and _free_to_gather(l):
+			_send_to_gathering(l, g)
+			(g["guests"] as Array).append(int(lid))
+	if not host.is_empty() and _free_to_gather(host):
+		_send_to_gathering(host, g)
+	gatherings.append(g)
+	emit_event({"type": "gathering", "gathering": g["id"], "realm": realm, "settlement": place, "reason": reason,
+		"host": String(host.get("name", "")) if not host.is_empty() else "", "name": name})
+	return g
+
+
+## Whether a lord could ride to a gathering: in the field, not on campaign or under your
+## orders, not raiding or chasing, and with enough of their warband to spare the time.
+func _free_to_gather(l: Dictionary) -> bool:
+	if String(l.get("state", "")) != "field":
+		return false
+	var p := party(int(l.get("party", -1)))
+	if p == null:
+		return false
+	if not MarshalArmies.for_party(self, p.id).is_empty():
+		return false
+	if l.get("order") is Dictionary and not (l["order"] as Dictionary).is_empty():
+		return false
+	if String(l.get("raiding", "")) != "" or String(l.get("job", "")) in ["chase", "raid", "army", "grudge_hunt", "defend"]:
+		return false
+	if String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) > 0:
+		return false
+	return men_of(p.army) >= int(l.get("full", 0)) * Gatherings.MIN_MEN
+
+
+## Lords of the realm (and sometimes its allies) within two days' ride, closest first.
+func _choose_guests(g: Dictionary) -> Array:
+	var pool := []
+	var place := String(g["place"])
+	var realm := String(g["realm"])
+	for l in lords:
+		if int(l["id"]) == int(g["host_lord"]):
+			continue
+		var theirs := String(l.get("realm", ""))
+		if theirs != realm:
+			var allied := (realm == Data.CROWN and alliances.has(theirs)) or (theirs == Data.CROWN and alliances.has(realm))
+			if not allied or gather_rng.randf() >= Gatherings.ALLY_CHANCE:
+				continue
+		if not _free_to_gather(l):
+			continue
+		var p := party(int(l["party"]))
+		var from: String = p.next if p.moving() else p.node
+		var h := _hours(p, from, place)
+		if h <= Gatherings.REACH_HOURS:
+			pool.append([h, int(l["id"])])
+	pool.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	var out := []
+	for e in pool.slice(0, Gatherings.MAX_GUESTS):
+		out.append(int(e[1]))
+	return out
+
+
+func _send_to_gathering(l: Dictionary, g: Dictionary) -> void:
+	var p := party(int(l.get("party", -1)))
+	if p == null:
+		return
+	l["gather_id"] = int(g["id"])
+	l.erase("gather_until")
+	l["think_at"] = hour + Lords.THINK_HOURS
+	_set_job(l, p, "gather", String(g["place"]))
+
+
+## A lord bound for a gathering (or resting at their capital) stays with it; once it's
+## over, or gone, they're free again. True while they stay.
+func _keep_gathering(l: Dictionary, p: Party) -> bool:
+	var gid := int(l.get("gather_id", 0))
+	var target := String(l.get("target", ""))
+	var stay := false
+	if gid > 0:
+		var g := gathering_by_id(gid)
+		stay = not g.is_empty() and String(g["state"]) in ["announced", "on"] and String(g["place"]) == target
+	else:
+		stay = hour < float(l.get("gather_until", 0.0)) and owner_of(target) == String(l.get("realm", ""))
+	if not stay:
+		_leave_gathering(l)
+		return false
+	if not p.moving() and p.node == target:
+		p.wait = Lords.THINK_HOURS
+	elif not p.moving():
+		_set_job(l, p, "gather", target)
+	return true
+
+
+func _leave_gathering(l: Dictionary) -> void:
+	if String(l.get("job", "")) == "gather":
+		l["job"] = ""
+	l.erase("gather_id")
+	l.erase("gather_until")
+	l["think_at"] = hour
+
+
+## Once a day: realms at peace with everyone may call a gathering, and victory feasts are
+## held once the place is safe.
+func _gatherings_day() -> void:
+	for realm in peace_feasts.keys():
+		peace_feasts.erase(realm)
+		if realms.has(realm) and not is_at_war(realm):
+			var old := gathering_of_realm(realm)
+			if not old.is_empty() and String(old["reason"]) == "season" and String(old["state"]) == "announced":
+				gatherings.erase(old)
+				for l in gathering_guests(old):
+					_leave_gathering(l)
+			call_gathering(realm, "peace")
+	for realm in victory_feasts.keys():
+		var at := String(victory_feasts[realm])
+		if not realms.has(realm) or owner_of(at) != realm:
+			victory_feasts.erase(realm)
+			continue
+		if not gathering_of_realm(realm).is_empty() or is_sieged(at) or _enemy_army_near(realm, at, Gatherings.REACH_HOURS):
+			continue
+		victory_feasts.erase(realm)
+		call_gathering(realm, "victory", at)
+	for realm in realms:
+		if realm == Data.CROWN or is_at_war(realm) or not gathering_of_realm(realm).is_empty():
+			continue
+		if hour - float(gathering_ended.get(realm, -100000.0)) < Gatherings.GAP_DAYS * 24.0:
+			continue
+		if gather_rng.randf() < Gatherings.SEASON_CHANCE:
+			call_gathering(realm, "season")
+
+
+## Gatherings begin, end, or break up (checked each hour).
+func _step_gatherings() -> void:
+	if gatherings.is_empty():
+		return
+	var check := hour >= _gathering_check + 1.0
+	if check:
+		_gathering_check = hour
+	for g in gatherings.duplicate():
+		if check:
+			var why := _gathering_trouble(g)
+			if why != "":
+				_break_gathering(g, why)
+				continue
+		if String(g["state"]) == "announced" and hour >= float(g["starts_hour"]):
+			g["state"] = "on"
+		if hour >= float(g["ends_hour"]):
+			_end_gathering(g)
+
+
+## Why a gathering must break up now, or "".
+func _gathering_trouble(g: Dictionary) -> String:
+	var realm := String(g["realm"])
+	var place := String(g["place"])
+	if not realms.has(realm):
+		return "the realm has fallen"
+	if owner_of(place) != realm:
+		return "%s changed hands" % Data.settlement(place)["name"]
+	if is_sieged(place):
+		return "a siege"
+	var host := lord_by_id(int(g["host_lord"])) if int(g["host_lord"]) >= 0 else {}
+	if int(g["host_lord"]) >= 0 and (host.is_empty() or String(host.get("state", "")) != "field"):
+		return "the host was taken"
+	for r in realms:
+		if at_war(realm, r) and not (g["enemies"] as Array).has(r):
+			return "war with %s" % String(Data.FACTIONS[r]["name"]) if Data.FACTIONS.has(r) else "war"
+	if _enemy_army_near(realm, place, Gatherings.BREAK_HOURS):
+		return "an enemy army is near"
+	return ""
+
+
+## Whether a marshal army of a realm at war with `realm` is within `hours` of `place`.
+func _enemy_army_near(realm: String, place: String, hours: float) -> bool:
+	for army in campaign_armies:
+		if not at_war(String(army.get("realm", "")), realm):
+			continue
+		var leader := lord_by_id(int(army.get("leader", -1)))
+		var p := party(int(leader.get("party", -1))) if not leader.is_empty() else null
+		if p == null:
+			continue
+		var from: String = p.next if p.moving() else p.node
+		if _hours(p, from, place) <= hours:
+			return true
+	return false
+
+
+func _end_gathering(g: Dictionary) -> void:
+	g["state"] = "over"
+	for l in gathering_guests(g):
+		_leave_gathering(l)
+	var host := lord_by_id(int(g["host_lord"])) if int(g["host_lord"]) >= 0 else {}
+	if not host.is_empty() and int(host.get("gather_id", 0)) == int(g["id"]):
+		_leave_gathering(host)
+	gathering_ended[String(g["realm"])] = hour
+	gatherings.erase(g)
+
+
+func _break_gathering(g: Dictionary, why: String) -> void:
+	g["broken_reason"] = why
+	emit_event({"type": "gathering_broken", "gathering": g["id"], "realm": g["realm"], "settlement": g["place"],
+		"name": g.get("name", "feast"), "reason": why})
+	_end_gathering(g)
+	g["state"] = "broken"
+
+
+## A lord with nothing better to do near their capital sometimes rests there a while.
+func _rest_at_capital(l: Dictionary, p: Party, from: String) -> bool:
+	var cap := capital_of(String(l.get("realm", "")))
+	if cap == "" or cap == seat_of(l) or from == cap or is_sieged(cap) or bool(l.get("ruler", false)):
+		return false
+	if gather_rng.randf() >= Gatherings.REST_CHANCE or _hours(p, from, cap) > Gatherings.REST_REACH:
+		return false
+	l["gather_id"] = 0
+	l["gather_until"] = hour + _hours(p, from, cap) + gather_rng.randf_range(Gatherings.REST_MIN, Gatherings.REST_MAX)
+	_set_job(l, p, "gather", cap)
+	return true
+
+
 func _step_lords(dt: float) -> void:
 	var day := int(hour / 24.0)
 	while _lord_day < day:
 		_lord_day += 1
 		_lords_day()
+		_gatherings_day()
+	_step_gatherings()
 	MarshalArmies.tick(self, dt)
 	var has_armies := not campaign_armies.is_empty()
 	for l in lords:
@@ -1715,7 +2109,7 @@ func _chase(l: Dictionary, p: Party) -> bool:
 			emit_event({"type": "chase_ended", "party": p.id})
 			return false
 	else:
-		if not hostile or d > SIGHT or String(l["raiding"]) != "" or String(l["job"]) == "home":
+		if not hostile or d > SIGHT or String(l["raiding"]) != "" or String(l["job"]) in ["home", "gather"]:
 			return false
 		var mine := 0
 		var gs = _active_game_state()
@@ -1741,6 +2135,8 @@ func _chase(l: Dictionary, p: Party) -> bool:
 ## and patrolling, by his bearing.
 func _think_lord(l: Dictionary, p: Party) -> void:
 	if _follow_order(l, p):
+		return
+	if String(l["job"]) == "gather" and _keep_gathering(l, p):
 		return
 	var bearing := String(l["bearing"])
 	var men := men_of(p.army)
@@ -1804,6 +2200,8 @@ func _think_lord(l: Dictionary, p: Party) -> void:
 					best = ["grudge_hunt", p_node, score]
 	if best[0] == "patrol":
 		if l["job"] == "patrol" and (p.moving() or p.wait > 0.0):
+			return
+		if _rest_at_capital(l, p, from):
 			return
 		var own := holdings_of(String(l["realm"])).filter(func(id): return id != p.node)
 		if own.is_empty():
@@ -1929,7 +2327,7 @@ func _lord_arrives(l: Dictionary, p: Party) -> void:
 				emit_event({"type": "raid_started", "party": p.id, "village": p.node, "hours": Lords.RAID_HOURS})
 			else:
 				l["job"] = ""
-		"home", "guard":
+		"home", "guard", "gather":
 			p.wait = Lords.THINK_HOURS
 		"escort":
 			p.wait = Lords.ESCORT_THINK_HOURS
@@ -2238,6 +2636,9 @@ func dissolve_crown() -> Array:
 	tributes = tributes.filter(func(t): return String(t.get("from", "")) != Data.CROWN and String(t.get("to", "")) != Data.CROWN)
 	alliances = {}
 	army_ready_at.erase(Data.CROWN)
+	var crown_feast := gathering_of_realm(Data.CROWN)
+	if not crown_feast.is_empty():
+		_break_gathering(crown_feast, "the crown has fallen")
 	realms.erase(Data.CROWN)
 	emit_event({"type": "crown_fallen"})
 	return gone
@@ -2741,6 +3142,9 @@ func to_dict() -> Dictionary:
 		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
 		"social": social.to_dict() if social != null else null,
 		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "lord_day": _lord_day,
+		"gatherings": gatherings.duplicate(true), "gathering_ended": gathering_ended.duplicate(),
+		"victory_feasts": victory_feasts.duplicate(), "peace_feasts": peace_feasts.duplicate(), "next_gathering_id": _next_gathering_id,
+		"gather_seed": str(gather_rng.seed), "gather_state": str(gather_rng.state),
 	}
 
 
@@ -2917,12 +3321,57 @@ func from_dict(d: Dictionary) -> void:
 	else:
 		_start_garrisons()
 
+	_load_gatherings(d)
+
 	if d.has("social") and typeof(d["social"]) == TYPE_DICTIONARY:
 		social = SocialSim.new()
 		social.from_dict(d["social"])
 	else:
 		social = SocialSim.new()
 		social.setup(rng.seed, lords, Data.SETTLEMENTS)
+
+
+## Gatherings read back from JSON. A world saved before there were any has none.
+func _load_gatherings(d: Dictionary) -> void:
+	gatherings = []
+	for raw in d.get("gatherings", []):
+		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		var g := {}
+		for k in ["realm", "place", "kind", "name", "culture", "reason", "state", "broken_reason"]:
+			g[k] = String(raw.get(k, ""))
+		for k in ["id", "host_lord"]:
+			g[k] = int(raw.get(k, -1))
+		for k in ["starts_hour", "ends_hour"]:
+			g[k] = float(raw.get(k, 0.0))
+		g["guests"] = (raw.get("guests", []) as Array).map(func(x): return int(x))
+		g["enemies"] = (raw.get("enemies", []) as Array).map(func(x): return String(x))
+		if Data.SETTLEMENTS.has(String(g["place"])) and String(g["state"]) in ["announced", "on"]:
+			gatherings.append(g)
+	gathering_ended = {}
+	var raw_ended = d.get("gathering_ended", {})
+	if typeof(raw_ended) == TYPE_DICTIONARY:
+		for r in raw_ended:
+			gathering_ended[String(r)] = float(raw_ended[r])
+	victory_feasts = {}
+	var raw_victory = d.get("victory_feasts", {})
+	if typeof(raw_victory) == TYPE_DICTIONARY:
+		for r in raw_victory:
+			victory_feasts[String(r)] = String(raw_victory[r])
+	peace_feasts = {}
+	var raw_peace = d.get("peace_feasts", {})
+	if typeof(raw_peace) == TYPE_DICTIONARY:
+		for r in raw_peace:
+			peace_feasts[String(r)] = true
+	_next_gathering_id = int(d.get("next_gathering_id", 1))
+	for g in gatherings:
+		_next_gathering_id = maxi(_next_gathering_id, int(g["id"]) + 1)
+	_gathering_check = -1.0
+	if d.has("gather_seed"):
+		gather_rng.seed = int(String(d["gather_seed"]))
+		gather_rng.state = int(String(d.get("gather_state", "0")))
+	else:
+		gather_rng.seed = rng.seed ^ 0x5eed6a7
 
 
 ## A lord read back from JSON, with his counts as ints again.
@@ -2958,6 +3407,11 @@ static func _clean_lord(e: Dictionary) -> Dictionary:
 		ordered["sworn_from"] = String(e["sworn_from"])
 	if e.has("bought"):
 		ordered["bought"] = int(e["bought"])
+	# The gathering they're bound for (0 for a rest at their capital), and when a rest ends.
+	if e.has("gather_id"):
+		ordered["gather_id"] = int(e["gather_id"])
+	if e.has("gather_until"):
+		ordered["gather_until"] = float(e["gather_until"])
 	# What they remember of your talks (lord_talk.gd).
 	if e.get("talk") is Dictionary and not (e["talk"] as Dictionary).is_empty():
 		ordered["talk"] = _clean_talk(e["talk"])

@@ -30,6 +30,8 @@ var romance_relive := ""
 ## Where the wedding returns to, and the memory id to tell again ("" for the day itself).
 var wedding_return := "res://scenes/world_map.tscn"
 var wedding_replay := ""
+## Where the dance at a gathering returns to.
+var dance_return := "res://scenes/settlement.tscn"
 var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1
