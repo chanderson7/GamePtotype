@@ -48,6 +48,8 @@ const COUNTER_PULL := 140.0
 const RETARGET_MARGIN := 80.0
 ## How much less attractive an enemy is when every side of it is already taken.
 const CROWD_PENALTY := 400.0
+## A yumi samurai's blade once his arrows are spent (per point of power).
+const SAMURAI_SIDEARM := 13.0
 ## How many foot squads go in against one enemy before the rest look elsewhere.
 const MAX_ON_ONE := 2
 ## Within about 45 degrees counts as the same side.
@@ -369,7 +371,7 @@ class Projectile:
 
 var rng := RandomNumberGenerator.new()
 ## Squads keep their lines in a fight (false: every man for himself, as before).
-var formation_melee := true
+var formation_melee := false
 ## Attack positions: each squad going for an enemy takes a free side of it; with none
 ## free it picks another enemy, or waits behind the fight as a reserve.
 var attack_positions := true
@@ -1969,9 +1971,10 @@ func _update_squad(sq, dt: float) -> void:
 # ---------------------------------------------------------------- attack positions
 
 ## Whether `sq` picks a side of its foe to attack from: squads closing to fight hand to
-## hand, not archers shooting from where they stand, and not at the walls of a siege.
+## hand, not archers shooting from where they stand, not at the walls of a siege and not
+## in the scramble of an ambush.
 func _uses_sides(sq) -> bool:
-	return attack_positions and objective != OBJECTIVE_SIEGE and not sq.engaged and not sq.wheeling \
+	return attack_positions and objective != OBJECTIVE_SIEGE and objective != OBJECTIVE_AMBUSH and not sq.engaged and not sq.wheeling \
 		and not (sq.ranged and not sq.hold_fire)
 
 
@@ -2650,7 +2653,7 @@ func _strike(so, sq, target, gap: float) -> void:
 		if gap < 30.0:
 			if sq.mechanics.get("samurai_sidearm", false):
 				# Ryumon yumi samurai fight like infantry when caught in melee
-				dmg = 13.0 * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
+				dmg = SAMURAI_SIDEARM * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
 				_damage(target, dmg, sq, false, so, _side_of(target, so.pos, sq))
 				return
 			dmg *= Troops.POINT_BLANK
@@ -2748,7 +2751,7 @@ func _draw_blades(sq) -> void:
 			sq.cooldown = float(sq.stats.get("cooldown", 1.0))
 	elif sq.mechanics.get("samurai_sidearm", false):
 		sq.reach = 14.0
-		sq.damage = 13.0 * sq.power
+		sq.damage = SAMURAI_SIDEARM * sq.power
 		sq.cooldown = 1.0
 		sq.bonus = Troops.TYPES[Troops.INFANTRY]["bonus"].duplicate()
 	else:

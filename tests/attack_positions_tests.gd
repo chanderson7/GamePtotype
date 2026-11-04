@@ -2,7 +2,7 @@
 ## Two foot squads to an enemy (front first, then a flank), horse on top of that on a flank
 ## or the rear; a third foot squad looks for another enemy or waits behind the fight as a
 ## reserve. A squad joins the fight once it reaches its side, the side stays fixed on the
-## ground, and orders, archers, sieges and the switch keep the old ways.
+## ground, and orders, archers, ambushes, sieges and the switch keep the old ways.
 extends SceneTree
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
@@ -138,6 +138,10 @@ func _init() -> void:
 	sim = _battle([Troops.INFANTRY], [Troops.INFANTRY])
 	sim.objective = Sim.OBJECTIVE_SIEGE
 	check(not sim._uses_sides(_mine(sim)[0]), "a siege keeps the old rules")
+	sim.dispose()
+	sim = _battle([Troops.INFANTRY], [Troops.INFANTRY])
+	sim.objective = Sim.OBJECTIVE_AMBUSH
+	check(not sim._uses_sides(_mine(sim)[0]), "so does the scramble of an ambush")
 	sim.dispose()
 	sim = _battle([Troops.INFANTRY, Troops.INFANTRY], [Troops.INFANTRY], [0.0], false)
 	foe = sim.squads.filter(func(s): return s.team == Sim.ENEMY)[0]
