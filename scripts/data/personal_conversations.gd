@@ -277,6 +277,30 @@ static func ending(scene_id: String, context: Dictionary, completed: Array, choi
 ## Presentation is versioned independently: authored choices/rewards retain content version 1.
 const READER_VERSION := 1
 
+## How each visit's speaker looks: [before your answer, after it, and, optionally, from
+## the fourth line after it]. The talk shows the portrait with that expression.
+const FACES := {
+	"edda_spare_spoon": ["thoughtful", "amused", "warm"],
+	"edda_wrong_verse": ["amused", "amused"],
+	"edda_boots_by_door": ["concerned", "thoughtful"],
+	"edda_morning_unclaimed": ["amused", "amused"],
+	"edda_ledger_blot": ["concerned", "thoughtful"],
+	"edda_place_no_task": ["warm", "warm"],
+	"farid_supper_request": ["neutral", "amused"],
+	"farid_two_street_names": ["neutral", "amused"],
+	"farid_unsealed_letter": ["concerned", "thoughtful"],
+	"farid_wrong_courtesy": ["neutral", "amused"],
+	"farid_own_answer": ["concerned", "thoughtful"],
+	"farid_no_reply_required": ["warm", "warm"],
+	"kaede_useless_map": ["thoughtful", "amused"],
+	"kaede_bad_mystery": ["amused", "amused"],
+	"kaede_margin_name": ["concerned", "thoughtful"],
+	"kaede_missing_street": ["thoughtful", "amused"],
+	"kaede_kept_page": ["concerned", "thoughtful"],
+	"kaede_room_on_map": ["warm", "warm"],
+}
+
+
 static func beats(scene_id: String, node: int, choice: int, context: Dictionary) -> Array:
 	var scene: Dictionary = SCENES.get(scene_id, {})
 	if scene.is_empty():
@@ -295,31 +319,10 @@ static func beats(scene_id: String, node: int, choice: int, context: Dictionary)
 				speaker = name
 				line = line.trim_prefix(name + ": ")
 				break
-		var expression := "neutral"
-		if scene_id in ["edda_boots_by_door", "edda_ledger_blot"]:
-			expression = "concerned" if node == 0 else "thoughtful"
-		elif scene_id in ["edda_wrong_verse", "edda_morning_unclaimed"]:
-			expression = "amused"
-		elif scene_id == "edda_place_no_task":
-			expression = "warm"
-		elif scene_id == "edda_spare_spoon":
-			expression = "thoughtful" if node == 0 else "amused"
-			if node == 1 and result.size() >= 3:
-				expression = "warm"
-		elif scene_id in ["farid_supper_request", "farid_two_street_names", "farid_wrong_courtesy"]:
-			expression = "amused" if node == 1 else "neutral"
-		elif scene_id in ["farid_unsealed_letter", "farid_own_answer"]:
-			expression = "concerned" if node == 0 else "thoughtful"
-		elif scene_id == "farid_no_reply_required":
-			expression = "warm"
-		elif scene_id == "kaede_bad_mystery":
-			expression = "amused"
-		elif scene_id in ["kaede_margin_name", "kaede_kept_page"]:
-			expression = "concerned" if node == 0 else "thoughtful"
-		elif scene_id in ["kaede_useless_map", "kaede_missing_street"]:
-			expression = "thoughtful" if node == 0 else "amused"
-		elif scene_id == "kaede_room_on_map":
-			expression = "warm"
+		var faces: Array = FACES.get(scene_id, ["neutral", "neutral"])
+		var expression := String(faces[0] if node == 0 else faces[1])
+		if node == 1 and faces.size() > 2 and result.size() >= 3:
+			expression = String(faces[2])
 		result.append({"speaker": speaker, "text": line, "expression": expression})
 	return result
 

@@ -201,41 +201,55 @@ func _check_ui(gs) -> void:
 	change_scene_to_file("res://scenes/conversation.tscn")
 	await process_frame
 	await process_frame
-	check(button("Spend time / memories") != null, "audience exposes personal conversations")
+	var talk = current_scene
+	check(talk.has_reply("visit_edda_spare_spoon"), "the talk offers time together")
+	check(talk.reply_ids().filter(func(id): return String(id).begins_with("visit_")).size() <= 3, "a few at a time, not a list of every visit")
 	change_scene_to_file("res://scenes/personal_conversation.tscn")
 	await process_frame
 	await process_frame
-	check(button("Visit: The Spare Spoon") != null, "personal library loads")
+	talk = current_scene
+	check(talk.has_reply("visit_edda_spare_spoon"), "personal library loads")
 	var before: Dictionary = gs.to_dict().duplicate(true)
-	button("Visit: The Spare Spoon").pressed.emit()
-	check(button("Summary") != null, "reader offers accessible summary")
-	_read_to_end()
-	button("You missed your own place.").pressed.emit()
-	button("Leave").pressed.emit()
-	check(button("Resume: The Spare Spoon") != null, "leaving preserves response for resume")
-	button("Resume: The Spare Spoon").pressed.emit()
-	_read_to_end()
-	check(button("Keep this memory") != null, "resume returns to closing passage")
-	button("Keep this memory").pressed.emit()
-	check(button("Remember: The Spare Spoon") != null, "completed scene enters archive")
+	talk.choose("visit_edda_spare_spoon")
+	check(talk.has_reply("summary"), "reader offers accessible summary")
+	_read_to_end(talk)
+	check(talk.log_text().contains("No wrong answers"), "chat replies say there are no wrong answers")
+	talk.choose("say_1")
+	talk.choose("later")
+	check(talk.has_reply("visit_edda_spare_spoon") and String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Text", true, false).text).begins_with("Resume"),
+		"leaving preserves response for resume")
+	talk.choose("visit_edda_spare_spoon")
+	_read_to_end(talk)
+	check(talk.has_reply("finish"), "resume returns to closing passage")
+	talk.choose("finish")
+	check(talk._log.find_child("Keepsake", true, false) != null, "a kept memory says so")
 	check(gs.silver == before["silver"] and gs.food == before["food"] and gs.renown == before["renown"] and gs.army == before["army"], "UI visit preserves player resources and army")
+	talk.choose("back")
+	check(talk.has_reply("remember"), "shared memories can be brought up")
 	var archived: Dictionary = gs.to_dict().duplicate(true)
-	button("Remember: The Spare Spoon").pressed.emit()
-	_read_to_end()
-	button("Who usually arrived late?").pressed.emit()
-	_read_to_end()
-	button("Close memory").pressed.emit()
+	talk.choose("remember")
+	var mem_ids: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("memory_"))
+	check(not mem_ids.is_empty(), "remembering lists your memories")
+	var spoon := ""
+	for id in mem_ids:
+		if String(talk._replies.get_node("Reply_" + id).find_child("Text", true, false).text).contains("spoon"):
+			spoon = id
+	talk.choose(spoon)
+	check(talk.log_text().contains("spare spoon") or talk.log_text().contains("spoon"), "and they answer with what they remember")
+	talk.choose("relive")
+	_read_to_end(talk)
+	talk.choose("say_0")
+	_read_to_end(talk)
+	talk.choose("finish")
 	check(archived == gs.to_dict(), "replay through real UI changes no campaign data")
-	button("Visit: The Wrong Last Verse").pressed.emit()
-	button("Summary").pressed.emit()
-	button("Keep this memory").pressed.emit()
+	talk.choose("visit_edda_wrong_verse")
+	talk.choose("summary")
 	check(gs.world.social.personal_record(PERSON)["completed"].size() == 2, "summary completes through real UI")
 
 
-func _read_to_end() -> void:
+func _read_to_end(talk) -> void:
 	for i in 60:
-		var next := button("Continue")
-		if next == null:
+		if not talk.has_reply("continue"):
 			return
-		next.pressed.emit()
+		talk.choose("continue")
 	check(false, "reader reaches the end in bounded steps")

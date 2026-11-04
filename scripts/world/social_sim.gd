@@ -211,6 +211,8 @@ func from_dict(data: Dictionary) -> void:
 			if person.has(key): person[key] = int(person[key])
 		for m in person.get("memory_log", []):
 			m["day"] = int(m.get("day", 1))
+			if m.has("chapter"):
+				m["chapter"] = int(m["chapter"])
 	for house in houses.values():
 		if house.has("standing"): house["standing"] = int(house["standing"])
 	for relationship in relationships.values():
@@ -320,11 +322,11 @@ func _relocate_person(person: Dictionary, new_owner: String, world_ref: RefCount
 		person["residence"] = new_seat
 		person["status"] = "relocated"
 		add_memory(person["id"], "Relocated to %s following the loss of %s." % [
-			Letters.place_name(new_seat), Letters.place_name(old_seat)])
+			Letters.place_name(new_seat), Letters.place_name(old_seat)], {"kind": "move", "place": new_seat})
 		add_letter(person["id"], "relocation", "", world_ref.hour, new_seat, {"old": Letters.place_name(old_seat)})
 	else:
 		person["status"] = "displaced"
-		add_memory(person["id"], "Displaced from %s." % person["residence"])
+		add_memory(person["id"], "Displaced from %s." % person["residence"], {"kind": "move"})
 
 
 # ---------------------------------------------------------------- lookups & queries
@@ -372,7 +374,34 @@ func unread_letters_count() -> int:
 	return count
 
 
-func add_memory(person_id: String, text: String) -> void:
+## What the next memory is about (set around a chapter decision), merged into it.
+var _memory_info := {}
+
+
+## Everything remembered with `person_id`, oldest first, each {id, day, kind, text, place,
+## and what it points back to}. Memories from before kinds were kept read as notes.
+func memory_book(person_id: String) -> Array:
+	var person: Dictionary = people.get(person_id, {})
+	var out := []
+	var log: Array = person.get("memory_log", [])
+	if log.is_empty():
+		for i in (person.get("memories", []) as Array).size():
+			out.append({"id": "old_%d" % i, "day": 0, "kind": "note", "text": String(person["memories"][i]), "place": ""})
+		return out
+	for i in log.size():
+		var e: Dictionary = log[i].duplicate()
+		if not e.has("kind"):
+			e["kind"] = "note"
+		if not e.has("id"):
+			e["id"] = "log_%d" % i
+		out.append(e)
+	return out
+
+
+## Remember `text` with `person_id`. `info` says what it was: {kind (visit, decision, letter,
+## ceremony, move, note), scene_id, chapter, choice, letter_id, place}, so the memory book can
+## open it again.
+func add_memory(person_id: String, text: String, info: Dictionary = {}) -> void:
 	if not people.has(person_id):
 		return
 	var mems: Array = people[person_id].get("memories", [])
@@ -382,7 +411,12 @@ func add_memory(person_id: String, text: String) -> void:
 	people[person_id]["memories"] = mems
 	# The same memory with the day it happened, for the person's page.
 	var log: Array = people[person_id].get("memory_log", [])
-	log.append({"text": text, "day": int(_hour / 24.0) + 1})
+	var entry := {"text": text, "day": int(_hour / 24.0) + 1, "kind": "note", "id": "m%d_%d" % [int(_hour * 10.0), log.size()]}
+	entry.merge(_memory_info, true)
+	entry.merge(info, true)
+	if not entry.has("place"):
+		entry["place"] = String(people[person_id].get("residence", ""))
+	log.append(entry)
 	if log.size() > 30:
 		log.pop_front()
 	people[person_id]["memory_log"] = log
@@ -505,7 +539,7 @@ func reply_letter(letter_id: String, reply_id: String, from_place: String = "") 
 		rel["trust"] = clampi(int(rel.get("trust", 0)) + gain, Relationships.TRUST_MIN, Relationships.TRUST_MAX)
 	var sender: Dictionary = people.get(String(l.get("sender_id", "")), {})
 	if not sender.is_empty():
-		add_memory(String(sender["id"]), "You wrote back to %s: \"%s.\"" % [sender.get("name", ""), r["label"]])
+		add_memory(String(sender["id"]), "You wrote back to %s: \"%s.\"" % [sender.get("name", ""), r["label"]], {"kind": "letter", "letter_id": String(letter_id)})
 	return {"ok": true, "trust_change": gain}
 
 
@@ -691,6 +725,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 	var person: Dictionary = get_candidate_person(candidate_id)
 	var house: Dictionary = houses[person["house_id"]]
 	var target_ch: int = chapter_for_choice(choice_id)
+	_memory_info = {"kind": "decision", "chapter": target_ch, "choice": choice_id, "candidate": candidate_id}
 	var reward_claimed := false
 	var candidate_name := String(person.get("name", "this person"))
 	var reward_prefix := candidate_id
@@ -790,6 +825,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 				"part_respectfully":
 					separate(candidate_id)
 
+	_memory_info = {}
 	prev["reward_claimed"] = reward_claimed
 	return prev
 
@@ -828,7 +864,8 @@ func _conclude_ceremony(world_ref: RefCounted) -> void:
 	rel["status"] = Relationships.MARRIED
 	limits["current_partner_id"] = cand_id
 
-	add_memory(person["id"], "Wedded in solemn ceremony at %s." % WorldData.settlement(String(scheduled_ceremony["settlement_id"]))["name"])
+	add_memory(person["id"], "Wedded in solemn ceremony at %s." % WorldData.settlement(String(scheduled_ceremony["settlement_id"]))["name"],
+		{"kind": "ceremony", "place": String(scheduled_ceremony["settlement_id"])})
 	if not scheduled_ceremony.get("is_private", false):
 		_form_pact(hid, "marriage", [person["id"], "player"], [person["residence"], "thornwall"], world_ref.hour)
 
@@ -852,7 +889,7 @@ func separate(candidate_id: String) -> Dictionary:
 	rel["status"] = Relationships.ENDED
 	if limits.get("current_partner_id", "") == candidate_id:
 		limits["current_partner_id"] = ""
-	add_memory(person["id"], "Parted ways respectfully.")
+	add_memory(person["id"], "Parted ways respectfully.", {"kind": "decision", "choice": "part_respectfully"})
 	return {"ok": true}
 
 
@@ -1021,7 +1058,7 @@ func personal_action(person_id: String, scene_id: String, action: String, contex
 		record["cosmetic_choices"][scene_id] = -1 if action == "summary" else int(progress["choice"])
 		record["in_progress"].erase(scene_id)
 		personal_conversations[person_id] = record
-		add_memory(person_id, scene["memory"])
+		add_memory(person_id, scene["memory"], {"kind": "visit", "scene_id": scene_id})
 		return {"ok": true, "trust_change": delta, "completed": true}
 	else:
 		return {"ok": false, "reason": "Unknown conversation action."}

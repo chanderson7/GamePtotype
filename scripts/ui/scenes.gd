@@ -25,6 +25,8 @@ var captain_profile_return := "res://scenes/main_menu.tscn"
 var bond_conversation_return := "res://scenes/main_menu.tscn"
 var active_candidate_id := "edda"
 var active_person_id := ""
+## A shared visit to tell again when the talk opens (from the memory book), or "".
+var romance_relive := ""
 var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1

@@ -33,6 +33,8 @@ var _letter := ""
 var _reply := ""
 var _scroll: ScrollContainer
 var _flash := ""
+## Whether the profile shows every memory, or the latest few.
+var _all_memories := false
 
 
 func _ready() -> void:
@@ -412,7 +414,8 @@ func _next_step(cand: String) -> String:
 	if not _met(cand):
 		return "Seek an audience at %s%s." % [place, (" · %s" % ride) if ride != "" else ""]
 	if here:
-		return "%s is here. Speak with %s to go on." % [name, "her"]
+		var object := String(RomanceStories.candidate_data(cand).get("pronouns", "they/them")).split("/")[1] if String(RomanceStories.candidate_data(cand).get("pronouns", "")).contains("/") else "them"
+		return "%s is here. Speak with %s to go on." % [name, object]
 	return "Meet %s at %s to go on%s." % [name, place, (" · %s' ride" % ride) if ride != "" else ""]
 
 
@@ -829,14 +832,19 @@ func _build_profile(col: VBoxContainer, frame: VBoxContainer, insets: Dictionary
 			f2.add_child(_chip(_boundary_words(String(s)), Color("3a1d1d"), Color("ffb3a0")))
 		col.add_child(f2)
 	col.add_child(_heading("Memories"))
-	if mems.is_empty():
-		for m in (rel.get("memories", []) as Array).slice(-8):
-			col.add_child(_memory_row("", String(m)))
-	else:
-		for e in mems.slice(-8):
-			col.add_child(_memory_row("Day %d" % int(e.get("day", 1)), String(e.get("text", ""))))
-	if mems.is_empty() and (rel.get("memories", []) as Array).is_empty():
+	var book: Array = _social().memory_book(String(p.get("id", "")))
+	book.reverse()
+	if book.is_empty():
 		col.add_child(Page.note("Nothing yet. Every story starts somewhere.", Style.SMALL))
+	var limit := book.size() if _all_memories else mini(book.size(), 10)
+	for e in book.slice(0, limit):
+		col.add_child(_keepsake_row(cand, e))
+	if book.size() > limit:
+		var more := _button("All %d memories" % book.size(), func():
+			_all_memories = true
+			_build())
+		more.name = "AllMemories"
+		col.add_child(more)
 	var spend := _button("Spend time", _spend_time.bind(cand), false, "cup")
 	spend.name = "SpendTime_%s" % cand
 	frame.add_child(_bar([_main_action(cand), spend], insets))
@@ -924,6 +932,96 @@ func _draw_step_dot(dot: Control, n: int, state: String) -> void:
 		var lock := Widgets.icon("lock")
 		if lock != null:
 			dot.draw_texture_rect(lock, Rect2(c - Vector2(11, 11), Vector2(22, 22)), false, Color("79809a"))
+
+
+const MEMORY_ICONS := {"visit": "cup", "letter": "mail", "decision": "book", "ceremony": "crown", "move": "mappin", "note": "heart"}
+
+
+## A memory you can open: a visit tells itself again, a letter opens, a decision shows what
+## you said and how they answered, a move shows the place.
+func _keepsake_row(cand: String, e: Dictionary) -> Control:
+	var kind := String(e.get("kind", "note"))
+	var b := Button.new()
+	b.name = "Memory_%s" % String(e.get("id", ""))
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_stylebox_override("normal", Style.box(Color("1b1726"), Color("3a2f45"), 2, 14))
+	b.add_theme_stylebox_override("hover", Style.box(Color("221d30"), Color("e88aa0"), 2, 14))
+	b.add_theme_stylebox_override("pressed", Style.box(Color("221d30"), Color("e88aa0"), 2, 14))
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 14)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14
+	row.offset_right = -14
+	row.offset_top = 10
+	row.offset_bottom = -10
+	var icon := Widgets.icon_rect(String(MEMORY_ICONS.get(kind, "heart")), 34)
+	icon.modulate = ROSE
+	row.add_child(icon)
+	var words := VBoxContainer.new()
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var when := PackedStringArray()
+	if int(e.get("day", 0)) > 0:
+		when.append("Day %d" % int(e["day"]))
+	var place := String(e.get("place", ""))
+	if place != "":
+		when.append(Letters.place_name(place))
+	if not when.is_empty():
+		words.add_child(Style.label(" · ".join(when), 19, Style.BRASS))
+	var t := Style.label(String(e.get("text", "")), 21, Color("d5dae8"))
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(t)
+	var detail := Style.label("", 19, Style.MUTED)
+	detail.name = "Detail"
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.visible = false
+	words.add_child(detail)
+	row.add_child(words)
+	b.add_child(row)
+	row.minimum_size_changed.connect(func(): b.custom_minimum_size.y = row.get_combined_minimum_size().y + 20)
+	b.custom_minimum_size.y = 72
+	b.pressed.connect(func(): _open_memory(cand, e, detail))
+	return b
+
+
+func _open_memory(cand: String, e: Dictionary, detail: Label) -> void:
+	match String(e.get("kind", "note")):
+		"visit":
+			Scenes.active_candidate_id = cand
+			Scenes.active_person_id = String(_candidate_person(cand).get("id", ""))
+			Scenes.romance_relive = String(e.get("scene_id", ""))
+			Scenes.personal_conversation_return = "res://scenes/people.tscn"
+			Scenes.go("res://scenes/personal_conversation.tscn")
+		"letter":
+			if String(e.get("letter_id", "")) != "":
+				_open_letter(String(e["letter_id"]))
+		"move", "ceremony":
+			if String(e.get("place", "")) != "":
+				_show_on_map(String(e["place"]))
+		"decision":
+			var said := _decision_said(cand, String(e.get("choice", "")))
+			detail.text = said if said != "" else "A choice you made together."
+			detail.visible = not detail.visible
+		_:
+			pass
+
+
+## What you said, and how they answered, for a chapter decision.
+func _decision_said(cand: String, choice: String) -> String:
+	var story: Dictionary = RomanceStories.story_data(cand)
+	for n in story.get("chapters", {}):
+		var ch: Dictionary = story["chapters"][n]
+		var options: Array = []
+		options.append_array(ch.get("choices", []))
+		options.append_array(ch.get("intent_choices", []))
+		options.append_array(ch.get("variants", []))
+		if ch.has("repair"):
+			options.append(ch["repair"])
+		for o in options:
+			if String(o.get("id", "")) == choice:
+				return "You said: \"%s\"\n%s" % [String(o.get("text", "")), String(o.get("response", ""))]
+	return ""
 
 
 func _memory_row(day: String, text: String) -> Control:

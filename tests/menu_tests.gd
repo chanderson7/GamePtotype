@@ -238,7 +238,7 @@ func _run() -> void:
 		"the optional bond conversation presents the paired captains")
 	check(_has_text(current_scene, "1 battle") and _has_text(current_scene, "last shared fight") and _has_text(current_scene, "changes no battle values"),
 		"bond dialogue uses campaign facts and clearly remains narrative")
-	button("Back to Warband").pressed.emit()
+	current_scene.choose("back")
 	await transition()
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and button("Spend time at camp") != null,
 		"returning to Warband clears only the conversation's new marker")

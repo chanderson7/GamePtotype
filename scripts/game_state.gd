@@ -1849,20 +1849,32 @@ func drain_social_settlements() -> void:
 				_note("Refunded %d rations (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))])
 
 
-func apply_social_choice(candidate_id: String, choice_id: String) -> Dictionary:
-	if world == null or world.social == null:
-		return {"ok": false, "reason": "No world or social simulation active."}
+func _social_context() -> Dictionary:
 	var sound = get_node_or_null("/root/Sound")
 	var invitations := true
 	if sound != null and sound.has_method("romance_invitations_enabled"):
 		invitations = bool(sound.romance_invitations_enabled())
-	var context := {
+	return {
 		"player_silver": silver,
 		"player_food": food,
 		"player_renown": renown,
 		"current_hour": world.hour,
 		"invitations_enabled": invitations
 	}
+
+
+## What a story decision would do, before it's made: {ok, reason, trust_change,
+## standing_change, cost_silver, cost_food, new_status, requires_confirmation, ...}.
+func preview_social_choice(candidate_id: String, choice_id: String) -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No world or social simulation active."}
+	return world.social.preview_choice(candidate_id, choice_id, _social_context())
+
+
+func apply_social_choice(candidate_id: String, choice_id: String) -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No world or social simulation active."}
+	var context := _social_context()
 	var prev: Dictionary = world.social.preview_choice(candidate_id, choice_id, context)
 	if not prev["ok"]:
 		return prev
@@ -2184,7 +2196,7 @@ func bond_conversation_is_new(a_id: int, b_id: int) -> bool:
 
 ## A replayable, event-aware camp exchange. It reads campaign facts and changes no combat,
 ## bond or relationship values; only the "new" marker is acknowledged.
-func bond_conversation(a_id: int, b_id: int) -> Dictionary:
+func bond_conversation(a_id: int, b_id: int, at_rank: String = "") -> Dictionary:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
@@ -2193,6 +2205,9 @@ func bond_conversation(a_id: int, b_id: int) -> Dictionary:
 	var rank := Captains.rank_letter(points)
 	if rank == "":
 		return {}
+	# An earlier rank's talk, read again.
+	if at_rank != "" and Captains.RANKS.find(at_rank) > 0 and Captains.RANKS.find(at_rank) <= Captains.RANKS.find(rank):
+		rank = at_rank
 	var record := bond_record(a_id, b_id)
 	var shared := int(record.get("shared_battles", 0))
 	var passages := []
@@ -2225,7 +2240,38 @@ func bond_conversation(a_id: int, b_id: int) -> Dictionary:
 		"A":
 			passages.append("An unbreakable oath of the vanguard (Rank A). Standing together against impossible odds, their names and deeds will forever be spoken together in the annals of the company.")
 	passages.append(_bond_voice_line(a, b))
-	return {"a": a, "b": b, "rank": rank, "points": points, "shared_battles": shared, "passages": passages}
+	return {"a": a, "b": b, "rank": rank, "points": points, "shared_battles": shared, "passages": passages,
+		"exchange": _bond_exchange(a, b, rank)}
+
+
+## What two captains say to each other at the fire, by rank and by the first one's
+## temper: a short exchange, a line each in turn ({who: "a" or "b", text}).
+const BOND_EXCHANGES := {
+	"C": {
+		Captains.VENGEFUL: ["You were slow on the left today.", "I was covering you. You were fast on everything.", "Then stay close. I'll be slow for you next time.", "Deal."],
+		Captains.FRAGILE: ["I couldn't see your banner for a while out there.", "I could see yours. It was shaking.", "...It was the wind.", "It was the wind. I'll stand closer tomorrow."],
+		"": ["Same distance tomorrow?", "Close enough to help, far enough to breathe.", "You've thought about this.", "Since the second charge. Bread?"],
+	},
+	"B": {
+		Captains.VENGEFUL: ["The one who cut your arm. I found him.", "I know. I saw. Let it be, now.", "I don't know how to let things be.", "Then sit here until you learn. I'll wait."],
+		Captains.FRAGILE: ["Do you ever think we won't come back?", "Every time. Then I look for your squad, and I stop thinking it.", "That's a terrible plan.", "It's worked so far."],
+		"": ["I moved my men before you called for it.", "I noticed. I was about to call for it.", "We should stop telling each other things.", "We should. Pass the whetstone."],
+	},
+	"A": {
+		Captains.VENGEFUL: ["If you fall, I finish what reached you.", "Then I'd better stay standing. For their sake.", "You're laughing.", "I'm alive. You're here. It's allowed."],
+		Captains.FRAGILE: ["I'm not afraid when you're on my flank. I wanted you to know that.", "I'm afraid all the time. I just stand next to you anyway.", "That's the bravest thing anyone's said to me.", "Don't tell the others."],
+		"": ["They'll tell stories about this company someday.", "They'll get it wrong.", "They'll put us in the same verse, at least.", "Then let's earn it again tomorrow."],
+	},
+}
+
+
+func _bond_exchange(a: Dictionary, b: Dictionary, rank: String) -> Array:
+	var by_temper: Dictionary = BOND_EXCHANGES.get(rank, BOND_EXCHANGES["C"])
+	var lines: Array = by_temper.get(String(a.get("temperament", "")), by_temper[""])
+	var out := []
+	for i in lines.size():
+		out.append({"who": "a" if i % 2 == 0 else "b", "text": String(lines[i])})
+	return out
 
 
 func _bond_voice_line(a: Dictionary, b: Dictionary) -> String:

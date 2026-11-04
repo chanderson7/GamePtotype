@@ -152,6 +152,10 @@ func _check_banner(gs) -> void:
 	if m == null or not m.scene_file_path.ends_with("world_map.tscn"):
 		return
 	m._close_sheet()
+	# A lord who stopped you on the way is sent on: letters wait while you talk.
+	if m._talk != null:
+		m._talk.choose("leave")
+	gs.world.friendly_quiet_until = gs.world.hour + 1000.0
 	var ep: Dictionary = social.get_candidate_person("edda")
 	social.add_letter(ep["id"], "relocation", "", gs.world.hour, "highcliff", {"old": "Ravensford"})
 	m.paused = false

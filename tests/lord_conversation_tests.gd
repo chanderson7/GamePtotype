@@ -216,7 +216,7 @@ func _init() -> void:
 	await process_frame
 	check(talk.caption().begins_with("At Ravensford") and talk.get_node("Stage/Painted") != null, "at a painted place, you talk before its painting")
 	check(talk.speech_text().contains("captain everyone's talking about"), "a lord you've never met says so")
-	check(talk.has_reply("news") and talk.has_reply("trouble") and talk.has_reply("leave") and talk.has_reply("crown"), "you can ask for news, their troubles, talk of crowns or part ways")
+	check(talk.has_reply("news") and talk.has_reply("trouble") and talk.has_reply("leave") and talk.has_reply("crown", false), "you can ask for news, their troubles, talk of crowns or part ways")
 	talk.choose("story")
 	check(talk.has_reply("back") and talk._talk.get_children().any(func(c): return String(c.name).begins_with("Reply_tell_")), "asked for a story, you choose which to tell")
 	var first_story: String = talk._talk.get_children().filter(func(c): return String(c.name).begins_with("Reply_tell_"))[0].name

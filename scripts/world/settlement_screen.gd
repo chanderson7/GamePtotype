@@ -900,6 +900,14 @@ func _add_court(col: VBoxContainer) -> void:
 		var cid := String(person.get("content_id", ""))
 		var rel: Dictionary = w.social.get_relationship(cid)
 		var status_str := Relationships.status_label(String(rel.get("status", Relationships.UNKNOWN)))
+		# Something new to say: an open visit, or a letter of theirs unread.
+		var fresh := false
+		for v in w.social.available_personal_conversations(String(person.get("id", "")), GameState.personal_conversation_context()):
+			fresh = fresh or (bool(v.get("ok", false)) and not bool(v.get("replay", false)))
+		for l in w.social.letters:
+			fresh = fresh or (String(l.get("sender_id", "")) == String(person.get("id", "")) and not bool(l.get("read", false)))
+		if fresh:
+			col.add_child(_note("%s would like a word · new" % name_str, Style.BRASS))
 		var btn := _button("Speak with %s (%s · %s)" % [name_str, role_str, status_str], func():
 			_remember_scroll()
 			Scenes.active_candidate_id = cid
