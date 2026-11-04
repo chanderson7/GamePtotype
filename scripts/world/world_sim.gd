@@ -31,6 +31,9 @@ const SEA_SPEED := 25.0
 const BANDIT_SPEED := 34.0
 ## A bandit band this close to the player blocks the road.
 const ENCOUNTER_RADIUS := 30.0
+## At most one friendly lord stops you on the road in this many hours; any others in
+## that time ride past with a wave.
+const FRIENDLY_STOP_GAP := 12.0
 ## Pace on the map, as a share of a party's base speed. A small company is quicker than
 ## a big one (PACE_PER_MAN slower for every man, between PACE_MIN and PACE_MAX), a mounted
 ## one quicker again (up to PACE_HORSE more when every man rides), and wounded men and an
@@ -137,6 +140,11 @@ var activity_log: Array = []
 var encounter := -1
 ## The party id of the allied lord/army the player is following, or -1.
 var following_party := -1
+## The hour of the newest war news a friendly lord has told you (-1: none yet). Lords stop
+## you to tell you what happened since; with nothing new, they ride past.
+var news_heard_at := -1.0
+## Until this hour, friendly lords ride past rather than stop (see FRIENDLY_STOP_GAP).
+var friendly_quiet_until := 0.0
 ## An assault waiting on the player: {army, role ("lead" with an allied army, "defend"
 ## at the player's fief), target}. The clock stands still until it is answered.
 var pending_assault: Dictionary = {}
@@ -1251,11 +1259,44 @@ func _check_encounter() -> void:
 				emit_event({"type": "encounter", "party": lp.id})
 				return
 			elif rel == "friendly" and player().moving():
-				# A friendly lord stops to talk on the road, not while you rest in town.
-				encounter = lp.id
+				# A friendly lord on the road stops to talk only with something to say: you've
+				# never met, there's news since you last heard, or he has an army you could
+				# ride with. Otherwise he rides past with a wave, and so does any lord within
+				# a few hours of the last one who stopped you.
 				lp.grace_until = hour + 12.0
-				emit_event({"type": "friendly_encounter", "party": lp.id})
-				return
+				var reason := friendly_reason(lp)
+				if reason != "" and hour >= friendly_quiet_until:
+					encounter = lp.id
+					friendly_quiet_until = hour + FRIENDLY_STOP_GAP
+					lord_of(lp)["greeted"] = 1
+					emit_event({"type": "friendly_encounter", "party": lp.id, "reason": reason})
+					return
+				emit_event({"type": "friendly_pass", "party": lp.id})
+
+
+## Why a friendly lord would stop you: "first" (you've never met), "news" (war news since
+## you last heard), "army" (he leads an army your contract lets you ride with), or "".
+func friendly_reason(lp: Party) -> String:
+	var l: Dictionary = lord_of(lp)
+	if not l.is_empty() and int(l.get("greeted", 0)) == 0:
+		return "first"
+	if not fresh_news().is_empty():
+		return "news"
+	var gs = _active_game_state()
+	if gs != null and gs.has_contract() and gs.contract_realm() == lp.faction and following_party != lp.id:
+		var army: Dictionary = MarshalArmies.for_party(self, lp.id)
+		if not army.is_empty() and int(army.get("leader", -1)) == lp.id:
+			return "army"
+	return ""
+
+
+## War and siege news since a lord last told you any, newest first.
+func fresh_news() -> Array:
+	var out := []
+	for e in activity_log:
+		if String(e.get("category", "")) in ["war", "siege"] and float(e.get("hour", 0.0)) > news_heard_at:
+			out.append(e)
+	return out
 
 
 func _respawn() -> void:
@@ -2518,7 +2559,8 @@ func to_dict() -> Dictionary:
 			"raiding": p.raiding, "raid_village": p.raid_village,
 			"is_chief_band": p.is_chief_band, "chief_name": p.chief_name, "lord": p.lord})
 	return {
-		"hour": hour, "culture": culture, "encounter": encounter, "following_party": following_party, "pending_assault": pending_assault.duplicate(), "next_id": _next_id,
+		"hour": hour, "culture": culture, "encounter": encounter, "following_party": following_party,
+		"news_heard_at": news_heard_at, "friendly_quiet_until": friendly_quiet_until, "pending_assault": pending_assault.duplicate(), "next_id": _next_id,
 		"seed": str(rng.seed), "state": str(rng.state),
 		"respawns": respawns.duplicate(true), "parties": ps,
 		"offers": offers.duplicate(true), "offers_back": offers_back.duplicate(),
@@ -2590,6 +2632,9 @@ func from_dict(d: Dictionary) -> void:
 	culture = String(d.get("culture", Cultures.VARDISH))
 	encounter = int(d.get("encounter", -1))
 	following_party = int(d.get("following_party", -1))
+	# Saves from before lords kept quiet without news count everything as heard.
+	news_heard_at = float(d.get("news_heard_at", hour))
+	friendly_quiet_until = float(d.get("friendly_quiet_until", 0.0))
 	pending_assault = d.get("pending_assault", {}).duplicate() if typeof(d.get("pending_assault")) == TYPE_DICTIONARY else {}
 	if pending_assault.has("army"):
 		pending_assault["army"] = int(pending_assault["army"])
@@ -2683,6 +2728,10 @@ func from_dict(d: Dictionary) -> void:
 		# A world saved before there were lords gets its lords now.
 		_spawn_lords()
 		_lord_day = int(hour / 24.0)
+	if not d.has("news_heard_at"):
+		# Saved before lords kept quiet: you'd have met them all on the road by now.
+		for l in lords:
+			l["greeted"] = 1
 
 	campaign_armies = d.get("campaign_armies", []).duplicate(true)
 	army_ready_at = d.get("army_ready_at", {}).duplicate()
@@ -2731,6 +2780,9 @@ static func _clean_lord(e: Dictionary) -> Dictionary:
 	# How often this lord has fought the player's company, once they have.
 	if e.has("met_player"):
 		ordered["met_player"] = int(e["met_player"])
+	# Whether this lord has stopped to greet you on the road.
+	if e.has("greeted"):
+		ordered["greeted"] = int(e["greeted"])
 	return ordered
 
 

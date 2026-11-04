@@ -91,6 +91,16 @@ var labels: Node2D
 var _plate: StyleBoxFlat
 
 var top_panel: PanelContainer
+var _toast_panel: PanelContainer
+var _toast_label: Label
+var _toast_tween: Tween
+## The news the friendly lord you're talking to has told you, by party id, so he doesn't
+## forget it when you come back to him from the war news.
+var _greeting_news := {}
+## The free-floating HUD layer: the toast sits on it, outside any layout.
+var _hud: Control
+## How close a friendly lord must be, in encounter radii, for his sheet to offer Talk.
+const TALK_REACH := 4.0
 var clock_label: Label
 var resource_buttons := {}
 var _resource_icons := {}
@@ -248,6 +258,10 @@ func _process(delta: float) -> void:
 			"encounter", "friendly_encounter":
 				GameState.save_game()
 				_open_encounter()
+			"friendly_pass":
+				var passer = world.party(int(e["party"]))
+				if passer != null:
+					_toast(_pass_line(passer))
 			"ransom_offer":
 				GameState.save_game()
 				_open_ransom_sheet(int(e["lord_id"]))
@@ -468,6 +482,7 @@ func _build_hud() -> void:
 	var hud := Control.new()
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud = hud
 	hud.theme = Style.make_theme()
 	layer.add_child(hud)
 
@@ -731,6 +746,8 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub:
 	sheet_row.columns = maxi(1, 2 if n == 4 else mini(n, 3))
 	sheet_row.visible = n > 0
 	for c in sheet_row.get_children():
+		# Out now, not at the end of the frame, so the new tiles keep their names.
+		sheet_row.remove_child(c)
 		c.queue_free()
 	for spec in actions:
 		sheet_row.add_child(_dock_button(String(spec[0]), spec[1], spec.size() > 2 and spec[2], danger, n))
@@ -1081,6 +1098,11 @@ func _open_lord(lp) -> void:
 			buttons.append(["Ride with us", _on_follow_lord.bind(lp.id)])
 	elif rel == "neutral":
 		buttons.append(["Attack", _on_attack_lord.bind(lp), true])
+	if rel == "friendly" and world.encounter == -1 \
+			and world.party_pos(lp).distance_to(world.party_pos(world.player())) <= WorldSim.ENCOUNTER_RADIUS * TALK_REACH:
+		# A friendly lord rides past without stopping when he has nothing new; tap him
+		# while he's near to talk anyway.
+		buttons.push_front(["Talk", _on_talk_to_lord.bind(lp.id), true])
 	buttons.append(["Close", _close_sheet])
 	_show_sheet("lord", lp.name, "%s. %s: %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, "")], buttons)
 	var face := TextureRect.new()
@@ -1095,6 +1117,68 @@ func _open_lord(lp) -> void:
 	_sheet_header(face, realm_id if Heraldry.REALM_SIZES.has(realm_id) else _party_realm(lp), lp.name,
 		("Ruler" if l.get("ruler", false) else "Lord") + " of %s · %d squads" % [_realm_short(lp.faction), lp.army.size()],
 		[_men_chip(men, not GameState.has_specialization(Captains.SCOUT)), _pace_chip(lp), Widgets.chip(_lord_doing(l, lp), Style.MORALE_MID, "◆"), rel_chip])
+
+
+func _on_talk_to_lord(party_id: int) -> void:
+	if world.party(party_id) == null:
+		return
+	world.encounter = party_id
+	_open_encounter()
+
+
+## When something happened, said the way a man on the road would: "This morning,".
+func _ago(at: float) -> String:
+	var hours: float = world.hour - at
+	if hours < 6.0:
+		return "Just now,"
+	if hours < 24.0:
+		return "Earlier today,"
+	var days := int(hours / 24.0)
+	return "Yesterday," if days == 1 else "%d days ago," % days
+
+
+## A friendly lord riding past without stopping, in a line for the top of the map.
+func _pass_line(p) -> String:
+	var lines := ["%s rides past and raises a hand.", "%s's company passes by with a nod.", "%s rides by; no news on the road."]
+	return lines[absi(int(p.id)) % lines.size()] % p.name
+
+
+## A short line under the top bar that fades on its own, for something worth seeing that
+## doesn't need an answer.
+func _toast(text: String) -> void:
+	if _toast_panel == null:
+		_toast_panel = PanelContainer.new()
+		_toast_panel.name = "Toast"
+		_toast_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var box := Style.box(Color(Style.NIGHT, 0.92), Style.RULE, 2, 22)
+		box.content_margin_left = 22
+		box.content_margin_right = 22
+		box.content_margin_top = 12
+		box.content_margin_bottom = 12
+		_toast_panel.add_theme_stylebox_override("panel", box)
+		_toast_label = Style.label("", Style.SMALL, Style.TEXT)
+		_toast_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_toast_panel.add_child(_toast_label)
+		_hud.add_child(_toast_panel)
+	_toast_label.text = text
+	var width: float = minf(get_viewport_rect().size.x - 48.0, 640.0)
+	# The words get their width before the panel measures them, or they'd wrap after every
+	# word and stand the panel up the whole screen.
+	_toast_label.custom_minimum_size = Vector2(width - 44.0, 0)
+	# A panel grows to fit but never shrinks on its own, and the wrapped words only know
+	# their height a frame later: fit it now and again then.
+	_toast_panel.reset_size()
+	_toast_panel.reset_size.call_deferred()
+	_toast_panel.position = Vector2((get_viewport_rect().size.x - width) * 0.5, top_panel.get_global_rect().end.y + 14.0)
+	_toast_panel.visible = true
+	_toast_panel.modulate.a = 1.0
+	if _toast_tween != null:
+		_toast_tween.kill()
+	_toast_tween = create_tween()
+	_toast_tween.tween_interval(3.0)
+	_toast_tween.tween_property(_toast_panel, "modulate:a", 0.0, 0.6)
+	_toast_tween.tween_callback(func(): _toast_panel.visible = false)
 
 
 func _on_attack_lord(lp) -> void:
@@ -1159,8 +1243,25 @@ func _open_friendly_lord_encounter(b) -> void:
 	var title := "%s of %s" % [b.name, Data.the_realm(realm)]
 	var greeter: Dictionary = world.lord_of(b)
 	var text := LordVoice.line("greet", greeter) if not greeter.is_empty() else "%s halts on the road to greet you." % b.name
+	# What's happened since a lord last told you, newest first: the reason he stopped. He
+	# tells it once; coming back to him from More news, he says the same.
+	if not _greeting_news.has(b.id):
+		var told := ""
+		var news: Array = world.fresh_news()
+		if not news.is_empty():
+			var lines := []
+			for e in news.slice(0, 2):
+				lines.append("%s %s" % [_ago(float(e["hour"])), String(e["text"])])
+			told = "News from the road: " + " ".join(PackedStringArray(lines))
+			if news.size() > 2:
+				told += " And %d more besides." % (news.size() - 2)
+			world.news_heard_at = float(news[0]["hour"])
+		_greeting_news = {b.id: told}
+	var told_now := String(_greeting_news[b.id])
+	if told_now != "":
+		text += "\n\n" + told_now
 	var buttons := []
-	buttons.append(["News of the war", _open_wars, true])
+	buttons.append(["More news" if told_now != "" else "News of the war", _open_wars, true])
 	if GameState.has_contract() and GameState.contract_realm() == b.faction:
 		if world.following_party == b.id:
 			buttons.append(["Part ways", _on_part_ways_friendly])
@@ -2467,7 +2568,7 @@ func _refresh_hud() -> void:
 	if world.encounter != -1:
 		var enc_p = world.party(world.encounter)
 		if enc_p != null and enc_p.kind == WorldSim.LORD:
-			status_label.text = "%s blocks your road" % enc_p.name
+			status_label.text = ("%s stops to talk" if _sheet_is_danger("encounter") == false and enc_p.kind == WorldSim.LORD else "%s blocks your road") % enc_p.name
 		else:
 			status_label.text = "Bandits block the road"
 	elif world.following_party != -1:
