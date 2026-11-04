@@ -26,7 +26,8 @@ var limits: Dictionary = {
 	"active_military_assignment_id": ""
 }
 var pending_settlements: Array = []
-var scheduled_ceremony: Dictionary = {}
+## The public wedding, from the proposal to the day (see plan_wedding): {} when none.
+var wedding: Dictionary = {}
 
 var _next_project_id := 1
 var _next_letter_id := 1
@@ -44,7 +45,7 @@ func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
 	projects.clear()
 	letters.clear()
 	pending_settlements.clear()
-	scheduled_ceremony.clear()
+	wedding.clear()
 	_next_project_id = 1
 	_next_letter_id = 1
 
@@ -180,7 +181,7 @@ func to_dict() -> Dictionary:
 		"letters": letters,
 		"limits": limits,
 		"pending_settlements": pending_settlements,
-		"scheduled_ceremony": scheduled_ceremony,
+		"wedding": wedding,
 		"next_project_id": _next_project_id,
 		"next_letter_id": _next_letter_id
 	}
@@ -202,7 +203,18 @@ func from_dict(data: Dictionary) -> void:
 		"active_military_assignment_id": ""
 	}).duplicate(true)
 	pending_settlements = data.get("pending_settlements", []).duplicate(true)
-	scheduled_ceremony = data.get("scheduled_ceremony", {}).duplicate(true)
+	wedding = data.get("wedding", {}).duplicate(true)
+	# Older saves: a ceremony on a six-hour timer waits, ready, at its place instead.
+	var old_ceremony: Dictionary = data.get("scheduled_ceremony", {})
+	if wedding.is_empty() and bool(old_ceremony.get("active", false)) and not bool(old_ceremony.get("completed", false)):
+		var oc := String(old_ceremony.get("candidate_id", ""))
+		wedding = {"state": "ready", "candidate_id": oc, "person_id": String(old_ceremony.get("person_id", "")),
+			"place": String(old_ceremony.get("settlement_id", "")), "chosen_hour": float(old_ceremony.get("scheduled_at_hour", 0.0)),
+			"ready_hour": float(old_ceremony.get("scheduled_at_hour", 0.0)), "reserved_silver": int(old_ceremony.get("cost_silver", 0)),
+			"reserved_food": int(old_ceremony.get("cost_food", 0)), "postponed_reason": ""}
+	for k in ["reserved_silver", "reserved_food", "day"]:
+		if wedding.has(k):
+			wedding[k] = int(wedding[k])
 	_next_project_id = int(data.get("next_project_id", 1))
 	_next_letter_id = int(data.get("next_letter_id", 1))
 	# JSON reads all numbers as floats; restore integral identity/progression fields.
@@ -228,11 +240,8 @@ func step(dt: float, world_ref: RefCounted) -> void:
 	var cur_hour: float = world_ref.hour
 	_hour = cur_hour
 
-	# 1. Advance scheduled ceremony if active.
-	if scheduled_ceremony.get("active", false) and not scheduled_ceremony.get("completed", false):
-		var target_hour := float(scheduled_ceremony.get("scheduled_at_hour", 0.0)) + float(scheduled_ceremony.get("duration_hours", 6.0))
-		if cur_hour >= target_hour:
-			_conclude_ceremony(world_ref)
+	# 1. A planned wedding gets ready, or is put off when its place can't host it.
+	_step_wedding(cur_hour, world_ref)
 
 	# 2. Check project expiry (7 days).
 	for proj_id in projects.keys():
@@ -591,6 +600,10 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 		"reward_claimed": false
 	}
 
+	if target_ch == 5 and wedding_active(candidate_id):
+		out["ok"] = false
+		out["reason"] = "Your wedding is already being planned."
+		return out
 	if target_ch > 0 and target_ch != current_ch:
 		if target_ch < current_ch:
 			out["ok"] = false
@@ -679,8 +692,7 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 							out["reason"] = "Requires %d silver and %d rations for public celebration." % [out["cost_silver"], out["cost_food"]]
 						out["new_status"] = Relationships.ENGAGED
 						out["requires_confirmation"] = true
-						var seat_name := String(WorldData.SETTLEMENTS.get(person.get("residence", ""), {}).get("name", person.get("residence", "")))
-						out["confirmation_text"] = "Schedule a public ceremony at %s with %s?" % [seat_name, candidate_name]
+						out["confirmation_text"] = "Ask %s to marry you before her house? 100 silver and 100 rations are set aside for the wedding, and come back if it's called off." % candidate_name
 				"marry_private":
 					var check := Relationships.can_marry_private(sim_rel)
 					if not check["ok"]:
@@ -811,11 +823,18 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 			match choice_id:
 				"marry_public":
 					rel["status"] = Relationships.ENGAGED
-					schedule_ceremony(candidate_id, false, person["residence"], float(context.get("current_hour", 0.0)))
+					add_memory(person["id"], "%s said yes." % candidate_name)
+					_memory_info = {}
+					wedding = {"state": "planning", "candidate_id": candidate_id, "person_id": String(person["id"]), "place": "",
+						"chosen_hour": float(context.get("current_hour", 0.0)), "ready_hour": 0.0,
+						"reserved_silver": int(prev["cost_silver"]), "reserved_food": int(prev["cost_food"]), "postponed_reason": ""}
 				"marry_private":
 					rel["status"] = Relationships.MARRIED
 					limits["current_partner_id"] = candidate_id
-					add_memory(person["id"], "Exchanged private vows with %s." % candidate_name)
+					_memory_info = {}
+					add_memory(person["id"], "Exchanged private vows with %s, by one candle." % candidate_name,
+						{"kind": "ceremony", "private": true, "scene_id": "wedding", "candidate": candidate_id,
+						"place": String(person.get("residence", ""))})
 				"friendship":
 					rel["status"] = Relationships.FRIENDSHIP
 					_form_pact(house["id"], "friendship", [person["id"], "player"], [person["residence"]], float(context.get("current_hour", 0.0)))
@@ -832,42 +851,109 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 
 # ---------------------------------------------------------------- ceremonies & pacts
 
-func schedule_ceremony(candidate_id: String, is_private: bool, settlement_id: String, cur_hour: float) -> Dictionary:
-	var person: Dictionary = get_candidate_person(candidate_id)
-	var silver_cost := Relationships.PRIVATE_CEREMONY_SILVER if is_private else Relationships.PUBLIC_CEREMONY_SILVER
-	var food_cost := Relationships.PRIVATE_CEREMONY_FOOD if is_private else Relationships.PUBLIC_CEREMONY_FOOD
-
-	scheduled_ceremony = {
-		"active": true,
-		"candidate_id": candidate_id,
-		"person_id": person["id"],
-		"is_private": is_private,
-		"settlement_id": settlement_id,
-		"scheduled_at_hour": cur_hour,
-		"duration_hours": Relationships.CEREMONY_HOURS,
-		"cost_silver": silver_cost,
-		"cost_food": food_cost,
-		"completed": false
-	}
-	return scheduled_ceremony
+## Whether a public wedding is planned and not yet held (or called off).
+func wedding_active(candidate_id: String = "") -> bool:
+	if wedding.is_empty() or not (String(wedding.get("state", "")) in ["planning", "preparing", "ready", "postponed"]):
+		return false
+	return candidate_id == "" or String(wedding.get("candidate_id", "")) == candidate_id
 
 
-func _conclude_ceremony(world_ref: RefCounted) -> void:
-	if not scheduled_ceremony.get("active", false):
+## The first dusk at least a day after `hour`: when a wedding chosen then is ready.
+static func wedding_ready_hour(hour: float) -> float:
+	var day_start := floorf(hour / 24.0) * 24.0
+	var dusk := day_start + Relationships.WEDDING_DUSK_HOUR
+	while dusk < hour + Relationships.WEDDING_PREPARE_HOURS:
+		dusk += 24.0
+	return dusk
+
+
+## Hold the wedding at `place`: it is ready at the first dusk a day from now.
+func plan_wedding(place: String, cur_hour: float) -> Dictionary:
+	if not wedding_active():
+		return {"ok": false, "reason": "No wedding is planned."}
+	if String(wedding["state"]) == "ready" and String(wedding.get("place", "")) == place:
+		return {"ok": true, "wedding": wedding}
+	wedding["place"] = place
+	wedding["state"] = "preparing"
+	wedding["chosen_hour"] = cur_hour
+	wedding["ready_hour"] = wedding_ready_hour(cur_hour)
+	wedding["postponed_reason"] = ""
+	wedding["letter_sent"] = false
+	return {"ok": true, "wedding": wedding}
+
+
+func _step_wedding(cur_hour: float, world_ref: RefCounted) -> void:
+	if not wedding_active():
 		return
-	scheduled_ceremony["completed"] = true
-	scheduled_ceremony["active"] = false
-	var cand_id: String = String(scheduled_ceremony.get("candidate_id", ""))
+	var state := String(wedding["state"])
+	var place := String(wedding.get("place", ""))
+	if place == "" or state == "postponed":
+		return
+	var blocked: String = world_ref.wedding_blocked(place) if world_ref != null and world_ref.has_method("wedding_blocked") else ""
+	if blocked != "":
+		wedding["state"] = "postponed"
+		wedding["postponed_reason"] = blocked
+		add_letter(String(wedding["person_id"]), "wedding_postponed", "", cur_hour, String(get_person(String(wedding["person_id"])).get("residence", place)),
+			{"old": WorldData.settlement(place)["name"] if WorldData.SETTLEMENTS.has(place) else place})
+		return
+	if state == "preparing" and cur_hour >= float(wedding.get("ready_hour", 0.0)):
+		wedding["state"] = "ready"
+		if not bool(wedding.get("letter_sent", false)):
+			wedding["letter_sent"] = true
+			add_letter(String(wedding["person_id"]), "wedding_ready", "", cur_hour, place)
+
+
+## The wedding is held: married, remembered with your words, and (publicly) a pact.
+## `info` = {vow, their_vow, toast, guests (names), seat (your seat, or "")}.
+func finish_wedding(info: Dictionary, cur_hour: float) -> Dictionary:
+	if not wedding_active():
+		return {"ok": false, "reason": "No wedding is planned."}
+	_hour = maxf(_hour, cur_hour)
+	var cand_id := String(wedding["candidate_id"])
 	var person: Dictionary = get_candidate_person(cand_id)
 	var rel: Dictionary = relationships.get(cand_id, {})
-	var hid: String = person.get("house_id", "")
 	rel["status"] = Relationships.MARRIED
 	limits["current_partner_id"] = cand_id
+	var place := String(wedding["place"])
+	var place_name := String(WorldData.settlement(place)["name"]) if WorldData.SETTLEMENTS.has(place) else place
+	wedding["state"] = "done"
+	wedding["day"] = int(cur_hour / 24.0) + 1
+	for k in ["vow", "their_vow", "toast"]:
+		wedding[k] = String(info.get(k, ""))
+	add_memory(String(person["id"]), "Married %s at %s." % [person.get("name", ""), place_name],
+		{"kind": "ceremony", "scene_id": "wedding", "place": place, "candidate": cand_id, "vow": String(info.get("vow", "")),
+		"their_vow": String(info.get("their_vow", "")), "toast": String(info.get("toast", "")), "guests": info.get("guests", []).duplicate()})
+	var sites := [String(person.get("residence", ""))]
+	var seat := String(info.get("seat", ""))
+	if seat != "" and not sites.has(seat):
+		sites.append(seat)
+	_form_pact(String(person.get("house_id", "")), "marriage", [person["id"], "player"], sites, cur_hour)
+	return {"ok": true, "wedding": wedding}
 
-	add_memory(person["id"], "Wedded in solemn ceremony at %s." % WorldData.settlement(String(scheduled_ceremony["settlement_id"]))["name"],
-		{"kind": "ceremony", "place": String(scheduled_ceremony["settlement_id"])})
-	if not scheduled_ceremony.get("is_private", false):
-		_form_pact(hid, "marriage", [person["id"], "player"], [person["residence"], "thornwall"], world_ref.hour)
+
+## Call the wedding off: back to committed, and what was set aside comes back.
+func cancel_wedding() -> Dictionary:
+	if not wedding_active():
+		return {"ok": false, "reason": "No wedding is planned."}
+	var cand_id := String(wedding["candidate_id"])
+	var refund := {"ok": true, "silver": int(wedding.get("reserved_silver", 0)), "food": int(wedding.get("reserved_food", 0))}
+	var rel: Dictionary = relationships.get(cand_id, {})
+	rel["status"] = Relationships.COMMITTED
+	# The chapter's last talk can be had again; its trust was given once already.
+	var q: Dictionary = quests.get("quest_%s" % cand_id, {})
+	q["chapter"] = 5
+	wedding["state"] = "cancelled"
+	wedding["reserved_silver"] = 0
+	wedding["reserved_food"] = 0
+	add_memory(String(wedding["person_id"]), "Called off the wedding, for now.", {"kind": "note", "candidate": cand_id})
+	return refund
+
+
+## Keep your words with the most recent memory of `person_id` (the private vows).
+func set_memory_words(person_id: String, words: Dictionary) -> void:
+	var log: Array = people.get(person_id, {}).get("memory_log", [])
+	if not log.is_empty():
+		(log[log.size() - 1] as Dictionary).merge(words, true)
 
 
 func _form_pact(house_id: String, origin: String, signatories: Array, protected_sites: Array, cur_hour: float) -> Dictionary:

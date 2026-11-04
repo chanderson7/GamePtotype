@@ -46,6 +46,16 @@ const PUBLIC_CEREMONY_SILVER := 100
 const PUBLIC_CEREMONY_FOOD := 100
 const PRIVATE_CEREMONY_SILVER := 0
 const PRIVATE_CEREMONY_FOOD := 0
+## The wedding is ready at the first dusk (this hour) at least this long after the place is chosen.
+const WEDDING_DUSK_HOUR := 18.0
+const WEDDING_PREPARE_HOURS := 24.0
+const WEDDING_RENOWN := 15
+## Regard for the host and for each other lord who came, once.
+const WEDDING_HOST_REGARD := 10
+const WEDDING_GUEST_REGARD := 5
+## Lords who think this well of you come (up to WEDDING_LORD_GUESTS of them).
+const WEDDING_MIN_REGARD := 20
+const WEDDING_LORD_GUESTS := 3
 
 ## Escrow & Support Projects.
 const MAX_ESCROW_SPONSOR := 300

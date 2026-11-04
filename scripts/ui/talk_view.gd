@@ -175,8 +175,8 @@ static func time_word(hour: float) -> String:
 	return "night"
 
 
-## A face on the stage: "left" (the one speaking with you, large), or "left"/"right" for
-## two faces. `pixel` keeps pixel art crisp; `height` is a share of the stage.
+## A face on the stage: "left" (the one speaking with you, large), "left"/"right" for
+## two faces, or "center". `pixel` keeps pixel art crisp; `height` is a share of the stage.
 func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float = 0.92, dim: bool = false) -> void:
 	var face: TextureRect = _faces.get(side, {}).get("node")
 	if face == null:
@@ -214,7 +214,9 @@ func _place_face(side: String) -> void:
 	var w := h * 0.75
 	face.size = Vector2(w, h)
 	var two := _faces.size() > 1
-	if side == "left":
+	if side == "center":
+		face.position = Vector2((s.x - w) * 0.5, s.y - h)
+	elif side == "left":
 		face.position = Vector2(s.x * (0.02 if two else 0.04), s.y - h)
 	else:
 		face.position = Vector2(s.x * 0.98 - w, s.y - h)

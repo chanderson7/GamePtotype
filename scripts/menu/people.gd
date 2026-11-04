@@ -531,7 +531,13 @@ func _chip(text: String, bg: Color, fg: Color, icon: String = "") -> PanelContai
 func _status_chip(cand: String) -> PanelContainer:
 	var status := _status(cand)
 	match status:
-		Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED:
+		Relationships.MARRIED:
+			var since := ""
+			for m in _social().memory_book(String(_candidate_person(cand).get("id", ""))):
+				if String(m.get("kind", "")) == "ceremony":
+					since = " · since day %d" % int(m.get("day", 1))
+			return _chip("Married" + since, Color("4a2232"), Color("ffc2d0"), "heart")
+		Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED:
 			return _chip(Relationships.status_label(status), Color("4a2232"), Color("ffc2d0"), "heart")
 		Relationships.UNKNOWN:
 			return _chip("Not yet met", Color("262c40"), Color("b5bcd0"))
@@ -934,7 +940,7 @@ func _draw_step_dot(dot: Control, n: int, state: String) -> void:
 			dot.draw_texture_rect(lock, Rect2(c - Vector2(11, 11), Vector2(22, 22)), false, Color("79809a"))
 
 
-const MEMORY_ICONS := {"visit": "cup", "letter": "mail", "decision": "book", "ceremony": "crown", "move": "mappin", "note": "heart"}
+const MEMORY_ICONS := {"visit": "cup", "letter": "mail", "decision": "book", "ceremony": "rings", "move": "mappin", "note": "heart"}
 
 
 ## A memory you can open: a visit tells itself again, a letter opens, a decision shows what
@@ -996,6 +1002,10 @@ func _open_memory(cand: String, e: Dictionary, detail: Label) -> void:
 		"letter":
 			if String(e.get("letter_id", "")) != "":
 				_open_letter(String(e["letter_id"]))
+		"ceremony" when String(e.get("scene_id", "")) == "wedding":
+			Scenes.wedding_replay = String(e.get("id", ""))
+			Scenes.wedding_return = "res://scenes/people.tscn"
+			Scenes.go("res://scenes/wedding.tscn")
 		"move", "ceremony":
 			if String(e.get("place", "")) != "":
 				_show_on_map(String(e["place"]))

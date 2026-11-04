@@ -953,6 +953,10 @@ func _open_here() -> void:
 		return
 	_selected = id
 	var buttons := [["Enter", _on_enter, true], ["Wait", _on_wait], ["Warband", _on_warband], ["Close", _close_sheet]]
+	var wedding_here := GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == id
+	if wedding_here:
+		buttons[0][2] = false
+		buttons.push_front(["Begin your wedding", _on_begin_wedding, true])
 	if GameState.siege_check(id)["ok"]:
 		buttons.push_front(["Storm the walls", _open_siege.bind(id), true])
 		buttons[1][2] = false
@@ -969,6 +973,9 @@ func _open_here() -> void:
 		body += "%d %s looking for work." % [offers.size(), "squad is" if offers.size() == 1 else "squads are"]
 	if world.player_in_town():
 		body += " Reinforce and train in town."
+	if wedding_here:
+		var who := String(world.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
+		body = "Your wedding is ready here. %s is waiting for you. It waits while you're in town; there's no hurry.\n" % who + body
 	_show_sheet("here", String(Data.settlement(id)["name"]), body, buttons, world.brief(id))
 
 
@@ -1630,6 +1637,13 @@ func _on_travel(id: String) -> void:
 func _on_wait() -> void:
 	if world.wait(8.0):
 		_close_sheet()
+
+
+func _on_begin_wedding() -> void:
+	GameState.save_game()
+	Scenes.wedding_replay = ""
+	Scenes.wedding_return = "res://scenes/world_map.tscn"
+	Scenes.go("res://scenes/wedding.tscn")
 
 
 func _on_enter() -> void:
@@ -2795,6 +2809,32 @@ func _draw() -> void:
 			_draw_party(world.player(), "rider", Cultures.color(world.culture), px)
 	_draw_sieges(px)
 	_draw_aftermath(px)
+	_draw_wedding(px)
+
+
+## A gold ring around the place your wedding will be held, while it's planned there.
+func _draw_wedding(px: float) -> void:
+	var place := _wedding_place()
+	if place == "":
+		return
+	var c := _to_screen(Data.pos(place))
+	var ready := String(GameState.wedding().get("state", "")) == "ready"
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 400.0) if ready and not Style.motion_reduced() else 0.0
+	draw_arc(c, 30.0 * px, 0.0, TAU, 48, Color(0, 0, 0, 0.5), 5.0 * px)
+	draw_arc(c, 30.0 * px, 0.0, TAU, 48, Color("f3d27a"), 2.5 * px)
+	if ready:
+		draw_arc(c, (34.0 + pulse * 4.0) * px, 0.0, TAU, 48, Color(Style.BRASS, 0.6 - pulse * 0.4), 2.0 * px)
+
+
+## Where the planned wedding is (while it's being made ready or is ready), or "".
+func _wedding_place() -> String:
+	if not GameState.wedding_active():
+		return ""
+	var w: Dictionary = GameState.wedding()
+	if not (String(w["state"]) in ["preparing", "ready"]):
+		return ""
+	var place := String(w.get("place", ""))
+	return place if Data.SETTLEMENTS.has(place) else ""
 
 
 ## A siege ring and the besiegers' tents around every settlement under siege, in the
@@ -3132,6 +3172,11 @@ func _draw_labels() -> void:
 		var size := Style.SMALL if s["type"] != Data.VILLAGE else 19
 		_name_plate(_to_screen(s["pos"]) + Vector2(0, 8.0 + px * 2.0), String(s["name"]), size,
 			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
+	var wp := _wedding_place()
+	if wp != "":
+		var ready := String(GameState.wedding()["state"]) == "ready"
+		_name_plate(_to_screen(Data.pos(wp)) + Vector2(0, -34.0 * px - 18.0), "Wedding · %s" % ("ready" if ready else GameState._when_text(float(GameState.wedding()["ready_hour"]))),
+			Style.SMALL - 2, Color("f3d27a"))
 	# Parties' plates step up out of the way of any name already placed.
 	for b in world.bands():
 		if px >= 2.0:

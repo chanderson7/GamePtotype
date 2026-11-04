@@ -891,9 +891,20 @@ func _add_court(col: VBoxContainer) -> void:
 	if w == null or w.social == null:
 		return
 	var residents: Array = w.social.residents_at(place)
-	if residents.is_empty():
+	var wedding_here: bool = GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == place
+	if residents.is_empty() and not wedding_here:
 		return
 	col.add_child(_section("Court & Nobles"))
+	if wedding_here:
+		var who := String(w.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
+		col.add_child(_note("%s · Wedding day · everything is ready" % who, Style.BRASS))
+		var wb := _button("Begin your wedding", func():
+			_remember_scroll()
+			Scenes.wedding_replay = ""
+			Scenes.wedding_return = "res://scenes/settlement.tscn"
+			Scenes.go("res://scenes/wedding.tscn"))
+		wb.name = "BeginWedding"
+		col.add_child(wb)
 	for person in residents:
 		var name_str := String(person.get("name", "Noble"))
 		var role_str := String(person.get("role", "Resident"))

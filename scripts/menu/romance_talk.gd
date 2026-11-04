@@ -9,6 +9,8 @@ const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const Stories = preload("res://scripts/data/personal_conversations.gd")
 const Lines = preload("res://scripts/data/romance_talk_lines.gd")
 const Letters = preload("res://scripts/data/letters.gd")
+const WeddingLines = preload("res://scripts/data/wedding_lines.gd")
+const Data = preload("res://scripts/world/world_data.gd")
 
 ## Where each person is usually found.
 const ROOMS := {"edda": "common_room", "farid": "envoy_room", "kaede": "archive_room"}
@@ -153,7 +155,13 @@ func _hub(first: bool = false) -> void:
 	var ch := _chapter()
 	var story: Dictionary = RomanceStories.story_data(cand)
 	var cinfo: Dictionary = story.get("chapters", {}).get(ch, {})
-	if not cinfo.is_empty() and _status() != Relationships.ENDED and not (ch >= CHAPTERS and _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
+	if _social().wedding_active(cand):
+		var w: Dictionary = GameState.wedding()
+		var tag: String = {"planning": "choose where", "postponed": "postponed · choose a new place",
+			"preparing": "at %s · %s" % [Letters.place_name(String(w.get("place", ""))), "being made ready"],
+			"ready": "ready at %s · ride there" % Letters.place_name(String(w.get("place", "")))}.get(String(w["state"]), "")
+		replies.append({"id": "wedding", "text": "About our wedding", "bare": true, "tag": tag, "tone": "gold", "act": _wedding_talk})
+	elif not cinfo.is_empty() and _status() != Relationships.ENDED and not (ch >= CHAPTERS and _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
 		replies.append({"id": "story", "text": "Our story · Chapter %d: %s" % [ch, cinfo.get("title", "")], "bare": true,
 			"tag": "decisions · they change how things stand", "tone": "gold", "act": _story})
 	# Time together.
@@ -221,7 +229,7 @@ func _story() -> void:
 				replies.append(_decision(String(v["id"]), "%s: %s" % [v["name"], v["text"]], String(v["response"])))
 		5:
 			if bool(_rel().get("romantic_intent", false)):
-				replies.append(_decision("marry_public", "Marry me, before your house and everyone.", "%s accepts. Preparations begin for a public wedding." % _name))
+				replies.append(_decision("marry_public", "Marry me, before your house and everyone.", "Yes. Obviously, yes. Give me a moment; I'm going to need a list."))
 				replies.append(_decision("marry_private", "Let's make our vows quietly, just us.", "In a quiet place, you and %s exchange vows." % _name))
 			replies.append(_decision("friendship", "Let's swear friendship, and stand by each other's houses.", "You and %s make a lasting pledge of friendship." % _name))
 			replies.append(_decision("remain_close", "Let's stay close, and let time decide.", "You agree to let time and quiet companionship guide what comes next."))
@@ -301,8 +309,143 @@ func _decide(choice_id: String, text: String, response: String, prev: Dictionary
 	add_to_log(note(_effects(prev).capitalize() + ".", Style.MORALE_HIGH if int(prev.get("trust_change", 0)) >= 0 else Style.MORALE_LOW))
 	_ch1_topic_done = false
 	_after_change()
+	if choice_id == "marry_public":
+		_where(false)
+		return
+	if choice_id == "marry_private":
+		_private_vows()
+		return
 	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
 		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+
+
+# ---------------------------------------------------------------- the wedding
+
+## Where you'll marry: her seat, yours, or another friendly town near you.
+func _where(cost_note: bool = true) -> void:
+	var w: Dictionary = GameState.wedding()
+	add_to_log(note("Where will you marry?", Style.BRASS))
+	if cost_note:
+		add_to_log(note("%d silver and %d rations are set aside for it, and come back if it's called off." % [int(w.get("reserved_silver", 0)), int(w.get("reserved_food", 0))], Style.MUTED))
+	var replies := []
+	var others := []
+	for p in GameState.wedding_places(cand):
+		var days := _ride_text(float(p["hours"]))
+		match String(p["kind"]):
+			"hers":
+				replies.append(_place_reply(p, "Here in %s, with your house." % p["name"] if p["hours"] < 1.0 else "At %s, with your house." % p["name"],
+					"Her house's seat · %s · ready %s" % [days, GameState._when_text(_social().wedding_ready_hour(GameState.world.hour))]))
+			"yours":
+				replies.append(_place_reply(p, "At %s, under my own banner." % p["name"], "Your seat · %s · you host" % days))
+			_:
+				others.append(p)
+	if not others.is_empty():
+		replies.append({"id": "elsewhere", "text": "Somewhere else we both know.", "tag": "a friendly town or castle near you", "act": _elsewhere.bind(others)})
+	replies.append({"id": "later", "text": "Let's decide later.", "tone": "quiet", "tag": "stay engaged · no hurry", "act": _hub})
+	set_replies(replies)
+
+
+func _elsewhere(others: Array) -> void:
+	say("you", "Somewhere else we both know.")
+	var replies := []
+	for p in others:
+		replies.append(_place_reply(p, "At %s." % p["name"], "%s · ready %s" % [_ride_text(float(p["hours"])), GameState._when_text(_social().wedding_ready_hour(GameState.world.hour))]))
+	replies.append({"id": "back", "text": "Back", "tone": "quiet", "act": _where})
+	set_replies(replies)
+
+
+func _place_reply(p: Dictionary, text: String, tag: String) -> Dictionary:
+	if not bool(p["ok"]):
+		return {"id": "place_" + String(p["id"]), "text": text, "tag": String(p["reason"]).capitalize(), "tone": "locked"}
+	return {"id": "place_" + String(p["id"]), "text": text, "tag": tag, "tone": "gold", "act": _choose_place.bind(String(p["id"]), text)}
+
+
+static func _ride_text(hours: float) -> String:
+	if hours < 1.0:
+		return "you're here"
+	if hours < 20.0:
+		return "%d hours' ride" % ceili(hours)
+	var d := ceili(hours / 24.0)
+	return "%d day%s' ride" % [d, "" if d == 1 else "s"]
+
+
+func _choose_place(place: String, text: String) -> void:
+	var r: Dictionary = GameState.choose_wedding_place(place)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "Not there.")), Style.MORALE_LOW))
+		return
+	say("you", text)
+	say("them", "%s, then. I'll send word when it's ready. Don't you dare be late. Actually, be as late as you need. Just come." % Letters.place_name(place), _name)
+	add_to_log(note("Your wedding at %s · ready %s · it waits for you there" % [Letters.place_name(place), GameState._when_text(float(GameState.wedding()["ready_hour"]))], Style.MORALE_HIGH))
+	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
+		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+
+
+func _wedding_talk() -> void:
+	clear_log()
+	var w: Dictionary = GameState.wedding()
+	say("you", "About our wedding…")
+	match String(w["state"]):
+		"planning":
+			say("them", "We still haven't said where. I have a list. It's not a short list.", _name)
+			_where()
+			return
+		"postponed":
+			say("them", "%s can't have us now: %s. So, somewhere else?" % [Letters.place_name(String(w.get("place", ""))), String(w.get("postponed_reason", "you'll have heard why"))], _name)
+			_where()
+			return
+		"ready":
+			say("them", "Everything's ready at %s. Come when you can; it waits for you." % Letters.place_name(String(w["place"])), _name)
+		_:
+			say("them", "It's at %s, %s. I'm counting the days. Don't tell anyone." % [Letters.place_name(String(w["place"])), GameState._when_text(float(w["ready_hour"]))], _name)
+	set_replies([
+		{"id": "move", "text": "Let's hold it somewhere else.", "tag": "choose a new place", "act": func():
+			say("you", "Let's hold it somewhere else.")
+			_where()},
+		{"id": "call_off", "text": "Let's call it off, for now.", "tone": "red", "tag": "what was set aside comes back", "act": _call_off},
+		{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub}])
+
+
+func _call_off(confirmed: bool = false) -> void:
+	if not confirmed:
+		say("you", "Let's call it off, for now.")
+		add_to_log(note("Call off the wedding? You stay together, as before; what was set aside comes back.", Style.BRASS))
+		set_replies([{"id": "confirm", "text": "Yes. Call it off.", "tone": "red", "act": _call_off.bind(true)},
+			{"id": "back", "text": "No, keep it.", "tone": "quiet", "act": _wedding_talk}])
+		return
+	var r: Dictionary = GameState.cancel_wedding()
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")), Style.MORALE_LOW))
+		return
+	say("them", "All right. I'm not going anywhere. Ask me again when the time is right.", _name)
+	add_to_log(note("Called off · %d silver and %d rations back" % [int(r.get("silver", 0)), int(r.get("food", 0))], Style.MUTED))
+	_after_change()
+	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
+		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+
+
+## Private vows, right here: her room at night, one candle, your words and hers.
+func _private_vows() -> void:
+	if _backdrop is TextureRect:
+		(_backdrop as TextureRect).modulate = Color(0.5, 0.54, 0.78)
+	var house: Dictionary = _house()
+	var host := String(GameState.world.social.get_person(String(house.get("head_person_id", ""))).get("name", "The head of the house"))
+	say("narration", "No guests, no banners. A candle, the door shut, the household asleep below.")
+	say("them", WeddingLines.fill(WeddingLines.PRIVATE.get(cand, ""), {"host": host}), _name)
+	var their: Dictionary = WeddingLines.their_vow(cand, _social().memory_book(person_id))
+	say("them", String(their["text"]), _name)
+	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
+	var replies := []
+	for v in WeddingLines.yours(cand):
+		var said := String(v["text"])
+		replies.append({"id": "vow_" + String(v["id"]), "text": said, "tag": String(v["tag"]), "act": func():
+			say("you", said)
+			GameState.record_private_vows(cand, said, String(their["text"]))
+			add_to_log(_keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
+			add_to_log(note("%s wasn't asked: %d standing · no marriage pact yet. Their good word can still be earned." % [String(house.get("name", "Her house")), Relationships.STANDING_PRIVATE_VOWS_PENALTY], Style.MORALE_LOW))
+			set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
+				{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])})
+	set_replies(replies)
 
 
 # ---------------------------------------------------------------- time together
@@ -418,13 +561,13 @@ func _finish(action: String) -> void:
 		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
 
 
-func _keepsake(text: String) -> Control:
+func _keepsake(text: String, icon: String = "cup") -> Control:
 	var p := PanelContainer.new()
 	p.name = "Keepsake"
 	p.add_theme_stylebox_override("panel", Style.box(Color("2a1f26"), Color("e88aa0"), 2, 14))
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 12)
-	h.add_child(Widgets.icon_rect("cup", 36))
+	h.add_child(Widgets.icon_rect(icon, 36))
 	var l := Style.label(text, Style.SMALL, Style.TEXT)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -460,6 +603,12 @@ func _recall(m: Dictionary) -> void:
 	var sid := String(m.get("scene_id", ""))
 	if String(m.get("kind", "")) == "visit" and _social().personal_record(person_id)["completed"].has(sid):
 		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "a memory · changes nothing", "act": _visit.bind(sid, true)})
+	elif String(m.get("kind", "")) == "ceremony" and sid == "wedding":
+		var mid := String(m["id"])
+		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "your wedding · changes nothing", "act": func():
+			Scenes.wedding_replay = mid
+			Scenes.wedding_return = Scenes.personal_conversation_return if opened_as == "visits" else Scenes.conversation_return
+			Scenes.go("res://scenes/wedding.tscn")})
 	replies.append({"id": "more", "text": "Remember something else.", "tone": "quiet", "act": _remember})
 	replies.append({"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub})
 	set_replies(replies)

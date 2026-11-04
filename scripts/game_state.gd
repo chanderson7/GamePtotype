@@ -26,6 +26,7 @@ const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const Relationships = preload("res://scripts/data/relationships.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -444,6 +445,262 @@ func _check_job_deadlines() -> void:
 				active_jobs.remove_at(i)
 				_end_commitment(String(job.get("id", "")), jtitle, "Cancelled: another force scattered the band first.")
 				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
+
+
+# ---------------------------------------------------------------- the wedding
+
+## The planned (or held) public wedding: {} when there is none.
+func wedding() -> Dictionary:
+	return world.social.wedding if world != null and world.social != null else {}
+
+
+func wedding_active() -> bool:
+	return world != null and world.social != null and world.social.wedding_active()
+
+
+## Your own seat, where you could host a wedding: your fief, if you still hold it.
+func wedding_seat() -> String:
+	if not has_fief() or bool(player_fief.get("lost", false)):
+		return ""
+	return fief_id()
+
+
+## Where the wedding with `cand` could be: [{id, kind ("hers", "yours", "other"), name,
+## hours, ok, reason}]. Her seat and yours first, then up to four friendly towns or castles
+## nearest you.
+func wedding_places(cand: String) -> Array:
+	var out := []
+	if world == null or world.social == null:
+		return out
+	var hers := String(world.social.get_candidate_person(cand).get("residence", ""))
+	var seen := {}
+	var add := func(id: String, kind: String) -> void:
+		if id == "" or seen.has(id) or not WorldData.SETTLEMENTS.has(id):
+			return
+		seen[id] = true
+		var why: String = world.wedding_blocked(id)
+		if why == "" and String(WorldData.settlement(id)["type"]) == WorldData.VILLAGE:
+			why = "a village is too small for a public wedding"
+		out.append({"id": id, "kind": kind, "name": _settlement_name(id), "hours": world.hours_to(id), "ok": why == "", "reason": why})
+	add.call(hers, "hers")
+	add.call(wedding_seat(), "yours")
+	var others := []
+	for id in WorldData.SETTLEMENTS:
+		if seen.has(id) or String(WorldData.settlement(id)["type"]) == WorldData.VILLAGE or world.wedding_blocked(id) != "":
+			continue
+		if world.relation_to_player(world.owner_of(id)) != "friendly" and world.owner_of(id) != WorldData.CROWN:
+			continue
+		others.append([world.hours_to(id), id])
+	others.sort_custom(func(x, y): return float(x[0]) < float(y[0]))
+	for o in others.slice(0, 4):
+		add.call(String(o[1]), "other")
+	return out
+
+
+func choose_wedding_place(place: String) -> Dictionary:
+	if not wedding_active():
+		return {"ok": false, "reason": "No wedding is planned."}
+	var why: String = world.wedding_blocked(place)
+	if why != "":
+		return {"ok": false, "reason": why}
+	var r: Dictionary = world.social.plan_wedding(place, world.hour)
+	save_game()
+	return r
+
+
+## Call the wedding off: what was set aside comes back.
+func cancel_wedding() -> Dictionary:
+	if not wedding_active():
+		return {"ok": false, "reason": "No wedding is planned."}
+	var r: Dictionary = world.social.cancel_wedding()
+	silver += int(r.get("silver", 0))
+	food += int(r.get("food", 0))
+	save_game()
+	return r
+
+
+## Whether the wedding can begin now: ready, and you are at its place.
+func wedding_can_begin() -> bool:
+	if not wedding_active():
+		return false
+	var w := wedding()
+	if String(w["state"]) != "ready":
+		return false
+	var p = world.player()
+	return p != null and not p.moving() and p.node == String(w.get("place", ""))
+
+
+## Who comes to the wedding: {guests: [{kind (host, lord, crown_lord, captain), id, name,
+## face (a record CaptainArt draws), regard}], absent: [{name, reason}], gift_from}.
+func wedding_guests() -> Dictionary:
+	var out := {"guests": [], "absent": [], "gift_from": ""}
+	if not wedding_active() and String(wedding().get("state", "")) != "done":
+		return out
+	var w := wedding()
+	var place := String(w.get("place", ""))
+	var host_realm: String = world.owner_of(place) if place != "" else ""
+	var person: Dictionary = world.social.get_candidate_person(String(w.get("candidate_id", "")))
+	var house: Dictionary = world.social.get_house(String(person.get("house_id", "")))
+	var host_id := int(world.social.get_person(String(house.get("head_person_id", ""))).get("lord_id", -1))
+	var taken := {}
+	var can_come := func(l: Dictionary) -> String:
+		if l.is_empty():
+			return "gone"
+		if String(l.get("state", "")) == "prisoner":
+			return "a captive"
+		var r := String(l.get("realm", ""))
+		if r != WorldData.CROWN and world.relation_to_player(r) == "hostile":
+			return "your realms are at war"
+		if host_realm != "" and r != host_realm and r != WorldData.CROWN and host_realm != WorldData.CROWN and world.at_war(r, host_realm):
+			return "at war with the host"
+		return ""
+	var host: Dictionary = world.lord_by_id(host_id) if host_id >= 0 else {}
+	if not host.is_empty():
+		taken[host_id] = true
+		var why: String = can_come.call(host)
+		if why == "":
+			out["guests"].append(_wedding_lord_guest(host, "host"))
+		else:
+			out["absent"].append({"name": String(host["name"]), "reason": why})
+	# Your sworn lords first if you wear a crown, then lords who think well of you.
+	var crown_lords := []
+	var friends := []
+	for l in world.lords:
+		var id := int(l.get("id", -1))
+		if taken.has(id):
+			continue
+		var regard := LordTalk.regard(self, l)
+		if String(l.get("realm", "")) == WorldData.CROWN:
+			crown_lords.append(l)
+		elif bool(l.get("met_player", false)) and regard >= Relationships.WEDDING_MIN_REGARD:
+			friends.append(l)
+		elif bool(l.get("met_player", false)) and String(l.get("realm", "")) != WorldData.CROWN and world.relation_to_player(String(l.get("realm", ""))) == "hostile" \
+				and out["absent"].size() < 2:
+			out["absent"].append({"name": String(l["name"]), "reason": "your realms are at war"})
+	friends.sort_custom(func(x, y): return LordTalk.regard(self, x) > LordTalk.regard(self, y))
+	var came := 0
+	for l in crown_lords.slice(0, Relationships.WEDDING_LORD_GUESTS):
+		if can_come.call(l) == "":
+			out["guests"].append(_wedding_lord_guest(l, "crown_lord"))
+	for l in friends:
+		if came >= Relationships.WEDDING_LORD_GUESTS:
+			break
+		if can_come.call(l) == "":
+			out["guests"].append(_wedding_lord_guest(l, "lord"))
+			came += 1
+	# The host realm's ruler sends a gift if they didn't come.
+	if host_realm != "" and host_realm != WorldData.CROWN:
+		for l in world.lords_of(host_realm):
+			if bool(l.get("ruler", false)) and not out["guests"].any(func(g): return int(g["id"]) == int(l["id"])):
+				if LordTalk.regard(self, l) >= 0:
+					out["gift_from"] = String(l["name"])
+				break
+	for sq in army:
+		var c = sq.get("captain")
+		if c is Dictionary:
+			out["guests"].append({"kind": "captain", "id": int(c["id"]), "name": String(c.get("first", c["name"])),
+				"face": c, "regard": 0, "battles": int(c.get("battles", 0))})
+	return out
+
+
+func _wedding_lord_guest(l: Dictionary, kind: String) -> Dictionary:
+	return {"kind": kind, "id": int(l["id"]), "name": String(l["name"]), "short": LordTalk.short_name(l),
+		"face": LordVoice.portrait_record(l), "regard": LordTalk.regard(self, l), "bearing": String(l.get("bearing", "")),
+		"realm": String(l.get("realm", ""))}
+
+
+## Hold the wedding: married, Regard for the lords who came, renown, the pact, the news.
+## `words` = {vow, their_vow, toast}. Returns {ok, guests, regard: [{name, amount}], renown, pact}.
+func finish_wedding(words: Dictionary) -> Dictionary:
+	if not wedding_active():
+		return {"ok": false, "reason": "No wedding is planned."}
+	var w := wedding()
+	var g := wedding_guests()
+	var regard := []
+	for guest in g["guests"]:
+		if String(guest["kind"]) == "captain":
+			continue
+		var l: Dictionary = world.lord_by_id(int(guest["id"]))
+		var amount := Relationships.WEDDING_HOST_REGARD if String(guest["kind"]) == "host" else Relationships.WEDDING_GUEST_REGARD
+		LordTalk.change_regard(self, l, amount)
+		regard.append({"name": String(guest["name"]), "amount": amount})
+	var info := words.duplicate()
+	info["guests"] = g["guests"].map(func(x): return String(x["name"]))
+	info["seat"] = wedding_seat()
+	var r: Dictionary = world.social.finish_wedding(info, world.hour)
+	if not bool(r.get("ok", false)):
+		return r
+	renown += Relationships.WEDDING_RENOWN
+	var person: Dictionary = world.social.get_candidate_person(String(w["candidate_id"]))
+	world.emit_event({"type": "wedding", "name": String(person.get("name", "")), "settlement": String(w["place"])})
+	save_game()
+	return {"ok": true, "guests": g["guests"], "regard": regard, "renown": Relationships.WEDDING_RENOWN,
+		"pact": world.social.get_pact(String(person.get("house_id", "")))}
+
+
+## Private vows: keep the words you said with their memory.
+func record_private_vows(cand: String, vow: String, their_vow: String) -> void:
+	if world == null or world.social == null:
+		return
+	var person: Dictionary = world.social.get_candidate_person(cand)
+	world.social.set_memory_words(String(person.get("id", "")), {"vow": vow, "their_vow": their_vow})
+	save_game()
+
+
+## The wedding as a commitment for the journal, or {}.
+func wedding_commitment() -> Dictionary:
+	if not wedding_active():
+		return {}
+	var w := wedding()
+	var person: Dictionary = world.social.get_candidate_person(String(w["candidate_id"]))
+	var who := String(person.get("name", ""))
+	var place := String(w.get("place", ""))
+	var cost := "%d silver, %d rations set aside" % [int(w.get("reserved_silver", 0)), int(w.get("reserved_food", 0))]
+	var entry := {"id": "wedding", "kind": "ceremony", "title": "Your wedding", "objective": "", "place": place,
+		"reward": "Married to %s; a pact with her house" % who, "cost": cost, "hours_left": -1.0, "blocked": ""}
+	match String(w["state"]):
+		"planning":
+			entry["title"] = "Your wedding: choose a place"
+			entry["objective"] = "Talk with %s about where you'll marry." % who
+			entry["place"] = String(person.get("residence", ""))
+		"preparing":
+			entry["title"] = "Your wedding at %s" % _settlement_name(place)
+			entry["objective"] = "Ride there. It begins when you arrive, from %s." % _when_text(float(w["ready_hour"]))
+		"ready":
+			entry["title"] = "Your wedding at %s" % _settlement_name(place)
+			entry["objective"] = "Ready. Ride to %s; %s waits for you there. No hurry." % [_settlement_name(place), who]
+		"postponed":
+			entry["title"] = "Your wedding: postponed"
+			entry["objective"] = "%s. Talk with %s about a new place." % [String(w.get("postponed_reason", "The place can't host it")).capitalize(), who]
+			entry["blocked"] = String(w.get("postponed_reason", ""))
+			entry["place"] = String(person.get("residence", ""))
+	return entry
+
+
+## "tomorrow at dusk", "dusk on day 12".
+func _when_text(hour: float) -> String:
+	var today := int(world.hour / 24.0)
+	var day := int(hour / 24.0)
+	if day == today:
+		return "dusk today"
+	if day == today + 1:
+		return "tomorrow at dusk"
+	return "dusk on day %d" % (day + 1)
+
+
+## Old marriage pacts protected a hard-coded village; protect her seat and yours instead.
+func _fix_marriage_pacts() -> void:
+	if world == null or world.social == null:
+		return
+	for hid in world.social.pacts:
+		var pact: Dictionary = world.social.pacts[hid]
+		if String(pact.get("origin", "")) != "marriage":
+			continue
+		var sites: Array = pact.get("protected_sites", [])
+		if sites.has("thornwall") and wedding_seat() != "thornwall":
+			sites.erase("thornwall")
+			if wedding_seat() != "" and not sites.has(wedding_seat()):
+				sites.append(wedding_seat())
 
 
 # ---------------------------------------------------------------- the crown
@@ -1216,14 +1473,9 @@ func commitments() -> Array:
 			"objective": "Hold them until their realm's envoy offers ransom, then decide their fate.", "place": "",
 			"reward": "%d silver ransom" % int(l.get("ransom_amount", Lords.ransom_for(int(l.get("renown", 0))))),
 			"cost": "", "hours_left": -1.0, "blocked": ""})
-	if world.social != null and bool(world.social.scheduled_ceremony.get("active", false)):
-		var c: Dictionary = world.social.scheduled_ceremony
-		var place := String(c.get("settlement_id", ""))
-		var ends := float(c.get("scheduled_at_hour", world.hour)) + float(c.get("duration_hours", 0.0))
-		out.append({"id": "ceremony", "kind": "ceremony", "title": "Wedding at %s" % _settlement_name(place),
-			"objective": "The ceremony is being prepared at %s." % _settlement_name(place), "place": place,
-			"reward": "", "cost": "%d silver, %d rations" % [int(c.get("cost_silver", 0)), int(c.get("cost_food", 0))],
-			"hours_left": maxf(0.0, ends - world.hour), "blocked": ""})
+	var wed := wedding_commitment()
+	if not wed.is_empty():
+		out.append(wed)
 	if has_fief():
 		var f_id := fief_id()
 		var lines: PackedStringArray = []
@@ -3149,6 +3401,7 @@ func from_dict(data: Dictionary) -> bool:
 	crown_won = bool(data.get("crown_won", false))
 	crown_empty_days = int(data.get("crown_empty_days", 0))
 	WorldData.set_crown(crown_name, crown_color)
+	_fix_marriage_pacts()
 	pinned_commitment = String(data.get("pinned_commitment", ""))
 	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
 	camp_seen = data.get("camp_seen", []).duplicate() if typeof(data.get("camp_seen")) == TYPE_ARRAY else []

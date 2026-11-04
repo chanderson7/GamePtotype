@@ -151,11 +151,163 @@ const LETTERS := {
 			},
 		},
 	},
+	"wedding_ready": {
+		"edda": {
+			"courting": {
+				"subject": "The hall is ready",
+				"salute": "Captain,",
+				"body": [
+					"The hall at {place} is swept and the cook is weeping, which I am told is traditional. The cord is bought. The head of the house has found a speech somewhere and is threatening us with it.",
+					"Come when the road allows. There is no hurry, and I will not pretend I am not counting the days.",
+				],
+				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"ps": "I have set a spare spoon. You know which one.",
+			},
+			"friend": {
+				"subject": "The hall is ready",
+				"salute": "Captain,",
+				"body": [
+					"The hall at {place} is swept and the cook is weeping, which I am told is traditional. The cord is bought. The head of the house has found a speech somewhere and is threatening us with it.",
+					"Come when the road allows. There is no hurry, and I will not pretend I am not counting the days.",
+				],
+				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"ps": "I have set a spare spoon. You know which one.",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Everything is arranged",
+				"salute": "Captain,",
+				"body": [
+					"Everything at {place} is arranged: the bread, the salt, the witnesses, and a contract I have rewritten nine times and will not touch again. Probably.",
+					"Come when your road allows. I would rather you arrived late and whole than early and tired.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "If anyone asks, this was about tariffs. It is not about tariffs.",
+			},
+			"friend": {
+				"subject": "Everything is arranged",
+				"salute": "Captain,",
+				"body": [
+					"Everything at {place} is arranged: the bread, the salt, the witnesses, and a contract I have rewritten nine times and will not touch again. Probably.",
+					"Come when your road allows. I would rather you arrived late and whole than early and tired.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "If anyone asks, this was about tariffs. It is not about tariffs.",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "The register is open",
+				"salute": "Captain,",
+				"body": [
+					"The register at {place} is open to a clean page, the cups are washed, and I have practised writing your name until I am sick of the sight of it. I am not, actually.",
+					"Come when you can. The page will wait; so will I.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "The register is open",
+				"salute": "Captain,",
+				"body": [
+					"The register at {place} is open to a clean page, the cups are washed, and I have practised writing your name until I am sick of the sight of it. I am not, actually.",
+					"Come when you can. The page will wait; so will I.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"wedding_postponed": {
+		"edda": {
+			"courting": {
+				"subject": "The flowers will keep",
+				"salute": "Captain,",
+				"body": [
+					"{old} can't host us now; you will have heard why. I am well, and I am not giving up the cord, so you needn't ask.",
+					"Come and see me at {place} and we'll choose somewhere else together. The flowers will keep. I will too.",
+				],
+				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "The flowers will keep",
+				"salute": "Captain,",
+				"body": [
+					"{old} can't host us now; you will have heard why. I am well, and I am not giving up the cord, so you needn't ask.",
+					"Come and see me at {place} and we'll choose somewhere else together. The flowers will keep. I will too.",
+				],
+				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "A change of venue",
+				"salute": "Captain,",
+				"body": [
+					"{old} can't host a wedding now, and I refuse to be married under siege engines; the acoustics are terrible.",
+					"Come to me at {place} and we'll choose another place. The contract needs only one line changed. I have already changed it.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "A change of venue",
+				"salute": "Captain,",
+				"body": [
+					"{old} can't host a wedding now, and I refuse to be married under siege engines; the acoustics are terrible.",
+					"Come to me at {place} and we'll choose another place. The contract needs only one line changed. I have already changed it.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "A correction to the record",
+				"salute": "Captain,",
+				"body": [
+					"{old} can't host us now. I have crossed out the place in the register, neatly, and left the rest as it was.",
+					"Find me at {place} and we'll write in a new one. Nothing else needs correcting.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "A correction to the record",
+				"salute": "Captain,",
+				"body": [
+					"{old} can't host us now. I have crossed out the place in the register, neatly, and left the rest as it was.",
+					"Find me at {place} and we'll write in a new one. Nothing else needs correcting.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
 }
 
 ## Short answers to each kind of letter: a label for the button, how much it warms them
 ## (trust, once per letter), and the letter you send. {name} is who you write to.
 const REPLIES := {
+	"wedding_ready": [
+		{"id": "coming", "label": "I'm on my way", "trust": 2,
+			"courting": ["{name},", "Keep the spoon, the cup, the page, whatever it is. I'm on my way to {place}.", "Until then,"],
+			"friend": ["{name},", "On my way to {place}.", "Until then,"]},
+		{"id": "plain", "label": "A soldier's answer", "trust": 0,
+			"courting": ["{name},", "Received. Coming.", "Captain,"],
+			"friend": ["{name},", "Received. Coming.", "Captain,"]},
+	],
+	"wedding_postponed": [
+		{"id": "comfort", "label": "We'll find another place", "trust": 2,
+			"courting": ["{name},", "Then we'll find another place, and it will be better for the waiting. I'll come to {place} and we'll choose.", "Until I see you,"],
+			"friend": ["{name},", "We'll find another place. I'll come to {place}.", "Until I see you,"]},
+		{"id": "plain", "label": "A soldier's answer", "trust": 0,
+			"courting": ["{name},", "Understood. I'll come and we'll choose again.", "Captain,"],
+			"friend": ["{name},", "Understood.", "Captain,"]},
+	],
 	"ch2_invitation": [
 		{"id": "coming", "label": "I'll come", "trust": 3,
 			"courting": ["{name},", "Keep the chair. The company marches for {place} as soon as the horses are shod, and I will be at the front of it, which my sergeant says is bad form for a captain.", "Until then,"],

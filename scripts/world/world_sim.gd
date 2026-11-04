@@ -80,7 +80,7 @@ const ACTIVITY_TYPES := {
 	"ransom_paid": true, "lord_ransomed_ai": true,
 	"grudge_avenged": true, "contract_signed": true, "contract_ended": true, "player_victory": true,
 	"job_completed": true, "fief_granted": true, "fief_defended": true, "fief_lost": true,
-	"achievement": true, "battle_fought": true, "crown_raised": true, "crown_fallen": true, "crown_victory": true, "fief_given": true, "lord_sworn": true, "alliance": true, "alliance_ended": true,
+	"achievement": true, "battle_fought": true, "crown_raised": true, "crown_fallen": true, "crown_victory": true, "fief_given": true, "lord_sworn": true, "alliance": true, "alliance_ended": true, "wedding": true,
 }
 
 
@@ -692,7 +692,7 @@ func emit_event(event: Dictionary) -> void:
 			cat = "war"
 		"siege_started", "siege_assault", "siege_repulsed", "captured", "burned", "raid_started", "driven_off":
 			cat = "siege"
-		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "crown_fallen", "crown_victory", "fief_given", "alliance", "alliance_ended", "lord_sworn":
+		"grudge_avenged", "contract_signed", "contract_ended", "player_victory", "job_completed", "fief_granted", "fief_defended", "fief_lost", "achievement", "crown_raised", "crown_fallen", "crown_victory", "fief_given", "alliance", "alliance_ended", "lord_sworn", "wedding":
 			cat = "deed"
 		"fight", "battle_fought", "lord_captured", "lord_captured_ai", "lord_slain", "ransom_paid", "lord_ransomed_ai", "chief_returned":
 			cat = "battle"
@@ -806,6 +806,8 @@ func _activity_text(event: Dictionary) -> String:
 			return "Your crown has fallen: it holds nothing, and its lords have gone back to their old allegiances."
 		"crown_victory":
 			return "%s holds every realm's capital. The Glass Sea has one crown now." % Data.title_case(String(Data.FACTIONS[Data.CROWN]["name"]))
+		"wedding":
+			return "%s and the captain were married at %s." % [event.get("name", "Someone"), Data.settlement(String(event["settlement"]))["name"]]
 		"fief_given":
 			return "%s was granted %s by your crown." % [event.get("lord", "A lord"), Data.settlement(String(event["settlement"]))["name"]]
 		"alliance_ended":
@@ -1637,6 +1639,21 @@ func men_of(army: Array) -> int:
 	for sq in army:
 		men += int(sq["men"])
 	return men
+
+
+## Why `id` can't host your wedding now ("" when it can): a siege, ashes, or a realm at
+## war with you holding it.
+func wedding_blocked(id: String) -> String:
+	if not Data.SETTLEMENTS.has(id):
+		return "it is gone"
+	if not siege_info(id).is_empty():
+		return "%s is under siege" % Data.settlement(id)["name"]
+	if is_burned(id):
+		return "%s was burned" % Data.settlement(id)["name"]
+	var owner := owner_of(id)
+	if owner != Data.CROWN and relation_to_player(owner) == "hostile":
+		return "%s is held by a realm at war with you" % Data.settlement(id)["name"]
+	return ""
 
 
 func is_burned(id: String) -> bool:

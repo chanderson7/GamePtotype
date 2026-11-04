@@ -103,7 +103,7 @@ func _check_edda_story_progression() -> void:
 	_expect(res5.get("ok", false), "ch5 marry_public succeeds when trust >= 60 and standing >= 25")
 	_expect(rel["trust"] == 65, "ch5 final conversation brings trust to 65 (trust: %d)" % rel["trust"])
 	_expect(rel["status"] == Relationships.ENGAGED, "status becomes engaged upon scheduling ceremony")
-	_expect(soc.scheduled_ceremony.get("active", false), "ceremony is scheduled")
+	_expect(soc.wedding_active(RomanceStories.EDDA) and soc.wedding["state"] == "planning", "a wedding is planned, its place still to choose")
 
 
 func _check_other_story_progression() -> void:
@@ -195,28 +195,31 @@ func _check_ceremony_and_pacts() -> void:
 	var w := WorldSim.new()
 	w.setup(555, Cultures.VARDISH)
 	var soc: SocialSim = w.social
-
-	# Schedule public ceremony
-	soc.schedule_ceremony(RomanceStories.EDDA, false, "ravensford", w.hour)
-	_expect(soc.scheduled_ceremony.get("active", false), "ceremony is active")
-	_expect(soc.scheduled_ceremony.get("cost_silver", 0) == Relationships.PUBLIC_CEREMONY_SILVER, "public ceremony costs 100 silver")
-
-	# Advance world by 6 hours
-	# Friendly lords who stop to talk are waved on, as the "Leave" button does.
-	w.wait(6.5)
-	for i in 20:
-		w.step(6.5)
-		if w.encounter == -1:
-			break
-		w.encounter = -1
-
-	_expect(soc.scheduled_ceremony.get("completed", false), "ceremony completed after 6 hours")
-	var rel: Dictionary = soc.get_relationship(RomanceStories.EDDA)
-	_expect(rel["status"] == Relationships.MARRIED, "status becomes married upon ceremony completion")
-
 	var edda_person: Dictionary = soc.get_candidate_person(RomanceStories.EDDA)
+	soc.relationships[RomanceStories.EDDA]["status"] = Relationships.ENGAGED
+	soc.wedding = {"state": "planning", "candidate_id": RomanceStories.EDDA, "person_id": edda_person["id"], "place": "",
+		"chosen_hour": w.hour, "ready_hour": 0.0, "reserved_silver": 100, "reserved_food": 100, "postponed_reason": ""}
+	_expect(soc.plan_wedding("ravensford", w.hour)["ok"], "the wedding is planned at Ravensford")
+	_expect(soc.wedding["state"] == "preparing" and float(soc.wedding["ready_hour"]) >= w.hour + 24.0, "it is ready at the first dusk a day on")
+
+	# Time passes: it gets ready, and waits; it never marries you by itself.
+	for i in 40:
+		w.wait(6.5)
+		w.step(6.5)
+		w.encounter = -1
+	_expect(soc.wedding["state"] == "ready", "the wedding is ready after preparations")
+	var rel: Dictionary = soc.get_relationship(RomanceStories.EDDA)
+	_expect(rel["status"] == Relationships.ENGAGED, "still engaged: the wedding waits for you")
+	_expect(soc.letters.any(func(l): return l["template_key"] == "wedding_ready"), "she writes that it's ready")
+
+	var done := soc.finish_wedding({"vow": "I'll come home.", "their_vow": "Spoon.", "toast": "To Edda.", "guests": ["Tamsin"], "seat": "highcliff"}, w.hour)
+	_expect(done["ok"] and rel["status"] == Relationships.MARRIED, "status becomes married at the wedding")
 	var pact: Dictionary = soc.get_pact(edda_person["house_id"])
 	_expect(not pact.is_empty(), "marriage ceremony formed an active house pact")
+	_expect(pact["protected_sites"].has("ravensford") and pact["protected_sites"].has("highcliff") and not pact["protected_sites"].has("thornwall"),
+		"the pact protects her seat and yours, not a village you don't hold")
+	var mem: Dictionary = soc.memory_book(edda_person["id"]).back()
+	_expect(mem["kind"] == "ceremony" and mem["vow"] == "I'll come home." and mem["scene_id"] == "wedding", "the wedding is kept with your words")
 
 
 func _check_escrow_accounting() -> void:

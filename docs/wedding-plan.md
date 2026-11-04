@@ -1,5 +1,9 @@
 # The wedding: plan
 
+**Status: built.** Two choices differ from the plan below:
+- "Somewhere else we both know" lists up to four friendly towns or castles nearest you as replies in the talk. There is no map pick mode.
+- After a postponement, you choose the new place by talking with her ("About our wedding"). Her letter's replies are ordinary replies.
+
 ## What happens today
 
 There is no wedding event. In chapter 5 of a romance:
