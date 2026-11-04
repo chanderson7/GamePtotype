@@ -436,13 +436,20 @@ func _tap(at: Vector2) -> void:
 
 # ---------------------------------------------------------------- sheets
 
-## Load source SVGs directly when a fresh headless checkout has no editor import cache.
-## The packaged game still uses the same files through Godot's normal resource pipeline.
+## The silver, food and renown icons for the top bar.
 func _resource_icon(key: String) -> Texture2D:
 	if _resource_icons.has(key):
 		return _resource_icons[key]
-	var image := Image.load_from_file(String(RESOURCE_ICON_PATHS.get(key, "")))
-	var texture: Texture2D = ImageTexture.create_from_image(image) if image != null and not image.is_empty() else null
+	# The imported texture first: an exported game (the phone) carries only that, not the
+	# .svg itself, so reading the file alone leaves the pills blank there.
+	var path := String(RESOURCE_ICON_PATHS.get(key, ""))
+	var texture: Texture2D = null
+	if ResourceLoader.exists(path, "Texture2D"):
+		texture = load(path) as Texture2D
+	elif FileAccess.file_exists(path):
+		var image := Image.load_from_file(path)
+		if image != null and not image.is_empty():
+			texture = ImageTexture.create_from_image(image)
 	_resource_icons[key] = texture
 	return texture
 
