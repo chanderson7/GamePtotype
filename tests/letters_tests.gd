@@ -42,7 +42,7 @@ func _check_texts() -> void:
 				count += 1
 				var text := "%s %s %s %s" % [v["subject"], v["salute"], " ".join(v["body"]), v["sign_title"]]
 				complete = complete and v["subject"] != "" and not v["body"].is_empty() and not text.contains("{")
-	check(complete and count == 12, "all %d letters (2 kinds × 3 people × courting or friends) read in full" % count)
+	check(complete and count == Letters.LETTERS.size() * 6, "all %d letters (%d kinds × 3 people × courting or friends) read in full" % [count, Letters.LETTERS.size()])
 	var replies_ok := true
 	for key in Letters.REPLIES:
 		for r in Letters.replies(key):
