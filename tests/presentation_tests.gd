@@ -271,24 +271,30 @@ func open_scene(path: String) -> void:
 func _check_ui() -> void:
 	root.get_node("Scenes").active_person_id = PERSON
 	await open_scene("personal_conversation")
+	var talk = current_scene
 	var baseline: Dictionary = gs.to_dict().duplicate(true)
-	button("Remember: The Spare Spoon").pressed.emit()
-	button("Continue").pressed.emit()
-	button("History").pressed.emit()
-	check(button("Return to conversation") != null, "history is available from the reader toolbar")
-	check(current_scene._progress["beat"] == 1, "opening history preserves cursor")
-	button("Return to conversation").pressed.emit()
-	button("Summary").pressed.emit()
-	button("Close memory").pressed.emit()
-	check(gs.to_dict() == baseline, "replay navigation, history and summary change no campaign state")
-	button("Visit: The Wrong Last Verse").pressed.emit()
-	button("Continue").pressed.emit()
-	var progress: Dictionary = current_scene._progress.duplicate(true)
-	button("Leave").pressed.emit()
-	button("Resume: The Wrong Last Verse").pressed.emit()
-	check(current_scene._progress["beat"] == progress["beat"], "leave and resume returns to exact line")
-	button("Summary").pressed.emit()
-	button("Keep this memory").pressed.emit()
+	# A kept visit told again, all the way through, changes nothing.
+	talk._visit(FIRST, true)
+	check(talk.log_text().contains("Remembered"), "a kept visit can be told again")
+	for i in 80:
+		if not talk.has_reply("continue"):
+			break
+		talk.choose("continue")
+	if talk.has_reply("say_0"):
+		talk.choose("say_0")
+	for i in 80:
+		if not talk.has_reply("continue"):
+			break
+		talk.choose("continue")
+	talk.choose("finish")
+	check(gs.to_dict() == baseline, "telling a memory again changes no campaign state")
+	talk.choose("visit_edda_wrong_verse")
+	talk.choose("continue")
+	var progress: Dictionary = talk._progress.duplicate(true)
+	talk.choose("later")
+	talk.choose("visit_edda_wrong_verse")
+	check(talk._progress["beat"] == progress["beat"], "leave and resume returns to exact line")
+	talk.choose("summary")
 	check(gs.world.social.relationships["edda"]["trust"] == 12, "summary UI still grants exactly one trust")
 	sound.mark_hint_seen("test", "retained")
 	sound.set_text_scale(1.5)
@@ -316,11 +322,12 @@ func _check_ui() -> void:
 		and current_scene.find_children("CaptainPortrait", "TextureRect", true, false).is_empty(),
 		"text-only Warband keeps unit icons and hides decorative art")
 	await open_scene("personal_conversation")
-	button("Remember: The Spare Spoon").pressed.emit()
+	current_scene._visit(FIRST, true)
 	await process_frame
 	await process_frame
-	check(not current_scene.find_child("StoryStage", true, false).visible, "text-only reader hides decorative stage")
-	check(button("Summary") != null and button("Continue") != null, "text-only reader retains full navigation")
+	var room = current_scene.get_node_or_null("Stage/Room")
+	check(room == null or room.texture == null, "text-only talk shows no painted backdrop")
+	check(current_scene.has_reply("continue") and current_scene.has_reply("later"), "text-only talk retains full navigation")
 	_check_widths(current_scene)
 	sound.set_illustrations(true)
 	await open_scene("people")
