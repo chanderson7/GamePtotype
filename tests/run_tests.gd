@@ -1125,7 +1125,8 @@ func _check_map() -> void:
 	_expect(on_land and roads_ok, "every settlement and land road is on land, and every sea lane crosses water")
 	var realms_ok := true
 	for f in WorldData.FACTIONS:
-		if f == WorldData.BANDITS:
+		# Bandits hold nothing, and a crown is raised at a fief, not a capital of its own.
+		if f == WorldData.BANDITS or f == WorldData.CROWN:
 			continue
 		var capital: String = WorldData.FACTIONS[f]["capital"]
 		if WorldData.settlement(capital)["faction"] != f or not Cultures.has(WorldData.culture_of(f)):

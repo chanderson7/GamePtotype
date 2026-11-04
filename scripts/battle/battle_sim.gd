@@ -49,7 +49,7 @@ const RETARGET_MARGIN := 80.0
 ## How much less attractive an enemy is when every side of it is already taken.
 const CROWD_PENALTY := 400.0
 ## A yumi samurai's blade once his arrows are spent (per point of power).
-const SAMURAI_SIDEARM := 13.0
+const SAMURAI_SIDEARM := 7.0
 ## How many foot squads go in against one enemy before the rest look elsewhere.
 const MAX_ON_ONE := 2
 ## Within about 45 degrees counts as the same side.

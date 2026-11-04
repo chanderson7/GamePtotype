@@ -237,7 +237,7 @@ const UNITS := {
 	"ryumon_hatamoto": {
 		"role": Troops.INFANTRY, "culture": Cultures.RYUMON, "tier": 2, "branch_of": "ryumon_infantry",
 		"name": "Hatamoto", "blurb": "16 elite bannermen with unmatched blade skills and deep composure.",
-		"stats": {"size": 16, "damage": 15.6, "hp": 720.0},
+		"stats": {"size": 16, "damage": 15.6, "hp": 620.0},
 		"mechanics": {"steady": true},
 		"cost_mult": 1.3, "wage_mult": 1.3,
 	},
