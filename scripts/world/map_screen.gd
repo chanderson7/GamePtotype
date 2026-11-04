@@ -888,7 +888,7 @@ func _open_lord(lp) -> void:
 	for sq in lp.army:
 		men += int(sq["men"])
 	var realm: String = Data.FACTIONS[lp.faction]["name"]
-	var who := "Ruler of the %s" % realm if l.get("ruler", false) else "A lord of the %s" % realm
+	var who := "Ruler of %s" % Data.the_realm(realm) if l.get("ruler", false) else "A lord of %s" % Data.the_realm(realm)
 	var fief := String(l.get("fief", ""))
 	if fief != "" and not l.get("ruler", false):
 		who += ", holding %s" % Data.settlement(fief)["name"]
@@ -978,7 +978,7 @@ func _lord_doing(l: Dictionary, lp) -> String:
 
 func _open_friendly_lord_encounter(b) -> void:
 	var realm: String = Data.FACTIONS[b.faction]["name"]
-	var title := "%s of the %s" % [b.name, realm]
+	var title := "%s of %s" % [b.name, Data.the_realm(realm)]
 	var greeter: Dictionary = world.lord_of(b)
 	var text := LordVoice.line("greet", greeter) if not greeter.is_empty() else "%s halts on the road to greet you." % b.name
 	var buttons := []

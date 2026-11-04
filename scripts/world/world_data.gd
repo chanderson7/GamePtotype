@@ -174,6 +174,12 @@ static func capital_of_culture(culture: String) -> String:
 	return "highcliff"
 
 
+## A realm's name with "the" before it, unless it has one already ("the Free Crown"), so
+## a line reads "a vassal of the Kingdom of Vardmark" and never "of the the Free Crown".
+static func the_realm(name: String) -> String:
+	return name if name.to_lower().begins_with("the ") else "the " + name
+
+
 static func realm_of_culture(culture: String) -> String:
 	for faction in FACTIONS:
 		if FACTIONS[faction]["culture"] == culture:

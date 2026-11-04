@@ -507,6 +507,8 @@ func _person_card(cand: String) -> PanelContainer:
 	acts.add_theme_constant_override("separation", 10)
 	v.add_child(acts)
 	var main := _main_action(cand)
+	# Its words wrap, so a long action doesn't push the card off the side of the screen.
+	main.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	main.size_flags_stretch_ratio = 1.55
 	main.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
@@ -544,7 +546,9 @@ func _stranger_row(cand: String) -> PanelContainer:
 	if big != null:
 		nm.add_theme_font_override("font", big)
 	who.add_child(nm)
-	who.add_child(Style.label(String(p.get("role", "")), 20, Style.MUTED))
+	var role := Style.label(String(p.get("role", "")), 20, Style.MUTED)
+	role.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	who.add_child(role)
 	var chips := HBoxContainer.new()
 	who.add_child(chips)
 	chips.add_child(_status_chip(cand))

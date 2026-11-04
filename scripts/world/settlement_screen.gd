@@ -548,16 +548,16 @@ func _add_contract(col: VBoxContainer, owner: String) -> void:
 	if GameState.has_fief():
 		col.add_child(_section("Fealty & Lordship"))
 		if GameState.fief_realm() == owner:
-			col.add_child(_note("Sworn vassal of the %s · Lord of %s" % [faction_name, WorldData.settlement(GameState.fief_id())["name"]], Style.BRASS))
+			col.add_child(_note("Sworn vassal of %s · Lord of %s" % [WorldData.the_realm(faction_name), WorldData.settlement(GameState.fief_id())["name"]], Style.BRASS))
 		else:
 			var other_name: String = WorldData.FACTIONS[GameState.fief_realm()]["name"]
-			col.add_child(_note("Your company is already sworn in fealty to the %s." % other_name, Style.MUTED))
+			col.add_child(_note("Your company is already sworn in fealty to %s." % WorldData.the_realm(other_name), Style.MUTED))
 		return
 
 	if GameState.can_petition_fief(owner):
 		col.add_child(_section("Fealty & Fiefdom"))
-		col.add_child(_note("The crown recognizes your valor and standing (%d renown, %d relation). You may swear fealty as a vassal of the %s and receive governance of a fief." % [
-			GameState.renown, GameState.relation_with_realm(owner), faction_name
+		col.add_child(_note("The crown recognizes your valor and standing (%d renown, %d relation). You may swear fealty as a vassal of %s and receive governance of a fief." % [
+			GameState.renown, GameState.relation_with_realm(owner), WorldData.the_realm(faction_name)
 		], Style.BRASS))
 		var fief_candidates: Array = GameState.available_fiefs_for_grant(owner)
 		for fid in fief_candidates:
@@ -639,8 +639,9 @@ func _add_fief_management(col: VBoxContainer) -> void:
 	h_margin.add_child(h_v)
 
 	var title_lbl := Style.label("%s of %s" % [title, s_name], Style.LARGE, Style.BRASS)
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	h_v.add_child(title_lbl)
-	h_v.add_child(Style.label("Sworn vassal of the %s · Seat of your company" % r_name, Style.SMALL, Style.TEXT))
+	h_v.add_child(_note("Sworn vassal of %s · Seat of your company" % WorldData.the_realm(r_name), Style.TEXT))
 
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(place)
 	var daily_t: int = Fiefs.daily_tax(fief, is_b)
@@ -659,8 +660,9 @@ func _add_fief_management(col: VBoxContainer) -> void:
 	h_v.add_child(stats_lbl)
 
 	# Buttons to collect taxes and food
-	var btn_row := HBoxContainer.new()
-	btn_row.add_theme_constant_override("separation", 10)
+	var btn_row := HFlowContainer.new()
+	btn_row.add_theme_constant_override("h_separation", 10)
+	btn_row.add_theme_constant_override("v_separation", 10)
 	h_v.add_child(btn_row)
 
 	var collect_tax_btn := _button("Collect Taxes (%d silver)" % cur_silver, func():
@@ -714,6 +716,7 @@ func _add_fief_management(col: VBoxContainer) -> void:
 			if w_cnt > 0:
 				men_str += " (+%d wounded)" % w_cnt
 			var sq_lbl := Style.label("%s (%s · %s)" % [String(sq.get("name", "Squad")), c_str, men_str], Style.BODY, Style.TEXT)
+			sq_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			sq_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(sq_lbl)
 
@@ -726,10 +729,12 @@ func _add_fief_management(col: VBoxContainer) -> void:
 
 	# Station active squad into garrison
 	if GameState.army.size() > 1:
-		var st_lbl := Style.label("Station squad from warband into garrison:", Style.SMALL, Style.MUTED)
-		g_v.add_child(st_lbl)
-		var st_flow := HBoxContainer.new()
-		st_flow.add_theme_constant_override("separation", 8)
+		g_v.add_child(_note("Station squad from warband into garrison:"))
+		# A flow, not a row: a full warband's worth of buttons wraps onto more lines
+		# instead of pushing the page off the side of the screen.
+		var st_flow := HFlowContainer.new()
+		st_flow.add_theme_constant_override("h_separation", 8)
+		st_flow.add_theme_constant_override("v_separation", 8)
 		g_v.add_child(st_flow)
 		for sq in GameState.army:
 			var sid: int = int(sq["id"])
@@ -758,6 +763,7 @@ func _add_fief_management(col: VBoxContainer) -> void:
 		rep_row.add_theme_constant_override("separation", 10)
 		imp_v.add_child(rep_row)
 		var rep_desc := Style.label("Rebuild the burned village and restore peasant granaries.", Style.BODY, Style.ENEMY_LIGHT)
+		rep_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		rep_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rep_row.add_child(rep_desc)
 		var rep_btn := _button("Rebuild Estate (%d silver)" % Fiefs.REPAIR_COST, func():
@@ -784,7 +790,9 @@ func _add_fief_management(col: VBoxContainer) -> void:
 		i_row.add_child(i_text)
 
 		var iname := String(idef["name"]) + (" [Built]" if built else "")
-		i_text.add_child(Style.label(iname, Style.BODY, Style.BRASS if built else Style.TEXT))
+		var iname_lbl := Style.label(iname, Style.BODY, Style.BRASS if built else Style.TEXT)
+		iname_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		i_text.add_child(iname_lbl)
 		var idesc := Style.label(String(idef["description"]), Style.SMALL, Style.MUTED)
 		idesc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		i_text.add_child(idesc)

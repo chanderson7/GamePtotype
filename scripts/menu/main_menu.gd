@@ -708,6 +708,7 @@ func _fief_overview_row() -> Control:
 	var s_name := String(WorldData.settlement(fid)["name"])
 	var r_name := String(WorldData.FACTIONS[GameState.fief_realm()]["name"])
 	var title_lbl := Style.label("Seat of Governance: %s (%s)" % [s_name, r_name], Style.LARGE, Style.BRASS)
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(title_lbl)
 
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
@@ -719,7 +720,9 @@ func _fief_overview_row() -> Control:
 	]
 	if is_b:
 		status_text += " · [Raid Damage: Needs Reconstruction]"
-	v.add_child(Style.label(status_text, Style.BODY, Style.TEXT if not is_b else Style.ENEMY_LIGHT))
+	var status_lbl := Style.label(status_text, Style.BODY, Style.TEXT if not is_b else Style.ENEMY_LIGHT)
+	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(status_lbl)
 	return panel
 
 
@@ -818,15 +821,19 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 	col.add_child(title_row)
 
 	var name_lbl := Style.label(String(cl.get("name", "Captive Lord")), Style.BODY, Style.BRASS)
+	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_row.add_child(name_lbl)
 
 	var realm_name: String = WorldData.FACTIONS.get(cl.get("realm", ""), {}).get("name", cl.get("realm", ""))
 	var desc := "%s · Renown %d · Held in baggage" % [realm_name, int(cl.get("renown", 0))]
-	col.add_child(Style.label(desc, Style.SMALL, Style.MUTED))
+	col.add_child(_note(desc))
 
-	var btns := HBoxContainer.new()
-	btns.add_theme_constant_override("separation", 8)
+	# A flow, not a row: a crowned company has three or four choices for each captive,
+	# more than fit across a phone, so they wrap onto a second line.
+	var btns := HFlowContainer.new()
+	btns.add_theme_constant_override("h_separation", 8)
+	btns.add_theme_constant_override("v_separation", 8)
 	col.add_child(btns)
 
 	var lord_id := int(cl["id"])

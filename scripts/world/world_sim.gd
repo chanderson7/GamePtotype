@@ -600,9 +600,9 @@ func describe(id: String) -> String:
 	var s := Data.settlement(id)
 	var realm := owner_of(id)
 	var faction: Dictionary = Data.FACTIONS[realm]
-	var line := "%s of the %s" % [String(s["type"]).capitalize(), faction["name"]]
+	var line := "%s of %s" % [String(s["type"]).capitalize(), Data.the_realm(String(faction["name"]))]
 	if capital_of(realm) == id:
-		line = "Capital of the %s, seat of %s" % [faction["name"], faction["ruler"]]
+		line = "Capital of %s, seat of %s" % [Data.the_realm(String(faction["name"])), faction["ruler"]]
 	var people: String = Cultures.info(Data.culture_of(s["faction"]))["people"]
 	if garrisons.has(id):
 		people += " · garrison %d/%d men" % [men_of(garrison_at(id)), garrison_capacity(id)]
