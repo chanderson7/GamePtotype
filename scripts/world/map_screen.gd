@@ -120,6 +120,14 @@ var _banner_seal := Color("8e1f17")
 var unread_badge: Label
 const LETTER_BANNER_SECONDS := 9.0
 var sheet_title: Label
+## The sheet's header: a tile with the sheet's icon, the title and a line under it, and a
+## close button. Sheets with a picture header (_sheet_header) hide it.
+var sheet_head: HBoxContainer
+var sheet_tile: PanelContainer
+var sheet_tile_icon: TextureRect
+var sheet_sub: Label
+var sheet_close: Button
+var _sheet_close_cb: Callable
 var sheet_body: Label
 ## Pictures above a sheet's text: the odds of a fight, for one.
 var sheet_extra: VBoxContainer
@@ -611,8 +619,39 @@ func _build_hud() -> void:
 		if _banner_realm != "":
 			Heraldry.realm_banner(sheet_banner, _banner_realm, Rect2(4, 2, 76, 80)))
 	sheet_lord_row.add_child(sheet_banner)
+	sheet_head = HBoxContainer.new()
+	sheet_head.name = "SheetHead"
+	sheet_head.add_theme_constant_override("separation", 16)
+	sv.add_child(sheet_head)
+	sheet_tile = PanelContainer.new()
+	sheet_tile.name = "SheetTile"
+	sheet_tile.custom_minimum_size = Vector2(84, 84)
+	sheet_tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sheet_head.add_child(sheet_tile)
+	sheet_tile_icon = TextureRect.new()
+	sheet_tile_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sheet_tile_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	sheet_tile_icon.custom_minimum_size = Vector2(46, 46)
+	sheet_tile_icon.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	sheet_tile_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sheet_tile.add_child(sheet_tile_icon)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	words.add_theme_constant_override("separation", 2)
+	sheet_head.add_child(words)
 	sheet_title = Style.label("", Style.LARGE, Style.TEXT)
-	sv.add_child(sheet_title)
+	sheet_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var face: Font = Style.display_font()
+	if face != null:
+		sheet_title.add_theme_font_override("font", face)
+	words.add_child(sheet_title)
+	sheet_sub = Style.label("", Style.SMALL, Style.MUTED)
+	sheet_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(sheet_sub)
+	sheet_close = _close_x()
+	sheet_close.name = "SheetClose"
+	sheet_head.add_child(sheet_close)
 	sheet_extra = VBoxContainer.new()
 	sheet_extra.name = "SheetExtra"
 	sheet_extra.add_theme_constant_override("separation", 10)
@@ -623,10 +662,10 @@ func _build_hud() -> void:
 	sheet_body.custom_minimum_size = Vector2(10, 0)
 	sv.add_child(sheet_body)
 	sheet_row = GridContainer.new()
+	sheet_row.name = "SheetDock"
 	sheet_row.columns = 2
-	sheet_row.add_theme_constant_override("separation", 10)
-	sheet_row.add_theme_constant_override("h_separation", 10)
-	sheet_row.add_theme_constant_override("v_separation", 10)
+	sheet_row.add_theme_constant_override("h_separation", 14)
+	sheet_row.add_theme_constant_override("v_separation", 14)
 	sv.add_child(sheet_row)
 
 
@@ -638,7 +677,26 @@ func _button(text: String, callback: Callable) -> Button:
 	return b
 
 
-func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> void:
+## Labels that only put the sheet away. They become the ✕ in its corner instead of taking
+## a tile in the dock; a real choice (Withdraw, Back to journal) stays a tile.
+const SHEET_DISMISS := ["close", "leave", "part ways", "not yet"]
+## The icon for an action, by the words on its button; first match wins.
+const ACTION_ICONS := [
+	["storm", "storm"], ["assault", "storm"], ["hold the walls", "walls"], ["enter", "inside"],
+	["wait", "revert"], ["warband", "company"], ["banner", "crown"], ["crown", "crown"],
+	["fight", "fight"], ["attack", "fight"], ["ride at", "fight"], ["send", "advance"],
+	["withdraw", "retreat"], ["let them", "retreat"], ["leave it", "walls"], ["stop following", "back"],
+	["ride with", "ride"], ["ride there", "ride"], ["news", "journal"], ["chronicle", "book"],
+	["journal", "journal"], ["show on map", "mappin"], ["unpin", "pin"], ["carry on", "resume"],
+	["understood", "resume"], ["chains", "lock"], ["release", "heart"], ["ransom", "silver"],
+	["settings", "gear"], ["home", "home"], ["new campaign", "plus"], ["back", "back"],
+]
+
+
+## The dock layout (mockup B): a header with an icon tile, the title, a line under it and a
+## ✕; the text; then the actions side by side as big icon tiles in thumb reach. `sub` is the
+## line under the title; `icon` overrides the tile's icon (otherwise chosen by `kind`).
+func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub: String = "", icon: String = "") -> void:
 	_sheet = kind
 	if bottom_bar != null:
 		bottom_bar.visible = false
@@ -646,24 +704,141 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array) -> v
 	for c in sheet_extra.get_children():
 		c.queue_free()
 	sheet_extra.visible = false
+	var danger := _sheet_is_danger(kind)
+	sheet_head.visible = true
 	sheet_title.text = title
 	sheet_title.visible = true
 	sheet_title.add_theme_color_override("font_color", Style.ENEMY_LIGHT if kind == "warning" else Style.TEXT)
+	sheet_sub.text = sub
+	sheet_sub.visible = sub != ""
+	var tile_icon := icon if icon != "" else _sheet_icon(kind)
+	sheet_tile_icon.texture = Widgets.icon(tile_icon) if tile_icon != "" else null
+	sheet_tile.visible = sheet_tile_icon.texture != null
+	sheet_tile.add_theme_stylebox_override("panel", Style.box(Color("3a1714") if danger else Color("2a2410"),
+		Style.ENEMY if danger else Style.BRASS, 3, 18))
 	sheet_body.text = body
 	sheet_body.visible = body != ""
-	sheet_row.columns = 1 if buttons.size() <= 1 else 2
+	# The ✕ takes over a button that only puts the sheet away.
+	_sheet_close_cb = Callable()
+	var actions := []
+	for spec in buttons:
+		if String(spec[0]).to_lower() in SHEET_DISMISS and not _sheet_close_cb.is_valid():
+			_sheet_close_cb = spec[1]
+		else:
+			actions.append(spec)
+	sheet_close.visible = _sheet_close_cb.is_valid()
+	var n := actions.size()
+	sheet_row.columns = maxi(1, 2 if n == 4 else mini(n, 3))
+	sheet_row.visible = n > 0
 	for c in sheet_row.get_children():
 		c.queue_free()
-	for spec in buttons:
-		var b := _button(String(spec[0]), spec[1])
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.clip_text = true
-		if spec.size() > 2 and spec[2]:
-			Style.make_primary(b)
-		sheet_row.add_child(b)
+	for spec in actions:
+		sheet_row.add_child(_dock_button(String(spec[0]), spec[1], spec.size() > 2 and spec[2], danger, n))
 	if not sheet_panel.visible:
 		sheet_panel.visible = true
 		Style.ease_in(sheet_panel)
+
+
+## One action in the sheet's dock: its icon above its words, a big tile in thumb reach.
+## The main one is brass, or red when it means a fight.
+func _dock_button(text: String, callback: Callable, primary: bool, danger: bool, count: int) -> Button:
+	var b := _button(text, callback)
+	b.name = "Dock_" + text.validate_node_name().replace(" ", "")
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	var key := _action_icon(text)
+	if key != "":
+		b.icon = Widgets.icon(key)
+	b.expand_icon = true
+	b.add_theme_constant_override("icon_max_width", 46)
+	b.add_theme_constant_override("h_separation", 6)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	b.custom_minimum_size = Vector2(0, 124 if count > 1 or key != "" else 96)
+	if primary:
+		if danger:
+			b.add_theme_stylebox_override("normal", Style.box(Style.ENEMY, Color(0, 0, 0, 0), 0))
+			b.add_theme_stylebox_override("hover", Style.box(Style.ENEMY.lightened(0.08), Color(0, 0, 0, 0), 0))
+			b.add_theme_stylebox_override("pressed", Style.box(Style.ENEMY.darkened(0.24), Style.TEXT, 3))
+			for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+				b.add_theme_color_override(c, Color("fff2ec"))
+		else:
+			Style.make_primary(b)
+			for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+				b.add_theme_color_override(c, Style.BRASS_INK)
+	return b
+
+
+## A round ✕ for the corner of a sheet.
+func _close_x() -> Button:
+	var x := Button.new()
+	x.icon = Widgets.icon("cancel")
+	x.expand_icon = true
+	x.add_theme_constant_override("icon_max_width", 26)
+	x.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	x.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
+	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	x.tooltip_text = "Close"
+	x.add_theme_stylebox_override("normal", Style.box(Style.RAISED, Style.RULE, 2, 40))
+	x.add_theme_stylebox_override("hover", Style.box(Style.RAISED.lightened(0.06), Style.MUTED, 2, 40))
+	x.add_theme_stylebox_override("pressed", Style.box(Style.RAISED.darkened(0.16), Style.BRASS, 3, 40))
+	x.pressed.connect(func():
+		if _sheet_close_cb.is_valid():
+			_sheet_close_cb.call())
+	return x
+
+
+func _action_icon(text: String) -> String:
+	var t := text.to_lower()
+	for pair in ACTION_ICONS:
+		if t.contains(pair[0]):
+			return pair[1]
+	return ""
+
+
+## The tile's icon for a kind of sheet.
+func _sheet_icon(kind: String) -> String:
+	match kind:
+		"here", "preview":
+			var id: String = _selected if _selected != "" else (world.here() if world != null else "")
+			if id != "" and Data.SETTLEMENTS.has(id):
+				match String(Data.settlement(id)["type"]):
+					Data.CASTLE:
+						return "walls"
+					Data.TOWN:
+						return "gate"
+				return "home"
+			return "mappin"
+		"encounter":
+			return "skull" if _sheet_is_danger(kind) else "talk"
+		"band", "warning":
+			return "skull"
+		"siege":
+			return "storm"
+		"lord", "ransom", "crown":
+			return "crown"
+		"wars":
+			return "battle"
+		"journal":
+			return "journal"
+		"chronicle":
+			return "book"
+		"commitment", "recommendation":
+			return "objective"
+		"notice":
+			return "resume"
+	return ""
+
+
+## Whether the sheet means a fight: bandits, a warning, or meeting someone hostile.
+func _sheet_is_danger(kind: String) -> bool:
+	if kind in ["band", "warning", "siege"]:
+		return true
+	if kind == "encounter" and world != null and world.encounter != -1:
+		var p = world.party(world.encounter)
+		return p != null and not (p.kind == WorldSim.LORD and world.relation_to_player(p.faction) == "friendly")
+	return false
 
 
 ## Put a lord's face and banner above the sheet just shown.
@@ -676,6 +851,7 @@ func _show_lord_header(lord: Dictionary) -> void:
 	_banner_realm = realm if Heraldry.REALM_SIZES.has(realm) else Heraldry.realm_of_culture(String(lord.get("culture", "")))
 	sheet_banner.queue_redraw()
 	sheet_lord_row.visible = true
+	sheet_tile.visible = false
 
 
 func _close_sheet() -> void:
@@ -741,17 +917,17 @@ func _open_here() -> void:
 	if GameState.crown_check()["ok"]:
 		buttons.insert(buttons.size() - 1, ["Raise your banner", _open_raise_crown])
 	var offers: Array = world.offers_at(id)
-	var body := "%s\nYou are here. " % world.brief(id)
+	var body := "You are here. "
 	var danger: String = world.settlement_danger(id)
 	if danger != "":
-		body = "%s\n%s.\nYou are here. " % [world.brief(id), danger.substr(0, 1).to_upper() + danger.substr(1)]
+		body = "%s.\nYou are here. " % (danger.substr(0, 1).to_upper() + danger.substr(1))
 	if offers.is_empty():
 		body += "Nobody here is looking for work."
 	else:
 		body += "%d %s looking for work." % [offers.size(), "squad is" if offers.size() == 1 else "squads are"]
 	if world.player_in_town():
 		body += " Reinforce and train in town."
-	_show_sheet("here", String(Data.settlement(id)["name"]), body, buttons)
+	_show_sheet("here", String(Data.settlement(id)["name"]), body, buttons, world.brief(id))
 
 
 func _open_band(b) -> void:
@@ -829,7 +1005,7 @@ func _sprite_picture(sprite: String, color: Color, culture: String) -> Control:
 ## The top of a sheet: a picture, the realm's banner, the name and a line about it, then a
 ## row of chips. Replaces the plain title.
 func _sheet_header(pic: Control, realm: String, title: String, sub: String, chips: Array) -> void:
-	sheet_title.visible = false
+	sheet_head.visible = false
 	sheet_lord_row.visible = false
 	sheet_extra.visible = true
 	var row := HBoxContainer.new()
@@ -854,6 +1030,8 @@ func _sheet_header(pic: Control, realm: String, title: String, sub: String, chip
 	sub_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(sub_label)
 	row.add_child(words)
+	if _sheet_close_cb.is_valid():
+		row.add_child(_close_x())
 	sheet_extra.add_child(row)
 	if not chips.is_empty():
 		sheet_extra.add_child(Widgets.chip_row(chips))
@@ -1333,7 +1511,7 @@ func _on_menu() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	_show_sheet("menu", "Campaign menu", "", [])
-	sheet_title.visible = false
+	sheet_head.visible = false
 	sheet_extra.visible = true
 	sheet_extra.add_child(_menu_header())
 	sheet_extra.add_child(_last_save_card())
