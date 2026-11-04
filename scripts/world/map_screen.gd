@@ -101,6 +101,10 @@ var _toast_tween: Tween
 var _talk = null
 ## Your crown's screen while it's open, or null.
 var _kingdom = null
+## The Warband button, which counts the talks waiting at the fire.
+var _warband_btn: Button
+var _talks_waiting := -1
+var _badge_hour := -1
 ## Why the last friendly lord stopped you ("first", "news", "army").
 var _stop_reason := ""
 ## The free-floating HUD layer: the toast sits on it, outside any layout.
@@ -589,6 +593,7 @@ func _build_hud() -> void:
 	bottom_bar.add_child(brow)
 	var camp := _button("Warband", _on_warband)
 	camp.name = "WarbandButton"
+	_warband_btn = camp
 	camp.custom_minimum_size = Vector2(150, 64)
 	camp.add_theme_stylebox_override("normal", _pill_box(Color(Style.PANEL, 0.94)))
 	brow.add_child(camp)
@@ -2548,8 +2553,21 @@ func _on_new_campaign() -> void:
 	Scenes.go("res://scenes/new_campaign.tscn")
 
 
+## "Warband · 2" while talks wait at the fire.
+func _refresh_talks_badge() -> void:
+	if _warband_btn == null:
+		return
+	var n: int = GameState.new_bond_talks().size()
+	if n != _talks_waiting:
+		_talks_waiting = n
+		_warband_btn.text = "Warband · %d" % n if n > 0 else "Warband"
+
+
 func _refresh_hud() -> void:
 	var h := int(world.hour)
+	if h != _badge_hour:
+		_badge_hour = h
+		_refresh_talks_badge()
 	if unread_badge != null and world.social != null:
 		var unread: int = world.social.unread_letters_count()
 		unread_badge.visible = unread > 0

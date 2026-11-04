@@ -1887,11 +1887,7 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		for captain in captains:
 			result_content.add_child(_result_captain(captain, _siege_note(captain)))
 
-	var bonds: Array = report.get("bonds", [])
-	if not bonds.is_empty():
-		result_content.add_child(_result_heading("Bonds forged"))
-		for bond in bonds:
-			result_content.add_child(_result_bond(bond))
+	_result_bonds(report.get("bonds", []), report.get("memorials", []))
 
 	var squads: Array = report.get("squads", [])
 	if not squads.is_empty():
@@ -2098,6 +2094,99 @@ func _draw_vignette(c: Control, title: String, realm: String, ours: bool) -> voi
 		c.draw_texture_rect(crown, Rect2(x0, band.position.y + 16.0, 30, 30), false, ink)
 	c.draw_string(big, Vector2(x0 + 40.0, band.position.y + 43.0), title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 	c.draw_rect(frame, Color("6d5222"), false, 2.0)
+
+
+## Bonds, told once: ranks reached first, then bonds a death has ended, then one line for
+## every other pair that grew closer, which opens the list.
+func _result_bonds(bonds: Array, memorials: Array) -> void:
+	if bonds.is_empty() and memorials.is_empty():
+		return
+	var ups: Array = bonds.filter(func(b): return bool(b.get("rank_up", false)))
+	var rest: Array = bonds.filter(func(b): return not bool(b.get("rank_up", false)))
+	result_content.add_child(_result_heading("Bonds"))
+	for bond in ups:
+		result_content.add_child(_result_rank_up(bond))
+	for m in memorials:
+		result_content.add_child(_result_memorial(m))
+	if not ups.is_empty():
+		var hint := _result_note("A talk waits at the fire for each new rank.", Style.MUTED)
+		hint.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		result_content.add_child(hint)
+	if rest.is_empty():
+		return
+	var list := VBoxContainer.new()
+	list.name = "OtherBonds"
+	list.visible = false
+	list.add_theme_constant_override("separation", 6)
+	for bond in rest:
+		list.add_child(_result_bond(bond))
+	var toggle := Button.new()
+	toggle.name = "OtherBondsToggle"
+	toggle.text = "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]
+	toggle.custom_minimum_size.y = 64
+	toggle.pressed.connect(func():
+		list.visible = not list.visible
+		toggle.text = ("Hide" if list.visible else "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]))
+	result_content.add_child(toggle)
+	result_content.add_child(list)
+
+
+func _result_rank_up(bond: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "RankUp_%d_%d" % [int(bond.get("a_id", 0)), int(bond.get("b_id", 0))]
+	panel.add_theme_stylebox_override("panel", Style.box(Color("2a2210"), Style.BRASS, 2, 14))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+	var a: Dictionary = bond.get("a_face", {"id": bond.get("a_id", 0), "first": bond.get("a_name", "")})
+	var b: Dictionary = bond.get("b_face", {"id": bond.get("b_id", 0), "first": bond.get("b_name", "")})
+	row.add_child(CaptainArt.portrait(a, Vector2(54, 72)))
+	row.add_child(CaptainArt.portrait(b, Vector2(54, 72)))
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	var title := Style.label("%s & %s · Rank %s" % [bond.get("a_name", ""), bond.get("b_name", ""), bond.get("rank_after", "")], Style.BODY, Style.BRASS)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(title)
+	var effect := Style.label(GameState.bond_effect_text(float(bond.get("after", 0.0))), Style.SMALL, Style.TEXT)
+	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(effect)
+	row.add_child(words)
+	var badge := Style.label(String(bond.get("rank_after", "")), Style.LARGE, Style.BRASS_INK)
+	var chip := PanelContainer.new()
+	chip.add_theme_stylebox_override("panel", Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 30))
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	badge.custom_minimum_size = Vector2(44, 0)
+	chip.add_child(badge)
+	row.add_child(chip)
+	return panel
+
+
+func _result_memorial(m: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "Memorial"
+	panel.add_theme_stylebox_override("panel", Style.box(Color("15151c"), Color("4a4a58"), 2, 14))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+	row.add_child(CaptainArt.portrait(m.get("survivor_face", {}), Vector2(54, 72)))
+	var gone := CaptainArt.portrait(m.get("fallen_face", {}), Vector2(54, 72))
+	gone.modulate = Color(0.5, 0.5, 0.58)
+	row.add_child(gone)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	var title := Style.label("%s remembers %s" % [m.get("survivor", ""), m.get("fallen", "")], Style.BODY, Style.TEXT)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(title)
+	var shared := int(m.get("shared", 0))
+	var line := Style.label("Rank %s · %s. One place by the fire will stay empty tonight." % [m.get("rank", ""),
+		"%d battle%s together" % [shared, "" if shared == 1 else "s"] if shared > 0 else "fought together"], Style.SMALL, Style.MUTED)
+	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(line)
+	row.add_child(words)
+	return panel
 
 
 func _result_bond(bond: Dictionary) -> Control:

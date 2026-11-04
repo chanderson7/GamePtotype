@@ -226,6 +226,9 @@ func _run() -> void:
 	await process_frame
 	check(scenes.warband_sort == 4 and int(current_scene.find_child("WarbandSort", true, false).get_meta("picked", -1)) == 4,
 		"Warband remembers the selected captain-name sort")
+	check(button("1 talk at the fire · Bonds") != null, "the camp says a talk waits at the fire")
+	current_scene._on_tab("bonds")
+	await process_frame
 	var camp_talk := button("Spend time at camp · new")
 	check(camp_talk != null and _has_text(current_scene, "shared battle") and _has_text(current_scene, "morale each second"),
 		"bond cards show shared history, exact effects and optional conversation")
@@ -284,10 +287,10 @@ func _check_bonds() -> void:
 	result["bonds"][key] = 60.0
 	result["lost"] = 3
 	loaded.apply_result(result)
-	check(loaded.bond_intro_pending() and loaded.bond_intro_event().get("rank") == "B",
-		"reaching rank B queues a distinct trust milestone")
+	check(not loaded.bond_intro_pending() and loaded.bond_conversation_is_new(a["id"], b["id"]) and loaded.new_bond_talks().size() == 1,
+		"reaching rank B stops nothing: its talk waits at the fire")
 	state.from_dict(JSON.parse_string(JSON.stringify(loaded.to_dict())))
-	check(state.bond_intro_event().get("rank") == "B" and state.bond_record(a["id"], b["id"]).get("shared_battles") == 3,
+	check(state.bond_record(a["id"], b["id"]).get("milestones", []).has("B") and state.bond_record(a["id"], b["id"]).get("shared_battles") == 3,
 		"rank milestones and shared battle history survive saving and loading")
 	var conversation := state.bond_conversation(a["id"], b["id"])
 	check(conversation.get("rank") == "B" and String(conversation.get("passages", [""])[0]).contains("3 battles") and String(conversation.get("passages", ["", ""])[1]).contains("victory"),
@@ -303,8 +306,8 @@ func _check_bonds() -> void:
 	state.apply_result(result)
 	check(not state.bond_intro_pending(), "ordinary shared battles do not repeat a rank milestone")
 	state.apply_result(result)
-	check(state.bond_intro_event().get("rank") == "A", "reaching rank A queues the final bond milestone")
-	state.acknowledge_bond_intro()
+	check(not state.bond_intro_pending() and state.bond_record(a["id"], b["id"]).get("milestones", []).has("A") and state.bond_conversation_is_new(a["id"], b["id"]),
+		"reaching rank A is recorded, with a new talk and no screen")
 	check(state.bond_effect_text(24.0).contains("20% damage") and state.bond_effect_text(24.0).contains("2.0 morale"),
 		"bond progression states the exact rank A battlefield effect")
 	var legacy := loaded.to_dict()
@@ -323,14 +326,15 @@ func _check_bonds() -> void:
 	key = "%d|%d" % [a["id"], b["id"]]
 	result = {"won": false, "lost": int(state.army[0]["men"]), "bonds": {key: 60.0}, "squads": {
 		state.army[0]["id"]: {"men": 0, "kills": 0, "captain": {"fate": "killed", "kills": 0, "roll": 1, "needed": 45}}}}
+	a["bonds"][str(b["id"])] = 6.0
+	b["bonds"][str(a["id"])] = 6.0
+	var rep: Dictionary = state.battle_report(result)
+	check(rep.get("memorials", []).size() == 1 and String(rep["memorials"][0]["fallen"]) == String(a["first"]),
+		"a bonded captain's death is remembered in the battle's results")
 	state.apply_result(result)
-	check(state.bond_intro_pending() and state.bond_intro_event().get("kind") == "memorial",
-		"a bonded captain's death queues a remembrance instead of a living-pair introduction")
+	check(not state.bond_intro_pending(), "and stops nothing on the map")
 	check(state.captain_by_id(b["id"])["history"]["fallen_friends"].has(a["name"]),
 		"the surviving captain keeps the fallen partner in their personal history")
-	loaded.from_dict(JSON.parse_string(JSON.stringify(state.to_dict())))
-	check(loaded.bond_intro_event().get("kind") == "memorial" and loaded.bond_intro_captains().size() == 2,
-		"the memorial reaction and both portraits survive saving and loading")
 	loaded.new_campaign(Cultures.RYUMON)
 	a = loaded.army[0]["captain"]
 	b = loaded.army[1]["captain"]

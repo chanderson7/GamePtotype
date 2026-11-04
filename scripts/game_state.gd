@@ -2573,9 +2573,34 @@ func battle_report(result: Dictionary) -> Dictionary:
 	return {
 		"won": won, "lost": lost, "killed": killed,
 		"reason": String(result.get("reason", "")), "story": story,
-		"rewards": rewards, "captains": captain_rows, "bonds": bond_rows,
+		"rewards": rewards, "captains": captain_rows, "bonds": bond_rows, "memorials": _report_memorials(captain_rows),
 		"squads": squad_rows,
 	}
+
+
+## Bonds this battle ended: for each captain who fell, the captains bound to them.
+func _report_memorials(captain_rows: Array) -> Array:
+	var out := []
+	for row in captain_rows:
+		if String(row.get("fate", "")) != "killed":
+			continue
+		var fallen = captain_by_id(int(row["id"]))
+		if fallen == null:
+			continue
+		for other_id in fallen.get("bonds", {}):
+			var survivor = captain_by_id(int(other_id))
+			var rank := Captains.rank_letter(float(fallen["bonds"][other_id]))
+			if survivor == null or rank == "" or captain_rows.any(func(r): return int(r["id"]) == int(survivor["id"]) and String(r.get("fate", "")) == "killed"):
+				continue
+			out.append({"survivor": String(survivor["first"]), "fallen": String(fallen["first"]), "rank": rank,
+				"survivor_face": Captains.face_record(survivor), "fallen_face": Captains.face_record(fallen),
+				"shared": int(bond_record(int(fallen["id"]), int(survivor["id"])).get("shared_battles", 0))})
+	return out
+
+
+## Bonds with a talk at the fire not yet heard: one for each rank reached.
+func new_bond_talks() -> Array:
+	return bonds().filter(func(b): return bond_conversation_is_new(int(b["a"]["id"]), int(b["b"]["id"])))
 
 
 func _bond_changes(result: Dictionary) -> Array:
@@ -2624,7 +2649,9 @@ func _queue_bond_rank_events(events: Array) -> void:
 		if record["milestones"].has(rank):
 			continue
 		record["milestones"].append(rank)
-		if rank == "C" and bond_intro_seen:
+		# Only the company's very first bond stops you, once, to say what bonds do. Every
+		# other rank is told in the battle's results, and its talk waits at the fire.
+		if rank != "C" or bond_intro_seen or not bond_events.is_empty():
 			continue
 		var queued: Dictionary = event.duplicate(true)
 		queued["kind"] = "rank"
@@ -2650,11 +2677,7 @@ func _record_bond_loss(fallen_captain: Dictionary) -> void:
 		var record := _ensure_bond_record(int(fallen_captain["id"]), int(survivor["id"]))
 		if not record["losses"].has(fallen_captain["name"]):
 			record["losses"].append(fallen_captain["name"])
-		bond_events.append({"kind": "memorial", "rank": rank,
-			"a_id": int(survivor["id"]), "b_id": int(fallen_captain["id"]),
-			"pair": "%s remembers %s" % [survivor["name"], fallen_captain["name"]],
-			"fallen_name": String(fallen_captain["name"]), "battle": battles,
-			"shared_battles": int(record.get("shared_battles", 0))})
+		# Remembered in the battle's results and at the fire, not with a screen of its own.
 	_sync_bond_intro_legacy()
 
 
@@ -3216,6 +3239,10 @@ func _clean_bond_state() -> void:
 	var clean_events := []
 	for raw in bond_events:
 		if typeof(raw) != TYPE_DICTIONARY:
+			continue
+		# Older campaigns queued a screen for every rank and memorial. Only the first
+		# bond's introduction still stops you; the rest wait at the fire as new talks.
+		if bond_intro_seen or String(raw.get("kind", "rank")) != "rank" or String(raw.get("rank", "")) != "C" or not clean_events.is_empty():
 			continue
 		var event: Dictionary = raw.duplicate(true)
 		event["a_id"] = int(raw.get("a_id", 0))

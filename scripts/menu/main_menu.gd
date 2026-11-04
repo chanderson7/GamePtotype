@@ -91,7 +91,8 @@ func _build() -> void:
 	var tabs := [
 		{"id": "camp", "label": "Camp", "badge": 1 if CampMoments.pick(GameState).size() > 0 else 0},
 		{"id": "companies", "label": "Companies", "badge": 0},
-		{"id": "deeds", "label": "Deeds & work", "badge": GameState.active_jobs.size()},
+		{"id": "bonds", "label": "Bonds", "badge": GameState.new_bond_talks().size()},
+		{"id": "deeds", "label": "Deeds", "badge": GameState.active_jobs.size()},
 	]
 	col.add_child(Widgets.tab_bar(tabs, _tab, _on_tab, "WarbandTabs"))
 
@@ -102,12 +103,16 @@ func _build() -> void:
 	companies.name = "CompaniesTab"
 	var deeds := VBoxContainer.new()
 	deeds.name = "DeedsTab"
-	for t in [camp, companies, deeds]:
+	var bonds_tab := VBoxContainer.new()
+	bonds_tab.name = "BondsTab"
+	for t in [camp, companies, bonds_tab, deeds]:
 		t.add_theme_constant_override("separation", 16)
 		col.add_child(t)
 	camp.visible = _tab == "camp"
 	companies.visible = _tab == "companies"
+	bonds_tab.visible = _tab == "bonds"
 	deeds.visible = _tab == "deeds"
+	_build_bonds_tab(bonds_tab)
 
 	# --- Camp: the fire, who's there, the last fight, bonds and the remembered.
 	camp.add_child(_camp_header())
@@ -120,12 +125,16 @@ func _build() -> void:
 		var won: bool = last["won"]
 		var lc := Widgets.card(camp, "Last battle", "Victory" if won else "Defeat", Style.BRASS if won else Style.ENEMY_LIGHT)
 		lc.add_child(_note("Lost %d men, cut down %d." % [last["lost"], last["killed"]], Style.TEXT))
-	var bc := Widgets.card(camp, "Bonds")
-	var bonds: Array = GameState.bonds()
-	if bonds.is_empty():
-		bc.add_child(_note("None yet. Captains who fight side by side grow close, and fight better near each other."))
-	for b in bonds:
-		bc.add_child(_bond_row(b))
+	# Bonds have their own tab; the fire only says when a talk is waiting.
+	var waiting: int = GameState.new_bond_talks().size()
+	if waiting > 0:
+		var go := Button.new()
+		go.name = "TalksAtTheFire"
+		go.text = "%d talk%s at the fire · Bonds" % [waiting, "" if waiting == 1 else "s"]
+		go.custom_minimum_size.y = Style.TOUCH
+		Style.make_primary(go)
+		go.pressed.connect(_on_tab.bind("bonds"))
+		camp.add_child(go)
 	var captives: Array = GameState.captive_lords()
 	if not captives.is_empty():
 		var cc := Widgets.card(camp, "Captive lords")
@@ -723,6 +732,77 @@ func _fief_overview_row() -> Control:
 	var status_lbl := Style.label(status_text, Style.BODY, Style.TEXT if not is_b else Style.ENEMY_LIGHT)
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(status_lbl)
+	return panel
+
+
+## Every bond in the company: talks waiting at the fire first, then the bonds closest to
+## their next rank, then those still growing toward rank C, and the remembered.
+func _build_bonds_tab(tab: VBoxContainer) -> void:
+	var ranked: Array = GameState.bonds()
+	var waiting: Array = GameState.new_bond_talks()
+	tab.add_child(_note("Captains who fight within reach of each other grow close. Each rank steadies them when near each other, and opens a talk at the fire."))
+	if not waiting.is_empty():
+		tab.add_child(_section("Talks at the fire"))
+		for b in waiting:
+			tab.add_child(_bond_row(b))
+	var rest: Array = ranked.filter(func(b): return not waiting.has(b))
+	rest.sort_custom(func(x, y): return _to_next_rank(float(x["points"])) < _to_next_rank(float(y["points"])))
+	if not rest.is_empty():
+		tab.add_child(_section("Bonds · closest to a rank first"))
+		for b in rest:
+			tab.add_child(_bond_row(b))
+	# Pairs that have fought together but haven't reached rank C.
+	var growing := []
+	for i in GameState.army.size():
+		var a = GameState.army[i].get("captain")
+		if a == null:
+			continue
+		for j in range(i + 1, GameState.army.size()):
+			var b = GameState.army[j].get("captain")
+			if b == null:
+				continue
+			var points := float(a.get("bonds", {}).get(str(b["id"]), 0.0))
+			if points > 0.0 and Captains.rank_for(points) == 0:
+				growing.append({"a": a, "b": b, "points": points})
+	growing.sort_custom(func(x, y): return float(x["points"]) > float(y["points"]))
+	if not growing.is_empty():
+		tab.add_child(_section("Growing"))
+		for g in growing:
+			tab.add_child(_growing_row(g))
+	var remembered := []
+	for sq in GameState.army:
+		var c = sq.get("captain")
+		if c == null:
+			continue
+		for name in c.get("history", {}).get("fallen_friends", []):
+			remembered.append("%s remembers %s." % [c["first"], name])
+	if not remembered.is_empty():
+		tab.add_child(_section("Remembered"))
+		for line in remembered:
+			tab.add_child(_note(line))
+	if ranked.is_empty() and growing.is_empty():
+		tab.add_child(_note("None yet. Fight with captains side by side and they'll grow close."))
+
+
+## Points still needed for the next rank (a big number at the top rank).
+func _to_next_rank(points: float) -> float:
+	var r := Captains.rank_for(points)
+	return 999.0 if r + 1 >= Captains.RANK_POINTS.size() else float(Captains.RANK_POINTS[r + 1]) - points
+
+
+func _growing_row(g: Dictionary) -> Control:
+	var panel := PanelContainer.new()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
+	row.add_child(CaptainArt.portrait(g["a"], Vector2(36, 48)))
+	row.add_child(CaptainArt.portrait(g["b"], Vector2(36, 48)))
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_child(Style.label("%s & %s" % [g["a"]["first"], g["b"]["first"]], Style.SMALL, Style.TEXT))
+	var target := float(Captains.RANK_POINTS[1])
+	words.add_child(_meter("%.0f/%.0f toward rank C" % [float(g["points"]), target], float(g["points"]), target, Style.MUTED))
+	row.add_child(words)
 	return panel
 
 
