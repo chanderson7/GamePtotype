@@ -678,6 +678,16 @@ func _close_sheet() -> void:
 	sheet_panel.visible = false
 
 
+## Closes a sheet opened from another (the war news, the chronicle). While an encounter
+## is still waiting, as when a lord on the road told you of the war, it goes back to that
+## encounter: closing it outright would leave the map paused with nothing to answer.
+func _close_or_back() -> void:
+	if world != null and world.encounter != -1 and world.party(world.encounter) != null:
+		_open_encounter()
+	else:
+		_close_sheet()
+
+
 func _open_preview(id: String) -> void:
 	var hours: float = world.hours_to(id)
 	var sea := ""
@@ -1594,7 +1604,7 @@ func _on_saves() -> void:
 
 
 func _open_wars() -> void:
-	_show_sheet("wars", "War & Politics", "", [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_sheet, true]])
+	_show_sheet("wars", "War & Politics", "", [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_or_back, true]])
 	sheet_extra.visible = true
 	# The realms: each with its banner, its strength against the strongest, how weary of
 	# war it is, and what it holds.
@@ -1783,7 +1793,7 @@ func _open_chronicle(filter: String = "all") -> void:
 		["Wars", _open_chronicle.bind("war"), filter == "war"],
 		["Sieges", _open_chronicle.bind("siege"), filter == "siege"],
 		["Deeds", _open_chronicle.bind("deed"), filter == "deed"],
-		["Close", _close_sheet]
+		["Close", _close_or_back]
 	]
 	var cat_label := "" if filter == "all" else (" · " + filter.capitalize())
 	_show_sheet("chronicle", "The Chronicle%s" % cat_label, "\n".join(lines), buttons)
