@@ -1263,17 +1263,19 @@ func _check_world_saves() -> void:
 	w.setup(5, Cultures.RYUMON)
 	w.travel("takamine")
 	w.step(3.3)
-	var saved := JSON.stringify(w.to_dict())
+	# Written as the game writes its saves (GameState.save_game): at full precision, or the
+	# last digits of every timer are lost and the copy drifts from the original.
+	var saved := JSON.stringify(w.to_dict(), "", true, true)
 	var copy := WorldSim.new()
 	copy.from_dict(JSON.parse_string(saved))
-	var same := JSON.stringify(copy.to_dict()) == saved
+	var same := JSON.stringify(copy.to_dict(), "", true, true) == saved
 	for world in [w, copy]:
 		world.step(40.0)
 		if world.encounter != -1:
 			world.withdraw()
 		world.travel("hamazaki")
 		world.step(40.0)
-	_expect(same and JSON.stringify(copy.to_dict()) == JSON.stringify(w.to_dict()),
+	_expect(same and JSON.stringify(copy.to_dict(), "", true, true) == JSON.stringify(w.to_dict(), "", true, true),
 		"a saved world loads back exactly, and carries on exactly as the original")
 
 	var gs = GameStateScript.new()
