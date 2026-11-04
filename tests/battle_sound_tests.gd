@@ -152,5 +152,28 @@ func _init() -> void:
 	await process_frame
 	check(not sound._melee_bed.playing, "leaving the battle silences it")
 
+	# ---- the mix: battle sounds carry over the battle music
+	var levels: Dictionary = load("res://scripts/data/sfx_levels.gd").LOUDEST
+	var untaken := []
+	for bank in sound.BANKS:
+		for k in range(1, int(sound.BANKS[bank]) + 1):
+			if not levels.has("%s_%d" % [bank, k]):
+				untaken.append("%s_%d" % [bank, k])
+	check(untaken.is_empty(), "every take has a measured level (run tools/sfx_levels.py) %s" % str(untaken))
+	var spread := []
+	for k in range(1, 13):
+		spread.append(sound._level_db("spear", "spear_%d" % k) + float(levels["spear_%d" % k]))
+	check(spread.max() - spread.min() < 0.01 and is_equal_approx(spread[0], float(sound.PEAK_DB["spear"])),
+		"every take of a blow plays at the same peak, however it was recorded")
+	# The battle music (drums, ostinato and the fighting layer) averages about -11 dBFS in
+	# its files; played at BATTLE_MUSIC_DB.
+	var music_avg: float = -11.0 + sound.BATTLE_MUSIC_DB
+	for name in ["sword", "shield", "spear", "arrows_land", "arrows"]:
+		check(float(sound.PEAK_DB[name]) - 2.5 > music_avg + 2.0, "%s peaks over the battle music (%.0f vs %.0f dBFS)" % [name, sound.PEAK_DB[name], music_avg])
+	for name in ["cav_impact", "captain_down", "gate_break", "call_charge"]:
+		check(float(sound.PEAK_DB[name]) > music_avg + 8.0, "%s stands well over it" % name)
+	check(float(sound.PEAK_DB["melee_bed"]) < music_avg, "the din sits under it")
+	check(sound.BATTLE_MUSIC_DB < sound.MUSIC_DB, "battle music plays lower than music elsewhere")
+
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)

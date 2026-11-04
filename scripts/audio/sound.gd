@@ -15,8 +15,10 @@ const SETTINGS_PATH := "user://settings.cfg"
 const FADE := 1.4
 ## Road, camp and battlefield ambience changes more quickly than music, but never cuts.
 const AMBIENCE_FADE := 0.55
-## Music sits under the effects.
+const SfxLevels = preload("res://scripts/data/sfx_levels.gd")
+## Music sits under the effects; in battle, further under, so the fighting carries over it.
 const MUSIC_DB := -7.0
+const BATTLE_MUSIC_DB := -11.0
 const SILENT_DB := -60.0
 ## How loud each effect plays, so a click doesn't drown a bell.
 const SFX_DB := {
@@ -34,6 +36,22 @@ const SFX_DB := {
 	"cav_impact": -6.0, "brace": -9.0, "captain_down": -6.0,
 	"ram": -7.0, "gate_break": -4.0, "ladders": -9.0,
 	"call_start": -5.0, "call_charge": -7.0, "call_retreat": -7.0, "reinforce": -8.0,
+}
+## How loud each battle sound peaks in play: its loudest tenth of a second, in dBFS, before
+## where it is on the field and how far out the view is. Each file is trimmed to this from
+## its own measured level (scripts/data/sfx_levels.gd), so every take of a sound is as
+## loud as the next. The battle music averages about -22 dBFS with the fighting layer up:
+## routine blows and missiles peak a few dB over it, voices and charges more, and the
+## moments that turn a battle well over it. Loops (the din, hooves, footsteps) sit under it.
+const PEAK_DB := {
+	"sword": -16.0, "shield": -16.0, "spear": -16.0, "heavy": -15.0, "clash1": -17.0, "clash2": -17.0, "clash3": -17.0,
+	"arrows": -17.0, "crossbow": -17.0, "javelin": -17.0, "horsebow": -18.0,
+	"arrows_land": -16.0, "bolts_land": -16.0, "javelins_land": -16.0, "quiver_empty": -19.0,
+	"warcry": -14.0, "panic": -15.0, "cheer": -14.0, "gasp": -17.0, "rout": -15.0,
+	"cav_impact": -11.0, "charge": -13.0, "brace": -14.0, "captain_down": -12.0,
+	"ram": -14.0, "gate_break": -10.0, "ladders": -16.0,
+	"call_start": -12.0, "call_charge": -12.0, "call_retreat": -12.0, "reinforce": -13.0,
+	"melee_bed": -24.0, "hooves": -25.0, "footsteps": -28.0,
 }
 ## Sounds recorded in several takes: "sword" plays one of sword_1..sword_12, never the
 ## same one twice running.
@@ -72,7 +90,7 @@ var haptic_count := 0
 var _duck_until := 0.0
 ## Routine contact sounds, which give way to critical cues.
 const CONTACT := ["clash1", "clash2", "clash3", "arrows", "footsteps", "hooves", "crossbow", "javelin", "horsebow"]
-const DUCK_DB := -9.0
+const DUCK_DB := -6.0
 var _track := ""
 var _music: Array[AudioStreamPlayer] = []
 var _current := 0
@@ -150,7 +168,7 @@ func _process(delta: float) -> void:
 		_melee_bed.volume_db = SILENT_DB
 		_melee_bed.play()
 	if _melee_bed.playing:
-		var want_bed := float(SFX_DB["melee_bed"]) + linear_to_db(maxf(0.01, _melee))
+		var want_bed := _level_db("melee_bed", "melee_bed") + linear_to_db(maxf(0.01, _melee))
 		_melee_bed.volume_db = move_toward(_melee_bed.volume_db, want_bed, delta * 18.0)
 		if _melee <= 0.0 and _melee_bed.volume_db <= -55.0:
 			_melee_bed.stop()
@@ -164,7 +182,7 @@ func _process(delta: float) -> void:
 
 func _toward(key: String, level: float, delta: float) -> void:
 	var p: AudioStreamPlayer = _layers[key]
-	var want := MUSIC_DB + linear_to_db(maxf(0.02, level))
+	var want := BATTLE_MUSIC_DB + linear_to_db(maxf(0.02, level))
 	p.volume_db = move_toward(p.volume_db, want, delta * 12.0)
 
 
@@ -176,7 +194,7 @@ const BATTLE_REALMS := ["vardish", "kharzani", "ryumon", "siege"]
 ## Seconds in a bar of the battle music (120 beats a minute, four to the bar).
 const BATTLE_BAR := 2.0
 ## Where a quiet battle layer rests: the floor _toward() fades down to.
-const LAYER_FLOOR_DB := MUSIC_DB - 34.0
+const LAYER_FLOOR_DB := BATTLE_MUSIC_DB - 34.0
 var _layers_fading := false
 
 
@@ -220,7 +238,7 @@ func battle_clash() -> void:
 		p.volume_db = SILENT_DB if key == "base" else LAYER_FLOOR_DB
 	for key in BATTLE_LAYERS:
 		_layers[key].play(0.0)
-	_fade(_layers["base"], MUSIC_DB, 0.8)
+	_fade(_layers["base"], BATTLE_MUSIC_DB, 0.8)
 	for p in _music:
 		_fade(p, SILENT_DB, 1.2, true)
 
@@ -288,7 +306,8 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 	_last[name] = now
 	if now < _duck_until and CONTACT.has(name):
 		volume_db += DUCK_DB
-	var stream := _stream(SFX_PATH % take(name), false)
+	var file := take(name)
+	var stream := _stream(SFX_PATH % file, false)
 	if stream == null:
 		return
 	var p: AudioStreamPlayer = null
@@ -300,7 +319,7 @@ func play(name: String, volume_db: float = 0.0, jitter: float = 0.0, gap: float 
 		p = _pool[0]
 		_pool.push_back(_pool.pop_front())
 	p.stream = stream
-	p.volume_db = _base_db(name) + volume_db
+	p.volume_db = _level_db(name, file) + volume_db
 	p.pitch_scale = pitch * (1.0 + randf_range(-jitter, jitter))
 	p.bus = group_of(name)
 	p.play()
@@ -340,6 +359,15 @@ func _base_db(name: String) -> float:
 	return float(SFX_DB.get(name, SFX_DB.get(_family(name), -8.0)))
 
 
+## The volume to play `file` (one take of the sound `name`) at: a battle sound is trimmed
+## from its measured level to its target peak; anything else plays at its set level.
+func _level_db(name: String, file: String) -> float:
+	var family := _family(name)
+	if PEAK_DB.has(family) and SfxLevels.LOUDEST.has(file):
+		return float(PEAK_DB[family]) - float(SfxLevels.LOUDEST[file])
+	return _base_db(name)
+
+
 ## A battle sound where it happens: `at` is its place on the screen, so it sounds from
 ## that side, and quieter the farther it is from the middle of the view.
 func play_at(name: String, at: Vector2, volume_db: float = 0.0, jitter: float = 0.0, gap: float = 0.0, pitch: float = 1.0) -> void:
@@ -363,13 +391,14 @@ func play_at(name: String, at: Vector2, volume_db: float = 0.0, jitter: float = 
 	_last[key] = now
 	if now < _duck_until and (CONTACT.has(name) or GROUPS["Melee"].has(name) or GROUPS["Missiles"].has(name)):
 		volume_db += DUCK_DB
-	var stream := _stream(SFX_PATH % take(name), false)
+	var file := take(name)
+	var stream := _stream(SFX_PATH % file, false)
 	if stream == null:
 		return
 	free.stream = stream
 	free.bus = group_of(name)
 	free.global_position = at
-	free.volume_db = _base_db(name) + volume_db
+	free.volume_db = _level_db(name, file) + volume_db
 	free.pitch_scale = pitch * (1.0 + randf_range(-jitter, jitter))
 	free.set_meta("family", name)
 	free.play()
@@ -391,7 +420,7 @@ func set_field_distance(far: float) -> void:
 	var dull := AudioServer.get_bus_effect(bus, 0) as AudioEffectLowPassFilter
 	if dull != null:
 		dull.cutoff_hz = lerpf(20000.0, 4500.0, f)
-	AudioServer.set_bus_volume_db(bus, lerpf(0.0, -4.0, f))
+	AudioServer.set_bus_volume_db(bus, lerpf(0.0, -2.5, f))
 
 
 ## The battle is over: its din and everything placed on the field stop.
@@ -466,7 +495,7 @@ func _set_named_loop(player: AudioStreamPlayer, name: String) -> void:
 	player.stream = _stream(SFX_PATH % name, true)
 	if player.stream == null:
 		return
-	player.volume_db = float(SFX_DB.get(name, -8.0))
+	player.volume_db = _level_db(name, name)
 	player.set_meta("name", name)
 	player.play()
 

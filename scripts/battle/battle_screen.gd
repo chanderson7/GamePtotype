@@ -1734,7 +1734,7 @@ func _battle_sounds(delta: float) -> void:
 			_clash_clock = randf_range(0.22, 0.5)
 			var sq = fighting[randi() % fighting.size()]
 			var kinds: Array = BLOWS.get(sq.type, ["sword"])
-			Sound.play_at(String(kinds[randi() % kinds.size()]), _to_screen(sq.average_pos()), randf_range(-5.0, 0.0), 0.08)
+			Sound.play_at(String(kinds[randi() % kinds.size()]), _to_screen(sq.average_pos()), randf_range(-2.5, 0.0), 0.08)
 	# Each kind of missile has its own sound going up, where it was loosed, and coming down,
 	# where it lands, played when enough of them fly at once.
 	var loosed := {}
