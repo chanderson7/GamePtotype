@@ -1,7 +1,7 @@
 # Bannerfall: the combat feel plan
 
 - **Date:** 2026-11-04
-- **Status:** proposed, with mockups
+- **Status:** built (2026-11-04). Deviations are listed at the end.
 - **Goal:** make a battle feel premium: men who act rather than flash, blows that land, a
   field with an hour, callouts with a hierarchy, and a start and an end that are moments.
   Everything here is presentation. The simulation in `battle_sim.gd` is not touched:
@@ -289,3 +289,34 @@ card; the VICTORY and DEFEAT stamps; the cracked card; the death roll.
 - Weather, seasons, or anything that changes a rule.
 - Voice barks beyond the calls that exist.
 - A cinematic longer than the two sub-second beats.
+
+## As built
+
+Everything above is in `scripts/battle/battle_screen.gd`, with the shake setting in
+`scripts/audio/sound.gd` and `scripts/menu/settings.gd`, one grade shader
+(`assets/shaders/battle_grade.gdshader`) and `tests/battle_feel_tests.gd` (51 checks). Where
+it differs from the plan:
+
+- **Larger offsets.** At phone zoom the plan's 1.5–2.5 unit nudges were invisible: the
+  lunge is 4.5 field units, the wind-up 2.5, a flinch 3.5, a charge shove 9.
+- **The wind-up comes before the blow.** The sim strikes at the start of a swing, so the
+  wind-up is read from the cooldown running out (the last 0.12 s before a blow; 0.24 s for
+  a bow), and the swing itself is the lunge and recovery. Nothing waits on it.
+- **A charge death falls where he stood.** Falling along the charge would have snapped the
+  body to its resting angle; the stagger and dust carry it instead.
+- **The brace is a crouch, not a lean.** Seen from above, the lean read as a rotation. A
+  set squad is drawn 10% shorter and a step forward instead.
+- **SHAKEN stays a word.** It's the reaction to a friend's death, an event rather than a
+  lasting state, so it's a squad callout like FURY and STEADY.
+- **Pause and defeat use a screen grade.** One shader on a layer between the field and the
+  HUD drains the colour; the hour's washes are plain draws, as planned. The title card and
+  the end stamp are drawn on a HUD layer so the grade never greys them.
+- **No slow-motion on the last rout.** The sim stops when the battle is decided, so the
+  end uses the spotlight on the last squad to break instead.
+- **The death roll's portrait** is 78 × 104 in a brass frame, not 96 × 128, so the name
+  beside it still fits on a phone.
+- **Routers ran backwards.** The sim never turns a routing man, so routers were drawn
+  facing the enemy while running away; they now face their own edge.
+- **"A squad that halts settles into its ground"** failed before this pass: a squad told to
+  march that arrived within one frame was never seen to move. The screen now notes orders
+  before the sim steps, and the test passes.

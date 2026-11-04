@@ -64,8 +64,13 @@ const ROLL_TIME := 4.2
 const ROLL_PACE := 0.12
 ## When the tumbling die lands.
 const ROLL_LANDS := 1.5
-## A cavalry charge freezes the battle this long when it lands on or by your men.
-const HITSTOP := 0.06
+## A cavalry charge freezes the battle when it lands on or by your men: longer the more
+## men it strikes, once for charges landing together.
+const HITSTOP_MIN := 0.05
+const HITSTOP_MAX := 0.12
+## And the view punches in toward it, easing back.
+const PUNCH := 0.03
+const PUNCH_TIME := 0.25
 ## A press on the field that moves this far (screen pixels) draws a line instead of tapping.
 const DRAG_START := 24.0
 ## Seconds the line just ordered stays on the field.
@@ -119,8 +124,26 @@ const MAX_SPARKS := 260
 const MAX_PUFFS := 220
 const MAX_LITTER := 160
 const MAX_FALLING := 40
-## Seconds a man takes to fall.
-const FALL_TIME := 0.45
+## Seconds a man takes to fall: a stagger, then down.
+const STAGGER_TIME := 0.15
+const FALL_TIME := 0.6
+## How a man moves through a blow, in field units and seconds. The sim sets his swing to
+## SWING when the blow lands; he lunges and holds STRIKE_HOLD, then eases back. In the
+## WINDUP before his next blow he draws back. A hit knocks him FLINCH back while its flash
+## lasts; a charge shoves the men it hits SHOVE back over SHOVE_TIME, the rank behind half.
+const SWING := 0.3
+const STRIKE_HOLD := 0.08
+const LUNGE := 4.5
+const WINDUP := 0.12
+const WIND_BACK := 2.5
+const FLINCH := 3.5
+const SHOVE := 9.0
+const SHOVE_TIME := 0.35
+const SHOVE_REACH := 30.0
+## Men a charge has shoved, while it lasts: soldier -> {dir, k, age}.
+var _shoved := {}
+## How set for the blow each squad is drawn (0 to 1, eased): braced, a shield wall, a schiltron.
+var _set_k := {}
 ## Seconds the winners cheer before the result comes up (a beat, if you lost).
 const CHEER_TIME := 1.8
 const LOSS_PAUSE := 0.8
@@ -128,10 +151,35 @@ const LOSS_PAUSE := 0.8
 const SLOW_PACE := 0.35
 const SLOW_TIME := 1.1
 const CRITICAL_BURSTS := ["rout", "fall"]
+## The hours: dawn, day, dusk, night. Each: the wash over the ground and over the men, the
+## shadows' offset (field units), how far they stretch and how dark, the vignette.
+const HOURS := {
+	"dawn": {"ground": Color(1.0, 0.78, 0.55, 0.14), "air": Color(1.0, 0.8, 0.6, 0.06), "shadow": Vector2(6.0, 2.0), "long": 1.8, "alpha": 0.28, "vignette": 0.25},
+	"day": {"ground": Color(0, 0, 0, 0), "air": Color(0, 0, 0, 0), "shadow": Vector2(1.5, 3.0), "long": 1.0, "alpha": 0.32, "vignette": 0.0},
+	"dusk": {"ground": Color(1.0, 0.38, 0.22, 0.24), "air": Color(1.0, 0.42, 0.25, 0.1), "shadow": Vector2(-6.0, 2.0), "long": 1.8, "alpha": 0.3, "vignette": 0.45},
+	"night": {"ground": Color(0.12, 0.18, 0.43, 0.42), "air": Color(0.1, 0.15, 0.4, 0.16), "shadow": Vector2(0.0, 1.5), "long": 1.0, "alpha": 0.12, "vignette": 0.7},
+}
+## The words for the ground the battle is fought on, by land.
+const GROUND_WORDS := {"vardish": "Vardish meadow", "kharzani": "Kharzani steppe", "ryumon": "Ryumon moss"}
+const SITE_WORDS := {"woods": "woods", "river": "a ford", "hills": "hills", "pass": "a rocky pass", "village": "a village"}
+## The title card when the fight starts: how long it holds (a tap clears it sooner).
+const TITLE_TIME := 0.85
+## The word when it's decided: how long a loss waits before the result.
+const DEFEAT_PAUSE := 1.3
+## Callouts: a squad's word lasts CALLOUT_LIFE and doesn't repeat inside CALLOUT_REPEAT; a
+## moment lasts MOMENT_LIFE and hushes the squads' words for MOMENT_HUSH; it stamps in over
+## STAMP_TIME, from STAMP_SCALE.
+const CALLOUT_LIFE := 1.2
+const CALLOUT_REPEAT := 3.0
+const MOMENT_LIFE := 2.0
+const MOMENT_HUSH := 0.6
+const STAMP_TIME := 0.12
+const STAMP_SCALE := 1.3
 ## A squad at or below this morale is wavering: warned before it breaks.
 const WAVER_MORALE := 35.0
 var _wavered := {}
 var _prev_order := {}
+var _pre_step_order := {}
 var _settled_at := {}
 var _last_ack := -9.0
 var _view := Rect2()
@@ -143,6 +191,50 @@ var _clock := 0.0
 var _hitstop := 0.0
 var _shake := 0.0
 var _shake_offset := Vector2.ZERO
+## The way the shake knocks the view (zero: every way), and how long it has run.
+var _shake_dir := Vector2.ZERO
+var _shake_t := 0.0
+var _punch := 0.0
+var _punch_at := Vector2.ZERO
+var _stop_at := -9.0
+## Volley arrows in the air last frame, to see where each comes down.
+var _volley_seen := {}
+## The hour the battle is fought at (from the world's clock when it began, fixed for the
+## battle) and what it does to the field: a wash over the ground and a lighter one over the
+## men, where the shadows fall and how long, a vignette, light round the standards at night.
+var _band := "day"
+var _ground_tint := Color(0, 0, 0, 0)
+var _air_tint := Color(0, 0, 0, 0)
+var _shadow_off := Vector2(1.5, 3.0)
+var _shadow_long := 1.0
+var _shadow_a := 0.32
+var _vignette := 0.0
+## One wind for the battle: the dust drifts with it.
+var _wind := Vector2.ZERO
+## The two beats: the title card when the fight starts, and the word when it's decided.
+var _title := {}
+var _beat := {}
+var beat_layer: Control
+## The grade over the field: how grey it is drawn (a lost battle drains, a pause greys).
+var _grade: ColorRect
+var _grey := 0.0
+## Where the last enemy squad to break was, for the end.
+var _last_rout_at := Vector2.ZERO
+## The tray's cards feel the battle: when each of your squads was last struck from the side
+## or by a charge, and when it broke.
+var _card_hit := {}
+var _card_broke := {}
+## What the cards and the strength bar show, eased toward the truth: each squad's morale,
+## when its ability last came ready, and each side's men (the gap drawn as a pale bite).
+var _card_morale := {}
+var _ready_was := {}
+var _ready_at := {}
+var _shown_men := [-1.0, -1.0]
+## Tier-1 moments waiting their turn, and tier-2 callouts hushed until this time.
+var _moments: Array = []
+var _hush_until := -9.0
+## When each squad's last callout went up, by its words, so the same one doesn't repeat.
+var _said := {}
 ## When each squad broke (for the toppling standard), last charged (to space out
 ## callouts) and was last ordered (for the standard's dip).
 var _broke_at := {}
@@ -321,6 +413,7 @@ func _ready() -> void:
 		_my_realm = String(GameState.world.owner_of(siege_at))
 	_setup_terrain_visuals()
 	_scatter_doodads()
+	_set_hour(float(GameState.world.hour) if GameState.world != null else 12.0)
 	match sim.objective:
 		Sim.OBJECTIVE_CHIEF:
 			_tick("OBJECTIVE: Slay the Bandit Chief (%s)!" % (sim.chief_name if sim.chief_name != "" else "Bandit Chief"), Style.BRASS)
@@ -355,6 +448,32 @@ func _ready() -> void:
 		_select_next_card()
 		_maybe_show_terrain_hint()
 	_refresh_hud()
+
+
+## Which part of the day `hour` falls in: dawn, day, dusk or night.
+static func hour_band(hour: float) -> String:
+	var h := fposmod(hour, 24.0)
+	if h >= 5.0 and h < 8.0:
+		return "dawn"
+	if h >= 8.0 and h < 17.0:
+		return "day"
+	if h >= 17.0 and h < 20.0:
+		return "dusk"
+	return "night"
+
+
+## Lights the field for the hour the battle is fought at. Looks only.
+func _set_hour(hour: float) -> void:
+	_band = hour_band(hour)
+	var look: Dictionary = HOURS[_band]
+	_ground_tint = look["ground"]
+	_air_tint = look["air"]
+	_shadow_off = look["shadow"]
+	_shadow_long = look["long"]
+	_shadow_a = look["alpha"]
+	_vignette = look["vignette"]
+	var seed_text := "%s/%d/%s" % [_terrain_site_type, int(hour), _biome]
+	_wind = Vector2.from_angle(float(seed_text.hash() % 628) / 100.0) * 6.0
 
 
 func _exit_tree() -> void:
@@ -429,14 +548,21 @@ func _apply_camera() -> void:
 		c.y = Sim.ARENA.y - half.y
 	cam_center = c
 	field_origin = _view.get_center() - c * field_scale + _shake_offset
+	if _punch > 0.0:
+		# Punched in toward the impact: that spot stays put on screen, the rest grows round it.
+		var anchor := field_origin + _punch_at * field_scale
+		field_scale *= 1.0 + _punch
+		field_origin = anchor - _punch_at * field_scale
 
 
 ## The whole field while deploying; once the battle is on, every squad still fighting.
 func _update_camera(delta: float) -> void:
 	_camera_grace = maxf(0.0, _camera_grace - delta)
+	_punch = maxf(0.0, _punch - delta * PUNCH / PUNCH_TIME)
 	if _pressing or _camera_hold or _camera_grace > 0.0:
 		_shake = maxf(0.0, _shake - delta * 30.0)
 		_shake_offset = Vector2.ZERO
+		_punch = 0.0
 		_apply_camera()
 		return
 	var want_zoom := 1.0
@@ -456,12 +582,211 @@ func _update_camera(delta: float) -> void:
 		if not first:
 			want_center = box.get_center()
 			want_zoom = clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0, MAX_ZOOM)
-	var k := 1.0 - exp(-delta * CAMERA_EASE)
+	var k := 1.0 - exp(-delta * CAMERA_EASE * (4.0 if not _title.is_empty() else 1.0))
 	cam_zoom = lerpf(cam_zoom, want_zoom, k)
 	cam_center = cam_center.lerp(want_center, k)
 	_shake = maxf(0.0, _shake - delta * 30.0)
-	_shake_offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake if _shake > 0.0 and not Style.motion_reduced() else Vector2.ZERO
+	_shake_t += delta
+	_shake_offset = Vector2.ZERO
+	if _shake > 0.0 and not Style.motion_reduced():
+		if _shake_dir != Vector2.ZERO:
+			# Knocked the way the charge went, rocking back and forth as it dies.
+			_shake_offset = _shake_dir * sin(_shake_t * 42.0) * _shake
+		else:
+			_shake_offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake
 	_apply_camera()
+
+
+# ---------------------------------------------------------------- the beats
+
+## The fight begins: the place and the odds over the field while the view pulls out from
+## your line, the horns under it. The battle waits for it (a tap clears it at once).
+func _begin_title() -> void:
+	if autoplay:
+		return
+	var mine := Vector2.ZERO
+	var n := 0
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active():
+			mine += sq.avg
+			n += 1
+	_title = {"age": 0.0, "place": _place_line(), "ground": _ground_line(), "odds": "%d against %d" % [sim.men_on_field(Sim.PLAYER), sim.men_on_field(Sim.ENEMY)],
+		"who": _scouting()}
+	if n > 0 and not Style.motion_reduced():
+		cam_center = mine / float(n)
+		cam_zoom = MAX_ZOOM
+		_apply_camera()
+	_dim_hud(0.35)
+
+
+func _end_title() -> void:
+	_title = {}
+	_dim_hud(1.0)
+
+
+func _dim_hud(a: float) -> void:
+	if top_panel != null:
+		top_panel.modulate.a = a
+		bottom_panel.modulate.a = a
+
+
+## Where the battle is fought: "Near Highcliff", "At Qasr Hamra"; "In the field" off the map.
+func _place_line() -> String:
+	var at := _battle_place()
+	if at == "":
+		return "In the field"
+	return ("At %s" if GameState.pending_battle.has("siege_target") else "Near %s") % WorldData.settlement(at)["name"]
+
+
+func _battle_place() -> String:
+	var w = GameState.world
+	if w == null or GameState.pending_battle.is_empty():
+		return ""
+	var place: String = String(GameState.pending_battle.get("siege_target", ""))
+	if place == "":
+		place = w.here() if w.here() != "" else w.nearest_place(w.party_pos(w.player()))
+	return place if WorldData.SETTLEMENTS.has(place) else ""
+
+
+## "Vardish meadow, woods · dusk"
+func _ground_line() -> String:
+	var ground := String(GROUND_WORDS.get(_biome, "open ground"))
+	if SITE_WORDS.has(_terrain_site_type):
+		ground += ", " + String(SITE_WORDS[_terrain_site_type])
+	if sim.objective == Sim.OBJECTIVE_SIEGE:
+		ground = "the walls"
+	var when := String({"dawn": "dawn", "day": "midday", "dusk": "dusk", "night": "night"}[_band])
+	return "%s · %s" % [ground, when]
+
+
+## It's decided: the word stamps onto the field over the cheer (or, lost, the colour drains
+## while your men run), and only then the result.
+func _decided() -> void:
+	var won := sim.winner == Sim.PLAYER
+	_beat = {"age": 0.0, "won": won, "why": "Their army broke and fled" if won else "Your army broke and fled"}
+	match String(_pending_reason()):
+		"time":
+			_beat["why"] = "Time ran out with more of yours standing" if won else "Time ran out with more of theirs standing"
+		"walls_held":
+			_beat["why"] = "The gate held"
+		"village_held":
+			_beat["why"] = "The village square is held"
+		"village_lost", "village_burned":
+			_beat["why"] = "The raiders hold the square"
+		"retreat":
+			_beat["why"] = "The enemy withdrew" if won else "You pulled your army off the field"
+	if won and _last_rout_at != Vector2.ZERO:
+		_spotlight(_last_rout_at, CHEER_TIME)
+	_hush_until = _clock + CHEER_TIME
+	Sound.haptic(true)
+
+
+func _pending_reason() -> String:
+	var r: Dictionary = _result()
+	return String(r.get("reason", ""))
+
+
+## The HUD catches up with the battle: morale bars and the strength bar ease rather than
+## jump, and an ability coming ready pulses once on its card with a click.
+func _ease_hud(delta: float) -> void:
+	if sim.phase != Sim.PHASE_BATTLE:
+		return
+	for sq in sim.squads:
+		if sq.team != Sim.PLAYER:
+			continue
+		_card_morale[sq] = move_toward(float(_card_morale.get(sq, sq.morale)), sq.morale, delta * 60.0)
+		var ready: bool = sq.is_active() and sim.ability_ready(sq)
+		if ready and not bool(_ready_was.get(sq, true)):
+			_ready_at[sq] = _clock
+			Sound.play("click", -4.0)
+		_ready_was[sq] = ready
+	for team in [Sim.PLAYER, Sim.ENEMY]:
+		var men := float(sim.men_on_field(team))
+		if _shown_men[team] < 0.0 or men > _shown_men[team]:
+			_shown_men[team] = men
+		else:
+			_shown_men[team] = lerpf(_shown_men[team], men, 1.0 - exp(-delta * 4.0))
+			if _shown_men[team] - men < 0.05:
+				_shown_men[team] = men
+
+
+## The grade over the field: grey while paused; drained to grey when the battle is lost.
+func _update_grade(delta: float) -> void:
+	if _grade == null:
+		return
+	var want := 0.0
+	if not _beat.is_empty() and not bool(_beat["won"]) and not _result_shown:
+		want = 0.85
+	elif paused and not _result_shown:
+		want = 0.4
+	var rate := (1.0 / 0.8) if want > 0.5 else (1.0 / 0.3)
+	_grey = move_toward(_grey, want, delta * rate)
+	_grade.visible = _grey > 0.01
+	if _grade.visible:
+		(_grade.material as ShaderMaterial).set_shader_parameter("grey", _grey)
+		(_grade.material as ShaderMaterial).set_shader_parameter("dim", _grey * 0.18)
+
+
+## The title card and the end word, over everything on the field.
+func _draw_beats() -> void:
+	var ci := beat_layer
+	var big: Font = Style.display_font()
+	if big == null:
+		big = font
+	var vs := ci.get_viewport_rect().size
+	var still := Style.motion_reduced()
+	if not _title.is_empty():
+		var age := float(_title["age"])
+		var a := clampf(minf(age / 0.15, (TITLE_TIME - age) / 0.2), 0.0, 1.0)
+		var bar := 64.0 * a
+		ci.draw_rect(Rect2(_view.position, Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85 * a))
+		ci.draw_rect(Rect2(_view.position + Vector2(0, _view.size.y - bar), Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85 * a))
+		var cy := _view.get_center().y
+		var rise := 0.0 if still else 10.0 * (1.0 - _ease_out(age / 0.3))
+		ci.draw_rect(Rect2(Vector2(_view.position.x, cy - 70.0), Vector2(_view.size.x, 140.0)), Color(0, 0, 0, 0.35 * a))
+		var title := String(_title["place"]).to_upper()
+		var fs := 40
+		while fs > 24 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > vs.x - 40.0:
+			fs -= 2
+		ci.draw_string_outline(big, Vector2(0, cy - 12.0 + rise), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.8 * a))
+		ci.draw_string(big, Vector2(0, cy - 12.0 + rise), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(Style.TEXT, a))
+		ci.draw_string(font, Vector2(0, cy + 22.0 + rise), "%s · %s" % [_title["ground"], _title["odds"]], HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.BRASS, a))
+		ci.draw_rect(Rect2(vs.x * 0.5 - 80.0, cy + 36.0 + rise, 160.0, 1.0), Color(Style.BRASS, 0.6 * a))
+		if String(_title["who"]) != "":
+			ci.draw_string(font, Vector2(24.0, cy + 62.0 + rise), String(_title["who"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x - 48.0, Style.SMALL, Color(Style.MUTED, a))
+		ci.draw_string(font, Vector2(0, _view.end.y - bar * 0.5 + 6.0), "tap to skip", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 16, Color(Style.MUTED, 0.8 * a))
+	if not _beat.is_empty() and not _result_shown:
+		var age := float(_beat["age"])
+		var won := bool(_beat["won"])
+		var a := clampf(age / 0.1, 0.0, 1.0)
+		var stamp := 1.0 if still else lerpf(1.45, 1.0, _ease_out(age / 0.16))
+		var cy := _view.get_center().y - 30.0
+		var word := "VICTORY" if won else "DEFEAT"
+		var col := Style.BRASS if won else Style.ENEMY_LIGHT
+		if won:
+			for k in 8:
+				ci.draw_circle(Vector2(vs.x * 0.5, cy), 170.0 - k * 18.0, Color(1.0, 0.8, 0.4, 0.035 * a))
+		ci.draw_set_transform(Vector2(vs.x * 0.5, cy), 0.0, Vector2(stamp, stamp))
+		var fs := 64
+		while fs > 36 and big.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > vs.x - 40.0:
+			fs -= 2
+		ci.draw_string_outline(big, Vector2(-vs.x * 0.5, fs * 0.35), word, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 10, Color(0.1, 0.06, 0.02, 0.95 * a))
+		ci.draw_string(big, Vector2(-vs.x * 0.5, fs * 0.35), word, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
+		ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		var sub_a := clampf((age - 0.25) / 0.2, 0.0, 1.0)
+		ci.draw_string_outline(font, Vector2(0, cy + 52.0), String(_beat["why"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, 6, Color(0, 0, 0, 0.8 * sub_a))
+		ci.draw_string(font, Vector2(0, cy + 52.0), String(_beat["why"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, sub_a))
+
+
+## Shakes the view by `amount` (screen units), along `dir` if given. One shake at a time:
+## a bigger one replaces it, a smaller one is lost in it. The Settings scale it.
+func _kick(amount: float, dir: Vector2 = Vector2.ZERO) -> void:
+	amount *= float(Sound.shake)
+	if amount <= 0.0 or amount < _shake:
+		return
+	_shake = amount
+	_shake_dir = dir.normalized()
+	_shake_t = 0.0
 
 
 func _toggle_camera() -> void:
@@ -514,11 +839,36 @@ func _update_effects(delta: float) -> void:
 	_sparks = _sparks.filter(func(e): return e["age"] < e["life"])
 	for e in _puffs:
 		e["age"] += delta
-		e["p"] += e["v"] * delta
+		e["p"] += (e["v"] + _wind) * delta
 	_puffs = _puffs.filter(func(e): return e["age"] < e["life"])
 	for e in _falling:
+		var was: float = e["age"]
 		e["age"] += delta
+		# He hits the ground: a little dust where he lands.
+		if was < FALL_TIME and float(e["age"]) >= FALL_TIME and not Sound.reduced_motion:
+			var at: Vector2 = e["corpse"]["pos"]
+			_puff(at, Vector2.ZERO, 3.0, 9.0, 0.5, _ground_dust(at), 0.3)
 	_falling = _falling.filter(func(e): return e["age"] < FALL_TIME)
+	for so in _shoved.keys():
+		_shoved[so]["age"] = float(_shoved[so]["age"]) + delta
+		if float(_shoved[so]["age"]) >= SHOVE_TIME or not so.alive:
+			_shoved.erase(so)
+	# A volley coming down: the men under it duck, hit or not.
+	if delta > 0.0:
+		var flying := {}
+		for p in sim.projectiles:
+			if p.volley:
+				flying[p] = true
+		for p in _volley_seen.keys():
+			if not flying.has(p) and p.target != null and p.target.squad != null:
+				var dir: Vector2 = (p.aim - p.origin).normalized()
+				for so in p.target.squad.soldiers:
+					if so.alive and so.pos.distance_squared_to(p.aim) < 196.0 and not _shoved.has(so):
+						_shoved[so] = {"dir": dir, "k": 0.3, "age": 0.0}
+		_volley_seen = flying
+	for sq in sim.squads:
+		var want := 1.0 if sq.is_active() and not sq.routing and (sq.braced() or sq.shield_wall() or sq.schiltron()) else 0.0
+		_set_k[sq] = move_toward(float(_set_k.get(sq, 0.0)), want, delta / 0.3)
 	if delta <= 0.0:
 		return
 	# Blows that have just landed: sparks thrown off steel away from the striker, and a
@@ -660,12 +1010,19 @@ func _draw_volley_shadows() -> void:
 func _draw_falling() -> void:
 	for e in _falling:
 		var c: Dictionary = e["corpse"]
-		var t := clampf(float(e["age"]) / FALL_TIME, 0.0, 1.0)
-		var fall := t * t
+		var age := float(e["age"])
 		var p: Vector2 = c["pos"]
 		var end := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
 		var type := String(c.get("type", Troops.INFANTRY))
 		var culture := GameState.culture if int(c["team"]) == Sim.PLAYER else _enemy_culture
+		if age < STAGGER_TIME and not Sound.reduced_motion:
+			# The blow that kills him: he reels, whitened, before he goes down.
+			var st := age / STAGGER_TIME
+			_sprite(type, int(c["team"]), 2, p, end - 1.4 - deg_to_rad(10.0) * sin(st * PI), Color(1, 1, 1).lerp(Color(0.85, 0.82, 0.8), st), 1.0, culture)
+			draw_texture(Art.flash(type, 2, culture), -Art.pivot(type, culture), Color(1, 1, 1, 0.5 * (1.0 - st)))
+			continue
+		var t := clampf((age - STAGGER_TIME) / (FALL_TIME - STAGGER_TIME), 0.0, 1.0)
+		var fall := t * t
 		var tint := Color(1, 1, 1).lerp(Color(0.75, 0.72, 0.7), fall)
 		_sprite(type, int(c["team"]), 2 if t < 0.25 else 1, p + Vector2(0, 2.0 * fall), lerp_angle(end - 1.4, end, fall), tint, 1.0 - 0.1 * fall, culture)
 
@@ -744,12 +1101,25 @@ func _process(delta: float) -> void:
 			Sound.play("bell")
 		if float(_roll["t"]) >= ROLL_TIME:
 			_next_roll()
-	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty():
+	if not _title.is_empty():
+		_title["age"] = float(_title["age"]) + delta
+		if float(_title["age"]) >= TITLE_TIME:
+			_end_title()
+	if not _beat.is_empty():
+		_beat["age"] = float(_beat["age"]) + delta
+	_update_grade(delta)
+	_ease_hud(delta)
+	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty():
 		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
 		if _hitstop > 0.0:
 			_hitstop -= delta
 			pace = 0.0
 		_accumulator += minf(delta, 0.1) * speed * pace
+		# Orders as they stood before the sim steps, so a squad that marches and arrives in
+		# the same frame is still seen to halt.
+		for sq in sim.squads:
+			if sq.team == Sim.PLAYER:
+				_pre_step_order[sq] = sq.order
 		var steps := 0
 		while _accumulator >= Sim.STEP and steps < 16:
 			sim.step()
@@ -762,10 +1132,11 @@ func _process(delta: float) -> void:
 			selected_squad = null
 	elif sim.winner != -1 and not _result_shown and _roll.is_empty():
 		_consume_events()
-		# The winners cheer a moment before the result comes up.
+		# The winners cheer a moment before the result comes up, under the word for it.
 		if _decided_at < 0.0:
 			_decided_at = _clock
-		var wait := CHEER_TIME if sim.winner == Sim.PLAYER else LOSS_PAUSE
+			_decided()
+		var wait := CHEER_TIME if sim.winner == Sim.PLAYER else DEFEAT_PAUSE
 		if _roll.is_empty() and _clock - _decided_at >= wait:
 			_show_result()
 	_update_effects(0.0 if paused else delta)
@@ -776,10 +1147,12 @@ func _process(delta: float) -> void:
 	for t in ticker:
 		t["age"] += delta
 	ticker = ticker.filter(func(t): return t["age"] < t["life"])
-	if not _banner.is_empty():
+	if not _banner.is_empty() and _roll.is_empty():
 		_banner["age"] = float(_banner["age"]) + delta
 		if float(_banner["age"]) >= float(_banner["life"]):
 			_banner = {}
+			if not _moments.is_empty():
+				_start_moment(_moments.pop_front())
 	for burst in bursts:
 		burst["age"] += delta
 	bursts = bursts.filter(func(burst): return burst["age"] < burst["life"])
@@ -797,6 +1170,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_next_roll()
 		return
+	if not _title.is_empty():
+		get_viewport().set_input_as_handled()
+		_end_title()
+		return
 	if sim.winner != -1 or paused:
 		return
 	if not _view.has_point(mb.position):
@@ -807,6 +1184,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	_drawing = false
 	_press_at = mb.position
 	_shake_offset = Vector2.ZERO
+	_punch = 0.0
 	_apply_camera()
 	_press_field = _to_field(mb.position)
 	_drag_to = mb.position
@@ -964,7 +1342,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 		sim.order_attack(selected_squad, foe)
 		_mark_ordered(selected_squad)
 		_mark_ordered(foe)
-		_float_text("TARGET", foe.average_pos() + Vector2(0, -60), Style.ENEMY_LIGHT)
+		_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
 		Sound.play("clash2", -6.0, 0.05)
 		_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(selected_squad), _name(foe.type, Sim.ENEMY).to_lower()])
 	else:
@@ -1037,6 +1415,7 @@ func _on_fight() -> void:
 		_hint("Place every squad first, or tap Auto-place.")
 		return
 	_start_battle()
+	_begin_title()
 
 
 func _start_battle() -> void:
@@ -1331,11 +1710,13 @@ func _battle_sounds(delta: float) -> void:
 			if wavering(sq) and not _wavered.has(sq):
 				_wavered[sq] = true
 				var mine_w: bool = sq.team == Sim.PLAYER
-				_float_text("WAVERING", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine_w else Style.PLAYER_LIGHT, 1.4)
 				if mine_w:
 					_tick("%s is wavering. Pull them back or send help." % _company_or_type(sq), Style.MORALE_LOW)
 			# A squad that has just come to a halt settles into its ground.
-			if sq.team == Sim.PLAYER and sq.order == "hold" and String(_prev_order.get(sq, "hold")) != "hold" and not sq.engaged:
+			var was_order := String(_prev_order.get(sq, "hold"))
+			if was_order == "hold":
+				was_order = String(_pre_step_order.get(sq, "hold"))
+			if sq.team == Sim.PLAYER and sq.order == "hold" and was_order != "hold" and not sq.engaged:
 				_settled_at[sq] = _clock
 			_prev_order[sq] = sq.order
 	Sound.set_movement_loop("hooves" if cavalry_moving else ("footsteps" if foot_moving else ""))
@@ -1564,6 +1945,10 @@ func _draw_walls() -> void:
 
 
 func _consume_events() -> void:
+	# Charges that strike near your men this frame: one stop and one shake for all of them.
+	var struck := 0
+	var struck_dir := Vector2.ZERO
+	var struck_at := Vector2.ZERO
 	for e in sim.events:
 		match e["type"]:
 			"ram_at_gate":
@@ -1595,20 +1980,21 @@ func _consume_events() -> void:
 				_burst(sim.gate_center, "charge", Style.BRASS, 1.0)
 				_burst(sim.gate_center, "dust", Color("e9d3a0"), 1.2)
 				var defending: bool = sim.siege_defender == Sim.PLAYER
-				_banner = {"title": "The gate is broken!", "age": 0.0, "life": 1.9,
-					"sub": "Hold the breach!" if defending else "Into the courtyard!",
-					"color": Style.ENEMY_LIGHT if defending else Color("ffd77a")}
+				_moment("The gate is broken!", "Hold the breach!" if defending else "Into the courtyard!",
+					Style.ENEMY_LIGHT if defending else Color("ffd77a"), "breach", true)
 				if defending:
 					_tick("The gate is broken! Hold the breach!", Style.ENEMY_LIGHT, "breach")
 				else:
 					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT, "breach")
 				Sound.play_at("gate_break", _to_screen(sim.gate_center))
 				Sound.haptic(true)
-				_shake = maxf(_shake, 12.0)
+				_kick(12.0)
 				Sound.duck()
 			"rout":
 				var sq = e["squad"]
 				_broke_at[sq] = _clock
+				if sq.team == Sim.ENEMY:
+					_last_rout_at = sq.average_pos()
 				_burst(sq.average_pos(), "rout", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.0)
 				var mine: bool = sq.team == Sim.PLAYER
 				_strew(sq)
@@ -1618,20 +2004,29 @@ func _consume_events() -> void:
 					_call("retreat", Sim.PLAYER)
 				else:
 					Sound.play("cheer", -2.0, 0.04, 4.0)
-				_float_text("BROKEN", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT if mine else Style.PLAYER_LIGHT, 1.6)
 				if mine:
-					Sound.duck()
+					# Yours breaking is the moment; theirs is a word over the squad.
+					_moment("%s break" % _company_or_type(sq), "They run for the edge", Style.ENEMY_LIGHT, "retreat")
+					_card_broke[sq] = _clock
 					Sound.haptic(true)
+				else:
+					_callout(sq, "BROKEN", Style.PLAYER_LIGHT, true)
+				if mine:
 					_tick("%s broke and run for the edge." % _company_or_type(sq), Style.ENEMY_LIGHT)
 				else:
 					_tick("Their %s break and run." % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT)
 			"charge":
 				var sq = e["squad"]
+				_shove(e["victim"], e["pos"], sq)
+				if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
+					struck += 1
+					struck_at = e["pos"]
+					struck_dir = (Vector2(e["pos"]) - sq.avg).normalized()
 				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
 					_charged_at[sq] = _clock
 					_burst(e["pos"], "charge", Style.BRASS, 0.55)
 					_burst(e["pos"], "dust", _ground_dust(e["pos"]), 0.8)
-					_float_text("CHARGE!", e["pos"], Style.BRASS)
+					_callout(sq, "CHARGE", Style.BRASS)
 					# Horsemen thunder in; men on foot roar and crash into the line.
 					var at := _to_screen(e["pos"])
 					if sq.type == Troops.CAVALRY:
@@ -1641,15 +2036,14 @@ func _consume_events() -> void:
 						Sound.play_at("heavy", at, 2.0, 0.08)
 					if sq.team == Sim.PLAYER:
 						_call("charge", Sim.PLAYER)
-					if sq.team == Sim.PLAYER or e["victim"].team == Sim.PLAYER:
-						_shake = maxf(_shake, 5.0)
-						_hitstop = HITSTOP
-						if e["victim"].team == Sim.PLAYER:
-							Sound.haptic(false)
+					if e["victim"].team == Sim.PLAYER:
+						Sound.haptic(false)
+				if e["victim"].team == Sim.PLAYER:
+					_card_hit[e["victim"]] = _clock
 			"out_of_arrows":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
-				_float_text("OUT OF ARROWS", sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+				# No words: the standard and the card carry an empty quiver from now on.
 				Sound.play_at("quiver_empty", _to_screen(sq.average_pos()))
 				if mine:
 					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.")
@@ -1662,12 +2056,12 @@ func _consume_events() -> void:
 				var mine: bool = sq.team == Sim.PLAYER
 				if sq.type == Troops.ARCHERS:
 					Sound.play_at("arrows", _to_screen(sq.average_pos()), 2.0, 0.05, 0.3)
-				_float_text(String(e["name"]).to_upper(), sq.average_pos() + Vector2(0, -50), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+				_callout(sq, String(e["name"]).to_upper(), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
 				if not mine:
 					_tick("Their %s: %s." % [_name(sq.type, Sim.ENEMY).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
 			"braced":
 				var sq = e["squad"]
-				_float_text("BRACED", sq.average_pos() + Vector2(0, -50), Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
+				_callout(sq, "BRACED", Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
 				Sound.play_at("brace", _to_screen(sq.average_pos()), 0.0, 0.05, 0.4)
 			"reinforcements":
 				if int(e["team"]) == Sim.ENEMY:
@@ -1675,29 +2069,66 @@ func _consume_events() -> void:
 					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT)
 			"chief_broken":
 				Sound.play("objective")
-				_float_text("THE CHIEF FALLS BACK", e["squad"].average_pos() + Vector2(0, -60), Style.BRASS, 1.6)
+				_moment("The chief falls back", "His guard is broken", Style.BRASS, "crown")
 				_tick("Their chief's guard is broken, and the whole band feels it.", Style.PLAYER_LIGHT)
 			"chief_slain":
 				Sound.play("objective")
 				_tick("%s is cut down!" % String(e["chief_name"] if e["chief_name"] != "" else "Their chief"), Style.BRASS)
+				_moment("%s is cut down" % String(e["chief_name"] if e["chief_name"] != "" else "Their chief"), "The band loses its head", Style.BRASS, "crown")
 			"lord_broken":
 				Sound.play("objective")
-				_float_text("THE LORD'S GUARD BREAKS", e["squad"].average_pos() + Vector2(0, -60), Style.BRASS, 1.6)
+				_moment("The lord's guard breaks", "%s's host quails" % String(e.get("lord_name", "The lord")), Style.BRASS, "crown")
 				_tick("%s's guard is broken, and his host quails!" % String(e.get("lord_name", "The lord")), Style.PLAYER_LIGHT)
 			"lord_captured":
 				Sound.play("objective")
 				_tick("%s was captured in the press of shields!" % String(e.get("lord_name", "The lord")), Style.BRASS)
+				_moment("%s is taken" % String(e.get("lord_name", "The lord")), "Captured in the press of shields", Style.BRASS, "crown")
 			"lord_slain":
 				Sound.play("objective")
 				_tick("%s falls mortally wounded in the fray!" % String(e.get("lord_name", "The lord")), Style.BRASS)
+				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Mortally wounded in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
-				var where := "REAR!" if e["rear"] else "FLANK!"
+				var where := "REAR" if e["rear"] else "FLANK"
 				Sound.play_at("heavy", _to_screen(e["pos"]), 3.0, 0.1, 0.3)
-				_float_text(where, e["pos"], Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
+				_callout(sq, where, Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
+				if sq.team == Sim.PLAYER:
+					_card_hit[sq] = _clock
 				if sq.team == Sim.PLAYER and e["rear"]:
 					_tick("%s are hit from behind!" % _company_or_type(sq), Style.ENEMY_LIGHT)
 	sim.events.clear()
+	if struck > 0:
+		_impact(struck, struck_at, struck_dir)
+
+
+## A charge lands on or by your men, striking `men` of them: the battle stops for a beat
+## (longer the more it hit), the view is knocked the way the horses went and punches in.
+## Charges landing within a moment of each other share one.
+func _impact(men: int, at: Vector2, dir: Vector2) -> void:
+	if _clock - _stop_at < 0.3:
+		return
+	_stop_at = _clock
+	_hitstop = clampf(HITSTOP_MIN + 0.006 * float(men - 1), HITSTOP_MIN, HITSTOP_MAX)
+	_kick(4.0 + minf(float(men), 10.0) * 0.4, dir)
+	if not Style.motion_reduced() and not _camera_hold:
+		_punch = PUNCH
+		_punch_at = at
+
+
+## A charge lands on `victim` at `at`: the men it hits are shoved back the way the charge
+## came, the rank behind them half as far. Drawn only; the sim keeps them where they are.
+func _shove(victim, at: Vector2, charger) -> void:
+	var dir: Vector2 = (at - charger.avg).normalized() if at.distance_to(charger.avg) > 1.0 else charger.facing
+	for so in victim.soldiers:
+		if not so.alive:
+			continue
+		var d: float = so.pos.distance_to(at)
+		if d > SHOVE_REACH * 1.7:
+			continue
+		var k := 1.0 if d <= SHOVE_REACH else 0.5
+		if float(_shoved.get(so, {}).get("k", 0.0)) > k and float(_shoved[so]["age"]) < SHOVE_TIME * 0.5:
+			continue
+		_shoved[so] = {"dir": dir, "k": k, "age": 0.0}
 
 
 func _captain_down(e: Dictionary) -> void:
@@ -1709,10 +2140,11 @@ func _captain_down(e: Dictionary) -> void:
 		# Their captain falls: time slows and the field darkens round him for a moment.
 		_spotlight(e["pos"], SLOW_TIME + 0.4)
 		_slow = SLOW_TIME
-		_float_text("%s CUT DOWN" % String(info.get("first", "Captain")).to_upper(), e["pos"], Style.PLAYER_LIGHT, 2.2)
+		_moment("%s cut down" % String(info.get("name", info.get("first", "Their captain"))), "Their %s waver" % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT, "skull")
 		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type, Sim.ENEMY).to_lower()], Style.PLAYER_LIGHT)
 		return
-	_shake = maxf(_shake, 9.0)
+	_kick(9.0)
+	_hush_until = _clock + 0.6
 	Sound.duck()
 	Sound.haptic(true)
 	var roll := {
@@ -1748,33 +2180,67 @@ func _grief(e: Dictionary) -> void:
 	var lost := String(e["for"].info.get("first", ""))
 	match String(e["temperament"]):
 		Captains.VENGEFUL:
-			_float_text("FURY", sq.average_pos() + Vector2(0, -50), Style.ENEMY_LIGHT, 2.0)
+			_callout(sq, "FURY", Style.ENEMY_LIGHT, true)
 			_tick("%s saw %s fall: fury, harder blows and no retreat for %d seconds." % [who, lost, int(Captains.FURY_SECONDS)], Style.BRASS)
 		Captains.STEADFAST:
-			_float_text("STEADY", sq.average_pos() + Vector2(0, -50), Style.BRASS, 2.0)
+			_callout(sq, "STEADY", Style.BRASS, true)
 			_tick("%s saw %s fall, and steadies the line." % [who, lost], Style.BRASS)
 		Captains.FRAGILE:
-			_float_text("SHAKEN", sq.average_pos() + Vector2(0, -50), Style.MUTED, 2.0)
+			_callout(sq, "SHAKEN", Style.MUTED, true)
 			_tick("%s saw %s fall and is shaken. Their squad's nerve is slipping." % [who, lost], Style.ENEMY_LIGHT)
 
 
-## A callout over the field. Callouts that would land on one another stack upward.
+## A word at a spot on the field that belongs to no squad (where a march was ordered, the
+## gate's damage). Words that would land on one another stack upward.
 func _float_text(text: String, at: Vector2, color: Color, life: float = 1.3) -> void:
 	for f in floaters:
-		if f["text"] == text and at.distance_to(f["pos"]) < 70.0 and f["age"] < 0.6:
+		if f["text"] == text and f["sq"] == null and at.distance_to(f["pos"]) < 70.0 and f["age"] < 0.6:
 			return
 	var pos := at
 	for i in 6:
 		var clear := true
 		for f in floaters:
 			var fp: Vector2 = f["pos"]
-			if f["age"] < 1.0 and absf(fp.x - pos.x) < 150.0 and absf(fp.y - pos.y) < 30.0:
+			if f["sq"] == null and f["age"] < 1.0 and absf(fp.x - pos.x) < 150.0 and absf(fp.y - pos.y) < 30.0:
 				clear = false
 				break
 		if clear:
 			break
 		pos.y -= 32.0
-	floaters.append({"text": text, "pos": pos, "color": color, "age": 0.0, "life": life})
+	floaters.append({"text": text, "pos": pos, "color": color, "age": 0.0, "life": life, "sq": null})
+
+
+## Tier 2: a word over a squad's standard (CHARGE, BRACED, FLANK, a broken enemy). One per
+## squad: a new one replaces the last. The same words on the same squad wait 3 seconds, and
+## while a moment holds the field (`always` aside, for answers to your own orders) they wait.
+func _callout(sq, text: String, color: Color, always: bool = false) -> void:
+	if sq == null:
+		return
+	if not always and _clock < _hush_until:
+		return
+	var key := "%d/%s" % [sq.get_instance_id(), text]
+	if _clock - float(_said.get(key, -9.0)) < CALLOUT_REPEAT:
+		return
+	_said[key] = _clock
+	floaters = floaters.filter(func(f): return f["sq"] != sq)
+	floaters.append({"text": text, "pos": sq.average_pos(), "color": color, "age": 0.0, "life": CALLOUT_LIFE, "sq": sq})
+
+
+## Tier 1: a plate across the field for a moment that turns the battle. One at a time; the
+## rest wait their turn. While it's up the squads' callouts hold their tongue and the din
+## dips. `big` is the band across the whole field (the gate, the end).
+func _moment(title: String, sub: String, color: Color, icon: String = "", big: bool = false) -> void:
+	var m := {"title": title, "sub": sub, "color": color, "icon": icon, "big": big, "age": 0.0, "life": MOMENT_LIFE if not big else 1.9}
+	if _banner.is_empty():
+		_start_moment(m)
+	else:
+		_moments.append(m)
+
+
+func _start_moment(m: Dictionary) -> void:
+	_banner = m
+	_hush_until = _clock + MOMENT_HUSH
+	Sound.duck()
 
 
 func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
@@ -1849,6 +2315,8 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 	var siege: bool = sim.objective == Sim.OBJECTIVE_SIEGE
 	if siege:
 		result_content.add_child(_siege_vignette())
+	else:
+		result_content.add_child(_field_vignette())
 	result_body.text = why
 	result_content.add_child(result_body)
 	var story := Style.label(String(report.get("story", "")), Style.BODY, Style.TEXT)
@@ -2045,6 +2513,62 @@ func _siege_vignette() -> Control:
 	var held := _my_realm if holder == Sim.PLAYER else _garrison_realm
 	c.draw.connect(_draw_vignette.bind(c, title, held if Heraldry.REALM_SIZES.has(held) else "bandits", holder == Sim.PLAYER))
 	return c
+
+
+## A field battle's picture for the result: its ground under the hour it was fought at, the
+## winners' standard up and the losers' in the mud, and where it was.
+func _field_vignette() -> Control:
+	var c := Control.new()
+	c.name = "FieldVignette"
+	c.custom_minimum_size = Vector2(0, 168)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	c.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	c.draw.connect(_draw_field_vignette.bind(c, sim.winner == Sim.PLAYER))
+	return c
+
+
+func _draw_field_vignette(c: Control, won: bool) -> void:
+	var size := c.size
+	var frame := Rect2(Vector2.ZERO, size)
+	var px := Art.GRASS_PIXEL * 1.4
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2(px, px))
+	c.draw_texture_rect(Art.ground(_biome), Rect2(Vector2.ZERO, size / px), true)
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	if _ground_tint.a > 0.0:
+		c.draw_rect(frame, _ground_tint)
+	# A few of the fallen, and arrows in the turf.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(_biome + _band)
+	for i in 14:
+		var at := Vector2(rng.randf_range(20.0, size.x - 20.0), rng.randf_range(30.0, size.y - 70.0))
+		var team := Sim.PLAYER if rng.randf() < (0.35 if won else 0.65) else Sim.ENEMY
+		var s := Art.pixel_size("corpse") * 1.3
+		c.draw_set_transform(at, rng.randf() * TAU, Vector2(s, s))
+		c.draw_texture(Art.frame("corpse", team, 0, GameState.culture if team == Sim.PLAYER else _enemy_culture), -Art.pivot("corpse"), Color(1, 1, 1, 0.85))
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# The winners' standard up, the losers' down.
+	var up_team := Sim.PLAYER if won else Sim.ENEMY
+	var pole := Vector2(size.x * 0.5 + 40.0, size.y - 66.0)
+	c.draw_line(pole, pole - Vector2(0, 92), Color("6b4a2a"), 4.0)
+	_draw_flag(c, pole - Vector2(0, 92), FLAG * 1.6, up_team, Troops.INFANTRY, false, true, 0.0)
+	var down := Vector2(size.x * 0.5 - 90.0, size.y - 74.0)
+	c.draw_line(down, down + Vector2(-60, -14), Color(0.32, 0.22, 0.13, 0.9), 3.0)
+	_draw_flag(c, down + Vector2(-60, -14), FLAG, Sim.ENEMY if won else Sim.PLAYER, Troops.INFANTRY, true, false, deg_to_rad(-76.0))
+	if _vignette > 0.0:
+		for i in 6:
+			c.draw_rect(frame.grow(-i * 8.0), Color(0.02, 0.03, 0.08, _vignette * 0.12 * (1.0 - i / 6.0)), false, 8.0)
+	var band := Rect2(0, size.y - 44.0, size.x, 44.0)
+	c.draw_rect(band, Color(Style.NIGHT, 0.88))
+	var big: Font = Style.display_font()
+	if big == null:
+		big = font
+	var title := _place_line()
+	var fs := 26
+	while fs > 18 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > size.x - 40.0:
+		fs -= 2
+	c.draw_string(big, Vector2(0, band.position.y + 31.0), title, HORIZONTAL_ALIGNMENT_CENTER, size.x, fs, Color("f3cf7a") if won else Style.ENEMY_LIGHT)
+	c.draw_rect(frame, Color("6d5222"), false, 2.0)
 
 
 func _draw_vignette(c: Control, title: String, realm: String, ours: bool) -> void:
@@ -2302,7 +2826,20 @@ func _back_to_camp() -> void:
 # ---------------------------------------------------------------- HUD
 
 func _build_hud() -> void:
+	# The grade sits over the field and under the HUD.
+	var grade_layer := CanvasLayer.new()
+	grade_layer.layer = 1
+	add_child(grade_layer)
+	_grade = ColorRect.new()
+	_grade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_grade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://assets/shaders/battle_grade.gdshader")
+	_grade.material = mat
+	_grade.visible = false
+	grade_layer.add_child(_grade)
 	var layer := CanvasLayer.new()
+	layer.layer = 2
 	add_child(layer)
 	var hud := Control.new()
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -2457,6 +2994,11 @@ func _build_hud() -> void:
 	roll_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	roll_layer.draw.connect(_draw_roll)
 	hud.add_child(roll_layer)
+	beat_layer = Control.new()
+	beat_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	beat_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	beat_layer.draw.connect(_draw_beats)
+	hud.add_child(beat_layer)
 
 	pause_panel = _centered_panel(hud)
 	var pv := VBoxContainer.new()
@@ -2628,6 +3170,7 @@ func _refresh_hud() -> void:
 		b.queue_redraw()
 	power_bar.queue_redraw()
 	roll_layer.queue_redraw()
+	beat_layer.queue_redraw()
 
 
 func _refresh_deploy() -> void:
@@ -2753,10 +3296,18 @@ func _draw_power() -> void:
 		power_bar.draw_rect(track, Style.RULE, false, 1.0)
 	var mine := float(sim.men_on_field(Sim.PLAYER))
 	var theirs := float(sim.men_on_field(Sim.ENEMY))
-	var split := w * (mine / maxf(1.0, mine + theirs))
+	# The bar shows the men just lost as a pale bite at each side's inner end, draining away.
+	var was_mine: float = maxf(mine, _shown_men[Sim.PLAYER])
+	var was_theirs: float = maxf(theirs, _shown_men[Sim.ENEMY])
+	var total := maxf(1.0, was_mine + was_theirs)
+	var blue := w * mine / total
+	var split := w * was_mine / total
+	var red_start := w - w * theirs / total
 	power_bar.draw_rect(Rect2(0, y, w, h), Style.RULE)
-	power_bar.draw_rect(Rect2(0, y, split, h), Style.PLAYER)
-	power_bar.draw_rect(Rect2(split, y, w - split, h), Style.ENEMY)
+	power_bar.draw_rect(Rect2(0, y, blue, h), Style.PLAYER)
+	power_bar.draw_rect(Rect2(blue, y, split - blue, h), Style.PLAYER_LIGHT)
+	power_bar.draw_rect(Rect2(split, y, red_start - split, h), Style.ENEMY_LIGHT)
+	power_bar.draw_rect(Rect2(red_start, y, w - red_start, h), Style.ENEMY)
 	power_bar.draw_rect(Rect2(split - 2.0, y - 5.0, 4.0, h + 10.0), Style.TEXT)
 	power_bar.draw_string(font, Vector2(8, y + h - 5.0), str(int(mine)), HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL, Style.TEXT)
 	power_bar.draw_string(font, Vector2(w - 68.0, y + h - 5.0), str(int(theirs)), HORIZONTAL_ALIGNMENT_RIGHT, 60.0, Style.SMALL, Style.TEXT)
@@ -2778,6 +3329,10 @@ func _draw_chip(i: int) -> void:
 	var picked: bool = (not battle and e["roster_id"] == selected_id) or (battle and sq != null and sq == selected_squad)
 	var placed: bool = sq != null
 	var size := b.size
+	# A squad that has just broken: its card cracks and shakes.
+	var broke_t: float = _clock - float(_card_broke.get(sq, -9.0)) if sq != null else 9.0
+	if broke_t < 0.3 and not Style.motion_reduced():
+		b.draw_set_transform(Vector2(sin(broke_t * 70.0) * 4.0 * (1.0 - broke_t / 0.3), 0.0), 0.0, Vector2.ONE)
 	var bg := Style.RAISED
 	if picked:
 		bg = Style.RAISED.lightened(0.14)
@@ -2805,14 +3360,45 @@ func _draw_chip(i: int) -> void:
 	if battle and sq != null:
 		if sq.is_active():
 			var bar := Rect2(6, size.y - 14.0, size.x - 12.0, 7)
-			var m := clampf(sq.morale / 100.0, 0.0, 1.0)
+			var shown := float(_card_morale.get(sq, sq.morale))
+			var m := clampf(shown / 100.0, 0.0, 1.0)
 			b.draw_rect(bar, Style.NIGHT)
-			b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
+			if shown > sq.morale + 0.5:
+				# What it has just lost, draining away.
+				b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Color(Style.ENEMY_LIGHT, 0.7))
+			b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(minf(shown, sq.morale) / 100.0, 0.0, 1.0), bar.size.y)), Style.morale_color(sq.morale))
 			if sim.ability_ready(sq):
-				b.draw_circle(Vector2(size.x - 12.0, size.y - 26.0), 5.0, Style.BRASS)
+				var dot := Vector2(size.x - 12.0, size.y - 26.0)
+				var since: float = _clock - float(_ready_at.get(sq, -9.0))
+				var r := 5.0
+				if since < 0.3 and not Style.motion_reduced():
+					r = 5.0 * (1.0 + 0.6 * sin(since / 0.3 * PI))
+					b.draw_arc(dot, 6.0 + since * 40.0, 0.0, TAU, 20, Color(Style.BRASS, 1.0 - since / 0.3), 2.0)
+				b.draw_circle(dot, r, Style.BRASS)
+			# States, as badges: wavering, out of arrows.
+			if wavering(sq):
+				var pulse := 1.0 if Style.motion_reduced() else 0.6 + 0.4 * sin(_clock * 9.0)
+				b.draw_circle(Vector2(size.x - 12.0, 46.0), 8.0, Color(Style.ENEMY_LIGHT, pulse))
+				b.draw_string(font, Vector2(size.x - 15.5, 52.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.05, 0.03, 0.03))
+			elif sq.arrows == 0:
+				_draw_empty_quiver(b, Vector2(size.x - 12.0, 46.0), 8.0)
+			# Struck from the side or by a charge: the card's edge flashes red.
+			var hit_t: float = _clock - float(_card_hit.get(sq, -9.0))
+			if hit_t < 0.3:
+				b.draw_rect(Rect2(Vector2.ZERO, size), Color(Style.MORALE_LOW, 1.0 - hit_t / 0.3), false, 4.0)
 			_draw_role_badge(b, sq)
 		else:
 			b.draw_string(font, Vector2(6, size.y - 6.0), "out", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.MUTED)
+			if _card_broke.has(sq):
+				# The crack it took when it broke.
+				var k := clampf(broke_t / 0.12, 0.0, 1.0)
+				var pts := PackedVector2Array([Vector2(size.x * 0.62, 0), Vector2(size.x * 0.48, size.y * 0.3), Vector2(size.x * 0.6, size.y * 0.52), Vector2(size.x * 0.44, size.y * 0.8), Vector2(size.x * 0.52, size.y)])
+				var shown_pts := PackedVector2Array()
+				for j in pts.size():
+					if float(j) / float(pts.size() - 1) <= k:
+						shown_pts.append(pts[j])
+				if shown_pts.size() >= 2:
+					b.draw_polyline(shown_pts, Color(Style.MORALE_LOW, 0.85), 2.0)
 	elif int(e["level"]) > 1:
 		for l in int(e["level"]) - 1:
 			b.draw_circle(Vector2(10 + l * 12, size.y - 12.0), 4.0, Style.BRASS)
@@ -2820,6 +3406,7 @@ func _draw_chip(i: int) -> void:
 		# placed: a tick in the corner
 		var t := Vector2(size.x - 22.0, size.y - 16.0)
 		b.draw_polyline(PackedVector2Array([t, t + Vector2(5, 5), t + Vector2(14, -6)]), Style.BRASS, 3.0)
+	b.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## In a siege, a pill on the card under the name: what the company is doing (on the storm
@@ -2863,13 +3450,22 @@ func _draw_roll() -> void:
 	if _roll.is_empty():
 		return
 	var ci := roll_layer
+	var still := Style.motion_reduced()
 	var t: float = _roll["t"]
 	var a := clampf(t / 0.25, 0.0, 1.0) * clampf((ROLL_TIME - t) / 0.35, 0.0, 1.0)
 	ci.draw_rect(Rect2(_view.position, _view.size), Color(0, 0, 0, 0.5 * a))
 	var w := minf(600.0, _view.size.x - 24.0)
-	var box := Rect2(Vector2(_view.get_center().x - w * 0.5, _view.position.y + _view.size.y * 0.14), Vector2(w, 440))
-	ci.draw_rect(box, Color(Style.PANEL, 0.97 * a))
-	ci.draw_rect(box, Color(Style.BRASS, a), false, 3.0)
+	# The plate drops in from above.
+	var drop := 0.0 if still else -70.0 * (1.0 - _ease_out(t / 0.25))
+	var box := Rect2(Vector2(_view.get_center().x - w * 0.5, _view.position.y + _view.size.y * 0.14 + drop), Vector2(w, 440))
+	var plate := StyleBoxFlat.new()
+	plate.bg_color = Color(Style.PANEL, 0.97 * a)
+	plate.border_color = Color(Style.BRASS, a)
+	plate.set_border_width_all(3)
+	plate.set_corner_radius_all(12)
+	plate.shadow_color = Color(0, 0, 0, 0.5 * a)
+	plate.shadow_size = 14
+	ci.draw_style_box(plate, box)
 	var x := box.position.x
 	var y := box.position.y
 	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
@@ -2877,25 +3473,51 @@ func _draw_roll() -> void:
 	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
 	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}))
 	if face != null:
-		ci.draw_texture_rect(face, Rect2(Vector2(x + 20, y + 22), Vector2(72, 96)), false, Color(1, 1, 1, a))
+		# The face in a brass frame.
+		var fr := Rect2(Vector2(x + 16, y + 16), Vector2(78, 104))
+		ci.draw_rect(fr.grow(3.0), Color(Style.BRASS, a))
+		ci.draw_rect(fr, Color(Style.NIGHT, a))
+		ci.draw_texture_rect(face, fr, false, Color(1, 1, 1, a))
 
-	# The die tumbles, slowing, then lands.
+	# The die tumbles, slowing, then lands with a bounce.
 	var needed: int = _roll["needed"]
 	var chance := needed - 1
 	var landed := t >= ROLL_LANDS
 	var shown: int = _roll["roll"]
+	var tilt := 0.0
+	var scale := 1.0
 	if not landed:
 		var tick := int(pow(t * 6.0, 1.6))
 		shown = 1 + int(posmod(tick * 7919 + 13, 100))
-	var die := Rect2(Vector2(box.get_center().x - 64, y + 140), Vector2(128, 96))
-	ci.draw_rect(die, Color(Style.RAISED, a))
-	ci.draw_rect(die, Color(Style.TEXT if not landed else (Style.ENEMY_LIGHT if _roll["fate"] == "killed" else Style.BRASS), a), false, 3.0)
-	ci.draw_string(font, Vector2(die.position.x, die.position.y + 72), str(shown), HORIZONTAL_ALIGNMENT_CENTER, die.size.x, 60, Color(Style.TEXT, a))
+		if not still:
+			tilt = deg_to_rad(9.0) * sin(t * 26.0) * (1.0 - t / ROLL_LANDS)
+	elif not still:
+		var since := t - ROLL_LANDS
+		if since < 0.22:
+			scale = 1.0 + 0.16 * sin(since / 0.22 * PI)
+	var die_c := Vector2(box.get_center().x, y + 188)
+	var edge_col := Style.TEXT if not landed else (Style.ENEMY_LIGHT if _roll["fate"] == "killed" else Style.BRASS)
+	ci.draw_set_transform(die_c + Vector2(5, 7), tilt, Vector2(scale, scale))
+	var die_box := StyleBoxFlat.new()
+	die_box.bg_color = Color(0, 0, 0, 0.4 * a)
+	die_box.set_corner_radius_all(14)
+	ci.draw_style_box(die_box, Rect2(Vector2(-64, -48), Vector2(128, 96)))
+	ci.draw_set_transform(die_c, tilt, Vector2(scale, scale))
+	die_box = StyleBoxFlat.new()
+	die_box.bg_color = Color(Style.RAISED, a)
+	die_box.border_color = Color(edge_col, a)
+	die_box.set_border_width_all(3)
+	die_box.set_corner_radius_all(14)
+	ci.draw_style_box(die_box, Rect2(Vector2(-64, -48), Vector2(128, 96)))
+	ci.draw_string(font, Vector2(-64, 24), str(shown), HORIZONTAL_ALIGNMENT_CENTER, 128, 60, Color(Style.TEXT, a))
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-	# The odds: dies at or under the chance.
+	# The odds: dies at or under the chance. The red fills first, so the eye reads the
+	# chance before the number lands.
 	var bar := Rect2(Vector2(x + 30, y + 258), Vector2(w - 60, 18))
+	var fill := 1.0 if still else _ease_out((t - 0.15) / 0.3)
 	ci.draw_rect(bar, Color(Style.RAISED, a))
-	ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * chance / 100.0, bar.size.y)), Color(Style.ENEMY, 0.85 * a))
+	ci.draw_rect(Rect2(bar.position, Vector2(bar.size.x * chance / 100.0 * fill, bar.size.y)), Color(Style.ENEMY, 0.85 * a))
 	if landed:
 		var mx: float = bar.position.x + bar.size.x * float(_roll["roll"]) / 100.0
 		ci.draw_rect(Rect2(mx - 2.0, bar.position.y - 6.0, 4.0, bar.size.y + 12.0), Color(Style.TEXT, a))
@@ -2911,9 +3533,20 @@ func _draw_roll() -> void:
 
 	if landed:
 		var killed: bool = _roll["fate"] == "killed"
+		var since := t - ROLL_LANDS
 		var verdict := "FALLEN" if killed else "WOUNDED · OUT FOR %d BATTLES" % Captains.WOUND_BATTLES
-		ci.draw_string(font, Vector2(x, y + 388), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, Style.LARGE, Color(Style.ENEMY_LIGHT if killed else Style.BRASS, a))
-		ci.draw_string(font, Vector2(x + 16, y + 424), "\"%s\"" % _roll["words"], HORIZONTAL_ALIGNMENT_CENTER, w - 32.0, Style.SMALL, Color(Style.TEXT, a))
+		var vc := Vector2(x + w * 0.5, y + 380)
+		var va := a * clampf(since / 0.1, 0.0, 1.0)
+		if killed:
+			# Death stamps down; a wound slides in.
+			var st := 1.0 if still else lerpf(1.5, 1.0, _ease_out(since / 0.14))
+			ci.draw_set_transform(vc, 0.0, Vector2(st, st))
+			ci.draw_string(font, Vector2(-w * 0.5, 8.0), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, Style.LARGE, Color(Style.ENEMY_LIGHT, va))
+			ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		else:
+			var slide := 0.0 if still else -24.0 * (1.0 - _ease_out(since / 0.2))
+			ci.draw_string(font, Vector2(x + slide, y + 388), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, Style.LARGE, Color(Style.BRASS, va))
+		ci.draw_string(font, Vector2(x + 16, y + 424), "\"%s\"" % _roll["words"], HORIZONTAL_ALIGNMENT_CENTER, w - 32.0, Style.SMALL, Color(Style.TEXT, va))
 
 
 # ---------------------------------------------------------------- drawing
@@ -2923,6 +3556,7 @@ func _draw() -> void:
 		return
 	_draw_field()
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_hour_ground()
 	_draw_scars()
 	_draw_zones()
 	_draw_objectives()
@@ -2954,8 +3588,13 @@ func _draw() -> void:
 	_draw_falling()
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_shadows()
+	var melee := []
 	for sq in sim.squads:
-		_draw_men(sq)
+		if sq.engaged and sq.is_active():
+			melee.append(sq)
+		else:
+			_draw_men(sq)
+	_draw_melee(melee)
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_treetops()
 	_draw_arrows()
@@ -2965,11 +3604,12 @@ func _draw() -> void:
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_storm_plan()
 		_draw_gate_marker()
+	_draw_hour_air()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_vignette_edge()
 	_draw_fallen_flags()
 	_draw_standards()
 	_draw_edge_markers()
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_floaters()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_spotlight()
@@ -3023,6 +3663,46 @@ func _draw_field() -> void:
 	draw_rect(Rect2(Vector2(-BEYOND.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
 	draw_rect(Rect2(Vector2(Sim.ARENA.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
 	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.3), false, 3.0)
+
+
+## The hour on the ground: its wash, mist along the far edge at dawn, and at night a warm
+## pool of light round every standard still up (and the gate, in a siege).
+func _draw_hour_ground() -> void:
+	var all := Rect2(-BEYOND, Sim.ARENA + BEYOND * 2.0)
+	if _ground_tint.a > 0.0:
+		draw_rect(all, _ground_tint)
+	if _band == "dawn":
+		for i in 8:
+			draw_rect(Rect2(Vector2(-BEYOND.x, -BEYOND.y + i * 40.0), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y + 40.0)), Color(1.0, 0.95, 0.88, 0.035))
+	if _band == "night":
+		var lights := []
+		for sq in sim.squads:
+			if sq.is_active() and not sq.routing:
+				lights.append(sq.avg)
+		if sim.objective == Sim.OBJECTIVE_SIEGE:
+			lights.append(sim.gate_center)
+		for at in lights:
+			for k in 6:
+				draw_circle(at, 110.0 - k * 16.0, Color(1.0, 0.72, 0.4, 0.035))
+
+
+## The hour over the men: a lighter wash, so they keep their colours.
+func _draw_hour_air() -> void:
+	if _air_tint.a > 0.0:
+		draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		draw_rect(Rect2(-BEYOND, Sim.ARENA + BEYOND * 2.0), _air_tint)
+
+
+## Dusk and night close in at the edges of the view.
+func _draw_vignette_edge() -> void:
+	if _vignette <= 0.0:
+		return
+	var steps := 9
+	for i in steps:
+		var inset := float(i) * 14.0
+		var r := _view.grow(-inset)
+		var a := _vignette * 0.09 * (1.0 - float(i) / float(steps))
+		draw_rect(r, Color(0.02, 0.03, 0.08, a), false, 14.0)
 
 
 ## How far the drawn land reaches past the field, in field units.
@@ -3442,7 +4122,7 @@ func _draw_stuck_arrows() -> void:
 ## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing
 ## up), dressed as `culture` dresses it.
 func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tint: Color = Color.WHITE, grow: float = 1.0,
-		culture: String = Cultures.VARDISH) -> void:
+		culture: String = Cultures.VARDISH, squash: float = 1.0) -> void:
 	var s := field_scale * Art.pixel_size(name) * grow
 	# Troops are slightly narrower than their old painted footprint. Their collision
 	# stays unchanged; this exposes the gaps that already exist in the simulation.
@@ -3450,7 +4130,7 @@ func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tin
 	if Troops.TYPES.has(name) or Units.has(name):
 		var role := Units.role(name) if Units.has(name) else name
 		width = 0.92 if role == Troops.CAVALRY else 0.86
-	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s * width, s))
+	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s * width, s * squash))
 	draw_texture(Art.frame(name, team, index, culture), -Art.pivot(name, culture), tint)
 
 
@@ -3548,71 +4228,179 @@ func _draw_bursts() -> void:
 
 ## Soft shadows lift the men off the grass.
 func _draw_shadows() -> void:
+	var still := Sound.reduced_motion
 	for sq in sim.squads:
 		var big: float = 5.0 if sq.type == Troops.CAVALRY else 1.5
+		var look := _squad_look(sq)
+		var i := -1
 		for so in sq.soldiers:
+			i += 1
 			if not so.alive:
 				continue
-			draw_set_transform(field_origin + (so.pos + Vector2(1.5, 3.0)) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.62))
-			draw_circle(Vector2.ZERO, so.radius + big, Color(0.05, 0.08, 0.02, 0.32))
+			var at: Vector2 = so.pos
+			if not still:
+				at += Vector2(_pose(so, sq, i, look)["off"])
+			draw_set_transform(field_origin + (at + _shadow_off) * field_scale, 0.0, Vector2(field_scale * _shadow_long, field_scale * 0.62))
+			draw_circle(Vector2.ZERO, so.radius + big, Color(0.05, 0.08, 0.02, _shadow_a))
 	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 
 
-func _draw_men(sq) -> void:
-	# A trained squad is drawn in its branch's own kit.
-	var type: String = sq.unit if sq.unit != "" else sq.type
-	var culture := _culture_of(sq)
-	var tint := Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE
+## How a squad's men are drawn this frame: kit, tint and what the squad as a whole is doing.
+func _squad_look(sq) -> Dictionary:
 	var still := Sound.reduced_motion
-	# The winners cheer: weapons up, each man bobbing on his own beat.
-	var cheering: bool = sim.winner != -1 and sq.team == sim.winner and sq.is_active()
-	var shaken: bool = wavering(sq) and sim.phase == Sim.PHASE_BATTLE
-	var charging: bool = sq.type == Troops.CAVALRY and sq.is_active() and not sq.engaged and float(_sq_speed.get(sq, 0.0)) > 30.0 and not still
+	var moving: bool = float(_sq_speed.get(sq, 0.0)) > 4.0
+	return {
+		# A trained squad is drawn in its branch's own kit.
+		"type": sq.unit if sq.unit != "" else sq.type,
+		"culture": _culture_of(sq),
+		"tint": Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE,
+		"still": still,
+		# The winners cheer: weapons up, each man bobbing on his own beat.
+		"cheering": sim.winner != -1 and sq.team == sim.winner and sq.is_active(),
+		"shaken": wavering(sq) and sim.phase == Sim.PHASE_BATTLE,
+		"charging": sq.type == Troops.CAVALRY and sq.is_active() and not sq.engaged and float(_sq_speed.get(sq, 0.0)) > 30.0 and not still,
+		# Set for the blow: braced, a shield wall or a schiltron, eased in and out.
+		"set": float(_set_k.get(sq, 0.0)),
+		"idle": sim.phase == Sim.PHASE_BATTLE and not sq.engaged and not sq.routing and not moving,
+		"ranged": sq.ranged and sq.arrows != 0,
+	}
+
+
+func _draw_men(sq) -> void:
+	var look := _squad_look(sq)
 	var i := -1
 	for so in sq.soldiers:
 		i += 1
-		if not so.alive:
-			continue
-		var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
-		var angle: float = so.facing.angle() + PI * 0.5
-		var at: Vector2 = so.pos
-		var glance := false
-		if cheering and not still:
-			var beat := sin(_clock * 9.0 + i * 1.7)
-			at += Vector2(0, -absf(beat) * 3.0)
-			index = 2 if beat > 0.0 else 0
-		elif shaken and i % 3 == 0:
-			# A wavering man glances back over his shoulder now and then.
-			glance = fposmod(_clock * 0.8 + i * 0.37, 1.0) < 0.22
-			if glance and not still:
-				angle += PI * 0.8
-		if charging:
-			var back: Vector2 = -so.facing
-			for k in 3:
-				var off: Vector2 = so.facing.orthogonal() * (k - 1) * 3.5
-				draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-				draw_line(so.pos + back * 11.0 + off, so.pos + back * (24.0 + k * 4.0) + off, Color(1, 1, 1, 0.35), 1.0)
-		var grow := 1.0
-		if so.captain:
-			# Captains stand a head taller, on a gold ring.
-			grow = 1.2
-			var px := field_scale * Art.pixel_size(type)
-			draw_set_transform(field_origin + at * field_scale, 0.0, Vector2(px, px))
-			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
-			draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
-		_sprite(type, sq.team, index, at, angle, tint, grow, culture)
-		if so.flash > 0.05:
-			draw_texture(Art.flash(type, index, culture), -Art.pivot(type, culture), Color(1, 1, 1, so.flash * 0.8))
-			if so.flash > 0.35:
-				var spark := Color(1.0, 0.88, 0.54, minf(1.0, so.flash))
-				draw_line(Vector2(-7, 0), Vector2(7, 0), spark, 1.8)
-				draw_line(Vector2(0, -7), Vector2(0, 7), spark, 1.8)
-		if glance:
-			# A "!" over his head while he looks back.
-			draw_set_transform(field_origin + (at + Vector2(0, -13)) * field_scale, 0.0, Vector2(field_scale, field_scale))
-			draw_rect(Rect2(-2.0, -5.0, 4.0, 7.0), Color(1, 1, 1, 0.95))
-			draw_rect(Rect2(-0.8, -4.2, 1.6, 3.6), Style.ENEMY)
-			draw_rect(Rect2(-0.8, 0.0, 1.6, 1.2), Style.ENEMY)
+		if so.alive:
+			_draw_man(so, sq, i, look)
+
+
+## Engaged squads' men, drawn back to front across squads, so the front rank of one squad
+## isn't painted over by the back rank of the next where the lines meet.
+func _draw_melee(squads: Array) -> void:
+	var looks := {}
+	var men := []
+	for sq in squads:
+		looks[sq] = _squad_look(sq)
+		var i := -1
+		for so in sq.soldiers:
+			i += 1
+			if so.alive:
+				men.append([so.pos.y, so, sq, i])
+	men.sort_custom(func(a, b): return a[0] < b[0])
+	for m in men:
+		_draw_man(m[1], m[2], m[3], looks[m[2]])
+
+
+## Where a man is drawn this frame, against where the sim has him: an offset (field units),
+## a turn, a frame and a crouch. Read from what the sim keeps (the swing after a blow, the
+## cooldown before the next, the flash of a hit) and from charges the screen saw land; never
+## written back. Reduced motion draws every man where he stands.
+func _pose(so, sq, i: int, look: Dictionary) -> Dictionary:
+	var pose := {"off": Vector2.ZERO, "tilt": 0.0, "index": -1, "squash": 1.0}
+	var fwd: Vector2 = so.facing
+	if sq.routing:
+		# Running for their own edge, leaning into it, at twice the stride.
+		fwd = Vector2.DOWN if sq.team == Sim.PLAYER else Vector2.UP
+		pose["face"] = fwd
+		pose["index"] = int(so.stride / 3.5) % 2
+		if not look["still"]:
+			pose["tilt"] = sin(so.stride * 0.45 + i) * deg_to_rad(15.0)
+		return pose
+	if look["still"]:
+		return pose
+	var side := 1.0 if i % 2 == 0 else -1.0
+	if so.swing > 0.0:
+		# The blow: a lunge at the target, then easing back to his place.
+		var e: float = SWING - so.swing
+		var k := 1.0 if e < STRIKE_HOLD else 1.0 - _ease_out((e - STRIKE_HOLD) / (SWING - STRIKE_HOLD))
+		pose["off"] += fwd * LUNGE * k
+		pose["tilt"] += deg_to_rad(6.0) * k * side
+		pose["index"] = 2
+	elif so.target != null and so.cooldown > 0.0 and ((sq.engaged and so.cooldown < WINDUP) or (look["ranged"] and so.cooldown < WINDUP * 2.0)):
+		# The wind-up, just before the next blow (or the bow drawn before the loose).
+		var k: float = 1.0 - so.cooldown / (WINDUP * (2.0 if look["ranged"] else 1.0))
+		pose["off"] -= fwd * WIND_BACK * k
+		pose["tilt"] -= deg_to_rad(12.0) * k * side
+		if look["ranged"]:
+			pose["index"] = 2
+	if so.flash > 0.0:
+		# Struck: knocked back from the man he faces, and turned by it.
+		pose["off"] -= fwd * FLINCH * so.flash
+		pose["tilt"] += deg_to_rad(14.0) * so.flash * side
+	var shove: Dictionary = _shoved.get(so, {})
+	if not shove.is_empty():
+		var t: float = float(shove["age"]) / SHOVE_TIME
+		var k: float = t / 0.2 if t < 0.2 else 1.0 - _ease_in_out((t - 0.2) / 0.8)
+		k *= float(shove["k"])
+		pose["off"] += Vector2(shove["dir"]) * SHOVE * k
+		pose["tilt"] += deg_to_rad(28.0) * k * side
+	var set_k: float = look["set"]
+	if set_k > 0.0:
+		# Set for the blow: crouched behind the shield, a step into the line.
+		pose["off"] += fwd * 1.5 * set_k
+		pose["squash"] = 1.0 - 0.1 * set_k
+	elif look["idle"] and pose["index"] == -1:
+		# Waiting, each man breathing on his own beat.
+		pose["off"] += fwd * sin(_clock * 1.6 + i * 0.9) * 0.8
+	return pose
+
+
+static func _ease_out(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+
+static func _ease_in_out(t: float) -> float:
+	t = clampf(t, 0.0, 1.0)
+	return t * t * (3.0 - 2.0 * t)
+
+
+func _draw_man(so, sq, i: int, look: Dictionary) -> void:
+	var type: String = look["type"]
+	var culture: String = look["culture"]
+	var still: bool = look["still"]
+	var pose := _pose(so, sq, i, look)
+	var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
+	if int(pose["index"]) >= 0:
+		index = int(pose["index"])
+	var face: Vector2 = pose.get("face", so.facing)
+	var angle: float = face.angle() + PI * 0.5 + float(pose["tilt"])
+	var at: Vector2 = so.pos + Vector2(pose["off"])
+	var glance := false
+	if look["cheering"] and not still:
+		var beat := sin(_clock * 9.0 + i * 1.7)
+		at += Vector2(0, -absf(beat) * 3.0)
+		index = 2 if beat > 0.0 else 0
+	elif look["shaken"] and i % 3 == 0:
+		# A wavering man glances back over his shoulder now and then.
+		glance = fposmod(_clock * 0.8 + i * 0.37, 1.0) < 0.22
+		if glance and not still:
+			angle += PI * 0.8
+	if look["charging"]:
+		var back: Vector2 = -so.facing
+		for k in 3:
+			var off: Vector2 = so.facing.orthogonal() * (k - 1) * 3.5
+			draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+			draw_line(so.pos + back * 11.0 + off, so.pos + back * (24.0 + k * 4.0) + off, Color(1, 1, 1, 0.35), 1.0)
+	var grow := 1.0
+	if so.captain:
+		# Captains stand a head taller, on a gold ring.
+		grow = 1.2
+		var px := field_scale * Art.pixel_size(type)
+		draw_set_transform(field_origin + at * field_scale, 0.0, Vector2(px, px))
+		draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
+		draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
+	_sprite(type, sq.team, index, at, angle, look["tint"], grow, culture, float(pose["squash"]))
+	if so.flash > 0.05:
+		# A pale flash of the hit, light enough that the kit still reads.
+		draw_texture(Art.flash(type, index, culture), -Art.pivot(type, culture), Color(1, 1, 1, so.flash * 0.45))
+	if glance:
+		# A "!" over his head while he looks back.
+		draw_set_transform(field_origin + (at + Vector2(0, -13)) * field_scale, 0.0, Vector2(field_scale, field_scale))
+		draw_rect(Rect2(-2.0, -5.0, 4.0, 7.0), Color(1, 1, 1, 0.95))
+		draw_rect(Rect2(-0.8, -4.2, 1.6, 3.6), Style.ENEMY)
+		draw_rect(Rect2(-0.8, 0.0, 1.6, 1.2), Style.ENEMY)
 
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
@@ -3789,6 +4577,10 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		var mark := top + Vector2(FLAG.x + 12.0, 8.0)
 		draw_circle(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
 		draw_string(font, mark + Vector2(-3.5, 6.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.05, 0.03, 0.03))
+	if sq.arrows == 0:
+		# Out of arrows: an empty quiver beside the flag, for as long as it lasts.
+		var q := top + Vector2(FLAG.x + 12.0, 8.0 + (22.0 if wavering(sq) else 0.0))
+		_draw_empty_quiver(self, q, 9.0)
 	draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
 	draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 	var count := str(sq.alive_n)
@@ -3798,6 +4590,15 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
 	if not mine and ref_type != "":
 		_draw_counter_hint(top, sq.type, ref_type)
+
+
+## A state badge: a quiver with no arrows in it, on a dark disc.
+func _draw_empty_quiver(ci: CanvasItem, at: Vector2, r: float) -> void:
+	ci.draw_circle(at, r, Color(0.05, 0.05, 0.08, 0.9))
+	ci.draw_arc(at, r, 0.0, TAU, 20, Color(Style.MUTED, 0.9), 1.5)
+	var k := r / 9.0
+	ci.draw_rect(Rect2(at + Vector2(-2.5, -4.0) * k, Vector2(5.0, 9.0) * k), Color("8a6a3a"))
+	ci.draw_line(at + Vector2(-5.0, 5.0) * k, at + Vector2(5.0, -5.0) * k, Style.ENEMY_LIGHT, 2.0 * k)
 
 
 ## Enemy squads one of yours has been ordered to attack, still fighting.
@@ -3890,14 +4691,38 @@ func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: Str
 
 
 func _draw_floaters() -> void:
+	var still := Sound.reduced_motion
 	for f in floaters:
 		var age: float = f["age"]
-		var a := clampf(float(f["life"]) - age, 0.0, 1.0)
-		var pos: Vector2 = f["pos"] + Vector2(-200.0, -minf(age, 1.3) * 34.0)
+		var a := clampf((float(f["life"]) - age) / 0.3, 0.0, 1.0) * clampf(age / 0.08, 0.0, 1.0)
 		var color: Color = f["color"]
-		var size := int(28.0 / maxf(0.1, field_scale))
-		draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, size, 6, Color(0, 0, 0, a))
-		draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, size, Color(color, a))
+		var sq = f["sq"]
+		if sq == null:
+			# A word at a spot: rises and fades.
+			var pos: Vector2 = _to_screen(f["pos"]) + Vector2(-200.0, -minf(age, 1.3) * 34.0 * field_scale)
+			draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, 6, Color(0, 0, 0, a))
+			draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, Color(color, a))
+			continue
+		# A squad's word: a pill over its standard, sliding up into place.
+		var anchor: Vector2 = Vector2(_std_tops[sq]) + Vector2(FLAG.x * 0.5, -24.0) if _std_tops.has(sq) else _to_screen(sq.average_pos()) + Vector2(0, -44.0)
+		var slide := 0.0 if still else 12.0 * (1.0 - _ease_out(age / 0.15))
+		var text := String(f["text"])
+		var fs := 18
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 30.0
+		var box := Rect2(anchor + Vector2(-w * 0.5, -15.0 + slide), Vector2(w, 30.0))
+		box.position.x = clampf(box.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - w - 4.0))
+		draw_style_box(_pill_box(a, color), box)
+		draw_circle(box.position + Vector2(13.0, 15.0), 4.0, Color(color, a))
+		draw_string(font, box.position + Vector2(22.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(color, a))
+
+
+func _pill_box(a: float, edge: Color) -> StyleBoxFlat:
+	var b := StyleBoxFlat.new()
+	b.bg_color = Color(Style.NIGHT, 0.88 * a)
+	b.border_color = Color(edge, 0.55 * a)
+	b.set_border_width_all(1)
+	b.set_corner_radius_all(15)
+	return b
 
 
 ## The story so far, along the top of the field.
@@ -4105,29 +4930,62 @@ func _draw_gate_marker() -> void:
 
 ## The breach: a band across the field with the news in big letters, for a moment.
 func _draw_banner() -> void:
-	if _banner.is_empty():
+	if _banner.is_empty() or not _roll.is_empty():
 		return
 	var age := float(_banner["age"])
 	var life := float(_banner["life"])
-	var a := clampf(minf(age / 0.15, (life - age) / 0.4), 0.0, 1.0)
+	var a := clampf(minf(age / 0.08, (life - age) / 0.4), 0.0, 1.0)
+	# It stamps down onto the field.
+	var stamp := 1.0 if Sound.reduced_motion else lerpf(STAMP_SCALE, 1.0, _ease_out(age / STAMP_TIME))
 	var vs := get_viewport_rect().size
-	var cy := _view.get_center().y - 60.0
-	var band := Rect2(0, cy - 86.0, vs.x, 172.0)
-	draw_rect(band, Color(Style.NIGHT, 0.86 * a))
 	var col: Color = _banner["color"]
-	draw_rect(Rect2(vs.x * 0.2, band.position.y + 4.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
-	draw_rect(Rect2(vs.x * 0.2, band.end.y - 6.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
-	var tex := Widgets.icon("breach")
-	if tex != null:
-		draw_texture_rect(tex, Rect2(Vector2(vs.x * 0.5 - 22.0, band.position.y + 12.0), Vector2(44, 44)), false, Color(col, a))
-	var title := String(_banner["title"])
 	var big: Font = Style.display_font()
 	if big == null:
 		big = font
-	var fs := 52
-	while fs > 30 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > vs.x - 40.0:
-		fs -= 2
-	var ty := band.position.y + 112.0
-	draw_string_outline(big, Vector2(0, ty), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.9 * a))
-	draw_string(big, Vector2(0, ty), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
-	draw_string(font, Vector2(0, ty + 42.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, a))
+	var title := String(_banner["title"]).to_upper()
+	var icon_key := String(_banner.get("icon", ""))
+	var tex := Widgets.icon(icon_key) if icon_key != "" else null
+	if bool(_banner.get("big", false)):
+		var cy := _view.get_center().y - 60.0
+		var band := Rect2(0, cy - 86.0, vs.x, 172.0)
+		draw_rect(band, Color(Style.NIGHT, 0.86 * a))
+		draw_rect(Rect2(vs.x * 0.2, band.position.y + 4.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
+		draw_rect(Rect2(vs.x * 0.2, band.end.y - 6.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
+		draw_set_transform(Vector2(vs.x * 0.5, cy), 0.0, Vector2(stamp, stamp))
+		if tex != null:
+			draw_texture_rect(tex, Rect2(Vector2(-22.0, -74.0), Vector2(44, 44)), false, Color(col, a))
+		var fs := 52
+		while fs > 30 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > vs.x - 40.0:
+			fs -= 2
+		draw_string_outline(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.9 * a))
+		draw_string(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
+		draw_string(font, Vector2(-vs.x * 0.5, 68.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, a))
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
+	# A plate a quarter of the way down the field.
+	var fs2 := 30
+	var room := minf(vs.x - 32.0, 560.0)
+	while fs2 > 18 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x > room - (72.0 if tex != null else 32.0):
+		fs2 -= 2
+	var tw := big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
+	var w := minf(room, tw + (88.0 if tex != null else 48.0))
+	var h := 88.0
+	var center := Vector2(vs.x * 0.5, _view.position.y + _view.size.y * 0.24)
+	draw_set_transform(center, 0.0, Vector2(stamp, stamp))
+	var plate := Rect2(Vector2(-w * 0.5, -h * 0.5), Vector2(w, h))
+	var box := StyleBoxFlat.new()
+	box.bg_color = Color(Style.NIGHT, 0.9 * a)
+	box.border_color = Color(Style.BRASS, 0.9 * a)
+	box.set_border_width_all(2)
+	box.set_corner_radius_all(10)
+	box.shadow_color = Color(0, 0, 0, 0.45 * a)
+	box.shadow_size = 10
+	draw_style_box(box, plate)
+	var tx := plate.position.x + 24.0
+	if tex != null:
+		draw_circle(Vector2(tx + 14.0, -10.0), 17.0, Color(Color("5a4a1a"), a))
+		draw_texture_rect(tex, Rect2(Vector2(tx + 2.0, -22.0), Vector2(24, 24)), false, Color(Color("ffe08a"), a))
+		tx += 40.0
+	draw_string(big, Vector2(tx, -10.0 + fs2 * 0.36), title, HORIZONTAL_ALIGNMENT_LEFT, plate.end.x - tx - 16.0, fs2, Color(col, a))
+	draw_string(font, Vector2(plate.position.x, 30.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -25,6 +25,10 @@ func _build() -> void:
 	col.add_child(size_bar)
 	col.add_child(_switch_row("Reduced motion", "No menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
 		Sound.set_reduced_motion(on)))
+	col.add_child(Page.note("Screen shake in battle", Style.BODY, Style.TEXT))
+	var shakes := [0.0, 0.5, 1.0]
+	col.add_child(Widgets.segmented(["Off", "Light", "Full"], maxi(0, shakes.find(Sound.shake)), func(i: int):
+		Sound.set_shake(shakes[i]), "ScreenShake"))
 	col.add_child(_switch_row("Illustrations", "Scenes and portraits throughout the game", Sound.illustrations_enabled, func(on: bool):
 		Sound.set_illustrations(on)))
 	col.add_child(_switch_row("Vibration", "", Sound.haptics_enabled, func(on: bool):

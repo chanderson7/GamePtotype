@@ -64,6 +64,8 @@ var illustrations_enabled := true
 ## Vibration on supported devices: a light tap for an accepted order, a stronger one for a
 ## decisive moment. Separate from reduced motion.
 var haptics_enabled := true
+## How hard the battle shakes: 0 off, 0.5 light, 1 full. Reduced motion stills it whatever this says.
+var shake := 1.0
 ## Pulses sent, for tests (and so a headless run can see them).
 var haptic_count := 0
 ## Until this time, routine contact sounds play quieter, so a critical cue cuts through.
@@ -495,6 +497,9 @@ func _load_settings() -> void:
 		reduced_motion = bool(cfg.get_value("presentation", "reduced_motion", false))
 		illustrations_enabled = bool(cfg.get_value("presentation", "illustrations", true))
 		haptics_enabled = bool(cfg.get_value("presentation", "haptics", true))
+		shake = float(cfg.get_value("presentation", "shake", 1.0))
+		if shake not in [0.0, 0.5, 1.0]:
+			shake = 1.0
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Sounds"), not sounds_on)
 
@@ -510,6 +515,7 @@ func _save_settings() -> void:
 	cfg.set_value("presentation", "reduced_motion", reduced_motion)
 	cfg.set_value("presentation", "illustrations", illustrations_enabled)
 	cfg.set_value("presentation", "haptics", haptics_enabled)
+	cfg.set_value("presentation", "shake", shake)
 	cfg.save(settings_path)
 
 
@@ -626,6 +632,10 @@ func set_illustrations(enabled: bool) -> void:
 
 func set_haptics(enabled: bool) -> void:
 	haptics_enabled = enabled
+	_save_settings()
+
+func set_shake(level: float) -> void:
+	shake = level if level in [0.0, 0.5, 1.0] else 1.0
 	_save_settings()
 
 
