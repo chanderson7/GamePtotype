@@ -27,6 +27,8 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
+const LordConversation = preload("res://scripts/world/lord_conversation.gd")
+const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 132.0
@@ -94,9 +96,10 @@ var top_panel: PanelContainer
 var _toast_panel: PanelContainer
 var _toast_label: Label
 var _toast_tween: Tween
-## The news the friendly lord you're talking to has told you, by party id, so he doesn't
-## forget it when you come back to him from the war news.
-var _greeting_news := {}
+## The lord you're talking to, face to face (lord_conversation.gd), or null.
+var _talk = null
+## Why the last friendly lord stopped you ("first", "news", "army").
+var _stop_reason := ""
 ## The free-floating HUD layer: the toast sits on it, outside any layout.
 var _hud: Control
 ## How close a friendly lord must be, in encounter radii, for his sheet to offer Talk.
@@ -234,16 +237,16 @@ func _process(delta: float) -> void:
 	# On the way out (no campaign, or the smoke test is done) the screen was never built.
 	if world == null or top_panel == null:
 		return
-	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu"]:
+	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
-	if GameState.bond_intro_pending() and GameState.desertion_warning == "" and not autoplay and _sheet not in ["encounter", "notice", "warning"]:
+	if GameState.bond_intro_pending() and GameState.desertion_warning == "" and not autoplay and _sheet not in ["encounter", "notice", "warning", "talk"]:
 		Scenes.go("res://scenes/bond_intro.tscn")
 		return
 	if autoplay:
 		_autoplay()
 	_watch_letters(delta)
 	# An encounter or a note about the last battle holds the clock until it's answered.
-	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation"]:
+	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
 		_save_clock += delta
 		if _save_clock > 5.0:
@@ -257,6 +260,7 @@ func _process(delta: float) -> void:
 				_open_here()
 			"encounter", "friendly_encounter":
 				GameState.save_game()
+				_stop_reason = String(e.get("reason", ""))
 				_open_encounter()
 			"friendly_pass":
 				var passer = world.party(int(e["party"]))
@@ -284,10 +288,10 @@ func _process(delta: float) -> void:
 			"captured":
 				Sound.play_place_fallen()
 	world.events.clear()
-	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu"]:
+	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
-	if GameState.map_notice != "" and _sheet != "encounter" and _sheet != "notice" and _sheet != "menu" and _sheet != "warning":
+	if GameState.map_notice != "" and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
 		_open_notice(GameState.map_notice, "On the road")
 		Sound.play("page")
 		GameState.map_notice = ""
@@ -312,6 +316,10 @@ func _process(delta: float) -> void:
 func _autoplay() -> void:
 	if _sheet == "warning":
 		_acknowledge_desertion()
+	if _sheet == "talk" and _talk != null:
+		# A lord stopping to talk is not a fight: part ways.
+		_talk.choose("leave")
+		return
 	if _sheet == "encounter":
 		var met = world.party(world.encounter) if world.encounter != -1 else null
 		if met != null and met.kind == WorldSim.LORD and world.relation_to_player(met.faction) == "friendly":
@@ -713,6 +721,9 @@ const ACTION_ICONS := [
 ## line under the title; `icon` overrides the tile's icon (otherwise chosen by `kind`).
 func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub: String = "", icon: String = "") -> void:
 	_sheet = kind
+	# A sheet opened from a talk (the war news) shows over it; closing it goes back.
+	if _talk != null and is_instance_valid(_talk):
+		_talk.visible = false
 	if bottom_bar != null:
 		bottom_bar.visible = false
 	sheet_lord_row.visible = false
@@ -882,6 +893,12 @@ func _close_sheet() -> void:
 ## is still waiting, as when a lord on the road told you of the war, it goes back to that
 ## encounter: closing it outright would leave the map paused with nothing to answer.
 func _close_or_back() -> void:
+	if _talk != null and is_instance_valid(_talk):
+		_close_sheet()
+		_sheet = "talk"
+		bottom_bar.visible = false
+		_talk.resume()
+		return
 	if world != null and world.encounter != -1 and world.party(world.encounter) != null:
 		_open_encounter()
 	else:
@@ -1098,10 +1115,10 @@ func _open_lord(lp) -> void:
 			buttons.append(["Ride with us", _on_follow_lord.bind(lp.id)])
 	elif rel == "neutral":
 		buttons.append(["Attack", _on_attack_lord.bind(lp), true])
-	if rel == "friendly" and world.encounter == -1 \
+	if rel in ["friendly", "neutral"] and world.encounter == -1 \
 			and world.party_pos(lp).distance_to(world.party_pos(world.player())) <= WorldSim.ENCOUNTER_RADIUS * TALK_REACH:
-		# A friendly lord rides past without stopping when he has nothing new; tap him
-		# while he's near to talk anyway.
+		# A friendly lord rides past without stopping when there's nothing new; tap them
+		# while they're near to talk anyway. So can you a lord of a realm at peace with you.
 		buttons.push_front(["Talk", _on_talk_to_lord.bind(lp.id), true])
 	buttons.append(["Close", _close_sheet])
 	_show_sheet("lord", lp.name, "%s. %s: %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, "")], buttons)
@@ -1116,25 +1133,23 @@ func _open_lord(lp) -> void:
 		Style.MORALE_LOW if rel == "hostile" else (Style.MORALE_HIGH if rel in ["friendly", "allied", "employer"] else Style.MORALE_MID))
 	_sheet_header(face, realm_id if Heraldry.REALM_SIZES.has(realm_id) else _party_realm(lp), lp.name,
 		("Ruler" if l.get("ruler", false) else "Lord") + " of %s · %d squads" % [_realm_short(lp.faction), lp.army.size()],
-		[_men_chip(men, not GameState.has_specialization(Captains.SCOUT)), _pace_chip(lp), Widgets.chip(_lord_doing(l, lp), Style.MORALE_MID, "◆"), rel_chip])
+		[_men_chip(men, not GameState.has_specialization(Captains.SCOUT)), _pace_chip(lp), Widgets.chip(_lord_doing(l, lp), Style.MORALE_MID, "◆"), rel_chip, _regard_chip(l)])
+
+
+## What a lord thinks of you, as a chip: "+12 Regard".
+func _regard_chip(l: Dictionary) -> PanelContainer:
+	var v := LordTalk.regard(GameState, l)
+	var c := Widgets.chip("%s%d Regard" % ["+" if v > 0 else "", v], Style.MORALE_HIGH if v >= 10 else (Style.MORALE_MID if v >= -14 else Style.MORALE_LOW))
+	c.name = "RegardChip"
+	return c
 
 
 func _on_talk_to_lord(party_id: int) -> void:
-	if world.party(party_id) == null:
+	var p = world.party(party_id)
+	if p == null:
 		return
 	world.encounter = party_id
-	_open_encounter()
-
-
-## When something happened, said the way a man on the road would: "This morning,".
-func _ago(at: float) -> String:
-	var hours: float = world.hour - at
-	if hours < 6.0:
-		return "Just now,"
-	if hours < 24.0:
-		return "Earlier today,"
-	var days := int(hours / 24.0)
-	return "Yesterday," if days == 1 else "%d days ago," % days
+	_open_talk(int(p.lord), "road")
 
 
 ## A friendly lord riding past without stopping, in a line for the top of the map.
@@ -1238,38 +1253,41 @@ func _lord_doing(l: Dictionary, lp) -> String:
 			return "Riding to %s" % place if lp.moving() and place != "" else "Keeping watch over their lands"
 
 
-func _open_friendly_lord_encounter(b) -> void:
-	var realm: String = Data.FACTIONS[b.faction]["name"]
-	var title := "%s of %s" % [b.name, Data.the_realm(realm)]
-	var greeter: Dictionary = world.lord_of(b)
-	var text := LordVoice.line("greet", greeter) if not greeter.is_empty() else "%s halts on the road to greet you." % b.name
-	# What's happened since a lord last told you, newest first: the reason he stopped. He
-	# tells it once; coming back to him from More news, he says the same.
-	if not _greeting_news.has(b.id):
-		var told := ""
-		var news: Array = world.fresh_news()
-		if not news.is_empty():
-			var lines := []
-			for e in news.slice(0, 2):
-				lines.append("%s %s" % [_ago(float(e["hour"])), String(e["text"])])
-			told = "News from the road: " + " ".join(PackedStringArray(lines))
-			if news.size() > 2:
-				told += " And %d more besides." % (news.size() - 2)
-			world.news_heard_at = float(news[0]["hour"])
-		_greeting_news = {b.id: told}
-	var told_now := String(_greeting_news[b.id])
-	if told_now != "":
-		text += "\n\n" + told_now
-	var buttons := []
-	buttons.append(["More news" if told_now != "" else "News of the war", _open_wars, true])
-	if GameState.has_contract() and GameState.contract_realm() == b.faction:
-		if world.following_party == b.id:
-			buttons.append(["Part ways", _on_part_ways_friendly])
-		else:
-			buttons.append(["Ride with us", _on_follow_lord.bind(b.id)])
-	buttons.append(["Leave", _on_part_ways_friendly])
-	_show_sheet("encounter", title, text, buttons)
-	_show_lord_header(world.lord_of(b))
+## Talk to a lord face to face: on the road ("road"), when they've blocked yours
+## ("hostile"), or at your camp as your captive ("captive"). The map holds still meanwhile.
+func _open_talk(lord_id: int, how: String = "road", why: String = "") -> void:
+	if world.lord_by_id(lord_id).is_empty():
+		return
+	if _talk != null and is_instance_valid(_talk):
+		_talk.queue_free()
+	_close_sheet()
+	_sheet = "talk"
+	bottom_bar.visible = false
+	_talk = LordConversation.open(_hud, GameState, lord_id, how, why)
+	_talk.closed.connect(_on_talk_closed)
+	_talk.wants_news.connect(func():
+		_talk.visible = false
+		_open_wars())
+	_talk.wants_fight.connect(func():
+		_talk = null
+		_sheet = ""
+		_on_fight())
+	_talk.wants_follow.connect(func(pid: int):
+		world.following_party = pid)
+
+
+func _on_talk_closed() -> void:
+	_talk = null
+	_sheet = ""
+	bottom_bar.visible = true
+	GameState.save_game()
+	var b = world.party(world.encounter) if world.encounter != -1 else null
+	# A lord who blocked your road is still there when you stop talking.
+	if b != null and b.kind == WorldSim.LORD and world.relation_to_player(b.faction) != "friendly":
+		_open_encounter()
+		return
+	world.encounter = -1
+	_refresh_hud()
 
 
 func _on_part_ways_friendly() -> void:
@@ -1294,7 +1312,8 @@ func _open_ransom_sheet(lord_id: int) -> void:
 	if GameState.has_contract() and world.at_war(GameState.contract_realm(), String(l.get("realm", ""))):
 		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
 		buttons.append(["Deliver to Employer (+%d s, +10 rel)" % bonus, _on_deliver_lord_to_employer.bind(lord_id)])
-	buttons.append(["Release for Honor (+20 rel, +10 ren)", _on_release_lord_honor.bind(lord_id)])
+	buttons.append(["Release for Honor (+25 Regard, +10 renown)", _on_release_lord_honor.bind(lord_id)])
+	buttons.append(["Talk", _open_talk.bind(lord_id, "captive")])
 	buttons.append(["Keep in Chains", _close_sheet])
 	_show_sheet("ransom", title, text, buttons)
 
@@ -1325,7 +1344,8 @@ func _open_encounter() -> void:
 	if b == null:
 		return
 	if b.kind == WorldSim.LORD and world.relation_to_player(b.faction) == "friendly":
-		_open_friendly_lord_encounter(b)
+		_open_talk(int(b.lord), "road", _stop_reason)
+		_stop_reason = ""
 		return
 	var men := 0
 	var kinds := {}
@@ -1361,6 +1381,8 @@ func _open_encounter() -> void:
 				title = "AMBUSH! %s attack from the woods" % b.name
 
 	var buttons := [["Fight", _on_fight, true], ["Send in", _on_send_in]]
+	if b.kind == WorldSim.LORD and int(b.lord) >= 0:
+		buttons.append(["Talk", _open_talk.bind(int(b.lord), "hostile")])
 	var withdraw_text := ""
 	if is_ambush:
 		withdraw_text = "\nYou cannot withdraw from an ambush!"
@@ -2049,6 +2071,8 @@ func _open_commitment(id: String) -> void:
 	var buttons := []
 	if String(c["place"]) != "" and Data.SETTLEMENTS.has(String(c["place"])):
 		buttons.append(["Show on map", _focus_place.bind(String(c["place"])), true])
+	if id.begins_with("captive_"):
+		buttons.append(["Talk", _open_talk.bind(int(id.trim_prefix("captive_")), "captive"), true])
 	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to top", _on_pin.bind(id)])
 	buttons.append(["Back to journal", _open_journal])
 	_show_sheet("commitment", String(c["title"]), "\n".join(lines), buttons)

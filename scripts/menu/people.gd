@@ -11,6 +11,11 @@ const Relationships = preload("res://scripts/data/relationships.gd")
 const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const Letters = preload("res://scripts/data/letters.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
+const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
+const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const Heraldry = preload("res://scripts/ui/heraldry.gd")
+const Lords = preload("res://scripts/data/lords.gd")
 
 const CANDIDATES := [RomanceStories.EDDA, RomanceStories.FARID, RomanceStories.KAEDE]
 const ROSE := Color("e88aa0")
@@ -19,7 +24,9 @@ const INK := Color("3a2a16")
 const INK_SOFT := Color("6b5230")
 const CHAPTERS := 5
 
-var _tab := "people" # "people", "pacts", "letters"
+var _tab := "people" # "people", "lords", "pacts", "letters"
+## Which lords the Lords tab shows: "met", "swear", "war", "crown".
+var _lord_filter := "met"
 ## The person whose page is open, the letter being read, and the reply being previewed.
 var _person := ""
 var _letter := ""
@@ -93,7 +100,8 @@ func _build() -> void:
 	var unread: int = social.unread_letters_count()
 	col.add_child(Widgets.tab_bar([
 		{"id": "people", "label": "People", "badge": 0},
-		{"id": "pacts", "label": "House pacts", "badge": 0},
+		{"id": "lords", "label": "Lords", "badge": 0},
+		{"id": "pacts", "label": "Pacts", "badge": 0},
 		{"id": "letters", "label": "Letters", "badge": unread},
 	], _tab, _on_tab, "PeopleTabs"))
 	match _tab:
@@ -101,9 +109,181 @@ func _build() -> void:
 			_build_pacts(col)
 		"letters":
 			_build_letters(col)
+		"lords":
+			_build_lords(col)
 		_:
 			_build_people(col)
 	frame.add_child(_bar([_back_button()], insets))
+
+
+# ---------------------------------------------------------------- lords
+
+## Every lord you've met: what they think of you, what they want, whether they'd swear,
+## and where they are. Plan whom to court before riding out.
+func _build_lords(col: VBoxContainer) -> void:
+	var w = GameState.world
+	var met: Array = w.lords.filter(func(l): return LordTalk.met(GameState, l))
+	var groups := {
+		"met": met,
+		"swear": met.filter(func(l): return _could_swear(l)),
+		"war": met.filter(func(l): return w.relation_to_player(String(l.get("realm", ""))) == "hostile"),
+		"crown": met.filter(func(l): return String(l.get("realm", "")) == WorldData.CROWN),
+	}
+	var chips := HFlowContainer.new()
+	chips.name = "LordFilters"
+	chips.add_theme_constant_override("h_separation", 10)
+	chips.add_theme_constant_override("v_separation", 10)
+	for f in [["met", "Met · %d" % met.size()], ["swear", "Could swear"], ["war", "At war"], ["crown", "Your crown"]]:
+		var b := Button.new()
+		b.name = "Filter_" + String(f[0])
+		b.text = String(f[1])
+		b.toggle_mode = true
+		b.button_pressed = _lord_filter == f[0]
+		b.custom_minimum_size = Vector2(0, 60)
+		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		if _lord_filter == f[0]:
+			Style.make_primary(b)
+		var id := String(f[0])
+		b.pressed.connect(func():
+			_lord_filter = id
+			_build())
+		chips.add_child(b)
+	col.add_child(chips)
+	var shown: Array = groups.get(_lord_filter, met)
+	if shown.is_empty():
+		col.add_child(Page.note("No one yet. Lords you meet on the road, fight or hold captive are kept here." if _lord_filter == "met" else "No one here yet.", Style.SMALL))
+		return
+	# Your own first, then whoever thinks best of you.
+	shown = shown.duplicate()
+	shown.sort_custom(func(a, b):
+		var ac := String(a.get("realm", "")) == WorldData.CROWN
+		var bc := String(b.get("realm", "")) == WorldData.CROWN
+		if ac != bc:
+			return ac
+		return LordTalk.regard(GameState, a) > LordTalk.regard(GameState, b))
+	for l in shown:
+		col.add_child(_lord_row(l))
+
+
+func _could_swear(l: Dictionary) -> bool:
+	if not GameState.is_crowned() or bool(l.get("ruler", false)) or String(l.get("realm", "")) == WorldData.CROWN:
+		return false
+	if String(l.get("captive_of", "")) == "player":
+		return GameState.swear_check(int(l["id"]))["ok"]
+	return LordTalk.persuade_check(GameState, l)["ok"]
+
+
+func _lord_row(l: Dictionary) -> Control:
+	var w = GameState.world
+	var realm := String(l.get("realm", ""))
+	var crown := realm == WorldData.CROWN
+	var ruler := bool(l.get("ruler", false))
+	var panel := PanelContainer.new()
+	panel.name = "Lord_%d" % int(l["id"])
+	panel.add_theme_stylebox_override("panel", Style.box(Color("2a2210") if crown else Style.PANEL, Style.BRASS if crown else Style.RULE, 2, 14))
+	if ruler:
+		panel.modulate = Color(1, 1, 1, 0.72)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	panel.add_child(row)
+	var face := TextureRect.new()
+	face.texture = CaptainArt.texture(LordVoice.portrait_record(l))
+	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	face.custom_minimum_size = Vector2(72, 96)
+	row.add_child(face)
+	var flag_realm := realm if Heraldry.REALM_SIZES.has(realm) else Heraldry.realm_of_culture(String(l.get("culture", "")))
+	var flag := Widgets.banner(flag_realm, Vector2(30, 46))
+	flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(flag)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_theme_constant_override("separation", 4)
+	row.add_child(words)
+	var name_label := Style.label(LordTalk.short_name(l), Style.BODY, Style.TEXT)
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(name_label)
+	var bits := PackedStringArray()
+	if crown:
+		bits.append("Sworn to your crown")
+	elif ruler:
+		bits.append("Ruler of %s" % String(WorldData.FACTIONS[realm]["name"]) if WorldData.FACTIONS.has(realm) else "A ruler")
+	else:
+		bits.append(_realm_short(realm))
+		bits.append(String(l.get("bearing", "")))
+	if String(l.get("captive_of", "")) == "player":
+		bits.append("your captive")
+	elif w.relation_to_player(realm) == "hostile" and not crown:
+		bits.append("at war")
+	var fief := String(l.get("fief", ""))
+	if fief != "" and not ruler:
+		bits.append("holds %s" % WorldData.settlement(fief)["name"])
+	var sub := Style.label(" · ".join(bits), Style.SMALL, Style.MUTED)
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(sub)
+	var value := LordTalk.regard(GameState, l)
+	var tone := Style.MORALE_HIGH if value >= 10 else (Style.MORALE_MID if value >= -14 else Style.MORALE_LOW)
+	words.add_child(Widgets.meter((value + 100.0) / 200.0, tone, 10.0))
+	var line := "%s%d Regard" % ["+" if value > 0 else "", value]
+	if ruler:
+		line = "Rulers never change sides"
+	else:
+		var note := _lord_note(l)
+		if note != "":
+			line += " · " + note
+	var reg := Style.label(line, Style.SMALL, tone if not ruler else Style.MUTED)
+	reg.name = "RegardLine"
+	reg.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(reg)
+	var where := _lord_place(l)
+	if where != "":
+		var pin := Button.new()
+		pin.name = "ShowOnMap"
+		pin.icon = Widgets.icon("mappin")
+		pin.expand_icon = true
+		pin.custom_minimum_size = Vector2(72, 72)
+		pin.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		pin.tooltip_text = "Show on map"
+		pin.pressed.connect(func():
+			Scenes.map_focus = where
+			Scenes.go(Scenes.people_return if Scenes.people_return != "" else "res://scenes/world_map.tscn"))
+		row.add_child(pin)
+	return panel
+
+
+## What stands out about a lord for you: the job you're doing for them, what they like if
+## you've learned it, whether they'd swear.
+func _lord_note(l: Dictionary) -> String:
+	var t: Dictionary = l.get("talk", {}) if l.get("talk") is Dictionary else {}
+	if String(t.get("job", "")) != "":
+		return "your job for them"
+	if String(l.get("captive_of", "")) == "player":
+		if String(l.get("bearing", "")) == Lords.HONORABLE:
+			return "won't swear · ransom %d" % int(l.get("ransom_amount", 0))
+		return "ransom %d" % int(l.get("ransom_amount", 0))
+	if int(t.get("like_known", 0)) == 1:
+		return "values %s" % LordTalk.likes(l)
+	if int(l.get("met_player", 0)) > 0:
+		return "has fought you"
+	return ""
+
+
+## Where a lord is now, to look at on the map: where they ride, else their seat.
+func _lord_place(l: Dictionary) -> String:
+	var w = GameState.world
+	var p = w.party(int(l.get("party", -1)))
+	if p != null:
+		return String(p.node)
+	if String(l.get("state", "")) == "prisoner":
+		return ""
+	return w.seat_of(l)
+
+
+func _realm_short(realm: String) -> String:
+	if realm == WorldData.CROWN:
+		return "Your crown"
+	return String(WorldData.FACTIONS[realm]["name"]).replace("Kingdom of ", "").replace("Sultanate of ", "").replace(" Shogunate", "") if WorldData.FACTIONS.has(realm) else realm
 
 
 func _on_tab(id: String) -> void:

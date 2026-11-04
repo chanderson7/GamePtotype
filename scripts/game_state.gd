@@ -25,6 +25,7 @@ const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
+const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -405,6 +406,9 @@ func complete_job(job_id: String) -> Dictionary:
 
 	var title: String = String(job.get("title", "Contract"))
 	_note("Completed: %s. Claimed %d silver and +%d renown." % [title, r_silver, r_renown])
+	var lord_line := LordTalk.job_done(self, job)
+	if lord_line != "":
+		_note(lord_line)
 	if world != null:
 		world.emit_event({"type": "job_completed", "company": "Your warband", "title": title, "at": world.here()})
 
@@ -486,6 +490,8 @@ func crown_holdings() -> Array:
 func _crown_day() -> void:
 	if not is_crowned():
 		return
+	for name in LordTalk.bought_lords_day(self):
+		_note("%s thinks too little of you now to stay bought, and rides back to their old allegiance, castle and all." % name)
 	var dues := 0
 	for id in crown_holdings():
 		if id == fief_id() or world.is_burned(id):
@@ -2678,7 +2684,9 @@ func deliver_lord_to_employer(lord_id: int) -> bool:
 	return true
 
 
-## Release a captive lord for honor without ransom
+## Release a captive lord for honor without ransom: they and their realm remember it.
+const RELEASE_REGARD := 25
+const RELEASE_REALM := 10
 func release_lord_for_honor(lord_id: int) -> bool:
 	if world == null:
 		return false
@@ -2686,11 +2694,11 @@ func release_lord_for_honor(lord_id: int) -> bool:
 	if l.is_empty() or l.get("state") != "prisoner" or l.get("captive_of") != "player":
 		return false
 	var realm: String = String(l.get("realm", ""))
-	add_lord_relation(lord_id, 20)
-	add_realm_relation(realm, 15)
+	add_lord_relation(lord_id, RELEASE_REGARD)
+	add_realm_relation(realm, RELEASE_REALM)
 	renown += 10
 	world.release_lord(lord_id)
-	_note("You released %s without ransom. Your chivalric mercy is celebrated throughout %s (+20 lord, +15 realm, +10 renown)." % [
+	_note("You released %s without ransom. Your mercy is celebrated throughout %s (+25 Regard, +10 realm, +10 renown)." % [
 		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm)
 	])
 	save_game()

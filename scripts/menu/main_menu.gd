@@ -839,6 +839,15 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 	var lord_id := int(cl["id"])
 	var ransom := int(cl.get("ransom_amount", 200))
 
+	var talk_btn := Button.new()
+	talk_btn.name = "TalkToCaptive_%d" % lord_id
+	talk_btn.text = "Talk"
+	talk_btn.pressed.connect(func():
+		var talk = load("res://scripts/world/lord_conversation.gd").open(self, GameState, lord_id, "captive")
+		talk.closed.connect(_build)
+	)
+	btns.add_child(talk_btn)
+
 	var ransom_btn := Button.new()
 	ransom_btn.text = "Ransom · %d s" % ransom
 	ransom_btn.pressed.connect(func():

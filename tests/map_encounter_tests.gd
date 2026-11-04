@@ -34,20 +34,22 @@ func _init() -> void:
 	map._close_sheet()
 	w.encounter = int(lord["party"])
 	map._open_encounter()
-	check(map._sheet == "encounter", "you meet them on the road")
+	check(map._sheet == "talk" and map._talk != null, "you meet them on the road")
+	var talk = map._talk
 
-	map._open_wars()
+	talk.choose("news")
+	talk.choose("chronicle")
 	check(map._sheet == "wars", "and ask for news of the war")
 	map._close_or_back()
-	check(map._sheet == "encounter" and map.sheet_panel.visible, "closing the news goes back to the lord")
+	check(map._sheet == "talk" and talk.visible, "closing the news goes back to the lord")
 
 	map._open_wars()
 	map._open_chronicle("war")
 	map._close_or_back()
-	check(map._sheet == "encounter", "so does closing the chronicle opened from it")
+	check(map._sheet == "talk", "so does closing the chronicle opened from it")
 
-	map._on_part_ways_friendly()
-	check(w.encounter == -1 and not map.sheet_panel.visible, "parting ways leaves the map free to go on")
+	talk.choose("leave")
+	check(w.encounter == -1 and not map.sheet_panel.visible and map._talk == null, "parting ways leaves the map free to go on")
 	map._open_wars()
 	map._close_or_back()
 	check(not map.sheet_panel.visible, "with no one waiting, the news just closes")

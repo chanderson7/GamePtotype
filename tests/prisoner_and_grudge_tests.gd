@@ -177,8 +177,8 @@ func test_captive_management_and_ransom_options() -> void:
 	var pre_renown := gs.renown
 
 	gs.release_lord_for_honor(3)
-	assert_eq(gs.relation_with_lord(3), pre_rel_lord + 20, "Lord relation rises by +20 for honorable release")
-	assert_eq(gs.relation_with_realm(captive_realm), pre_rel_realm + 15, "Realm relation rises by +15 for honorable release")
+	assert_eq(gs.relation_with_lord(3), pre_rel_lord + 25, "Lord relation rises by +25 for honorable release")
+	assert_eq(gs.relation_with_realm(captive_realm), pre_rel_realm + 10, "Realm relation rises by +10 for honorable release")
 	assert_eq(gs.renown, pre_renown + 10, "Player gains +10 renown for chivalric deed")
 	assert_eq(captive_lord["state"], "regroup", "Lord returned to his hall")
 

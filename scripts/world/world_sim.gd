@@ -2783,7 +2783,32 @@ static func _clean_lord(e: Dictionary) -> Dictionary:
 	# Whether this lord has stopped to greet you on the road.
 	if e.has("greeted"):
 		ordered["greeted"] = int(e["greeted"])
+	# A lord won to your crown: the realm they came from, and whether silver did it.
+	if e.has("sworn_from"):
+		ordered["sworn_from"] = String(e["sworn_from"])
+	if e.has("bought"):
+		ordered["bought"] = int(e["bought"])
+	# What they remember of your talks (lord_talk.gd).
+	if e.get("talk") is Dictionary and not (e["talk"] as Dictionary).is_empty():
+		ordered["talk"] = _clean_talk(e["talk"])
 	return ordered
+
+
+## A lord's talk record read back from JSON: counts as ints, lists of ids as strings.
+static func _clean_talk(raw: Dictionary) -> Dictionary:
+	var t := {}
+	for k in raw:
+		var v = raw[k]
+		match String(k):
+			"refused_until", "duel_at":
+				t[k] = float(v)
+			"job":
+				t[k] = String(v)
+			"stories", "args":
+				t[k] = (v as Array).map(func(x): return String(x)) if v is Array else []
+			_:
+				t[k] = int(v) if (v is float or v is int) else v
+	return t
 
 
 ## Squads read back from JSON, with ids and counts as ints again.

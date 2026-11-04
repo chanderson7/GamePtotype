@@ -1,7 +1,7 @@
 ## Friendly lords on the road stop you only with something to say: the first time you meet,
 ## when there's war news since you last heard, or when they lead an army you could ride
-## with. Otherwise they ride past with a wave, and at most one stops you in a half day. Their
-## greeting carries the news, and you can still tap one nearby to talk.
+## with. Otherwise they ride past with a wave, and at most one stops you in a half day. They
+## tell you the news face to face, and you can still tap one nearby to talk.
 extends SceneTree
 
 const Data = preload("res://scripts/world/world_data.gd")
@@ -71,22 +71,29 @@ func _init() -> void:
 	await process_frame
 	var map = current_scene
 	map.paused = true
-	# The map opens the waiting encounter as it loads.
-	check(map.sheet_body.text.contains("Kharzan declared war on the Ryumon."), "and tells you the news himself")
-	check(map.sheet_row.get_node_or_null("Dock_Morenews") != null, "with More news for the rest")
+	# The map opens the waiting encounter as it loads: the lord talks to you face to face.
+	var talk = map._talk
+	check(talk != null and map._sheet == "talk", "he stops to talk to you face to face")
+	check(talk.has_reply("news"), "and you can ask what news")
+	talk.choose("news")
+	check(talk.speech_text().contains("Kharzan declared war on the Ryumon."), "and he tells you the news himself")
+	check(talk.has_reply("chronicle"), "with the chronicle for the rest")
 	check(w.fresh_news().is_empty(), "after which it's heard")
-	map._open_wars()
+	talk.choose("chronicle")
+	check(map._sheet == "wars" and not talk.visible, "the chronicle opens the war news")
 	map._close_or_back()
-	check(map.sheet_body.text.contains("Kharzan declared war on the Ryumon."), "and back from the war news, he still says it")
-	map._on_part_ways_friendly()
+	check(map._sheet == "talk" and talk.visible and talk.speech_text().contains("Kharzan declared war on the Ryumon."), "and back from the war news, he still says it")
+	talk.choose("leave")
+	check(map._talk == null and w.encounter == -1, "parting ways leaves the road free")
 
 	w.friendly_quiet_until = 0.0
 	check(_meet(w, a) == "pass", "so next time he rides past")
 	map._open_lord(a)
 	check(map.sheet_row.get_node_or_null("Dock_Talk") != null, "but tap him while he's near and you can talk")
+	check(map.sheet_extra.find_child("RegardChip", true, false) != null, "and see what he thinks of you")
 	map._on_talk_to_lord(a.id)
-	check(w.encounter == a.id and map._sheet == "encounter", "and he stops for you")
-	map._on_part_ways_friendly()
+	check(w.encounter == a.id and map._sheet == "talk", "and he stops for you")
+	map._talk.choose("leave")
 
 	var saved: Dictionary = w.to_dict()
 	var w2 := WorldSim.new()
