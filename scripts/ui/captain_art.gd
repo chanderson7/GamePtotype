@@ -6,21 +6,28 @@ extends RefCounted
 const Style = preload("res://scripts/ui/style.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const CaptainFace = preload("res://scripts/art/captain_face.gd")
+const CaptainFaceV2 = preload("res://scripts/art/captain_face_v2.gd")
+
+## PROTOTYPE: draw every captain with the richer generator (captain_face_v2.gd). Off
+## until it's adopted; flip it to see the whole game in the new faces.
+static var prototype := false
 
 static var _textures: Dictionary = {}
 static var _faces: Dictionary = {}
 
 
-static func texture(captain: Dictionary) -> Texture2D:
+## `expression` is the moment the face is drawn for ("" for the captain's resting face);
+## only the prototype generator draws them.
+static func texture(captain: Dictionary, expression: String = "") -> Texture2D:
 	if not Style.illustrations_on():
 		return null
 	# Old saves still carry a painted appearance id; it no longer chooses the face, but
 	# keep it filled in so nothing that reads it breaks.
 	Captains.ensure_appearance(captain)
-	var key := _face_key(captain)
+	var key := _face_key(captain) + ("|v2|" + expression if prototype else "")
 	if _faces.has(key):
 		return _faces[key]
-	var tex: Texture2D = CaptainFace.texture(captain)
+	var tex: Texture2D = CaptainFaceV2.texture(captain, true, expression) if prototype else CaptainFace.texture(captain)
 	if _faces.size() > 400:
 		_faces.clear()
 	_faces[key] = tex
@@ -38,7 +45,7 @@ static func _face_key(captain: Dictionary) -> String:
 		CaptainFace.rank(captain), mini(3, int(history.get("wounds", 0))), 1 if int(captain.get("battles", 0)) >= 20 else 0]
 
 
-static func portrait(captain: Dictionary, size: Vector2 = Vector2(60, 80)) -> TextureRect:
+static func portrait(captain: Dictionary, size: Vector2 = Vector2(60, 80), expression: String = "") -> TextureRect:
 	var node := TextureRect.new()
 	node.name = "CaptainPortrait"
 	node.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -46,7 +53,7 @@ static func portrait(captain: Dictionary, size: Vector2 = Vector2(60, 80)) -> Te
 	node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	node.texture = texture(captain)
+	node.texture = texture(captain, expression)
 	node.visible = node.texture != null
 	return node
 
