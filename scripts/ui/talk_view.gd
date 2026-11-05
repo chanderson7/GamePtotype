@@ -354,12 +354,24 @@ func _gui_input(event: InputEvent) -> void:
 
 
 ## A tap (released without a drag) on the stage or the conversation goes on.
+## Where the finger went down, so a release after scrolling the talk doesn't count as a tap.
+var _tap_from := Vector2.INF
+
+
 func _tap(event: InputEvent) -> void:
 	if not _continue.is_valid():
 		return
+	var pointer := event is InputEventMouseButton or event is InputEventScreenTouch
+	if pointer and event.pressed:
+		_tap_from = event.position
+		return
 	var up: bool = (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT) \
 		or (event is InputEventScreenTouch and not event.pressed)
+	if up and _tap_from != Vector2.INF and _tap_from.distance_to(event.position) > Widgets.TAP_SLOP:
+		_tap_from = Vector2.INF
+		return
 	if up:
+		_tap_from = Vector2.INF
 		var act := _continue
 		_continue = Callable()
 		act.call()

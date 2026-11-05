@@ -596,11 +596,7 @@ func _next_box(text: String, icon: String = "ride") -> PanelContainer:
 
 ## Tapping anywhere on `card` that isn't a button opens `cand`'s page.
 func _tap_opens(card: Control, cand: String) -> void:
-	card.mouse_filter = Control.MOUSE_FILTER_STOP
-	card.gui_input.connect(func(e: InputEvent):
-		var mb := e as InputEventMouseButton
-		if mb != null and mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
-			_open_person(cand))
+	Widgets.on_tap(card, _open_person.bind(cand))
 
 
 func _open_person(cand: String) -> void:
@@ -1140,11 +1136,7 @@ func _letter_row(l: Dictionary) -> PanelContainer:
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		dot.draw.connect(func(): dot.draw_circle(Vector2(8, 8), 7, Style.BRASS))
 		h.add_child(dot)
-	row.mouse_filter = Control.MOUSE_FILTER_STOP
-	row.gui_input.connect(func(e: InputEvent):
-		var mb := e as InputEventMouseButton
-		if mb != null and mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
-			_open_letter(String(l["id"])))
+	Widgets.on_tap(row, _open_letter.bind(String(l["id"])))
 	return row
 
 

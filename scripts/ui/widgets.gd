@@ -236,6 +236,30 @@ static func framed(pic: TextureRect, size: Vector2, dim: bool = false, overhang:
 	return holder
 
 
+## How far a finger may move between press and release and still count as a tap, in
+## viewport units. It matches gui/common/default_scroll_deadzone in project.godot: past
+## it, the page under the finger scrolls instead.
+const TAP_SLOP := 16.0
+
+
+## Make `control` call `action` when tapped, without stopping the page from scrolling
+## when a drag starts on it: the touch passes on to the page, and a release counts as a
+## tap only if the finger hardly moved since the press.
+static func on_tap(control: Control, action: Callable) -> void:
+	control.mouse_filter = Control.MOUSE_FILTER_PASS
+	control.gui_input.connect(func(e: InputEvent):
+		var mb := e as InputEventMouseButton
+		if mb == null or mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		if mb.pressed:
+			control.set_meta("tap_from", mb.global_position)
+		elif control.has_meta("tap_from"):
+			var from: Vector2 = control.get_meta("tap_from")
+			control.remove_meta("tap_from")
+			if from.distance_to(mb.global_position) <= TAP_SLOP:
+				action.call())
+
+
 ## A thin bar filled to `frac` (0 to 1) in `color`, on a dark track.
 static func meter(frac: float, color: Color, height: float = 14.0) -> Control:
 	var c := Control.new()

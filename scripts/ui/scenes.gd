@@ -57,6 +57,31 @@ func _ready() -> void:
 	_veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_veil)
+	get_tree().node_added.connect(_let_scroll_through)
+
+
+## Inside a scrolling page, a finger that lands on a card, a panel or a button must still
+## reach the page, or the page won't scroll from there. Godot's PanelContainer, Panel,
+## buttons and plain backgrounds stop a touch by default, so every one added under a
+## ScrollContainer passes it on instead. Buttons still work: they get the press first, and
+## cancel it if the page starts to scroll (past the scroll deadzone in project.godot).
+## Controls that need the drag themselves (sliders, scroll bars, text fields, lists) are
+## left as they are.
+func _let_scroll_through(node: Node) -> void:
+	var c := node as Control
+	if c == null or c.mouse_filter != Control.MOUSE_FILTER_STOP:
+		return
+	if c is Range or c is LineEdit or c is TextEdit or c is ScrollContainer or c is ItemList or c is Tree:
+		return
+	if not (c is PanelContainer or c is Panel or c is BaseButton or c is ColorRect or c is TextureRect
+			or c is RichTextLabel or c.get_class() == "Control"):
+		return
+	var up := c.get_parent()
+	while up != null:
+		if up is ScrollContainer:
+			c.mouse_filter = Control.MOUSE_FILTER_PASS
+			return
+		up = up.get_parent()
 
 
 ## Fade out, change to the scene at `path`, fade back in.
