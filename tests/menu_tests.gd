@@ -254,7 +254,10 @@ func _run() -> void:
 		"captain profile carries identity from the Warband roster")
 	check(_has_text(current_scene, "Campaign record") and _has_text(current_scene, "Company progress"),
 		"captain profile presents traits, record, progression and bonds")
-	button("Back to Warband").pressed.emit()
+	check(current_scene.find_child("BackButton", true, false) != null and current_scene.find_child("RecordCard", true, false) != null,
+		"captain profile pins Back and shows the record as tiles")
+	await _check_promotion(profiled)
+	(current_scene.find_child("BackButton", true, false) as Button).pressed.emit()
 	await transition()
 	await process_frame
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and current_scene._scroll.scroll_vertical == remembered_scroll,
@@ -262,6 +265,49 @@ func _run() -> void:
 	DirAccess.remove_absolute(sound.settings_path)
 	print("Menu failures: %d" % failures)
 	quit(1 if failures else 0)
+
+## The veteran promotion: tapping a role only picks it, Promote makes it, and a role
+## another captain already holds says so.
+func _check_promotion(captain: Dictionary) -> void:
+	var was_battles := int(captain.get("battles", 0))
+	captain["battles"] = maxi(was_battles, 5)
+	captain["specialization"] = ""
+	var other: Dictionary = {}
+	for s in gs.army:
+		var c = s.get("captain")
+		if typeof(c) == TYPE_DICTIONARY and int(c["id"]) != int(captain["id"]):
+			other = c
+			break
+	var other_spec := String(other.get("specialization", "")) if not other.is_empty() else ""
+	if not other.is_empty():
+		other["specialization"] = "Scout"
+	current_scene._build()
+	await process_frame
+	check(current_scene.find_child("PromotionCard", true, false) != null and current_scene.find_child("PromotionReadyChip", true, false) != null,
+		"a captain who qualifies sees the promotion card and the ready chip")
+	var promote := current_scene.find_child("PromoteButton", true, false) as Button
+	check(promote != null and promote.disabled, "Promote waits until a role is picked")
+	if not other.is_empty():
+		var scout := current_scene.find_child("Option_Scout", true, false)
+		check(scout != null and scout.find_child("HeldWarning", true, false) != null,
+			"a host-wide role another captain holds says a second adds nothing")
+	(current_scene.find_child("Specialization_Champion", true, false) as Button).pressed.emit()
+	await process_frame
+	check(String(captain.get("specialization", "")) == "" and not promote.disabled and promote.text == "Promote to Champion",
+		"tapping a role picks it without making it")
+	promote.pressed.emit()
+	await process_frame
+	await process_frame
+	check(String(captain.get("specialization", "")) == "Champion", "Promote makes the picked role")
+	check(current_scene.find_child("PromotionCard", true, false) == null and current_scene.find_child("SpecializationChip", true, false) != null
+		and _has_text(current_scene, "is now Champion"), "after promotion the card gives way to the new role")
+	captain["battles"] = was_battles
+	captain["specialization"] = ""
+	if not other.is_empty():
+		other["specialization"] = other_spec
+	current_scene._build()
+	await process_frame
+
 
 func _check_bonds() -> void:
 	var state := State.new()

@@ -39,6 +39,22 @@ const SPECIALIZATION_DESCRIPTIONS := {
 	CHAMPION: "Squad deals +15% melee damage and charge impact; captain gains +25% bonus vitality.",
 }
 
+## The same effects as short lines, for the promotion card. "%s" is the captain's first name.
+const SPECIALIZATION_EFFECTS := {
+	SCOUT: ["+30% scouting sight on the road", "Exact enemy numbers", "Half the ambush risk"],
+	QUARTERMASTER: ["20% less food eaten", "+15% battlefield spoils", "Half the desertion risk"],
+	DRILLMASTER: ["+25% combat experience", "Recruits dilute experience half as much"],
+	CHAMPION: ["+15% melee damage and charge impact", "%s gains +25% vitality"],
+}
+
+## Who a role works for. "host": the whole army, and only one holder counts (see
+## GameState.has_specialization). "company": the captain's own company.
+const HOST := "host"
+const COMPANY := "company"
+const SPECIALIZATION_SCOPE := {SCOUT: HOST, QUARTERMASTER: HOST, DRILLMASTER: HOST, CHAMPION: COMPANY}
+
+const SPECIALIZATION_ICONS := {SCOUT: "eye", QUARTERMASTER: "food", DRILLMASTER: "shieldwall", CHAMPION: "fight"}
+
 const SPECIALIZATION_BATTLES := 5
 const SPECIALIZATION_KILLS := 15
 const CASUAL_WOUND_BATTLES := 3
@@ -143,6 +159,14 @@ static func can_specialize(captain: Dictionary) -> bool:
 	if String(captain.get("specialization", "")) != "":
 		return false
 	return int(captain.get("battles", 0)) >= SPECIALIZATION_BATTLES or int(captain.get("kills", 0)) >= SPECIALIZATION_KILLS
+
+
+## A role's effects as short lines, with the captain's first name filled in.
+static func specialization_effects(spec: String, first: String) -> Array:
+	var lines: Array = []
+	for line in SPECIALIZATION_EFFECTS.get(spec, []):
+		lines.append(String(line) % first if String(line).contains("%s") else String(line))
+	return lines
 
 
 ## Everything a captain's face is drawn from, to keep with a report or a memory so the

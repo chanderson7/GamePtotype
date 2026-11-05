@@ -261,6 +261,16 @@ func has_specialization(spec: String) -> bool:
 	return false
 
 
+## The captain who holds a veteran role, or {} if no one does. `except_id` leaves one
+## captain out, so a profile can ask whether anyone else holds it.
+func specialization_holder(spec: String, except_id: int = -1) -> Dictionary:
+	for s in army:
+		var c = s.get("captain")
+		if typeof(c) == TYPE_DICTIONARY and String(c.get("specialization", "")) == spec and int(c.get("id", -1)) != except_id:
+			return c
+	return {}
+
+
 func specialize_captain(captain_id: int, spec: String) -> bool:
 	if not Captains.SPECIALIZATIONS.has(spec):
 		return false

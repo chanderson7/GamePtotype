@@ -53,6 +53,12 @@ func test_specialization_constants_and_descriptions() -> void:
 	for spec in Captains.SPECIALIZATIONS:
 		assert_true(Captains.SPECIALIZATION_TITLES.has(spec), "Title defined for %s" % spec)
 		assert_true(Captains.SPECIALIZATION_DESCRIPTIONS.has(spec), "Description defined for %s" % spec)
+		assert_true(not Captains.specialization_effects(spec, "Briony").is_empty(), "Effect lines defined for %s" % spec)
+		assert_true(Captains.SPECIALIZATION_ICONS.has(spec), "Icon defined for %s" % spec)
+		assert_eq(Captains.SPECIALIZATION_SCOPE.get(spec, ""), Captains.COMPANY if spec == Captains.CHAMPION else Captains.HOST,
+			"%s reaches %s" % [spec, "its company" if spec == Captains.CHAMPION else "the whole host"])
+	assert_true(Captains.specialization_effects(Captains.CHAMPION, "Briony").has("Briony gains +25% vitality"),
+		"Champion's effect names the captain")
 
 
 func test_qualification_thresholds() -> void:
@@ -90,6 +96,10 @@ func test_specialization_assignment() -> void:
 	assert_true(ok, "Captain successfully specialized as Scout")
 	assert_eq(String(c["specialization"]), Captains.SCOUT, "Captain specialization set to Scout")
 	assert_true(gs.has_specialization(Captains.SCOUT), "has_specialization(SCOUT) is true")
+
+	assert_true(gs.specialization_holder(Captains.SCOUT) == c, "specialization_holder finds the Scout")
+	assert_true(gs.specialization_holder(Captains.SCOUT, int(c["id"])).is_empty(), "specialization_holder can leave the captain asking out")
+	assert_true(gs.specialization_holder(Captains.CHAMPION).is_empty(), "No one holds Champion yet")
 
 	# Attempting to specialize again should fail
 	var second_ok := gs.specialize_captain(int(c["id"]), Captains.CHAMPION)

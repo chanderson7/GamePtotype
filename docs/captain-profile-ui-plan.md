@@ -1,6 +1,6 @@
 # Captain profile: UI plan
 
-A plan, not yet built. The captain profile (`scripts/menu/captain_profile.gd`) is a
+Built. The captain profile (`scripts/menu/captain_profile.gd`) is a
 record page that sometimes carries a permanent decision, the veteran promotion. Right now
 the promotion is easy to miss, easy to pick by accident, and hard to compare, and the
 rest of the page says some things twice. This plan puts the decision first when there is
@@ -71,7 +71,7 @@ the hero, so it's on the first screen (see the mockup).
   changed later." This replaces the "crucible of battle" paragraph.
 - **Option rows**, one per role, in a fixed order. Each row shows:
   - The role's icon in a small dark tile: `o_eye` for Scout, `food` for
-    Quartermaster, `o_book` or `o_shieldwall` for Drillmaster, `o_fight` for Champion.
+    Quartermaster, `o_shieldwall` for Drillmaster, `o_fight` for Champion.
   - The role name (BODY, TEXT), then the title in brass, then the scope in muted text:
     "Eye of the Host · Whole host" or "Hero of the Vanguard · This company".
   - The effects, one short line each with a ▲: "+30% scouting sight on the road",
@@ -103,7 +103,7 @@ const SPECIALIZATION_EFFECTS := {
 	CHAMPION: ["+15% melee damage and charge impact", "%s gains +25% vitality"],  # captain's first name
 }
 const SPECIALIZATION_SCOPE := {SCOUT: "host", QUARTERMASTER: "host", DRILLMASTER: "host", CHAMPION: "company"}
-const SPECIALIZATION_ICONS := {SCOUT: "o_eye", QUARTERMASTER: "food", DRILLMASTER: "o_book", CHAMPION: "o_fight"}
+const SPECIALIZATION_ICONS := {SCOUT: "eye", QUARTERMASTER: "food", DRILLMASTER: "shieldwall", CHAMPION: "fight"}
 ```
 
 Add `GameState.specialization_holder(spec) -> Dictionary`, which returns the captain

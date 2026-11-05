@@ -198,6 +198,44 @@ static func banner(realm: String, size: Vector2) -> Control:
 	return c
 
 
+## A portrait in an arched brass frame. `pic` fills the arch and is cropped to it;
+## `overhang` lets the picture run past the bottom edge (a share of the height), which
+## lifts a painted face into the arch.
+static func framed(pic: TextureRect, size: Vector2, dim: bool = false, overhang: float = 0.12) -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = size
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var mask := Panel.new()
+	mask.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var arch := StyleBoxFlat.new()
+	arch.bg_color = Color("1a2138")
+	arch.corner_radius_top_left = int(size.x * 0.5)
+	arch.corner_radius_top_right = int(size.x * 0.5)
+	arch.corner_radius_bottom_left = 12
+	arch.corner_radius_bottom_right = 12
+	arch.corner_detail = 12
+	mask.add_theme_stylebox_override("panel", arch)
+	mask.clip_children = CanvasItem.CLIP_CHILDREN_AND_DRAW
+	holder.add_child(mask)
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pic.offset_bottom = size.y * overhang
+	if dim:
+		pic.modulate = Color(0.62, 0.62, 0.68)
+	mask.add_child(pic)
+	var rim := Panel.new()
+	rim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var edge := arch.duplicate() as StyleBoxFlat
+	edge.draw_center = false
+	edge.border_color = Color("6a5226")
+	edge.set_border_width_all(3)
+	rim.add_theme_stylebox_override("panel", edge)
+	holder.add_child(rim)
+	return holder
+
+
 ## A thin bar filled to `frac` (0 to 1) in `color`, on a dark track.
 static func meter(frac: float, color: Color, height: float = 14.0) -> Control:
 	var c := Control.new()
