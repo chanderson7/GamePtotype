@@ -111,6 +111,12 @@ func _init() -> void:
 				friend = l
 		if foe.is_empty() and String(l["realm"]) == "kharzan":
 			foe = l
+	# The host is her house's head; the days of waiting can see them taken in a fight, and a
+	# captive stays away (rightly), but this checks the usual day, so they're home for it.
+	var head_person: Dictionary = soc.get_candidate_person("edda")
+	var head_lord := int(soc.get_person(String(soc.get_house(head_person["house_id"])["head_person_id"])).get("lord_id", -1))
+	if head_lord >= 0 and String(gs.world.lord_by_id(head_lord).get("state", "")) == "prisoner":
+		gs.world.release_lord(head_lord)
 	friend["met_player"] = true
 	gs.add_lord_relation(int(friend["id"]), 60)
 	foe["met_player"] = true
