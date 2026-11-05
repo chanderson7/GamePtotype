@@ -168,6 +168,7 @@ static func image(captain: Dictionary, backdrop: bool = false, expression: Strin
 	_outfit(img, f, main, trim, accent, "" if noble != "" else String(captain.get("type", "")), level, spec)
 	if noble != "":
 		_regalia_body(img, f, main)
+	_hair_back(img, f, hair_tones, trim)
 	_neck(img, tones)
 	_head(img, f, tones)
 	_face(img, f, tones, hair_tones, String(captain.get("temperament", "")), String(captain.get("quirk", "")),
@@ -197,6 +198,9 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 	var ry: float = [15.0, 14.5, 16.0, 15.0][head]
 	var chin: float = [0.28, 0.14, 0.32, 0.2][head]   # how much the jaw narrows
 	var flat: float = [0.0, 0.08, 0.0, 0.05][head]    # a squarer chin
+	# Where the face's edge falls at the ears' height, so the ears join it.
+	var edge_l := W
+	var edge_r := -1
 	for y in H:
 		for x in W:
 			var dx := (float(x) + 0.5 - CX) / rx
@@ -224,15 +228,17 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 			if dy > 0.78 and absf(dx) < 0.5:
 				c = t["dark"]
 			_px(img, x, y, c)
+			if y == 37:
+				edge_l = mini(edge_l, x)
+				edge_r = maxi(edge_r, x)
 	# Cheekbone catching light, left.
 	_rect(img, 20, 38, 3, 1, t["light"])
 	# Ears, with a fold.
-	var ex_l := int(CX - rx) - 1
-	var ex_r := int(CX + rx)
-	_rect(img, ex_l - 1, 34, 2, 6, t["base"])
-	_px(img, ex_l - 1, 36, t["dark"])
-	_rect(img, ex_r, 34, 2, 6, t["dark"])
-	_px(img, ex_r + 1, 36, t["deep"])
+	# Ears sit right against the face's edge: any gap shows whatever is behind the head.
+	_rect(img, edge_l - 2, 34, 2, 6, t["base"])
+	_px(img, edge_l - 2, 36, t["dark"])
+	_rect(img, edge_r + 1, 34, 2, 6, t["dark"])
+	_px(img, edge_r + 2, 36, t["deep"])
 	if bool(f["freckles"]):
 		for p in [Vector2i(22, 41), Vector2i(25, 42), Vector2i(23, 43), Vector2i(36, 41), Vector2i(38, 43)]:
 			if img.get_pixel(p.x, p.y).a > 0.0:
@@ -541,12 +547,14 @@ static func _beard(img: Image, f: Dictionary, ht: Dictionary) -> void:
 					if (x + y) % 2 == 0 and img.get_pixel(x, y).a > 0.0 and not (y in [44, 45, 46] and x in range(25, 36)):
 						_px(img, x, y, img.get_pixel(x, y).lerp(dark, 0.4))
 		"short":
-			_fill_face(img, 42, 52, 18, 42, ht, [44, 45, 46])
+			_fill_face(img, 44, 53, 18, 42, ht, [44, 45, 46])
 		"full":
-			_fill_face(img, 40, 57, 17, 43, ht, [44, 45, 46])
-			# A few darker strands at the point.
-			for x in range(26, 35, 3):
-				_px(img, x, 54, dark)
+			_fill_face(img, 44, 56, 17, 43, ht, [45, 46])
+			# The moustache over the lip, and a few darker strands at the point.
+			_rect(img, 25, 43, 10, 1, hair)
+			_rect(img, 33, 43, 2, 1, dark)
+			for x in range(27, 34, 3):
+				_px(img, x, 53, dark)
 		"moustache":
 			_rect(img, 25, 43, 10, 1, hair)
 			_rect(img, 24, 44, 2, 1, hair)
@@ -559,12 +567,14 @@ static func _beard(img: Image, f: Dictionary, ht: Dictionary) -> void:
 			_rect(img, 27, 51, 6, 2, dark)
 
 
-## Beard over the lower face: every face pixel in the band but the mouth, and below the
-## chin a rounded point that narrows row by row, never a slab.
+## Beard along the jaw: face pixels from `y0` down (and thin sideburns up the face's
+## edge to the ears), but not the mouth; below the chin a rounded point that narrows
+## row by row, never a slab.
 static func _fill_face(img: Image, y0: int, y1: int, x0: int, x1: int, ht: Dictionary, keep_rows: Array) -> void:
-	for y in range(y0, y1):
+	for y in range(y0 - 6, y1):
 		for x in range(x0, x1):
-			var on_face := img.get_pixel(x, y).a > 0.0 and y < 52
+			var d := absf(float(x) + 0.5 - CX)
+			var on_face := img.get_pixel(x, y).a > 0.0 and y < 52 and (y >= y0 or d > 10.0)
 			var under_chin := y >= 51 and absf(float(x) + 0.5 - CX) <= 9.5 - float(y - 51) * 1.6
 			if not on_face and not under_chin:
 				continue
@@ -618,12 +628,6 @@ static func _hair(img: Image, f: Dictionary, ht: Dictionary, main: Color, trim: 
 			_px(img, 18, 25, light)
 		"long", "braid":
 			cap.call(19, 30)
-			for y in range(27, 54):
-				var wave := 1 if (y / 5) % 2 == 0 else 0
-				_rect(img, 14 + wave, y, 5, 1, hair)
-				_rect(img, 41 - wave, y, 5, 1, dark)
-				if y % 6 == 2:
-					_px(img, 15 + wave, y, light)
 			if style == "braid":
 				for y in range(50, 66, 2):
 					_rect(img, 14, y, 4, 1, dark)
@@ -631,9 +635,6 @@ static func _hair(img: Image, f: Dictionary, ht: Dictionary, main: Color, trim: 
 				_rect(img, 14, 66, 4, 2, trim)
 		"tied":
 			cap.call(19, 29)
-			_rect(img, 41, 32, 4, 14, dark)
-			_rect(img, 42, 30, 3, 2, trim)
-			_px(img, 41, 36, hair)
 		"topknot":
 			cap.call(21, 28)
 			_rect(img, 26, 13, 8, 7, hair)
@@ -672,6 +673,46 @@ static func _hair(img: Image, f: Dictionary, ht: Dictionary, main: Color, trim: 
 				_rect(img, 27, 17, 4, 4, BRASS)
 				_px(img, 28, 18, BRASS_LIGHT)
 				_px(img, 29, 19, Color("3a6ad8"))
+
+
+## Hair that hangs behind the head: drawn before the head, so the face and ears sit over
+## it and only what falls past the cheeks and onto the shoulders shows. Drawn in front
+## of the face, it framed it from crown to shoulder and read as a hood.
+static func _hair_back(img: Image, f: Dictionary, ht: Dictionary, trim: Color) -> void:
+	var hair: Color = ht["base"]
+	var dark: Color = ht["dark"]
+	var light: Color = ht["light"]
+	match String(f["hair"]):
+		"long", "braid":
+			for y in range(24, 61):
+				# Close at the temples and behind the ears, flaring onto the shoulders
+				# below them: hair that falls, not a band that frames.
+				var half := 14.5
+				if y > 40:
+					half = minf(14.5 + float(y - 40) * 0.35, 18.0)
+				for x in W:
+					var d := float(x) + 0.5 - CX
+					if absf(d) > half:
+						continue
+					# Below the chin it falls to either side of the neck, not over the collar.
+					if y >= 47 and absf(d) < 8.0:
+						continue
+					# Each strand ends at its own length, so the tips are staggered, not dithered.
+					if y > 55 + (x * 7 + 3) % 5:
+						continue
+					var c := dark if d > 3.0 else hair
+					# Strands: a darker line every few pixels, a lit one on the near side.
+					if x % 3 == 0:
+						c = c.darkened(0.12)
+					elif d < -11.0 and (x * 2 + y) % 7 == 0:
+						c = light
+					_px(img, x, y, c)
+		"tied":
+			# A tail gathered at the back, showing past the far ear, with its tie.
+			_rect(img, 43, 31, 3, 15, dark)
+			_rect(img, 44, 33, 1, 11, hair)
+			_rect(img, 43, 30, 3, 2, trim)
+			_px(img, 44, 46, dark)
 
 
 # ---------------------------------------------------------------- clothes
