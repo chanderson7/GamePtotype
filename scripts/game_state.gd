@@ -2967,12 +2967,22 @@ func bond_effect_text(points: float) -> String:
 
 
 func bond_conversation_is_new(a_id: int, b_id: int) -> bool:
+	return next_bond_talk(a_id, b_id) != ""
+
+
+## Talks at the fire go in order, C then B then A, none skipped: the next is the first rank
+## reached after the last one read, so a pair that has read A has passed C and B. "" when
+## every rank they've reached has been talked through.
+func next_bond_talk(a_id: int, b_id: int) -> String:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
-		return false
-	var rank := Captains.rank_letter(float(a.get("bonds", {}).get(str(b_id), 0.0)))
-	return rank != "" and not bond_record(a_id, b_id).get("conversations", []).has(rank)
+		return ""
+	var reached := Captains.rank_for(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	var last := 0
+	for r in bond_record(a_id, b_id).get("conversations", []):
+		last = maxi(last, Captains.RANKS.find(String(r)))
+	return String(Captains.RANKS[last + 1]) if last < reached else ""
 
 
 ## A replayable, event-aware camp exchange. It reads campaign facts and changes no combat,
@@ -3065,12 +3075,15 @@ func _bond_voice_line(a: Dictionary, b: Dictionary) -> String:
 			return "%s says, \"Same distance tomorrow. Close enough to help, far enough to breathe.\" %s nods." % [a["first"], b["first"]]
 
 
-func acknowledge_bond_conversation(a_id: int, b_id: int) -> void:
+## The talk at `rank` has been read (the current rank's, when none is given).
+func acknowledge_bond_conversation(a_id: int, b_id: int, rank: String = "") -> void:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
 		return
-	var rank := Captains.rank_letter(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	var reached := Captains.rank_for(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	if rank == "" or Captains.RANKS.find(rank) < 1 or Captains.RANKS.find(rank) > reached:
+		rank = String(Captains.RANKS[reached])
 	var record := _ensure_bond_record(a_id, b_id)
 	if rank != "" and not record["conversations"].has(rank):
 		record["conversations"].append(rank)

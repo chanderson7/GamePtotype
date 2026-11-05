@@ -56,6 +56,7 @@ func _run() -> void:
 				check(_press_reaches(scroll, at), "a drag starting on a button (%s) on %s reaches the page" % [c.name, tab])
 		check(cards > 0, "the %s tab has cards to try" % tab)
 	await _check_taps(scene)
+	await _check_bond_talk(gs)
 	print("Scroll touch failures: %d" % failures)
 	quit(1 if failures else 0)
 
@@ -91,6 +92,31 @@ func _check_taps(scene: Node) -> void:
 	_tap_at(at, Vector2(0, Widgets.TAP_SLOP + 24))
 	check(taps[0] == 1, "a drag that starts on that card doesn't open it")
 	card.queue_free()
+
+
+## A talk at the fire: a drag that starts on a speech bubble, a note or the button below
+## them must scroll the talk.
+func _check_bond_talk(gs) -> void:
+	var a: Dictionary = gs.army[0]["captain"]
+	var b: Dictionary = gs.army[1]["captain"]
+	a["bonds"][str(b["id"])] = 25.0
+	b["bonds"][str(a["id"])] = 25.0
+	root.get_node("Scenes").active_bond_a_id = int(a["id"])
+	root.get_node("Scenes").active_bond_b_id = int(b["id"])
+	change_scene_to_file("res://scenes/bond_conversation.tscn")
+	for i in 3:
+		await process_frame
+	var scroll := current_scene.find_child("Talk", true, false) as ScrollContainer
+	var tried := 0
+	for node in scroll.find_children("*", "Control", true, false):
+		var c := node as Control
+		var at := c.get_global_rect().get_center()
+		if not c.is_visible_in_tree() or not scroll.get_global_rect().has_point(at):
+			continue
+		if c is PanelContainer or c is BaseButton:
+			tried += 1
+			check(_press_reaches(scroll, at), "a drag starting on %s in a talk at the fire scrolls the talk" % c.name)
+	check(tried > 0, "the talk at the fire has bubbles to try")
 
 
 ## Press at `at`, move by `drag`, and release there: a tap when `drag` is zero.
