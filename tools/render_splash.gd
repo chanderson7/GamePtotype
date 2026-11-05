@@ -1,8 +1,9 @@
 extends SceneTree
 ## Renders assets/splash.png, the boot splash: frame 0 of the opening (scripts/menu/opening.gd)
-## alone on the night, at 1080x2342 so the opening's box fills it exactly. Re-run after
-## changing the opening's first frame:
-##   xvfb-run -a -s "-screen 0 1200x2400x24" godot --path . --resolution 1080x2342 -s tools/render_splash.gd
+## alone on the night, at 1440x3122: twice the opening's box, so the box fills it exactly,
+## and larger than any phone's screen, so the engine only ever scales it down to cover.
+## Re-run after changing the opening's first frame:
+##   xvfb-run -a -s "-screen 0 1500x3200x24" godot --path . --resolution 1440x3122 -s tools/render_splash.gd
 const Style = preload("res://scripts/ui/style.gd")
 const Opening = preload("res://scripts/menu/opening.gd")
 
@@ -32,8 +33,8 @@ func _init() -> void:
 		opening.apply()
 		await process_frame
 	var img := root.get_viewport().get_texture().get_image()
-	if img.get_size() != Vector2i(1080, 2342):
-		push_error("Run at --resolution 1080x2342; got %s" % img.get_size())
+	if img.get_size() != Vector2i(1440, 3122):
+		push_error("Run at --resolution 1440x3122; got %s" % img.get_size())
 		quit(1)
 		return
 	img.save_png("res://assets/splash.png")

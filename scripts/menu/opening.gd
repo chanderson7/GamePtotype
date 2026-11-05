@@ -9,9 +9,10 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 signal finished
 
-## The frame the splash is drawn for (a 9:19.5 phone at the 720-wide canvas). It is fitted
-## to the screen and centred the way the engine fits the splash image, so frame 0 matches
-## it on any shape of screen.
+## The frame the splash is drawn for (a 9:19.5 phone at the 720-wide canvas). It covers
+## the screen, centred and cropped at the edges, the way the engine covers it with the
+## splash image (stretch mode Cover, and aspect-fill on the iOS launch screen), so frame 0
+## matches the splash on any shape of screen.
 const BOX := Vector2(720.0, 1561.0)
 ## Seconds: the land drops away, the title rises, the night lifts off Home.
 const LAND_GOES := Vector2(1.35, 1.95)
@@ -148,10 +149,10 @@ func _phase(span: Vector2) -> float:
 	return x * x * (3.0 - 2.0 * x)
 
 
-## How big the box is drawn, and where, to fit the screen the way the splash is fitted.
+## How big the box is drawn, and where, to cover the screen the way the splash does.
 func _fit() -> Array:
 	var sz := get_viewport_rect().size
-	var k := minf(sz.x / BOX.x, sz.y / BOX.y)
+	var k := maxf(sz.x / BOX.x, sz.y / BOX.y)
 	return [k, (sz - BOX * k) * 0.5]
 
 
@@ -175,13 +176,16 @@ func apply() -> void:
 	# size) to Home's own title, where it is handed over.
 	var home_size := float(home_title.get_theme_font_size("font_size"))
 	var start_scale := k * float(Style.text_size(SPLASH_TITLE)) / maxf(1.0, home_size)
-	var w := home_title.size.x if home_title.size.x > 0.0 else title.get_combined_minimum_size().x
-	title.size = Vector2(w, home_title.size.y if home_title.size.y > 0.0 else title.get_combined_minimum_size().y)
-	var start := origin + Vector2(BOX.x * 0.5, BOX.y * RIDGE_AT + 70.0) * k - Vector2(title.size.x * start_scale * 0.5, 0.0)
+	# Just the word, moved by its centre: Home centres its title in its row, so the centres
+	# meet at the hand-over, and the label never reaches past the word itself.
+	title.size = title.get_combined_minimum_size()
+	var start_mid := origin + Vector2(BOX.x * 0.5, BOX.y * RIDGE_AT + 70.0) * k
+	var home_mid := home_title.global_position + Vector2(home_title.size.x * 0.5, 0.0) if home_title.size.x > 0.0 else start_mid
 	var rise := _phase(TITLE_RISES)
 	var s := lerpf(start_scale, 1.0, rise)
+	var mid := start_mid.lerp(home_mid, rise)
 	title.scale = Vector2(s, s)
-	title.position = start.lerp(home_title.global_position, rise)
+	title.position = mid - Vector2(title.size.x * s * 0.5, 0.0)
 	var handed := t >= TITLE_RISES.y
 	title.visible = not handed
 	home_title.modulate.a = 1.0 if handed else 0.0
@@ -209,9 +213,9 @@ func _draw() -> void:
 func _draw_land() -> void:
 	var dawn := _phase(Vector2(0.25, 1.3))
 	var ridge_y := BOX.y * RIDGE_AT
-	# Past the box's sides on a wide screen, the sky and the ridge carry on.
+	# A little past the box's sides, so a rounding at the screen's edge shows no seam.
 	var fit := _fit()
-	var spill: float = fit[1].x / maxf(0.01, float(fit[0])) + 6.0
+	var spill: float = maxf(0.0, fit[1].x / maxf(0.01, float(fit[0]))) + 6.0
 	# Dawn behind the ridge, in stepped bands: pixel light, not a smooth gradient.
 	for i in 10:
 		var f := float(i) / 9.0
