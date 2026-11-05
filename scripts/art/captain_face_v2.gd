@@ -243,10 +243,12 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 
 ## The neck under the chin, in shadow, with the throat catching a little light.
 static func _neck(img: Image, t: Dictionary) -> void:
-	_rect(img, 24, 48, 12, 11, t["dark"])
-	_rect(img, 24, 48, 4, 11, t["base"])
-	_rect(img, 24, 48, 12, 3, t["deep"])
-	_rect(img, 33, 48, 3, 11, t["deep"])
+	_rect(img, 23, 47, 14, 11, t["dark"])
+	_rect(img, 23, 47, 5, 11, t["base"])
+	_rect(img, 23, 47, 14, 4, t["deep"])
+	_rect(img, 34, 47, 3, 11, t["deep"])
+	# The throat's tendon catching light.
+	_rect(img, 25, 52, 1, 5, t["light"])
 
 
 ## Eyes, brows, nose and mouth, set by the captain's temper and the moment.
@@ -541,11 +543,10 @@ static func _beard(img: Image, f: Dictionary, ht: Dictionary) -> void:
 		"short":
 			_fill_face(img, 42, 52, 18, 42, ht, [44, 45, 46])
 		"full":
-			_fill_face(img, 40, 56, 17, 43, ht, [44, 45, 46])
-			_rect(img, 24, 54, 12, 3, hair)
-			_rect(img, 33, 54, 3, 3, dark)
-			for x in range(25, 36, 3):
-				_px(img, x, 56, dark)
+			_fill_face(img, 40, 57, 17, 43, ht, [44, 45, 46])
+			# A few darker strands at the point.
+			for x in range(26, 35, 3):
+				_px(img, x, 54, dark)
 		"moustache":
 			_rect(img, 25, 43, 10, 1, hair)
 			_rect(img, 24, 44, 2, 1, hair)
@@ -558,16 +559,19 @@ static func _beard(img: Image, f: Dictionary, ht: Dictionary) -> void:
 			_rect(img, 27, 51, 6, 2, dark)
 
 
-## Beard over the lower face: every face pixel in the band but the mouth, with strands.
+## Beard over the lower face: every face pixel in the band but the mouth, and below the
+## chin a rounded point that narrows row by row, never a slab.
 static func _fill_face(img: Image, y0: int, y1: int, x0: int, x1: int, ht: Dictionary, keep_rows: Array) -> void:
 	for y in range(y0, y1):
 		for x in range(x0, x1):
-			if img.get_pixel(x, y).a <= 0.0 and y < 52:
+			var on_face := img.get_pixel(x, y).a > 0.0 and y < 52
+			var under_chin := y >= 51 and absf(float(x) + 0.5 - CX) <= 9.5 - float(y - 51) * 1.6
+			if not on_face and not under_chin:
 				continue
 			if keep_rows.has(y) and x in range(25, 36):
 				continue
 			var c: Color = ht["dark"] if x >= 34 else ht["base"]
-			if (x * 3 + y) % 7 == 0:
+			if (x * 3 + y) % 11 == 0:
 				c = ht["light"] if x < 34 else ht["base"]
 			_px(img, x, y, c)
 
@@ -676,7 +680,8 @@ static func _hair(img: Image, f: Dictionary, ht: Dictionary, main: Color, trim: 
 static func _body(x: int, y: int) -> bool:
 	if y < 57 or y >= H or x < 0 or x >= W:
 		return false
-	var half := 15.0 + float(y - 57) * 1.8
+	# Broad at the top, so the neck sits in the shoulders rather than on a peg.
+	var half := 18.0 + float(y - 57) * 2.2
 	return absf(float(x) + 0.5 - CX) <= minf(half, 28.0)
 
 
@@ -719,8 +724,6 @@ static func _outfit(img: Image, f: Dictionary, main: Color, trim: Color, accent:
 				c = c.lightened(0.1)
 			if (x == 17 or x == 43) and y >= 68:
 				c = c.darkened(0.15)
-			if y <= 59 and absf(float(x) + 0.5 - CX) < 9.0:
-				c = c.darkened(0.2)
 			img.set_pixel(x, y, c)
 	_troop_mark(img, type, trim, main)
 	_rank_marks(img, level, main, trim, accent)
