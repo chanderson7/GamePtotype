@@ -50,6 +50,25 @@ Sim: nothing new; it is the screen's `speed` and the `_slow` pace that already c
 the captain-down moment. Screen: an edge zone on the field (right or left, by handedness
 setting), the cast, the badge, and the speed button reading ¼× while held.
 
+## As built (1 and 3)
+
+- **Drag from a squad.** A press on your own standard picks the squad up; a drag from
+  anywhere else still draws the line. The card sits above the finger (below it near the
+  top of the field) and names the troop types in each side's own words. Letting go over
+  your own squad is a tap. Before the battle the same drag moves the one squad within
+  the deploy zone. Screen: `_begin_press`/`_move_press`/`_end_press`, `_drop_target`,
+  `_drop_squad`, `_draw_carry`, `_draw_carry_card`, `_matchup`.
+- **Hold to slow time.** The handle is a fixed hourglass tab on the right edge, low on
+  the field, rather than the whole edge, so taps on squads near the edge still land.
+  Held, the sim steps at a quarter of real time whatever the speed button says, and the
+  button reads ¼×. Godot only turns the first finger into mouse events, so while the
+  handle is held a second finger's touch is read from the touch events and runs the same
+  tap or drag. Pausing, the storm plan or the battle's end lets go of it. No handedness
+  setting yet.
+- Tests: `battle_controls_tests.gd` carries a squad onto an enemy and onto ground,
+  checks a drag from open ground still draws a line, the matchup words, the quarter
+  pace at 2×, a second finger's order while held, and release on pause.
+
 ## Order of work
 
 1 and 3 are screen-only and small. 2 needs four small sim additions and a balance
