@@ -54,8 +54,8 @@ func _init() -> void:
 	screen._mark_ordered(mine)
 	check(sound.haptic_count == before + 1, "an accepted order gives one light pulse, not one per squad")
 
-	# Wavering is warned before the break.
-	mine.morale = 30.0
+	# Wavering is warned before the break: below the waver line (35), above the rout (30).
+	mine.morale = 33.0
 	await process_frame
 	await process_frame
 	check(screen.wavering(mine) and screen._wavered.has(mine) and not mine.routing, "a squad near breaking is marked wavering before it routs")

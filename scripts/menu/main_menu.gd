@@ -91,7 +91,7 @@ func _build() -> void:
 
 	var tabs := [
 		{"id": "camp", "label": "Camp", "badge": 1 if CampMoments.pick(GameState).size() > 0 else 0},
-		{"id": "companies", "label": "Companies", "badge": 0},
+		{"id": "companies", "label": "Companies", "badge": _promotions_ready()},
 		{"id": "bonds", "label": "Bonds", "badge": GameState.new_bond_talks().size()},
 		{"id": "deeds", "label": "Deeds", "badge": GameState.active_jobs.size()},
 	]
@@ -585,6 +585,12 @@ func _squad_row(s: Dictionary) -> Control:
 	who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	who.custom_minimum_size = Vector2(10, 0)
 	text.add_child(who)
+	if c != null and Captains.can_specialize(c):
+		var promo := Style.label("★ Promotion ready · tap to choose a role", Style.SMALL, Style.BRASS)
+		promo.name = "PromotionReady_%d" % int(c.get("id", -1))
+		promo.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		promo.custom_minimum_size = Vector2(10, 0)
+		text.add_child(promo)
 	var wounded: int = int(s.get("wounded", 0))
 	var str_label := "Strength · %d/%d" % [men, full]
 	if wounded > 0:
@@ -975,6 +981,16 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 		btns.add_child(swear)
 
 	return panel
+
+
+## Captains who have earned a veteran role and not yet chosen one.
+func _promotions_ready() -> int:
+	var n := 0
+	for s in GameState.army:
+		var c = s.get("captain")
+		if typeof(c) == TYPE_DICTIONARY and Captains.can_specialize(c):
+			n += 1
+	return n
 
 
 ## The full roster card opens the person behind the company. The button is flat so the

@@ -54,5 +54,28 @@ func _init() -> void:
 	map._close_or_back()
 	check(not map.sheet_panel.visible, "with no one waiting, the news just closes")
 
+	# A message that isn't about a fight is titled by where you are, not "After the battle".
+	var here: String = w.player().node
+	gs.player_fief = {"settlement_id": here, "silver": 274, "food": 60}
+	gs.collect_fief_taxes()
+	gs.collect_fief_food()
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await process_frame
+	await process_frame
+	map = current_scene
+	var place := "At %s" % String(Data.settlement(here)["name"])
+	check(map._sheet == "notice" and map.sheet_title.text == place, "estate taxes and grain come under the place's name (%s), not a battle" % map.sheet_title.text)
+	check(gs.map_notice == "" and gs.map_notice_title == "", "and the message is taken off the queue")
+	map._close_sheet()
+	gs.player_fief = {}
+	# A battle with nothing to say leaves no title behind for the next, unrelated message.
+	gs.apply_result({"won": true, "reason": "rout", "lost": 0, "killed": 6, "squads": {}})
+	check(gs.map_notice != "" or gs.map_notice_title == "", "a battle with nothing to say leaves no title waiting")
+	# One with something to say (here, a line already waiting) comes under the battle's title.
+	gs._note("A captain is carried from the field.")
+	gs.apply_result({"won": true, "reason": "rout", "lost": 0, "killed": 6, "squads": {}})
+	check(gs.map_notice_title == "After the battle", "a battle's result is titled After the battle")
+	gs.take_map_notice()
+
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)

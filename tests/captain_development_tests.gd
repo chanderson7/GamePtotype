@@ -5,6 +5,7 @@ const Captains = preload("res://scripts/data/captains.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const CaptainFace = preload("res://scripts/art/captain_face.gd")
 
 var passed := 0
 var failed := 0
@@ -35,6 +36,7 @@ func _init() -> void:
 	test_drillmaster_effects()
 	test_champion_effects()
 	test_save_load_specializations()
+	test_faces()
 
 	print("\nCaptain Development Tests finished: %d passed, %d failed" % [passed, failed])
 	if failed > 0:
@@ -53,6 +55,12 @@ func test_specialization_constants_and_descriptions() -> void:
 	for spec in Captains.SPECIALIZATIONS:
 		assert_true(Captains.SPECIALIZATION_TITLES.has(spec), "Title defined for %s" % spec)
 		assert_true(Captains.SPECIALIZATION_DESCRIPTIONS.has(spec), "Description defined for %s" % spec)
+		assert_true(not Captains.specialization_effects(spec, "Briony").is_empty(), "Effect lines defined for %s" % spec)
+		assert_true(Captains.SPECIALIZATION_ICONS.has(spec), "Icon defined for %s" % spec)
+		assert_eq(Captains.SPECIALIZATION_SCOPE.get(spec, ""), Captains.COMPANY if spec == Captains.CHAMPION else Captains.HOST,
+			"%s reaches %s" % [spec, "its company" if spec == Captains.CHAMPION else "the whole host"])
+	assert_true(Captains.specialization_effects(Captains.CHAMPION, "Briony").has("Briony gains +25% vitality"),
+		"Champion's effect names the captain")
 
 
 func test_qualification_thresholds() -> void:
@@ -90,6 +98,10 @@ func test_specialization_assignment() -> void:
 	assert_true(ok, "Captain successfully specialized as Scout")
 	assert_eq(String(c["specialization"]), Captains.SCOUT, "Captain specialization set to Scout")
 	assert_true(gs.has_specialization(Captains.SCOUT), "has_specialization(SCOUT) is true")
+
+	assert_true(gs.specialization_holder(Captains.SCOUT) == c, "specialization_holder finds the Scout")
+	assert_true(gs.specialization_holder(Captains.SCOUT, int(c["id"])).is_empty(), "specialization_holder can leave the captain asking out")
+	assert_true(gs.specialization_holder(Captains.CHAMPION).is_empty(), "No one holds Champion yet")
 
 	# Attempting to specialize again should fail
 	var second_ok := gs.specialize_captain(int(c["id"]), Captains.CHAMPION)
@@ -194,3 +206,26 @@ func test_save_load_specializations() -> void:
 	assert_eq(String(loaded_gs.army[0]["captain"]["specialization"]), Captains.DRILLMASTER, "Drillmaster specialization preserved")
 	assert_eq(String(loaded_gs.army[1]["captain"]["specialization"]), Captains.QUARTERMASTER, "Quartermaster specialization preserved")
 	assert_true(loaded_gs.has_specialization(Captains.DRILLMASTER), "has_specialization reflects loaded data")
+
+
+func test_faces() -> void:
+	print("\n--- Captain Faces ---")
+	var c := {"id": 7, "culture": "vardish", "first": "Briony", "type": "cavalry", "temperament": "Steadfast",
+		"battles": 25, "history": {"wounds": 2}}
+	var face := CaptainFace.image(c, true)
+	assert_eq(Vector2i(face.get_width(), face.get_height()), Vector2i(60, 80), "A face is 60 x 80, the portraits' 3:4")
+	assert_true(face.get_data() == CaptainFace.image(c, true).get_data(), "The same captain always gets the same face")
+	var other := c.duplicate(true)
+	other["id"] = 8
+	assert_true(face.get_data() != CaptainFace.image(other, true).get_data(), "Another captain gets another face")
+	for mood in CaptainFace.EXPRESSIONS:
+		if String(mood) == "":
+			continue
+		assert_true(CaptainFace.image(c, true, String(mood)).get_data() != face.get_data(), "The %s expression changes the face" % mood)
+	var champion := c.duplicate(true)
+	champion["specialization"] = Captains.CHAMPION
+	assert_true(CaptainFace.image(champion, true).get_data() != face.get_data(), "A veteran role shows on the captain")
+	assert_eq(String(Captains.face_record(champion).get("specialization", "")), Captains.CHAMPION,
+		"A saved face record keeps the veteran role")
+	assert_true(CaptainFace.image(Captains.face_record(champion), true).get_data() == CaptainFace.image(champion, true).get_data(),
+		"A memorial's face record draws the same face as the captain")

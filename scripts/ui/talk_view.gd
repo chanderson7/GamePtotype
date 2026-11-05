@@ -354,12 +354,24 @@ func _gui_input(event: InputEvent) -> void:
 
 
 ## A tap (released without a drag) on the stage or the conversation goes on.
+## Where the finger went down, so a release after scrolling the talk doesn't count as a tap.
+var _tap_from := Vector2.INF
+
+
 func _tap(event: InputEvent) -> void:
 	if not _continue.is_valid():
 		return
+	var pointer := event is InputEventMouseButton or event is InputEventScreenTouch
+	if pointer and event.pressed:
+		_tap_from = event.position
+		return
 	var up: bool = (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT) \
 		or (event is InputEventScreenTouch and not event.pressed)
+	if up and _tap_from != Vector2.INF and _tap_from.distance_to(event.position) > Widgets.TAP_SLOP:
+		_tap_from = Vector2.INF
+		return
 	if up:
+		_tap_from = Vector2.INF
 		var act := _continue
 		_continue = Callable()
 		act.call()
@@ -369,15 +381,22 @@ func reply_button(r: Dictionary) -> Control:
 	var tone := String(r.get("tone", "plain"))
 	var locked := tone == "locked"
 	var quiet := tone == "quiet"
+	# "primary": the way on or out of a talk, full width in brass, not a line anyone says.
+	var primary := tone == "primary"
 	var b := Button.new()
 	b.name = "Reply_" + String(r["id"])
-	b.size_flags_horizontal = Control.SIZE_SHRINK_END if not quiet else Control.SIZE_SHRINK_CENTER
-	var wide := size.x if size.x > 0 else 720.0
-	b.custom_minimum_size = Vector2(minf(wide * (0.5 if quiet else 0.84), 620.0), 0)
+	if primary:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		b.size_flags_horizontal = Control.SIZE_SHRINK_END if not quiet else Control.SIZE_SHRINK_CENTER
+		var wide := size.x if size.x > 0 else 720.0
+		b.custom_minimum_size = Vector2(minf(wide * (0.5 if quiet else 0.84), 620.0), 0)
 	b.disabled = locked
 	b.focus_mode = Control.FOCUS_NONE
-	var bg: Color = {"gold": Color("3a2c10"), "red": Color("3c1512"), "locked": Color(Style.NIGHT, 0.6), "quiet": Color(0, 0, 0, 0)}.get(tone, Style.RAISED)
-	var edge: Color = {"gold": Style.BRASS, "red": Style.ENEMY, "locked": Style.RULE.darkened(0.2), "quiet": Style.RULE}.get(tone, Style.RULE)
+	var bg: Color = {"gold": Color("3a2c10"), "red": Color("3c1512"), "locked": Color(Style.NIGHT, 0.6), "quiet": Color(0, 0, 0, 0),
+		"primary": Style.BRASS}.get(tone, Style.RAISED)
+	var edge: Color = {"gold": Style.BRASS, "red": Style.ENEMY, "locked": Style.RULE.darkened(0.2), "quiet": Style.RULE,
+		"primary": Style.BRASS}.get(tone, Style.RULE)
 	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
 		var sb := Style.box(bg if state != "pressed" else bg.darkened(0.2), edge if state != "hover" else edge.lightened(0.2), 2, 16)
 		b.add_theme_stylebox_override(state, sb)
@@ -389,12 +408,13 @@ func reply_button(r: Dictionary) -> Control:
 	box.offset_right = -18
 	box.offset_top = 10
 	box.offset_bottom = -10
-	var shown := String(r["text"]) if quiet or bool(r.get("bare", false)) else "\"%s\"" % String(r["text"])
-	var text := Style.label(shown, Style.BODY, Style.MUTED if locked or quiet else Style.TEXT)
+	var shown := String(r["text"]) if quiet or primary or bool(r.get("bare", false)) else "\"%s\"" % String(r["text"])
+	var ink := Style.BRASS_INK if primary else (Style.MUTED if locked or quiet else Style.TEXT)
+	var text := Style.label(shown, Style.BODY, ink)
 	text.name = "Text"
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	if quiet:
+	if quiet or primary:
 		text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(text)
 	var tag := String(r.get("tag", ""))
@@ -414,8 +434,10 @@ func reply_button(r: Dictionary) -> Control:
 	if r.has("extra"):
 		box.add_child(r["extra"])
 	b.add_child(box)
-	box.minimum_size_changed.connect(func(): b.custom_minimum_size.y = box.get_combined_minimum_size().y + 20)
-	b.custom_minimum_size.y = 64 if quiet else 72
+	# Tall enough for its words, and never under its touch height.
+	var floor_y := 80.0 if primary else (64.0 if quiet else 72.0)
+	box.minimum_size_changed.connect(func(): b.custom_minimum_size.y = maxf(floor_y, box.get_combined_minimum_size().y + 20))
+	b.custom_minimum_size.y = floor_y
 	if not locked and r.has("act"):
 		var act: Callable = r["act"]
 		b.pressed.connect(func():

@@ -67,6 +67,16 @@ var patience := 0.0
 var committed := false
 ## When its foot first met yours, or -1.
 var contact_at := -1.0
+## How long after the gate breaks a garrison holds the breach before it sallies anyway.
+const BREACH_HOLD := 45.0
+## Whether this commander has sent its men to storm the walls yet.
+var stormed := false
+## Which company holds each ladder's head ({ladder index: squad}).
+var ladder_guard := {}
+## Companies this commander has sent to a post (a ladder head or the breach) and lets
+## march there; and whether it has formed up to meet the breach yet.
+var _posted := []
+var _breach_formed := false
 var _think := 0.0
 
 
@@ -211,10 +221,20 @@ func update(sim, dt: float) -> void:
 				sim.rout(sq)
 
 	_use_abilities(sim)
-	# A garrison keeps to its walls until the gate gives.
-	if sim.objective == Sim.OBJECTIVE_SIEGE and team == sim.siege_defender and not sim.gate_open():
+	# A garrison keeps to its walls until the gate gives, then holds the breach: it stays at
+	# its posts and lets the enemy come through the gate to it, and sallies only once the
+	# fight has turned its way (or nobody has come for it in a while).
+	if sim.objective == Sim.OBJECTIVE_SIEGE and team == sim.siege_defender \
+			and (not sim.gate_open() or (not _winning(sim) and sim.time - sim.breached_at < BREACH_HOLD)):
+		if not sim.gate_open():
+			_guard_ladders(sim)
+		elif not _breach_formed:
+			_breach_formed = true
+			_form_breach(sim)
 		for sq in sim.squads:
 			if allies_only and not sq.is_ally:
+				continue
+			if sq.order == "move" and _posted.has(sq):
 				continue
 			if sq.team == team and sq.is_active() and not sq.routing and sq.order != "hold" and not sq.engaged:
 				sim.order_hold(sq)
@@ -230,6 +250,13 @@ func update(sim, dt: float) -> void:
 			committed = patience <= 0.0 or _enemy_close(sim)
 		if not committed:
 			return
+
+	# Storming the walls: once committed, the whole force goes at once by the storm plan,
+	# ladders and ram, with the bows standing off to shoot the wall walk.
+	if sim.objective == Sim.OBJECTIVE_SIEGE and team != sim.siege_defender and not allies_only \
+			and not stormed and not sim.gate_open():
+		stormed = true
+		sim.order_storm(team)
 
 	# In village objective, attackers advance toward the village circle
 	if sim.objective == Sim.OBJECTIVE_VILLAGE and team == Sim.ENEMY:
@@ -255,6 +282,40 @@ func update(sim, dt: float) -> void:
 			_ride(sim, sq)
 		elif sq.order == "hold" and not sq.schiltron() and not _keeps_ground(sim, sq):
 			sim.order_advance(sq)
+
+
+## Men on a ladder, or gathering at its foot: the nearest company on foot that isn't on the
+## gate tower goes up to hold its head, and stays there.
+func _guard_ladders(sim) -> void:
+	for i in sim.ladder_points().size():
+		var g = ladder_guard.get(i)
+		if g != null and g.is_active() and not g.routing:
+			continue
+		ladder_guard.erase(i)
+		if sim.ladder_threat(i) == 0:
+			continue
+		var post: Vector2 = sim.ladder_head_post(i)
+		var best = null
+		var best_d := INF
+		for sq in sim.squads:
+			if sq.team != team or not sq.is_active() or sq.routing or sq.engaged or bool(sq.stats["ranged"]) \
+					or sq.type == Troops.CAVALRY or (allies_only and not sq.is_ally) or ladder_guard.values().has(sq) \
+					or sim.on_gate_tower(sq.avg):
+				continue
+			var d: float = sq.avg.distance_to(post)
+			if d < best_d:
+				best_d = d
+				best = sq
+		if best != null:
+			ladder_guard[i] = best
+			_posted.append(best)
+			sim.order_move(best, post)
+
+
+## The gate has given: the companies on foot not already fighting fall back to the
+## crescent behind it (see BattleSim.form_breach).
+func _form_breach(sim) -> void:
+	_posted.append_array(sim.form_breach(team, allies_only))
 
 
 ## A commander who isn't reckless makes the enemy come to him, for the first part of the

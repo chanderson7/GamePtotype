@@ -15,6 +15,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
+const Opening = preload("res://scripts/menu/opening.gd")
 ## The light over the title's map: early morning.
 const DAWN := Color(1.0, 0.88, 0.76)
 
@@ -131,6 +132,17 @@ func _build() -> void:
 	if not Style.motion_reduced():
 		col.modulate.a = 0.0
 		col.create_tween().tween_property(col, "modulate:a", 1.0, 0.35)
+	# The first time Home opens this launch, the opening plays over it: the boot splash
+	# comes to life and its title rises into this one.
+	if Opening.wanted():
+		Opening.played = true
+		var layer := CanvasLayer.new()
+		layer.name = "Opening"
+		layer.layer = 50
+		add_child(layer)
+		var opening := Opening.new()
+		layer.add_child(opening)
+		opening.setup(title)
 
 
 ## A small button with an icon over its word, for the bottom row.

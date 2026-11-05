@@ -44,6 +44,9 @@ const ROLE_BADGES := {
 	"inside": ["inside", "Inside", Color("2b4f7a"), Color("bfe0ff")],
 	"bows": ["bow", "Bows", Color("3a3156"), Color("d8cdfa")],
 	"gate": ["gate", "Gate", Color("5a3b1d"), Color("ffd79a")],
+	"tower": ["gate", "Stones", Color("4a4a52"), Color("e2e0dc")],
+	"head": ["ladder", "Ladder", Color("2b5a2f"), Color("b8f5b0")],
+	"breach": ["breach", "Breach", Color("5a2a24"), Color("ffc0b0")],
 }
 const CHIP_GAP := 8.0
 const MAX_CHIPS_PER_ROW := 8
@@ -150,6 +153,10 @@ const LOSS_PAUSE := 0.8
 ## How slow time runs while a captain of theirs falls, and for how long.
 const SLOW_PACE := 0.35
 const SLOW_TIME := 1.1
+## How fast the fight runs while a thumb holds the slow handle, whatever the speed button
+## says, and the handle's size on the field's right edge.
+const HAND_PACE := 0.25
+const SLOW_HANDLE := Vector2(54.0, 112.0)
 const CRITICAL_BURSTS := ["rout", "fall"]
 ## The hours: dawn, day, dusk, night. Each: the wash over the ground and over the men, the
 ## shadows' offset (field units), how far they stretch and how dark, the vignette.
@@ -290,6 +297,17 @@ var _drawing := false
 var _press_at := Vector2.ZERO
 var _press_field := Vector2.ZERO
 var _drag_to := Vector2.ZERO
+## A press that went down on one of your standards: the squad, carried by the finger to
+## an enemy (attack) or to ground (march there) instead of drawing a line.
+var _press_squad = null
+## A second finger's press while the slow handle is held: mouse emulation only follows
+## the first finger, so this one is read from the touches themselves (-1: none).
+var _press_touch := -1
+## Fingers (touch indexes) and the mouse on the slow handle: while any is down, the fight
+## runs at HAND_PACE.
+var _slow_touches := {}
+var _slow_mouse := false
+var _slow_taught := false
 ## The line just ordered, fading: {spots, face, at}.
 var _line_shown := {}
 ## Whether the hint has shown how to command one squad yet this battle.
@@ -325,6 +343,8 @@ var ability_button: Button
 var hold_fire_button: Button
 ## Storming a castle: sends the foot over the walls (see BattleSim.order_storm).
 var storm_button: Button
+## Defending a siege: "Man the walls" while the gate holds, "Hold the breach" after.
+var post_button: Button
 ## The storm plan on show (squad id -> "ladder", "ram" or "bows") before it's given; the
 ## battle waits while it's up. Storm! gives it, Cancel drops it.
 var _storm_plan: Dictionary = {}
@@ -1111,10 +1131,16 @@ func _process(delta: float) -> void:
 	_ease_hud(delta)
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty():
 		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
+		var rate := speed
+		if slow_held():
+			# The thumb's slow is the same pace at 1× or 2×, and a captain's fall slows it no
+			# further than it already is.
+			rate = 1.0
+			pace = minf(pace, HAND_PACE) if not _roll.is_empty() else HAND_PACE
 		if _hitstop > 0.0:
 			_hitstop -= delta
 			pace = 0.0
-		_accumulator += minf(delta, 0.1) * speed * pace
+		_accumulator += minf(delta, 0.1) * rate * pace
 		# Orders as they stood before the sim steps, so a squad that marches and arrives in
 		# the same frame is still seen to halt.
 		for sq in sim.squads:
@@ -1176,49 +1202,225 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if sim.winner != -1 or paused:
 		return
-	if not _view.has_point(mb.position):
+	if not _view.has_point(mb.position) or _press_touch != -1:
 		return
 	get_viewport().set_input_as_handled()
-	# A press on the field is a tap when it's let go, or a line if it's dragged.
+	_begin_press(mb.position)
+
+
+## A press on the field is a tap when it's let go, or a line if it's dragged; one that goes
+## down on your own standard carries that squad instead.
+func _begin_press(at: Vector2) -> void:
 	_pressing = true
 	_drawing = false
-	_press_at = mb.position
+	_press_at = at
 	_shake_offset = Vector2.ZERO
 	_punch = 0.0
 	_apply_camera()
-	_press_field = _to_field(mb.position)
-	_drag_to = mb.position
+	_press_field = _to_field(at)
+	_drag_to = at
+	_press_squad = null
+	if _storm_plan.is_empty():
+		var std = _standard_at(at)
+		if std != null and std.team == Sim.PLAYER and std.is_active() and not std.is_ally:
+			_press_squad = std
 
 
-## Follows a press on the field until it's let go, wherever the finger goes.
-func _input(event: InputEvent) -> void:
-	if not _pressing:
-		return
-	var mm := event as InputEventMouseMotion
-	if mm != null:
-		_drag_to = mm.position
-		if not _drawing and mm.position.distance_to(_press_at) >= DRAG_START:
-			_drawing = true
-		get_viewport().set_input_as_handled()
-		return
-	var mb := event as InputEventMouseButton
-	if mb == null or mb.button_index != MOUSE_BUTTON_LEFT or mb.pressed:
-		return
-	get_viewport().set_input_as_handled()
+func _move_press(at: Vector2) -> void:
+	_drag_to = at
+	if not _drawing and at.distance_to(_press_at) >= DRAG_START:
+		_drawing = true
+
+
+func _end_press(at: Vector2) -> void:
 	_pressing = false
 	_camera_grace = 0.85
 	var drew := _drawing
 	_drawing = false
+	var carried = _press_squad
+	_press_squad = null
 	if sim.winner != -1 or paused:
 		return
+	if drew and carried != null:
+		_drop_squad(carried, at)
+		return
 	if drew:
-		_order_line(_press_field, _to_field(mb.position))
+		_order_line(_press_field, _to_field(at))
 		return
 	var tapped = _standard_at(_press_at)
 	if sim.phase == Sim.PHASE_DEPLOY:
 		_tap_deploy(_press_field, tapped)
 	else:
 		_tap_battle(_press_field, tapped)
+
+
+## Follows a press on the field until it's let go, wherever the finger goes; and the slow
+## handle, held by a thumb while the other hand gives orders.
+func _input(event: InputEvent) -> void:
+	var st := event as InputEventScreenTouch
+	if st != null:
+		if st.pressed and _slow_handle().has_point(st.position):
+			_slow_touches[st.index] = true
+			_on_slow_held()
+			get_viewport().set_input_as_handled()
+			return
+		if not st.pressed and _slow_touches.has(st.index):
+			_slow_touches.erase(st.index)
+			get_viewport().set_input_as_handled()
+			return
+		# Another finger on the field while the thumb holds time back.
+		if st.pressed and slow_held() and not _pressing and _view.has_point(st.position):
+			_press_touch = st.index
+			get_viewport().set_input_as_handled()
+			_begin_press(st.position)
+			return
+		if not st.pressed and st.index == _press_touch:
+			_press_touch = -1
+			get_viewport().set_input_as_handled()
+			if _pressing:
+				_end_press(st.position)
+			return
+		return
+	var sd := event as InputEventScreenDrag
+	if sd != null:
+		if sd.index == _press_touch and _pressing:
+			_move_press(sd.position)
+			get_viewport().set_input_as_handled()
+		return
+	var mb := event as InputEventMouseButton
+	if mb != null and mb.button_index == MOUSE_BUTTON_LEFT:
+		if mb.pressed and not _pressing and _slow_handle().has_point(mb.position):
+			_slow_mouse = true
+			_on_slow_held()
+			get_viewport().set_input_as_handled()
+			return
+		if not mb.pressed and _slow_mouse:
+			_slow_mouse = false
+			get_viewport().set_input_as_handled()
+			return
+	if not _pressing or _press_touch != -1:
+		return
+	var mm := event as InputEventMouseMotion
+	if mm != null:
+		_move_press(mm.position)
+		get_viewport().set_input_as_handled()
+		return
+	if mb == null or mb.button_index != MOUSE_BUTTON_LEFT or mb.pressed:
+		return
+	get_viewport().set_input_as_handled()
+	_end_press(mb.position)
+
+
+# ---------------------------------------------------------------- slow time
+
+## Whether the slow handle can be held now: in the fight, running, nothing in the way.
+func _slow_ready() -> bool:
+	return sim != null and sim.phase == Sim.PHASE_BATTLE and sim.winner == -1 and not paused \
+		and _storm_plan.is_empty() and _title.is_empty()
+
+
+## The slow handle: a tab on the field's right edge, low down, where a right thumb rests.
+func _slow_handle() -> Rect2:
+	if not _slow_ready():
+		return Rect2()
+	return Rect2(Vector2(_view.end.x - SLOW_HANDLE.x, _view.end.y - SLOW_HANDLE.y - 54.0), SLOW_HANDLE)
+
+
+## Whether a thumb (or the mouse) is holding time back.
+func slow_held() -> bool:
+	return (not _slow_touches.is_empty() or _slow_mouse) and _slow_ready()
+
+
+func _on_slow_held() -> void:
+	Sound.haptic()
+	if not _slow_taught:
+		_slow_taught = true
+		_hint("Time slowed. Tap orders with your other hand; let go and the fight runs on.")
+
+
+## Lets go of the handle for every finger: when the battle stops or pauses under it.
+func _release_slow() -> void:
+	_slow_touches.clear()
+	_slow_mouse = false
+
+
+# ---------------------------------------------------------------- carrying a squad
+
+## Where a carried squad would go if the finger lifted at `at` (on screen): {foe} for an
+## enemy under it, {ground, ok, why} for open ground, or {} for back on its own standard.
+func _drop_target(sq, at: Vector2) -> Dictionary:
+	var p := _to_field(at)
+	var std = _standard_at(at)
+	if std == sq or (std == null and sim.squad_at(Sim.PLAYER, p) == sq):
+		return {}
+	var foe = std if std != null and std.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
+	if foe != null and foe.is_active() and sim.phase == Sim.PHASE_BATTLE:
+		return {"foe": foe}
+	var ok := true
+	var why := ""
+	if sim.phase == Sim.PHASE_DEPLOY:
+		if not sim.in_deploy_zone(Sim.PLAYER, p):
+			ok = false
+			why = "outside your zone"
+	elif sim.terrain != null and not sim.terrain.passable(p):
+		ok = false
+		why = "no footing there"
+	return {"ground": p, "ok": ok, "why": why}
+
+
+## The finger lifts with a squad in hand: attack what it's on, or march to the ground.
+func _drop_squad(sq, at: Vector2) -> void:
+	var t := _drop_target(sq, at)
+	if t.is_empty():
+		_tap_battle(sq.average_pos(), sq) if sim.phase == Sim.PHASE_BATTLE else _tap_deploy(sq.average_pos(), sq)
+		return
+	if sim.phase == Sim.PHASE_DEPLOY:
+		if not bool(t["ok"]):
+			_hint("Place your squads in the blue zone, your half of the field.")
+			return
+		if sim.place(Sim.PLAYER, sq.roster_id, t["ground"]) == null:
+			_hint("No room there. Try a more open spot.")
+			return
+		Sound.haptic()
+		_hint("%s stand there. Drag another flag, or press Fight." % _company_or_type(sq))
+		return
+	selected_squad = sq
+	if t.has("foe"):
+		_order_attack(sq, t["foe"])
+	else:
+		_order_move(sq, t["ground"])
+
+
+func _order_attack(sq, foe) -> void:
+	sim.order_attack(sq, foe)
+	_mark_ordered(sq)
+	_mark_ordered(foe)
+	_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
+	Sound.play("clash2", -6.0, 0.05)
+	_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()])
+
+
+func _order_move(sq, p: Vector2) -> void:
+	if sim.terrain != null and not sim.terrain.passable(p):
+		var thint := _terrain_hint(p)
+		_hint("Cannot march there: %s" % thint)
+		return
+	if Sim.Pathing.find_path(sim.terrain, sq.center, p, sq.type == Troops.CAVALRY, false).is_empty():
+		_hint("Cannot march there: no route to that ground.")
+		return
+	sim.order_move(sq, p)
+	_float_text("MOVE", p, Style.BRASS)
+	_mark_ordered(sq)
+	_hint("%s march there and hold." % _company_or_type(sq))
+
+
+## How a squad of `type` fares against `foe_type`: [arrow, words, colour].
+func _matchup(type: String, foe_type: String) -> Array:
+	if Troops.COUNTERED_BY.get(foe_type, "") == type:
+		return ["▲", "they fight them best", Style.MORALE_HIGH]
+	if Troops.COUNTERED_BY.get(type, "") == foe_type:
+		return ["▼", "the enemy has the edge", Style.MORALE_LOW]
+	return ["·", "an even fight", Style.MORALE_MID]
 
 
 ## Form up along a line drawn from `a` to `b`: the selected squad alone, or the whole
@@ -1339,24 +1541,9 @@ func _tap_battle(p: Vector2, tapped) -> void:
 				_hint("Tap a squad to command it, or drag across the field to give the army a new line.")
 		return
 	if foe != null and foe.is_active():
-		sim.order_attack(selected_squad, foe)
-		_mark_ordered(selected_squad)
-		_mark_ordered(foe)
-		_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
-		Sound.play("clash2", -6.0, 0.05)
-		_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(selected_squad), _name(foe.type, Sim.ENEMY).to_lower()])
+		_order_attack(selected_squad, foe)
 	else:
-		if sim.terrain != null and not sim.terrain.passable(p):
-			var thint := _terrain_hint(p)
-			_hint("Cannot march there: %s" % thint)
-			return
-		if Sim.Pathing.find_path(sim.terrain, selected_squad.center, p, selected_squad.type == Troops.CAVALRY, false).is_empty():
-			_hint("Cannot march there: no route to that ground.")
-			return
-		sim.order_move(selected_squad, p)
-		_float_text("MOVE", p, Style.BRASS)
-		_mark_ordered(selected_squad)
-		_hint("%s march there and hold." % _company_or_type(selected_squad))
+		_order_move(selected_squad, p)
 
 
 func _select(sq) -> void:
@@ -1366,7 +1553,7 @@ func _select(sq) -> void:
 		return
 	if not _taught:
 		_taught = true
-		_hint("%s: tap an enemy to attack it, open ground to march there, or drag a line to form them up along it." % _company_or_type(sq))
+		_hint("%s: drag their flag onto an enemy to attack or onto ground to march, or drag a line to form them up along it." % _company_or_type(sq))
 		return
 	var ab := Troops.ability(sq.type)
 	var who := _company_or_type(sq)
@@ -1455,6 +1642,8 @@ func _storm_plan_text() -> String:
 		parts.append("%s take%s the ladders" % [_and_list(ladders), "s" if ladders.size() == 1 else ""])
 	if not ram.is_empty():
 		parts.append("%s go%s to the ram" % [_and_list(ram), "es" if ram.size() == 1 else ""])
+	if _storm_plan.values().has("bows"):
+		parts.append("the bows shoot the walls")
 	return "; ".join(parts) + "." if not parts.is_empty() else "Everyone advances on the walls."
 
 
@@ -1482,7 +1671,7 @@ func _on_storm_go() -> void:
 			_mark_ordered(sq)
 	Sound.play("charge", 0.0, 0.05, 0.6)
 	Sound.haptic(false)
-	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate.")
+	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate, the bows shoot the walls.")
 
 
 func _on_storm_cancel() -> void:
@@ -1511,7 +1700,29 @@ func _on_advance() -> void:
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
-		_hint("The whole army advances. Each squad goes for the enemy it fights best.")
+		if sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER:
+			_hint("Sally! The garrison leaves its posts and goes for the enemy.")
+		else:
+			_hint("The whole army advances. Each squad goes for the enemy it fights best.")
+
+
+## Defending a siege: send every company to its post on the walls, or, once the gate is
+## down, the foot to the crescent behind it.
+func _on_post() -> void:
+	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1 or sim.siege_defender != Sim.PLAYER:
+		return
+	_select(null)
+	if sim.gate_hp > 0.0:
+		sim.man_the_walls(Sim.PLAYER)
+		_hint("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.")
+	else:
+		var sent: Array = sim.form_breach(Sim.PLAYER)
+		_hint("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])))
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active() and not sq.is_ally:
+			_mark_ordered(sq)
+	Sound.play("call_start", 0.0, 0.05, 0.6)
+	Sound.haptic(false)
 
 
 func _on_hold() -> void:
@@ -1563,6 +1774,7 @@ func _on_menu() -> void:
 
 func _set_paused(on: bool) -> void:
 	paused = on and sim.winner == -1
+	_release_slow()
 	pause_panel.visible = paused
 	retreat_button.text = "Retreat"
 	_retreat_armed = 0.0
@@ -1861,6 +2073,12 @@ func _draw_walls() -> void:
 			draw_line(Vector2(r.position.x, r.get_center().y), Vector2(r.end.x, r.get_center().y), Color(st["roof"]).darkened(0.3), 2.0)
 			if st["dome"]:
 				draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.28, st["dome_color"])
+	# The wall walk's depth: the stretch behind the battlements where men are covered.
+	var cover: float = Sim.WALL_COVER - cell * 0.5
+	var band := Rect2(0, top - cover, w, cover) if inward < 0.0 else Rect2(0, top + cell, w, cover)
+	draw_rect(band, Color(st["walk"], 0.55))
+	var inner_y: float = band.position.y if inward < 0.0 else band.end.y
+	draw_line(Vector2(0, inner_y), Vector2(w, inner_y), Color(st["dark"], 0.7), 2.0)
 	# The wall: its body, a wall walk on the inside, battlements on the outside.
 	var body := Rect2(0, top, w, cell)
 	draw_rect(Rect2(body.position + Vector2(0, 8.0 * -inward), body.size), Color(0, 0, 0, 0.3))
@@ -1962,16 +2180,29 @@ func _consume_events() -> void:
 					_tick("They're on the ladders! Throw them down!", Style.ENEMY_LIGHT, "ladder")
 				else:
 					_tick("Your men are on the ladders!", Style.PLAYER_LIGHT, "ladder")
+			"stones":
+				_drop_stones(e["at"])
 			"siege_moment":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
-				Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
-				if e["kind"] == "first_over":
+				if e["kind"] == "stones":
+					if mine:
+						_tick("%s drop stones on the ram!" % _company_or_type(sq), Style.PLAYER_LIGHT, "gate")
+					else:
+						_tick("Stones from the gatehouse!", Style.ENEMY_LIGHT, "gate")
+				elif e["kind"] == "thrown_down":
+					if mine:
+						_tick("%s throw them off the ladder!" % _company_or_type(sq), Style.PLAYER_LIGHT, "ladder")
+					else:
+						_tick("Thrown from the ladder!", Style.ENEMY_LIGHT, "ladder")
+				elif e["kind"] == "first_over":
+					Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
 					if mine:
 						_tick("%s are over the wall!" % _company_or_type(sq), Style.PLAYER_LIGHT, "walls")
 					else:
 						_tick("They're over the wall!", Style.ENEMY_LIGHT, "walls")
 				elif e["kind"] == "courtyard":
+					Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
 					if mine:
 						_tick("%s are in the courtyard!" % _company_or_type(sq), Style.PLAYER_LIGHT, "inside")
 					else:
@@ -2256,6 +2487,19 @@ func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
 	bursts.append({"pos": at, "kind": kind, "color": color, "age": 0.0, "life": life})
 
 
+## Stones falling from the gate tower onto the men at the ram: a few of the volley drawn,
+## each a grey dot dropping from the wall top and a puff where it lands.
+func _drop_stones(hits: Array) -> void:
+	if hits.is_empty():
+		return
+	var top: float = sim.wall_y + sim.inward() * 10.0
+	for i in mini(5, hits.size()):
+		var at: Vector2 = hits[i]
+		bursts.append({"pos": at, "from": Vector2(at.x + randf_range(-10.0, 10.0), top), "kind": "stone",
+			"color": Color("a8a39a"), "age": 0.0, "life": 0.45})
+	Sound.play_at("heavy", _to_screen(sim.gate_center), -4.0, 0.08, 1.0)
+
+
 ## A line in the ticker along the top of the field, for what's happening in the story.
 func _tick(text: String, color: Color, icon: String = "") -> void:
 	for t in ticker:
@@ -2436,6 +2680,10 @@ func _siege_note(captain: Dictionary) -> String:
 			notes.append("First over the wall")
 		elif e["kind"] == "courtyard":
 			notes.append("First into the courtyard")
+		elif e["kind"] == "stones":
+			notes.append("Stones on the ram")
+		elif e["kind"] == "thrown_down":
+			notes.append("Threw them off the ladders")
 	return " · ".join(notes)
 
 
@@ -2463,6 +2711,12 @@ func _siege_timeline() -> Control:
 				rows.append([e["t"], "breach", "The ram broke the gate", Color("ffc06a")])
 			"courtyard":
 				rows.append([e["t"], "inside", "%s took the courtyard" % who, Color("bfe0ff")])
+			"stones":
+				var from := who if defending else "The gatehouse"
+				rows.append([e["t"], "gate", "%s dropped stones on the ram (%d in all)" % [from, sim.stones_dropped], Color("e2e0dc")])
+			"thrown_down":
+				var by := who if defending else "The garrison"
+				rows.append([e["t"], "ladder", "%s threw a man off a ladder (%d in all)" % [by, sim.thrown_down], Color("b8f5b0")])
 	var attacker_won: bool = sim.winner != sim.siege_defender
 	var end_line := "The garrison broke and ran" if attacker_won else "The walls held"
 	if defending:
@@ -2694,7 +2948,7 @@ func _result_memorial(m: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
-	row.add_child(CaptainArt.portrait(m.get("survivor_face", {}), Vector2(54, 72)))
+	row.add_child(CaptainArt.portrait(m.get("survivor_face", {}), Vector2(54, 72), "grief"))
 	var gone := CaptainArt.portrait(m.get("fallen_face", {}), Vector2(54, 72))
 	gone.modulate = Color(0.5, 0.5, 0.58)
 	row.add_child(gone)
@@ -2946,6 +3200,9 @@ func _build_hud() -> void:
 	storm_go_button = _order_button("Storm!", "storm", _on_storm_go, buttons_row, true, true)
 	storm_go_button.name = "StormGo"
 	storm_go_button.visible = false
+	post_button = _order_button("Man the walls", "walls", _on_post, buttons_row)
+	post_button.name = "PostButton"
+	post_button.visible = false
 	ability_button = _order_button("", "fight", _on_ability, buttons_row)
 	ability_button.draw.connect(_draw_ability_cooldown)
 	hold_fire_button = _order_button("Hold fire", "holdfire", _on_hold_fire, buttons_row)
@@ -3160,7 +3417,7 @@ func _refresh_hud() -> void:
 		objective_label.text = _objective_text()
 	menu_button.disabled = sim.winner != -1
 	menu_button.text = ""
-	speed_button.text = "2×" if speed > 1.5 else "1×"
+	speed_button.text = "¼×" if slow_held() else ("2×" if speed > 1.5 else "1×")
 	pause_note.text = _scouting()
 	if deploying:
 		_refresh_deploy()
@@ -3184,6 +3441,7 @@ func _refresh_deploy() -> void:
 	ability_button.visible = false
 	hold_fire_button.visible = false
 	storm_button.visible = false
+	post_button.visible = false
 	info_label.text = ""
 
 
@@ -3196,6 +3454,12 @@ func _refresh_battle() -> void:
 	storm_button.visible = sq == null and sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.ENEMY \
 		and sim.winner == -1 and _storm_plan.is_empty()
 	storm_button.disabled = sim.gate_hp <= 0.0
+	var defending: bool = sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER
+	post_button.visible = sq == null and defending and sim.winner == -1
+	if post_button.visible:
+		var broken: bool = sim.gate_hp <= 0.0
+		post_button.text = "Hold breach" if broken else "Man the walls"
+		_set_icon(post_button, "breach" if broken else "walls")
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
@@ -3243,7 +3507,7 @@ func _refresh_battle() -> void:
 				up += 1 if _storm_plan[id] == "ladder" else 0
 				ram += 1 if _storm_plan[id] == "ram" else 0
 			info_label.text = "Storm plan · %d to the ladders · %d to the ram" % [up, ram]
-		advance_button.text = "Advance all"
+		advance_button.text = "Sally" if defending else "Advance all"
 		hold_button.text = "Hold all"
 	advance_button.disabled = sim.winner != -1
 	hold_button.disabled = sim.winner != -1
@@ -3255,9 +3519,9 @@ func _objective_text() -> String:
 	if not _storm_plan.is_empty():
 		return "Storm plan · tap Storm! to go"
 	if sim.gate_hp <= 0.0:
-		return "Throw them back" if defending else "Rout the garrison"
+		return "Hold the breach" if defending else "Rout the garrison"
 	if defending:
-		return "Hold the gate"
+		return "Man the walls · stones on the ram, hold the ladders"
 	return "Take the walls · break the gate or climb" if _deploying() else "Take the walls"
 
 
@@ -3471,7 +3735,7 @@ func _draw_roll() -> void:
 	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
 	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, 34, Color(Style.TEXT, a))
 	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
-	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}))
+	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain")
 	if face != null:
 		# The face in a brass frame.
 		var fr := Rect2(Vector2(x + 16, y + 16), Vector2(78, 104))
@@ -3610,7 +3874,9 @@ func _draw() -> void:
 	_draw_fallen_flags()
 	_draw_standards()
 	_draw_edge_markers()
+	_draw_slow()
 	_draw_floaters()
+	_draw_carry_card()
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_spotlight()
 	_draw_ticker()
@@ -4063,6 +4329,7 @@ func _draw_objectives() -> void:
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_walls()
 		_draw_siege_reach()
+		_draw_garrison_posts()
 	if sim.objective == Sim.OBJECTIVE_VILLAGE:
 		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
 		draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
@@ -4220,6 +4487,19 @@ func _draw_bursts() -> void:
 				for i in 5:
 					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
 					draw_circle(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
+			"stone":
+				var from: Vector2 = burst.get("from", pos)
+				if t < 0.7:
+					var k := t / 0.7
+					var at := from.lerp(pos, k * k)
+					draw_circle(at + Vector2(2, 2), 4.0, Color(0, 0, 0, 0.35))
+					draw_circle(at, 4.0, Color(burst["color"], 1.0))
+					draw_circle(at + Vector2(-1, -1), 1.6, Color(1, 1, 1, 0.5))
+				else:
+					var k2 := (t - 0.7) / 0.3
+					for i in 4:
+						var d := Vector2.from_angle(float(i) / 4.0 * TAU + 0.4)
+						draw_circle(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
 			"fall":
 				draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
 				draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
@@ -4638,6 +4918,9 @@ func _draw_crossed_swords(c: Vector2) -> void:
 ## The line being drawn, with where each squad will stand on it and which way it will
 ## face; then, for a moment, the line just ordered.
 func _draw_line_order() -> void:
+	if _drawing and _press_squad != null:
+		_draw_carry()
+		return
 	if _drawing:
 		var b := _to_field(_drag_to)
 		var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
@@ -4651,6 +4934,120 @@ func _draw_line_order() -> void:
 			_line_shown = {}
 			return
 		_draw_spots(_line_shown["spots"], _line_shown["face"], 1.0 - age / LINE_SHOWN, false)
+
+
+## A squad in the finger's hand: a thread from its men to the finger, and a ring on what
+## it would go for: red round an enemy, brass on ground it can reach, grey where it can't.
+func _draw_carry() -> void:
+	var sq = _press_squad
+	var t := _drop_target(sq, _drag_to)
+	var to := _to_field(_drag_to)
+	var from: Vector2 = sq.average_pos()
+	var k := 1.0 / maxf(0.1, field_scale)
+	var col := Style.BRASS
+	if t.has("foe"):
+		col = TARGET_RED
+		var foe = t["foe"]
+		var r: float = minf(foe.extent, 70.0) + 20.0
+		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0 * k)
+		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, TARGET_RED, 4.0 * k)
+		draw_arc(foe.average_pos(), r + 7.0 * k, 0.0, TAU, 40, Color(TARGET_RED, 0.3), 6.0 * k)
+		to = foe.average_pos()
+	elif not t.is_empty():
+		col = Style.BRASS if bool(t["ok"]) else Style.MUTED
+		draw_arc(to, 18.0 * k, 0.0, TAU, 32, Color(0, 0, 0, 0.5), 6.0 * k)
+		draw_arc(to, 18.0 * k, 0.0, TAU, 32, col, 3.0 * k)
+		if not bool(t["ok"]):
+			var d := 9.0 * k
+			draw_line(to + Vector2(-d, -d), to + Vector2(d, d), col, 3.0 * k)
+			draw_line(to + Vector2(d, -d), to + Vector2(-d, d), col, 3.0 * k)
+	else:
+		return
+	var own: float = minf(sq.extent, 70.0) + 14.0
+	draw_arc(from, own, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 6.0 * k)
+	draw_arc(from, own, 0.0, TAU, 40, Style.BRASS, 3.0 * k)
+	draw_line(from, to, Color(0, 0, 0, 0.35), 6.0 * k)
+	draw_dashed_line(from, to, Color(col, 0.9), 3.0 * k, 10.0 * k)
+	var dir := (to - from).normalized()
+	if dir != Vector2.ZERO:
+		var tip := to - dir * (26.0 * k if t.has("foe") else 22.0 * k)
+		var side := dir.orthogonal() * 8.0 * k
+		draw_colored_polygon(PackedVector2Array([tip + dir * 10.0 * k, tip - dir * 6.0 * k + side, tip - dir * 6.0 * k - side]), col)
+
+
+## The words beside the finger while a squad is carried: the matchup over an enemy, before
+## the finger lifts, or what the ground would mean.
+func _draw_carry_card() -> void:
+	if not (_drawing and _press_squad != null):
+		return
+	var sq = _press_squad
+	var t := _drop_target(sq, _drag_to)
+	if t.is_empty():
+		return
+	var lines: Array = []
+	if t.has("foe"):
+		var foe = t["foe"]
+		var m := _matchup(sq.type, foe.type)
+		lines.append(["%s vs %s  %s %s" % [_name(sq.type, Sim.PLAYER, sq.roster_id), _name(foe.type, Sim.ENEMY), m[0], m[1]], m[2]])
+		lines.append(["%d men against %d · their morale %d%%" % [sq.alive_count(), foe.alive_count(), maxi(0, int(foe.morale))], Style.MUTED])
+	elif sim.phase == Sim.PHASE_DEPLOY:
+		lines.append(["Stand here" if bool(t["ok"]) else "Not there: %s" % t["why"], Style.BRASS if bool(t["ok"]) else Style.MUTED])
+	else:
+		lines.append(["March here and hold" if bool(t["ok"]) else "Not there: %s" % t["why"], Style.BRASS if bool(t["ok"]) else Style.MUTED])
+	# Above the finger, where the hand doesn't cover it; below it near the top of the field.
+	var y := _drag_to.y - 84.0 - 36.0 * float(lines.size() - 1)
+	if y < _view.position.y + 12.0:
+		y = _drag_to.y + 60.0
+	for l in lines:
+		var text: String = l[0]
+		var c: Color = l[1]
+		var fs := 18
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0
+		var box := Rect2(Vector2(_drag_to.x - w * 0.5, y), Vector2(w, 30.0))
+		box.position.x = clampf(box.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - w - 4.0))
+		draw_style_box(_pill_box(1.0, c), box)
+		draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
+		y += 36.0
+
+
+## The slow handle on the field's edge, and while it's held, the cool cast over the field
+## and a badge saying time is slowed, not stopped.
+func _draw_slow() -> void:
+	var r := _slow_handle()
+	if r.size == Vector2.ZERO:
+		return
+	var held := slow_held()
+	if held:
+		draw_rect(_view, Color(0.05, 0.1, 0.3, 0.26))
+		for i in 8:
+			var inset := float(i) * 6.0
+			draw_rect(Rect2(_view.position + Vector2(inset, inset), _view.size - Vector2(inset * 2.0, inset * 2.0)),
+				Color(0.4, 0.7, 1.0, 0.04), false, 2.0)
+		var text := "¼ time · let go to run on"
+		var fs := 18
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0
+		var top := _view.position.y + 30.0 + (58.0 if objective_chip != null and objective_chip.visible else 0.0) + float(ticker.size()) * (Style.SMALL + 18.0)
+		var box := Rect2(Vector2(_view.get_center().x - w * 0.5, top - 6.0), Vector2(w, 30.0))
+		draw_style_box(_pill_box(1.0, Style.PLAYER_LIGHT), box)
+		draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.PLAYER_LIGHT)
+	# The tab: a dark rounded edge with an hourglass, brighter while held.
+	var b := StyleBoxFlat.new()
+	b.bg_color = Color(Style.NIGHT, 0.85 if held else 0.6)
+	b.border_color = Color(Style.PLAYER_LIGHT if held else Style.BRASS, 0.9 if held else 0.45)
+	b.set_border_width_all(2 if held else 1)
+	b.corner_radius_top_left = 14
+	b.corner_radius_bottom_left = 14
+	draw_style_box(b, r)
+	var c := r.get_center() + Vector2(2.0, -8.0)
+	var ink := Style.PLAYER_LIGHT if held else Color(Style.TEXT, 0.75)
+	var hw := 11.0
+	var hh := 16.0
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(0, 0)]), Color(ink, 0.25))
+	draw_colored_polygon(PackedVector2Array([c + Vector2(0, 0), c + Vector2(hw, hh), c + Vector2(-hw, hh)]), ink)
+	draw_polyline(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(-hw, hh), c + Vector2(hw, hh), c + Vector2(-hw, -hh)]), ink, 2.0)
+	var label := "¼×" if held else "hold"
+	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+	draw_string(font, Vector2(r.get_center().x - lw * 0.5 + 2.0, r.end.y - 12.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
 
 
 ## Each squad's place on a line: the ground it will cover and an arrow the way it faces,
@@ -4843,6 +5240,40 @@ func _draw_siege_reach() -> void:
 		var mid: Vector2 = lp + Vector2(0, Terrain.CELL * 0.5 + 14.0)
 		draw_arc(mid, 26.0, 0.0, TAU, 32, Color("ffe08a"), 2.5)
 		_field_label("Ladder", mid + Vector2(0, 46.0), Color("ffe08a"), Color(Style.NIGHT, 0.9), Color("8a7a3a"))
+
+
+## Holding the walls yourself, before the fight and while the gate holds: where the
+## garrison's posts are. The gate tower (stones on the ram), the ladder heads, and the
+## crescent behind the gate where the breach is met.
+func _draw_garrison_posts() -> void:
+	if sim.siege_defender != Sim.PLAYER or sim.winner != -1:
+		return
+	var show_all := _deploying()
+	if not show_all and (selected_squad != null or sim.gate_hp <= 0.0):
+		return
+	var a := 1.0 if show_all else 0.45
+	var tower := Vector2(sim.gate_center.x, sim.wall_y + sim.inward() * Sim.WALK_DEPTH)
+	var stone := Color("e2e0dc")
+	draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.10 * a))
+	draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.6 * a), false, 2.0)
+	var gold := Color("b8f5b0")
+	for i in sim.ladder_points().size():
+		var head: Vector2 = sim.ladder_head_post(i)
+		draw_arc(head, 30.0, 0.0, TAU, 32, Color(gold, 0.8 * a), 2.5)
+	var red := Color("ff8a6a")
+	var posts: Array = sim.breach_posts(3)
+	var arc := PackedVector2Array()
+	for k in 25:
+		var ang := deg_to_rad(lerpf(-Sim.BREACH_SPREAD - 15.0, Sim.BREACH_SPREAD + 15.0, k / 24.0))
+		arc.append(sim.gate_center + Vector2(sin(ang) * Sim.BREACH_RADIUS, cos(ang) * Sim.BREACH_RADIUS * sim.inward()))
+	for k in range(0, arc.size() - 1, 2):
+		draw_line(arc[k], arc[k + 1], Color(red, 0.85 * a), 3.0)
+	if not show_all:
+		return
+	_field_label("Gate tower · stones on the ram", Vector2(tower.x, sim.wall_y - sim.inward() * 44.0), stone, Color(Style.NIGHT, 0.9), Color("6a6a72"))
+	for i in sim.ladder_points().size():
+		_field_label("Ladder head", sim.ladder_head_post(i) + Vector2(0, sim.inward() * 44.0), gold, Color(Style.NIGHT, 0.9), Color("3c7a40"))
+	_field_label("Hold the breach here", posts[0] + Vector2(0, sim.inward() * 72.0), Color("ffc0b0"), Color(Style.NIGHT, 0.9), Color("a14a3c"))
 
 
 ## Adds `piece` to a set of outlines, merging it with any it overlaps.

@@ -129,12 +129,13 @@ func _init() -> void:
 	var fire = current_scene
 	check(fire.get_node_or_null("BondConversationPortraits/Face_left") != null and fire.get_node_or_null("BondConversationPortraits/Face_right") != null, "two captains face each other by the fire")
 	check(fire._log.find_children("Them", "", true, false).size() > 0 and fire._log.find_children("You", "", true, false).size() > 0, "and talk in turn")
-	var tab = fire.find_child("Rank_C", true, false)
-	check(tab != null and fire.find_child("Rank_B", true, false) != null, "a rank B bond can read its rank C talk again")
-	var b_text: String = fire.log_text()
-	tab.pressed.emit()
-	check(fire._rank == "C" and fire.log_text() != b_text, "and it reads differently")
-	check(gs.new_bond_talks().is_empty(), "having heard it, nothing waits at the fire")
+	# Talks go in order: a pair that reached B without talking hears C first, then B.
+	check(fire._rank == "C" and fire.find_child("RankTabs", true, false) == null, "a rank B bond that hasn't talked starts with its rank C talk, with no tabs to jump about")
+	var c_text: String = fire.log_text()
+	check(fire.reply_ids() == ["next"] and fire.choose("next"), "and goes on to their next talk")
+	check(fire._rank == "B" and fire.log_text() != c_text, "which is rank B's, and reads differently")
+	check(fire.reply_ids() == ["back"], "then the only way on is back")
+	check(gs.new_bond_talks().is_empty(), "having heard both, nothing waits at the fire")
 
 	# ---- results tell bonds once
 	var c: Dictionary = gs.army[2]["captain"]

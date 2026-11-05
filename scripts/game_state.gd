@@ -79,6 +79,15 @@ var world = null:
 var pending_battle := {}
 ## What the map should tell the player when they get back from a battle, or "".
 var map_notice := ""
+## What the waiting message is about, as its card's title: "After the battle" when a fight
+## was settled, a crown won or lost; empty for everything else, which the map titles by
+## where you are.
+var map_notice_title := ""
+## Things of one kind done in a row (captives released, lords sworn), kept apart from the
+## running notice so the map can show them together, a heading, who, and the totals once,
+## rather than a sentence each. Each is {kind, name, ...}: "released" carries the realm,
+## "sworn" the seat they'll hold ("" for none).
+var map_notice_items: Array = []
 ## Unread desertion warning survives saving until the player acknowledges it.
 var desertion_warning := ""
 ## Battles the autoplay smoke test has fought this run.
@@ -174,6 +183,8 @@ func new_warband() -> void:
 	lord_relations = {}
 	contract = {}
 	map_notice = ""
+	map_notice_title = ""
+	map_notice_items = []
 	desertion_warning = ""
 	hired_heroes = []
 	active_jobs = []
@@ -259,6 +270,16 @@ func has_specialization(spec: String) -> bool:
 		if c != null and String(c.get("specialization", "")) == spec:
 			return true
 	return false
+
+
+## The captain who holds a veteran role, or {} if no one does. `except_id` leaves one
+## captain out, so a profile can ask whether anyone else holds it.
+func specialization_holder(spec: String, except_id: int = -1) -> Dictionary:
+	for s in army:
+		var c = s.get("captain")
+		if typeof(c) == TYPE_DICTIONARY and String(c.get("specialization", "")) == spec and int(c.get("id", -1)) != except_id:
+			return c
+	return {}
 
 
 func specialize_captain(captain_id: int, spec: String) -> bool:
@@ -1291,7 +1312,8 @@ func swear_lord_to_crown(lord_id: int) -> bool:
 	add_lord_relation(lord_id, 30)
 	if world.realms.has(was):
 		add_realm_relation(was, -10)
-	_note("%s swears fealty to your crown%s." % [l["name"], (" and will hold %s" % WorldData.settlement(seat)["name"]) if seat != "" else ""])
+	_note_item({"kind": "sworn", "name": String(l["name"]),
+		"seat": String(WorldData.settlement(seat)["name"]) if seat != "" else ""})
 	world.emit_event({"type": "lord_sworn", "lord": String(l["name"]), "from": was})
 	save_game()
 	return true
@@ -1393,6 +1415,7 @@ func _crown_fate() -> bool:
 		crown_won = true
 		renown += 100
 		world.emit_event({"type": "crown_victory"})
+		map_notice_title = "One crown"
 		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Glass Sea has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like." % WorldData.title_case(crown_title())
 	return false
 
@@ -1407,6 +1430,7 @@ func fall_crown() -> void:
 	world.player().faction = ""
 	crown_won = false
 	crown_empty_days = 0
+	map_notice_title = "The crown falls"
 	map_notice = "Your crown has fallen. It held nothing, and %s. The company rides free again; hold a castle or a town and you may raise a banner anew." % (
 		"its lords have gone back to their old allegiances" if not gone.is_empty() else "no lord was left to serve it")
 	save_game()
@@ -2722,6 +2746,31 @@ func _note(text: String) -> void:
 	map_notice = text if map_notice == "" else map_notice + "\n" + text
 
 
+## A notice item to show grouped with others of its kind (see map_notice_items).
+func _note_item(item: Dictionary) -> void:
+	map_notice_items.append(item)
+
+
+## Something waiting to be told on the map: a note or a grouped item.
+func has_notice() -> bool:
+	return map_notice != "" or not map_notice_items.is_empty()
+
+
+## The waiting message, its title and its grouped items, taken off the queue:
+## {text, title, items}.
+func take_map_notice() -> Dictionary:
+	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items}
+	clear_notice()
+	return out
+
+
+## Told: forget the notes, their title and the grouped items.
+func clear_notice() -> void:
+	map_notice = ""
+	map_notice_title = ""
+	map_notice_items = []
+
+
 func relation_with_realm(realm: String) -> int:
 	return int(realm_relations.get(realm, 0))
 
@@ -2918,12 +2967,22 @@ func bond_effect_text(points: float) -> String:
 
 
 func bond_conversation_is_new(a_id: int, b_id: int) -> bool:
+	return next_bond_talk(a_id, b_id) != ""
+
+
+## Talks at the fire go in order, C then B then A, none skipped: the next is the first rank
+## reached after the last one read, so a pair that has read A has passed C and B. "" when
+## every rank they've reached has been talked through.
+func next_bond_talk(a_id: int, b_id: int) -> String:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
-		return false
-	var rank := Captains.rank_letter(float(a.get("bonds", {}).get(str(b_id), 0.0)))
-	return rank != "" and not bond_record(a_id, b_id).get("conversations", []).has(rank)
+		return ""
+	var reached := Captains.rank_for(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	var last := 0
+	for r in bond_record(a_id, b_id).get("conversations", []):
+		last = maxi(last, Captains.RANKS.find(String(r)))
+	return String(Captains.RANKS[last + 1]) if last < reached else ""
 
 
 ## A replayable, event-aware camp exchange. It reads campaign facts and changes no combat,
@@ -3016,12 +3075,15 @@ func _bond_voice_line(a: Dictionary, b: Dictionary) -> String:
 			return "%s says, \"Same distance tomorrow. Close enough to help, far enough to breathe.\" %s nods." % [a["first"], b["first"]]
 
 
-func acknowledge_bond_conversation(a_id: int, b_id: int) -> void:
+## The talk at `rank` has been read (the current rank's, when none is given).
+func acknowledge_bond_conversation(a_id: int, b_id: int, rank: String = "") -> void:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
 		return
-	var rank := Captains.rank_letter(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	var reached := Captains.rank_for(float(a.get("bonds", {}).get(str(b_id), 0.0)))
+	if rank == "" or Captains.RANKS.find(rank) < 1 or Captains.RANKS.find(rank) > reached:
+		rank = String(Captains.RANKS[reached])
 	var record := _ensure_bond_record(a_id, b_id)
 	if rank != "" and not record["conversations"].has(rank):
 		record["conversations"].append(rank)
@@ -3691,6 +3753,9 @@ func apply_result(result: Dictionary) -> void:
 	pending_battle = {}
 	last_result = report
 	save_game()
+	# Whatever it left to say comes under the battle's own title.
+	if map_notice != "":
+		map_notice_title = "After the battle"
 
 
 ## Attacking a lord of a realm the player is at peace with starts a war.
@@ -3780,6 +3845,7 @@ func deliver_lord_to_employer(lord_id: int) -> bool:
 ## Release a captive lord for honor without ransom: they and their realm remember it.
 const RELEASE_REGARD := 25
 const RELEASE_REALM := 10
+const RELEASE_RENOWN := 10
 func release_lord_for_honor(lord_id: int) -> bool:
 	if world == null:
 		return false
@@ -3789,11 +3855,9 @@ func release_lord_for_honor(lord_id: int) -> bool:
 	var realm: String = String(l.get("realm", ""))
 	add_lord_relation(lord_id, RELEASE_REGARD)
 	add_realm_relation(realm, RELEASE_REALM)
-	renown += 10
+	renown += RELEASE_RENOWN
 	world.release_lord(lord_id)
-	_note("You released %s without ransom. Your mercy is celebrated throughout %s (+25 Regard, +10 realm, +10 renown)." % [
-		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm)
-	])
+	_note_item({"kind": "released", "name": String(l["name"]), "realm": realm})
 	save_game()
 	return true
 

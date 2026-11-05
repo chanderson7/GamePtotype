@@ -144,14 +144,198 @@ func _check_battlefield() -> void:
 	check(sim.gate_open() and sim.events.any(func(e): return e["type"] == "gate_breached"), "men on foot at the gate break it")
 	sim.dispose()
 
+	# Walls are worth about half again their garrison: an assault that size breaks the gate
+	# nearly always and wins more often than not, at a price; twice the garrison always wins.
 	var stronger := _assaults(["infantry", "infantry", "spearmen", "archers", "archers", "infantry", "spearmen"],
+		["infantry", "infantry", "spearmen", "archers", "archers"], 8)
+	check(stronger[0] >= 4 and stronger[1] >= 7, "half again the garrison breaks the gate and usually takes the walls (%d/8 won, %d/8 breached)" % [stronger[0], stronger[1]])
+	var twice := _assaults(["infantry", "infantry", "spearmen", "archers", "archers", "infantry", "infantry", "spearmen", "archers", "archers"],
 		["infantry", "infantry", "spearmen", "archers", "archers"], 4)
-	check(stronger[0] >= 3 and stronger[1] >= 3, "half again the garrison breaks the gate and takes the walls (%d/4)" % stronger[0])
+	check(twice[0] == 4, "twice the garrison always takes the walls (%d/4)" % twice[0])
 	var even := _assaults(["infantry", "infantry", "spearmen", "archers", "archers"],
 		["infantry", "infantry", "spearmen", "archers", "archers"], 4)
 	check(even[0] <= 1, "an even assault fails against the walls (%d/4 won)" % even[0])
 	var bows := _assaults(["archers", "archers", "archers"], ["infantry", "archers"], 2)
 	check(bows[1] == 0 and bows[0] == 0, "archers alone can't break a gate, and the walls hold")
+
+
+## Holding the walls: the shut gate is a door, the garrison has posts and jobs on the wall
+## (stones, ladder heads, the breach), and the storm uses the wall's weak points.
+func _check_wall_defence() -> void:
+	var five := ["infantry", "infantry", "spearmen", "archers", "archers"]
+	var sim := Sim.new()
+	sim.setup(_army(five, 1), _army(five, 100), 1, null, Sim.OBJECTIVE_SIEGE)
+	sim.auto_deploy(Sim.PLAYER)
+	sim.auto_deploy(Sim.ENEMY)
+	# E: the garrison's posts.
+	var tower = null
+	var walk_bows := 0
+	var crescent := 0
+	for sq in sim.squads:
+		if sq.team != Sim.ENEMY:
+			continue
+		if sq.type == Troops.ARCHERS and sim.on_walk(sq.center):
+			walk_bows += 1
+		elif sim.on_gate_tower(sq.center) and sq.type == Troops.INFANTRY:
+			tower = sq
+		elif sim.inside_walls(sq.center) and absf(sq.center.y - sim.wall_y) > 70.0 and sq.center.distance_to(sim.gate_center) < 200.0:
+			crescent += 1
+	check(walk_bows == 2 and tower != null and crescent == 2,
+		"the garrison takes its posts: bows on the walk, swords on the gate tower, the rest behind the gate (%d bows, tower %s, %d at the breach)" % [walk_bows, tower != null, crescent])
+	var head_clear := true
+	for sq in sim.squads:
+		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
+			for i in 2:
+				head_clear = head_clear and sq.center.distance_to(sim.ladder_head_post(i)) > 60.0
+	check(head_clear, "and the bows stand beside the ladders, leaving the heads for men with blades")
+	sim.start_battle()
+	# A: the shut gate is a door.
+	var inside := Vector2(Sim.GATE_CENTER.x + 120.0, sim.wall_y - 20.0)
+	var outside := Vector2(Sim.GATE_CENTER.x + 120.0, sim.wall_y + 20.0)
+	var lp: Vector2 = sim.ladder_points()[0]
+	check(sim.across_wall(inside, outside) and not sim.across_wall(inside, lp) and not sim.across_wall(lp, outside),
+		"while the gate holds the wall stands between the sides, except across a ladder")
+	var garrison_foot = null
+	var stormer = null
+	for sq in sim.squads:
+		if sq.team == Sim.ENEMY and sq.type == Troops.SPEARMEN:
+			garrison_foot = sq
+		if sq.team == Sim.PLAYER and sq.type == Troops.INFANTRY:
+			stormer = sq
+	var d = garrison_foot.soldiers[0]
+	var a = stormer.soldiers[0]
+	var d_was: Vector2 = d.pos
+	var a_was: Vector2 = a.pos
+	d.pos = inside
+	a.pos = outside
+	sim._build_grid()
+	garrison_foot.focus = stormer
+	check(sim._pick_target(d, garrison_foot) == null, "a man on foot can't pick a fight through the shut gate")
+	var hp: float = a.hp
+	sim._strike(d, garrison_foot, a, 10.0)
+	check(a.hp == hp, "nor strike one")
+	a.pos = lp
+	sim._build_grid()
+	check(sim._pick_target(d, garrison_foot) == a, "but a man on a ladder can be fought from the walk")
+	a.pos = lp + Vector2(0, 40.0)
+	d.pos = inside
+	for i in 30:
+		sim._walk(d, Vector2(inside.x, sim.wall_y + 120.0), 40.0, 0.1)
+	check(sim.inside_walls(d.pos), "and the garrison keeps to its own side of its shut gate")
+	d.pos = d_was
+	a.pos = a_was
+	# B: the walk, stones, ladder heads.
+	check(sim.on_walk(Vector2(400.0, sim.wall_y - 30.0)) and not sim.on_walk(Vector2(400.0, sim.wall_y - 90.0)),
+		"the battlements cover the wall walk, not the courtyard behind it")
+	var rammers := []
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and not sq.ranged:
+			for so in sq.soldiers:
+				if rammers.size() < 15:
+					so.pos = sim.gate_center + Vector2(randf_range(-20.0, 20.0), 22.0)
+					rammers.append(so)
+	var before := 0.0
+	for so in rammers:
+		before += so.hp
+	for i in 10:
+		sim._drop_stones(Sim.STONE_EVERY)
+	var after := 0.0
+	for so in rammers:
+		after += so.hp if so.alive else 0.0
+	check(sim.stones_dropped >= 100 and after < before,
+		"men on the gate tower drop stones on the men at the ram (%d stones, %.0f hurt)" % [sim.stones_dropped, before - after])
+	var dropped: int = sim.stones_dropped
+	var tower_was: Vector2 = tower.center
+	for so in tower.soldiers:
+		so.pos += Vector2(0, -200.0)
+	sim._drop_stones(Sim.STONE_EVERY)
+	check(sim.stones_dropped == dropped, "and nobody drops stones from off the tower")
+	for so in tower.soldiers:
+		so.pos += Vector2(0, 200.0)
+	var bow = null
+	for sq in sim.squads:
+		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
+			bow = sq
+	for so in bow.soldiers:
+		so.pos = Vector2(sim.gate_center.x + randf_range(-30.0, 30.0), sim.wall_y - 30.0)
+	var stones_before: int = sim.stones_dropped
+	for so in tower.soldiers:
+		so.pos += Vector2(0, -200.0)
+	sim._drop_stones(Sim.STONE_EVERY)
+	check(sim.stones_dropped == stones_before, "bowmen on the tower drop no stones")
+	var cell := int(lp.x / Terrain.CELL)
+	var guard = garrison_foot.soldiers[1]
+	guard.pos = sim.ladder_head_post(0)
+	sim._hold_ladders()
+	check(sim.ladder_held[0] and is_equal_approx(sim._foot[sim.wall_row * Terrain.COLS + cell], Sim.LADDER_HELD_PACE),
+		"a garrison man at a ladder's head slows the climb")
+	guard.pos = Vector2(400.0, 100.0)
+	sim._hold_ladders()
+	check(not sim.ladder_held[0] and is_equal_approx(sim._foot[sim.wall_row * Terrain.COLS + cell], Sim.LADDER_PACE), "and an unheld ladder is climbed as before")
+	sim.dispose()
+
+	# D: the storm spreads over the wall's weak points.
+	var s2 := Sim.new()
+	s2.setup(_army(five, 1), _army(five, 100), 1, null, Sim.OBJECTIVE_SIEGE)
+	s2.auto_deploy(Sim.PLAYER)
+	s2.auto_deploy(Sim.ENEMY)
+	var plan: Dictionary = s2.storm_plan(Sim.PLAYER)
+	var ladders := 0
+	for id in plan:
+		ladders += 1 if plan[id] == "ladder" else 0
+	check(ladders == 2, "with three companies on foot, one goes up each ladder and one to the ram (%d to ladders)" % ladders)
+	s2.ai = [Commander.new(Sim.PLAYER), Commander.new(Sim.ENEMY)]
+	s2.start_battle()
+	var far := 0.0
+	var samples := 0
+	var held_inside := true
+	var guard_sent := false
+	var breach_t := -1.0
+	var garrison_lost_before := -1
+	while s2.winner == -1 and s2.time < 200.0:
+		s2.step()
+		if s2.time < 40.0 and int(s2.time * 60.0) % 30 == 0:
+			for sq in s2.squads:
+				if sq.team == Sim.PLAYER and sq.type == Troops.ARCHERS and sq.is_active():
+					far += absf(sq.center.y - s2.wall_y)
+					samples += 1
+		for i in 2:
+			for sq in s2.squads:
+				if sq.team == Sim.ENEMY and sq.is_active() and not sq.ranged and sq.center.distance_to(s2.ladder_head_post(i)) < 60.0:
+					guard_sent = true
+		if s2.gate_hp <= 0.0 and breach_t < 0.0:
+			breach_t = s2.time
+		if breach_t >= 0.0 and s2.time - breach_t < 20.0:
+			for sq in s2.squads:
+				# Until it sallies (once the fight has turned its way), nobody goes out.
+				if sq.team == Sim.ENEMY and sq.is_active() and not sq.routing and sq.order != "advance" \
+						and not s2.inside_walls(sq.center) and absf(sq.center.y - s2.wall_y) > 20.0:
+					held_inside = false
+	check(samples > 0 and far / samples >= 150.0, "storming bows stand off and shoot the walls (%.0f from the wall on average)" % (far / maxf(1.0, samples)))
+	check(guard_sent, "the garrison sends men to hold a ladder's head when they come up it")
+	check(breach_t < 0.0 or held_inside, "after the breach the garrison holds inside its walls until the fight turns its way")
+	s2.dispose()
+
+	# The player's own garrison: Man the walls and Hold the breach.
+	var s3 := Sim.new()
+	s3.siege_defender = Sim.PLAYER
+	s3.setup(_army(five, 1), _army(five, 100), 1, null, Sim.OBJECTIVE_SIEGE)
+	s3.auto_deploy(Sim.PLAYER)
+	var posted := 0
+	for sq in s3.squads:
+		if sq.team == Sim.PLAYER and (s3.on_walk(sq.center) or s3.on_gate_tower(sq.center)):
+			posted += 1
+	check(posted == 3, "Auto-place puts your garrison at its posts too (%d on the wall)" % posted)
+	s3.auto_deploy(Sim.ENEMY)
+	s3.start_battle()
+	for sq in s3.squads:
+		if sq.team == Sim.PLAYER:
+			s3.order_move(sq, sq.center + Vector2(0, 150.0))
+	check(s3.man_the_walls(Sim.PLAYER) == 5, "Man the walls sends every company back to its post")
+	s3.gate_hp = 0.0
+	var sent: Array = s3.form_breach(Sim.PLAYER)
+	check(sent.size() == 2 and sent.all(func(q): return q.order == "move"), "Hold the breach sends the foot off the tower to the crescent behind the gate")
+	s3.dispose()
 
 
 func _check_campaign() -> void:
@@ -380,6 +564,7 @@ func _init() -> void:
 	await process_frame
 	_check_battlefield()
 	_check_defence_battlefield()
+	_check_wall_defence()
 	await _check_campaign()
 	await _check_army_assaults()
 	print("\nSiege tests: %d failures" % failures)

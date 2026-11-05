@@ -21,8 +21,11 @@ func _ready() -> void:
 		faces.alignment = BoxContainer.ALIGNMENT_CENTER
 		faces.add_theme_constant_override("separation", 24)
 		for i in captains.size():
-			var face := CaptainArt.portrait(captains[i], Vector2(108, 144))
-			if kind == "memorial" and i == captains.size() - 1:
+			var gone: bool = kind == "memorial" and i == captains.size() - 1
+			# The one who remains grieves; at a new rank, both are glad of each other.
+			var mood := "" if gone else ("grief" if kind == "memorial" else "warm")
+			var face := CaptainArt.portrait(captains[i], Vector2(108, 144), mood)
+			if gone:
 				face.modulate = Color(0.55, 0.55, 0.62)
 			faces.add_child(face)
 		col.add_child(faces)

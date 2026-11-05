@@ -23,7 +23,7 @@ func _build() -> void:
 		Sound.set_text_scale(sizes[i])
 		_build(), "TextSize")
 	col.add_child(size_bar)
-	col.add_child(_switch_row("Reduced motion", "No menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
+	col.add_child(_switch_row("Reduced motion", "No opening, menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
 		Sound.set_reduced_motion(on)))
 	col.add_child(Page.note("Screen shake in battle", Style.BODY, Style.TEXT))
 	var shakes := [0.0, 0.5, 1.0]
