@@ -1,0 +1,507 @@
+campaigns: 1, talks per campaign: 45.0
+exact duplicate exchanges per campaign: 0.00
+same hook+temperaments+rank skeleton reused per campaign: 17.00
+most times one line is heard in a campaign (mean): 7.0
+lines heard most often, per campaign:
+  7.0  I'm all right. I keep checking, and I'm all right.
+  6.0  I don't want them clapping me on the back. Can you tell them to stop?
+  6.0  I didn't decide any of it. My hands did. That's the part I can't sit with.
+  6.0  They're thinking about running. That's what I tell myself.
+  6.0  Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+  6.0  They came out of the trees so fast. I didn't see them till they were on us.
+hooks: bandits 42%, hardest 26%, plain 17%, gutted 6%, lord 4%, first_blood 2%
+== talk 1  [hook: first_blood, about Wenna]
+   Bread, ale and the fire. Wenna is drying a pair of boots on a stick. Garrick has said twice that they'll burn.
+   It was Wenna's first battle with the company.
+     WENNA: So that's a battle. I expected more of them.
+   GARRICK: I was sick after my first. And my second. Nobody told me it stops.
+     WENNA: I got 4. I counted.
+   GARRICK: Nobody remembers their first. Only that they stood. Don't tell the men I said anything kind.
+   GARRICK: Can we stand nearer tomorrow? Just a bit nearer. It helps.
+     WENNA: Fine. But I'll not be slow about it.
+   That's the end of it, for tonight. It's enough.
+
+== talk 2  [hook: lord, about Garrick]
+   Garrick and Brann have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   It was the Shogun's marshal's own host at Bramblemoor, under their banner, and the company lost the field.
+   GARRICK: Those were real soldiers. I kept thinking, these ones know what they're doing.
+     BRANN: So did we, though. Know what we were doing. Didn't we?
+   GARRICK: The Shogun's marshal will want that back. They'll come for it.
+     BRANN: Then we'll be stood together when they do. Pass the ale.
+     BRANN: Tomorrow stay close. I mean it.
+   GARRICK: All right. I'd like that.
+   Nothing is settled. But tomorrow each will know where the other is.
+
+== talk 3  [hook: bandits, about Brann]
+   Brann and Wenna have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   Wako pirates on the road by Marchgate. The company held the field.
+     BRANN: I don't like the hooded ones. You can't see what they're thinking.
+     WENNA: Better than a quiet road. A quiet road pays nothing.
+     BRANN: One of them was a boy. I didn't. My men did.
+     WENNA: Whatever you took off them, keep it. They'd have taken more off us.
+     WENNA: Stay in reach tomorrow. If I shout, I want it to be you that hears.
+     BRANN: I will. I'll be there.
+   They don't say more than that. In the morning they'll fall in beside each other without being told.
+
+== talk 4  [hook: plain, about Nasrin]
+   Wenna has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   A fight by Marchgate, like a dozen others. The company held the field.
+    NASRIN: I'm all right. I keep checking, and I'm all right.
+     WENNA: A day like that is allowed. Once.
+    NASRIN: Marchgate. I've put it in my book. Everywhere we fight, I write down.
+     WENNA: The mud and nothing else. Go to sleep.
+     WENNA: Tomorrow you keep on my left. I'll not go looking for you twice.
+    NASRIN: Yes. Yes. Thank you.
+   They don't say more than that. In the morning they'll fall in beside each other without being told.
+
+== talk 5  [hook: hardest, about Garrick]
+   Nasrin has given up explaining the tea. Garrick drinks it anyway.
+   At Marchgate nobody in the company cut down more than Garrick: 8, by the men's count.
+   GARRICK: I don't want them clapping me on the back. Can you tell them to stop?
+    NASRIN: I'll tell them. Sit behind me. They won't come past me.
+   GARRICK: I didn't decide any of it. My hands did. That's the part I can't sit with.
+    NASRIN: Don't. Not tonight. Here. I saved you the flatbread.
+    NASRIN: Tomorrow, if I can see you, I'll be all right. So let me see you.
+   GARRICK: All right. I'd like that.
+   That's the end of it, for tonight. It's enough.
+
+== talk 6  [hook: bandits, about Wenna]
+   Bread, ale and the fire. Wenna is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+     WENNA: They ran before I'd got going. The Fenland cutthroats. I'd hoped for better.
+      MIRA: Wenna. Worth the silver, though.
+     WENNA: Their chief had a good horse. Better than he deserved. I've got it now.
+      MIRA: Don't waste a thought on them. They'd have cut your throat for the boots.
+      MIRA: Tomorrow, when I go in, you come in. Don't wait to be asked.
+     WENNA: Done. And the same goes for you.
+   Nothing is settled. But tomorrow each will know where the other is.
+
+== talk 7  [hook: plain, about Tamsin]
+   Bread, ale and the fire. Tamsin is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   A fight by Bramblemoor, like a dozen others. The company held the field.
+    TAMSIN: I'm all right. I keep checking, and I'm all right.
+      MIRA: Tamsin. A day like that is allowed. Once.
+    TAMSIN: Bramblemoor. I've put it in my book. Everywhere we fight, I write down.
+      MIRA: The mud and nothing else. Go to sleep.
+      MIRA: Stay in reach tomorrow. If I shout, I want it to be you that hears.
+    TAMSIN: I will. I'll be there.
+   Nothing is settled. But tomorrow each will know where the other is.
+
+== talk 8  [hook: gutted, about Nasrin]
+   Mira has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   Nasrin's men went into Bramblemoor 26 strong and came out 13.
+    NASRIN: I can't go back to my own fire. 13 empty places. I can't.
+      MIRA: Nasrin. Then we find who did it and we make the count even.
+    NASRIN: The ones left look at me like I did it.
+      MIRA: Then let them be angry beside mine. I'll put you on my right.
+      MIRA: Tomorrow, when I go in, you come in. Don't wait to be asked.
+    NASRIN: Yes. Yes. Thank you.
+   They don't say more than that. In the morning they'll fall in beside each other without being told.
+
+== talk 9  [hook: bandits, about Wenna]
+   Wenna and Garrick have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+     WENNA: The Fenland cutthroats. Not a proper fight. Barely worth the bandages.
+   GARRICK: They're thinking about running. That's what I tell myself.
+     WENNA: One of them had a good knife off a dead man of ours. I took it back.
+   GARRICK: Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+   GARRICK: I moved before you called today. I wasn't sure. I did it anyway.
+     WENNA: Good. Now I don't have to shout.
+   Since Bramblemoor they have moved before the other called for it. Today it showed.
+
+== talk 10  [hook: bandits, about Tamsin]
+   Tamsin and Wenna have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+    TAMSIN: They came out of the trees so fast. I didn't see them till they were on us.
+     WENNA: Better than a quiet road. A quiet road pays nothing.
+    TAMSIN: One of them got close enough that I could smell him. Smoke and wet wool. I can still smell it.
+     WENNA: Don't waste a thought on them. They'd have cut your throat for the boots.
+     WENNA: Tomorrow you keep on my left. I'll not go looking for you twice.
+    TAMSIN: Yes. Yes. Thank you.
+   That's the end of it, for tonight. It's enough.
+
+== talk 11  [hook: bandits, about Brann]
+   Bread, ale and the fire. Brann is drying a pair of boots on a stick. Wenna has said twice that they'll burn. Brann has the bad leg out toward the fire.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+     BRANN: I don't like the hooded ones. You can't see what they're thinking.
+     WENNA: Worth the silver, though.
+     BRANN: One of them got close enough that I could smell him. Smoke and wet wool. I can still smell it.
+     WENNA: Whatever you took off them, keep it. They'd have taken more off us.
+     WENNA: I moved my men before you called for it today. Don't get used to it.
+     BRANN: I'm glad. I was hoping it wasn't only me.
+   They don't talk about Marchgate any more. They don't need to.
+
+== talk 12  [hook: bandits, about Tamsin]
+   Tamsin and Garrick have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+    TAMSIN: They came out of the trees so fast. I didn't see them till they were on us.
+   GARRICK: Nor did I. I don't think anybody did. We held anyway.
+    TAMSIN: One of them was a boy. I didn't. My men did.
+   GARRICK: Don't carry that one. Give it to me. I've got room.
+   GARRICK: Tomorrow stay close. I mean it.
+    TAMSIN: I will. I'll be there.
+   That's the end of it, for tonight. It's enough.
+
+== talk 13  [hook: bandits, about Brann]
+   Bread, ale and the fire. Brann is drying a pair of boots on a stick. Garrick has said twice that they'll burn. Brann has the bad leg out toward the fire.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+     BRANN: I don't like the hooded ones. You can't see what they're thinking.
+   GARRICK: Nor did I. I don't think anybody did. We held anyway.
+     BRANN: One of them was a boy. I didn't. My men did.
+   GARRICK: Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+   GARRICK: I knew you'd come when I went forward. I didn't look back to check. First time.
+     BRANN: I saw. I'd have called for it. I think I would.
+   What began at Bramblemoor has become a habit. Neither would call it that.
+
+== talk 14  [hook: bandits, about Brann]
+   Bread, ale and the fire. Brann is drying a pair of boots on a stick. Tamsin has said twice that they'll burn. Brann has the bad leg out toward the fire.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+     BRANN: They came out of the trees so fast. I didn't see them till they were on us.
+    TAMSIN: They're thinking about running. That's what I tell myself.
+     BRANN: One of them got close enough that I could smell him. Smoke and wet wool. I can still smell it.
+    TAMSIN: Don't carry that one. Give it to me. I've got room.
+    TAMSIN: Can we stand nearer tomorrow? Just a bit nearer. It helps.
+     BRANN: All right. I'd like that.
+   They don't say more than that. In the morning they'll fall in beside each other without being told.
+
+== talk 15  [hook: hardest, about Nasrin]
+   Nasrin has given up explaining the tea. Tamsin drinks it anyway.
+   At Bramblemoor nobody in the company cut down more than Nasrin: 8, by the men's count.
+    NASRIN: They keep saying 8 like it's a good thing. I can't feel my hands.
+    TAMSIN: I watched you. I've never seen anything like it. I don't want to again.
+    NASRIN: One of them looked at me, right at the end. Younger than me.
+    TAMSIN: Your hands did what they were drilled to. That's all. Here, take the ale.
+    TAMSIN: Tomorrow, if I can see you, I'll be all right. So let me see you.
+    NASRIN: Yes. Yes. Thank you.
+   Nothing is settled. But tomorrow each will know where the other is.
+
+== talk 16  [hook: gutted, about Nasrin]
+   Nasrin has given up explaining the tea. Brann drinks it anyway. Brann has the bad leg out toward the fire.
+   Nasrin's men went into Bramblemoor 26 strong and came out 13.
+    NASRIN: I can't go back to my own fire. 13 empty places. I can't.
+     BRANN: I don't know what to say. I'm sorry. I'm so sorry.
+    NASRIN: The ones left look at me like I did it.
+     BRANN: Put them next to mine. Mine will look after them. And they'll look after me, I think.
+     BRANN: Can we stand nearer tomorrow? Just a bit nearer. It helps.
+    NASRIN: All right. I'd like that.
+   That's the end of it, for tonight. It's enough.
+
+== talk 17  [hook: lord, about Nasrin]
+   Wenna has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   It was Lord Osric of Marchgate's own host at Kitayama, under their banner, and the company held the field.
+    NASRIN: Those were real soldiers. I kept thinking, these ones know what they're doing.
+     WENNA: They'll know our banner now. Good.
+    NASRIN: Lord Osric of Marchgate will want that back. They'll come for it.
+     WENNA: Let them come.
+     WENNA: I didn't look for your banner today. Didn't need to. Knew where it was.
+    NASRIN: I noticed. It made the whole day easier.
+   What began at Marchgate has become a habit. Neither would call it that.
+
+== talk 18  [hook: bandits, about Wenna]
+   Wenna and Tamsin have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   The Fenland cutthroats on the road by Bramblemoor. The company held the field.
+     WENNA: They ran before I'd got going. The Fenland cutthroats. I'd hoped for better.
+    TAMSIN: Nor did I. I don't think anybody did. We held anyway.
+     WENNA: Their chief had a good horse. Better than he deserved. I've got it now.
+    TAMSIN: Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+    TAMSIN: Today I wasn't frightened of the gap on my left. Because it was you in it.
+     WENNA: I'd have called for it anyway. Half a breath later.
+   Since Bramblemoor they have moved before the other called for it. Today it showed.
+
+== talk 19  [hook: hardest, about Nasrin]
+   Wenna has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   At Bramblemoor nobody in the company cut down more than Nasrin: 9, by the men's count.
+    NASRIN: I don't want them clapping me on the back. Can you tell them to stop?
+     WENNA: Then I'll put it about as 9 and let them argue.
+    NASRIN: One of them looked at me, right at the end. Younger than me.
+     WENNA: Then that's one you won't meet again. Eat something.
+     WENNA: They put us in a song last night. Terrible song. Decent verse about you.
+    NASRIN: I'd noticed. I didn't want to say, in case it stopped.
+   Whatever happens now, it happens to both of them. They've known that since Kitayama.
+
+== talk 20  [hook: plain, about Garrick]
+   Garrick and Tamsin have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   A fight by Bramblemoor, like a dozen others. The company held the field.
+   GARRICK: I'm all right. I keep checking, and I'm all right.
+    TAMSIN: Same. I keep counting my fingers like they might have gone.
+   GARRICK: Bramblemoor. I've put it in my book. Everywhere we fight, I write down.
+    TAMSIN: Write me in it. Beside you. Go to sleep.
+    TAMSIN: Today I wasn't frightened of the gap on my left. Because it was you in it.
+   GARRICK: I saw. I'd have called for it. I think I would.
+   They don't talk about Bramblemoor any more. They don't need to.
+
+== talk 21  [hook: hardest, about Nasrin]
+   Nasrin has given up explaining the tea. Tamsin drinks it anyway.
+   At Bramblemoor nobody in the company cut down more than Nasrin: 9, by the men's count.
+    NASRIN: They keep saying 9 like it's a good thing. I can't feel my hands.
+    TAMSIN: I watched you. I've never seen anything like it. I don't want to again.
+    NASRIN: I didn't decide any of it. My hands did. That's the part I can't sit with.
+    TAMSIN: Your hands did what they were drilled to. That's all. Here, take the last of the cheese.
+    TAMSIN: I knew you'd come when I went forward. I didn't look back to check. First time.
+    NASRIN: I noticed. It made the whole day easier.
+   They don't talk about Bramblemoor any more. They don't need to.
+
+== talk 22  [hook: bandits, about Wenna]
+   Bread, ale and the fire. Wenna is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   Wako pirates on the road by Kitayama. The company held the field.
+     WENNA: Wako pirates. Not a proper fight. Barely worth the bandages.
+      MIRA: Wenna. Worth the silver, though.
+     WENNA: One of them had a helmet strap off a dead man of ours. I took it back.
+      MIRA: Whatever you took off them, keep it. They'd have taken more off us.
+      MIRA: I knew where you'd go today before you went. Annoying. Useful, but annoying.
+     WENNA: Don't flatter yourself. I was already moving.
+   What began at Bramblemoor has become a habit. Neither would call it that.
+
+== talk 23  [hook: plain, about Garrick]
+   Garrick and Mira have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   A fight by Kitayama, like a dozen others. The company held the field.
+   GARRICK: I'm all right. I keep checking, and I'm all right.
+      MIRA: Garrick. A day like that is allowed. Once.
+   GARRICK: Kitayama. I've put it in my book. Everywhere we fight, I write down.
+      MIRA: The mud and nothing else. Go to sleep.
+      MIRA: Tomorrow, when I go in, you come in. Don't wait to be asked.
+   GARRICK: I will. I'll be there.
+   They don't say more than that. In the morning they'll fall in beside each other without being told.
+
+== talk 24  [hook: hardest, about Tamsin]
+   Bread, ale and the fire. Tamsin is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   At Kitayama nobody in the company cut down more than Tamsin: 8, by the men's count.
+    TAMSIN: I don't want them clapping me on the back. Can you tell them to stop?
+      MIRA: Tamsin. 8. I'll beat it next time.
+    TAMSIN: I didn't decide any of it. My hands did. That's the part I can't sit with.
+      MIRA: Standing still is their lookout. Eat something, you've gone grey.
+      MIRA: I moved my men before you called for it today. Don't get used to it.
+    TAMSIN: I'm glad. I was hoping it wasn't only me.
+   Since Bramblemoor they have moved before the other called for it. Today it showed.
+
+== talk 25  [hook: bandits, about Mira]
+   Bread, ale and the fire. Mira is drying a pair of boots on a stick. Brann has said twice that they'll burn.
+   Wako pirates on the road by Kitayama. The company held the field.
+      MIRA: Brann. Wako pirates. Not a proper fight. Barely worth the bandages.
+     BRANN: They're thinking about running. That's what I tell myself.
+      MIRA: One of them had a good knife off a dead man of ours. I took it back.
+     BRANN: Don't carry that one. Give it to me. I've got room.
+     BRANN: Tomorrow stay close. I mean it.
+      MIRA: Agreed. Mind you keep up.
+   Nothing is settled. But tomorrow each will know where the other is.
+
+== talk 26  [hook: bandits, about Garrick]
+   Garrick and Wenna have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   Wako pirates on the road by Kitayama. The company held the field.
+   GARRICK: They came out of the trees so fast. I didn't see them till they were on us.
+     WENNA: Better than a quiet road. A quiet road pays nothing.
+   GARRICK: One of them was a boy. I didn't. My men did.
+     WENNA: Don't waste a thought on them. They'd have cut your throat for the boots.
+     WENNA: A man from another company asked which of us was which. I told him it didn't matter.
+   GARRICK: Don't make me answer that. Pass the cup. Thank you.
+   The company has started saying their names together. Neither of them minds.
+
+== talk 27  [hook: hardest, about Tamsin]
+   Tamsin and Wenna have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   At Kitayama nobody in the company cut down more than Tamsin: 8, by the men's count.
+    TAMSIN: They keep saying 8 like it's a good thing. I can't feel my hands.
+     WENNA: Then I'll put it about as 8 and let them argue.
+    TAMSIN: One of them looked at me, right at the end. Younger than me.
+     WENNA: Then that's one you won't meet again. Eat something.
+     WENNA: The men have started calling us by one name. I've stopped correcting them.
+    TAMSIN: I don't mind it. I thought I would.
+   From Bramblemoor to here. The men have noticed, and have stopped remarking on it.
+
+== talk 28  [hook: bandits, about Garrick]
+   Garrick has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   Wako pirates on the road by Kitayama. The company held the field.
+   GARRICK: I don't like the hooded ones. You can't see what they're thinking.
+    NASRIN: Nor did I. I don't think anybody did. We held anyway.
+   GARRICK: One of them got close enough that I could smell him. Smoke and wet wool. I can still smell it.
+    NASRIN: Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+    NASRIN: I moved before you called today. I wasn't sure. I did it anyway.
+   GARRICK: I'm glad. I was hoping it wasn't only me.
+   What began at Marchgate has become a habit. Neither would call it that.
+
+== talk 29  [hook: hardest, about Tamsin]
+   Bread, ale and the fire. Tamsin is drying a pair of boots on a stick. Brann has said twice that they'll burn.
+   At Kitayama nobody in the company cut down more than Tamsin: 8, by the men's count.
+    TAMSIN: I don't want them clapping me on the back. Can you tell them to stop?
+     BRANN: I'll tell them. Sit behind me. They won't come past me.
+    TAMSIN: One of them looked at me, right at the end. Younger than me.
+     BRANN: Don't. Not tonight. Here. I saved you the bread.
+     BRANN: I knew you'd come when I went forward. I didn't look back to check. First time.
+    TAMSIN: I saw. I'd have called for it. I think I would.
+   Since Bramblemoor they have moved before the other called for it. Today it showed.
+
+== talk 30  [hook: bandits, about Wenna]
+   Bread, ale and the fire. Wenna is drying a pair of boots on a stick. Brann has said twice that they'll burn.
+   The Ash Hill brigands on the road by Highcliff. The company held the field.
+     WENNA: They ran before I'd got going. The Ash Hill brigands. I'd hoped for better.
+     BRANN: They're thinking about running. That's what I tell myself.
+     WENNA: Their chief had a good horse. Better than he deserved. I've got it now.
+     BRANN: Don't carry that one. Give it to me. I've got room.
+     BRANN: Someone called us 'the pair' today. I liked it. Don't tell anyone.
+     WENNA: Good. As long as my name comes first.
+   The company has started saying their names together. Neither of them minds.
+
+== talk 31  [hook: hardest, about Tamsin]
+   Tamsin and Garrick have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   At Highcliff nobody in the company cut down more than Tamsin: 9, by the men's count.
+    TAMSIN: They keep saying 9 like it's a good thing. I can't feel my hands.
+   GARRICK: I watched you. I've never seen anything like it. I don't want to again.
+    TAMSIN: I didn't decide any of it. My hands did. That's the part I can't sit with.
+   GARRICK: Don't. Not tonight. Here. I saved you the last of the cheese.
+   GARRICK: My mother would have liked you. I've no idea why I said that. Forget it.
+    TAMSIN: I don't mind it. I thought I would.
+   Whatever happens now, it happens to both of them. They've known that since Bramblemoor.
+
+== talk 32  [hook: bandits, about Mira]
+   Mira and Garrick have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   The Red Waste reavers on the road by Bramblemoor. The company lost the field.
+      MIRA: Garrick. The Red Waste reavers. Not a proper fight. Barely worth the bandages.
+   GARRICK: They're thinking about running. That's what I tell myself.
+      MIRA: Their chief had a good horse. Better than he deserved. I've got it now.
+   GARRICK: Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+   GARRICK: Today I wasn't frightened of the gap on my left. Because it was you in it.
+      MIRA: Don't flatter yourself. I was already moving.
+   They don't talk about Kitayama any more. They don't need to.
+
+== talk 33  [hook: hardest, about Tamsin]
+   Bread, ale and the fire. Tamsin is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   At Bramblemoor nobody in the company cut down more than Tamsin: 7, by the men's count.
+    TAMSIN: They keep saying 7 like it's a good thing. I can't feel my hands.
+      MIRA: Tamsin. 7. I'll beat it next time.
+    TAMSIN: One of them looked at me, right at the end. Younger than me.
+      MIRA: Standing still is their lookout. Eat something, you've gone grey.
+      MIRA: A man from another company asked which of us was which. I told him it didn't matter.
+    TAMSIN: I'd noticed. I didn't want to say, in case it stopped.
+   From Kitayama to here. The men have noticed, and have stopped remarking on it.
+
+== talk 34  [hook: plain, about Brann]
+   Bread, ale and the fire. Brann is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   A fight by Bramblemoor, like a dozen others. The company lost the field.
+     BRANN: I'm all right. I keep checking, and I'm all right.
+      MIRA: Brann. A day like that is allowed. Once.
+     BRANN: Bramblemoor. I've put it in my book. Everywhere we fight, I write down.
+      MIRA: The mud and nothing else. Go to sleep.
+      MIRA: I didn't look for your banner today. Didn't need to. Knew where it was.
+     BRANN: I noticed. It made the whole day easier.
+   Since Kitayama they have moved before the other called for it. Today it showed.
+
+== talk 35  [hook: bandits, about Brann]
+   Brann and Garrick have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   The Red Waste reavers on the road by Bramblemoor. The company lost the field.
+     BRANN: They came out of the trees so fast. I didn't see them till they were on us.
+   GARRICK: Nor did I. I don't think anybody did. We held anyway.
+     BRANN: One of them was a boy. I didn't. My men did.
+   GARRICK: Don't carry that one. Give it to me. I've got room.
+   GARRICK: The young ones watch how we stand and copy it. I never thought anyone would copy me.
+     BRANN: Don't make me answer that. Pass the cup. Thank you.
+   The company has started saying their names together. Neither of them minds.
+
+== talk 36  [hook: hardest, about Mira]
+   Mira and Wenna have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   At Highcliff nobody in the company cut down more than Mira: 6, by the men's count.
+      MIRA: Wenna. 6. Tell the others. No. I'll tell them.
+     WENNA: Then I'll put it about as 6 and let them argue.
+      MIRA: There was one with a red shield. He was good. He isn't any more.
+     WENNA: Then that's one you won't meet again. Eat something.
+     WENNA: The men have started calling us by one name. I've stopped correcting them.
+      MIRA: Let them. They've got it right for once.
+   From Kitayama to here. The men have noticed, and have stopped remarking on it.
+
+== talk 37  [hook: bandits, about Nasrin]
+   Nasrin has given up explaining the tea. Mira drinks it anyway.
+   The Red Waste reavers on the road by Highcliff. The company held the field.
+    NASRIN: I don't like the hooded ones. You can't see what they're thinking.
+      MIRA: Nasrin. Better than a quiet road. A quiet road pays nothing.
+    NASRIN: One of them got close enough that I could smell him. Smoke and wet wool. I can still smell it.
+      MIRA: Whatever you took off them, keep it. They'd have taken more off us.
+      MIRA: I knew where you'd go today before you went. Annoying. Useful, but annoying.
+    NASRIN: I saw. I'd have called for it. I think I would.
+   They don't talk about Bramblemoor any more. They don't need to.
+
+== talk 38  [hook: gutted, about Tamsin]
+   Bread, ale and the fire. Tamsin is drying a pair of boots on a stick. Brann has said twice that they'll burn.
+   Tamsin's men went into Highcliff 24 strong and came out 5.
+    TAMSIN: I can't go back to my own fire. 19 empty places. I can't.
+     BRANN: I don't know what to say. I'm sorry. I'm so sorry.
+    TAMSIN: The ones left look at me like I did it.
+     BRANN: Put them next to mine. Mine will look after them. And they'll look after me, I think.
+     BRANN: My mother would have liked you. I've no idea why I said that. Forget it.
+    TAMSIN: I'd noticed. I didn't want to say, in case it stopped.
+   Whatever happens now, it happens to both of them. They've known that since Kitayama.
+
+== talk 39  [hook: plain, about Nasrin]
+   Brann has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   A fight by Highcliff, like a dozen others. The company held the field.
+    NASRIN: I'm all right. I keep checking, and I'm all right.
+     BRANN: Same. I keep counting my fingers like they might have gone.
+    NASRIN: Highcliff. I've put it in my book. Everywhere we fight, I write down.
+     BRANN: Write me in it. Beside you. Go to sleep.
+     BRANN: I moved before you called today. I wasn't sure. I did it anyway.
+    NASRIN: I noticed. It made the whole day easier.
+   What began at Bramblemoor has become a habit. Neither would call it that.
+
+== talk 40  [hook: hardest, about Nasrin]
+   Nasrin has given up explaining the tea. Garrick drinks it anyway.
+   At Marchgate nobody in the company cut down more than Nasrin: 6, by the men's count.
+    NASRIN: I don't want them clapping me on the back. Can you tell them to stop?
+   GARRICK: I'll tell them. Sit behind me. They won't come past me.
+    NASRIN: I didn't decide any of it. My hands did. That's the part I can't sit with.
+   GARRICK: Your hands did what they were drilled to. That's all. Here, take the bread.
+   GARRICK: The young ones watch how we stand and copy it. I never thought anyone would copy me.
+    NASRIN: I don't mind it. I thought I would.
+   Whatever happens now, it happens to both of them. They've known that since Kitayama.
+
+== talk 41  [hook: bandits, about Nasrin]
+   Tamsin has brought bread. Nasrin has brought dates. Neither has mentioned the other's.
+   The Fenland cutthroats on the road by Marchgate. The company held the field.
+    NASRIN: They came out of the trees so fast. I didn't see them till they were on us.
+    TAMSIN: Nor did I. I don't think anybody did. We held anyway.
+    NASRIN: One of them got close enough that I could smell him. Smoke and wet wool. I can still smell it.
+    TAMSIN: Don't carry that one. Give it to me. I've got room.
+    TAMSIN: Someone called us 'the pair' today. I liked it. Don't tell anyone.
+    NASRIN: Don't make me answer that. Pass the cup. Thank you.
+   From Bramblemoor to here. The men have noticed, and have stopped remarking on it.
+
+== talk 42  [hook: plain, about Nasrin]
+   Nasrin has given up explaining the tea. Brann drinks it anyway.
+   A fight by Marchgate, like a dozen others. The company held the field.
+    NASRIN: I'm all right. I keep checking, and I'm all right.
+     BRANN: Same. I keep counting my fingers like they might have gone.
+    NASRIN: Marchgate. I've put it in my book. Everywhere we fight, I write down.
+     BRANN: Write me in it. Beside you. Go to sleep.
+     BRANN: My mother would have liked you. I've no idea why I said that. Forget it.
+    NASRIN: I don't mind it. I thought I would.
+   The company has started saying their names together. Neither of them minds.
+
+== talk 43  [hook: bandits, about Mira]
+   Mira and Brann have the one whetstone between them and are arguing, mildly, about whose turn it is.
+   Wako pirates on the road by Marchgate. The company held the field.
+      MIRA: Brann. They ran before I'd got going. Wako pirates. I'd hoped for better.
+     BRANN: They're thinking about running. That's what I tell myself.
+      MIRA: One of them had a glove off a dead man of ours. I took it back.
+     BRANN: Wash. Properly, in the stream, not a bucket. It goes, after a wash. Mostly.
+     BRANN: Someone called us 'the pair' today. I liked it. Don't tell anyone.
+      MIRA: I'd have said the same. Don't look so surprised.
+   From Bramblemoor to here. The men have noticed, and have stopped remarking on it.
+
+== talk 44  [hook: plain, about Mira]
+   Nasrin has given up explaining the tea. Mira drinks it anyway.
+   A fight by Marchgate, like a dozen others. The company held the field.
+      MIRA: Nasrin. Nothing to say about today. I'm tired.
+    NASRIN: Same. I keep counting my fingers like they might have gone.
+      MIRA: Marchgate. I'll remember it for the mud.
+    NASRIN: Write me in it. Beside you. Go to sleep.
+    NASRIN: The young ones watch how we stand and copy it. I never thought anyone would copy me.
+      MIRA: Good. As long as my name comes first.
+   The company has started saying their names together. Neither of them minds.
+
+== talk 45  [hook: hardest, about Garrick]
+   Bread, ale and the fire. Garrick is drying a pair of boots on a stick. Mira has said twice that they'll burn.
+   At Highcliff nobody in the company cut down more than Garrick: 8, by the men's count.
+   GARRICK: I don't want them clapping me on the back. Can you tell them to stop?
+      MIRA: Garrick. 8. I'll beat it next time.
+   GARRICK: I didn't decide any of it. My hands did. That's the part I can't sit with.
+      MIRA: Standing still is their lookout. Eat something, you've gone grey.
+      MIRA: They put us in a song last night. Terrible song. Decent verse about you.
+   GARRICK: Don't make me answer that. Pass the cup. Thank you.
+   Whatever happens now, it happens to both of them. They've known that since Bramblemoor.
+

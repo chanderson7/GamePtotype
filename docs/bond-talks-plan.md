@@ -1,282 +1,276 @@
-# Captain bond talks: making each one its own
+# Captain bond talks: a talk that is theirs
 
-A plan, not yet built. The talks at the fire between bonded captains ("supports", ranks
-C, B and A) read the same for almost every pair. This plan says why, what a talk should
-be made of instead, how much writing that is, and in what order to build it. The rule in
-the earlier bonds plan still holds: a talk changes no battle values or campaign
-resources; it only remembers that it was read.
+A plan, with a runnable prototype of the part that matters: `tools/bond_talks_proto.py`
+composes talks from facts with real written lines, prints samples, and measures how often
+lines repeat over simulated campaigns. The rule from the earlier bonds plan still holds:
+a talk changes no battle values or campaign resources; it only remembers it was read.
 
 ## What's there now
 
 The screen is `scripts/menu/bond_conversation.gd`; the text comes from
-`GameState.bond_conversation()` and three constants in `scripts/game_state.gd`.
-A talk is five or six passages of narration followed by a four-line exchange:
+`GameState.bond_conversation()` and three constants in `scripts/game_state.gd`: nine
+four-line exchanges, three rank vignettes and three "voice lines", 45 lines in all.
 
-1. **Opening**: "X and Y sit near the edge of the fire. They have fought close enough to
-   rely on one another in N battles." Always this sentence.
-2. **Last fight**: "Their last shared fight ended in victory, with 3 of the company lost.
-   Neither needs to make the cost sound smaller." Always this sentence.
-3. **Wounded** (if one is): one fixed line.
-4. **The absent** (if either has lost a bonded friend): one fixed line with the names.
-5. **Rank vignette**: one fixed paragraph per rank, labelled in the text ("The bond between
-   them is forged in iron (Rank C). Across the watchfire..."). Its register (iron, blood,
-   annals, impossible odds) is unlike every other line in the game.
-6. **Voice line** (`_bond_voice_line`): one of three sentences chosen by the first
-   captain's temperament.
-7. **Exchange** (`BOND_EXCHANGES`): four lines, chosen by rank and by the first captain's
-   temperament. Vengeful and Fragile have their own; Steadfast gets the default.
+- Only one captain's temperament chooses the exchange, and which captain that is comes
+  from roster order, so the other captain has no character and swapping the pair can
+  change the talk.
+- Three scripts per rank serve every pair in the company. Six captains make fifteen
+  pairs; every Steadfast-led pair at a rank says the same four lines.
+- The voice line repeats the exchange: a Steadfast pair at rank C reads "Same distance
+  tomorrow" twice on one screen.
+- The talk knows nothing of the battle. Place, siege or ford, who nearly died on the
+  death roll, who cut down the most, bandits or a lord's host, first battles and the
+  fallen's last words are in the save and unused. "With 4 of the company lost" is
+  printed every time, so it stops meaning anything.
+- The lines are quips. Every one is a reversal or a maxim ("close enough to help, far
+  enough to breathe"), nobody says a plain thing, nothing mundane is in it, and both
+  captains speak in the same cadence. The rank vignettes reach for epic ("forged in
+  iron", "the annals of the company"), which nothing else in the game does.
+- Rereads can change, because the wounded and fallen passages read current state.
+- A bond that death ended has no talk: "The fire has gone quiet", and a Back button.
+- `hero_companion_tests.gd` asserts the text "Rank C" inside a passage, which locks the
+  label into the prose.
 
-Counted: 9 exchanges (36 lines), 3 vignettes, 3 voice lines, 4 context sentences.
-That is the whole of it. The problems follow from the count and from how the pieces are
-chosen:
+## What a talk is
 
-- **Only one captain's temperament matters**, and which captain is "first" is roster
-  order (`bonds()` pairs squad i with squad j > i), so Mira & Brann can be a Vengeful talk
-  and Brann & Mira a Fragile one. The other captain is a voice with no character.
-- **Three scripts per rank for every pair in the company.** Six captains make fifteen
-  pairs. Every Steadfast-led pair, at a given rank, says exactly the same four lines.
-- **The voice line repeats the exchange.** The Vengeful voice line *is* the rank A
-  exchange's first two lines, and the Steadfast one *is* the rank C exchange's first two.
-  A Steadfast pair at rank C reads "Same distance tomorrow" twice on one screen.
-- **The talk doesn't know what happened.** Facts the game already has (where the fight
-  was, whether it was a siege or a ford, who was nearly killed, who cut down the most,
-  whether it was bandits or a lord's host, whose first battle it was, the fallen captain's
-  last words) never reach it. A rank B talk after storming Highcliff reads like one after
-  a skirmish with brigands.
-- **Culture is invisible.** A Kharzani faris and a Ryumon samurai share bread and a
-  whetstone like two Vardish footmen. Nothing marks a pair from different peoples.
-- **Rereading can change the text.** The wounded and the-absent passages come from the
-  captains' current state, so the rank C tab read later says different things. Nothing
-  records what a talk said when it was new.
-- **A bond ended by death has no talk.** The screen says "The fire has gone quiet" and
-  offers Back. The survivor, the rank they reached and the friend's last words are all
-  in the save and unused.
-- **The tests lock in the label.** `hero_companion_tests.gd` asserts that a passage
-  contains the text "Rank C", which keeps the "(Rank C)" label inside the prose.
+A talk is composed from parts. Every part is chosen by a fact about the pair or the last
+battle they shared, and the exchange itself is *about* what happened, not about the
+relationship in general. The prototype's first sample shows the shape:
 
-## What a talk should be
+```
+== Brann & Tariq, rank C, after the Raven ford  [hook: close_call, about Tariq]
+   Brann has brought bread. Tariq has brought dates. Neither has mentioned the
+   other's. Tariq has the bad leg out toward the fire.
+   At Ravensford, Tariq went down with the Fenland cutthroats over them. Brann's
+   Shields were close enough to drag Tariq clear.
+     TARIQ: I keep thinking I'm still down. Stupid. I'm sitting right here.
+     BRANN: You're out. That's the part I care about.
+     TARIQ: I'd still be lying there if your lads hadn't come. I don't know what
+            to do with that.
+     BRANN: They know.
+     BRANN: Tomorrow, stay where I can reach you.
+     TARIQ: I will. I'll be there.
+   Nothing is settled. But tomorrow each will know where the other is.
+```
 
-Each talk is assembled from parts. Each part is chosen by facts about the pair and the
-last battle they shared, and each has a few variants. Three ranks of one pair then tell
-a story that is theirs: how they met the line, the day one of them nearly died, what they
-call each other by rank A. The chip on the nameplate already states the rank and its
-effect, so the prose never has to.
+`mockups/bond-talk-example.png` shows this one on the phone screen, with which fact
+chose each part. Run the prototype for three more, and `campaign` for all 45 talks of a
+simulated campaign in order, which is the honest test of repetition. The parts:
 
-### Parts, in order
+1. **Where they sit.** One line of narration by the two cultures (six pairings, two
+   variants each) with the things of those peoples: bread, ale and a whetstone; tea,
+   dates and sand in boots; rice and the sashimono drying by the fire. A mixed pair
+   notices the other's things. A wounded captain has the bad leg out toward the fire.
 
-1. **Where they sit** (one line, narration). By the two cultures, six combinations
-   (three same-people pairs, three mixed), with two variants each. Same-people lines use
-   their own things: Vardish bread and ale and a whetstone; Kharzani tea, dates and sand
-   shaken from boots; Ryumon rice, the sashimono planted by the fire, oiling a blade.
-   Mixed pairs notice each other's: "Tariq has given up explaining the tea. Brann drinks it
-   anyway." Wounds and the hour can colour it: at night the fire; a wounded captain sits
-   with the bad leg out.
+2. **What happened.** One factual sentence: the hook. The most particular fact of the
+   battle wins, in this order:
+   - *a bonded friend fell* (a captain both were bonded to);
+   - *a close call* (one survived the death roll by ten or less; the rescue by the
+     partner's squad, if it was within reach, is said);
+   - *gutted* (one's own squad lost half its men or more);
+   - *a heavy day* (the company lost a quarter or more of the men who fought);
+   - *the walls* (storming; defending gets its own lines);
+   - *the ford*;
+   - *first blood* (one's first battle with the company);
+   - *the hardest fighting* (one of the two cut down the most of anyone, four or more);
+   - *a lord's host*, won or lost;
+   - *the chief* (killed or escaped, on a bounty);
+   - *a night fight*;
+   - *bandits*, by their region's name;
+   - *plain*: the place and the outcome, with no number in it.
+   Losses are spoken of only by the first four hooks, and about the people: "Three of
+   your Shields stayed at the ford", never "4 lost". Ordinary attrition is never mentioned.
+   When several pairs reach a rank after one battle, each talk takes the most particular
+   hook no earlier talk from that battle used, so the player doesn't read the same fact
+   three times at one sitting.
 
-2. **What happened** (one or two lines, narration). The hook, from the last battle they
-   shared, most particular fact first:
-   - *A close call*: one of them survived the death roll by a few points ("needed 45,
-     rolled 48" is in every captain row). "The roll" is never said; the line says how close
-     it was: "Another hand's width and we would be keeping your cup."
-   - *Pulled clear*: one fell and was carried out with the other's squad within rescue
-     range. The battle report knows `friends_near`; keep whether the friend was this
-     partner.
-   - *The walls*: the battle was a siege, storming or defending, by `objective`.
-   - *The ford*: the site was a river crossing.
-   - *First blood*: it was one captain's first battle with the company.
-   - *The hardest fighting*: one of them cut down the most of anyone.
-   - *The enemy*: a lord's host under a banner, or outlaws by their region's name
-     (brigands, reavers, ronin, Wako pirates); the chief killed or escaped.
-   - *A heavy day*: see below; losses are a hook only when they were heavy.
-   - Otherwise the outcome and the place, with no number in it.
-   About fourteen hooks, each written once with name slots, with a short variant for a
-   victory and one for a defeat where the difference matters.
+3. **The beats.** Four spoken lines, S P S P, where S is the captain the hook is about
+   (the one who nearly died, whose squad was gutted, who did the cutting; otherwise the
+   one with more kills, then more battles) and P the partner. Each beat has a line per
+   temperament of whoever speaks it, in two or three variants. Every line of a beat is
+   written to follow any line of the beat before, so the three temperaments combine
+   freely: a Fragile S with a Vengeful P and a Steadfast S with a Fragile P are different
+   talks from the same hook. Both captains' temperaments matter, and S is never roster
+   order.
 
-   **When losses are spoken of.** Today every talk prints the cost ("with 4 of the
-   company lost"), and since nearly every battle costs a few men the line becomes
-   wallpaper. Losses get a line only when they are what these two would talk about:
-   - a captain they were both bonded to fell (the absent, below: it is the whole hook of
-     that talk, named, and only once);
-   - one of the pair's own squads lost half or more of its men in the fight;
-   - the company as a whole lost a quarter or more of the men who fought.
-   Ordinary attrition is never mentioned, and when a loss is, the line is about the
-   people, not the count: "Three of your Shields stayed at the ford", not "4 lost".
+4. **What the rank means.** The partner says it, by rank and their temperament, and the
+   other answers by theirs. Any reply must follow any line of that rank. Three variants
+   of each. These say in plain words what the chip already shows: at C where the other
+   will be, at B moving before the other calls, at A that the men say their names
+   together. No "(Rank C)" anywhere in the prose.
 
-3. **The exchange** (four to six lines, bubbles). Chosen by rank and by **both**
-   temperaments, as an unordered pair: VV, VS, VF, SS, SF, FF. Who speaks first is the one
-   the hook is about (the one who nearly died, the one who did the cutting), else the one
-   with more battles; never roster order. Two variants per key, chosen by a seed from the
-   pair and rank so a reread is the same.
-   That is 6 × 3 × 2 = 36 exchanges, about 180 lines. Each pair of temperaments has a
-   shape: two Vengeful captains compete; a Fragile one with a Steadfast one is steadied;
-   two Fragile ones admit it to each other; Vengeful with Fragile is the odd one out, a
-   protector and someone who hates needing one.
-   Quirks and specializations swap one line where they fit: a Mentor's line about the
-   young ones; a Scout who saw the enemy first; a Quartermaster counting rations; a
-   Champion who says nothing of their own kills.
-   A hero companion (`is_hero`) with authored dialogue keeps their own voice: their lines
-   come from a per-hero table that overrides the exchange's lines for their side.
+5. **Closing.** One line of narration by rank. At B and A it names the battle the
+   earlier talk was about ("since the Raven ford"), from the record.
 
-4. **What it comes to** (one line, narration). By rank, three variants each, in plain
-   words and without a label: at C, they know where the other will be; at B, they move
-   before the other calls; at A, the company has started to say their names together.
+### Voices and things
 
-5. **The absent** (when a captain both were bonded to fell since the last talk): the hook
-   of that talk, by the mourner's temperament, naming the friend and where they fell. Only
-   in the talk at the rank reached after the loss, never repeated in later ranks.
+- **Voice.** Each captain gets one at creation: *plain*, *talks*, *short* or *formal*.
+  Lines are written in sentences; a sentence marked for talkers is said only by one, a
+  sentence marked optional is dropped by a captain of few words, and a formal captain
+  addresses the other by name the first time they speak. The same beat reads differently
+  in Brann's mouth and Tariq's. Nothing is generated: every sentence is written.
+- **Things.** Slots for what a captain handles, loses and passes: the weapon by culture
+  and troop type (pike, scimitar, yumi), the lost thing (left boot, water skin, straw
+  hat), the food (bread, dates, rice). The same beat with a different object reads as a
+  different line, and it is what people actually talk about after a fight.
+- **Quirks and specializations** swap one line where they fit (a Mentor's line about the
+  young ones, a Scout who saw them first, a Quartermaster counting rations). A hero
+  companion with authored dialogue keeps their own voice through a per-hero override of
+  their side's lines.
 
-### Memory between ranks
+### Register
 
-The bond record (`bond_records[key]`) keeps, per rank reached, what the talk was made of:
-`conversations` becomes a list of `{rank, battle, hook, keys, said}` instead of a list of
-rank letters. Old saves' letters become entries with no hook. With that:
+The lines follow the game's own voice, as the camp moments and the romance visits set it,
+with these rules, which the first draft of this plan got wrong:
 
-- a reread shows the talk as it was, whatever has happened since;
-- the rank B and A talks can call back: "Since the ford" or "the day at Highcliff" names
-  the battle the rank C talk was about;
-- the Warband's Bonds tab can show one line under each pair, the last talk's hook.
-
-Facts to add to the record when a battle is applied, beside `shared_battles` and
-`last_outcome`: `last_place`, `last_objective` (rout, chief, village, siege, defence),
-`last_site` (ford or not), `last_enemy` (band name and whether a lord), the share of the
-company's men lost, and for each of the two: `fate`, `kills`, `roll`, `needed`,
-`first_battle`, and their squad's men before and after. All of these exist in the
-result or the report at that moment and are dropped today.
+- One mundane, concrete thing in every talk: a boot, the tea, a ladder, a horse.
+- Lines of uneven length. At least one plain line that says the thing straight, and at
+  least one that answers nothing.
+- No aphorisms, no reversals for their own sake, no line that would work as a motto.
+  Nobody speaks in finished sentences about the relationship; the feeling comes through
+  sideways, from what they do with the boot.
+- The two speakers differ: temperament sets what they say, voice sets how much.
+- Narration states facts and never explains what a line meant. No "annals", "forged in
+  iron", "impossible odds". No euphemism in narration ("keeping his cup" is out).
+- Names are used where a line needs one, not as a tag. No bubble longer than two lines
+  on a phone, about 110 characters. Read every line aloud before it goes in.
 
 ### A talk for a bond that death ended
 
 When one captain of a bonded pair falls, the survivor gets a one-sided talk at the fire:
-the empty place, the fallen's portrait greyed (the memorial already keeps a face record),
-the survivor's lines by temperament and the rank they had reached, naming the battle and
-quoting the fallen's last words from the memorial entry. Three temperaments × three ranks,
-one each, about 40 lines. It is listed with the other talks ("Fenwick remembers Brann"),
-read once, and reread from the memorial.
+the empty place, the fallen's portrait greyed from the memorial's face record, lines by
+the survivor's temperament and the rank they had reached, naming the battle and quoting
+the fallen's last words from the memorial entry. It is listed with the other talks
+("Fenwick remembers Brann"), read once, and reread from the memorial.
 
 ### The player's part
 
-Optional, after the rest. One reply at the end of a talk, expressive only: sit with them
-a while, leave them to it, or raise a cup to the absent. The choice is kept in the record's
-`said` and is the only thing that can change a later talk's closing line. It pays nothing
-and changes no value, which the note on screen keeps saying.
+Optional, after the rest. One reply at the end of a talk, expressive only: sit with them a
+while, leave them to it, or raise a cup to the absent. Kept in the record and the only
+thing that can change a later closing line. It pays nothing, as the note on screen says.
 
-## Register
+## Variation, measured
 
-The lines follow the game's own voice, which the romance visits and camp moments set:
-short sentences, plain words, dry, a joke that is someone's and not the narrator's, and no
-grandeur. No "annals", "forged in iron", "impossible odds". Names are used where a line
-needs one and not as a tag on every sentence. No bubble is longer than two lines on a
-phone, about 110 characters. Narration never explains what a line meant.
+Fifteen pairs in a company of six, three ranks each: up to 45 talks a campaign. The
+prototype simulates 300 campaigns of 30 battles with random companies and battles and
+counts repeats. With its present lines (one to three variants each, ten hooks):
+
+| | per campaign |
+|---|---|
+| talks | 45 |
+| exact duplicate talks | 0.03 |
+| same hook, temperaments and rank reused | 9.3 |
+| times the most-heard line is heard | 5.7 |
+
+The skeleton reuse is fine: the words differ by voice, objects, names and variants. The
+number to drive down is the last one, the worst single line. It comes from temperament
+skew (a company with four Steadfast captains hears the Steadfast lines of the common
+hooks over and over) and from the two commonest hooks, bandits and the hardest fighting,
+which between them are half of all talks. Padding every line to a given number of
+variants shows what the writing buys:
+
+| variants per line | most-heard line, per campaign |
+|---|---|
+| 1 to 3 (prototype) | 5.7 |
+| 2 | 4.8 |
+| 3 | 3.8 |
+| 4 | 3.1 |
+
+So the budget is three variants for the common hooks (bandits, hardest, lord, plain) and
+the rank lines, two for the rest. Target: no exact duplicate talk in a campaign, and no
+single line heard more than four times in 45 talks. Both are tests on the simulation.
+
+Three mechanisms make this cheap:
+
+- **Least-heard variant.** The save keeps a count of every variant heard, company-wide.
+  The composer takes the least-heard variant of each line, opening and closing included,
+  the seed breaking ties. It is deterministic given the save, so rereads hold.
+- **Hook spreading within a battle**, as above.
+- **Voice and objects**, which vary a line without new writing.
+
+### What reading a whole campaign found
+
+The numbers are necessary and not sufficient. Reading all 45 talks of one simulated
+campaign in order (`campaign` mode) found what they miss:
+
+- **A reply that only follows one line.** The beat model lets any temperament's line
+  follow any line of the beat before, so a partner's reply must answer the *fact*, not
+  the words. Two replies in the prototype broke that: Wenna's "Good. It goes back to
+  his family" was written for the line where the other took a trinket off a dead bandit,
+  and read as monstrous after Brann said his men had killed a boy. The rule for the
+  writing pass: every partner line is read after all three lines it can follow, nine
+  readings per beat pair, before it goes in. Where a reply has to answer the words, the
+  specific content moves into the subject's line and the reply stays about the fact.
+- **The plain hook is heard too much.** With bandits and the hardest fighting sharing
+  half of all talks and spreading pushing a second pair off them, "plain" rose to a sixth
+  of talks, and its single-variant Fragile opener was the most-heard line of the campaign.
+  The hooks for a night fight, the chief, the enemy's region and defending walls are
+  there to make plain rare, and plain gets three variants like the common hooks.
+- **The same opening twice running** for two pairs with the same cultures, until openings
+  went through the least-heard rule too.
+- **Won and lost need their own lines** where the hook's point changes with the outcome:
+  "They'll want that banner back" is wrong after a defeat. The lord, walls and bandits
+  hooks carry both.
+
+## Data and saves
+
+- `captain.voice`, set in `Captains.make()`; old saves get one from the id.
+- The bond record gains, at `apply_result`: `last_place`, `last_objective`, `last_site`,
+  `last_enemy` (name, is_lord, region), `last_night`, the company's share of men lost,
+  and for each captain: `fate`, `kills`, `roll`, `needed`, `first_battle`, `men_before`,
+  `men_after`, `rescued_by_partner`.
+- `conversations` becomes a list of `{rank, battle, hook, subject, choices, said}`.
+  Rank letters in old saves become entries with no hook. A reread composes from the
+  stored choices; a new talk composes fresh and stores them.
+- `bond_talk_heard`: the campaign-wide variant counts, `{key: count}`, capped by dropping
+  the oldest keys past a few hundred.
+- A fallen captain's memorial entry already keeps `words`; the memorial talk reads it.
 
 ## How much writing
 
 | Part | Keys | Variants | Lines |
 |---|---|---|---|
 | Where they sit | 6 culture pairs | 2 | 12 |
-| What happened | 14 hooks | win/loss where it matters | about 20 |
-| The exchange | 6 temper pairs × 3 ranks | 2 | about 180 |
+| Hook sentence | 14 hooks | 1, with won/lost where it matters | about 20 |
+| Beats | 14 hooks × 4 beats × 3 temperaments | 2–3 | about 420 |
+| Rank line and reply | 3 ranks × 3 temperaments × 2 | 3 | 54 |
+| Closing | 3 ranks | 3 | 9 |
 | Quirk and specialization swaps | 7 | 1 | 7 |
-| What it comes to | 3 ranks | 3 | 9 |
-| The absent | 3 temperaments | 1 | 3 |
 | Death ended it | 3 temperaments × 3 ranks | 1 | about 40 |
 | Hero overrides | per hero × 3 ranks | 1 | about 20 each |
 
-About 300 lines in one data file, against 45 today. Written in `scripts/data/bond_talks.gd`
-in the shape of `camp_moments.gd` and `personal_conversations.gd`: pure data and a pure
-`compose(facts)` function, with no dependence on `GameState`, so it can be tested with a
-dictionary of facts.
+About 560 lines against 45 today. The prototype holds about 170 of them, in the shape
+the GDScript data will take: dictionaries of strings with `{slots}`, sentences split by
+`|`, `+` for talkers and `-` for the short. `bond_talks.gd` will be pure data and a pure
+`compose(facts, avoid, heard)` with no dependence on `GameState`, so it is tested with a
+dictionary of facts, as the prototype is.
 
 ## Order of work
 
-1. **Move the text out and choose it properly.** New `bond_talks.gd` with today's lines
-   as a start; `bond_conversation()` gathers facts and calls `compose`. Both temperaments
-   choose the exchange; the speaker is chosen by the facts; the voice line and the labelled
-   vignettes go. `conversations` becomes a list of records, with migration from letters.
-   Tests: a reread at rank C after reaching rank A is the same text; swapping the two
-   captains' order gives the same talk; VS and SV give one exchange, VV and FF different
-   ones; no passage contains "(Rank"; no sentence appears twice in one talk. Update the
-   vignette test in `hero_companion_tests.gd` to assert the rank chip, not the prose.
-2. **Record the facts.** Extend the bond record at `apply_result` with place, objective,
-   site, enemy, and both captains' fate, kills, roll, needed and first-battle flag. Tests:
-   each hook fires on a crafted result (close call, ford, siege, first blood, hardest
-   fighting, chief killed, a gutted squad, a heavy day), the most particular one wins,
-   and a battle that cost three men out of two hundred mentions no losses at all.
-3. **The writing pass.** All 36 exchanges, openings, hooks, closings, swaps. Tests: every
-   key present for every temperament pair and rank; no exchange text shared between keys;
-   every line within the length limit; every name slot filled.
-4. **The talk a death ended**, listed with the others and reachable from the memorial.
-5. **Callbacks and the Bonds tab line.** The B and A talks name the earlier battle;
-   each pair's row shows its last talk's hook.
+1. **Port the composer.** `scripts/data/bond_talks.gd` from the prototype's tables and
+   `compose`; `bond_conversation()` gathers facts and calls it; the voice line and the
+   labelled vignettes go; `conversations` becomes records with migration. Tests: a reread
+   at rank C after reaching A is the same text; swapping the two captains gives the same
+   talk; no passage contains "(Rank"; no sentence appears twice in one talk; every beat
+   and rank key exists for every temperament. Update the vignette test to check the chip.
+2. **Record the facts** at `apply_result`, and add `voice` to captains. Tests: each hook
+   fires on a crafted result and the most particular one wins; three men lost of two
+   hundred produce no loss line; two pairs from one battle take different hooks.
+3. **The writing pass**, to the budget above, in the register above. Tests on the data:
+   every key present; variant counts meet the budget; every line within the length
+   limit; every slot filled by the facts the composer provides; the simulation's two
+   targets.
+4. **The talk a death ended**, reachable from the memorial.
+5. **The Bonds tab line**: each pair's row shows its last talk's hook.
 6. **The player's reply**, if wanted.
 
-Steps 1 and 2 are the engineering and change what the player reads only a little. Step 3
-is where the game gets its talks. Steps 4 to 6 are each small once 1 to 3 are in.
+Steps 1 and 2 are the engineering. Step 3 is where the game gets its talks, and the
+simulation says when it is enough.
 
-## A worked example
+## Open questions
 
-`mockups/bond-talk-example.png` shows the rank C talk below on the phone screen, with
-the steps from the battle to the words and which fact chose each part.
-
-Brann of the Fens (Vardish, Steadfast, Brann's Shields, nine battles) and Tariq of Khalun
-(Kharzani, Fragile, hired abroad, Tariq's Riders, three battles). Last battle: holding the
-Raven ford near Ravensford against the Fenland cutthroats. Victory, four of the company
-lost. Tariq went down and survived the death roll by four with Brann's squad in rescue
-range. Brann cut down the most, seven. They have just reached rank C.
-
-**Rank C**, as composed (opening: Vardish and Kharzani, one wounded; hook: close call with
-the partner's squad in range; exchange: Steadfast and Fragile, Tariq first because the
-hook is about him; closing: rank C):
-
-> *Tariq sits with the bad leg out toward the fire. He has given up explaining the tea.
-> Brann drinks it anyway.*
->
-> *At the Raven ford, Tariq went down in the water with the cutthroats over him. Brann's
-> Shields were close enough to drag him out. Another hand's width and the company would be
-> keeping his cup.*
->
-> **Tariq:** Your men pulled me out by the collar. I'd like it known I was still fighting.
-> **Brann:** You were. Lying down, in a river. Very brave.
-> **Tariq:** I don't know how to thank a man for that.
-> **Brann:** Stand where I can reach you tomorrow. That's the whole of it.
-> **Tariq:** That's a bad trade for you.
-> **Brann:** I'm Fen-born. We don't leave things in rivers.
->
-> *By morning neither of them will mention it again. But Brann knows where Tariq's riders
-> will be, and Tariq knows who is on his left.*
-
-**Rank B**, two battles later, after storming Highcliff, where Brann was wounded and Tariq
-did the most killing. "Since the river" is the callback to the rank C record:
-
-> *Brann's arm is strapped. Tariq has brought him the tea anyway, and is enjoying it.*
->
-> *They went over the wall at Highcliff on the same ladder, Tariq's riders on foot for
-> once. He cut down nine. Brann took a blade in the arm on the walk.*
->
-> **Tariq:** Nine. You can say it.
-> **Brann:** Nine. And the one that got my arm walked right past you.
-> **Tariq:** I saw him. I decided you had it.
-> **Brann:** You decided.
-> **Tariq:** Since the river I've been trying to trust you with things. It's going badly.
-> **Brann:** Keep at it. Drink your tea.
->
-> *Today they moved before the other called for it, on the ladder and off it. The company
-> has started to notice.*
-
-**The same pair today**, rank C, with Brann first in the roster:
-
-> *Brann and Tariq sit near the edge of the fire. They have fought close enough to rely on
-> one another in 3 battles.*
-> *Their last shared fight ended in victory, with 4 of the company lost. Neither needs to
-> make the cost sound smaller.*
-> *Brann checks Tariq's bandages without ceremony. "You heal. I will keep your place in the
-> line."*
-> *The bond between them is forged in iron (Rank C). Across the watchfire, a shared nod is
-> all that is spoken — when shields lock tomorrow, each knows the other's flank is secure.*
-> *Brann says, "Same distance tomorrow. Close enough to help, far enough to breathe." Tariq
-> nods.*
->
-> **Brann:** Same distance tomorrow?
-> **Tariq:** Close enough to help, far enough to breathe.
-> **Brann:** You've thought about this.
-> **Tariq:** Since the second charge. Bread?
-
-Nothing of the ford, the near-death or the two peoples reaches it, the "same distance"
-line appears twice, and every Steadfast-first pair in the company reads this exact text.
+- The close-call window: ten points on the roll in the prototype. The real death chance
+  runs from 10 to 90, so the window may want to be a share of the needed value.
+- Night fights and defending walls have no lines in the prototype; they are in the budget.
+- Whether a pair's third talk should ever be the same hook as its first. The record
+  knows; the composer could skip it when another hook applies.
