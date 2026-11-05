@@ -193,9 +193,9 @@ func _ready() -> void:
 		_open_assault_call()
 	elif GameState.desertion_warning != "":
 		_open_desertion_warning()
-	elif GameState.map_notice != "":
+	elif GameState.has_notice():
 		var notice: Dictionary = GameState.take_map_notice()
-		_open_notice(notice["text"], notice["title"])
+		_open_notice(notice["text"], notice["title"], notice["items"])
 	elif world.here() != "":
 		_open_here()
 	# Back from People & Letters with a place to look at (or ride to).
@@ -301,9 +301,9 @@ func _process(delta: float) -> void:
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
-	if GameState.map_notice != "" and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
+	if GameState.has_notice() and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
 		var notice: Dictionary = GameState.take_map_notice()
-		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road")
+		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road", notice["items"])
 		Sound.play("page")
 	_clock += delta
 	_music_clock -= delta
@@ -1606,22 +1606,110 @@ func _open_resource(key: String) -> void:
 
 
 ## A message on a card. With no title, it's titled by where you are: a battle's own
-## result says "After the battle" itself, so taxes collected at home never do.
-func _open_notice(text: String, title: String = "") -> void:
+## result says "After the battle" itself, so taxes collected at home never do. `items`
+## are releases and oaths to show grouped (GameState.map_notice_items).
+func _open_notice(text: String, title: String = "", items: Array = []) -> void:
 	if title == "":
 		title = _notice_place()
 	if GameState.desertion_warning != "":
 		for line in GameState.desertion_warning.split("\n"):
 			text = text.replace(line, "")
 		text = text.strip_edges()
-		if text == "":
+		if text == "" and items.is_empty():
 			_open_desertion_warning()
 			return
 	if GameState.total_men() == 0:
 		_show_sheet("notice", "Your warband is gone", text + " Raise a new one to ride again.",
 			[["New campaign", _on_new_campaign, true]])
 		return
+	# Only releases and oaths to tell: name the sheet for them, not for a battle.
+	if text == "" and not items.is_empty():
+		title = "Your court" if items.any(func(i): return String(i.get("kind", "")) == "sworn") else "Your captives"
 	_show_sheet("notice", title, text, [["Carry on", _on_notice_done, true]])
+	if not items.is_empty():
+		sheet_extra.visible = true
+		# The groups sit above any plain notes (the sheet's extra area comes before its body).
+		for group in _notice_groups(items):
+			sheet_extra.add_child(group)
+
+
+## Releases and oaths, each kind as one block: a heading with its total, who, and what it
+## earned, instead of a sentence per lord.
+func _notice_groups(items: Array) -> Array:
+	var blocks: Array = []
+	var released := items.filter(func(i): return String(i.get("kind", "")) == "released")
+	var sworn := items.filter(func(i): return String(i.get("kind", "")) == "sworn")
+	if not released.is_empty():
+		var v := _notice_block("NoticeReleased", "Released without ransom",
+			"+%d renown" % (GameState.RELEASE_RENOWN * released.size()))
+		# By realm: who went home to each, and how much that realm warmed to you.
+		var realms: Array = []
+		var by_realm := {}
+		for i in released:
+			var realm := String(i.get("realm", ""))
+			if not by_realm.has(realm):
+				by_realm[realm] = []
+				realms.append(realm)
+			by_realm[realm].append(String(i["name"]))
+		for realm in realms:
+			var names: Array = by_realm[realm]
+			var realm_name := String(Data.FACTIONS.get(realm, {}).get("name", realm))
+			var head := HBoxContainer.new()
+			head.add_theme_constant_override("separation", 10)
+			var rl := Style.label(realm_name, Style.SMALL, Style.MUTED)
+			rl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			rl.custom_minimum_size = Vector2(10, 0)
+			head.add_child(rl)
+			head.add_child(Style.label("+%d realm" % (GameState.RELEASE_REALM * names.size()), Style.SMALL, Style.BRASS))
+			v.add_child(head)
+			var who := Style.label(", ".join(PackedStringArray(names)), Style.SMALL, Style.TEXT)
+			who.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			who.custom_minimum_size = Vector2(10, 0)
+			v.add_child(who)
+		var each := Style.label(("Each remembers it: +%d Regard." if released.size() > 1 else "They'll remember it: +%d Regard.")
+			% GameState.RELEASE_REGARD, Style.SMALL, Style.MUTED)
+		each.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		each.custom_minimum_size = Vector2(10, 0)
+		v.add_child(each)
+		blocks.append(v.get_parent())
+	if not sworn.is_empty():
+		var v := _notice_block("NoticeSworn", "Sworn to your crown",
+			"%d %s" % [sworn.size(), "lord" if sworn.size() == 1 else "lords"])
+		for i in sworn:
+			var seat := String(i.get("seat", ""))
+			var line := Style.label(String(i["name"]) + (" · holds %s" % seat if seat != "" else ""), Style.SMALL, Style.TEXT)
+			line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			line.custom_minimum_size = Vector2(10, 0)
+			v.add_child(line)
+		blocks.append(v.get_parent())
+	return blocks
+
+
+## A small block in a notice: a brass heading with a note on the right; returns the column
+## to fill (the block itself is its parent).
+func _notice_block(block_name: String, heading: String, aside: String) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.name = block_name
+	var sb := Style.box(Style.RAISED, Style.RULE, 2, 16)
+	sb.content_margin_left = 18
+	sb.content_margin_right = 18
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 16
+	panel.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	panel.add_child(v)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	v.add_child(head)
+	var h := Style.label(heading.to_upper(), Style.SMALL, Style.BRASS)
+	h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	h.custom_minimum_size = Vector2(10, 0)
+	head.add_child(h)
+	head.add_child(Style.label(aside, Style.SMALL, Style.BRASS))
+	return v
 
 
 func _notice_place() -> String:
@@ -2527,8 +2615,9 @@ func _on_storm_send(id: String) -> void:
 	_close_sheet()
 	_refresh_hud()
 	_sync_layers()
-	if GameState.map_notice != "":
-		_open_notice(GameState.take_map_notice()["text"], "The assault")
+	if GameState.has_notice():
+		var notice: Dictionary = GameState.take_map_notice()
+		_open_notice(notice["text"], "The assault", notice["items"])
 
 
 func _on_fight() -> void:
@@ -2544,7 +2633,7 @@ func _on_send_in() -> void:
 	get_tree().create_timer(1.1).timeout.connect(Sound.play.bind("coins" if won else "bell"))
 	_close_sheet()
 	var notice: Dictionary = GameState.take_map_notice()
-	_open_notice(notice["text"], notice["title"])
+	_open_notice(notice["text"], notice["title"], notice["items"])
 
 
 func _on_withdraw() -> void:

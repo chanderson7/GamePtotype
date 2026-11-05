@@ -83,6 +83,11 @@ var map_notice := ""
 ## was settled, a crown won or lost; empty for everything else, which the map titles by
 ## where you are.
 var map_notice_title := ""
+## Things of one kind done in a row (captives released, lords sworn), kept apart from the
+## running notice so the map can show them together, a heading, who, and the totals once,
+## rather than a sentence each. Each is {kind, name, ...}: "released" carries the realm,
+## "sworn" the seat they'll hold ("" for none).
+var map_notice_items: Array = []
 ## Unread desertion warning survives saving until the player acknowledges it.
 var desertion_warning := ""
 ## Battles the autoplay smoke test has fought this run.
@@ -179,6 +184,7 @@ func new_warband() -> void:
 	contract = {}
 	map_notice = ""
 	map_notice_title = ""
+	map_notice_items = []
 	desertion_warning = ""
 	hired_heroes = []
 	active_jobs = []
@@ -1306,7 +1312,8 @@ func swear_lord_to_crown(lord_id: int) -> bool:
 	add_lord_relation(lord_id, 30)
 	if world.realms.has(was):
 		add_realm_relation(was, -10)
-	_note("%s swears fealty to your crown%s." % [l["name"], (" and will hold %s" % WorldData.settlement(seat)["name"]) if seat != "" else ""])
+	_note_item({"kind": "sworn", "name": String(l["name"]),
+		"seat": String(WorldData.settlement(seat)["name"]) if seat != "" else ""})
 	world.emit_event({"type": "lord_sworn", "lord": String(l["name"]), "from": was})
 	save_game()
 	return true
@@ -2739,12 +2746,29 @@ func _note(text: String) -> void:
 	map_notice = text if map_notice == "" else map_notice + "\n" + text
 
 
-## The waiting message and its title, taken off the queue: {text, title}.
+## A notice item to show grouped with others of its kind (see map_notice_items).
+func _note_item(item: Dictionary) -> void:
+	map_notice_items.append(item)
+
+
+## Something waiting to be told on the map: a note or a grouped item.
+func has_notice() -> bool:
+	return map_notice != "" or not map_notice_items.is_empty()
+
+
+## The waiting message, its title and its grouped items, taken off the queue:
+## {text, title, items}.
 func take_map_notice() -> Dictionary:
-	var out := {"text": map_notice, "title": map_notice_title}
+	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items}
+	clear_notice()
+	return out
+
+
+## Told: forget the notes, their title and the grouped items.
+func clear_notice() -> void:
 	map_notice = ""
 	map_notice_title = ""
-	return out
+	map_notice_items = []
 
 
 func relation_with_realm(realm: String) -> int:
@@ -3808,6 +3832,7 @@ func deliver_lord_to_employer(lord_id: int) -> bool:
 ## Release a captive lord for honor without ransom: they and their realm remember it.
 const RELEASE_REGARD := 25
 const RELEASE_REALM := 10
+const RELEASE_RENOWN := 10
 func release_lord_for_honor(lord_id: int) -> bool:
 	if world == null:
 		return false
@@ -3817,11 +3842,9 @@ func release_lord_for_honor(lord_id: int) -> bool:
 	var realm: String = String(l.get("realm", ""))
 	add_lord_relation(lord_id, RELEASE_REGARD)
 	add_realm_relation(realm, RELEASE_REALM)
-	renown += 10
+	renown += RELEASE_RENOWN
 	world.release_lord(lord_id)
-	_note("You released %s without ransom. Your mercy is celebrated throughout %s (+25 Regard, +10 realm, +10 renown)." % [
-		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm)
-	])
+	_note_item({"kind": "released", "name": String(l["name"]), "realm": realm})
 	save_game()
 	return true
 
