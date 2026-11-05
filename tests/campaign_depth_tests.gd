@@ -115,5 +115,40 @@ func _init() -> void:
 		check(map.sheet_body.text.contains(LordVoice.line("again", foe)), "and greets you as someone they've met before")
 		w.encounter = -1
 
+	# Releases and oaths are told together: one block each, not a sentence per lord.
+	_crowned()
+	gs.clear_notice()
+	var freed_a := _captive(Lords.HONORABLE)
+	var freed_b := _captive(Lords.HONORABLE)
+	var sworn_one := _captive(Lords.DARING)
+	check(gs.release_lord_for_honor(int(freed_a["id"])) and gs.release_lord_for_honor(int(freed_b["id"]))
+		and gs.swear_lord_to_crown(int(sworn_one["id"])), "two captives freed and one sworn")
+	var kinds: Array = gs.map_notice_items.map(func(i): return String(i["kind"]))
+	check(kinds == ["released", "released", "sworn"] and gs.map_notice == "",
+		"each is kept as an item to group, not a sentence in the notice")
+	check(gs.has_notice(), "and the map has something to tell")
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await process_frame
+	await process_frame
+	map = current_scene
+	var freed := map.find_child("NoticeReleased", true, false)
+	var oaths := map.find_child("NoticeSworn", true, false)
+	check(freed != null and oaths != null, "the map tells the releases and the oath as one block each")
+	check(map.sheet_title.text == "Your court", "under a title for your court, not 'After the battle'")
+	check(freed != null and _block_text(freed).contains("+%d renown" % (2 * gs.RELEASE_RENOWN))
+		and _block_text(freed).contains(String(freed_a["name"])) and _block_text(freed).contains(String(freed_b["name"])),
+		"the releases name both lords and total the renown once")
+	check(oaths != null and _block_text(oaths).contains(String(sworn_one["name"])) and _block_text(oaths).contains("1 lord"),
+		"the oath names the lord who swore")
+	check(not gs.has_notice(), "and once told, it isn't told again")
+
 	print("\nCampaign depth tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
+
+
+## Every label's text in a notice block, joined.
+func _block_text(block: Node) -> String:
+	var parts: Array = []
+	for l in block.find_children("*", "Label", true, false):
+		parts.append(String(l.text))
+	return " | ".join(PackedStringArray(parts))
