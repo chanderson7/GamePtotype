@@ -217,8 +217,9 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 				c = t["deep"]
 			if dx < -0.2 and dx > -0.75 and dy > -0.55 and dy < 0.05:
 				c = t["light"]
-			# The hollow under the right cheekbone, and the jaw's turn.
-			if dx > 0.35 and dx < 0.8 and dy > 0.15 and dy < 0.45:
+			# The hollow under the right cheekbone: a wedge inside the shadow band, one tone
+			# deeper, widest just under the bone and tapering toward the jaw.
+			if dy > 0.1 and dy < 0.5 and dx < 0.86 and dx > 0.55 + 0.6 * (dy - 0.1):
 				c = t["deep"]
 			if dy > 0.78 and absf(dx) < 0.5:
 				c = t["dark"]
