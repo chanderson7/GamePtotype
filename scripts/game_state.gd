@@ -79,6 +79,10 @@ var world = null:
 var pending_battle := {}
 ## What the map should tell the player when they get back from a battle, or "".
 var map_notice := ""
+## What the waiting message is about, as its card's title: "After the battle" when a fight
+## was settled, a crown won or lost; empty for everything else, which the map titles by
+## where you are.
+var map_notice_title := ""
 ## Unread desertion warning survives saving until the player acknowledges it.
 var desertion_warning := ""
 ## Battles the autoplay smoke test has fought this run.
@@ -174,6 +178,7 @@ func new_warband() -> void:
 	lord_relations = {}
 	contract = {}
 	map_notice = ""
+	map_notice_title = ""
 	desertion_warning = ""
 	hired_heroes = []
 	active_jobs = []
@@ -1403,6 +1408,7 @@ func _crown_fate() -> bool:
 		crown_won = true
 		renown += 100
 		world.emit_event({"type": "crown_victory"})
+		map_notice_title = "One crown"
 		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Glass Sea has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like." % WorldData.title_case(crown_title())
 	return false
 
@@ -1417,6 +1423,7 @@ func fall_crown() -> void:
 	world.player().faction = ""
 	crown_won = false
 	crown_empty_days = 0
+	map_notice_title = "The crown falls"
 	map_notice = "Your crown has fallen. It held nothing, and %s. The company rides free again; hold a castle or a town and you may raise a banner anew." % (
 		"its lords have gone back to their old allegiances" if not gone.is_empty() else "no lord was left to serve it")
 	save_game()
@@ -2732,6 +2739,14 @@ func _note(text: String) -> void:
 	map_notice = text if map_notice == "" else map_notice + "\n" + text
 
 
+## The waiting message and its title, taken off the queue: {text, title}.
+func take_map_notice() -> Dictionary:
+	var out := {"text": map_notice, "title": map_notice_title}
+	map_notice = ""
+	map_notice_title = ""
+	return out
+
+
 func relation_with_realm(realm: String) -> int:
 	return int(realm_relations.get(realm, 0))
 
@@ -3701,6 +3716,9 @@ func apply_result(result: Dictionary) -> void:
 	pending_battle = {}
 	last_result = report
 	save_game()
+	# Whatever it left to say comes under the battle's own title.
+	if map_notice != "":
+		map_notice_title = "After the battle"
 
 
 ## Attacking a lord of a realm the player is at peace with starts a war.

@@ -194,8 +194,8 @@ func _ready() -> void:
 	elif GameState.desertion_warning != "":
 		_open_desertion_warning()
 	elif GameState.map_notice != "":
-		_open_notice(GameState.map_notice)
-		GameState.map_notice = ""
+		var notice: Dictionary = GameState.take_map_notice()
+		_open_notice(notice["text"], notice["title"])
 	elif world.here() != "":
 		_open_here()
 	# Back from People & Letters with a place to look at (or ride to).
@@ -302,9 +302,9 @@ func _process(delta: float) -> void:
 		_open_desertion_warning()
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
 	if GameState.map_notice != "" and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
-		_open_notice(GameState.map_notice, "On the road")
+		var notice: Dictionary = GameState.take_map_notice()
+		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road")
 		Sound.play("page")
-		GameState.map_notice = ""
 	_clock += delta
 	_music_clock -= delta
 	if _music_clock <= 0.0:
@@ -1605,7 +1605,11 @@ func _open_resource(key: String) -> void:
 	_show_sheet("menu", key.capitalize(), text, [["Close", _close_sheet]])
 
 
-func _open_notice(text: String, title: String = "After the battle") -> void:
+## A message on a card. With no title, it's titled by where you are: a battle's own
+## result says "After the battle" itself, so taxes collected at home never do.
+func _open_notice(text: String, title: String = "") -> void:
+	if title == "":
+		title = _notice_place()
 	if GameState.desertion_warning != "":
 		for line in GameState.desertion_warning.split("\n"):
 			text = text.replace(line, "")
@@ -1618,6 +1622,13 @@ func _open_notice(text: String, title: String = "After the battle") -> void:
 			[["New campaign", _on_new_campaign, true]])
 		return
 	_show_sheet("notice", title, text, [["Carry on", _on_notice_done, true]])
+
+
+func _notice_place() -> String:
+	var here: String = world.here() if world != null else ""
+	if here != "":
+		return "At %s" % String(Data.settlement(here)["name"])
+	return "On the road"
 
 
 func _on_notice_done() -> void:
@@ -2517,8 +2528,7 @@ func _on_storm_send(id: String) -> void:
 	_refresh_hud()
 	_sync_layers()
 	if GameState.map_notice != "":
-		_open_notice(GameState.map_notice, "The assault")
-		GameState.map_notice = ""
+		_open_notice(GameState.take_map_notice()["text"], "The assault")
 
 
 func _on_fight() -> void:
@@ -2533,8 +2543,8 @@ func _on_send_in() -> void:
 	Sound.play("charge")
 	get_tree().create_timer(1.1).timeout.connect(Sound.play.bind("coins" if won else "bell"))
 	_close_sheet()
-	_open_notice(GameState.map_notice)
-	GameState.map_notice = ""
+	var notice: Dictionary = GameState.take_map_notice()
+	_open_notice(notice["text"], notice["title"])
 
 
 func _on_withdraw() -> void:
