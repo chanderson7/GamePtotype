@@ -86,10 +86,20 @@ effect, so the prose never has to.
    - *The hardest fighting*: one of them cut down the most of anyone.
    - *The enemy*: a lord's host under a banner, or outlaws by their region's name
      (brigands, reavers, ronin, Wako pirates); the chief killed or escaped.
-   - *The cost*: losses out of the company, with the place's name.
-   - Otherwise the outcome and the place.
+   - *A heavy day*: see below; losses are a hook only when they were heavy.
+   - Otherwise the outcome and the place, with no number in it.
    About fourteen hooks, each written once with name slots, with a short variant for a
    victory and one for a defeat where the difference matters.
+
+   **When losses are spoken of.** Today every talk prints the cost ("with 4 of the
+   company lost"), and since nearly every battle costs a few men the line becomes
+   wallpaper. Losses get a line only when they are what these two would talk about:
+   - a captain they were both bonded to fell (the absent, below: it is the whole hook of
+     that talk, named, and only once);
+   - one of the pair's own squads lost half or more of its men in the fight;
+   - the company as a whole lost a quarter or more of the men who fought.
+   Ordinary attrition is never mentioned, and when a loss is, the line is about the
+   people, not the count: "Three of your Shields stayed at the ford", not "4 lost".
 
 3. **The exchange** (four to six lines, bubbles). Chosen by rank and by **both**
    temperaments, as an unordered pair: VV, VS, VF, SS, SF, FF. Who speaks first is the one
@@ -110,9 +120,9 @@ effect, so the prose never has to.
    words and without a label: at C, they know where the other will be; at B, they move
    before the other calls; at A, the company has started to say their names together.
 
-5. **The absent** (when either has buried a bonded friend): one line by the mourner's
-   temperament, naming the friend. Kept from today, reworded, and only in the talk at the
-   rank reached after the loss, not every talk.
+5. **The absent** (when a captain both were bonded to fell since the last talk): the hook
+   of that talk, by the mourner's temperament, naming the friend and where they fell. Only
+   in the talk at the rank reached after the loss, never repeated in later ranks.
 
 ### Memory between ranks
 
@@ -127,8 +137,9 @@ rank letters. Old saves' letters become entries with no hook. With that:
 
 Facts to add to the record when a battle is applied, beside `shared_battles` and
 `last_outcome`: `last_place`, `last_objective` (rout, chief, village, siege, defence),
-`last_site` (ford or not), `last_enemy` (band name and whether a lord), and for each of
-the two: `fate`, `kills`, `roll`, `needed`, `first_battle`. All of these exist in the
+`last_site` (ford or not), `last_enemy` (band name and whether a lord), the share of the
+company's men lost, and for each of the two: `fate`, `kills`, `roll`, `needed`,
+`first_battle`, and their squad's men before and after. All of these exist in the
 result or the report at that moment and are dropped today.
 
 ### A talk for a bond that death ended
@@ -186,7 +197,8 @@ dictionary of facts.
 2. **Record the facts.** Extend the bond record at `apply_result` with place, objective,
    site, enemy, and both captains' fate, kills, roll, needed and first-battle flag. Tests:
    each hook fires on a crafted result (close call, ford, siege, first blood, hardest
-   fighting, chief killed), and the most particular one wins.
+   fighting, chief killed, a gutted squad, a heavy day), the most particular one wins,
+   and a battle that cost three men out of two hundred mentions no losses at all.
 3. **The writing pass.** All 36 exchanges, openings, hooks, closings, swaps. Tests: every
    key present for every temperament pair and rank; no exchange text shared between keys;
    every line within the length limit; every name slot filled.
