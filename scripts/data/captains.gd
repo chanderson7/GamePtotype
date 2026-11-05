@@ -39,12 +39,13 @@ const SPECIALIZATION_DESCRIPTIONS := {
 	CHAMPION: "Squad deals +15% melee damage and charge impact; captain gains +25% bonus vitality.",
 }
 
-## The same effects as short lines, for the promotion card. "%s" is the captain's first name.
+## The same effects as short lines, for the promotion card. A line with "%s" (the
+## captain's first name) is formatted, so its percent signs are written "%%".
 const SPECIALIZATION_EFFECTS := {
 	SCOUT: ["+30% scouting sight on the road", "Exact enemy numbers", "Half the ambush risk"],
 	QUARTERMASTER: ["20% less food eaten", "+15% battlefield spoils", "Half the desertion risk"],
 	DRILLMASTER: ["+25% combat experience", "Recruits dilute experience half as much"],
-	CHAMPION: ["+15% melee damage and charge impact", "%s gains +25% vitality"],
+	CHAMPION: ["+15% melee damage and charge impact", "%s gains +25%% vitality"],
 }
 
 ## Who a role works for. "host": the whole army, and only one holder counts (see
