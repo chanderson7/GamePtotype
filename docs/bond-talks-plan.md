@@ -197,3 +197,71 @@ dictionary of facts.
 
 Steps 1 and 2 are the engineering and change what the player reads only a little. Step 3
 is where the game gets its talks. Steps 4 to 6 are each small once 1 to 3 are in.
+
+## A worked example
+
+Brann of the Fens (Vardish, Steadfast, Brann's Shields, nine battles) and Tariq of Khalun
+(Kharzani, Fragile, hired abroad, Tariq's Riders, three battles). Last battle: holding the
+Raven ford near Ravensford against the Fenland cutthroats. Victory, four of the company
+lost. Tariq went down and survived the death roll by four with Brann's squad in rescue
+range. Brann cut down the most, seven. They have just reached rank C.
+
+**Rank C**, as composed (opening: Vardish and Kharzani, one wounded; hook: close call with
+the partner's squad in range; exchange: Steadfast and Fragile, Tariq first because the
+hook is about him; closing: rank C):
+
+> *Tariq sits with the bad leg out toward the fire. He has given up explaining the tea.
+> Brann drinks it anyway.*
+>
+> *At the Raven ford, Tariq went down in the water with the cutthroats over him. Brann's
+> Shields were close enough to drag him out. Another hand's width and the company would be
+> keeping his cup.*
+>
+> **Tariq:** Your men pulled me out by the collar. I'd like it known I was still fighting.
+> **Brann:** You were. Lying down, in a river. Very brave.
+> **Tariq:** I don't know how to thank a man for that.
+> **Brann:** Stand where I can reach you tomorrow. That's the whole of it.
+> **Tariq:** That's a bad trade for you.
+> **Brann:** I'm Fen-born. We don't leave things in rivers.
+>
+> *By morning neither of them will mention it again. But Brann knows where Tariq's riders
+> will be, and Tariq knows who is on his left.*
+
+**Rank B**, two battles later, after storming Highcliff, where Brann was wounded and Tariq
+did the most killing. "Since the river" is the callback to the rank C record:
+
+> *Brann's arm is strapped. Tariq has brought him the tea anyway, and is enjoying it.*
+>
+> *They went over the wall at Highcliff on the same ladder, Tariq's riders on foot for
+> once. He cut down nine. Brann took a blade in the arm on the walk.*
+>
+> **Tariq:** Nine. You can say it.
+> **Brann:** Nine. And the one that got my arm walked right past you.
+> **Tariq:** I saw him. I decided you had it.
+> **Brann:** You decided.
+> **Tariq:** Since the river I've been trying to trust you with things. It's going badly.
+> **Brann:** Keep at it. Drink your tea.
+>
+> *Today they moved before the other called for it, on the ladder and off it. The company
+> has started to notice.*
+
+**The same pair today**, rank C, with Brann first in the roster:
+
+> *Brann and Tariq sit near the edge of the fire. They have fought close enough to rely on
+> one another in 3 battles.*
+> *Their last shared fight ended in victory, with 4 of the company lost. Neither needs to
+> make the cost sound smaller.*
+> *Brann checks Tariq's bandages without ceremony. "You heal. I will keep your place in the
+> line."*
+> *The bond between them is forged in iron (Rank C). Across the watchfire, a shared nod is
+> all that is spoken — when shields lock tomorrow, each knows the other's flank is secure.*
+> *Brann says, "Same distance tomorrow. Close enough to help, far enough to breathe." Tariq
+> nods.*
+>
+> **Brann:** Same distance tomorrow?
+> **Tariq:** Close enough to help, far enough to breathe.
+> **Brann:** You've thought about this.
+> **Tariq:** Since the second charge. Bread?
+
+Nothing of the ford, the near-death or the two peoples reaches it, the "same distance"
+line appears twice, and every Steadfast-first pair in the company reads this exact text.
