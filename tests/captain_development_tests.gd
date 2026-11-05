@@ -5,6 +5,7 @@ const Captains = preload("res://scripts/data/captains.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Economy = preload("res://scripts/data/economy.gd")
+const CaptainFace = preload("res://scripts/art/captain_face.gd")
 
 var passed := 0
 var failed := 0
@@ -35,6 +36,7 @@ func _init() -> void:
 	test_drillmaster_effects()
 	test_champion_effects()
 	test_save_load_specializations()
+	test_faces()
 
 	print("\nCaptain Development Tests finished: %d passed, %d failed" % [passed, failed])
 	if failed > 0:
@@ -204,3 +206,26 @@ func test_save_load_specializations() -> void:
 	assert_eq(String(loaded_gs.army[0]["captain"]["specialization"]), Captains.DRILLMASTER, "Drillmaster specialization preserved")
 	assert_eq(String(loaded_gs.army[1]["captain"]["specialization"]), Captains.QUARTERMASTER, "Quartermaster specialization preserved")
 	assert_true(loaded_gs.has_specialization(Captains.DRILLMASTER), "has_specialization reflects loaded data")
+
+
+func test_faces() -> void:
+	print("\n--- Captain Faces ---")
+	var c := {"id": 7, "culture": "vardish", "first": "Briony", "type": "cavalry", "temperament": "Steadfast",
+		"battles": 25, "history": {"wounds": 2}}
+	var face := CaptainFace.image(c, true)
+	assert_eq(Vector2i(face.get_width(), face.get_height()), Vector2i(60, 80), "A face is 60 x 80, the portraits' 3:4")
+	assert_true(face.get_data() == CaptainFace.image(c, true).get_data(), "The same captain always gets the same face")
+	var other := c.duplicate(true)
+	other["id"] = 8
+	assert_true(face.get_data() != CaptainFace.image(other, true).get_data(), "Another captain gets another face")
+	for mood in CaptainFace.EXPRESSIONS:
+		if String(mood) == "":
+			continue
+		assert_true(CaptainFace.image(c, true, String(mood)).get_data() != face.get_data(), "The %s expression changes the face" % mood)
+	var champion := c.duplicate(true)
+	champion["specialization"] = Captains.CHAMPION
+	assert_true(CaptainFace.image(champion, true).get_data() != face.get_data(), "A veteran role shows on the captain")
+	assert_eq(String(Captains.face_record(champion).get("specialization", "")), Captains.CHAMPION,
+		"A saved face record keeps the veteran role")
+	assert_true(CaptainFace.image(Captains.face_record(champion), true).get_data() == CaptainFace.image(champion, true).get_data(),
+		"A memorial's face record draws the same face as the captain")

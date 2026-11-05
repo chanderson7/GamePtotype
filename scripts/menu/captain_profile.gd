@@ -123,7 +123,8 @@ func _add_hero(col: VBoxContainer, captain: Dictionary, found: Dictionary, falle
 	hero.name = "CaptainHero"
 	hero.add_theme_constant_override("separation", 22)
 	col.add_child(hero)
-	var pic := CaptainArt.portrait(captain, Vector2(150, 190))
+	# Just promoted: proud. Otherwise their resting face.
+	var pic := CaptainArt.portrait(captain, Vector2(150, 190), "proud" if _flash != "" else "")
 	if pic.texture != null:
 		hero.add_child(Widgets.framed(pic, Vector2(150, 190), fallen, 0.0))
 	var identity := VBoxContainer.new()

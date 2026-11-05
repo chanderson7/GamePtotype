@@ -2948,7 +2948,7 @@ func _result_memorial(m: Dictionary) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
-	row.add_child(CaptainArt.portrait(m.get("survivor_face", {}), Vector2(54, 72)))
+	row.add_child(CaptainArt.portrait(m.get("survivor_face", {}), Vector2(54, 72), "grief"))
 	var gone := CaptainArt.portrait(m.get("fallen_face", {}), Vector2(54, 72))
 	gone.modulate = Color(0.5, 0.5, 0.58)
 	row.add_child(gone)
@@ -3735,7 +3735,7 @@ func _draw_roll() -> void:
 	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
 	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, 34, Color(Style.TEXT, a))
 	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
-	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}))
+	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain")
 	if face != null:
 		# The face in a brass frame.
 		var fr := Rect2(Vector2(x + 16, y + 16), Vector2(78, 104))

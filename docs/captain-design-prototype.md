@@ -1,10 +1,12 @@
-# Captain faces: a design prototype
+# Captain faces: the richer design
 
-A prototype, not yet adopted. `scripts/art/captain_face_v2.gd` draws the same captains as
-`captain_face.gd` with more in them: a jaw and cheekbones, eyes with an iris and a lid,
-clothes that carry rank, troops and veteran role, and an expression for the moment. It is
-wired behind a switch, `CaptainArt.prototype`, off by default; flip it to see the whole
-game in the new faces. Nothing else changes until it's adopted.
+Adopted. `scripts/art/captain_face.gd` now draws every captain with more in them than the
+first generator did: a jaw and cheekbones, eyes with an iris and a lid, clothes that carry
+rank, troops and veteran role, and an expression for the moment. It began as a prototype
+beside the old generator behind a switch; after review it replaced it, and the switch is
+gone. Expressions are wired where the moment is known: `pain` on the death roll, `grief`
+for the survivor on a memorial card and in a bond memorial, `warm` at a bond talk and a
+new bond rank, `proud` on the profile just after a promotion.
 
 Sheets, all in `mockups/`:
 
@@ -15,10 +17,11 @@ Sheets, all in `mockups/`:
 | `captain-faces-uniforms.png` | Each culture: four troop types at rank 1, 2 and 3, then the four veteran roles. |
 | `captain-faces-lords.png` | Lords and rulers, current above prototype. |
 | `captain-faces-sizes.png` | Both at every size the game shows a portrait, from the camp token to the profile. |
+| `captain-faces-batch-1.png` to `-4.png` | 96 numbered captains across every culture, troop, rank, temper, quirk, wound and role, used for review. |
 
-## What's there now
+## What the first generator did
 
-The current generator draws a 48 × 64 bust from a captain's id and culture. It does the
+The first generator drew a 48 × 64 bust from a captain's id and culture. It does the
 important thing well: every captain has one face, kept across screens and saves, and it
 changes with their life (scars, grey, a bandage, a pin for rank). Its limits, from the
 baseline sheet (`compare`, top rows):
@@ -34,7 +37,7 @@ baseline sheet (`compare`, top rows):
    small shield) are small enough to miss. A veteran role shows nowhere on the figure.
 5. **Hair is a flat cap**, long hair two straight blocks, beards a flat fill.
 
-## The prototype
+## The design
 
 ### Size
 
@@ -105,27 +108,27 @@ their face smiling.
 - **Where it's about even:** the two smallest sizes. The prototype's gain is from the
   Warband roster up: the bond intro, the talk screens, the death roll, the profile.
 
-## To adopt it
+## What adoption changed
 
-1. Flip `CaptainArt.prototype` on and look through the Warband, a bond talk, the death
-   roll and a lord's audience. The face cache keys on the switch, so nothing stale shows.
-2. Pass expressions where the moment is known: `pain` on the death roll
-   (`battle_screen.gd`, `_draw_death_roll`), `grief` for the survivor on a memorial card
-   and in `bond_intro` memorials, `warm` in `bond_conversation`, `proud` on the profile
-   after a promotion, `grim` on battle cards. All take `CaptainArt.texture(c, expression)`
-   or `CaptainArt.portrait(c, size, expression)`.
-3. Retire `captain_face.gd` by renaming v2 over it, and drop the switch. The
-   `_face_key` in `captain_art.gd` already includes everything the face depends on.
-4. Tests: a check that `features()` gives the same first eleven draws in both generators
-   for a sample of captains (identity), and a check that each expression changes the image.
+- `captain_face.gd` is the new generator; the old one and the `CaptainArt.prototype`
+  switch are gone. Every portrait keeps its slot: the face is the same 3:4.
+- `CaptainArt.texture(captain, expression)` and `CaptainArt.portrait(captain, size,
+  expression)` take an expression; the face cache keys on it and on the veteran role.
+- `Captains.face_record` keeps the veteran role, so a memorial shows the token the
+  captain wore.
+- After review: long hair and the tied tail hang behind the head (in front they framed
+  the face like a hood), beards follow the jaw, and ears sit on the face's edge.
+- Tests in `captain_development_tests.gd`: the size, the same face every time, a different
+  face for another captain, each expression changing it, the role token, and a face
+  record drawing the same face as the captain.
 
 ## Open questions
 
 - **A helmet option** for infantry and spearmen at rank 3 was left out: it hides the hair
   that carries most of a captain's identity. A helmet carried under the arm would need a
   wider bust.
-- **Battle-card faces** (54 × 72) could use the resting face only, or a `grim` face for
-  everyone; the sheet suggests `grim` reads there, the rest don't.
+- **Battle-card faces** (54 × 72) keep the resting face for now. `grim` reads at that
+  size if a battle look is wanted later.
 - **Women's faces.** The generator's `soft` flag already draws some captains with softer
   features and fewer beards; at the new size there is room for a dedicated set of jaw,
   brow and lip shapes for them, which would be the next detail pass.

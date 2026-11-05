@@ -6,28 +6,23 @@ extends RefCounted
 const Style = preload("res://scripts/ui/style.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const CaptainFace = preload("res://scripts/art/captain_face.gd")
-const CaptainFaceV2 = preload("res://scripts/art/captain_face_v2.gd")
-
-## PROTOTYPE: draw every captain with the richer generator (captain_face_v2.gd). Off
-## until it's adopted; flip it to see the whole game in the new faces.
-static var prototype := false
 
 static var _textures: Dictionary = {}
 static var _faces: Dictionary = {}
 
 
-## `expression` is the moment the face is drawn for ("" for the captain's resting face);
-## only the prototype generator draws them.
+## `expression` is the moment the face is drawn for: "" for the captain's resting face, or
+## one of CaptainFace.EXPRESSIONS (grim, pain, grief, proud, fear, warm).
 static func texture(captain: Dictionary, expression: String = "") -> Texture2D:
 	if not Style.illustrations_on():
 		return null
 	# Old saves still carry a painted appearance id; it no longer chooses the face, but
 	# keep it filled in so nothing that reads it breaks.
 	Captains.ensure_appearance(captain)
-	var key := _face_key(captain) + ("|v2|" + expression if prototype else "")
+	var key := _face_key(captain) + "|" + expression
 	if _faces.has(key):
 		return _faces[key]
-	var tex: Texture2D = CaptainFaceV2.texture(captain, true, expression) if prototype else CaptainFace.texture(captain)
+	var tex: Texture2D = CaptainFace.texture(captain, true, expression)
 	if _faces.size() > 400:
 		_faces.clear()
 	_faces[key] = tex
@@ -35,14 +30,15 @@ static func texture(captain: Dictionary, expression: String = "") -> Texture2D:
 
 
 ## Everything that changes how a captain looks: who they are, and how their career has
-## marked them.
+## marked them, down to the token of a veteran role.
 static func _face_key(captain: Dictionary) -> String:
 	var history: Dictionary = captain.get("history", {}) if typeof(captain.get("history", {})) == TYPE_DICTIONARY else {}
 	return "%d|%s|%s|%s|%s|%s|%s|%d|%d|%d" % [int(captain.get("id", 0)), String(captain.get("culture", "")),
 		String(captain.get("first", captain.get("name", ""))), String(captain.get("type", "")),
 		String(captain.get("temperament", "")), String(captain.get("quirk", "")),
 		("bandaged" if int(captain.get("wounded", 0)) > 0 else "") + String(captain.get("noble", "")) + String(captain.get("house", "")),
-		CaptainFace.rank(captain), mini(3, int(history.get("wounds", 0))), 1 if int(captain.get("battles", 0)) >= 20 else 0]
+		CaptainFace.rank(captain), mini(3, int(history.get("wounds", 0))), 1 if int(captain.get("battles", 0)) >= 20 else 0] \
+		+ "|" + String(captain.get("specialization", ""))
 
 
 static func portrait(captain: Dictionary, size: Vector2 = Vector2(60, 80), expression: String = "") -> TextureRect:

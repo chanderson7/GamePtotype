@@ -22,8 +22,8 @@ func _ready() -> void:
 	_a = conversation["a"]
 	_b = conversation["b"]
 	stage.name = "BondConversationPortraits"
-	set_face("left", CaptainArt.texture(_a), true, 0.62)
-	set_face("right", CaptainArt.texture(_b), true, 0.62)
+	set_face("left", CaptainArt.texture(_a, "warm"), true, 0.62)
+	set_face("right", CaptainArt.texture(_b, "warm"), true, 0.62)
 	_show(String(conversation["rank"]))
 
 

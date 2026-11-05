@@ -178,6 +178,7 @@ static func face_record(c: Dictionary) -> Dictionary:
 		"culture": String(c.get("culture", Cultures.VARDISH)), "type": String(c.get("type", "")),
 		"temperament": String(c.get("temperament", "")), "quirk": String(c.get("quirk", "")),
 		"battles": int(c.get("battles", 0)), "wounded": int(c.get("wounded", 0)),
+		"specialization": String(c.get("specialization", "")),
 		"history": {"wounds": int(history.get("wounds", 0))}}
 
 
