@@ -212,6 +212,9 @@ is where the game gets its talks. Steps 4 to 6 are each small once 1 to 3 are in
 
 ## A worked example
 
+`mockups/bond-talk-example.png` shows the rank C talk below on the phone screen, with
+the steps from the battle to the words and which fact chose each part.
+
 Brann of the Fens (Vardish, Steadfast, Brann's Shields, nine battles) and Tariq of Khalun
 (Kharzani, Fragile, hired abroad, Tariq's Riders, three battles). Last battle: holding the
 Raven ford near Ravensford against the Fenland cutthroats. Victory, four of the company
