@@ -44,6 +44,9 @@ const ROLE_BADGES := {
 	"inside": ["inside", "Inside", Color("2b4f7a"), Color("bfe0ff")],
 	"bows": ["bow", "Bows", Color("3a3156"), Color("d8cdfa")],
 	"gate": ["gate", "Gate", Color("5a3b1d"), Color("ffd79a")],
+	"tower": ["gate", "Stones", Color("4a4a52"), Color("e2e0dc")],
+	"head": ["ladder", "Ladder", Color("2b5a2f"), Color("b8f5b0")],
+	"breach": ["breach", "Breach", Color("5a2a24"), Color("ffc0b0")],
 }
 const CHIP_GAP := 8.0
 const MAX_CHIPS_PER_ROW := 8
@@ -325,6 +328,8 @@ var ability_button: Button
 var hold_fire_button: Button
 ## Storming a castle: sends the foot over the walls (see BattleSim.order_storm).
 var storm_button: Button
+## Defending a siege: "Man the walls" while the gate holds, "Hold the breach" after.
+var post_button: Button
 ## The storm plan on show (squad id -> "ladder", "ram" or "bows") before it's given; the
 ## battle waits while it's up. Storm! gives it, Cancel drops it.
 var _storm_plan: Dictionary = {}
@@ -1455,6 +1460,8 @@ func _storm_plan_text() -> String:
 		parts.append("%s take%s the ladders" % [_and_list(ladders), "s" if ladders.size() == 1 else ""])
 	if not ram.is_empty():
 		parts.append("%s go%s to the ram" % [_and_list(ram), "es" if ram.size() == 1 else ""])
+	if _storm_plan.values().has("bows"):
+		parts.append("the bows shoot the walls")
 	return "; ".join(parts) + "." if not parts.is_empty() else "Everyone advances on the walls."
 
 
@@ -1482,7 +1489,7 @@ func _on_storm_go() -> void:
 			_mark_ordered(sq)
 	Sound.play("charge", 0.0, 0.05, 0.6)
 	Sound.haptic(false)
-	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate.")
+	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate, the bows shoot the walls.")
 
 
 func _on_storm_cancel() -> void:
@@ -1511,7 +1518,29 @@ func _on_advance() -> void:
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
-		_hint("The whole army advances. Each squad goes for the enemy it fights best.")
+		if sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER:
+			_hint("Sally! The garrison leaves its posts and goes for the enemy.")
+		else:
+			_hint("The whole army advances. Each squad goes for the enemy it fights best.")
+
+
+## Defending a siege: send every company to its post on the walls, or, once the gate is
+## down, the foot to the crescent behind it.
+func _on_post() -> void:
+	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1 or sim.siege_defender != Sim.PLAYER:
+		return
+	_select(null)
+	if sim.gate_hp > 0.0:
+		sim.man_the_walls(Sim.PLAYER)
+		_hint("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.")
+	else:
+		var sent: Array = sim.form_breach(Sim.PLAYER)
+		_hint("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])))
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER and sq.is_active() and not sq.is_ally:
+			_mark_ordered(sq)
+	Sound.play("call_start", 0.0, 0.05, 0.6)
+	Sound.haptic(false)
 
 
 func _on_hold() -> void:
@@ -1861,6 +1890,12 @@ func _draw_walls() -> void:
 			draw_line(Vector2(r.position.x, r.get_center().y), Vector2(r.end.x, r.get_center().y), Color(st["roof"]).darkened(0.3), 2.0)
 			if st["dome"]:
 				draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.28, st["dome_color"])
+	# The wall walk's depth: the stretch behind the battlements where men are covered.
+	var cover: float = Sim.WALL_COVER - cell * 0.5
+	var band := Rect2(0, top - cover, w, cover) if inward < 0.0 else Rect2(0, top + cell, w, cover)
+	draw_rect(band, Color(st["walk"], 0.55))
+	var inner_y: float = band.position.y if inward < 0.0 else band.end.y
+	draw_line(Vector2(0, inner_y), Vector2(w, inner_y), Color(st["dark"], 0.7), 2.0)
 	# The wall: its body, a wall walk on the inside, battlements on the outside.
 	var body := Rect2(0, top, w, cell)
 	draw_rect(Rect2(body.position + Vector2(0, 8.0 * -inward), body.size), Color(0, 0, 0, 0.3))
@@ -1962,16 +1997,29 @@ func _consume_events() -> void:
 					_tick("They're on the ladders! Throw them down!", Style.ENEMY_LIGHT, "ladder")
 				else:
 					_tick("Your men are on the ladders!", Style.PLAYER_LIGHT, "ladder")
+			"stones":
+				_drop_stones(e["at"])
 			"siege_moment":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
-				Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
-				if e["kind"] == "first_over":
+				if e["kind"] == "stones":
+					if mine:
+						_tick("%s drop stones on the ram!" % _company_or_type(sq), Style.PLAYER_LIGHT, "gate")
+					else:
+						_tick("Stones from the gatehouse!", Style.ENEMY_LIGHT, "gate")
+				elif e["kind"] == "thrown_down":
+					if mine:
+						_tick("%s throw them off the ladder!" % _company_or_type(sq), Style.PLAYER_LIGHT, "ladder")
+					else:
+						_tick("Thrown from the ladder!", Style.ENEMY_LIGHT, "ladder")
+				elif e["kind"] == "first_over":
+					Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
 					if mine:
 						_tick("%s are over the wall!" % _company_or_type(sq), Style.PLAYER_LIGHT, "walls")
 					else:
 						_tick("They're over the wall!", Style.ENEMY_LIGHT, "walls")
 				elif e["kind"] == "courtyard":
+					Sound.play_at("warcry", _to_screen(sq.average_pos()), 0.0, 0.05, 2.0)
 					if mine:
 						_tick("%s are in the courtyard!" % _company_or_type(sq), Style.PLAYER_LIGHT, "inside")
 					else:
@@ -2256,6 +2304,19 @@ func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
 	bursts.append({"pos": at, "kind": kind, "color": color, "age": 0.0, "life": life})
 
 
+## Stones falling from the gate tower onto the men at the ram: a few of the volley drawn,
+## each a grey dot dropping from the wall top and a puff where it lands.
+func _drop_stones(hits: Array) -> void:
+	if hits.is_empty():
+		return
+	var top: float = sim.wall_y + sim.inward() * 10.0
+	for i in mini(5, hits.size()):
+		var at: Vector2 = hits[i]
+		bursts.append({"pos": at, "from": Vector2(at.x + randf_range(-10.0, 10.0), top), "kind": "stone",
+			"color": Color("a8a39a"), "age": 0.0, "life": 0.45})
+	Sound.play_at("heavy", _to_screen(sim.gate_center), -4.0, 0.08, 1.0)
+
+
 ## A line in the ticker along the top of the field, for what's happening in the story.
 func _tick(text: String, color: Color, icon: String = "") -> void:
 	for t in ticker:
@@ -2436,6 +2497,10 @@ func _siege_note(captain: Dictionary) -> String:
 			notes.append("First over the wall")
 		elif e["kind"] == "courtyard":
 			notes.append("First into the courtyard")
+		elif e["kind"] == "stones":
+			notes.append("Stones on the ram")
+		elif e["kind"] == "thrown_down":
+			notes.append("Threw them off the ladders")
 	return " · ".join(notes)
 
 
@@ -2463,6 +2528,12 @@ func _siege_timeline() -> Control:
 				rows.append([e["t"], "breach", "The ram broke the gate", Color("ffc06a")])
 			"courtyard":
 				rows.append([e["t"], "inside", "%s took the courtyard" % who, Color("bfe0ff")])
+			"stones":
+				var from := who if defending else "The gatehouse"
+				rows.append([e["t"], "gate", "%s dropped stones on the ram (%d in all)" % [from, sim.stones_dropped], Color("e2e0dc")])
+			"thrown_down":
+				var by := who if defending else "The garrison"
+				rows.append([e["t"], "ladder", "%s threw a man off a ladder (%d in all)" % [by, sim.thrown_down], Color("b8f5b0")])
 	var attacker_won: bool = sim.winner != sim.siege_defender
 	var end_line := "The garrison broke and ran" if attacker_won else "The walls held"
 	if defending:
@@ -2946,6 +3017,9 @@ func _build_hud() -> void:
 	storm_go_button = _order_button("Storm!", "storm", _on_storm_go, buttons_row, true, true)
 	storm_go_button.name = "StormGo"
 	storm_go_button.visible = false
+	post_button = _order_button("Man the walls", "walls", _on_post, buttons_row)
+	post_button.name = "PostButton"
+	post_button.visible = false
 	ability_button = _order_button("", "fight", _on_ability, buttons_row)
 	ability_button.draw.connect(_draw_ability_cooldown)
 	hold_fire_button = _order_button("Hold fire", "holdfire", _on_hold_fire, buttons_row)
@@ -3184,6 +3258,7 @@ func _refresh_deploy() -> void:
 	ability_button.visible = false
 	hold_fire_button.visible = false
 	storm_button.visible = false
+	post_button.visible = false
 	info_label.text = ""
 
 
@@ -3196,6 +3271,12 @@ func _refresh_battle() -> void:
 	storm_button.visible = sq == null and sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.ENEMY \
 		and sim.winner == -1 and _storm_plan.is_empty()
 	storm_button.disabled = sim.gate_hp <= 0.0
+	var defending: bool = sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER
+	post_button.visible = sq == null and defending and sim.winner == -1
+	if post_button.visible:
+		var broken: bool = sim.gate_hp <= 0.0
+		post_button.text = "Hold breach" if broken else "Man the walls"
+		_set_icon(post_button, "breach" if broken else "walls")
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
@@ -3243,7 +3324,7 @@ func _refresh_battle() -> void:
 				up += 1 if _storm_plan[id] == "ladder" else 0
 				ram += 1 if _storm_plan[id] == "ram" else 0
 			info_label.text = "Storm plan · %d to the ladders · %d to the ram" % [up, ram]
-		advance_button.text = "Advance all"
+		advance_button.text = "Sally" if defending else "Advance all"
 		hold_button.text = "Hold all"
 	advance_button.disabled = sim.winner != -1
 	hold_button.disabled = sim.winner != -1
@@ -3255,9 +3336,9 @@ func _objective_text() -> String:
 	if not _storm_plan.is_empty():
 		return "Storm plan · tap Storm! to go"
 	if sim.gate_hp <= 0.0:
-		return "Throw them back" if defending else "Rout the garrison"
+		return "Hold the breach" if defending else "Rout the garrison"
 	if defending:
-		return "Hold the gate"
+		return "Man the walls · stones on the ram, hold the ladders"
 	return "Take the walls · break the gate or climb" if _deploying() else "Take the walls"
 
 
@@ -4063,6 +4144,7 @@ func _draw_objectives() -> void:
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_walls()
 		_draw_siege_reach()
+		_draw_garrison_posts()
 	if sim.objective == Sim.OBJECTIVE_VILLAGE:
 		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
 		draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
@@ -4220,6 +4302,19 @@ func _draw_bursts() -> void:
 				for i in 5:
 					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
 					draw_circle(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
+			"stone":
+				var from: Vector2 = burst.get("from", pos)
+				if t < 0.7:
+					var k := t / 0.7
+					var at := from.lerp(pos, k * k)
+					draw_circle(at + Vector2(2, 2), 4.0, Color(0, 0, 0, 0.35))
+					draw_circle(at, 4.0, Color(burst["color"], 1.0))
+					draw_circle(at + Vector2(-1, -1), 1.6, Color(1, 1, 1, 0.5))
+				else:
+					var k2 := (t - 0.7) / 0.3
+					for i in 4:
+						var d := Vector2.from_angle(float(i) / 4.0 * TAU + 0.4)
+						draw_circle(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
 			"fall":
 				draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
 				draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
@@ -4843,6 +4938,40 @@ func _draw_siege_reach() -> void:
 		var mid: Vector2 = lp + Vector2(0, Terrain.CELL * 0.5 + 14.0)
 		draw_arc(mid, 26.0, 0.0, TAU, 32, Color("ffe08a"), 2.5)
 		_field_label("Ladder", mid + Vector2(0, 46.0), Color("ffe08a"), Color(Style.NIGHT, 0.9), Color("8a7a3a"))
+
+
+## Holding the walls yourself, before the fight and while the gate holds: where the
+## garrison's posts are. The gate tower (stones on the ram), the ladder heads, and the
+## crescent behind the gate where the breach is met.
+func _draw_garrison_posts() -> void:
+	if sim.siege_defender != Sim.PLAYER or sim.winner != -1:
+		return
+	var show_all := _deploying()
+	if not show_all and (selected_squad != null or sim.gate_hp <= 0.0):
+		return
+	var a := 1.0 if show_all else 0.45
+	var tower := Vector2(sim.gate_center.x, sim.wall_y + sim.inward() * Sim.WALK_DEPTH)
+	var stone := Color("e2e0dc")
+	draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.10 * a))
+	draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.6 * a), false, 2.0)
+	var gold := Color("b8f5b0")
+	for i in sim.ladder_points().size():
+		var head: Vector2 = sim.ladder_head_post(i)
+		draw_arc(head, 30.0, 0.0, TAU, 32, Color(gold, 0.8 * a), 2.5)
+	var red := Color("ff8a6a")
+	var posts: Array = sim.breach_posts(3)
+	var arc := PackedVector2Array()
+	for k in 25:
+		var ang := deg_to_rad(lerpf(-Sim.BREACH_SPREAD - 15.0, Sim.BREACH_SPREAD + 15.0, k / 24.0))
+		arc.append(sim.gate_center + Vector2(sin(ang) * Sim.BREACH_RADIUS, cos(ang) * Sim.BREACH_RADIUS * sim.inward()))
+	for k in range(0, arc.size() - 1, 2):
+		draw_line(arc[k], arc[k + 1], Color(red, 0.85 * a), 3.0)
+	if not show_all:
+		return
+	_field_label("Gate tower · stones on the ram", Vector2(tower.x, sim.wall_y - sim.inward() * 44.0), stone, Color(Style.NIGHT, 0.9), Color("6a6a72"))
+	for i in sim.ladder_points().size():
+		_field_label("Ladder head", sim.ladder_head_post(i) + Vector2(0, sim.inward() * 44.0), gold, Color(Style.NIGHT, 0.9), Color("3c7a40"))
+	_field_label("Hold the breach here", posts[0] + Vector2(0, sim.inward() * 72.0), Color("ffc0b0"), Color(Style.NIGHT, 0.9), Color("a14a3c"))
 
 
 ## Adds `piece` to a set of outlines, merging it with any it overlaps.

@@ -1,7 +1,7 @@
 # Bannerfall: the siege defence plan
 
 - **Date:** 2026-11-05
-- **Status:** proposed. Nothing here is built. Mockups are in `docs/mockups/`; today's deploy is `siege-deploy-today.png`.
+- **Status:** built (2026-11-05). Deviations and the measured result are under *As built* at the end. Mockups are in `docs/mockups/`; the deploy before the change is `siege-deploy-today.png`.
 - **Goal:** turn a castle battle from a scrum at the gate into a defence with places and
   jobs: the wall walk, the gate tower, the ladder heads, the breach. The garrison's
   numbers already hold; what it lacks is anything to *do* with a wall.
@@ -215,3 +215,82 @@ called done.
   player sees why the attackers are dying at the gate?
 - Sally as a button invites the mistake the AI makes today. Keep it, with a warning hint
   when the attackers still outnumber the men inside?
+
+## As built
+
+All of A–E and G are in; F (nerve behind stone) is not, as planned. Where the build
+differs from the plan above:
+
+- **A.** As planned, plus: bowmen shooting from outside never walk round by the gate
+  either (a bowman whose mark is just out of his own reach used to be routed to the
+  gate by the wall crossing and drag his company there), and a garrison company
+  *holding* keeps to the inside of its wall even after the breach, so the breach is
+  held rather than followed out.
+- **B1.** The walk is `WALL_COVER` 55 px (not 45: a company two ranks deep, centred
+  38 px in, needs it) at the old 50% (not 35%). The walk is now drawn that deep. The
+  range bonus for bows on the walk and a bigger garrison quiver were tried and taken out:
+  together with the cover they let the walk outshoot the attacking bows, so even
+  assaults lost every man on foot while killing two or three of the garrison.
+- **B2.** Stones are `STONE_DAMAGE` 6 a second per man on the tower (not 15), 40% of it
+  through the ram's roof. The tower company is the first company of swords; it's drawn as
+  falling stones with a puff of dust, and the first volley is a callout.
+- **B3.** A held head slows the climb to 0.35 (not 0.25) and the man topping the
+  ladder strikes at 75% (not 50%); the double damage from the walk was taken out
+  (`THROWN_DOWN` 1.0). What makes the heads matter is new: the garrison commander sends
+  its nearest free foot company up to a ladder's head as soon as men gather at its foot
+  (`_guard_ladders`), and the bows' posts moved to beside the ladders (115 px toward the
+  gate) so the head is free for them. Men killed on a ladder are still counted and the
+  first is a callout and a line in the result.
+- **C.** `breach_posts()` is a crescent 130 px behind the gate (not 70: three companies
+  of twenty don't fit closer). The garrison holds its posts after the breach and sallies
+  when it's winning or 45 s have passed; on the breach, its idle foot (not the tower
+  company, which plugs the gate mouth where it stands) marches to the crescent
+  (`BattleSim.form_breach`, shared by the AI and the player's *Hold breach*).
+- **D.** As planned. Bows out of arrows in a storm wait at their stand-off point until
+  the gate breaks, rather than join the press at the ram with knives.
+- **E.** `garrison_plan()` lays out the posts for both auto-deploy and the player's
+  *Man the walls* (`BattleSim.man_the_walls`). The defender's bar is *Sally* (the
+  renamed *Advance all*), *Hold all* and one post button, *Man the walls* or, once the
+  gate is down, *Hold breach* (the full words didn't fit a phone button).
+- **G.** As planned, plus card badges for the garrison (*Stones*, *Ladder*, *Breach*) and
+  two new lines in the result's siege timeline (the first stones, the first man thrown
+  off a ladder, with totals).
+
+### Measured
+
+`tests/_partial_siegeprobe.gd`, AI against AI on a castle:
+
+| Assault | Before | After |
+| --- | --- | --- |
+| Even, 5 v 5: attacker wins | 1 of 8 | 0 of 8 |
+| Even: garrison men lost (of 99) | ~37 | ~25 |
+| Half again, 7 v 5: attacker wins | 7 of 8 | 20 of 32 |
+| Half again: men lost, attacker / garrison | 66 / 62 | 84 / 58 |
+| Twice, 10 v 5: attacker wins | n/a | 8 of 8 |
+| Even, on walls you hold: attacker wins | n/a | 0 of 8 |
+
+The half-again result is the one to watch. Eight seeds weren't enough to judge it: the
+same code gave 6 of 8 and 1 of 4 on different seed sets and deploy orders, and only 32
+settled it near 62%. `tests/siege_tests.gd` now asks for at least 4 of 8 wins and 7 of 8
+breaches, and checks twice the garrison wins 4 of 4. Auto-resolve's wall multiplier
+(castle ×1.6) makes a 7-v-5 assault a slight underdog; the sim now sits closer to that
+than the 87% it gave before, so it was left alone.
+
+Where the men stand at 40 s into an even assault, before → after: attackers within 80 px
+of the wall 85 of 85 → about 35 of 85; attacking bows' distance from the wall about 20 px
+→ about 225 px; garrison companies fighting through the shut gate, 2 → none; ladders
+used, 0 men over → 20–40 over; garrison companies outside their wall after the breach,
+before it sallies, 2 → none.
+
+
+### Screens
+
+- `docs/mockups/siege-defend-deploy.png`: holding your own walls, after *Auto-place*: bows
+  on the walk beside a ladder, swords on the gate tower, the rest behind the gate, the
+  horse in the courtyard, with the posts labelled.
+- `docs/mockups/siege-defend-30s.png`: 30 s in. Fighting at both ladders and the gate,
+  not one scrum; the cards read *Stones* and *Ladder*; the bar is *Sally*, *Hold all*,
+  *Man the walls*.
+- `docs/mockups/siege-defend-breach.png`: the gate down, the garrison holding the breach.
+- `docs/mockups/siege-attack-25s.png`: storming: two companies over the ladders, one at
+  the ram, the bows standing off.
