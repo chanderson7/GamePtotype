@@ -1,8 +1,160 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="24" fill="#0e1322"/>
-  <rect x="30" y="18" width="7" height="94" rx="3" fill="#d9a944"/>
-  <path d="M37 22 H100 L86 44 L100 66 H37 Z" fill="#3f6fd8"/>
-  <path d="M37 22 H100 L86 44 L100 66 H37 Z" fill="none" stroke="#a9c4ff" stroke-width="3" stroke-linejoin="round"/>
-  <path d="M55 33 L62 44 L55 55 L48 44 Z" fill="#ece5d3"/>
-  <circle cx="33.5" cy="16" r="6" fill="#d9a944"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Bannerfall: the three realms' banners raised over the Glass Sea at dawn.
+       Vardmark's gonfalon (a silver keep on blue), Ryumon's nobori (three crossed arrows on
+       red under a white head) and Kharzan's swallowtail (a crimson sun over teal waters on
+       saffron), drawn to the same shapes as scripts/ui/heraldry.gd, on the game's night
+       palette. Full bleed: the platform rounds the corners. -->
+  <defs>
+    <radialGradient id="dawn" cx="512" cy="700" r="600" gradientUnits="userSpaceOnUse" gradientTransform="translate(0 700) scale(1 0.5) translate(0 -700)">
+      <stop offset="0" stop-color="#f3b65c" stop-opacity="0.5"/>
+      <stop offset="0.4" stop-color="#8e5a6e" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#0e1322" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sea" x1="0" y1="660" x2="0" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5dd0d8"/>
+      <stop offset="0.3" stop-color="#1f8aa0"/>
+      <stop offset="0.72" stop-color="#114a66"/>
+      <stop offset="1" stop-color="#0e1f36"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="680" x2="0" y2="790" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#dcfcff" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#dcfcff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pole" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f3d476"/>
+      <stop offset="0.45" stop-color="#d9a944"/>
+      <stop offset="1" stop-color="#8a6324"/>
+    </linearGradient>
+    <linearGradient id="blueCloth" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4172d8"/>
+      <stop offset="1" stop-color="#2d4ea6"/>
+    </linearGradient>
+    <linearGradient id="redCloth" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c84234"/>
+      <stop offset="1" stop-color="#a02c22"/>
+    </linearGradient>
+    <linearGradient id="saffronCloth" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#eaab36"/>
+      <stop offset="1" stop-color="#c47f20"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Night sky, with the dawn glow low over the water. -->
+  <rect width="1024" height="1024" fill="#0e1322"/>
+  <rect width="1024" height="1024" fill="url(#dawn)"/>
+  <g fill="#ece5d3">
+    <circle cx="86" cy="118" r="3.4" opacity="0.55"/>
+    <circle cx="930" cy="110" r="2.8" opacity="0.5"/>
+    <circle cx="380" cy="70" r="2.2" opacity="0.4"/>
+    <circle cx="840" cy="212" r="2.0" opacity="0.4"/>
+    <circle cx="62" cy="400" r="2.4" opacity="0.35"/>
+    <circle cx="372" cy="560" r="2.2" opacity="0.3"/>
+    <circle cx="960" cy="540" r="2.6" opacity="0.3"/>
+    <circle cx="130" cy="600" r="2.0" opacity="0.25"/>
+  </g>
+
+  <!-- The Glass Sea. -->
+  <path d="M0 702 C 120 674, 200 732, 310 704 S 520 672, 640 704 S 860 736, 1024 696 L1024 1024 L0 1024 Z" fill="url(#sea)"/>
+  <!-- Reflections of the cloth, broken up by the water. -->
+  <g fill="none" stroke-linecap="round">
+    <g stroke="#6f98ff">
+      <path d="M132 740 C 160 734, 200 746, 262 738" stroke-width="7" opacity="0.5"/>
+      <path d="M150 776 C 180 770, 210 782, 248 776" stroke-width="6" opacity="0.32"/>
+      <path d="M162 812 C 184 807, 206 816, 236 810" stroke-width="5" opacity="0.2"/>
+      <path d="M176 848 C 190 844, 206 850, 222 846" stroke-width="4" opacity="0.1"/>
+    </g>
+    <g stroke="#ff8a7a">
+      <path d="M498 738 C 540 730, 620 746, 706 734" stroke-width="7" opacity="0.5"/>
+      <path d="M520 774 C 560 768, 620 782, 684 772" stroke-width="6" opacity="0.32"/>
+      <path d="M548 810 C 580 804, 620 816, 660 808" stroke-width="5" opacity="0.2"/>
+      <path d="M572 846 C 592 842, 616 850, 640 844" stroke-width="4" opacity="0.1"/>
+    </g>
+    <g stroke="#ffcf6a">
+      <path d="M786 746 C 830 740, 900 754, 974 742" stroke-width="7" opacity="0.5"/>
+      <path d="M806 782 C 840 776, 900 790, 952 780" stroke-width="6" opacity="0.32"/>
+      <path d="M826 818 C 850 812, 896 824, 930 816" stroke-width="5" opacity="0.2"/>
+      <path d="M846 854 C 862 850, 892 858, 912 852" stroke-width="4" opacity="0.1"/>
+    </g>
+  </g>
+  <path d="M0 702 C 120 674, 200 732, 310 704 S 520 672, 640 704 S 860 736, 1024 696 L1024 770 C 860 806, 740 760, 640 774 S 420 744, 310 774 S 120 744, 0 772 Z" fill="url(#gloss)"/>
+  <path d="M0 702 C 120 674, 200 732, 310 704 S 520 672, 640 704 S 860 736, 1024 696" fill="none" stroke="#cdf8fa" stroke-width="8" stroke-linecap="round" opacity="0.92"/>
+  <path d="M30 770 C 150 746, 240 792, 350 770 S 540 740, 660 770 S 870 792, 1000 760" fill="none" stroke="#9fe3e8" stroke-width="4.5" stroke-linecap="round" opacity="0.35"/>
+  <path d="M100 840 C 210 820, 300 856, 410 838 S 610 816, 730 840 S 890 856, 990 836" fill="none" stroke="#7fd0da" stroke-width="3.5" stroke-linecap="round" opacity="0.2"/>
+  <path d="M220 920 C 320 904, 400 934, 500 918 S 700 900, 820 922" fill="none" stroke="#7fd0da" stroke-width="3" stroke-linecap="round" opacity="0.12"/>
+
+  <!-- Poles, planted in the water. -->
+  <rect x="189" y="156" width="14" height="568" fill="url(#pole)"/>
+  <rect x="462" y="66" width="16" height="660" fill="url(#pole)"/>
+  <rect x="753" y="300" width="14" height="420" fill="url(#pole)"/>
+
+  <!-- Vardmark: a pointed gonfalon hung from a crossbar, a silver keep on blue. -->
+  <rect x="92" y="190" width="208" height="9" rx="4.5" fill="#8a6a3a"/>
+  <g transform="translate(100 200) scale(2.2857)">
+    <path d="M0 0 H84 V96 L42 122 L0 96 Z" fill="url(#blueCloth)"/>
+    <path d="M24 84 V48 H30 V40 H36 V48 H48 V40 H54 V48 H60 V84 Z" fill="#e8ebf2"/>
+    <path d="M36 84 V70 A6 6 0 0 1 48 70 V84 Z" fill="#2d4ea6"/>
+    <path d="M33 30 H51 L42 18 Z" fill="#e8ebf2"/>
+    <rect x="41" y="9" width="2" height="10" fill="#e8ebf2"/>
+    <path d="M43 9 H52 L49 12 L52 15 H43 Z" fill="#c9473d"/>
+    <path d="M0 0 H84 V96 L42 122 L0 96 Z" fill="none" stroke="#e8ebf2" stroke-width="3.2" stroke-linejoin="round"/>
+    <path d="M0 0 H84 V96 L42 122 L0 96 Z" fill="none" stroke="#10131e" stroke-width="1" stroke-linejoin="round"/>
+  </g>
+  <circle cx="196" cy="156" r="14" fill="#d9a944"/>
+  <path d="M196 112 L212 156 L196 168 L180 156 Z" fill="#f3d476"/>
+
+  <!-- Ryumon: a tall nobori, three crossed arrows on red under a white head. -->
+  <rect x="456" y="100" width="268" height="8" rx="4" fill="#2a1d14"/>
+  <g transform="translate(480 108) scale(3.6)">
+    <rect x="0" y="0" width="66" height="124" fill="url(#redCloth)"/>
+    <rect x="0" y="0" width="66" height="16" fill="#f1ece0"/>
+    <circle cx="33" cy="62" r="25" fill="#14161f"/>
+    <g stroke="#f1ece0" fill="#f1ece0" stroke-linecap="round">
+      <g transform="translate(33 62)">
+        <line x1="0" y1="18" x2="0" y2="-14" stroke-width="2.6"/>
+        <path d="M0 -22 L-5.5 -13 L5.5 -13 Z" stroke="none"/>
+        <path d="M0 12 L-5 18 M0 12 L5 18 M0 16 L-5 22 M0 16 L5 22" fill="none" stroke-width="2"/>
+      </g>
+      <g transform="translate(33 62) rotate(-38)">
+        <line x1="0" y1="18" x2="0" y2="-14" stroke-width="2.6"/>
+        <path d="M0 -22 L-5.5 -13 L5.5 -13 Z" stroke="none"/>
+        <path d="M0 12 L-5 18 M0 12 L5 18 M0 16 L-5 22 M0 16 L5 22" fill="none" stroke-width="2"/>
+      </g>
+      <g transform="translate(33 62) rotate(38)">
+        <line x1="0" y1="18" x2="0" y2="-14" stroke-width="2.6"/>
+        <path d="M0 -22 L-5.5 -13 L5.5 -13 Z" stroke="none"/>
+        <path d="M0 12 L-5 18 M0 12 L5 18 M0 16 L-5 22 M0 16 L5 22" fill="none" stroke-width="2"/>
+      </g>
+    </g>
+    <rect x="0" y="0" width="66" height="124" fill="none" stroke="#2a1d14" stroke-width="1.4"/>
+    <g fill="#2a1d14">
+      <rect x="-5" y="26" width="7" height="4" rx="1"/>
+      <rect x="-5" y="58" width="7" height="4" rx="1"/>
+      <rect x="-5" y="90" width="7" height="4" rx="1"/>
+    </g>
+  </g>
+  <circle cx="470" cy="66" r="15" fill="#d9a944"/>
+  <path d="M470 20 L487 66 L470 79 L453 66 Z" fill="#f3d476"/>
+
+  <!-- Kharzan: a swallowtail in the wind, a crimson sun over teal waters on saffron. -->
+  <g transform="translate(772 338) scale(2.1)">
+    <path d="M0 0 H104 L82 32 L104 64 H0 Z" fill="url(#saffronCloth)"/>
+    <circle cx="32" cy="28" r="12" fill="#a8261c"/>
+    <g transform="translate(32 28)" stroke="#a8261c" stroke-width="3.2" stroke-linecap="round">
+      <line x1="17" y1="0" x2="22" y2="0"/>
+      <line x1="-17" y1="0" x2="-22" y2="0"/>
+      <line x1="0" y1="17" x2="0" y2="22"/>
+      <line x1="0" y1="-17" x2="0" y2="-22"/>
+      <line x1="12.02" y1="12.02" x2="15.56" y2="15.56"/>
+      <line x1="-12.02" y1="12.02" x2="-15.56" y2="15.56"/>
+      <line x1="12.02" y1="-12.02" x2="15.56" y2="-15.56"/>
+      <line x1="-12.02" y1="-12.02" x2="-15.56" y2="-15.56"/>
+    </g>
+    <g fill="none" stroke="#1f7a6e" stroke-width="4" stroke-linecap="round">
+      <path d="M0 50 Q5 44 10 50 Q15 56 20 50 Q25 44 30 50 Q35 56 40 50 Q45 44 50 50 Q55 56 60 50 Q65 44 70 50 Q75 56 80 50 Q84 45 88 50"/>
+      <path d="M0 58 Q5 52 10 58 Q15 64 20 58 Q25 52 30 58 Q35 64 40 58 Q45 52 50 58 Q55 64 60 58 Q65 52 70 58 Q75 64 80 58 Q84 53 88 58"/>
+    </g>
+    <path d="M0 0 H104 L82 32 L104 64 H0 Z" fill="none" stroke="#2a1708" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+  <circle cx="760" cy="300" r="14" fill="#d9a944"/>
+  <path d="M760 256 L776 300 L760 312 L744 300 Z" fill="#f3d476"/>
 </svg>
