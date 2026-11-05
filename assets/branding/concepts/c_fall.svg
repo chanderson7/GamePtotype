@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Concept C, "The Fall": one banner, the Free Crown's gold crown on the player's blue,
+       falling across the dawn sun into the Glass Sea. The name, drawn. -->
+  <defs>
+    <radialGradient id="sun" cx="560" cy="430" r="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe6a8"/><stop offset="0.6" stop-color="#f0b24c"/><stop offset="1" stop-color="#c9772a"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="560" cy="430" r="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0.55" stop-color="#f0b24c" stop-opacity="0.35"/><stop offset="1" stop-color="#f0b24c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sea" x1="0" y1="760" x2="0" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5dd0d8"/><stop offset="0.4" stop-color="#1f8aa0"/><stop offset="1" stop-color="#0e2a44"/>
+    </linearGradient>
+    <linearGradient id="pole" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3d476"/><stop offset="0.45" stop-color="#d9a944"/><stop offset="1" stop-color="#8a6324"/>
+    </linearGradient>
+    <linearGradient id="cloth" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2a4aa0"/><stop offset="1" stop-color="#4a7ae6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#0e1322"/>
+  <rect width="1024" height="1024" fill="url(#halo)"/>
+  <circle cx="560" cy="430" r="300" fill="url(#sun)"/>
+  <!-- The sea, and the sun's path on it. -->
+  <path d="M0 790 C 120 764, 220 816, 340 790 S 560 760, 680 792 S 900 820, 1024 784 L1024 1024 L0 1024 Z" fill="url(#sea)"/>
+  <path d="M0 790 C 120 764, 220 816, 340 790 S 560 760, 680 792 S 900 820, 1024 784" fill="none" stroke="#cdf8fa" stroke-width="8" stroke-linecap="round" opacity="0.9"/>
+  <g fill="none" stroke="#ffd98a" stroke-linecap="round" opacity="0.6">
+    <path d="M470 830 C 520 824, 580 836, 640 828" stroke-width="7"/>
+    <path d="M490 870 C 530 864, 600 876, 630 868" stroke-width="6" opacity="0.7"/>
+    <path d="M510 910 C 540 906, 590 914, 615 908" stroke-width="5" opacity="0.5"/>
+  </g>
+  <!-- The banner, falling: pole from the upper left down into the water. -->
+  <g transform="translate(268 212) rotate(48)">
+    <!-- Cloth, trailing up behind the fall. -->
+    <path d="M60 -14 L430 -14 C 470 -80, 440 -150, 470 -214 L 410 -186 L 350 -232 L 290 -196 L 230 -238 L 170 -200 L 110 -230 C 90 -160, 100 -80, 60 -14 Z" fill="url(#cloth)"/>
+    <path d="M60 -14 L430 -14 C 470 -80, 440 -150, 470 -214 L 410 -186 L 350 -232 L 290 -196 L 230 -238 L 170 -200 L 110 -230 C 90 -160, 100 -80, 60 -14 Z" fill="none" stroke="#a9c4ff" stroke-width="5" stroke-linejoin="round" opacity="0.8"/>
+    <!-- The Free Crown. -->
+    <g transform="translate(268 -122) rotate(-6)" fill="#d9a944" stroke="#1d1505" stroke-width="3" stroke-linejoin="round">
+      <path d="M-44 28 L-54 -24 L-24 4 L0 -36 L24 4 L54 -24 L44 28 Z"/>
+      <rect x="-46" y="30" width="92" height="16" rx="3"/>
+    </g>
+    <!-- The pole. -->
+    <rect x="0" y="-11" width="690" height="22" rx="4" fill="url(#pole)"/>
+    <path d="M-70 0 L0 -18 L14 0 L0 18 Z" fill="#f3d476"/>
+    <circle cx="4" cy="0" r="14" fill="#d9a944"/>
+    <!-- Speed lines behind the fall. -->
+    <g stroke="#ece5d3" stroke-linecap="round" opacity="0.35">
+      <line x1="180" y1="40" x2="300" y2="40" stroke-width="5"/>
+      <line x1="120" y1="72" x2="210" y2="72" stroke-width="4"/>
+      <line x1="300" y1="96" x2="360" y2="96" stroke-width="3"/>
+    </g>
+  </g>
+  <!-- The splash where the pole meets the water. -->
+  <g fill="#dcfcff">
+    <ellipse cx="730" cy="722" rx="86" ry="18" fill="none" stroke="#dcfcff" stroke-width="7" opacity="0.85"/>
+    <ellipse cx="730" cy="730" rx="140" ry="26" fill="none" stroke="#9fe3e8" stroke-width="4" opacity="0.5"/>
+    <circle cx="660" cy="660" r="9"/><circle cx="700" cy="630" r="6"/><circle cx="790" cy="650" r="8"/><circle cx="820" cy="690" r="5"/><circle cx="640" cy="700" r="5"/>
+  </g>
+</svg>
