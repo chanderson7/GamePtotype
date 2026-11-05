@@ -397,10 +397,25 @@ func _check_ui() -> void:
 	check(button("Spend time at camp") != null, "rank B milestone keeps its optional conversation action at 150 percent text")
 	_check_widths(current_scene)
 	gs.bond_events = []
-	root.get_node("Scenes").active_captain_id = int(gs.army[0]["captain"]["id"])
+	var veteran: Dictionary = gs.army[0]["captain"]
+	var was_battles := int(veteran.get("battles", 0))
+	var was_spec := String(veteran.get("specialization", ""))
+	veteran["battles"] = maxi(was_battles, 5)
+	veteran["specialization"] = ""
+	root.get_node("Scenes").active_captain_id = int(veteran["id"])
 	await open_scene("captain_profile")
-	check(button("Back to Warband") != null, "captain profile keeps its exit at 150 percent text")
+	var back := current_scene.find_child("BackButton", true, false) as Button
+	check(back != null and back.get_global_rect().end.y <= root.get_visible_rect().size.y + 1.0,
+		"captain profile pins its exit on screen at 150 percent text")
+	check(current_scene.find_child("PromotionCard", true, false) != null, "a captain who qualifies sees the promotion card at 150 percent text")
+	var champion := current_scene.find_child("Specialization_Champion", true, false) as Button
+	if champion != null:
+		champion.pressed.emit()
+		await process_frame
+	check(button("Promote to Champion") != null, "picking a role readies Promote at 150 percent text")
 	_check_widths(current_scene)
+	veteran["battles"] = was_battles
+	veteran["specialization"] = was_spec
 	await open_scene("world_map")
 	current_scene._open_preview("khalun")
 	await process_frame
