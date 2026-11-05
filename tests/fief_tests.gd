@@ -6,6 +6,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const Troops = preload("res://scripts/data/troops.gd")
+const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 
 var passed := 0
 var failed := 0
@@ -37,6 +38,7 @@ func _init() -> void:
 	test_fief_recommendation_guidance()
 	test_fief_save_load_roundtrip()
 	test_fief_renunciation()
+	test_improvements_painted()
 
 	print("\nFiefdom & Vassalage Tests finished: %d passed, %d failed" % [passed, failed])
 	if failed > 0:
@@ -324,3 +326,72 @@ func test_fief_renunciation() -> void:
 	assert_true(not gs.has_fief(), "Player no longer holds a fief")
 	assert_eq(gs.relation_with_realm("vardmark"), prev_rel - 25, "Suffered -25 relation penalty upon renouncing")
 	assert_eq(gs.world.player().faction, "", "Player party faction cleared to neutral")
+
+
+## Built improvements stand in the settlement's picture, in every culture and at castles
+## as well as villages, and each has a plate of its own for the Manor card.
+func test_improvements_painted() -> void:
+	print("\n--- Improvements in the picture ---")
+	var gs := _create_game_state()
+	gs.renown = 60
+	gs.add_realm_relation("vardmark", 30)
+	gs.accept_fealty_and_fief("kettlebrook", "vardmark")
+	var o: Dictionary = SettlementScene.params(gs.world, "kettlebrook")
+	assert_eq((o["improvements"] as Array).size(), 0, "nothing built, nothing painted")
+	gs.silver = 5000
+	for k in Fiefs.IMPROVEMENT_ORDER:
+		gs.build_fief_improvement(k)
+	o = SettlementScene.params(gs.world, "kettlebrook")
+	assert_eq(o["improvements"], ["granary", "fortifications", "mill"], "the fief's picture knows all three are built")
+	assert_eq((SettlementScene.params(gs.world, "thornwall")["improvements"] as Array).size(), 0, "another village's picture has none")
+
+	var all_good := true
+	var all_differ := true
+	for culture in ["vardish", "kharzani", "ryumon"]:
+		for kind in [WorldData.VILLAGE, WorldData.CASTLE]:
+			for night in [false, true]:
+				var bare := {"id": "kettlebrook", "culture": culture, "kind": kind, "owner": "vardmark", "garrison": "full",
+					"prosperity": "normal", "condition": "healthy", "night": night, "visitors": [], "player": "vardmark",
+					"besieger": "", "seed": 7, "improvements": []}
+				var built := bare.duplicate(true)
+				built["improvements"] = ["granary", "fortifications", "mill"]
+				var a: Dictionary = SettlementScene.build(bare)
+				var b: Dictionary = SettlementScene.build(built)
+				var img: Image = b["front"]
+				if img.get_width() != SettlementScene.W or (b["wheels"] as Array).size() != 1 or (a["wheels"] as Array).size() != 0:
+					all_good = false
+					print("    %s %s: %dx%d, %d wheels" % [culture, kind, img.get_width(), img.get_height(), (b["wheels"] as Array).size()])
+				for key in SettlementScene.IMP_KEYS:
+					var spots: Array = b["spots"].get(key, [])
+					if spots.is_empty():
+						all_good = false
+						print("    %s %s: no spot for %s" % [culture, kind, key])
+						continue
+					var rect: Rect2i = spots[0]
+					var changed := 0
+					var bare_img: Image = a["front"]
+					for y in range(maxi(0, rect.position.y), mini(SettlementScene.H, rect.end.y)):
+						for x in range(maxi(0, rect.position.x), mini(SettlementScene.W, rect.end.x)):
+							if not bare_img.get_pixel(x, y).is_equal_approx(img.get_pixel(x, y)):
+								changed += 1
+					if changed < 40:
+						all_differ = false
+						print("    %s %s %s: only %d cells changed" % [culture, kind, key, changed])
+	assert_true(all_good, "every culture's village and castle paints all three, with one turning wheel")
+	assert_true(all_differ, "each improvement changes its part of the picture")
+
+	var raided := {"id": "kettlebrook", "culture": "vardish", "kind": WorldData.VILLAGE, "owner": "vardmark", "garrison": "full",
+		"prosperity": "normal", "condition": "raided", "night": false, "visitors": [], "player": "", "besieger": "", "seed": 7,
+		"improvements": ["mill"]}
+	assert_true(not bool(SettlementScene.build(raided)["wheels"][0][4]), "the wheel stops while the village is raided")
+
+	var plates_ok := true
+	for culture in ["vardish", "kharzani", "ryumon"]:
+		for key in SettlementScene.IMP_KEYS:
+			var on: Image = SettlementScene.plate(culture, key, true)
+			var ghost: Image = SettlementScene.plate(culture, key, false)
+			if on.get_size() != Vector2i(SettlementScene.PLATE_W, SettlementScene.PLATE_H) or on.get_data() == ghost.get_data() \
+					or on.get_data() == SettlementScene.plate(culture, "none", true).get_data():
+				plates_ok = false
+				print("    plate %s %s" % [culture, key])
+	assert_true(plates_ok, "every improvement has a plate, in colour when built and a ghost before")

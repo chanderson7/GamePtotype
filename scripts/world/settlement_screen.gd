@@ -13,6 +13,7 @@ const Economy = preload("res://scripts/data/economy.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
@@ -48,6 +49,8 @@ var _talk: Control = null
 ## Your own gathering as you plan it: the kind and who beyond your sworn lords to ask.
 var _host_kind := 0
 var _host_ask := {"friends": true, "persuade": true, "lieges": false}
+## The improvement just built at your fief, so the rebuilt page can mark it once.
+var _just_built := ""
 
 
 func _ready() -> void:
@@ -80,6 +83,8 @@ func _build() -> void:
 	for child in get_children():
 		if child != _arrival_overlay:
 			child.queue_free()
+	# Any sheet or confirmation open goes with the page.
+	_modal = null
 
 	var bg := ColorRect.new()
 	bg.color = Style.NIGHT
@@ -112,6 +117,10 @@ func _build() -> void:
 	var vista := SettlementVista.make(place, GameState.world, 320.0)
 	vista.name = "LocationIllustration"
 	col.add_child(vista)
+	if _just_built != "":
+		# The new building flashes into the scene and its dust rises; a knock of timber.
+		vista.call_deferred("show_built", _just_built)
+		Sound.play("ladders", -6.0)
 	_add_header(col, vista if vista.visible else null)
 	_add_wallet(col)
 
@@ -142,6 +151,7 @@ func _build() -> void:
 	bar.add_child(back)
 
 	_build_info_sheet()
+	_just_built = ""
 	if _arrival_overlay != null and is_instance_valid(_arrival_overlay):
 		move_child(_arrival_overlay, get_child_count() - 1)
 	_restore_scroll(keep)
@@ -207,7 +217,14 @@ func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 	chips.add_theme_constant_override("h_separation", 10)
 	chips.add_theme_constant_override("v_separation", 10)
 	row.add_child(chips)
-	if w.garrisons.has(place):
+	if String(WorldData.settlement(place)["type"]) == WorldData.VILLAGE:
+		# A village has no walls to man, only its militia and whatever you've left there.
+		if GameState.is_player_fief(place):
+			var stationed: int = w.men_of(w.garrison_at(place))
+			var militia: int = w.men_of(w.village_militia(place))
+			chips.add_child(_chip("Garrison %d men · %d militia" % [stationed, militia] if stationed > 0 else "%d militia, no garrison" % militia,
+				Style.MORALE_HIGH if stationed > 0 else Style.MORALE_MID))
+	elif w.garrisons.has(place):
 		var men: int = w.men_of(w.garrison_at(place))
 		var cap: int = w.garrison_capacity(place)
 		var tone := Style.MORALE_LOW if men < cap * 0.4 else (Style.MORALE_HIGH if men >= cap * 0.8 else Style.MORALE_MID)
@@ -694,210 +711,447 @@ func _add_crown_holding(col: VBoxContainer) -> void:
 		col.add_child(flow)
 
 
+## Your own fief: what it stores, the squads you've left there, and what you've built.
 func _add_fief_management(col: VBoxContainer) -> void:
-	col.add_child(_section("Your Fief & Manor"))
-
 	var fief: Dictionary = GameState.player_fief
-	var cult: String = String(WorldData.settlement(place)["faction"])
-	var title: String = Fiefs.title_for(cult)
-	var s_name: String = String(WorldData.settlement(place)["name"])
-	var r_name: String = String(WorldData.FACTIONS.get(String(fief.get("realm", "")), {}).get("name", "Realm"))
-
-	# Header card
-	var header_panel := PanelContainer.new()
-	var h_margin := MarginContainer.new()
-	h_margin.add_theme_constant_override("margin_left", 14)
-	h_margin.add_theme_constant_override("margin_right", 14)
-	h_margin.add_theme_constant_override("margin_top", 12)
-	h_margin.add_theme_constant_override("margin_bottom", 12)
-	header_panel.add_child(h_margin)
-	var h_v := VBoxContainer.new()
-	h_v.add_theme_constant_override("separation", 6)
-	h_margin.add_child(h_v)
-
-	var title_lbl := Style.label("%s of %s" % [title, s_name], Style.LARGE, Style.BRASS)
-	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	h_v.add_child(title_lbl)
-	if GameState.is_crowned() and String(fief.get("realm", "")) == WorldData.CROWN:
-		h_v.add_child(_note("Seat of your crown · ruler of %s" % GameState.crown_title(), Style.TEXT))
-	else:
-		h_v.add_child(_note("Sworn vassal of %s · Seat of your company" % WorldData.the_realm(r_name), Style.TEXT))
-
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(place)
-	var daily_t: int = Fiefs.daily_tax(fief, is_b)
-	var daily_f: int = Fiefs.daily_food(fief, is_b)
-	var cur_silver: int = int(fief.get("silver", 0))
-	var cur_food: int = int(fief.get("food", 0))
-	var max_f: int = Fiefs.max_food_capacity(fief)
+	_add_estate_card(col, fief, is_b)
+	_add_garrison_card(col, fief)
+	_add_manor_card(col, fief, is_b)
+	# A vassal can give up their fief; a ruler has no one to give it to.
+	if not GameState.is_crowned():
+		var ren := Button.new()
+		ren.name = "RenounceFealty"
+		ren.text = "Renounce fealty…"
+		ren.flat = true
+		ren.focus_mode = Control.FOCUS_ALL
+		ren.custom_minimum_size = Vector2(0, Style.TOUCH)
+		ren.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			ren.add_theme_color_override(c, Style.MUTED)
+		ren.pressed.connect(_confirm_renounce)
+		col.add_child(ren)
 
-	var stats_text := "Estate Treasury: %d / %d silver (+%d/day) · Granary: %d / %d rations (+%d/day)" % [
-		cur_silver, Fiefs.MAX_STORAGE_SILVER, daily_t, cur_food, max_f, daily_f
-	]
-	if is_b:
-		stats_text += "\n[Raided and Damaged: Tax and grain yields crippled]"
-	var stats_lbl := Style.label(stats_text, Style.BODY, Style.MUTED if not is_b else Style.ENEMY_LIGHT)
-	stats_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	h_v.add_child(stats_lbl)
 
-	# Buttons to collect taxes and food
-	var btn_row := HFlowContainer.new()
-	btn_row.add_theme_constant_override("h_separation", 10)
-	btn_row.add_theme_constant_override("v_separation", 10)
-	h_v.add_child(btn_row)
+func _fief_culture() -> String:
+	return WorldData.culture_of(String(WorldData.settlement(place)["faction"]))
 
-	var collect_tax_btn := _button("Collect Taxes (%d silver)" % cur_silver, func():
-		var got: int = GameState.collect_fief_taxes()
-		if got > 0:
-			Sound.play("coins")
-			_build()
-	)
-	collect_tax_btn.disabled = cur_silver <= 0
-	if cur_silver > 0:
-		Style.make_primary(collect_tax_btn)
-	btn_row.add_child(collect_tax_btn)
 
-	var collect_food_btn := _button("Take Food (%d rations)" % cur_food, func():
-		var got: int = GameState.collect_fief_food()
-		if got > 0:
-			Sound.play("coins")
-			_build()
-	)
-	collect_food_btn.disabled = cur_food <= 0
-	btn_row.add_child(collect_food_btn)
-	col.add_child(header_panel)
-
-	# Garrison Management Card
-	col.add_child(_section("Fief Garrison"))
-	var g_panel := PanelContainer.new()
-	var g_margin := MarginContainer.new()
-	g_margin.add_theme_constant_override("margin_left", 14)
-	g_margin.add_theme_constant_override("margin_right", 14)
-	g_margin.add_theme_constant_override("margin_top", 12)
-	g_margin.add_theme_constant_override("margin_bottom", 12)
-	g_panel.add_child(g_margin)
-	var g_v := VBoxContainer.new()
-	g_v.add_theme_constant_override("separation", 8)
-	g_margin.add_child(g_v)
-
-	var garrison: Array = fief.get("garrison", [])
-	if garrison.is_empty():
-		g_v.add_child(_note("No squads are currently stationed in the garrison. Troops in garrison heal wounds and protect your estate from raiders."))
+## The lord's title, how long they've held it, and the two stores the place fills each day.
+func _add_estate_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
+	var title: String = Fiefs.title_for(_fief_culture())
+	var s_name := String(WorldData.settlement(place)["name"])
+	var held := ""
+	if GameState.world != null:
+		var days := int((float(GameState.world.hour) - float(fief.get("granted_at", 0.0))) / 24.0) + 1
+		held = "day %d as its %s" % [days, title.to_lower()]
+	var card := _card(col, "Your estate", held)
+	card.get_parent().name = "EstateCard"
+	var name_label := Style.label("%s of %s" % [title, s_name], Style.TITLE_SIZE, Style.BRASS)
+	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	card.add_child(name_label)
+	if GameState.is_crowned() and String(fief.get("realm", "")) == WorldData.CROWN:
+		card.add_child(_note("Seat of your crown · ruler of %s" % GameState.crown_title(), Style.TEXT))
 	else:
-		for i in garrison.size():
-			var sq: Dictionary = garrison[i]
-			var row := HBoxContainer.new()
-			row.add_theme_constant_override("separation", 10)
-			g_v.add_child(row)
+		var r_name := String(WorldData.FACTIONS.get(String(fief.get("realm", "")), {}).get("name", "Realm"))
+		card.add_child(_note("Sworn vassal of %s · seat of your company" % WorldData.the_realm(r_name), Style.TEXT))
+	if is_b:
+		card.add_child(Widgets.chip_row([Widgets.chip("Raided · taxes and grain crippled until rebuilt", Style.MORALE_LOW)]))
 
-			var c = sq.get("captain")
-			var c_str := String(c.get("name", "Captain")) if c != null else "Company"
-			var w_cnt := int(sq.get("wounded", 0))
-			var men_str := "%d men" % int(sq["men"])
-			if w_cnt > 0:
-				men_str += " (+%d wounded)" % w_cnt
-			var sq_lbl := Style.label("%s (%s · %s)" % [String(sq.get("name", "Squad")), c_str, men_str], Style.BODY, Style.TEXT)
-			sq_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			sq_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			row.add_child(sq_lbl)
+	var silver: int = int(fief.get("silver", 0))
+	var food: int = int(fief.get("food", 0))
+	var tiles := HBoxContainer.new()
+	tiles.add_theme_constant_override("separation", 12)
+	card.add_child(tiles)
+	tiles.add_child(_store_tile("TreasuryTile", silver, Fiefs.MAX_STORAGE_SILVER, "silver",
+		"+%d a day in taxes" % Fiefs.daily_tax(fief, is_b), "Treasury full · taxes are being lost"))
+	tiles.add_child(_store_tile("GranaryTile", food, Fiefs.max_food_capacity(fief), "rations",
+		"+%d a day" % Fiefs.daily_food(fief, is_b), "Granary full · grain is going to waste"))
 
-			var withdraw_btn := _button("Take into Warband", func():
-				if GameState.withdraw_squad_from_fief(i):
-					_build()
-			)
-			withdraw_btn.disabled = GameState.army.size() >= GameState.squad_cap()
-			row.add_child(withdraw_btn)
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 12)
+	card.add_child(buttons)
+	var collect := _button("Collect %s silver" % Widgets.thousands(silver) if silver > 0 else "Collect taxes", func():
+		if GameState.collect_fief_taxes() > 0:
+			Sound.play("coins")
+			_build())
+	collect.name = "CollectTaxes"
+	collect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	collect.disabled = silver <= 0
+	if silver > 0:
+		Style.make_primary(collect)
+	buttons.add_child(collect)
+	var take := _button("Take %d rations" % food if food > 0 else "Take food", func():
+		if GameState.collect_fief_food() > 0:
+			Sound.play("coins")
+			_build())
+	take.name = "TakeFood"
+	take.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	take.disabled = food <= 0
+	buttons.add_child(take)
 
-	# Station active squad into garrison
+
+## A store: what's in it against what it holds, what it gains a day, and a meter that
+## turns red when it's full, since the rules waste what won't fit.
+func _store_tile(tile_name: String, have: int, cap: int, unit: String, gain: String, full_text: String) -> PanelContainer:
+	var t := PanelContainer.new()
+	t.name = tile_name
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := Style.box(Style.NIGHT, Style.RULE, 2, 14)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 12
+	t.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 4)
+	t.add_child(v)
+	var line := HFlowContainer.new()
+	line.add_theme_constant_override("h_separation", 8)
+	v.add_child(line)
+	var big := Style.label(Widgets.thousands(have), Style.LARGE, Style.TEXT)
+	big.name = "Value"
+	line.add_child(big)
+	var of := Style.label("of %s %s" % [Widgets.thousands(cap), unit], Style.SMALL, Style.MUTED)
+	of.size_flags_vertical = Control.SIZE_SHRINK_END
+	line.add_child(of)
+	var full := have >= cap
+	v.add_child(_note(full_text if full else gain, Style.ENEMY_LIGHT if full else Style.MUTED))
+	v.add_child(Widgets.meter(float(have) / maxf(1.0, float(cap)), Style.MORALE_LOW if full else Style.BRASS, 12.0))
+	return t
+
+
+## The squads you've left here, how to leave another, and what the place holds out with.
+func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
+	var w = GameState.world
+	var garrison: Array = fief.get("garrison", [])
+	var men := 0
+	for sq in garrison:
+		men += int(sq["men"])
+	var aside := "" if garrison.is_empty() else "%d squad%s · %d men" % [garrison.size(), "" if garrison.size() == 1 else "s", men]
+	var card := _card(col, "Garrison", aside)
+	card.get_parent().name = "GarrisonCard"
+	var village := String(WorldData.settlement(place)["type"]) == WorldData.VILLAGE
+	var militia: int = w.men_of(w.village_militia(place)) if village and w != null else 0
+	var full: bool = GameState.army.size() >= GameState.squad_cap()
+	if garrison.is_empty():
+		card.add_child(_note("No squads stationed. The village has only its %d militia." % militia if village else "No squads of yours are stationed here."))
+	for i in garrison.size():
+		var index := i
+		var sq: Dictionary = garrison[i]
+		var wounded := int(sq.get("wounded", 0))
+		var take_back := func():
+			if GameState.withdraw_squad_from_fief(index):
+				Sound.play("click")
+				_build()
+		card.add_child(_squad_line(sq, "▼ %d wounded · one heals each day" % wounded if wounded > 0 else "",
+			"Take back", not full, "Withdraw_%d" % int(sq["id"]), take_back))
+	if full and not garrison.is_empty():
+		card.add_child(_note("Your warband is full, %d of %d squads. Station one to make room." % [GameState.army.size(), GameState.squad_cap()]))
 	if GameState.army.size() > 1:
-		g_v.add_child(_note("Station squad from warband into garrison:"))
-		# A flow, not a row: a full warband's worth of buttons wraps onto more lines
-		# instead of pushing the page off the side of the screen.
-		var st_flow := HFlowContainer.new()
-		st_flow.add_theme_constant_override("h_separation", 8)
-		st_flow.add_theme_constant_override("v_separation", 8)
-		g_v.add_child(st_flow)
-		for sq in GameState.army:
-			var sid: int = int(sq["id"])
-			var btn := _button("Station %s" % String(sq.get("name", "Squad")), func():
-				if GameState.station_squad_in_fief(sid):
-					_build()
-			)
-			st_flow.add_child(btn)
-	col.add_child(g_panel)
+		var open := _button("Station a squad here…", _show_station_sheet)
+		open.name = "StationSquad"
+		card.add_child(open)
+	else:
+		card.add_child(_note("Your only squad can't stay behind."))
+	if village:
+		var parts := PackedStringArray(["%d militia" % militia])
+		if men > 0:
+			parts.append("%d stationed men" % men)
+		var forts := bool(fief.get("improvements", {}).get(Fiefs.IMPROVEMENT_FORTIFICATIONS, false))
+		if forts:
+			parts.append("the palisade's %d" % int(Fiefs.IMPROVEMENTS[Fiefs.IMPROVEMENT_FORTIFICATIONS]["militia_bonus"]))
+		var joined := parts[0] if parts.size() == 1 else ", ".join(parts.slice(0, parts.size() - 1)) + " and " + parts[parts.size() - 1]
+		card.add_child(_note("Holds against raiders with %s%s. Stationed men heal one wound a day." % [joined, ", a third stronger behind the stakes" if forts else ""]))
+	else:
+		card.add_child(_note("Stationed men hold the walls and heal one wound a day."))
 
-	# Manor Improvements Card
-	col.add_child(_section("Manor Improvements & Reconstruction"))
-	var imp_panel := PanelContainer.new()
-	var imp_margin := MarginContainer.new()
-	imp_margin.add_theme_constant_override("margin_left", 14)
-	imp_margin.add_theme_constant_override("margin_right", 14)
-	imp_margin.add_theme_constant_override("margin_top", 12)
-	imp_margin.add_theme_constant_override("margin_bottom", 12)
-	imp_panel.add_child(imp_margin)
-	var imp_v := VBoxContainer.new()
-	imp_v.add_theme_constant_override("separation", 8)
-	imp_margin.add_child(imp_v)
 
+## A squad as a row: the captain's face with the troop's badge, its name, who leads it and
+## how many, a line about its wounds, and one button.
+func _squad_line(sq: Dictionary, wounds: String, verb: String, can: bool, button_name: String, act: Callable, primary: bool = false) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.add_child(_squad_art(sq))
+	var text := _text_column(row)
+	var title := String(sq.get("name", ""))
+	var name_label := Style.label(title if title != "" else Units.troop_name(sq, GameState.culture), Style.BODY)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.custom_minimum_size = Vector2(10, 0)
+	text.add_child(name_label)
+	var unit_id := String(sq.get("unit", ""))
+	var full_size: int = Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(sq["type"]))
+	var c = sq.get("captain")
+	var who := String(c.get("name", "")) if c is Dictionary else ""
+	var bits := PackedStringArray()
+	if who != "":
+		bits.append(who)
+	bits.append("%d of %d men" % [int(sq["men"]), full_size])
+	bits.append(Units.troop_name(sq, GameState.culture))
+	text.add_child(_small(" · ".join(bits), Style.TEXT))
+	text.add_child(_small(wounds if wounds != "" else "Whole", Style.ENEMY_LIGHT if wounds != "" else Style.MUTED))
+	var b := _button(verb, act)
+	b.name = button_name
+	b.custom_minimum_size = Vector2(150, Style.TOUCH)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.disabled = not can
+	if primary and can:
+		Style.make_primary(b)
+	row.add_child(b)
+	return row
+
+
+## A squad's face: its captain's, with the troop's own icon at the corner, or the troop alone.
+func _squad_art(s: Dictionary) -> Control:
+	var type := String(s["type"])
+	var unit_id := String(s.get("unit", ""))
+	var art := Control.new()
+	art.custom_minimum_size = Vector2(72, 84)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var face_tex: Texture2D = CaptainArt.texture(s["captain"]) if s.get("captain") != null else null
+	if face_tex != null:
+		var face := TextureRect.new()
+		face.name = "SquadCaptain"
+		face.texture = face_tex
+		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		art.add_child(face)
+		var badge := _portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture)))
+		badge.custom_minimum_size = Vector2(34, 34)
+		badge.size = Vector2(34, 34)
+		badge.position = Vector2(44, 52)
+		art.add_child(badge)
+	else:
+		var icon := _portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture)))
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		art.add_child(icon)
+	return art
+
+
+## The warband, wounded first, to choose a squad to leave here. Slides up from the bottom
+## like the place's info sheet, and leaves the page where it was.
+func _show_station_sheet() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	var s_name := String(WorldData.settlement(place)["name"])
+	var shade := ColorRect.new()
+	shade.name = "StationSheet"
+	shade.color = Color(0.012, 0.02, 0.04, 0.6)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(shade)
+	_modal = shade
+	var close := func():
+		if is_instance_valid(shade):
+			shade.queue_free()
+		_modal = null
+	shade.gui_input.connect(func(e):
+		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed:
+			close.call())
+	var panel := PanelContainer.new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	var sb := Style.box(Style.PANEL.lightened(0.02), Style.RULE, 2, 28)
+	sb.corner_radius_bottom_left = 0
+	sb.corner_radius_bottom_right = 0
+	sb.content_margin_left = 32
+	sb.content_margin_right = 32
+	sb.content_margin_top = 18
+	sb.content_margin_bottom = 36 + Style.safe_insets(get_viewport())["bottom"]
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	shade.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	panel.add_child(v)
+	var grip := Panel.new()
+	grip.custom_minimum_size = Vector2(80, 8)
+	grip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	grip.add_theme_stylebox_override("panel", Style.box(Style.RULE, Color(0, 0, 0, 0), 0, 4))
+	v.add_child(grip)
+	v.add_child(Style.label("Station a squad", Style.TITLE_SIZE, Style.BRASS))
+	v.add_child(_note("It stays at %s, heals a wound a day and holds the place. At least one squad must ride with you." % s_name))
+	var squads: Array = GameState.army.duplicate()
+	squads.sort_custom(func(a, b): return int(a.get("wounded", 0)) > int(b.get("wounded", 0)))
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(0, minf(squads.size() * 100.0, get_viewport_rect().size.y * 0.55))
+	v.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 8)
+	scroll.add_child(list)
+	for sq in squads:
+		var sid := int(sq["id"])
+		var wounded := int(sq.get("wounded", 0))
+		var station := func():
+			close.call()
+			if GameState.station_squad_in_fief(sid):
+				Sound.play("click")
+				_build()
+		var wounds := "▼ %d wounded · whole in %d day%s here" % [wounded, wounded, "" if wounded == 1 else "s"] if wounded > 0 else ""
+		list.add_child(_squad_line(sq, wounds, "Station", GameState.army.size() > 1, "Station_%d" % sid, station, wounded > 0))
+	var done := _button("Close", close)
+	done.name = "CloseStationSheet"
+	v.add_child(done)
+	Style.ease_in(panel)
+
+
+## What you've built and could build, each with its picture: the building as the scene at
+## the top paints it, in colour once it's built and a grey ghost before.
+func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
+	var imps: Dictionary = fief.get("improvements", {})
+	var count := 0
+	for k in Fiefs.IMPROVEMENT_ORDER:
+		if bool(imps.get(k, false)):
+			count += 1
+	var card := _card(col, "Manor", "%d of %d built" % [count, Fiefs.IMPROVEMENT_ORDER.size()])
+	card.get_parent().name = "ManorCard"
 	if is_b:
 		var rep_row := HBoxContainer.new()
-		rep_row.add_theme_constant_override("separation", 10)
-		imp_v.add_child(rep_row)
-		var rep_desc := Style.label("Rebuild the burned village and restore peasant granaries.", Style.BODY, Style.ENEMY_LIGHT)
-		rep_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		rep_desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		rep_row.add_child(rep_desc)
-		var rep_btn := _button("Rebuild Estate (%d silver)" % Fiefs.REPAIR_COST, func():
-			var r: Dictionary = GameState.repair_fief()
-			if r.get("ok", false):
+		rep_row.add_theme_constant_override("separation", 12)
+		card.add_child(rep_row)
+		var rep_text := _note("Raiders burned it. Rebuild the cottages and the peasants' granaries.", Style.ENEMY_LIGHT)
+		rep_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rep_row.add_child(rep_text)
+		var rep_btn := _button("Rebuild · %d silver" % Fiefs.REPAIR_COST, func():
+			if GameState.repair_fief().get("ok", false):
 				Sound.play("coins")
-				_build()
-		)
+				_build())
+		rep_btn.name = "RebuildEstate"
 		rep_btn.disabled = GameState.silver < Fiefs.REPAIR_COST
-		if GameState.silver >= Fiefs.REPAIR_COST:
+		if not rep_btn.disabled:
 			Style.make_primary(rep_btn)
 		rep_row.add_child(rep_btn)
+	for k in Fiefs.IMPROVEMENT_ORDER:
+		card.add_child(_improvement_row(String(k), bool(imps.get(k, false))))
 
-	var imps: Dictionary = fief.get("improvements", {})
-	for ikey in [Fiefs.IMPROVEMENT_GRANARY, Fiefs.IMPROVEMENT_FORTIFICATIONS, Fiefs.IMPROVEMENT_MILL]:
-		var idef: Dictionary = Fiefs.IMPROVEMENTS[ikey]
-		var built: bool = bool(imps.get(ikey, false))
-		var i_row := HBoxContainer.new()
-		i_row.add_theme_constant_override("separation", 10)
-		imp_v.add_child(i_row)
 
-		var i_text := VBoxContainer.new()
-		i_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		i_row.add_child(i_text)
+func _improvement_row(key: String, built: bool) -> Control:
+	var idef: Dictionary = Fiefs.IMPROVEMENTS[key]
+	var panel := PanelContainer.new()
+	panel.name = "Improvement_%s" % key
+	var sb := Style.box(Color(Style.BRASS, 0.07) if built else Color(0, 0, 0, 0), Style.BRASS if built else Color(0, 0, 0, 0), 0, 8)
+	if built:
+		sb.border_width_left = 4
+	sb.content_margin_left = 12
+	sb.content_margin_right = 4
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	panel.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	panel.add_child(row)
 
-		var iname := String(idef["name"]) + (" [Built]" if built else "")
-		var iname_lbl := Style.label(iname, Style.BODY, Style.BRASS if built else Style.TEXT)
-		iname_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		i_text.add_child(iname_lbl)
-		var idesc := Style.label(String(idef["description"]), Style.SMALL, Style.MUTED)
-		idesc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		i_text.add_child(idesc)
+	var frame := PanelContainer.new()
+	var fb := Style.box(SettlementScene.PLATE_BG, Style.RULE, 2, 8)
+	fb.set_content_margin_all(2)
+	frame.add_theme_stylebox_override("panel", fb)
+	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var pic := TextureRect.new()
+	pic.name = "Plate"
+	pic.texture = ImageTexture.create_from_image(SettlementScene.plate(_fief_culture(), key, built))
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_SCALE
+	pic.custom_minimum_size = Vector2(SettlementScene.PLATE_W * 3, SettlementScene.PLATE_H * 3)
+	frame.add_child(pic)
+	row.add_child(frame)
+	if key == _just_built and not Style.motion_reduced():
+		pic.modulate.a = 0.25
+		pic.create_tween().tween_property(pic, "modulate:a", 1.0, 0.5)
 
-		if not built:
-			var cost: int = int(idef["cost"])
-			var b_btn := _button("Construct (%d silver)" % cost, func():
-				var r: Dictionary = GameState.build_fief_improvement(ikey)
-				if r.get("ok", false):
-					Sound.play("coins")
-					_build()
-			)
-			b_btn.disabled = GameState.silver < cost
-			i_row.add_child(b_btn)
-	col.add_child(imp_panel)
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 4)
+	row.add_child(text)
+	var head := HFlowContainer.new()
+	head.add_theme_constant_override("h_separation", 10)
+	text.add_child(head)
+	head.add_child(Style.label(String(idef["name"]), Style.BODY, Style.TEXT))
+	if built:
+		var chip := Widgets.chip("Built", Style.BRASS, "★")
+		chip.name = "BuiltChip"
+		head.add_child(chip)
+	for effect in idef.get("effects", []):
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+		var mark := Style.label("▲", Style.SMALL, Style.MORALE_HIGH)
+		mark.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		line.add_child(mark)
+		var words := _note(String(effect), Style.TEXT if built else Style.MUTED)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(words)
+		text.add_child(line)
+	if key == Fiefs.IMPROVEMENT_FORTIFICATIONS and String(WorldData.settlement(place)["type"]) != WorldData.VILLAGE:
+		text.add_child(_note("Raiders strike villages, not castles."))
+	if built:
+		return panel
+	var cost := int(idef["cost"])
+	if GameState.silver < cost:
+		text.add_child(_note("Need %s more silver" % Widgets.thousands(cost - GameState.silver), Style.ENEMY_LIGHT))
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 4)
+	stack.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(stack)
+	var b := _button("Build", func():
+		if GameState.build_fief_improvement(key).get("ok", false):
+			Sound.play("coins")
+			_just_built = key
+			_build())
+	b.name = "Build_%s" % key
+	b.custom_minimum_size = Vector2(140, Style.TOUCH)
+	b.disabled = GameState.silver < cost
+	if not b.disabled:
+		Style.make_primary(b)
+	stack.add_child(b)
+	var price := Style.label("%s silver" % Widgets.thousands(cost), Style.SMALL, Style.MUTED)
+	price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stack.add_child(price)
+	return panel
 
-	# Renounce option: a vassal can give up their fief; a ruler has no one to give it to.
-	if GameState.is_crowned():
-		return
-	var ren_btn := _button("Renounce Fealty (Forfeit fief to crown, -25 relation)", func():
+
+## Giving up the fief is for good, so it asks first.
+func _confirm_renounce() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	var s_name := String(WorldData.settlement(place)["name"])
+	var r_name := String(WorldData.FACTIONS.get(GameState.fief_realm(), {}).get("name", "your liege"))
+	var overlay := ColorRect.new()
+	overlay.name = "RenounceConfirm"
+	overlay.color = Color(0, 0, 0, 0.75)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(overlay)
+	_modal = overlay
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(minf(560.0, get_viewport_rect().size.x - 64.0), 0)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	panel.add_child(box)
+	box.add_child(Style.label("Renounce fealty?", Style.LARGE, Style.TEXT))
+	box.add_child(_note("You give %s back to the crown and lose 25 relation with %s. It can't be undone." % [s_name, WorldData.the_realm(r_name)], Style.TEXT))
+	var yes := _button("Renounce %s" % s_name, func():
+		overlay.queue_free()
+		_modal = null
 		GameState.renounce_fief()
 		Sound.play("alarm")
-		_build()
-	)
-	col.add_child(ren_btn)
+		_build())
+	yes.name = "ConfirmRenounce"
+	yes.add_theme_stylebox_override("normal", Style.box(Style.ENEMY_DARK, Style.ENEMY, 2))
+	yes.add_theme_stylebox_override("hover", Style.box(Style.ENEMY_DARK.lightened(0.08), Style.ENEMY_LIGHT, 2))
+	box.add_child(yes)
+	var no := _button("Keep it", func():
+		overlay.queue_free()
+		_modal = null)
+	no.name = "KeepFief"
+	box.add_child(no)
+	Style.ease_in(panel, Vector2(0.5, 0.5))
 
 
 ## Whether the place has a hall worth a tab: every town and castle, and anywhere someone
@@ -1652,29 +1906,7 @@ func _squad_row(s: Dictionary) -> Control:
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
 	# The captain's face, as in the Warband, with the troop's own icon at its corner.
-	var art := Control.new()
-	art.custom_minimum_size = Vector2(72, 84)
-	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var face_tex: Texture2D = CaptainArt.texture(s["captain"]) if s.get("captain") != null else null
-	if face_tex != null:
-		var face := TextureRect.new()
-		face.name = "SquadCaptain"
-		face.texture = face_tex
-		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		art.add_child(face)
-		var badge := _portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture)))
-		badge.custom_minimum_size = Vector2(34, 34)
-		badge.size = Vector2(34, 34)
-		badge.position = Vector2(44, 52)
-		art.add_child(badge)
-	else:
-		var icon := _portrait(unit_id if unit_id != "" else type, String(s.get("culture", GameState.culture)))
-		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		art.add_child(icon)
-	row.add_child(art)
+	row.add_child(_squad_art(s))
 	var text := _text_column(row)
 	var title := String(s.get("name", ""))
 	var name_label := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)

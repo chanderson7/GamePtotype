@@ -87,6 +87,12 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
   - UI Integrations: dedicated "Your Fief & Manor" overview card on `settlement_screen.gd` with treasury/granary collection, garrison transfer roster, and improvement builders. Warband screen estate overview card on `main_menu.gd`. Strategic recommendation guidance for uncollected taxes and ruined estate reconstruction in `game_state.recommendation()`.
   - Chronicle events (`fief_granted`, `fief_defended`, `fief_lost`) and complete save/load roundtrip persistence.
   - Verified with `tests/fief_tests.gd` (62 tests pass, 0 failures).
+  - The fief's picture and Fief tab ([plan](fief-manor-plan.md)): built improvements are painted
+    into the settlement vista for every culture's village and castle (a granary, a palisade and
+    watchtower, a mill with a turning wheel and market stalls), with a flash and dust when one is
+    built. The Fief tab is cards: stores as meters that warn when full, garrison rows with faces
+    and wounds, a station sheet instead of a button per squad, Manor rows with a plate of each
+    building, and renouncing behind a confirmation. The Warband's fief card shows the place.
 
 ## Added 2026-10-31
 

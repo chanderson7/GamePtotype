@@ -230,7 +230,19 @@ def oak(P, x, base, rad):
     P.r(x - rad + 1, base - rad + 1, 2 * rad - 1, 1, s)
 
 
-def land(P, L):
+def land(P, L, culture="vardish"):
+    if culture == "kharzani":
+        P.faint(0.5, lambda: P.r(0, HZ - 6, W, 4, "f6e6c2"))
+        P.ridge(lambda x: 35 + math.sin(x / 19.0) * 3 + math.sin(x / 7.0) * 0.8, col("far", L), 0, W, HZ + 2)
+        P.ridge(lambda x: 37 - abs(math.sin(x / 28.0 + 0.6)) * 3 + 3, "eed9ac", 0, W, 39)
+        P.ridge(lambda x: 40 + math.sin(x / 13.0 + 1) * 2, col("mid", L), 0, W, HZ + 2)
+        return
+    if culture == "ryumon":
+        P.ridge(lambda x: 36 + math.sin(x / 15.0 + 1) * 3, "6a7e7a", 0, W, HZ + 2)
+        P.ridge(lambda x: 40 + math.sin(x / 11.0 + 3) * 2, col("mid", L), 0, W, HZ + 2)
+        for x in range(3, W, 6):
+            pine(P, x, 42 + round(math.sin(x / 11.0 + 3) * 1.5), 4 + (x * 7 % 4), "3e5a48", "2c4436")
+        return
     P.ridge(lambda x: 33 + math.sin(x / 23.0) * 3 + math.sin(x / 9.0 + 1) * 1.2, col("far", L), 0, W, HZ + 2)
     P.ridge(lambda x: 39 + math.sin(x / 17.0 + 2) * 2.2, col("mid", L), 0, W, HZ + 2)
     for x in range(2, W, 5):
@@ -535,7 +547,7 @@ def market_vard(P, o, spots):
 
 def granary_khar(P, L, x, base):
     """A domed mud-brick store (a matmura) with a ladder to its hatch and sacks at its foot."""
-    c, s = "c99a62", "9c7244"
+    c, s = "b98250", "8a6440"
     P.dome(x + 8, base - 2, 9, c, s, lightened(c, 0.12))
     P.r(x - 1, base - 2, 18, 2, c)
     P.r(x + 14, base - 2, 3, 2, s)
@@ -548,18 +560,19 @@ def granary_khar(P, L, x, base):
 
 
 def palisade_khar(P, L, x0, x1, base):
-    """A mud-brick wall with a stepped parapet."""
-    c, s = "daba84", "aa8a5a"
+    """A mud-brick wall with a stepped parapet, redder than the sand so it reads."""
+    c, s = "c08a56", "8a6440"
     P.r(x0, base - 6, x1 - x0, 6, c)
     P.r(x0, base - 2, x1 - x0, 1, s)
     for x in range(x0, x1, 3):
         P.r(x, base - 8, 2, 2, c)
         P.p(x + 1, base - 7, s)
+    P.r(x0, base - 6, x1 - x0, 1, "dcae78")
 
 
 def watchtower_khar(P, L, o, x, base):
     """A square brick burj with a lantern niche, its watch on top."""
-    c, s = "daba84", "aa8a5a"
+    c, s = "c08a56", "8a6440"
     P.r(x - 4, base - 20, 9, 20, c)
     P.r(x + 3, base - 20, 2, 20, s)
     for mx in range(x - 4, x + 5, 3):
@@ -791,7 +804,218 @@ def main():
         for key in ["granary", "fortifications", "mill"]:
             plate(culture, key).resize((PLATE_W * 4, PLATE_H * 4), Image.NEAREST).save(os.path.join(out, "plate_%s_%s.png" % (culture, key)))
             plate(culture, key, True).resize((PLATE_W * 4, PLATE_H * 4), Image.NEAREST).save(os.path.join(out, "plate_%s_%s_ghost.png" % (culture, key)))
+    all_layouts(out)
     print("wrote", out)
+
+
+# ---------------------------------------------------------------- the other villages and a castle
+# Ported from settlement_scene.gd to check where the improvements go in each layout.
+
+def palm(P, x, base, h, lean=1.0):
+    for i in range(h):
+        P.p(x + round(lean * i * i / (h * 3.0)), base - i, "8c5c32" if i % 2 else "6e4628")
+    tx = x + round(lean * h / 3.0)
+    ty = base - h
+    for d in [[-4, 2], [-3, 1], [-2, 0], [-1, 0], [1, 0], [2, 0], [3, 1], [4, 2], [-5, 3], [5, 3], [0, -1], [-1, -1], [1, -1]]:
+        P.p(tx + d[0], ty + d[1], "345826" if d[1] > 1 else "548038")
+
+
+def cherry(P, x, base, rad):
+    P.r(x, base - rad, 1, rad, "4a3028")
+    P.dome(x, base - rad + 1, rad, "f0b2c6", "d98aa6", "f8d4e0")
+
+
+def has(o, k):
+    return k in o["improvements"]
+
+
+def khar_village(P, o, L):
+    palm(P, 18, 46, 14, 1); palm(P, 28, 45, 11, -1); palm(P, 152, 46, 15, -1); palm(P, 166, 47, 12, 1); palm(P, 140, 45, 10, 1)
+    for f in [[2, 50], [22, 50], [2, 58], [22, 58], [142, 52], [160, 52], [142, 60], [160, 60]]:
+        fields(P, f[0], f[1], 17, 6, ["8aaa52", "7a9a46", "6c8c3c"])
+    water = "70a4b0"
+    P.r(0, 56, 42, 2, water); P.r(140, 58, 40, 2, water); P.r(39, 50, 2, 16, water)
+    if has(o, "granary"):
+        granary_khar(P, L, *KHAR_V["granary"])
+
+    def house(x, base, w, h):
+        c, sh = "c99a62", "9c7244"
+        P.r(x, base - h, w, h, c); P.r(x + w - 2, base - h, 2, h, sh)
+        P.r(x - 1, base - h - 1, w + 2, 1, lightened(c, 0.1))
+        for xx in range(int(x), int(x) + w, 3):
+            P.p(xx, base - h - 2, c)
+        P.r(x + 2, base - 4, 2, 4, "3a2a20"); P.win(x + w - 5, base - h + 2, 1, 2)
+        P.r(x + 2, base - h - 3, 3, 2, "e8dcc0")
+    house(52, 54, 13, 8); house(68, 51, 10, 7); house(112, 52, 12, 8); house(126, 57, 14, 9); house(46, 60, 10, 6)
+    for y in range(60, 66):
+        w = 18 - abs(63 - y) * 3
+        P.r(92 - w / 2.0, y, w, 1, water)
+    wood = col("wood", L)
+    P.r(98, 52, 1, 9, wood); P.r(91, 50, 14, 1, wood); P.r(104, 50, 2, 3, "7a6a5a"); P.r(91, 51, 1, 7, "8a7a6a"); P.r(90, 58, 3, 2, "7a5232")
+    if has(o, "fortifications"):
+        for run in KHAR_V["walls"]:
+            palisade_khar(P, L, *run)
+        watchtower_khar(P, L, o, *KHAR_V["tower"])
+    banner(P, 36, 46, 10)
+    if has(o, "mill"):
+        mill_khar(P, L, *KHAR_V["mill"])
+
+
+def ryu_village(P, o, L):
+    def paddy(x, y, w, h):
+        P.r(x, y, w, h, "a8ccd4"); P.r(x, y + h, w, 1, "6a5a3e")
+        for yy in range(y, y + h, 2):
+            for xx in range(x + 1, x + w, 3):
+                P.p(xx, yy, "6c9a44")
+        P.r(x + 2, y, min(6, w - 3), 1, "d8eaee")
+    for i in range(4):
+        paddy(0, 44 + i * 6, 44 - i * 4, 5)
+        paddy(136 + i * 4, 44 + i * 6, 44 - i * 4, 5)
+    cherry(P, 52, 50, 5); cherry(P, 128, 50, 4)
+    if has(o, "granary"):
+        granary_ryu(P, L, *RYU_V["granary"])
+    wood = col("wood", L)
+
+    def minka(x, base, w, h):
+        P.r(x, base - h, w, h, wood); P.r(x + 2, base - h + 1, w - 4, h - 3, col("plaster", L))
+        for xx in range(int(x) + 3, int(x) + w - 2, 3):
+            P.r(xx, base - h + 1, 1, h - 3, wood)
+        for k in range(8):
+            inset = max(0, 7 - k)
+            P.r(x - 2 + inset, base - h - 8 + k, w + 4 - inset * 2, 1, col("thatchS", L) if k > 5 else col("thatch", L))
+        P.r(x + 4, base - h - 9, w - 8, 2, "3a3030")
+        P.r(x + int(w / 2) - 1, base - 4, 3, 4, "2a2024")
+    minka(60, 56, 16, 7); minka(102, 54, 14, 7); minka(80, 50, 12, 6)
+    red = "b8352a"
+    P.r(86, 60, 1, 8, red); P.r(95, 60, 1, 8, red); P.r(84, 59, 14, 1, red); P.r(83, 58, 16, 1, "22202a"); P.r(85, 61, 12, 1, red)
+    if has(o, "fortifications"):
+        for run in RYU_V["walls"]:
+            palisade_ryu(P, L, *run)
+        watchtower_ryu(P, L, o, *RYU_V["tower"])
+    P.r(46, 52, 1, 14, "2e2218")
+    if has(o, "mill"):
+        mill_ryu(P, L, *RYU_V["mill"])
+
+
+def stone_wall(P, x, y, w, h, L, step=6):
+    P.r(x, y, w, h, col("stone", L)); P.r(x, y + h - 1, w, 1, col("stoneS", L))
+    yy = int(y) + 3
+    while yy < y + h - 1:
+        xx = int(x) + (3 if yy % 8 == 0 else 0)
+        while xx < x + w - 1:
+            P.r(xx, yy, min(4, x + w - xx), 1, col("mortar", L))
+            xx += step
+        yy += 4
+
+
+def merlons(P, x0, x1, y, c):
+    for x in range(x0, x1, 3):
+        P.r(x, y, 2, 2, c)
+
+
+def vard_castle(P, o, L):
+    stone, shade = col("stone", L), col("stoneS", L)
+    P.r(106, 18, 10, 20, shade); P.r(106, 18, 8, 20, stone); P.tri(103, 117, 6, 18, col("roof", L), col("roofS", L))
+    stone_wall(P, 60, 12, 28, 26, L); P.r(84, 12, 4, 26, shade); merlons(P, 60, 88, 10, stone)
+    banner(P, 75, 1, 9)
+    stone_wall(P, 30, 35, 120, 21, L); merlons(P, 30, 150, 33, stone)
+    for tx in [22, 146]:
+        stone_wall(P, tx, 26, 12, 30, L); P.r(tx + 9, 26, 3, 30, shade); merlons(P, tx, tx + 12, 24, stone)
+    stone_wall(P, 77, 24, 26, 32, L); P.r(99, 24, 4, 32, shade); merlons(P, 77, 103, 22, stone)
+    for y in range(42, 56):
+        P.r(85, y, 10, 1, DARK)
+    banner(P, 87, 28)
+
+
+def castle_improvements(P, o, L, culture):
+    a = CASTLE[culture]
+    if has(o, "granary"):
+        {"vardish": granary_vard, "kharzani": granary_khar, "ryumon": granary_ryu}[culture](P, L, *a["granary"])
+    if has(o, "mill"):
+        if culture == "vardish":
+            brook_vard(P)
+        mill = {"vardish": mill_vard, "kharzani": mill_khar, "ryumon": mill_ryu}[culture]
+        mill(P, L, *a["mill"])
+    if has(o, "fortifications"):
+        pal = {"vardish": palisade_vard, "kharzani": palisade_khar, "ryumon": palisade_ryu}[culture]
+        for run in a["walls"]:
+            pal(P, L, *run)
+        tower = {"vardish": watchtower_vard, "kharzani": watchtower_khar, "ryumon": watchtower_ryu}[culture]
+        tower(P, L, o, *a["tower"])
+
+
+# Anchors, as the GDScript uses them: (x, base) or (x0, x1, base).
+KHAR_V = {"granary": (2, 53), "walls": [(0, 38, 68)], "tower": (78, 66), "mill": (148, 68)}
+RYU_V = {"granary": (4, 52), "walls": [(2, 26, 68), (136, 146, 70)], "tower": (35, 72), "mill": (148, 72)}
+CASTLE = {
+    "vardish": {"granary": (2, 64), "mill": (154, 72), "walls": [(30, 74, 66)], "tower": (40, 70)},
+    "kharzani": {"granary": (2, 64), "mill": (148, 72), "walls": [(30, 74, 66)], "tower": (40, 70)},
+    "ryumon": {"granary": (4, 64), "mill": (148, 74), "walls": [(30, 74, 66)], "tower": (40, 70)},
+}
+
+
+def foreground_any(P, o, culture, kind):
+    mill = has(o, "mill")
+    if kind == "village" and culture == "kharzani":
+        beast(P, "camel", 44 if mill else 148, 78)
+        P.grid(["....k", "ggggg", "gggg.", ".g.g."], 64, 68, {"g": "8a6a4a", "k": "3a2a20"})
+        for s in ([[16, 76, False, False, "hoe"], [70, 77, True, True]] if mill else [[16, 74, False, False, "hoe"], [108, 74, True, True, "basket"], [124, 72]]):
+            person(P, *s)
+    elif kind == "village" and culture == "ryumon":
+        for s in ([[18, 60, False, False, "hoe"], [64, 76, True]] if mill else [[18, 60, False, False, "hoe"], [150, 56, True, True, "basket"], [122, 74], [64, 76, True]]):
+            person(P, *s)
+    elif kind == "castle":
+        person(P, 60, 72, True)
+        if not mill:
+            person(P, 128, 74, False, True, "basket")
+            beast(P, "sheep", 140, 70); beast(P, "sheep", 150, 74, True)
+        else:
+            beast(P, "sheep", 20, 74); beast(P, "sheep", 30, 77, True)
+    if mill:
+        market_vard(P, o, [[98, 79], [114, 79]])
+        person(P, 108, 79, True, True)
+    x = 134
+    P.grid(SPRITES["follower/vardish"], x - 18, 67, TEAM_VARD)
+    P.grid(SPRITES["follower/vardish"], x - 10, 68, TEAM_VARD)
+    P.grid(SPRITES["mounted/vardish"], x, 52, TEAM_VARD)
+
+
+def build_any(o):
+    culture, kind = o["culture"], o["kind"]
+    L = LOOK[culture]
+    sky_p = Painter()
+    sky(sky_p, o, L)
+    P = Painter()
+    land(P, L, culture)
+    ground(P, L)
+    road(P, L, 90, 56 if kind == "castle" else 60, 8 if kind == "castle" else 4)
+    if kind == "castle":
+        vard_castle(P, o, L)
+        castle_improvements(P, o, L, culture)
+    elif culture == "kharzani":
+        khar_village(P, o, L)
+    else:
+        ryu_village(P, o, L)
+    foreground_any(P, o, culture, kind)
+    draw_smokes(P)
+    out = Painter()
+    out.img = [row[:] for row in sky_p.img]
+    for y in range(H):
+        for x in range(W):
+            c = P.img[y][x]
+            if c[3] > 0:
+                out.put(x, y, c)
+    return out
+
+
+def all_layouts(out):
+    rows = []
+    for culture, kind in [("kharzani", "village"), ("ryumon", "village"), ("vardish", "castle"), ("kharzani", "castle"), ("ryumon", "castle")]:
+        a = to_image(build_any({"culture": culture, "kind": kind, "night": False, "improvements": []}))
+        b = to_image(build_any({"culture": culture, "kind": kind, "night": False, "improvements": ["granary", "fortifications", "mill"]}))
+        pair = Image.new("RGBA", (a.width * 2 + 8, a.height), (28, 28, 30, 255))
+        pair.paste(a, (0, 0)); pair.paste(b, (a.width + 8, 0))
+        pair.save(os.path.join(out, "layout_%s_%s.png" % (culture, kind)))
 
 
 if __name__ == "__main__":

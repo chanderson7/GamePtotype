@@ -32,6 +32,7 @@ const IMPROVEMENTS := {
 		"name": "Granary & Stores",
 		"cost": 300,
 		"food_bonus": 15,
+		"effects": ["+15 rations a day", "Stores 250 rations"],
 		"description": "Expanded granaries increase food reserves to 250 rations and yield +15 rations daily.",
 	},
 	IMPROVEMENT_FORTIFICATIONS: {
@@ -39,15 +40,20 @@ const IMPROVEMENTS := {
 		"cost": 450,
 		"defense_mult": 1.35,
 		"militia_bonus": 15,
-		"description": "Timber palisades and a sturdy watchtower muster 15 militia, grant +35% defense strength, and spot raiders early.",
+		"effects": ["15 militia join the defence", "+35% strength holding the village"],
+		"description": "Timber palisades and a sturdy watchtower muster 15 militia and grant +35% defense strength against raiders.",
 	},
 	IMPROVEMENT_MILL: {
 		"name": "Water Mill & Market Stalls",
 		"cost": 400,
 		"silver_bonus": 30,
+		"effects": ["+30 silver a day in taxes"],
 		"description": "A bustling mill and covered market stalls stimulate local trade, yielding +30 silver in daily taxes.",
 	},
 }
+
+## The order the Manor card lists them in.
+const IMPROVEMENT_ORDER := [IMPROVEMENT_GRANARY, IMPROVEMENT_FORTIFICATIONS, IMPROVEMENT_MILL]
 
 const REPAIR_COST := 200
 

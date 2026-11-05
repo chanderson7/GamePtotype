@@ -78,6 +78,14 @@ func _init() -> void:
 		await _fits("the Warband's %s tab" % tab)
 	change_scene_to_file("res://scenes/settlement.tscn")
 	await _fits("your fief")
+	# The same page with everything built, a squad left in the garrison and the store full.
+	gs.player_fief["improvements"] = {"granary": true, "fortifications": true, "mill": true}
+	gs.player_fief["silver"] = 1500
+	gs.station_squad_in_fief(int(gs.army[gs.army.size() - 1]["id"]))
+	change_scene_to_file("res://scenes/settlement.tscn")
+	await _fits("your fief, built up and garrisoned")
+	current_scene._show_station_sheet()
+	await _fits("the station sheet")
 	gs.world.player().node = "highcliff"
 	change_scene_to_file("res://scenes/settlement.tscn")
 	await _fits("another settlement")

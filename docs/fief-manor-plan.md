@@ -1,6 +1,8 @@
 # Fief and manor: visuals and UI plan
 
-**Status:** planned, not built.
+**Status:** built (steps 1 to 5). The build sound uses the existing `ladders` clip until a
+dedicated one is recorded. Raiders only strike villages, so at a castle fief the palisade's
+row says it does nothing there; making it count at castles is a rules change for later.
 **Mockups:** `mockups/fief-manor-tab.png` (the Fief tab and the station sheet, with
 notes) and `mockups/fief-vista-improvements.png` (the village before and after, at night,
 and the improvement plates by culture).

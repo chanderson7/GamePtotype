@@ -17,6 +17,7 @@ const Fiefs = preload("res://scripts/data/fiefs.gd")
 const CampMoments = preload("res://scripts/data/camp_moments.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 
 var _scroll: ScrollContainer
 ## The open tab: camp, companies or deeds.
@@ -700,39 +701,41 @@ func _active_job_row(job: Dictionary) -> Control:
 	return panel
 
 
+## Your fief as it stands today, in its own picture, with what waits there for you.
 func _fief_overview_row() -> Control:
-	var panel := PanelContainer.new()
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	panel.add_child(margin)
-
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	margin.add_child(v)
-
+	v.name = "FiefOverview"
+	v.add_theme_constant_override("separation", 8)
 	var fid := GameState.fief_id()
+	var vista := SettlementVista.make(fid, GameState.world, 120.0)
+	vista.name = "FiefVista"
+	v.add_child(vista)
+
 	var s_name := String(WorldData.settlement(fid)["name"])
 	var r_name := String(WorldData.FACTIONS[GameState.fief_realm()]["name"])
-	var title_lbl := Style.label("Seat of Governance: %s (%s)" % [s_name, r_name], Style.LARGE, Style.BRASS)
+	var title_lbl := Style.label("%s · %s" % [s_name, r_name], Style.LARGE, Style.BRASS)
 	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(title_lbl)
 
+	var f := GameState.player_fief
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
-	var f_silver := int(GameState.player_fief.get("silver", 0))
-	var f_food := int(GameState.player_fief.get("food", 0))
-	var f_garr: int = int(GameState.player_fief.get("garrison", []).size())
-	var status_text := "Garrison: %d squads · Estate Treasury: %d silver · Granary: %d rations" % [
-		f_garr, f_silver, f_food
-	]
-	if is_b:
-		status_text += " · [Raid Damage: Needs Reconstruction]"
-	var status_lbl := Style.label(status_text, Style.BODY, Style.TEXT if not is_b else Style.ENEMY_LIGHT)
+	var garr: int = int(f.get("garrison", []).size())
+	var built := 0
+	for k in Fiefs.IMPROVEMENT_ORDER:
+		if bool(f.get("improvements", {}).get(k, false)):
+			built += 1
+	var lines := PackedStringArray()
+	lines.append("%d squad%s stationed" % [garr, "" if garr == 1 else "s"] if garr > 0 else "No squads stationed")
+	lines.append("%s silver and %d rations waiting" % [Widgets.thousands(int(f.get("silver", 0))), int(f.get("food", 0))])
+	lines.append("%d of %d built" % [built, Fiefs.IMPROVEMENT_ORDER.size()])
+	var status_lbl := Style.label(" · ".join(lines), Style.SMALL, Style.TEXT)
 	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(status_lbl)
-	return panel
+	if is_b:
+		var raid := Style.label("Raided: it needs rebuilding.", Style.SMALL, Style.ENEMY_LIGHT)
+		raid.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(raid)
+	return v
 
 
 ## Every bond in the company: talks waiting at the fire first, then the bonds closest to

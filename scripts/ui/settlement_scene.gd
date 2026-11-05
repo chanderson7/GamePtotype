@@ -68,6 +68,12 @@ class Painter:
 	var fires: Array = []
 	var lanterns: Array = []
 	var smokes: Array = []
+	## Mill wheels the vista turns: [x, y, radius, spoke colour, turning].
+	var wheels: Array = []
+	## Where each improvement was painted, {key: [Rect2i]}, so the vista can mark a new one.
+	var spots := {}
+	## A still picture (a plate) paints its wheels' spokes instead of leaving them to turn.
+	var still := false
 
 	func _init() -> void:
 		img = Image.create_empty(W, H, false, Image.FORMAT_RGBA8)
@@ -188,9 +194,17 @@ static func params(world, id: String) -> Dictionary:
 	var owner: String = String(world.owner_of(id)) if world != null else built_by
 	var o := {"id": id, "culture": Data.culture_of(built_by), "kind": String(info["type"]),
 		"owner": owner if BANNER.has(owner) else "bandits", "garrison": "full", "prosperity": "normal",
-		"condition": "healthy", "night": false, "visitors": [], "player": "", "besieger": "", "seed": absi(id.hash())}
+		"condition": "healthy", "night": false, "visitors": [], "player": "", "besieger": "", "seed": absi(id.hash()),
+		"improvements": []}
 	if world == null:
 		return o
+	# What the company has built at its own fief stands there even while the fief is lost.
+	var gs = world.get("game_state")
+	if gs != null and gs.has_method("is_player_fief") and gs.is_player_fief(id):
+		var imps: Dictionary = gs.player_fief.get("improvements", {})
+		for k in IMP_KEYS:
+			if bool(imps.get(k, false)):
+				o["improvements"].append(k)
 	var state: Dictionary = TravelPresentation.settlement_state(world, id)
 	o["night"] = bool(state.get("night", false))
 	if String(state.get("garrison", "none")) in ["thin", "none"] and o["kind"] != Data.VILLAGE:
@@ -260,6 +274,8 @@ static func build(o: Dictionary) -> Dictionary:
 			if kind == Data.CASTLE: _vard_castle(front, o, L)
 			elif kind == Data.TOWN: _vard_town(front, o, L)
 			else: _vard_village(front, o, L)
+	if kind == Data.CASTLE:
+		_castle_improvements(front, o, L)
 	_foreground(front, o, L)
 	if o.get("condition") == "besieged":
 		sky.wash(Color("6e3a2c"), 0.18)
@@ -268,7 +284,7 @@ static func build(o: Dictionary) -> Dictionary:
 		_night(sky, front, o)
 	return {"sky": sky.img, "clouds": clouds.img if clouds != null else null, "front": front.img,
 		"smokes": front.smokes, "fires": front.fires, "lanterns": front.lanterns, "stars": stars,
-		"night": bool(o.get("night", false))}
+		"night": bool(o.get("night", false)), "wheels": front.wheels, "spots": front.spots}
 
 
 static func _night(sky: Painter, front: Painter, o: Dictionary) -> void:
@@ -1017,6 +1033,8 @@ static func _vard_village(P: Painter, o: Dictionary, L: Dictionary) -> void:
 	_oak(P, 24, 46, 5)
 	_oak(P, 150, 46, 6)
 	_oak(P, 166, 48, 4)
+	if _built(o, "granary"):
+		_granary(P, o, L)
 	var wood := col("wood", L)
 	var cottage := func(x: float, base: float, w: int, h: int, i: int) -> void:
 		var burnt := raided and i % 2 == 0
@@ -1056,14 +1074,23 @@ static func _vard_village(P: Painter, o: Dictionary, L: Dictionary) -> void:
 	P.r(96, 52, 1, 6, wood)
 	P.r(102, 52, 1, 6, wood)
 	P.tri(95, 104, 49, 52, col("thatch", L), col("thatchS", L))
-	for x in range(4, 40, 4):
-		if not raided or x % 12:
-			P.r(x, 62, 1, 4, wood)
-	P.r(4, 63, 14 if raided else 36, 1, Color("8a6a44"))
-	for x in range(144, 178, 4):
-		P.r(x, 64, 1, 4, wood)
-	P.r(144, 65, 34, 1, Color("8a6a44"))
+	var mill := _built(o, "mill")
+	if mill:
+		_brook(P)
+	if _built(o, "fortifications"):
+		_fortifications(P, o, L)
+	else:
+		for x in range(4, 40, 4):
+			if not raided or x % 12:
+				P.r(x, 62, 1, 4, wood)
+		P.r(4, 63, 14 if raided else 36, 1, Color("8a6a44"))
+		var fence_end := 154 if mill else 178
+		for x in range(144, fence_end, 4):
+			P.r(x, 64, 1, 4, wood)
+		P.r(144, 65, fence_end - 144, 1, Color("8a6a44"))
 	_banner(P, o["owner"], 30, 48, 10)
+	if mill:
+		_mill(P, o, L)
 	if rec:
 		P.r(150, 70, 14, 2, Color("a97846"))
 		P.r(151, 68, 12, 2, Color("c59555"))
@@ -1084,6 +1111,8 @@ static func _khar_village(P: Painter, o: Dictionary, L: Dictionary) -> void:
 	P.r(0, 56, 42, 2, water)
 	P.r(140, 58, 40, 2, water)
 	P.r(39, 50, 2, 16, water)
+	if _built(o, "granary"):
+		_granary(P, o, L)
 	var house := func(x: float, base: float, w: int, h: int, i: int) -> void:
 		var burnt := raided and i % 2 == 0
 		var fresh := rec and i % 2 == 0
@@ -1120,7 +1149,11 @@ static func _khar_village(P: Painter, o: Dictionary, L: Dictionary) -> void:
 	P.r(104, 50, 2, 3, Color("7a6a5a"))
 	P.r(91, 51, 1, 7, Color("8a7a6a"))
 	P.r(90, 58, 3, 2, Color("7a5232"))
+	if _built(o, "fortifications"):
+		_fortifications(P, o, L)
 	_banner(P, o["owner"], 36, 46, 10)
+	if _built(o, "mill"):
+		_mill(P, o, L)
 	if rec:
 		P.r(150, 72, 12, 2, Color("c99a62"))
 		P.r(151, 70, 10, 2, Color("9c7244"))
@@ -1142,6 +1175,8 @@ static func _ryu_village(P: Painter, o: Dictionary, L: Dictionary) -> void:
 		paddy.call(136 + i * 4, 44 + i * 6, 44 - i * 4, 5)
 	_cherry(P, 52, 50, 5)
 	_cherry(P, 128, 50, 4)
+	if _built(o, "granary"):
+		_granary(P, o, L)
 	var wood := col("wood", L)
 	var minka := func(x: float, base: float, w: int, h: int, i: int) -> void:
 		var burnt := raided and i % 2 == 0
@@ -1175,10 +1210,427 @@ static func _ryu_village(P: Painter, o: Dictionary, L: Dictionary) -> void:
 	P.r(84, 59, 14, 1, red)
 	P.r(83, 58, 16, 1, Color("22202a"))
 	P.r(85, 61, 12, 1, red)
+	if _built(o, "fortifications"):
+		_fortifications(P, o, L)
 	_small(P, o["owner"], 46, 52, 14)
+	if _built(o, "mill"):
+		_mill(P, o, L)
 	if rec:
 		P.r(146, 72, 12, 2, Color("a97846"))
 		P.r(147, 70, 10, 2, Color("c59555"))
+
+
+# ---------------------------------------------------------------- the lord's improvements
+
+## What the player has built at their own fief, drawn where each kind of place has room
+## for it: [x, base] for one building, [x0, x1, base] for a run of wall. The title sits on
+## the bottom left of the picture, so nothing new goes there. Towns are never fiefs.
+const IMP_AT := {
+	"village": {
+		"vardish": {"granary": [4, 54], "walls": [[2, 40, 58], [144, 178, 60]], "tower": [82, 64], "mill": [154, 72]},
+		"kharzani": {"granary": [2, 53], "walls": [[0, 38, 68]], "tower": [78, 66], "mill": [148, 68]},
+		"ryumon": {"granary": [4, 52], "walls": [[2, 26, 68], [136, 146, 70]], "tower": [35, 72], "mill": [148, 72]},
+	},
+	"castle": {
+		"vardish": {"granary": [2, 64], "walls": [[30, 74, 66]], "tower": [40, 70], "mill": [154, 72]},
+		"kharzani": {"granary": [2, 64], "walls": [[30, 74, 66]], "tower": [40, 70], "mill": [148, 72]},
+		"ryumon": {"granary": [4, 64], "walls": [[30, 74, 66]], "tower": [40, 70], "mill": [148, 74]},
+	},
+}
+const IMP_KEYS := ["granary", "fortifications", "mill"]
+## A plate: one improvement alone on a strip of its culture's ground, for the Manor card.
+const PLATE_W := 40
+const PLATE_H := 30
+const PLATE_BG := Color("1a2138")
+
+
+static func _built(o: Dictionary, key: String) -> bool:
+	var imps = o.get("improvements", [])
+	return imps is Array and (imps as Array).has(key)
+
+
+static func _imp_at(o: Dictionary) -> Dictionary:
+	var by_kind: Dictionary = IMP_AT.get(String(o.get("kind", "")), {})
+	return by_kind.get(String(o.get("culture", "vardish")), by_kind.get("vardish", {}))
+
+
+## The mill's wheel stops while the place is raided or besieged.
+static func _turning(o: Dictionary) -> bool:
+	return not String(o.get("condition", "healthy")) in ["raided", "besieged"]
+
+
+static func _granary(P: Painter, o: Dictionary, L: Dictionary) -> void:
+	var at: Array = _imp_at(o).get("granary", [])
+	if at.is_empty():
+		return
+	var x: int = at[0]
+	var base: int = at[1]
+	match String(o.get("culture")):
+		"kharzani": _granary_khar(P, x, base)
+		"ryumon": _granary_ryu(P, L, x, base)
+		_: _granary_vard(P, L, x, base)
+	P.spots["granary"] = [Rect2i(x - 2, base - 19, 23, 20)]
+
+
+static func _fortifications(P: Painter, o: Dictionary, L: Dictionary) -> void:
+	var at := _imp_at(o)
+	if not at.has("tower"):
+		return
+	var culture := String(o.get("culture"))
+	var rects: Array = []
+	# A run of wall stops short of the mill's brook.
+	var stop: int = 999
+	if _built(o, "mill"):
+		stop = int(at["mill"][0])
+	for run in at["walls"]:
+		var x0: int = run[0]
+		var x1: int = mini(int(run[1]), stop)
+		var base: int = run[2]
+		match culture:
+			"kharzani": _wall_khar(P, x0, x1, base)
+			"ryumon": _stakes_ryu(P, x0, x1, base)
+			_: _stakes_vard(P, L, x0, x1, base)
+		rects.append(Rect2i(x0, base - 10, x1 - x0, 11))
+	var tx: int = at["tower"][0]
+	var tb: int = at["tower"][1]
+	match culture:
+		"kharzani": _tower_khar(P, tx, tb)
+		"ryumon": _tower_ryu(P, L, tx, tb)
+		_: _tower_vard(P, L, o, tx, tb)
+	if culture == "vardish" and String(o.get("kind")) == Data.VILLAGE:
+		# Two taller stakes either side of the road: the palisade's gate.
+		for gx in [86, 94]:
+			P.r(gx, tb - 10, 1, 10, col("wood", L))
+			P.p(gx, tb - 10, Color("8a6a44"))
+	rects.append(Rect2i(tx - 9, tb - 31, 19, 32))
+	P.spots["fortifications"] = rects
+
+
+static func _mill(P: Painter, o: Dictionary, L: Dictionary) -> void:
+	var at: Array = _imp_at(o).get("mill", [])
+	if at.is_empty():
+		return
+	var x: int = at[0]
+	var base: int = at[1]
+	var turning := _turning(o)
+	match String(o.get("culture")):
+		"kharzani": _mill_khar(P, x, base, turning)
+		"ryumon": _mill_ryu(P, L, x, base, turning)
+		_: _mill_vard(P, L, x, base, turning)
+	P.spots["mill"] = [Rect2i(x - 2, base - 18, 28, 20)]
+
+
+## A brook down the right edge, widening as it comes forward, for a Vardish mill.
+static func _brook(P: Painter) -> void:
+	for y in range(50, H):
+		var t := (y - 50) / 30.0
+		var cx := 177.0 - t * 8.0
+		var w := 3.0 + t * 3.0
+		P.r(cx - w / 2.0, y, w, 1, Color("6a9ab0"))
+		P.p(cx - w / 2.0, y, Color("5a7a60"))
+		if y % 3 == 0:
+			P.p(cx + (y % 2), y, Color("a8ccd4"))
+
+
+## A mill wheel's rim and hub. A still painter (a plate) paints the spokes too; the vista
+## turns them itself, from `wheels`.
+static func _wheel(P: Painter, cx: int, cy: int, rad: int, rim: Color, inner: Color, spoke: Color, turning: bool, step: int = 8) -> void:
+	for a in range(0, 360, step):
+		P.p(cx + roundi(cos(deg_to_rad(a)) * rad), cy + roundi(sin(deg_to_rad(a)) * rad), rim)
+	for a in range(0, 360, 10):
+		P.p(cx + roundi(cos(deg_to_rad(a)) * (rad - 1)), cy + roundi(sin(deg_to_rad(a)) * (rad - 1)), inner)
+	for a in range(0, 360, 45):
+		P.p(cx + roundi(cos(deg_to_rad(a)) * rad), cy + roundi(sin(deg_to_rad(a)) * rad), Color("8a6a44"))
+	if P.still:
+		for a in [0, 90]:
+			for k in range(-rad + 1, rad):
+				P.p(cx + roundi(cos(deg_to_rad(a)) * k), cy + roundi(sin(deg_to_rad(a)) * k), spoke)
+	else:
+		P.wheels.append([cx + P.ox, cy + P.oy, rad, spoke, turning])
+	P.p(cx, cy, Color("8a6a44"))
+
+
+static func _granary_vard(P: Painter, L: Dictionary, x: int, base: int) -> void:
+	var stone := col("stone", L)
+	var shade := col("stoneS", L)
+	var wood := col("wood", L)
+	# Staddle stones: a stalk and a wider cap, so rats can't climb in.
+	for sx in [x + 1, x + 5, x + 9, x + 13]:
+		P.r(sx + 1, base - 2, 1, 2, shade)
+		P.r(sx, base - 3, 3, 1, stone)
+	P.r(x - 1, base - 4, 18, 1, wood)
+	P.r(x, base - 11, 16, 7, Color("7a5a3a"))
+	for xx in range(x, x + 16, 3):
+		P.r(xx, base - 11, 1, 7, wood)
+	P.r(x, base - 11, 16, 1, wood)
+	P.r(x + 6, base - 9, 3, 5, DARK)
+	P.r(x + 6, base - 6, 3, 1, Color("3a3030"))
+	var rc := col("thatch", L)
+	P.tri(x - 2, x + 17, base - 17, base - 11, rc, col("thatchS", L))
+	for yy in range(base - 15, base - 11, 2):
+		P.r(x + 1, yy, 14, 1, rc.darkened(0.12))
+	P.r(x + 9, base - 3, 5, 1, Color("8a6a44"))
+	P.r(x + 14, base - 2, 2, 2, Color("d0b662"))
+	P.p(x + 15, base - 3, Color("c4a858"))
+
+
+## A domed mud-brick store with a ladder to the hatch at its crown, and sacks at its foot.
+static func _granary_khar(P: Painter, x: int, base: int) -> void:
+	var c := Color("b98250")
+	var s := Color("8a6440")
+	P.dome(x + 8, base - 2, 9, c, s, c.lightened(0.12))
+	P.r(x - 1, base - 2, 18, 2, c)
+	P.r(x + 14, base - 2, 3, 2, s)
+	P.r(x + 7, base - 5, 3, 3, DARK)
+	P.p(x + 8, base - 12, DARK)
+	for yy in range(base - 11, base, 2):
+		P.p(x + 13 - floori((base - yy) / 4.0), yy, Color("7a5232"))
+	P.r(x + 18, base - 2, 2, 2, Color("d9962b"))
+	P.p(x + 19, base - 3, Color("d0b662"))
+
+
+## A raised kura: plaster walls on posts, a heavy tile roof, a shuttered window.
+static func _granary_ryu(P: Painter, L: Dictionary, x: int, base: int) -> void:
+	var wood := col("wood", L)
+	for px in [x + 1, x + 6, x + 11]:
+		P.r(px, base - 3, 1, 3, wood)
+	P.r(x - 1, base - 4, 15, 1, wood)
+	P.r(x, base - 11, 13, 7, col("plaster", L))
+	P.r(x, base - 11, 13, 1, wood)
+	P.r(x + 11, base - 11, 2, 7, Color("d8d2c4"))
+	P.r(x + 2, base - 9, 3, 3, DARK)
+	P.p(x + 3, base - 8, Color("8a8a86"))
+	for k in 6:
+		var inset := maxi(0, 5 - k)
+		P.r(x - 2 + inset, base - 17 + k, 17 - inset * 2, 1, col("tileS", L) if k > 3 else col("tile", L))
+	P.r(x + 3, base - 18, 7, 2, Color("262a33"))
+	P.r(x + 14, base - 2, 2, 2, Color("b8945a"))
+
+
+## Sharpened stakes two apart, with two rails.
+static func _stakes_vard(P: Painter, L: Dictionary, x0: int, x1: int, base: int) -> void:
+	var wood := col("wood", L)
+	var i := 0
+	for x in range(x0, x1, 2):
+		var h := 9 if i % 3 != 0 else 8
+		P.r(x, base - h, 1, h, wood)
+		P.p(x, base - h, Color("8a6a44"))
+		P.p(x, base - h + 1, Color("4a3222"))
+		i += 1
+	P.r(x0, base - 4, x1 - x0, 1, Color("8a6a44"))
+	P.r(x0, base - 7, x1 - x0, 1, Color("6a4e30"))
+
+
+## A mud-brick wall with a stepped parapet, redder than the sand so it reads.
+static func _wall_khar(P: Painter, x0: int, x1: int, base: int) -> void:
+	var c := Color("c08a56")
+	var s := Color("8a6440")
+	P.r(x0, base - 6, x1 - x0, 6, c)
+	P.r(x0, base - 2, x1 - x0, 1, s)
+	for x in range(x0, x1, 3):
+		P.r(x, base - 8, 2, 2, c)
+		P.p(x + 1, base - 7, s)
+	P.r(x0, base - 6, x1 - x0, 1, Color("dcae78"))
+
+
+## Bamboo stakes with a rope rail.
+static func _stakes_ryu(P: Painter, x0: int, x1: int, base: int) -> void:
+	var i := 0
+	for x in range(x0, x1, 2):
+		var h := 8 if i % 2 != 0 else 7
+		P.r(x, base - h, 1, h, Color("a8a060"))
+		P.p(x, base - h, Color("d8d2a0"))
+		for yy in range(base - h + 2, base, 3):
+			P.p(x, yy, Color("7a7440"))
+		i += 1
+	P.r(x0, base - 5, x1 - x0, 1, Color("6a5a3e"))
+
+
+## A timber tower on four legs: a railed platform, a slate roof, the watch and a torch.
+static func _tower_vard(P: Painter, L: Dictionary, o: Dictionary, x: int, base: int) -> void:
+	var wood := col("wood", L)
+	for lx in [x - 4, x + 4]:
+		P.r(lx, base - 15, 1, 15, wood)
+	for i in 12:
+		P.p(x - 3 + floori(i * 7 / 11.0), base - 3 - i, Color("4a3222"))
+		P.p(x + 3 - floori(i * 7 / 11.0), base - 3 - i, Color("4a3222"))
+	P.r(x - 6, base - 16, 13, 1, Color("8a6a44"))
+	P.r(x - 6, base - 17, 13, 1, Color("6a4e30"))
+	for px in [x - 6, x + 6]:
+		P.r(px, base - 21, 1, 4, wood)
+	P.r(x - 6, base - 20, 13, 1, Color("8a6a44"))
+	for yy in range(base - 15, base, 3):
+		P.r(x + 5, yy, 2, 1, Color("a97846"))
+	for px in [x - 5, x + 5]:
+		P.r(px, base - 25, 1, 5, wood)
+	P.tri(x - 8, x + 8, base - 29, base - 25, col("roof", L), col("roofS", L))
+	P.p(x, base - 30, GOLD)
+	_guard(P, x - 2, base - 24, _team(o) if not o.is_empty() else Color("4a74d1"))
+	P.torch(x + 4, base - 24)
+
+
+## A square brick burj with an arrow slit, its watch on top.
+static func _tower_khar(P: Painter, x: int, base: int) -> void:
+	var c := Color("c08a56")
+	var s := Color("8a6440")
+	P.r(x - 4, base - 20, 9, 20, c)
+	P.r(x + 3, base - 20, 2, 20, s)
+	for mx in range(x - 4, x + 5, 3):
+		P.r(mx, base - 22, 2, 2, c)
+	P.r(x - 1, base - 9, 3, 4, DARK)
+	P.p(x, base - 10, DARK)
+	_guard(P, x - 2, base - 27, Color("d9962b"))
+	P.torch(x + 3, base - 27)
+
+
+## A yagura: four posts, a deck with a red rail, a tile roof, a paper lantern.
+static func _tower_ryu(P: Painter, L: Dictionary, x: int, base: int) -> void:
+	var wood := col("wood", L)
+	for lx in [x - 4, x + 4]:
+		P.r(lx, base - 16, 1, 16, wood)
+	for i in 10:
+		P.p(x - 3 + floori(i * 7 / 9.0), base - 3 - i, Color("3a2a24"))
+	P.r(x - 6, base - 17, 13, 1, Color("8a6a44"))
+	P.r(x - 6, base - 20, 13, 1, Color("b8352a"))
+	for px in [x - 6, x + 6]:
+		P.r(px, base - 20, 1, 3, Color("b8352a"))
+	for px in [x - 5, x + 5]:
+		P.r(px, base - 25, 1, 5, wood)
+	for k in 5:
+		var inset := maxi(0, 4 - k)
+		P.r(x - 9 + inset, base - 30 + k, 19 - inset * 2, 1, col("tileS", L) if k > 2 else col("tile", L))
+	_guard(P, x - 2, base - 24, Color("b8352a"))
+	P.r(x + 4, base - 24, 1, 3, Color("f1ece0"))
+	P.p(x + 4, base - 23, Color("ffb84a"))
+	P.lanterns.append(Vector2(x + 4 + P.ox, base - 23 + P.oy))
+
+
+## A stone-footed mill with a slate roof and a lit window, its wheel on the brook.
+static func _mill_vard(P: Painter, L: Dictionary, x: int, base: int, turning: bool) -> void:
+	var wood := col("wood", L)
+	var stone := col("stone", L)
+	var shade := col("stoneS", L)
+	P.r(x, base - 4, 12, 4, stone)
+	P.r(x, base - 4, 12, 1, shade)
+	P.r(x, base - 10, 12, 6, col("plaster", L))
+	for xx in range(x, x + 12, 4):
+		P.r(xx, base - 10, 1, 6, wood)
+	P.r(x, base - 10, 12, 1, wood)
+	P.tri(x - 2, x + 13, base - 15, base - 10, col("roof", L), col("roofS", L))
+	P.r(x + 2, base - 3, 2, 3, Color("4a3324"))
+	P.win(x + 8, base - 8, 2, 2)
+	P.r(x + 9, base - 16, 2, 4, shade)
+	if turning:
+		P.smoke(x + 10, base - 17, 8, Color("d8d4d0"), 0.45)
+	var cx := x + 16
+	var cy := base - 4
+	_wheel(P, cx, cy, 6, Color("4a3222"), Color("5a3e28"), Color("6a4e30"), turning)
+	P.r(x + 12, cy, 4, 1, wood)
+	P.r(x + 13, cy - 8, 8, 1, Color("8a6a44"))
+	P.r(x + 20, cy - 9, 1, 2, Color("a8ccd4"))
+	if turning:
+		for k in range(-3, 4, 2):
+			P.p(cx + k, cy + 2, Color("d8eaee"))
+
+
+## A noria: a tall wheel lifting water from the channel into a raised trough.
+static func _mill_khar(P: Painter, x: int, base: int, turning: bool) -> void:
+	var c := Color("c99a62")
+	var s := Color("9c7244")
+	P.r(x, base - 8, 10, 8, c)
+	P.r(x + 8, base - 8, 2, 8, s)
+	P.r(x - 1, base - 9, 12, 1, c.lightened(0.1))
+	P.r(x + 2, base - 3, 2, 3, Color("3a2a20"))
+	P.win(x + 5, base - 6, 1, 2)
+	P.r(x + 10, base - 6, 1, 6, Color("70a4b0"))
+	var cx := x + 17
+	var cy := base - 7
+	P.r(cx - 9, base - 1, 18, 1, Color("70a4b0"))
+	P.r(cx - 9, base - 2, 18, 1, Color("a8ccd4"))
+	_wheel(P, cx, cy, 7, Color("7a5232"), Color("e8dcc0"), Color("9c7244"), turning, 6)
+	P.r(x + 10, cy - 8, 9, 1, s)
+
+
+## A small timber mill over the paddy channel, its wheel under the eaves.
+static func _mill_ryu(P: Painter, L: Dictionary, x: int, base: int, turning: bool) -> void:
+	var wood := col("wood", L)
+	P.r(x, base - 9, 12, 9, wood)
+	P.r(x + 2, base - 8, 8, 6, col("plaster", L))
+	for xx in range(x + 3, x + 10, 3):
+		P.r(xx, base - 8, 1, 6, wood)
+	for k in 6:
+		var inset := maxi(0, 5 - k)
+		P.r(x - 2 + inset, base - 15 + k, 16 - inset * 2, 1, col("thatchS", L) if k > 3 else col("thatch", L))
+	P.r(x + 5, base - 3, 3, 3, Color("2a2024"))
+	P.win(x + 3, base - 6, 1, 2)
+	var cx := x + 16
+	var cy := base - 4
+	P.r(cx - 7, base - 1, 14, 1, Color("a8ccd4"))
+	_wheel(P, cx, cy, 5, Color("3a2a24"), Color("4a3a30"), Color("6a5a4a"), turning, 10)
+	P.r(x + 12, cy, 4, 1, wood)
+	P.r(x + 12, cy - 7, 9, 1, Color("6a5a4a"))
+
+
+## Everything built at a castle fief, on the open ground either side of the approach.
+static func _castle_improvements(P: Painter, o: Dictionary, L: Dictionary) -> void:
+	if _built(o, "granary"):
+		_granary(P, o, L)
+	if _built(o, "mill"):
+		if String(o.get("culture")) == "vardish":
+			_brook(P)
+		_mill(P, o, L)
+	if _built(o, "fortifications"):
+		_fortifications(P, o, L)
+
+
+## One improvement alone on a 40 x 30 strip of its culture's ground: in colour when built,
+## a grey ghost of itself when it could be.
+static func plate(culture: String, key: String, built: bool = true) -> Image:
+	var L: Dictionary = LOOK.get(culture, LOOK["vardish"])
+	var o := {"culture": culture, "kind": "plate", "owner": Data.realm_of_culture(culture), "condition": "healthy"}
+	var thing := Painter.new()
+	thing.still = true
+	match key:
+		"granary":
+			match culture:
+				"kharzani": _granary_khar(thing, 8, 27)
+				"ryumon": _granary_ryu(thing, L, 10, 26)
+				_: _granary_vard(thing, L, 8, 26)
+		"fortifications":
+			match culture:
+				"kharzani":
+					_wall_khar(thing, 2, 38, 28)
+					_tower_khar(thing, 19, 28)
+				"ryumon":
+					_stakes_ryu(thing, 2, 14, 28)
+					_stakes_ryu(thing, 24, 38, 28)
+					_tower_ryu(thing, L, 19, 30)
+				_:
+					_stakes_vard(thing, L, 2, 14, 28)
+					_stakes_vard(thing, L, 24, 38, 28)
+					_tower_vard(thing, L, o, 19, 30)
+		"mill":
+			match culture:
+				"kharzani": _mill_khar(thing, 5, 27, true)
+				"ryumon": _mill_ryu(thing, L, 6, 27, true)
+				_: _mill_vard(thing, L, 6, 27, true)
+	var img := Image.create_empty(PLATE_W, PLATE_H, false, Image.FORMAT_RGBA8)
+	img.fill(PLATE_BG)
+	var g1 := col("grass", L)
+	var g2 := col("grass2", L)
+	for y in range(24, PLATE_H):
+		for x in PLATE_W:
+			img.set_pixel(x, y, g2 if (x + y) % 3 == 0 else g1)
+	var fig := thing.img.get_region(Rect2i(0, 0, PLATE_W, PLATE_H))
+	if not built:
+		for y in PLATE_H:
+			for x in PLATE_W:
+				var c := fig.get_pixel(x, y)
+				if c.a > 0.0:
+					var m := c.r * 0.3 + c.g * 0.59 + c.b * 0.11
+					fig.set_pixel(x, y, Color(m * 0.45 + PLATE_BG.r * 0.55, m * 0.45 + PLATE_BG.g * 0.55, m * 0.5 + PLATE_BG.b * 0.5, c.a))
+	img.blend_rect(fig, Rect2i(0, 0, PLATE_W, PLATE_H), Vector2i.ZERO)
+	return img
 
 
 # ---------------------------------------------------------------- the foreground
@@ -1235,6 +1687,8 @@ static func _foreground(P: Painter, o: Dictionary, L: Dictionary) -> void:
 	var k := String(o.get("kind"))
 	var cond := String(o.get("condition"))
 	var T := _team(o)
+	# The mill takes the right of the picture, so what grazes there moves left of the road.
+	var mill := _built(o, "mill")
 	if k != Data.VILLAGE:
 		if cond != "besieged":
 			var poor: bool = o.get("prosperity") == "poor"
@@ -1245,16 +1699,17 @@ static func _foreground(P: Painter, o: Dictionary, L: Dictionary) -> void:
 				if o.get("garrison") != "thin":
 					_gate_guard(P, 78, 67, T)
 			else:
-				_crowd(P, o, [[60, 72, true], [128, 74, false, true, "basket"]])
+				_crowd(P, o, [[60, 72, true]] if mill else [[60, 72, true], [128, 74, false, true, "basket"]])
 				_gate_guard(P, 99, 62, T)
 				if o.get("garrison") != "thin":
 					_gate_guard(P, 78, 62, T)
+				var bx := 20 if mill else 140
 				match c:
 					"vardish":
-						_beast(P, "sheep", 140, 70)
-						_beast(P, "sheep", 150, 74, true)
-					"kharzani": _beast(P, "camel", 136, 72)
-					_: _beast(P, "ox", 140, 72)
+						_beast(P, "sheep", bx, 74 if mill else 70)
+						_beast(P, "sheep", bx + 10, 77 if mill else 74, true)
+					"kharzani": _beast(P, "camel", 14 if mill else 136, 78 if mill else 72)
+					_: _beast(P, "ox", 14 if mill else 140, 78 if mill else 72)
 		else:
 			var b := String(o.get("besieger", "bandits"))
 			var tc: Array = TEAM.get(b, TEAM["bandits"])
@@ -1293,27 +1748,42 @@ static func _foreground(P: Painter, o: Dictionary, L: Dictionary) -> void:
 		if cond != "raided":
 			match c:
 				"vardish":
-					_beast(P, "sheep", 150, 74)
-					_beast(P, "sheep", 160, 76, true)
-					_beast(P, "sheep", 166, 72)
-					_beast(P, "hen", 112, 70)
-					_beast(P, "hen", 116, 72)
-					_crowd(P, o, [[22, 74, false, false, "hoe"], [78, 70, true, true], [120, 76, false, false, "basket"]])
+					if mill:
+						_beast(P, "sheep", 50, 72)
+						_beast(P, "sheep", 60, 76, true)
+						_beast(P, "sheep", 40, 70)
+						_beast(P, "hen", 136, 72)
+						_beast(P, "hen", 141, 74)
+						_crowd(P, o, [[22, 74, false, false, "hoe"], [78, 70, true, true]])
+					else:
+						_beast(P, "sheep", 150, 74)
+						_beast(P, "sheep", 160, 76, true)
+						_beast(P, "sheep", 166, 72)
+						_beast(P, "hen", 112, 70)
+						_beast(P, "hen", 116, 72)
+						_crowd(P, o, [[22, 74, false, false, "hoe"], [78, 70, true, true], [120, 76, false, false, "basket"]])
 				"kharzani":
-					_beast(P, "camel", 148, 76, true)
+					_beast(P, "camel", 44 if mill else 148, 78 if mill else 76, true)
 					_beast(P, "goat", 64, 72)
 					_beast(P, "goat", 70, 74, true)
-					_crowd(P, o, [[16, 74, false, false, "hoe"], [108, 74, true, true, "basket"], [124, 72]])
+					_crowd(P, o, [[16, 76, false, false, "hoe"], [80, 77, true, true]] if mill else [[16, 74, false, false, "hoe"], [108, 74, true, true, "basket"], [124, 72]])
 				_:
-					_beast(P, "ox", 150, 78, true)
-					_crowd(P, o, [[18, 60, false, false, "hoe"], [150, 56, true, true, "basket"], [122, 74], [64, 76, true]])
+					_beast(P, "ox", 60 if mill else 150, 78, true)
+					_crowd(P, o, [[18, 60, false, false, "hoe"], [64, 76, true]] if mill else [[18, 60, false, false, "hoe"], [150, 56, true, true, "basket"], [122, 74], [64, 76, true]])
 		else:
 			_crowd(P, o, [[40, 74, true], [130, 76, false, true]])
 			P.r(60, 74, 10, 3, Color("4a3a2a"))
 			P.p(58, 76, Color("2a2020"))
 			P.p(71, 72, Color("2a2020"))
 		if cond == "recovering":
-			_crowd(P, o, [[148, 70, false, false, "hoe"], [162, 70, true, true]])
+			_crowd(P, o, [[56, 72, false, false, "hoe"], [66, 72, true, true]] if mill else [[148, 70, false, false, "hoe"], [162, 70, true, true]])
+	# The mill's market stalls, by the road. They stand empty while the place suffers.
+	if mill and cond != "besieged" and k != Data.TOWN:
+		var stall := o.duplicate()
+		stall["prosperity"] = "normal" if cond == "healthy" else "poor"
+		_market(P, stall, [[98, 79], [114, 79]])
+		if cond == "healthy":
+			_crowd(P, o, [[108, 79, true, true]])
 	var mine := String(o.get("player", ""))
 	if mine != "":
 		# Right of the road, clear of a title set on the bottom left.
