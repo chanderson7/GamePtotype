@@ -243,6 +243,14 @@ var _streaks := []
 var _glances := []
 ## The dead, one MultiMesh per body's texture.
 var _corpse_mm := {}
+## A man's pose, as _pose_now leaves it: offset, turn, frame (-1: his own stride), crouch,
+## and a facing of its own when _pf_set.
+var _po := Vector2.ZERO
+var _pt := 0.0
+var _pi := -1
+var _ps := 1.0
+var _pf := Vector2.ZERO
+var _pf_set := false
 var _shadow_cell := Rect2()
 var _shadow_col := Color.BLACK
 const BATCH_FLOATS := 16
@@ -367,6 +375,9 @@ var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
 var _pending_result := {}
+## A test battle from Settings: twelve companies a side, the computer commanding both, the
+## readout on; it never touches the campaign.
+var _test := false
 var _retreat_armed := 0.0
 
 var top_panel: PanelContainer
@@ -457,7 +468,8 @@ func _ready() -> void:
 	else:
 		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
 		var obj: String = String(pending.get("objective", Sim.OBJECTIVE_ROUT))
-		var player_host: Array = GameState.army.duplicate(true)
+		_test = bool(pending.get("test", false))
+		var player_host: Array = (pending["army"] as Array).duplicate(true) if _test else GameState.army.duplicate(true)
 		var has_allies := false
 		if pending.has("allies") and not pending["allies"].is_empty():
 			player_host.append_array(pending["allies"])
@@ -514,10 +526,10 @@ func _ready() -> void:
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
-	if autoplay:
+	if autoplay or _test:
 		sim.ai[Sim.PLAYER] = Commander.new(Sim.PLAYER)
 		sim.ai[Sim.PLAYER].deploy(sim)
-		speed = 4.0
+		speed = 1.0 if _test else 4.0
 		_start_battle()
 	else:
 		_select_next_card()
@@ -2572,6 +2584,9 @@ func _tick(text: String, color: Color, icon: String = "") -> void:
 
 func _show_result() -> void:
 	_result_shown = true
+	if _test:
+		_back_to_camp()
+		return
 	paused = false
 	pause_panel.visible = false
 	selected_id = -1
@@ -3122,6 +3137,10 @@ func _back_to_camp() -> void:
 	if _left_battle:
 		return
 	_left_battle = true
+	if _test:
+		GameState.pending_battle = {}
+		Scenes.go("res://scenes/main_menu.tscn")
+		return
 	if _pending_result.is_empty():
 		_pending_result = _result()
 	var campaign: bool = GameState.has_campaign() and not GameState.pending_battle.is_empty()
@@ -3880,6 +3899,26 @@ func _draw() -> void:
 	_perf_draw_us += Time.get_ticks_usec() - t
 
 
+## Set up the test battle: twelve full companies of your people against twelve of another's,
+## with no captains, on open ground. Only a fight with nothing pending can be replaced.
+static func test_battle(culture: String) -> bool:
+	if not GameState.pending_battle.is_empty():
+		return false
+	var foe := Cultures.KHARZANI if culture != Cultures.KHARZANI else Cultures.RYUMON
+	var mine := []
+	var theirs := []
+	for i in 12:
+		var t: String = Troops.ORDER[i % 4]
+		var u := Units.recruit(culture, t)
+		mine.append({"id": 9000 + i, "type": t, "unit": u, "men": Units.full_size(u), "culture": culture, "xp": 0, "level": 1})
+		var t2: String = Troops.ORDER[(i + 1) % 4]
+		var u2 := Units.recruit(foe, t2)
+		theirs.append({"id": 9100 + i, "type": t2, "unit": u2, "men": Units.full_size(u2), "culture": foe})
+	GameState.pending_battle = {"test": true, "army": mine, "enemy": theirs, "culture": foe,
+		"site": BattleSite.pick(null, Vector2.ZERO, Sim.OBJECTIVE_ROUT, 7)}
+	return true
+
+
 func _redraw() -> void:
 	queue_redraw()
 	if _troop_layer != null:
@@ -3952,7 +3991,7 @@ func _draw_top_layer() -> void:
 	_c = _top_layer
 	if sim != null:
 		_draw_above()
-	if Sound.show_performance:
+	if Sound.show_performance or _test:
 		_draw_perf()
 	_c = self
 	_perf_draw_us += Time.get_ticks_usec() - t
@@ -4891,72 +4930,95 @@ func _draw_men(sq) -> void:
 ## Engaged squads' men, drawn back to front across squads, so the front rank of one squad
 ## isn't painted over by the back rank of the next where the lines meet.
 func _draw_melee(squads: Array) -> void:
-	var looks := {}
+	var looks := []
 	var men := []
+	var keys := PackedInt64Array()
 	for sq in squads:
-		looks[sq] = _squad_look(sq)
+		var look := _squad_look(sq)
 		var i := -1
 		for so in sq.soldiers:
 			i += 1
 			if so.alive:
-				men.append([so.pos.y, so, sq, i])
-	men.sort_custom(func(a, b): return a[0] < b[0])
-	for m in men:
-		_draw_man(m[1], m[2], m[3], looks[m[2]])
+				# Sorted natively: a key of the man's height on the field, then his place in
+				# the list.
+				keys.append((int(maxf(0.0, so.pos.y + 64.0) * 64.0) << 20) | men.size())
+				men.append(so)
+				looks.append([sq, i, look])
+	keys.sort()
+	for k in keys:
+		var n := k & 0xFFFFF
+		var l: Array = looks[n]
+		_draw_man(men[n], l[0], l[1], l[2])
 
 
 ## Where a man is drawn this frame, against where the sim has him: an offset (field units),
 ## a turn, a frame and a crouch. Read from what the sim keeps (the swing after a blow, the
 ## cooldown before the next, the flash of a hit) and from charges the screen saw land; never
 ## written back. Reduced motion draws every man where he stands.
+## Where a man is drawn this frame, as a dictionary: {off, tilt, index, squash, and face
+## when he looks somewhere other than his own facing}. For tests and anything off the hot
+## path; drawing reads _pose_now's fields.
 func _pose(so, sq, i: int, look: Dictionary) -> Dictionary:
-	var pose := {"off": Vector2.ZERO, "tilt": 0.0, "index": -1, "squash": 1.0}
+	_pose_now(so, sq, i, look)
+	var pose := {"off": _po, "tilt": _pt, "index": _pi, "squash": _ps}
+	if _pf_set:
+		pose["face"] = _pf
+	return pose
+
+
+func _pose_now(so, sq, i: int, look: Dictionary) -> void:
+	_po = Vector2.ZERO
+	_pt = 0.0
+	_pi = -1
+	_ps = 1.0
+	_pf_set = false
 	var fwd: Vector2 = so.facing
 	if sq.routing:
 		# Running for their own edge, leaning into it, at twice the stride.
 		fwd = Vector2.DOWN if sq.team == Sim.PLAYER else Vector2.UP
-		pose["face"] = fwd
-		pose["index"] = int(so.stride / 3.5) % 2
+		_pf = fwd
+		_pf_set = true
+		_pi = int(so.stride / 3.5) % 2
 		if not look["still"]:
-			pose["tilt"] = sin(so.stride * 0.45 + i) * deg_to_rad(15.0)
-		return pose
+			_pt = sin(so.stride * 0.45 + i) * deg_to_rad(15.0)
+		return
 	if look["still"]:
-		return pose
+		return
 	var side := 1.0 if i % 2 == 0 else -1.0
 	if so.swing > 0.0:
 		# The blow: a lunge at the target, then easing back to his place.
 		var e: float = SWING - so.swing
 		var k := 1.0 if e < STRIKE_HOLD else 1.0 - _ease_out((e - STRIKE_HOLD) / (SWING - STRIKE_HOLD))
-		pose["off"] += fwd * LUNGE * k
-		pose["tilt"] += deg_to_rad(6.0) * k * side
-		pose["index"] = 2
+		_po += fwd * LUNGE * k
+		_pt += deg_to_rad(6.0) * k * side
+		_pi = 2
 	elif so.target != null and so.cooldown > 0.0 and ((sq.engaged and so.cooldown < WINDUP) or (look["ranged"] and so.cooldown < WINDUP * 2.0)):
 		# The wind-up, just before the next blow (or the bow drawn before the loose).
 		var k: float = 1.0 - so.cooldown / (WINDUP * (2.0 if look["ranged"] else 1.0))
-		pose["off"] -= fwd * WIND_BACK * k
-		pose["tilt"] -= deg_to_rad(12.0) * k * side
+		_po -= fwd * WIND_BACK * k
+		_pt -= deg_to_rad(12.0) * k * side
 		if look["ranged"]:
-			pose["index"] = 2
+			_pi = 2
 	if so.flash > 0.0:
 		# Struck: knocked back from the man he faces, and turned by it.
-		pose["off"] -= fwd * FLINCH * so.flash
-		pose["tilt"] += deg_to_rad(14.0) * so.flash * side
-	var shove: Dictionary = _shoved.get(so, {})
-	if not shove.is_empty():
+		_po -= fwd * FLINCH * so.flash
+		_pt += deg_to_rad(14.0) * so.flash * side
+	var shove = _shoved.get(so)
+	if shove != null:
 		var t: float = float(shove["age"]) / SHOVE_TIME
 		var k: float = t / 0.2 if t < 0.2 else 1.0 - _ease_in_out((t - 0.2) / 0.8)
 		k *= float(shove["k"])
-		pose["off"] += Vector2(shove["dir"]) * SHOVE * k
-		pose["tilt"] += deg_to_rad(28.0) * k * side
+		_po += Vector2(shove["dir"]) * SHOVE * k
+		_pt += deg_to_rad(28.0) * k * side
 	var set_k: float = look["set"]
 	if set_k > 0.0:
 		# Set for the blow: crouched behind the shield, a step into the line.
-		pose["off"] += fwd * 1.5 * set_k
-		pose["squash"] = 1.0 - 0.1 * set_k
-	elif look["idle"] and pose["index"] == -1:
+		_po += fwd * 1.5 * set_k
+		_ps = 1.0 - 0.1 * set_k
+	elif look["idle"] and _pi == -1:
 		# Waiting, each man breathing on his own beat.
-		pose["off"] += fwd * sin(_clock * 1.6 + i * 0.9) * 0.8
-	return pose
+		_po += fwd * sin(_clock * 1.6 + i * 0.9) * 0.8
+	return
 
 
 static func _ease_out(t: float) -> float:
@@ -4973,13 +5035,13 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var type: String = look["type"]
 	var culture: String = look["culture"]
 	var still: bool = look["still"]
-	var pose := _pose(so, sq, i, look)
+	_pose_now(so, sq, i, look)
 	var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
-	if int(pose["index"]) >= 0:
-		index = int(pose["index"])
-	var face: Vector2 = pose.get("face", so.facing)
-	var angle: float = face.angle() + PI * 0.5 + float(pose["tilt"])
-	var at: Vector2 = so.pos + Vector2(pose["off"])
+	if _pi >= 0:
+		index = _pi
+	var face: Vector2 = _pf if _pf_set else so.facing
+	var angle: float = face.angle() + PI * 0.5 + _pt
+	var at: Vector2 = so.pos + _po
 	_add_shadow(so, sq, at)
 	if look["cheering"] and not still:
 		var beat := sin(_clock * 9.0 + i * 1.7)
@@ -5009,7 +5071,7 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var k: float = float(look["px"]) * grow
 	# A pale flash of the hit, light enough that the kit still reads.
 	var flash: float = so.flash * 0.45 if so.flash > 0.05 else 0.0
-	_put_man(look["cells"][clampi(index, 0, 2)], at, angle, k * float(look["width"]), k * float(pose["squash"]), look["piv"], look["tint"], flash)
+	_put_man(look["cells"][clampi(index, 0, 2)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
 func _draw_arrows() -> void:

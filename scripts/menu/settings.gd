@@ -33,8 +33,16 @@ func _build() -> void:
 		Sound.set_illustrations(on)))
 	col.add_child(_switch_row("Vibration", "", Sound.haptics_enabled, func(on: bool):
 		Sound.set_haptics(on)))
-	col.add_child(_switch_row("Show performance", "What each battle frame costs, at the top left", Sound.show_performance, func(on: bool):
-		Sound.set_show_performance(on)))
+	col.add_child(_switch_row("Show performance", "What each battle frame costs, at the bottom of the field", Sound.show_performance, func(on: bool):
+		Sound.set_show_performance(on)
+		_build()))
+	if Sound.show_performance:
+		# Twelve companies a side, the computer commanding both; your campaign isn't touched.
+		var test := Page.button("Test battle: 12 against 12", func():
+			if load("res://scripts/battle/battle_screen.gd").test_battle(GameState.culture if GameState.culture != "" else "vardish"):
+				Scenes.go("res://scenes/battle.tscn"))
+		test.name = "TestBattle"
+		col.add_child(test)
 	col.add_child(Page.note("STORY"))
 	col.add_child(_switch_row("Romance invitations", "Friendships and house pacts stay either way", Sound.romance_invitations_enabled(), func(on: bool):
 		Sound.set_romance_invitations(on)))

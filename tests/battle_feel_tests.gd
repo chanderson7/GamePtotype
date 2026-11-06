@@ -340,6 +340,42 @@ func _init() -> void:
 	var per_frame_ms := float(Time.get_ticks_usec() - t) / 1000.0 / 20.0
 	check(per_frame_ms < 4.0, "posing every man on the field costs %.2f ms a frame (%d men)" % [per_frame_ms, men / 20])
 
+	# ---- the test battle from Settings: a big fight that leaves the campaign alone
+	gs.pending_battle = {}
+	var army_before := JSON.stringify(gs.army)
+	var next_before: int = gs._next_id
+	var renown_before: int = gs.renown
+	sound.show_performance = true
+	change_scene_to_file("res://scenes/settings.tscn")
+	await process_frame
+	await process_frame
+	var tb := current_scene.find_child("TestBattle", true, false) as Button
+	check(tb != null, "with the readout on, Settings offers a test battle")
+	tb.pressed.emit()
+	for i in 600:
+		await process_frame
+		if current_scene != null and current_scene.get("_test") != null and current_scene.sim != null and current_scene.sim.phase == Sim.PHASE_BATTLE:
+			break
+	var ts = current_scene
+	var mine_n := 0
+	var theirs_n := 0
+	if ts != null and ts.get("sim") != null:
+		for sq in ts.sim.squads:
+			if sq.team == Sim.PLAYER:
+				mine_n += 1
+			else:
+				theirs_n += 1
+	check(ts != null and ts.get("_test") == true and mine_n == 12 and theirs_n == 12 and ts.sim.phase == Sim.PHASE_BATTLE and ts.sim.ai[Sim.PLAYER] != null,
+		"the test battle is 12 against 12, under way, the computer commanding both (%d v %d)" % [mine_n, theirs_n])
+	if ts != null and ts.has_method("_back_to_camp"):
+		ts.sim.winner = Sim.PLAYER
+		ts._back_to_camp()
+		for i in 120:
+			await process_frame
+	check(gs.pending_battle.is_empty() and JSON.stringify(gs.army) == army_before and gs._next_id == next_before and gs.renown == renown_before,
+		"and leaving it changes nothing in the campaign")
+	sound.show_performance = false
+
 	DirAccess.remove_absolute(sound.settings_path)
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)
