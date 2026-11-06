@@ -1,6 +1,34 @@
 # Ruling from anywhere: the king's court, gatherings with a purpose, and calling the banners
 
-A plan, not yet built. Mockups drawn in the kingdom screen's own style:
+**Status: built.** Rules in `scripts/world/crown_court.gd` (with hosting in `game_state.gd`
+and the host armies' aims in `marshal_armies.gd`); screens on the Crown screen's Court tab
+(`kingdom_screen.gd`) and in your hall (`settlement_screen.gd`); tests in
+`tests/crown_court_tests.gd`. Renders of the built screens: `mockups/crown-court-built-1.png`
+(Court tab, the banners, the war council) and `-2.png` (the king's table, the lists before
+and after). Where the build differs from the plan below:
+
+- **The muster is fed in silver, not rations**: the crown treasury is silver, so it pays a
+  silver a day for every ten men; the council's provisions are six days' worth up front.
+- **No arrival deadline**: lords ride in as fast as their roads allow; the council sits
+  once two are in the hall. Only a lord who *refuses* (a bought lord below 0 Regard) is
+  marked down (−10). A lord still on the road when the council marches goes home.
+- **"Wait a day" is "Not yet"**: the council closes and sits again when you open it; the
+  muster keeps eating meanwhile.
+- **Counsel**: every lord has one (Daring storm; Cautious relieve, or hold the march; Cruel
+  raid; Honorable relieve, or storm), so "spoke against" is any lord whose counsel you didn't
+  take (−2).
+- **A raid can only be led by a lord**: your company doesn't burn farms. Led by you, the host
+  is your lords with a *ride with me* order for its days; storm and relieve end when the
+  walls are yours or the siege breaks.
+- **The public grant** replaces the quiet grant's +15 with +30; the lord dispossessed loses
+  15 either way (the quiet grant already cost that much). The **garrison wish** became "silver
+  to rebuild" (100 from the treasury) for a lord whose seat was burned.
+- **The tourney** has no animated strip: its passes are lines in the hall's card. There is no
+  company morale or settlement prosperity to raise, so the winning captain earns renown, the
+  purse and bonds, and a tourney counted in his history.
+- **No absent-king penalty on sworn lords**; it falls only on the lords you invited to win over.
+
+Mockups drawn before building, in the kingdom screen's own style:
 `mockups/crown-court-tab.png` (a Court tab: hold a gathering), `mockups/crown-call-the-banners.png` (the muster card and petitions)
 and `mockups/crown-war-council.png` (the war council at a muster).
 

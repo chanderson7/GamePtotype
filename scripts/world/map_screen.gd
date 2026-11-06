@@ -1267,6 +1267,10 @@ func _lord_doing(l: Dictionary, lp) -> String:
 			return "Hunting bandits near %s" % place
 		"home":
 			return "Resting at %s, raising men" % place if not lp.moving() else "Riding home to %s" % place
+		"muster":
+			return "Waiting at the muster in %s" % place if not lp.moving() else "Riding to your muster at %s" % place
+		"escort":
+			return "Riding with you under your banners"
 		"gather":
 			var feast: Dictionary = world.gathering_by_id(int(l.get("gather_id", 0)))
 			if feast.is_empty():
@@ -2207,6 +2211,10 @@ func _open_commitment(id: String) -> void:
 		if world.here() != String(c["place"]):
 			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true])
 		buttons.append(["Who's coming", _open_guest_list.bind(gid)])
+	if id == "muster" or id == "banners":
+		if id == "muster" and world.here() != String(c["place"]):
+			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true])
+		buttons.append(["Your court", _open_court, id == "muster" and world.here() == String(c["place"])])
 	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to top", _on_pin.bind(id)])
 	buttons.append(["Back to journal", _open_journal])
 	_show_sheet("commitment", String(c["title"]), "\n".join(lines), buttons)
@@ -2552,6 +2560,11 @@ func _on_raise_crown() -> void:
 
 
 ## The crown: what it holds, who it fights, who stands with it.
+## Your crown's Court tab: gatherings, the banners, petitions.
+func _open_court() -> void:
+	_open_crown("court")
+
+
 ## Your crown's own screen (kingdom_screen.gd), over the map; the map holds still.
 func _open_crown(start_tab: String = "realm") -> void:
 	_close_sheet()
@@ -3002,6 +3015,25 @@ func _draw() -> void:
 	_draw_aftermath(px)
 	_draw_wedding(px)
 	_draw_gatherings(px)
+	_draw_muster(px)
+
+
+## Your banners gathering: a red ring of spears around the muster.
+func _draw_muster(px: float) -> void:
+	if GameState.muster.is_empty():
+		return
+	var place := String(GameState.muster.get("place", ""))
+	if not Data.SETTLEMENTS.has(place):
+		return
+	var c := _to_screen(Data.pos(place))
+	var pulse := 0.0 if Style.motion_reduced() else 0.5 + 0.5 * sin(_clock * 2.0)
+	draw_circle(c, 38.0 * px, Color(Style.ENEMY, 0.08))
+	draw_arc(c, 34.0 * px, 0.0, TAU, 48, Color(0, 0, 0, 0.5), 5.0 * px)
+	draw_arc(c, 34.0 * px, 0.0, TAU, 48, Style.ENEMY_LIGHT, 2.5 * px)
+	for i in 10:
+		var a := TAU * float(i) / 10.0
+		var at := c + Vector2.from_angle(a) * 34.0 * px
+		draw_line(at, at + Vector2.from_angle(a) * (6.0 + pulse * 2.0) * px, Style.ENEMY_LIGHT, 2.0 * px)
 
 
 ## A gold ring around the place your wedding will be held, while it's planned there.
@@ -3435,13 +3467,17 @@ func _draw_labels() -> void:
 				var edge := Style.ENEMY_LIGHT if rel == "hostile" else (Style.BRASS if rel in ["friendly", "allied", "employer"] else Color("6d7699"))
 				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -32.0 * px - 6.0), short_lord_name(lp.name), PARTY_PLATE,
 					ink, edge, world.men_of(lp.army), true)
-				# Bound for a gathering: say so under the name.
+				# Bound for a gathering or your muster: say so under the name.
 				var l: Dictionary = world.lord_of(lp)
 				if lp.moving() and String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) > 0 and not _taken.is_empty():
 					var placed: Rect2 = _taken[_taken.size() - 1]
 					var feast: Dictionary = world.gathering_by_id(int(l["gather_id"]))
 					_name_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), "riding to the %s" % String(feast.get("name", "feast")),
 						PARTY_PLATE - 4, Color("f3d891"), Color("8a6a2a"))
+				elif lp.moving() and String(l.get("job", "")) == "muster" and not _taken.is_empty():
+					var placed: Rect2 = _taken[_taken.size() - 1]
+					_name_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), "riding to the muster",
+						PARTY_PLATE - 4, Color("f3b0a0"), Style.ENEMY)
 
 
 ## Text size of a party's name plate: the same as a village's name.

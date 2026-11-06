@@ -118,6 +118,25 @@ const ARMY_MUSTER_HOURS := 48.0
 const ARMY_EXPEDITION_HOURS := 144.0
 const ARMY_COOLDOWN := 72.0
 const ARMY_RETRY_HOURS := 12.0
+## Calling the banners: every sworn lord rides to a muster, fed from the crown treasury
+## (a silver a day for every ten men); a lord who could come and doesn't is remembered.
+const MUSTER_REACH_HOURS := 48.0
+const MUSTER_SILVER_PER_10 := 1
+const MUSTER_REFUSED_REGARD := -10
+## A muster that can't be fed starts going home after this many hungry days.
+const MUSTER_HUNGRY_DAYS := 1
+## The host that rides from a war council: Regard with each lord who rides, once; a lord
+## whose counsel you passed over grumbles; an Honorable lord won't ride to burn villages.
+const MUSTER_RIDE_REGARD := 5
+const COUNSEL_IGNORED_REGARD := -2
+const RAID_REFUSED_REGARD := -5
+## How long a host stays out: six days when the treasury pays its provisions up front,
+## three on what the lords carry.
+const HOST_PAID_HOURS := 144.0
+const HOST_UNPAID_HOURS := 72.0
+const HOST_PROVISION_DAYS := 6
+## A raiding host burns this many villages, then comes home.
+const HOST_RAID_VILLAGES := 2
 const SIEGE_PREP_HOURS := 48.0
 const SIEGE_FOOD_DAYS := {"castle": 4.0, "town": 6.0}
 const VILLAGE_MILITIA_MEN := 15

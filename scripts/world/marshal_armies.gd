@@ -30,6 +30,7 @@ static func disband(w, army: Dictionary, reason: String) -> void:
 		p.path.clear() # Finish the current road, then resume independent decisions.
 		p.wait = 0.0
 	w.emit_event({"type": "army_disbanded", "army": army["id"], "realm": army["realm"], "reason": reason})
+	w.army_outcomes[int(army["id"])] = reason
 	w.realms[army["realm"]]["marshal"] = -1
 	w.army_ready_at[army["realm"]] = w.hour + Lords.ARMY_COOLDOWN
 	w.campaign_armies.erase(army)
@@ -61,10 +62,14 @@ static func tick(w, dt: float) -> void:
 		if army["members"].size() < Lords.ARMY_MIN_MEMBERS:
 			disband(w, army, "Not enough lords remain")
 			continue
+		var aim := String(army.get("aim", "storm"))
 		if w.hour >= float(army["expires"]):
-			disband(w, army, "Expedition timed out")
+			disband(w, army, "The march held" if aim == "march" else "Expedition timed out")
 			continue
-		if army["state"] != "returning" and (w.owner_of(army["target"]) != army["target_owner"] or not w.at_war(army["realm"], army["target_owner"])):
+		if aim != "storm":
+			if _host_tick(w, army, p, dt):
+				continue
+		if aim == "storm" and army["state"] != "returning" and (w.owner_of(army["target"]) != army["target_owner"] or not w.at_war(army["realm"], army["target_owner"])):
 			if army["state"] == "gathering":
 				disband(w, army, "Target changed or peace declared")
 				continue
@@ -164,6 +169,89 @@ static func tick(w, dt: float) -> void:
 		w.army_ready_at[realm] = w.hour + Lords.ARMY_RETRY_HOURS
 		var _formed := create(w, realm)
 
+## The members ride with the leader, wherever he is.
+static func _keep_together(w, army: Dictionary, p) -> void:
+	for member in members(w, army):
+		if member == p: continue
+		member.node = p.node
+		member.next = p.next
+		member.along = p.along
+		member.path = p.path.duplicate()
+		member.wait = 0.0
+
+
+## A crown host on an aim other than storming walls: relieve a holding under siege, hold
+## the march between two holdings, or raid an enemy's villages. True when it has handled
+## this tick (the storm flow below is skipped).
+static func _host_tick(w, army: Dictionary, p, dt: float) -> bool:
+	var aim := String(army.get("aim", ""))
+	var state := String(army["state"])
+	if state == "returning":
+		return false
+	if state == "marching":
+		if not reachable(w, p, army["destination"]):
+			disband(w, army, "No route to destination")
+			return true
+		if p.moving(): w._move(p, dt)
+		_keep_together(w, army, p)
+		if p.moving() or p.node != army["destination"]:
+			return true
+		match aim:
+			"relieve":
+				if w.owner_of(army["target"]) != army["realm"]:
+					return_home(w, army, "%s fell before they came" % Data.settlement(army["target"])["name"])
+				else:
+					army["state"] = "holding"
+					army["hold_since"] = w.hour
+			"march":
+				var anchors: Array = army.get("anchors", [])
+				if anchors.size() >= 2:
+					army["destination"] = String(anchors[0]) if army["destination"] == String(anchors[1]) else String(anchors[1])
+					w._set_job(w.lord_of(p), p, "army", army["destination"])
+			"raid":
+				var v := String(army["destination"])
+				if w.is_burned(v) or not w.at_war(army["realm"], w.owner_of(v)):
+					_next_raid(w, army, p)
+				else:
+					army["state"] = "raiding"
+					army["raid_until"] = w.hour + Lords.RAID_HOURS
+		return true
+	if state == "holding":
+		p.wait = 0.0
+		_keep_together(w, army, p)
+		if w.owner_of(army["target"]) != army["realm"]:
+			return_home(w, army, "%s fell" % Data.settlement(army["target"])["name"])
+		elif w.siege_info(army["target"]).is_empty() and w.hour >= float(army.get("hold_since", w.hour)) + Lords.THINK_HOURS:
+			return_home(w, army, "The siege of %s is broken" % Data.settlement(army["target"])["name"])
+		return true
+	if state == "raiding":
+		_keep_together(w, army, p)
+		if w.hour >= float(army.get("raid_until", 0.0)):
+			var l: Dictionary = w.lord_of(p)
+			var v := String(army["destination"])
+			w._burn(l, v)
+			if w.is_burned(v):
+				army["raided"] = int(army.get("raided", 0)) + 1
+			_next_raid(w, army, p)
+		return true
+	return false
+
+
+## On to the next village of the raid, or home once they're done.
+static func _next_raid(w, army: Dictionary, p) -> void:
+	var villages: Array = army.get("villages", [])
+	var at := villages.find(String(army["destination"]))
+	for i in range(at + 1, villages.size()):
+		var v := String(villages[i])
+		if not w.is_burned(v) and w.at_war(army["realm"], w.owner_of(v)) and reachable(w, p, v):
+			army["state"] = "marching"
+			army["destination"] = v
+			w._set_job(w.lord_of(p), p, "army", v)
+			return
+	var n := int(army.get("raided", 0))
+	return_home(w, army, "%d village%s burned" % [n, "" if n == 1 else "s"] if n > 0 else "The raid found nothing to burn")
+
+
 ## Gather an army of `realm`'s lords against its nearest enemy, or against `target` when
 ## its ruler names one (your crown's call to arms). Returns whether one formed.
 static func create(w, realm: String, target: String = "") -> bool:
@@ -173,7 +261,8 @@ static func create(w, realm: String, target: String = "") -> bool:
 	for lord in w.lords:
 		var p = w.party(int(lord["party"]))
 		if lord["realm"] != realm or p == null or lord["raiding"] != "" or not for_party(w, p.id).is_empty(): continue
-		if w.men_of(p.army) < int(lord["full"]) * Lords.ARMY_READY_SHARE or not reachable(w, p, muster): continue
+		if _ordered(lord): continue
+		if not _strong_enough(w, lord, p) or not reachable(w, p, muster): continue
 		eligible.append(lord)
 	eligible.sort_custom(func(a, b): return int(a["renown"]) > int(b["renown"]) if a["renown"] != b["renown"] else int(a["id"]) < int(b["id"]))
 	if eligible.size() < Lords.ARMY_MIN_MEMBERS: return false
@@ -213,9 +302,58 @@ static func ready_lords(w, realm: String) -> Array:
 	for lord in w.lords:
 		var p = w.party(int(lord["party"]))
 		if lord["realm"] != realm or p == null or lord["raiding"] != "" or not for_party(w, p.id).is_empty(): continue
-		if w.men_of(p.army) < int(lord["full"]) * Lords.ARMY_READY_SHARE or muster == "" or not reachable(w, p, muster): continue
+		if _ordered(lord): continue
+		if not _strong_enough(w, lord, p) or muster == "" or not reachable(w, p, muster): continue
 		out.append(lord)
 	return out
+
+
+## A lord under your orders (answering a muster, riding with you, holding a place) isn't
+## free for a marshal's army.
+static func _ordered(lord: Dictionary) -> bool:
+	return lord.get("order") is Dictionary and not (lord["order"] as Dictionary).is_empty()
+
+
+## Strong enough to ride: most of his warband, or rallied by your speech at table.
+static func _strong_enough(w, lord: Dictionary, p) -> bool:
+	return w.men_of(p.army) >= int(lord["full"]) * Lords.ARMY_READY_SHARE or float(lord.get("rallied_until", 0.0)) > w.hour
+
+
+## Your war council's host, led by a lord: the lords already at the muster set out at once
+## for `aim` ("storm" `target`, "relieve" `target`, "march" between `anchors`, "raid"
+## `villages`), for `hours`. Returns the army, or {}.
+static func create_host(w, realm: String, lord_ids: Array, marshal_id: int, muster: String, aim: String, target: String,
+		anchors: Array, villages: Array, hours: float) -> Dictionary:
+	var marshal: Dictionary = w.lord_by_id(marshal_id)
+	var p = w.party(int(marshal.get("party", -1))) if not marshal.is_empty() else null
+	if p == null:
+		return {}
+	var dest := target
+	if aim == "march":
+		dest = String(anchors[1]) if anchors.size() > 1 else target
+	elif aim == "raid":
+		dest = String(villages[0]) if not villages.is_empty() else ""
+	if dest == "" or not reachable(w, p, dest):
+		return {}
+	var army := {"id": w.next_army_id, "realm": realm, "leader": p.id, "members": [], "state": "marching", "muster": muster,
+		"target": dest if aim != "march" else target, "target_owner": w.owner_of(dest), "destination": dest, "deadline": w.hour,
+		"expires": w.hour + hours, "reason": "", "aim": aim, "anchors": anchors.duplicate(), "villages": villages.duplicate(), "raided": 0, "host": true}
+	w.next_army_id += 1
+	for lid in lord_ids:
+		var lord: Dictionary = w.lord_by_id(int(lid))
+		var member = w.party(int(lord.get("party", -1))) if not lord.is_empty() else null
+		if member == null:
+			continue
+		lord.erase("order")
+		army["members"].append(member.id)
+		if member != p:
+			lord["job"] = "army"
+			lord["target"] = dest
+	w._set_job(marshal, p, "army", dest)
+	w.campaign_armies.append(army)
+	w.realms[realm]["marshal"] = marshal_id
+	w.emit_event({"type": "army_formed", "army": army["id"], "realm": realm, "marshal": marshal["name"], "target": dest})
+	return army
 
 static func _resolve_relief(w, army: Dictionary, relief_party) -> bool:
 	var p = leader(w, army)

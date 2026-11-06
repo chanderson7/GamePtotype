@@ -28,6 +28,7 @@ const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
+const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -129,6 +130,12 @@ var gathering_log: Dictionary = {}
 var hosted: Dictionary = {}
 ## When your crown may hold another gathering.
 var host_ready_at := 0.0
+## Your banners called to a muster: {place, called_hour, lords: [ids], refused: [ids],
+## fed_day, hungry_days}, or {} (see CrownCourt).
+var muster: Dictionary = {}
+## The host that rode from your war council: {aim, target, anchors, villages, led ("you"
+## or "lord"), army_id, lords: [ids], until, paid, place}, or {}.
+var banners: Dictionary = {}
 ## Gatherings you've already been told about.
 var invites_seen: Array = []
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
@@ -154,6 +161,8 @@ func new_campaign(culture_id: String) -> void:
 	gathering_log = {}
 	hosted = {}
 	host_ready_at = 0.0
+	muster = {}
+	banners = {}
 	invites_seen = []
 	new_warband()
 	world = WorldSim.new()
@@ -790,7 +799,7 @@ func gathering_invite(g: Dictionary) -> Dictionary:
 
 ## Who hosts `g`: "King Aldwin", or "you".
 func gathering_host_name(g: Dictionary) -> String:
-	if int(g.get("host_lord", -1)) < 0:
+	if int(g.get("host_lord", -1)) < 0 or gathering_is_mine(g):
 		return "you"
 	var host: Dictionary = world.lord_by_id(int(g["host_lord"]))
 	return LordTalk.short_name(host) if not host.is_empty() else "the host"
@@ -836,6 +845,8 @@ func first_word(l: Dictionary) -> int:
 func toast_check(g: Dictionary) -> Dictionary:
 	if not world.gathering_on(g):
 		return {"ok": false, "reason": "it hasn't begun"}
+	if gathering_is_mine(g):
+		return {"ok": false, "reason": "at your own table, you speak"}
 	if bool(gathering_record(g)["toast"]):
 		return {"ok": false, "reason": "raised once already"}
 	if not bool(gathering_invite(g)["invited"]):
@@ -865,7 +876,7 @@ func raise_toast(g: Dictionary) -> Dictionary:
 
 ## A gift for the host: 50 silver, or 50 rations if your purse is short. {ok, reason, what}
 func gift_check(g: Dictionary) -> Dictionary:
-	if int(g.get("host_lord", -1)) < 0:
+	if int(g.get("host_lord", -1)) < 0 or gathering_is_mine(g):
 		return {"ok": false, "reason": "it's your own", "what": ""}
 	if not world.gathering_on(g):
 		return {"ok": false, "reason": "it hasn't begun", "what": ""}
@@ -1039,7 +1050,7 @@ func take_new_invitations() -> Array:
 		return out
 	for g in world.gatherings:
 		var gid := int(g["id"])
-		if invites_seen.has(gid) or int(g.get("host_lord", -1)) < 0:
+		if invites_seen.has(gid) or int(g.get("host_lord", -1)) < 0 or gathering_is_mine(g):
 			continue
 		invites_seen.append(gid)
 		if bool(gathering_invite(g)["invited"]):
@@ -1068,14 +1079,15 @@ func gathering_commitments() -> Array:
 		return out
 	for g in world.gatherings:
 		var inv := gathering_invite(g)
-		var mine := int(g.get("host_lord", -1)) < 0
+		var mine := gathering_is_mine(g)
 		if not bool(inv["invited"]) and not mine:
 			continue
 		var place := String(g["place"])
 		var coming: int = world.gathering_guests(g).size()
 		var objective := ""
 		if mine:
-			objective = "Your guests ride in to %s, %s. Be there to greet them." % [_settlement_name(place), gathering_when(g)]
+			objective = "Your guests ride in to %s, %s. Be there on the first night to greet them%s." % [_settlement_name(place), gathering_when(g),
+				", or the lords you're winning over will notice" if not (hosted.get("persuade", []) as Array).is_empty() else ""]
 		else:
 			objective = "%s, %s. You're invited: %s. %d lord%s coming." % [gathering_title(g), gathering_when(g), String(inv["why"]), coming, "" if coming == 1 else "s"]
 		out.append({"id": "gathering_%d" % int(g["id"]), "kind": "gathering", "title": "The %s at %s" % [String(g["name"]), _settlement_name(place)],
@@ -1086,45 +1098,76 @@ func gathering_commitments() -> Array:
 
 # ---------------------------------------------------------------- your own gathering
 
-## Whether your crown can hold a gathering at your seat now. {ok, reason}
-func host_check() -> Dictionary:
+## Where your crown can hold court: its seat first, then its other castles and towns.
+func host_places() -> Array:
+	if not is_crowned():
+		return []
+	var seat: String = world.capital_of(WorldData.CROWN)
+	var out := []
+	if seat != "" and world.owner_of(seat) == WorldData.CROWN:
+		out.append(seat)
+	for id in crown_holdings():
+		if id != seat and not WorldData.is_village(id):
+			out.append(id)
+	return out
+
+
+## The crown lord whose hall `place` is, who would host there in your name, or {} (your
+## own seat, or a hall no lord holds).
+func host_lord_at(place: String) -> Dictionary:
+	if not is_crowned() or place == world.capital_of(WorldData.CROWN):
+		return {}
+	var l := holder_of(place)
+	return l if not l.is_empty() and String(l.get("state", "")) == "field" else {}
+
+
+## Whether your crown can hold a gathering of `kind` at `place` (your seat when "") now.
+## {ok, reason}
+func host_check(place: String = "", kind: String = Gatherings.FEAST) -> Dictionary:
 	if not is_crowned():
 		return {"ok": false, "reason": "Only a crown holds court."}
-	var seat := wedding_seat()
-	if seat == "" or world.owner_of(seat) != WorldData.CROWN:
-		return {"ok": false, "reason": "You need your seat to hold court in."}
+	if place == "":
+		place = world.capital_of(WorldData.CROWN)
+	if place == "" or not host_places().has(place):
+		return {"ok": false, "reason": "You need a castle or town of your own to hold court in."}
 	if not world.gathering_of_realm(WorldData.CROWN).is_empty():
 		return {"ok": false, "reason": "Your guests are already on the road."}
 	if world.hour < host_ready_at:
 		return {"ok": false, "reason": "Your last gathering is still talked about; hold another in %d days." % ceili((host_ready_at - world.hour) / 24.0)}
-	if silver < Gatherings.HOST_SILVER:
-		return {"ok": false, "reason": "You need %d silver." % Gatherings.HOST_SILVER}
+	var need_silver := Gatherings.HOST_SILVER + (Gatherings.TOURNEY_PURSE if kind == Gatherings.TOURNEY else 0)
+	if silver < need_silver:
+		return {"ok": false, "reason": "You need %d silver." % need_silver}
 	if food < Gatherings.HOST_FOOD:
 		return {"ok": false, "reason": "You need %d rations." % Gatherings.HOST_FOOD}
-	if world.is_sieged(seat):
+	if world.is_sieged(place):
 		return {"ok": false, "reason": "Not under siege."}
+	if world.is_burned(place):
+		return {"ok": false, "reason": "Not while %s is rebuilding." % WorldData.settlement(place)["name"]}
 	for r in world.realms:
 		if r != WorldData.CROWN and world.at_war(WorldData.CROWN, r):
 			for l in world.lords_of(r):
 				var lp = world.party(int(l.get("party", -1)))
-				if lp != null and world._hours(lp, String(lp.next) if lp.moving() else String(lp.node), seat) <= Gatherings.REACH_HOURS:
-					return {"ok": false, "reason": "Not with %s's lords within two days of your seat." % realm_word(r)}
+				if lp != null and world._hours(lp, String(lp.next) if lp.moving() else String(lp.node), place) <= Gatherings.REACH_HOURS:
+					return {"ok": false, "reason": "Not with %s's lords within two days of %s." % [realm_word(r), WorldData.settlement(place)["name"]]}
 	return {"ok": true, "reason": ""}
 
 
-## Who you could invite: {sworn: [lords], friends: [lords], persuade: [lords], lieges: [lords]}.
-## Sworn lords always come; friends think well of you; lords you'd win over come unless
-## they despise you; lieges are the rulers of lords you've asked.
-func host_invitees() -> Dictionary:
+## Who you could invite to `place` (your seat when ""): {sworn: [lords], friends: [lords],
+## persuade: [lords], lieges: [lords]}. Sworn lords always come; friends think well of
+## you; lords you'd win over come unless they despise you; lieges are the rulers of lords
+## you've asked.
+func host_invitees(place: String = "") -> Dictionary:
 	var out := {"sworn": [], "friends": [], "persuade": [], "lieges": []}
 	if not is_crowned():
 		return out
-	var seat := wedding_seat()
+	if place == "":
+		place = world.capital_of(WorldData.CROWN)
+	var host := host_lord_at(place)
 	for l in world.lords:
-		if not world._free_to_gather(l):
+		if l == host or not world._free_to_gather(l):
 			continue
 		var lp = world.party(int(l["party"]))
-		if world._hours(lp, String(lp.next) if lp.moving() else String(lp.node), seat) > Gatherings.REACH_HOURS:
+		if world._hours(lp, String(lp.next) if lp.moving() else String(lp.node), place) > Gatherings.REACH_HOURS:
 			continue
 		var realm := String(l.get("realm", ""))
 		if realm == WorldData.CROWN:
@@ -1140,22 +1183,29 @@ func host_invitees() -> Dictionary:
 	return out
 
 
-## Hold a gathering at your seat: `kind` feast or dance; `ask` says which groups beyond
-## your sworn lords to invite ({friends, persuade, lieges}). {ok, reason, guests}
-func host_gathering(kind: String, ask: Dictionary) -> Dictionary:
-	var check := host_check()
+## Hold a gathering: `kind` feast, dance or tourney, at `place` (your seat when ""; a
+## lord's hall means he hosts it in your name); `ask` says which groups beyond your sworn
+## lords to invite ({friends, persuade, lieges}). You needn't be there to call it.
+## {ok, reason, guests}
+func host_gathering(kind: String, ask: Dictionary, place: String = "") -> Dictionary:
+	if place == "":
+		place = world.capital_of(WorldData.CROWN) if is_crowned() else ""
+	var check := host_check(place, kind)
 	if not check["ok"]:
 		return {"ok": false, "reason": check["reason"], "guests": 0}
-	var who := host_invitees()
+	var who := host_invitees(place)
 	var ids := []
 	for l in who["sworn"]:
 		ids.append(int(l["id"]))
 	var asked_realms := {}
+	var persuade := []
 	for group in ["friends", "persuade"]:
 		if bool(ask.get(group, false)):
 			for l in who[group]:
 				ids.append(int(l["id"]))
 				asked_realms[String(l["realm"])] = true
+				if group == "persuade":
+					persuade.append(int(l["id"]))
 	if bool(ask.get("lieges", false)):
 		for l in who["lieges"]:
 			ids.append(int(l["id"]))
@@ -1164,22 +1214,62 @@ func host_gathering(kind: String, ask: Dictionary) -> Dictionary:
 		for l in who["lieges"]:
 			if asked_realms.has(String(l["realm"])):
 				LordTalk.change_regard(self, l, Gatherings.SNUB_REGARD)
-	var g: Dictionary = world.call_gathering(WorldData.CROWN, "player", wedding_seat(), kind, ids, -1)
+	var host := host_lord_at(place)
+	var g: Dictionary = world.call_gathering(WorldData.CROWN, "player", place, kind, ids, int(host["id"]) if not host.is_empty() else -1)
 	if g.is_empty():
 		return {"ok": false, "reason": "The gathering couldn't be called.", "guests": 0}
-	silver -= Gatherings.HOST_SILVER
+	silver -= Gatherings.HOST_SILVER + (Gatherings.TOURNEY_PURSE if kind == Gatherings.TOURNEY else 0)
 	food -= Gatherings.HOST_FOOD
 	host_ready_at = world.hour + Gatherings.HOST_COOLDOWN_DAYS * 24.0
+	if not host.is_empty():
+		LordTalk.change_regard(self, host, Gatherings.HOST_IN_NAME_REGARD)
 	for lid in g["guests"]:
 		var l: Dictionary = world.lord_by_id(int(lid))
 		LordTalk.change_regard(self, l, Gatherings.HOST_REGARD)
 		# Bought lords' unrest eases: they've been seen at your table.
 		if int(l.get("bought", 0)) == 1 and LordTalk.regard(self, l) < 0:
 			LordTalk.change_regard(self, l, -LordTalk.regard(self, l))
-	hosted = {"id": int(g["id"]), "place": String(g["place"]), "ends_hour": float(g["ends_hour"]), "guests": (g["guests"] as Array).duplicate()}
+	hosted = {"id": int(g["id"]), "place": String(g["place"]), "kind": kind, "starts_hour": float(g["starts_hour"]), "ends_hour": float(g["ends_hour"]),
+		"guests": (g["guests"] as Array).duplicate(), "persuade": persuade.filter(func(x): return (g["guests"] as Array).has(x)),
+		"king_seen": false, "absent_done": false, "honoured": -1, "speech": false, "gifts": false, "heard": [], "tourney": {}}
 	invites_seen.append(int(g["id"]))
 	save_game()
 	return {"ok": true, "reason": "", "guests": (g["guests"] as Array).size()}
+
+
+## Whether `g` is your own gathering (whoever's hall it's in).
+func gathering_is_mine(g: Dictionary) -> bool:
+	return not g.is_empty() and String(g.get("reason", "")) == "player" and String(g.get("realm", "")) == WorldData.CROWN
+
+
+## Your gathering now under way or still to come, as the world has it, or {}.
+func my_gathering() -> Dictionary:
+	if hosted.is_empty() or world == null:
+		return {}
+	var g: Dictionary = world.gathering_by_id(int(hosted.get("id", 0)))
+	return g if gathering_is_mine(g) else {}
+
+
+## The king isn't at his own table on the first night: the lords you were winning over
+## notice. Seen once you're in the hall while it's on.
+func _step_hosted() -> void:
+	var g := my_gathering()
+	if g.is_empty():
+		return
+	if world.gathering_on(g) and world.here() == String(g["place"]):
+		hosted["king_seen"] = true
+	if bool(hosted.get("king_seen", false)) or bool(hosted.get("absent_done", false)):
+		return
+	if world.hour >= float(hosted.get("starts_hour", 0.0)) + 24.0:
+		hosted["absent_done"] = true
+		var sore := 0
+		for lid in hosted.get("persuade", []):
+			var l: Dictionary = world.lord_by_id(int(lid))
+			if not l.is_empty():
+				LordTalk.change_regard(self, l, Gatherings.ABSENT_KING_REGARD)
+				sore += 1
+		_note("Your lords drank at %s without you on the first night.%s" % [WorldData.settlement(String(g["place"]))["name"],
+			(" The %d you were winning over noticed (%d Regard)." % [sore, Gatherings.ABSENT_KING_REGARD]) if sore > 0 else ""])
 
 
 ## The warmth your own gathering adds to a lord's conviction while it lasts and a few days after.
@@ -1188,7 +1278,10 @@ func gathering_conviction(l: Dictionary) -> int:
 		return 0
 	if world.hour > float(hosted.get("ends_hour", 0.0)) + Gatherings.HOST_AFTER_HOURS:
 		return 0
-	return Gatherings.HOST_CONVICTION if (hosted.get("guests", []) as Array).has(int(l.get("id", -1))) else 0
+	if not (hosted.get("guests", []) as Array).has(int(l.get("id", -1))):
+		return 0
+	# A king who made the case for his war at table convinces more.
+	return Gatherings.HOST_CONVICTION + (Gatherings.SPEECH_CONVICTION if bool(hosted.get("speech_war", false)) else 0)
 
 
 ## Forget what was done at gatherings long over.
@@ -1462,7 +1555,7 @@ func grant_check(id: String, lord_id: int) -> Dictionary:
 
 ## Grant a castle or town to a sworn lord: their seat now, where they rest and refill.
 ## Whoever held it before loses it, and resents it.
-func grant_fief(id: String, lord_id: int) -> bool:
+func grant_fief(id: String, lord_id: int, regard: int = GRANT_REGARD) -> bool:
 	if not grant_check(id, lord_id)["ok"]:
 		return false
 	var l: Dictionary = world.lord_by_id(lord_id)
@@ -1471,9 +1564,9 @@ func grant_fief(id: String, lord_id: int) -> bool:
 		before["fief"] = ""
 		add_lord_relation(int(before["id"]), DISPOSSESSED_REGARD)
 	l["fief"] = id
-	add_lord_relation(lord_id, GRANT_REGARD)
+	add_lord_relation(lord_id, regard)
 	world.emit_event({"type": "fief_given", "lord": String(l["name"]), "settlement": id})
-	_note("You grant %s to %s (+%d Regard)." % [WorldData.settlement(id)["name"], l["name"], GRANT_REGARD])
+	_note("You grant %s to %s (+%d Regard)." % [WorldData.settlement(id)["name"], l["name"], regard])
 	save_game()
 	return true
 
@@ -1979,6 +2072,7 @@ func commitments() -> Array:
 	if not wed.is_empty():
 		out.append(wed)
 	out.append_array(gathering_commitments())
+	out.append_array(CrownCourt.commitments(self))
 	if has_fief():
 		var f_id := fief_id()
 		var lines: PackedStringArray = []
@@ -2588,6 +2682,8 @@ func advance(hours: float) -> void:
 		drain_social_settlements()
 		_check_job_deadlines()
 		settle()
+		_step_hosted()
+		CrownCourt.step(self)
 	_tick_healing(hours)
 
 
@@ -3913,6 +4009,7 @@ func to_dict() -> Dictionary:
 		"crown_name": crown_name, "crown_color": crown_color, "crown_won": crown_won, "crown_empty_days": crown_empty_days,
 		"desertion_warning": desertion_warning, "last_result": last_result,
 		"gathering_log": gathering_log.duplicate(true), "hosted": hosted.duplicate(true), "host_ready_at": host_ready_at,
+		"muster": muster.duplicate(true), "banners": banners.duplicate(true),
 		"invites_seen": invites_seen.duplicate(),
 		"world": world.to_dict() if world != null else null}
 
@@ -3949,6 +4046,8 @@ func from_dict(data: Dictionary) -> bool:
 	WorldData.set_crown(crown_name, crown_color)
 	_fix_marriage_pacts()
 	_load_gathering_state(data)
+	muster = CrownCourt.load_muster(data.get("muster", {}))
+	banners = CrownCourt.load_banners(data.get("banners", {}))
 	pinned_commitment = String(data.get("pinned_commitment", ""))
 	ended_commitments = data.get("ended_commitments", []).duplicate(true) if typeof(data.get("ended_commitments")) == TYPE_ARRAY else []
 	camp_seen = data.get("camp_seen", []).duplicate() if typeof(data.get("camp_seen")) == TYPE_ARRAY else []
@@ -4060,9 +4159,18 @@ func _load_gathering_state(data: Dictionary) -> void:
 	hosted = {}
 	var raw_hosted = data.get("hosted", {})
 	if typeof(raw_hosted) == TYPE_DICTIONARY and not raw_hosted.is_empty():
+		var ints := func(key: String) -> Array: return (raw_hosted.get(key, []) as Array).map(func(x): return int(x))
 		hosted = {"id": int(raw_hosted.get("id", 0)), "place": String(raw_hosted.get("place", "")),
+			"kind": String(raw_hosted.get("kind", Gatherings.FEAST)),
+			"starts_hour": float(raw_hosted.get("starts_hour", 0.0)),
 			"ends_hour": float(raw_hosted.get("ends_hour", 0.0)),
-			"guests": (raw_hosted.get("guests", []) as Array).map(func(x): return int(x))}
+			"guests": ints.call("guests"), "persuade": ints.call("persuade"),
+			# An older save's gathering never asks after the absent king.
+			"king_seen": bool(raw_hosted.get("king_seen", true)), "absent_done": bool(raw_hosted.get("absent_done", true)),
+			"honoured": int(raw_hosted.get("honoured", -1)), "speech": bool(raw_hosted.get("speech", false)),
+			"speech_war": bool(raw_hosted.get("speech_war", false)),
+			"gifts": bool(raw_hosted.get("gifts", false)), "heard": ints.call("heard"),
+			"tourney": (raw_hosted.get("tourney", {}) as Dictionary).duplicate(true) if typeof(raw_hosted.get("tourney", {})) == TYPE_DICTIONARY else {}}
 	host_ready_at = float(data.get("host_ready_at", 0.0))
 	invites_seen = (data.get("invites_seen", []) as Array).map(func(x): return int(x)) if typeof(data.get("invites_seen")) == TYPE_ARRAY else []
 

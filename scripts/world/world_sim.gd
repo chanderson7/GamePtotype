@@ -184,6 +184,8 @@ var lords: Array = []
 ## Expedition membership references parties; it never duplicates their troops.
 var campaign_armies: Array = []
 var army_ready_at: Dictionary = {}
+## Why each army went home, by army id (for the crown's own host; not saved).
+var army_outcomes: Dictionary = {}
 var next_army_id := 1
 ## Villages raiders have burned: id → the hour they're rebuilt.
 var burned := {}
@@ -2243,6 +2245,19 @@ func _follow_order(l: Dictionary, p: Party) -> bool:
 				p.wait = Lords.THINK_HOURS
 			elif String(l["job"]) != "guard" or String(l["target"]) != at:
 				_set_job(l, p, "guard", at)
+			return true
+		"muster":
+			# Answering your summons: ride to the muster and wait there.
+			var at := String(order.get("target", ""))
+			if not Data.SETTLEMENTS.has(at) or owner_of(at) != Data.CROWN:
+				l.erase("order")
+				return false
+			if p.node == at and not p.moving():
+				l["job"] = "muster"
+				l["target"] = at
+				p.wait = Lords.THINK_HOURS
+			elif String(l["job"]) != "muster" or String(l["target"]) != at:
+				_set_job(l, p, "muster", at)
 			return true
 		"follow":
 			var ply := player()

@@ -9,6 +9,8 @@ const Lords = preload("res://scripts/data/lords.gd")
 
 const FEAST := "feast"
 const DANCE := "dance"
+## A day at the lists, then a feast: only a crown holds one.
+const TOURNEY := "tourney"
 
 # ---------------------------------------------------------------- when
 
@@ -78,6 +80,47 @@ const HOST_CONVICTION := 10
 const HOST_AFTER_HOURS := 72.0
 ## Leaving out the liege of lords you've asked: a small snub.
 const SNUB_REGARD := -3
+## Held in a lord's hall, in your name: he's honoured to host it.
+const HOST_IN_NAME_REGARD := 5
+## Not there on the first night: the lords you were winning over notice.
+const ABSENT_KING_REGARD := -3
+
+# ---------------------------------------------------------------- the king's table
+
+## A seat at your right hand for one lord; lords of more renown feel passed over.
+const HONOUR_REGARD := 8
+const PASSED_OVER_REGARD := -2
+## A castle granted before everyone: twice the Regard of a quiet grant, and the hall sees it.
+const PUBLIC_GRANT_REGARD := 30
+const PUBLIC_GRANT_WITNESS := 3
+## A petition heard at table, or settled from afar; refused in front of everyone.
+const PETITION_TABLE := 5
+const PETITION_AFAR := 2
+const PETITION_REFUSED := -5
+## A petition to be heard costs the evening.
+const PETITION_HOURS := 1.0
+## The king's speech, in place of a toast.
+const SPEECH_RENOWN := 120
+const SPEECH_REGARD := 2
+## At war, a speech makes the case: lords you're winning over grow this much more convinced,
+## and your sworn lords count as ready to ride for this long, whatever their strength.
+const SPEECH_CONVICTION := 10
+const SPEECH_READY_HOURS := 168.0
+## Gifts from the king: silver a head, Regard each.
+const KING_GIFT_SILVER := 30
+const KING_GIFT_REGARD := 3
+
+# ---------------------------------------------------------------- the tourney
+
+const TOURNEY_PURSE := 100
+## Captains of yours who may ride.
+const TOURNEY_CAPTAINS := 3
+const TOURNEY_RENOWN := 10
+const TOURNEY_BOND := 1.5
+const TOURNEY_WIN_REGARD := 5
+const TOURNEY_ENTRY_REGARD := 2
+## A captain unhorsed is sometimes hurt (never killed).
+const TOURNEY_WOUND_CHANCE := 0.15
 
 # ---------------------------------------------------------------- between gatherings
 
@@ -92,9 +135,9 @@ const REST_MAX := 24.0
 
 ## What each culture calls them.
 const NAMES := {
-	Cultures.VARDISH: {FEAST: "feast", DANCE: "midsummer dance"},
-	Cultures.KHARZANI: {FEAST: "banquet", DANCE: "lantern night"},
-	Cultures.RYUMON: {FEAST: "moon-viewing", DANCE: "blossom festival"},
+	Cultures.VARDISH: {FEAST: "feast", DANCE: "midsummer dance", TOURNEY: "tourney"},
+	Cultures.KHARZANI: {FEAST: "banquet", DANCE: "lantern night", TOURNEY: "lance games"},
+	Cultures.RYUMON: {FEAST: "moon-viewing", DANCE: "blossom festival", TOURNEY: "archery contest"},
 }
 
 ## The hall, as you walk in.

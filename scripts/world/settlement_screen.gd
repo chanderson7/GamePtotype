@@ -24,6 +24,8 @@ const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const LordConversation = preload("res://scripts/world/lord_conversation.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
+const CrownCourt = preload("res://scripts/world/crown_court.gd")
+const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
 const StoryArtHall = preload("res://scripts/ui/story_art.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
@@ -48,6 +50,8 @@ var _court_note := ""
 var _talk: Control = null
 ## Your own gathering as you plan it: the kind and who beyond your sworn lords to ask.
 var _host_kind := 0
+## The captains you'd send to the lists (squad ids); filled with your best three at first.
+var _lists_pick: Array = []
 var _host_ask := {"friends": true, "persuade": true, "lieges": false}
 ## The improvement just built at your fief, so the rebuilt page can mark it once.
 var _just_built := ""
@@ -334,10 +338,11 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	col.add_child(body)
 	match tab:
 		"fief":
-			if GameState.is_crowned() and GameState.wedding_seat() == place:
+			if GameState.is_crowned() and GameState.host_places().has(place):
 				_add_host_card(body)
 			_add_fief_management(body)
 		"crown":
+			_add_host_card(body)
 			_add_crown_holding(body)
 		"buy":
 			_add_provisions(body)
@@ -1172,7 +1177,7 @@ func _court_tab() -> Dictionary:
 	var count: int = w.lords_at(place).size() + (w.social.residents_at(place).size() if w.social != null else 0)
 	var label := "Court"
 	if w.gathering_on(g):
-		label = "Dance" if String(g["kind"]) == Gatherings.DANCE else "Feast"
+		label = {Gatherings.DANCE: "Dance", Gatherings.TOURNEY: "Tourney"}.get(String(g["kind"]), "Feast")
 	return {"id": "court", "label": "%s · %d" % [label, count] if count > 0 else label, "badge": 0, "gold": w.gathering_on(g)}
 
 
@@ -1194,6 +1199,8 @@ func _add_court(col: VBoxContainer) -> void:
 			Scenes.go("res://scenes/wedding.tscn"))
 		wb.name = "BeginWedding"
 		col.add_child(wb)
+	if not GameState.muster.is_empty() and String(GameState.muster["place"]) == place:
+		_add_muster_card(col)
 	var g: Dictionary = w.gathering_at(place)
 	var on: bool = w.gathering_on(g)
 	if not g.is_empty():
@@ -1282,8 +1289,11 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 	var lords_n: int = GameState.gathering_lords(g).size() if on else w.gathering_guests(g).size()
 	var line := "%s · %d lord%s %s · %s" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s",
 		"here" if on else "coming", ("you're invited: %s" % inv["why"]) if bool(inv["invited"]) else "you came uninvited"]
-	if int(g.get("host_lord", -1)) < 0:
-		line = "%s · %d lord%s %s · your own" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s", "here" if on else "coming"]
+	var mine: bool = GameState.gathering_is_mine(g)
+	if mine:
+		var host_l: Dictionary = w.lord_by_id(int(g.get("host_lord", -1))) if int(g.get("host_lord", -1)) >= 0 else {}
+		line = "%s · %d lord%s %s · your own%s" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s", "here" if on else "coming",
+			(", in %s's hall" % LordTalk.short_name(host_l)) if not host_l.is_empty() else ""]
 	var sub := _note(line, Color("e8d9b0"))
 	v.add_child(sub)
 	if not on:
@@ -1296,20 +1306,38 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 	acts.name = "Actions"
 	acts.add_theme_constant_override("separation", 8)
 	v.add_child(acts)
-	var toast: Dictionary = GameState.toast_check(g)
-	acts.add_child(_feast_action("Toast", "Raise a toast", "once · renown %d" % Gatherings.TOAST_RENOWN if bool(toast["ok"]) else String(toast["reason"]),
-		bool(toast["ok"]), func():
-			var r: Dictionary = GameState.raise_toast(g)
-			if bool(r.get("ok", false)):
-				Sound.play("horn")
-				_court_note = "%s +%d Regard with %d lord%s." % [String(r["text"]), Gatherings.TOAST_REGARD, int(r["lords"]), "" if int(r["lords"]) == 1 else "s"]
-			_build()))
+	if mine:
+		var sp: Dictionary = CrownCourt.speech_check(GameState)
+		acts.add_child(_feast_action("Speech", "The king's speech", "once · renown %d" % Gatherings.SPEECH_RENOWN if bool(sp["ok"]) else String(sp["reason"]),
+			bool(sp["ok"]), func():
+				var r: Dictionary = CrownCourt.speech(GameState)
+				if bool(r.get("ok", false)):
+					Sound.play("horn")
+					_court_note = String(r["text"])
+				_build()))
+		var gc: Dictionary = CrownCourt.gifts_check(GameState)
+		acts.add_child(_feast_action("KingGifts", "Gifts from the king", ("%d silver · +%d each" % [int(gc["cost"]), Gatherings.KING_GIFT_REGARD]) if bool(gc["ok"]) else String(gc["reason"]),
+			bool(gc["ok"]), func():
+				var r: Dictionary = CrownCourt.give_gifts(GameState)
+				if bool(r.get("ok", false)):
+					Sound.play("coins")
+					_court_note = String(r["text"])
+				_build()))
+	else:
+		var toast: Dictionary = GameState.toast_check(g)
+		acts.add_child(_feast_action("Toast", "Raise a toast", "once · renown %d" % Gatherings.TOAST_RENOWN if bool(toast["ok"]) else String(toast["reason"]),
+			bool(toast["ok"]), func():
+				var r: Dictionary = GameState.raise_toast(g)
+				if bool(r.get("ok", false)):
+					Sound.play("horn")
+					_court_note = "%s +%d Regard with %d lord%s." % [String(r["text"]), Gatherings.TOAST_REGARD, int(r["lords"]), "" if int(r["lords"]) == 1 else "s"]
+				_build()))
 	var gift: Dictionary = GameState.gift_check(g)
 	var gift_sub := String(gift["reason"])
 	if bool(gift["ok"]):
 		gift_sub = "%d %s · host +%d" % [Gatherings.GIFT_SILVER if String(gift["what"]) == "silver" else Gatherings.GIFT_FOOD,
 			"silver" if String(gift["what"]) == "silver" else "rations", Gatherings.GIFT_REGARD]
-	if int(g.get("host_lord", -1)) >= 0:
+	if not mine:
 		acts.add_child(_feast_action("Gift", "Bring a gift", gift_sub, bool(gift["ok"]), func():
 			var r: Dictionary = GameState.bring_gift(g)
 			if bool(r.get("ok", false)):
@@ -1325,6 +1353,8 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 				Sound.play("page")
 				_court_note = "Gossip: %s" % String(r["text"])
 			_build()))
+	if mine and GameState.gathering_here() == g:
+		_add_kings_table(v, g)
 	var dance: Dictionary = GameState.dance_check(g)
 	if bool(dance["ok"]):
 		var db := _button("Ask someone to dance", func():
@@ -1371,21 +1401,26 @@ func _feast_action(id: String, text: String, sub: String, ok: bool, act: Callabl
 	return b
 
 
-## Your crown's own gathering: a feast or a dance at your seat, and who to ask.
+## Your crown's own gathering here: a feast, a dance or a tourney, and who to ask. (The
+## Crown screen's Court tab calls one anywhere.)
 func _add_host_card(col: VBoxContainer) -> void:
 	var w = GameState.world
 	var mine: Dictionary = w.gathering_of_realm(WorldData.CROWN)
 	var v := _card(col, "Hold a gathering at %s" % WorldData.settlement(place)["name"])
 	v.get_parent().name = "HostCard"
 	if not mine.is_empty():
-		v.add_child(_note("Your %s: %s. %d lord%s coming." % [String(mine["name"]), GameState.gathering_when(mine),
-			w.gathering_guests(mine).size(), "" if w.gathering_guests(mine).size() == 1 else "s"], Style.BRASS))
+		v.add_child(_note("Your %s at %s: %s. %d lord%s coming." % [String(mine["name"]), WorldData.settlement(String(mine["place"]))["name"],
+			GameState.gathering_when(mine), w.gathering_guests(mine).size(), "" if w.gathering_guests(mine).size() == 1 else "s"], Style.BRASS))
 		return
-	v.add_child(_note("Three nights, %s. Guests ride in from up to two days away." % ("from tomorrow at dusk" if int(w.gathering_start_hour() / 24.0) == int(w.hour / 24.0) + 1 else "from dusk on day %d" % (int(w.gathering_start_hour() / 24.0) + 1))))
-	v.add_child(Widgets.segmented(["Feast", "Dance"], _host_kind, func(i: int):
+	var kinds := [Gatherings.FEAST, Gatherings.DANCE, Gatherings.TOURNEY]
+	var kind: String = kinds[clampi(_host_kind, 0, 2)]
+	var host: Dictionary = GameState.host_lord_at(place)
+	v.add_child(_note("Three nights, %s. Guests ride in from up to two days away.%s" % [GameState.gathering_when({"starts_hour": w.gathering_start_hour()}),
+		(" %s hosts it in your name (+%d Regard)." % [LordTalk.short_name(host), Gatherings.HOST_IN_NAME_REGARD]) if not host.is_empty() else ""]))
+	v.add_child(Widgets.segmented(["Feast", "Dance", "Tourney"], _host_kind, func(i: int):
 		_host_kind = i
 		_build(), "HostKind"))
-	var who: Dictionary = GameState.host_invitees()
+	var who: Dictionary = GameState.host_invitees(place)
 	var names := func(list: Array) -> String:
 		var out := PackedStringArray()
 		for l in list.slice(0, 3):
@@ -1401,13 +1436,16 @@ func _add_host_card(col: VBoxContainer) -> void:
 	if not (who["lieges"] as Array).is_empty():
 		v.add_child(_host_row("lieges", "Their lieges · %s" % names.call(who["lieges"]),
 			"leaving out a liege whose lords you ask is a snub (%d Regard)" % Gatherings.SNUB_REGARD, bool(_host_ask["lieges"]), true))
-	v.add_child(_note("+%d Regard with each lord who comes. Lords you're winning over start %d more convinced. Bought lords' unrest eases." % [
-		Gatherings.HOST_REGARD, Gatherings.HOST_CONVICTION], Style.TEXT))
-	v.add_child(Widgets.chip_row([Widgets.chip("%d silver" % Gatherings.HOST_SILVER, Style.MORALE_MID, "·"),
-		Widgets.chip("%d rations" % Gatherings.HOST_FOOD, Style.MORALE_MID, "·"), Widgets.chip("no war, no siege nearby", Style.MORALE_MID, "·")]))
-	var check: Dictionary = GameState.host_check()
+	v.add_child(_note("+%d Regard with each lord who comes. Lords you're winning over start %d more convinced. Bought lords' unrest eases. At your own table: a seat of honour, a castle granted before everyone, petitions heard, the king's speech%s." % [
+		Gatherings.HOST_REGARD, Gatherings.HOST_CONVICTION, ", and the lists" if kind == Gatherings.TOURNEY else ""], Style.TEXT))
+	var chips := [Widgets.chip("%d silver" % Gatherings.HOST_SILVER, Style.MORALE_MID, "·"), Widgets.chip("%d rations" % Gatherings.HOST_FOOD, Style.MORALE_MID, "·")]
+	if kind == Gatherings.TOURNEY:
+		chips.append(Widgets.chip("purse %d" % Gatherings.TOURNEY_PURSE, Style.MORALE_MID, "·"))
+	chips.append(Widgets.chip("no war, no siege nearby", Style.MORALE_MID, "·"))
+	v.add_child(Widgets.chip_row(chips))
+	var check: Dictionary = GameState.host_check(place, kind)
 	var send := _button("Send the invitations", func():
-		var r: Dictionary = GameState.host_gathering(Gatherings.DANCE if _host_kind == 1 else Gatherings.FEAST, _host_ask)
+		var r: Dictionary = GameState.host_gathering(kind, _host_ask, place)
 		if bool(r.get("ok", false)):
 			Sound.play("horn")
 			_court_note = "Riders go out with your invitations. %d lord%s will come." % [int(r["guests"]), "" if int(r["guests"]) == 1 else "s"]
@@ -1421,6 +1459,129 @@ func _add_host_card(col: VBoxContainer) -> void:
 		v.add_child(_note(String(check["reason"]), Style.MORALE_LOW))
 	elif _court_note != "":
 		v.add_child(_note(_court_note, Style.BRASS))
+
+
+## Your banners gathering here: who's in the hall, and the council once it can sit.
+func _add_muster_card(col: VBoxContainer) -> void:
+	var here: Array = CrownCourt.arrived(GameState)
+	var all: Array = CrownCourt.muster_lords(GameState)
+	var v := _card(col, "Your banners gather here")
+	v.get_parent().name = "MusterCard"
+	v.add_child(_note("%d of %d lords in the hall · the treasury feeds them, %d silver a day." % [here.size(), all.size(), CrownCourt.muster_upkeep(GameState)], Style.TEXT))
+	var c: Dictionary = CrownCourt.council_check(GameState)
+	var b := _button("Sit the war council", func(): _open_kingdom("council"))
+	b.name = "OpenCouncil"
+	b.disabled = not bool(c["ok"])
+	if bool(c["ok"]):
+		Style.make_primary(b)
+	v.add_child(b)
+	if not bool(c["ok"]):
+		v.add_child(_note(String(c["reason"])))
+
+
+## The Crown screen over the hall, on `start_tab`.
+func _open_kingdom(start_tab: String) -> void:
+	var k = KingdomScreen.open(self, GameState, start_tab)
+	k.closed.connect(_build)
+	k.wants_place.connect(func(_id: String): _build())
+
+
+## At your own table, while it's on and you're in the hall: a seat of honour, petitions
+## (a castle granted before everyone among them), and the lists at a tourney.
+func _add_kings_table(v: VBoxContainer, g: Dictionary) -> void:
+	var w = GameState.world
+	var lords: Array = GameState.gathering_lords(g)
+	v.add_child(_section("The king's table"))
+	var box := VBoxContainer.new()
+	box.name = "KingsTable"
+	box.add_theme_constant_override("separation", 8)
+	v.add_child(box)
+	var honoured := int(GameState.hosted.get("honoured", -1))
+	if honoured >= 0:
+		box.add_child(_note("%s sits at your right hand." % LordTalk.short_name(w.lord_by_id(honoured)), Color("e8d9b0")))
+	elif not lords.is_empty():
+		box.add_child(_note("A seat at your right hand (+%d Regard; lords of more renown feel passed over, %d):" % [Gatherings.HONOUR_REGARD, Gatherings.PASSED_OVER_REGARD], Color("e8d9b0")))
+		var f := HFlowContainer.new()
+		f.add_theme_constant_override("h_separation", 8)
+		f.add_theme_constant_override("v_separation", 8)
+		for l in lords.slice(0, 6):
+			var lid := int(l["id"])
+			var hb := _button(LordTalk.short_name(l), func():
+				var r: Dictionary = CrownCourt.honour(GameState, lid)
+				if bool(r.get("ok", false)):
+					_court_note = String(r["text"])
+				_build())
+			hb.name = "Honour_%d" % lid
+			f.add_child(hb)
+		box.add_child(f)
+	for p in CrownCourt.petitions(GameState).filter(func(p): return lords.has(p["lord"])):
+		var pl: Dictionary = p
+		box.add_child(_note("Petition: %s" % String(p["text"]), Color("e8d9b0")))
+		var f := HFlowContainer.new()
+		f.add_theme_constant_override("h_separation", 8)
+		var ok := _button("%s · +%d" % [String(p["settle"]), Gatherings.PUBLIC_GRANT_REGARD if String(p["kind"]) == "fief" else Gatherings.PETITION_TABLE], func():
+			var r: Dictionary = CrownCourt.answer(GameState, pl, true)
+			_court_note = String(r.get("text", r.get("reason", "")))
+			_build())
+		ok.name = "Hear_%d" % int(p["lord"]["id"])
+		f.add_child(ok)
+		if bool(p["refuse"]):
+			var no := _button("Refuse · %d" % Gatherings.PETITION_REFUSED, func():
+				var r: Dictionary = CrownCourt.answer(GameState, pl, false)
+				_court_note = String(r.get("text", ""))
+				_build())
+			no.name = "RefuseHere_%d" % int(p["lord"]["id"])
+			f.add_child(no)
+		box.add_child(f)
+	if String(g.get("kind", "")) == Gatherings.TOURNEY:
+		_add_lists(box, g)
+
+
+## The tourney's lists: your captains to ride (up to three), then the passes.
+func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
+	var done: Dictionary = GameState.hosted.get("tourney", {})
+	box.add_child(_section("The lists"))
+	if not done.is_empty():
+		var res := VBoxContainer.new()
+		res.name = "ListsResult"
+		for line in done.get("lines", []):
+			res.add_child(_note(String(line), Color("e8d9b0")))
+		box.add_child(res)
+		return
+	var check: Dictionary = CrownCourt.tourney_check(GameState)
+	var caps: Array = CrownCourt.tourney_captains(GameState)
+	if _lists_pick.is_empty():
+		for e in caps.slice(0, Gatherings.TOURNEY_CAPTAINS):
+			_lists_pick.append(int(e["squad"]))
+	box.add_child(_note("Your captains ride against a champion from every lord in the hall, a single pass each bout. Up to %d of yours; a captain unhorsed is sometimes hurt, never killed." % Gatherings.TOURNEY_CAPTAINS, Color("e8d9b0")))
+	for e in caps.slice(0, 6):
+		var sid := int(e["squad"])
+		var c: Dictionary = e["captain"]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var nm := _small("%s · %d battles" % [String(c.get("name", "")), int(c.get("battles", 0))], Style.TEXT)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(nm)
+		row.add_child(Widgets.switch(_lists_pick.has(sid), func(on: bool):
+			if on and not _lists_pick.has(sid) and _lists_pick.size() < Gatherings.TOURNEY_CAPTAINS:
+				_lists_pick.append(sid)
+			elif not on:
+				_lists_pick.erase(sid)
+			_build(), "Ride_%d" % sid, String(c.get("name", ""))))
+		box.add_child(row)
+	var go := _button("Ride the lists", func():
+		var r: Dictionary = CrownCourt.ride_tourney(GameState, _lists_pick)
+		if bool(r.get("ok", false)):
+			Sound.play("horn")
+			_court_note = "The lists: %s" % String(r["lines"][-1])
+		_build())
+	go.name = "RideLists"
+	go.disabled = not bool(check["ok"])
+	if bool(check["ok"]):
+		Style.make_primary(go)
+	box.add_child(go)
+	if not bool(check["ok"]):
+		box.add_child(_note(String(check["reason"]), Style.MUTED))
 
 
 func _host_row(key: String, text: String, sub: String, on: bool, can_change: bool) -> Control:
