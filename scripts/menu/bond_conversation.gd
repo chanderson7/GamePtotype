@@ -58,7 +58,6 @@ func _show(rank: String) -> void:
 	for line in conversation.get("exchange", []):
 		var who: Dictionary = _a if String(line["who"]) == "a" else _b
 		say("them" if who == _a else "you", String(line["text"]), String(who["first"]))
-	add_to_log(note("A quiet conversation. It changes no battle values or campaign resources.", Style.MUTED))
 	GameState.acknowledge_bond_conversation(int(_a["id"]), int(_b["id"]), _rank)
 	var next := GameState.next_bond_talk(int(_a["id"]), int(_b["id"]))
 	if next != "":

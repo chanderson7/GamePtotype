@@ -236,8 +236,8 @@ func _run() -> void:
 	await transition()
 	check(current_scene.scene_file_path.ends_with("bond_conversation.tscn") and current_scene.find_child("BondConversationPortraits", true, false) != null,
 		"the optional bond conversation presents the paired captains")
-	check(_has_text(current_scene, "1 battle") and _has_text(current_scene, "last shared fight") and _has_text(current_scene, "changes no battle values"),
-		"bond dialogue uses campaign facts and clearly remains narrative")
+	check(_has_text(current_scene, "1 battle") and _has_text(current_scene, "last shared fight") and not _has_text(current_scene, "battle values"),
+		"bond dialogue uses campaign facts, with no note about game rules")
 	current_scene.choose("back")
 	await transition()
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and button("Spend time at camp") != null,
