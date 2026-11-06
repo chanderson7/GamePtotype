@@ -216,7 +216,7 @@ func _check_ui(gs) -> void:
 	check(talk.log_text().contains("No wrong answers"), "chat replies say there are no wrong answers")
 	talk.choose("say_1")
 	talk.choose("later")
-	check(talk.has_reply("visit_edda_spare_spoon") and String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Text", true, false).text).begins_with("Resume"),
+	check(talk.has_reply("visit_edda_spare_spoon") and String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Tag", true, false).text).begins_with("resume"),
 		"leaving preserves response for resume")
 	talk.choose("visit_edda_spare_spoon")
 	_read_to_end(talk)

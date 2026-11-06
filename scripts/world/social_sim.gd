@@ -726,6 +726,12 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 	return out
 
 
+## The line the memory book keeps for a story choice: the authored one, else `fallback`.
+func _choice_memory(candidate_id: String, choice_id: String, fallback: String) -> String:
+	var m := String(RomanceStories.choice_data(candidate_id, choice_id).get("memory", ""))
+	return m if m != "" else fallback
+
+
 ## Applies a validated choice, updating state and consuming rewards once.
 func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) -> Dictionary:
 	_hour = float(context.get("current_hour", _hour))
@@ -759,12 +765,12 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					rel["intent_chosen"] = true
 					rel["status"] = Relationships.COURTING
 					limits["current_partner_id"] = candidate_id
-					add_memory(person["id"], "Agreed to court %s." % candidate_name)
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Agreed to court %s." % candidate_name))
 				elif choice_id == "offer_help":
 					rel["romantic_intent"] = false
 					rel["intent_chosen"] = true
 					rel["status"] = Relationships.ACQUAINTED
-					add_memory(person["id"], "Offered friendship and service to %s." % candidate_name)
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Offered friendship and service to %s." % candidate_name))
 				q["chapter"] = 2
 				add_letter(person["id"], "ch2_invitation", q["id"], float(context.get("current_hour", 0.0)), person["residence"])
 		2:
@@ -773,7 +779,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 				q["consumed_rewards"].append(rkey)
 				reward_claimed = true
 			q["chapter"] = 3
-			add_memory(person["id"], "Shared personal stories with %s." % candidate_name)
+			add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Shared personal stories with %s." % candidate_name))
 		3:
 			var rkey := "%s_ch3_shared" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
@@ -784,7 +790,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 				if spent > 0:
 					sponsor_replacements(house["id"], person["residence"], "settlement", spent, float(context.get("current_hour", 0.0)), house.get("realm", "vardmark"))
 			q["chapter"] = 4
-			add_memory(person["id"], "Completed a shared service with %s." % candidate_name)
+			add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Completed a shared service with %s." % candidate_name))
 		4:
 			match choice_id:
 				"negotiate":
@@ -793,19 +799,19 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
 					q["chapter"] = 5
-					add_memory(person["id"], "Negotiated a balanced defense agreement for the valley.")
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Negotiated a balanced defense agreement for the valley."))
 				"support_edda":
 					var rkey := "%s_ch4_support" % reward_prefix
 					if not q["consumed_rewards"].has(rkey):
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
 					q["chapter"] = 5
-					add_memory(person["id"], "Stood firmly with %s before the council." % candidate_name)
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Stood firmly with %s before the council." % candidate_name))
 				"break_promise":
 					rel["strained"] = true
 					rel["strained_reason"] = "broken_promise"
 					q["strained_reason"] = "broken_promise"
-					add_memory(person["id"], "Broke your word to %s before the house council." % candidate_name)
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Broke your word to %s before the house council." % candidate_name))
 				"repair_promise":
 					var rkey := "%s_ch4_repaired" % reward_prefix
 					if not q["consumed_rewards"].has(rkey):
@@ -815,7 +821,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					rel["strained_reason"] = ""
 					q["strained_reason"] = ""
 					q["chapter"] = 5
-					add_memory(person["id"], "Repaired your breach of word through honest restitution.")
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Repaired your breach of word through honest restitution."))
 		5:
 			var rkey := "%s_ch5_final" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):

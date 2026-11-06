@@ -10,6 +10,9 @@ const StoryArt = preload("res://scripts/ui/story_art.gd")
 
 const STAGE_SHARE := 0.46
 
+## How much of the screen the stage takes; a subclass lowers it while there's a lot to read.
+var stage_share := STAGE_SHARE
+
 signal closed
 
 var stage: Control
@@ -138,7 +141,7 @@ func setup(backdrop: Control, caption: String) -> void:
 func _layout() -> void:
 	var s := size if size != Vector2.ZERO else get_viewport_rect().size
 	var insets: Dictionary = Style.safe_insets(get_viewport())
-	var h := roundf(s.y * STAGE_SHARE)
+	var h := roundf(s.y * stage_share)
 	stage.position = Vector2.ZERO
 	stage.size = Vector2(s.x, h)
 	_scroll.position = Vector2(0, h)
@@ -148,6 +151,14 @@ func _layout() -> void:
 		_backdrop.size = stage.size
 	for side in _faces:
 		_place_face(side)
+
+
+func set_stage_share(share: float) -> void:
+	if is_equal_approx(stage_share, share):
+		return
+	stage_share = share
+	if stage != null:
+		_layout()
 
 
 ## A painted room or place as a backdrop, tinted for the hour.
@@ -339,7 +350,19 @@ func set_replies(replies: Array) -> void:
 		c.queue_free()
 	_continue = Callable()
 	for r in replies:
-		_replies.add_child(reply_button(r))
+		if r.has("row"):
+			# Small choices side by side, sharing the width.
+			var row := HBoxContainer.new()
+			row.name = "Row"
+			row.add_theme_constant_override("separation", 10)
+			for rr in r["row"]:
+				var b := reply_button(rr)
+				b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				b.custom_minimum_size.x = 0
+				row.add_child(b)
+			_replies.add_child(row)
+		else:
+			_replies.add_child(reply_button(r))
 	_scroll_to_end()
 
 
@@ -446,9 +469,14 @@ func reply_button(r: Dictionary) -> Control:
 	return b
 
 
+## The reply button with this id, wherever it sits in the column.
+func reply_node(id: String) -> Button:
+	return _replies.find_child("Reply_" + id, true, false) as Button
+
+
 ## Press a reply by id, as a tap would.
 func choose(id: String) -> bool:
-	var b := _replies.get_node_or_null("Reply_" + id) as Button
+	var b := reply_node(id)
 	if b == null or b.disabled:
 		return false
 	b.pressed.emit()
@@ -456,12 +484,12 @@ func choose(id: String) -> bool:
 
 
 func has_reply(id: String, enabled_only: bool = true) -> bool:
-	var b := _replies.get_node_or_null("Reply_" + id) as Button
+	var b := reply_node(id)
 	return b != null and (not enabled_only or not b.disabled)
 
 
 func reply_ids() -> Array:
-	return _replies.get_children().map(func(c): return String(c.name).trim_prefix("Reply_"))
+	return _replies.find_children("Reply_*", "Button", true, false).map(func(c): return String(c.name).trim_prefix("Reply_"))
 
 
 ## Everything said so far, as plain text.

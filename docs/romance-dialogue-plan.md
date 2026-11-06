@@ -1,6 +1,14 @@
 # Romance dialogue: what's there, what other games do, and a plan
 
-A plan, not yet built. It covers the talk with Edda, Farah or Kaede (`romance_talk.gd` on
+**Status:** Phase 1 (the talk itself) is built; Phases 2 and 3 are not. Where the build
+differs from Phase 1 below: the hub keeps up to two time-together lines (one when a letter
+waits) and *Remember when…*, so it can reach five lines plus the exit; *Short version* and
+*Another time* sit side by side under *Go on* rather than in the caption, and *Another
+time* stays available after the visit's choice too; the stage lowers to 38% only while
+reading a visit; reaction chips name "Edda's house" rather than the long household name.
+Phase 1 renders: `mockups/romance-talk-built-1.png` to `-4.png`.
+
+It covers the talk with Edda, Farah or Kaede (`romance_talk.gd` on
 `talk_view.gd`, content in `romance_stories.gd`, `personal_conversations.gd`,
 `romance_talk_lines.gd`). The rules in `romance-personal-conversations-plan.md` still
 hold: visits never score answers, and pay at most +1 trust for the first three.

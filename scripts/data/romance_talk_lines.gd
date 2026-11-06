@@ -76,6 +76,37 @@ const KINDS := {
 }
 
 
+## What you say to open the chapter, by candidate and chapter: a line, not a title.
+const STORY_OPENERS := {
+	"edda": {
+		1: "They said the steward knows the border better than the lords do.",
+		2: "What are you reading?",
+		3: "I came about Thornwall.",
+		4: "The hall's loud today. What's happened?",
+		5: "Walk with me. There's something I want to ask.",
+	},
+	"farid": {
+		1: "I was told the envoy sees everyone. I hoped that included captains.",
+		2: "You said to come back when you had no speech prepared.",
+		3: "The wagons are still at the crossing. Tell me what you need.",
+		4: "Your relatives have been talking. I heard it from the gate.",
+		5: "No letters today?",
+	},
+	"kaede": {
+		1: "I'm told the archive takes a number.",
+		2: "Show me the map without roads.",
+		3: "The ford. Who's holding it?",
+		4: "They've put the brush in front of you, haven't they.",
+		5: "Is there room in the margin?",
+	},
+}
+
+## What you say to spend time together: the first open visit, then a second.
+const VISIT_OPENERS := ["Nothing that needs doing today. I just came.", "What were you doing before I came in?"]
+const VISIT_RESUME := "Where were we?"
+const LETTER_OPENER := "Your letter found me on the road."
+
+
 static func greeting(candidate: String, status: String) -> String:
 	var g: Dictionary = GREETINGS.get(candidate, {})
 	return String(g.get(status, g.get("acquainted", "Captain.")))
@@ -91,3 +122,14 @@ static func callback(memory: Dictionary) -> String:
 		if CHAPTERS.has(ch):
 			return CHAPTERS[ch]
 	return String(KINDS.get(kind, KINDS["note"]))
+
+
+static func story_opener(candidate: String, chapter: int) -> String:
+	return String(STORY_OPENERS.get(candidate, {}).get(chapter, "There's something I wanted to ask you."))
+
+
+## How you take your leave, by how things stand.
+static func leaving(status: String) -> String:
+	if status in ["courting", "committed", "engaged", "married"]:
+		return "I can't stay. I wanted to see you."
+	return "Another time."

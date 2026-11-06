@@ -45,7 +45,8 @@ func _init() -> void:
 	check(talk.log_text().contains(Lines.greeting("edda", "unknown")), "they greet you by how things stand")
 	check(talk.has_reply("story") and talk.has_reply("leave"), "one place for your story and for leaving")
 	check(talk.get_node_or_null("Stage/Room") != null and talk.get_node_or_null("Stage/Face_left") != null, "face to face, in their room")
-	check(talk.find_child("TrustBar", true, false) != null, "with trust on the nameplate")
+	var plate_words: Array = talk._plate.find_children("*", "Label", true, false).map(func(l): return String(l.text))
+	check(talk.find_child("TrustBar", true, false) == null and plate_words.has("Not yet met"), "nothing measured on the nameplate before you've met (%s)" % ", ".join(plate_words))
 
 	# ---- a decision is marked as one, with what it does
 	talk.choose("story")
@@ -54,17 +55,25 @@ func _init() -> void:
 	talk.choose(topics[0])
 	check(talk.has_reply("decide_offer_help"), "then asks what you mean to be to each other")
 	var tag := String(talk._replies.get_node("Reply_decide_offer_help").find_child("Tag", true, false).text)
-	check(tag.begins_with("Decision") and tag.contains("+10 trust") and tag.contains("acquainted"), "a decision says what it does (%s)" % tag)
+	check(tag.contains("as a friend") and tag.contains("now acquainted") and not tag.contains("trust"), "a decision says what it is and how things will stand, not a score (%s)" % tag)
+	var said := String(talk._replies.get_node("Reply_decide_offer_help").find_child("Text", true, false).text)
+	check(said.begins_with("\"") and not said.contains("Offer"), "and it reads as something you say (%s)" % said)
 	var trust0 := int(social.get_relationship("edda")["trust"])
 	talk.choose("decide_offer_help")
 	check(int(social.get_relationship("edda")["trust"]) == trust0 + 10 and social.get_relationship("edda")["status"] == "acquainted", "and does it")
+	check(talk._log.find_child("Reaction", true, false) != null and not talk.log_text().contains("+10"), "what changed is told as how she takes it, not as a number")
+	var words: Array = talk._log.find_children("Words", "Label", true, false).filter(func(l): return String(l.text).contains("steadfast"))
+	check(words.size() == 1 and String(words[0].text).begins_with("A steadfast friend"), "her answer is her words alone in her bubble, with no quotes or narration inside it")
+	check(talk.find_child("TrustBar", true, false) != null, "and trust appears on the nameplate once there is some")
 	check(talk._log.find_child("Note", true, false) != null, "and the talk says what changed")
 
 	# ---- visits, from the hub
 	talk.choose("back")
 	check(talk.has_reply("visit_edda_spare_spoon"), "time together opens after the first audience")
 	var vtag := String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Tag", true, false).text)
-	check(vtag.contains("no wrong answers") and not vtag.contains("trust"), "a visit shows no numbers (%s)" % vtag)
+	check(vtag.begins_with("time together") and not vtag.contains("trust"), "a visit is offered as time together, with no numbers (%s)" % vtag)
+	var vsaid := String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Text", true, false).text)
+	check(not vsaid.contains("Spend time") and not vsaid.contains("The Spare Spoon"), "and as something you say, not a title (%s)" % vsaid)
 	talk.choose("visit_edda_spare_spoon")
 	for i in 60:
 		if not talk.has_reply("continue"):
@@ -142,6 +151,22 @@ func _init() -> void:
 	var key_ab := "%d|%d" % [mini(int(a["id"]), int(c["id"])), maxi(int(a["id"]), int(c["id"]))]
 	var report: Dictionary = gs.battle_report({"won": true, "squads": {}, "bonds": {key_ab: 60.0}})
 	check(report["bonds"].size() == 1 and report.has("memorials"), "the report carries bonds and memorials")
+
+	# ---- Farah and Kaede speak in their own words too
+	for pair in [["farid", "qasr_hamra", "Farah"], ["kaede", "kitayama", "Kaede"]]:
+		gs.world.player().node = String(pair[1])
+		scenes.active_candidate_id = String(pair[0])
+		change_scene_to_file("res://scenes/conversation.tscn")
+		await _arrive("conversation.tscn")
+		var t = current_scene
+		var opener := String(t._replies.get_node("Reply_story").find_child("Text", true, false).text)
+		check(t.has_reply("story") and not opener.contains("Chapter") and not opener.contains("Our story"), "%s's hub opens the story as a line you say (%s)" % [pair[2], opener])
+		t.choose("story")
+		t.choose("topic_work")
+		var spoken: Array = t._log.find_children("Words", "Label", true, false).map(func(l): return String(l.text))
+		check(not spoken.is_empty() and spoken.all(func(w): return not w.begins_with("'") and not w.contains(pair[2] + ": ")), "%s's words sit in her bubble without quotes or a name prefix" % pair[2])
+		check(t.has_reply("decide_offer_help") and t.choose("decide_offer_help"), "and the first audience ends the same way")
+		check(t._log.find_child("Reaction", true, false) != null and not t.log_text().contains("+10"), "%s's reaction is told in words" % pair[2])
 
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)

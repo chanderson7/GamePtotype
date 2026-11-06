@@ -995,7 +995,7 @@ func _decision_said(cand: String, choice: String) -> String:
 			options.append(ch["repair"])
 		for o in options:
 			if String(o.get("id", "")) == choice:
-				return "You said: \"%s\"\n%s" % [String(o.get("text", "")), String(o.get("response", ""))]
+				return "You said: \"%s\"\n%s" % [String(o.get("text", "")), RomanceStories.plain(String(o.get("response", "")))]
 	return ""
 
 

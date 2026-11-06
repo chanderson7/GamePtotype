@@ -105,6 +105,9 @@ func _expression() -> String:
 
 func _refresh_plate() -> void:
 	var trust := int(_rel().get("trust", 0))
+	if _status() == Relationships.UNKNOWN and trust <= 0:
+		set_plate(_name, [TalkView.plate_chip("Not yet met", Style.MUTED)])
+		return
 	var chips := [TalkView.plate_chip(Relationships.status_label(_status()), Color("e88aa0"), "heart")]
 	chips.append(_trust_bar(trust))
 	if bool(_rel().get("strained", false)):
@@ -144,8 +147,11 @@ func _after_change() -> void:
 
 # ---------------------------------------------------------------- the hub
 
+## A visit opens as a conversation: their greeting, then a few things you might say, in
+## your own words, with what each one is under it, and one way to take your leave.
 func _hub(first: bool = false) -> void:
 	_scene_id = ""
+	set_stage_share(STAGE_SHARE)
 	clear_log()
 	say("them", Lines.greeting(cand, _status()) if first else "What else is on your mind?", _name)
 	if bool(_rel().get("strained", false)):
@@ -160,34 +166,40 @@ func _hub(first: bool = false) -> void:
 		var tag: String = {"planning": "choose where", "postponed": "postponed · choose a new place",
 			"preparing": "at %s · %s" % [Letters.place_name(String(w.get("place", ""))), "being made ready"],
 			"ready": "ready at %s · ride there" % Letters.place_name(String(w.get("place", "")))}.get(String(w["state"]), "")
-		replies.append({"id": "wedding", "text": "About our wedding", "bare": true, "tag": tag, "tone": "gold", "act": _wedding_talk})
+		replies.append({"id": "wedding", "text": "About our wedding…", "tag": tag, "tone": "gold", "act": _wedding_talk})
 	elif not cinfo.is_empty() and _status() != Relationships.ENDED and not (ch >= CHAPTERS and _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
-		replies.append({"id": "story", "text": "Our story · Chapter %d: %s" % [ch, cinfo.get("title", "")], "bare": true,
-			"tag": "decisions · they change how things stand", "tone": "gold", "act": _story})
-	# Time together.
+		replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "tag": "Chapter %d · %s" % [ch, cinfo.get("title", "")],
+			"tone": "gold", "act": _story})
+	# Their letter, when one waits for an answer.
+	var letter_waits := false
+	for l in _social().letters:
+		if String(l.get("sender_id", "")) == person_id and not bool(l.get("read", false)):
+			var lid := String(l.get("id", ""))
+			letter_waits = true
+			replies.append({"id": "letter", "text": Lines.LETTER_OPENER, "tag": "read and answer it", "act": func():
+				Scenes.people_letter = lid
+				Scenes.go("res://scenes/people.tscn")})
+			break
+	# Time together: the next visit or two, as something you'd say.
 	var visits: Array = _social().available_personal_conversations(person_id, GameState.personal_conversation_context())
 	var record: Dictionary = _social().personal_record(person_id)
 	var open := visits.filter(func(v): return bool(v.get("ok", false)) and not bool(v.get("replay", false)))
 	var locked := visits.filter(func(v): return not bool(v.get("ok", false)))
-	for v in open.slice(0, 3):
+	var fresh := 0
+	for v in open.slice(0, 1 if letter_waits else 2):
 		var id := String(v["scene_id"])
-		var resume: bool = record["in_progress"].has(id)
-		replies.append({"id": "visit_" + id, "text": ("Resume: %s" if resume else "Spend time: %s") % Stories.SCENES[id]["title"], "bare": true,
-			"tag": "in progress" if resume else "new · about 2 minutes · no wrong answers", "act": _visit.bind(id, false)})
+		var title := String(Stories.SCENES[id]["title"])
+		if record["in_progress"].has(id):
+			replies.append({"id": "visit_" + id, "text": Lines.VISIT_RESUME, "tag": "resume · " + title, "act": _visit.bind(id, false)})
+		else:
+			replies.append({"id": "visit_" + id, "text": Lines.VISIT_OPENERS[mini(fresh, Lines.VISIT_OPENERS.size() - 1)],
+				"tag": "time together · " + title, "act": _visit.bind(id, false)})
+			fresh += 1
 	if open.is_empty() and not locked.is_empty():
-		replies.append({"id": "visits_locked", "text": "%d more time%s together" % [locked.size(), "" if locked.size() == 1 else "s"], "bare": true,
-			"tag": String(locked[0].get("reason", "not yet")), "tone": "locked"})
-	# Their letters.
-	for l in _social().letters:
-		if String(l.get("sender_id", "")) == person_id and not bool(l.get("read", false)):
-			var lid := String(l.get("id", ""))
-			replies.append({"id": "letter", "text": "About your letter…", "tag": "read and answer it", "act": func():
-				Scenes.people_letter = lid
-				Scenes.go("res://scenes/people.tscn")})
-			break
+		replies.append({"id": "visits_locked", "text": Lines.VISIT_OPENERS[0], "tag": String(locked[0].get("reason", "not yet")), "tone": "locked"})
 	if not _social().memory_book(person_id).is_empty():
 		replies.append({"id": "remember", "text": "Remember when…", "tag": "your memories together", "act": _remember})
-	replies.append({"id": "leave", "text": "Another time.", "tag": "leave", "act": close})
+	replies.append({"id": "leave", "text": Lines.leaving(_status()), "tone": "quiet", "act": close})
 	set_replies(replies)
 
 
@@ -197,43 +209,43 @@ func _story() -> void:
 	var ch := _chapter()
 	var cinfo: Dictionary = RomanceStories.story_data(cand).get("chapters", {}).get(ch, {})
 	clear_log()
+	_face(String(cinfo.get("face", "")))
 	_tell(String(cinfo.get("text", "")))
 	var replies := []
 	var strained := bool(_rel().get("strained", false))
 	var repair: Dictionary = cinfo.get("repair", {})
 	if strained and not repair.is_empty():
-		replies.append(_decision(String(repair["id"]), String(repair["text"]), String(repair.get("response", ""))))
+		replies.append(_decision(repair))
 	match ch:
 		1:
 			if not _ch1_topic_done:
 				add_to_log(note("Talk first; then say what you mean to be to %s." % _name, Style.MUTED))
 				for c in cinfo.get("choices", []):
-					var resp := String(c["response"])
 					var said := String(c["text"])
-					replies.append({"id": "topic_" + String(c["id"]), "text": said, "tag": "talk", "act": func():
+					var resp := String(c["response"])
+					var face := String(c.get("face", ""))
+					replies.append({"id": "topic_" + String(c["id"]), "text": said, "tag": String(c.get("tag", "talk")), "act": func():
 						_ch1_topic_done = true
 						say("you", said)
-						say("them", _strip_quotes(resp), _name)
+						_face(face)
+						_tell(resp)
 						_intents(cinfo)})
 			else:
 				_intents(cinfo)
 				return
 		2, 4:
-			if ch == 4 and strained:
-				pass
-			else:
+			if not (ch == 4 and strained):
 				for c in cinfo.get("choices", []):
-					replies.append(_decision(String(c["id"]), String(c["text"]), String(c["response"])))
+					replies.append(_decision(c))
 		3:
 			for v in cinfo.get("variants", []):
-				replies.append(_decision(String(v["id"]), "%s: %s" % [v["name"], v["text"]], String(v["response"])))
+				replies.append(_decision(v))
 		5:
-			if bool(_rel().get("romantic_intent", false)):
-				replies.append(_decision("marry_public", "Marry me, before your house and everyone.", "Yes. Obviously, yes. Give me a moment; I'm going to need a list."))
-				replies.append(_decision("marry_private", "Let's make our vows quietly, just us.", "In a quiet place, you and %s exchange vows." % _name))
-			replies.append(_decision("friendship", "Let's swear friendship, and stand by each other's houses.", "You and %s make a lasting pledge of friendship." % _name))
-			replies.append(_decision("remain_close", "Let's stay close, and let time decide.", "You agree to let time and quiet companionship guide what comes next."))
-			replies.append(_decision("part_respectfully", "I think our roads part here.", "With respect and fond memories, you agree to walk separate paths."))
+			var romantic := bool(_rel().get("romantic_intent", false))
+			for c in cinfo.get("final_choices", []):
+				if String(c["id"]).begins_with("marry") and not romantic:
+					continue
+				replies.append(_decision(c))
 	replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
 	set_replies(replies)
 
@@ -242,19 +254,33 @@ func _intents(cinfo: Dictionary) -> void:
 	add_to_log(note(String(cinfo.get("intent_prompt", "What do you mean to be to each other?")), Style.BRASS))
 	var replies := []
 	for it in cinfo.get("intent_choices", []):
-		replies.append(_decision(String(it["id"]), String(it["text"]), String(it["response"])))
+		replies.append(_decision(it))
 	replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
 	set_replies(replies)
 
 
-## Narration and their words from a chapter's text: quoted passages are theirs.
+## Authored text into the talk: narration centred, their words in their bubble, yours in
+## yours (see RomanceStories.beats).
 func _tell(text: String) -> void:
-	for para in text.split("\n\n", false):
-		var p := String(para).strip_edges()
-		if p.begins_with("'") or p.begins_with("\""):
-			say("them", _strip_quotes(p), _name)
-		else:
-			say("narration", p)
+	for b in RomanceStories.beats(text):
+		var line := String(b["text"])
+		match String(b["speaker"]):
+			"Narrator":
+				# Older text kept their words in quotes.
+				if (line.begins_with("'") and line.ends_with("'")) or (line.begins_with("\"") and line.ends_with("\"")):
+					say("them", _strip_quotes(line), _name)
+				else:
+					say("narration", line)
+			"You":
+				say("you", line)
+			_:
+				say("them", line, _name)
+
+
+## How they look as they say it ("" leaves the face as it is).
+func _face(expression: String) -> void:
+	if expression != "":
+		change_face("left", _portrait(expression))
 
 
 static func _strip_quotes(s: String) -> String:
@@ -264,15 +290,37 @@ static func _strip_quotes(s: String) -> String:
 	return t
 
 
-## A story decision, marked as one, with what it does.
-func _decision(choice_id: String, text: String, response: String) -> Dictionary:
+## A story choice as something you say, with what it is under it: the task, a cost, a
+## change in how things stand, a promise broken. Never a score.
+func _decision(c: Dictionary) -> Dictionary:
+	var choice_id := String(c["id"])
+	var text := String(c["text"])
 	var prev: Dictionary = GameState.preview_social_choice(cand, choice_id)
 	if not bool(prev.get("ok", false)):
 		return {"id": "decide_" + choice_id, "text": text, "tag": String(prev.get("reason", "not now")), "tone": "locked"}
-	return {"id": "decide_" + choice_id, "text": text, "tag": "Decision · " + _effects(prev), "tone": "gold",
-		"act": _decide.bind(choice_id, text, response, prev)}
+	var bits := PackedStringArray()
+	if String(c.get("tag", "")) != "":
+		bits.append(String(c["tag"]))
+	bits.append_array(_costs(prev))
+	var grave := bool(c.get("strained", false)) or choice_id == "part_respectfully"
+	return {"id": "decide_" + choice_id, "text": text, "tag": " · ".join(bits), "tone": String(c.get("tone", "red" if grave else "gold")),
+		"act": _decide.bind(c, prev)}
 
 
+## What a choice costs or changes, in words: silver, rations, how things will stand.
+func _costs(prev: Dictionary) -> PackedStringArray:
+	var bits := PackedStringArray()
+	if int(prev.get("cost_silver", 0)) > 0:
+		bits.append("%d silver" % int(prev["cost_silver"]))
+	if int(prev.get("cost_food", 0)) > 0:
+		bits.append("%d rations" % int(prev["cost_food"]))
+	var ns := String(prev.get("new_status", ""))
+	if ns != "" and ns != _status():
+		bits.append("now %s" % Relationships.status_label(ns).to_lower())
+	return bits
+
+
+## Everything a choice does, with its numbers: for the step that asks you to be sure.
 func _effects(prev: Dictionary) -> String:
 	var bits := PackedStringArray()
 	var t := int(prev.get("trust_change", 0))
@@ -281,22 +329,19 @@ func _effects(prev: Dictionary) -> String:
 	var st := int(prev.get("standing_change", 0))
 	if st != 0:
 		bits.append("%s%d house standing" % ["+" if st > 0 else "", st])
-	if int(prev.get("cost_silver", 0)) > 0:
-		bits.append("%d silver" % int(prev["cost_silver"]))
-	if int(prev.get("cost_food", 0)) > 0:
-		bits.append("%d rations" % int(prev["cost_food"]))
-	var ns := String(prev.get("new_status", ""))
-	if ns != "" and ns != _status():
-		bits.append("now %s" % Relationships.status_label(ns).to_lower())
+	bits.append_array(_costs(prev))
 	return " · ".join(bits) if not bits.is_empty() else "it stays between you"
 
 
-func _decide(choice_id: String, text: String, response: String, prev: Dictionary, confirmed: bool = false) -> void:
+func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
+	var choice_id := String(c["id"])
+	var text := String(c["text"])
 	if bool(prev.get("requires_confirmation", false)) and not confirmed:
 		say("you", text)
 		add_to_log(note(String(prev.get("confirmation_text", "Are you sure?")), Style.BRASS))
 		set_replies([
-			{"id": "confirm", "text": "Yes. I mean it.", "tag": "Decision · " + _effects(prev), "tone": "gold", "act": _decide.bind(choice_id, text, response, prev, true)},
+			{"id": "confirm", "text": "Yes. I mean it.", "tag": _effects(prev), "tone": "red" if bool(c.get("strained", false)) or choice_id == "part_respectfully" else "gold",
+				"act": _decide.bind(c, prev, true)},
 			{"id": "back", "text": "Not yet.", "tone": "quiet", "act": _story}])
 		return
 	var res: Dictionary = GameState.apply_social_choice(cand, choice_id)
@@ -305,8 +350,11 @@ func _decide(choice_id: String, text: String, response: String, prev: Dictionary
 		return
 	if not confirmed:
 		say("you", text)
-	say("them", _strip_quotes(response), _name)
-	add_to_log(note(_effects(prev).capitalize() + ".", Style.MORALE_HIGH if int(prev.get("trust_change", 0)) >= 0 else Style.MORALE_LOW))
+	_face(String(c.get("face", "")))
+	_tell(String(c.get("response", "")))
+	var reaction := _reaction(prev)
+	if reaction != null:
+		add_to_log(reaction)
 	_ch1_topic_done = false
 	_after_change()
 	if choice_id == "marry_public":
@@ -315,8 +363,43 @@ func _decide(choice_id: String, text: String, response: String, prev: Dictionary
 	if choice_id == "marry_private":
 		_private_vows()
 		return
-	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
-		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+	set_replies([_back_or_leave()])
+
+
+## What changed, told as how they and their house take it, not as a sum.
+func _reaction(prev: Dictionary) -> Control:
+	var chips := []
+	var t := int(prev.get("trust_change", 0))
+	if t > 0:
+		chips.append(TalkView.plate_chip("%s trusts you more" % _name, Color("e88aa0"), "heart"))
+	elif t < 0:
+		chips.append(TalkView.plate_chip("%s is hurt" % _name, Style.ENEMY_LIGHT, "heart"))
+	var st := int(prev.get("standing_change", 0))
+	if st > 0:
+		chips.append(TalkView.plate_chip("%s's house takes note" % _name, Style.BRASS, "home"))
+	elif st < 0:
+		chips.append(TalkView.plate_chip("%s's house is displeased" % _name, Style.ENEMY_LIGHT, "home"))
+	for cost in _costs(prev):
+		chips.append(TalkView.plate_chip(cost, Style.MUTED))
+	if chips.is_empty():
+		return null
+	var row := HFlowContainer.new()
+	row.name = "Reaction"
+	row.alignment = FlowContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 6)
+	for c in chips:
+		row.add_child(c)
+	if not Style.motion_reduced():
+		row.modulate.a = 0.0
+		row.create_tween().tween_property(row, "modulate:a", 1.0, 0.3)
+	return row
+
+
+## The two quiet ways on from the end of something: more talk, or leaving.
+func _back_or_leave() -> Dictionary:
+	return {"row": [{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
+		{"id": "leave", "text": "Another time.", "tone": "quiet", "act": close}]}
 
 
 # ---------------------------------------------------------------- the wedding
@@ -377,8 +460,7 @@ func _choose_place(place: String, text: String) -> void:
 	say("you", text)
 	say("them", "%s, then. I'll send word when it's ready. Don't you dare be late. Actually, be as late as you need. Just come." % Letters.place_name(place), _name)
 	add_to_log(note("Your wedding at %s · ready %s · it waits for you there" % [Letters.place_name(place), GameState._when_text(float(GameState.wedding()["ready_hour"]))], Style.MORALE_HIGH))
-	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
-		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+	set_replies([_back_or_leave()])
 
 
 func _wedding_talk() -> void:
@@ -420,8 +502,7 @@ func _call_off(confirmed: bool = false) -> void:
 	say("them", "All right. I'm not going anywhere. Ask me again when the time is right.", _name)
 	add_to_log(note("Called off · %d silver and %d rations back" % [int(r.get("silver", 0)), int(r.get("food", 0))], Style.MUTED))
 	_after_change()
-	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
-		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+	set_replies([_back_or_leave()])
 
 
 ## Private vows, right here: her room at night, one candle, your words and hers.
@@ -443,8 +524,7 @@ func _private_vows() -> void:
 			GameState.record_private_vows(cand, said, String(their["text"]))
 			add_to_log(_keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
 			add_to_log(note("%s wasn't asked: %d standing · no marriage pact yet. Their good word can still be earned." % [String(house.get("name", "Her house")), Relationships.STANDING_PRIVATE_VOWS_PENALTY], Style.MORALE_LOW))
-			set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
-				{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])})
+			set_replies([_back_or_leave()])})
 	set_replies(replies)
 
 
@@ -463,6 +543,7 @@ func _visit(scene_id: String, replay: bool) -> void:
 			add_to_log(note(String(r.get("reason", "Not now.")), Style.MORALE_LOW))
 			return
 		_progress = r["progress"]
+	set_stage_share(0.38)
 	var setting := String(Stories.SCENES[scene_id].get("setting", ROOMS.get(cand, "common_room")))
 	if _backdrop is TextureRect and StoryArt.texture("res://assets/locations/%s.png" % setting) != null:
 		(_backdrop as TextureRect).texture = StoryArt.texture("res://assets/locations/%s.png" % setting)
@@ -495,11 +576,13 @@ func _render_visit() -> void:
 	if face != "":
 		change_face("left", _portrait(face))
 	var pos := int(_progress["beat"])
-	var quiet := [{"id": "summary", "text": "Short version", "tone": "quiet", "act": _summary}] if not _replay else []
+	var summary := {"id": "summary", "text": "Short version", "tone": "quiet", "act": _summary}
+	var later := {"id": "later", "text": "Another time", "tone": "quiet", "act": _hub}
 	if pos < seq.size() - 1:
-		var replies := [{"id": "continue", "text": "Continue", "tone": "quiet", "act": _advance}]
-		replies.append_array(quiet)
-		replies.append({"id": "later", "text": "Another time", "tone": "quiet", "act": _hub})
+		# Tap anywhere, or Go on; leave for later at any point, and before your answer
+		# you can also cut it short.
+		var replies := [{"id": "continue", "text": "Go on", "tone": "quiet", "act": _advance}]
+		replies.append({"row": [summary, later]} if int(_progress["node"]) == 0 and not _replay else later)
 		set_replies(replies)
 		_continue = _advance
 	elif int(_progress["node"]) == 0:
@@ -507,7 +590,8 @@ func _render_visit() -> void:
 		var replies := []
 		for i in scene["choices"].size():
 			replies.append({"id": "say_%d" % i, "text": String(scene["choices"][i]), "act": _respond.bind(i)})
-		replies.append_array(quiet)
+		if not _replay:
+			replies.append(summary)
 		set_replies(replies)
 	elif _replay:
 		set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": _hub}])
@@ -557,8 +641,7 @@ func _finish(action: String) -> void:
 		line += "\nTime together: +%d trust (%d of %d)." % [int(r["trust_change"]), claims, Relationships.PERSONAL_CONVERSATION_CAP]
 	add_to_log(_keepsake(line))
 	_after_change()
-	set_replies([{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
-		{"id": "leave", "text": "Another time.", "tag": "leave", "act": close}])
+	set_replies([_back_or_leave()])
 
 
 func _keepsake(text: String, icon: String = "cup") -> Control:
