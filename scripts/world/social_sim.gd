@@ -20,6 +20,8 @@ var quests: Dictionary = {}
 var pacts: Dictionary = {}
 var projects: Dictionary = {}
 var letters: Array = []
+## Letters written but not yet come: each arrives at its created_hour.
+var pending_letters: Array = []
 var limits: Dictionary = {
 	"current_partner_id": "",
 	"last_grant_hour": -999.0,
@@ -45,6 +47,7 @@ func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
 	pacts.clear()
 	projects.clear()
 	letters.clear()
+	pending_letters.clear()
 	pending_settlements.clear()
 	wedding.clear()
 	_next_project_id = 1
@@ -180,6 +183,7 @@ func to_dict() -> Dictionary:
 		"pacts": pacts,
 		"projects": projects,
 		"letters": letters,
+		"pending_letters": pending_letters,
 		"limits": limits,
 		"pending_settlements": pending_settlements,
 		"wedding": wedding,
@@ -197,6 +201,7 @@ func from_dict(data: Dictionary) -> void:
 	pacts = data.get("pacts", {}).duplicate(true)
 	projects = data.get("projects", {}).duplicate(true)
 	letters = data.get("letters", []).duplicate(true)
+	pending_letters = data.get("pending_letters", []).duplicate(true)
 	limits = data.get("limits", {
 		"current_partner_id": "",
 		"last_grant_hour": -999.0,
@@ -240,6 +245,7 @@ func from_dict(data: Dictionary) -> void:
 func step(dt: float, world_ref: RefCounted) -> void:
 	var cur_hour: float = world_ref.hour
 	_hour = cur_hour
+	_deliver_letters(cur_hour)
 
 	# 1. A planned wedding gets ready, or is put off when its place can't host it.
 	_step_wedding(cur_hour, world_ref)
@@ -443,14 +449,17 @@ func add_memory(person_id: String, text: String, info: Dictionary = {}) -> void:
 
 ## A letter from `sender_id`, written now (its words are kept with it). `extra` fills the
 ## letter's blanks beyond the place it's written from (e.g. {"old": the seat they left}).
-func add_letter(sender_id: String, template_key: String, quest_id: String, current_hour: float, destination: String, extra: Dictionary = {}) -> Dictionary:
+## A letter that should come later is given `deliver_hour`: it is written now, dated then,
+## and arrives (is announced, counted, answerable) when the world reaches that hour.
+func add_letter(sender_id: String, template_key: String, quest_id: String, current_hour: float, destination: String, extra: Dictionary = {}, deliver_hour: float = -1.0) -> Dictionary:
 	_hour = maxf(_hour, current_hour)
+	var later := deliver_hour > current_hour
 	var l := {
 		"id": "let_%d" % _next_letter_id,
 		"sender_id": sender_id,
 		"template_key": template_key,
 		"quest_id": quest_id,
-		"created_hour": current_hour,
+		"created_hour": deliver_hour if later else current_hour,
 		"read": false,
 		"acknowledged": false,
 		"announced": false,
@@ -459,8 +468,40 @@ func add_letter(sender_id: String, template_key: String, quest_id: String, curre
 	}
 	l["letter"] = _render_letter(l)
 	_next_letter_id += 1
-	letters.append(l)
+	if later:
+		pending_letters.append(l)
+	else:
+		letters.append(l)
 	return l
+
+
+## Letters whose hour has come arrive.
+func _deliver_letters(cur_hour: float) -> void:
+	var due := pending_letters.filter(func(l): return float(l.get("created_hour", 0.0)) <= cur_hour)
+	for l in due:
+		pending_letters.erase(l)
+		letters.append(l)
+
+
+## Whether the candidate's current chapter can be played now: {ok, reason}. A chapter
+## opens a day after the last decision, with her letter; the last one waits until she
+## trusts you enough to be asked anything.
+func chapter_open(candidate_id: String, hour: float) -> Dictionary:
+	var q: Dictionary = quests.get("quest_%s" % candidate_id, {})
+	var opens := float(q.get("opens_hour", -1.0))
+	if hour < opens:
+		var left := opens - hour
+		return {"ok": false, "reason": "tomorrow; she'll write" if left <= 24.0 else "in %d days; she'll write" % ceili(left / 24.0)}
+	if int(q.get("chapter", 1)) == 5 and int(relationships.get(candidate_id, {}).get("trust", 0)) < Relationships.TRUST_CH5_OPEN:
+		return {"ok": false, "reason": "when %s trusts you more" % String(get_candidate_person(candidate_id).get("name", "she"))}
+	return {"ok": true, "reason": ""}
+
+
+## The story moves to chapter `n`: it opens a day on, and her letter comes with it.
+func _open_chapter(q: Dictionary, person: Dictionary, n: int, hour: float) -> void:
+	q["chapter"] = n
+	q["opens_hour"] = hour + Relationships.CHAPTER_GAP_HOURS
+	add_letter(person["id"], "ch%d_invitation" % n, q["id"], hour, person["residence"], {}, float(q["opens_hour"]))
 
 
 ## Whether you and the candidate are courting (or further along) rather than friends.
@@ -613,6 +654,12 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 		elif target_ch > current_ch:
 			out["ok"] = false
 			out["reason"] = "Chapter %d prerequisites not yet reached." % target_ch
+			return out
+	if target_ch > 1:
+		var open := chapter_open(candidate_id, float(context.get("current_hour", _hour)))
+		if not bool(open["ok"]):
+			out["ok"] = false
+			out["reason"] = "Not yet: %s." % String(open["reason"])
 			return out
 
 	match target_ch:
@@ -771,14 +818,13 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					rel["intent_chosen"] = true
 					rel["status"] = Relationships.ACQUAINTED
 					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Offered friendship and service to %s." % candidate_name))
-				q["chapter"] = 2
-				add_letter(person["id"], "ch2_invitation", q["id"], float(context.get("current_hour", 0.0)), person["residence"])
+				_open_chapter(q, person, 2, float(context.get("current_hour", _hour)))
 		2:
 			var rkey := "%s_ch2_personal" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
 				q["consumed_rewards"].append(rkey)
 				reward_claimed = true
-			q["chapter"] = 3
+			_open_chapter(q, person, 3, float(context.get("current_hour", _hour)))
 			add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Shared personal stories with %s." % candidate_name))
 		3:
 			var rkey := "%s_ch3_shared" % reward_prefix
@@ -789,7 +835,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 				var spent: int = int(prev["cost_silver"])
 				if spent > 0:
 					sponsor_replacements(house["id"], person["residence"], "settlement", spent, float(context.get("current_hour", 0.0)), house.get("realm", "vardmark"))
-			q["chapter"] = 4
+			_open_chapter(q, person, 4, float(context.get("current_hour", _hour)))
 			add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Completed a shared service with %s." % candidate_name))
 		4:
 			match choice_id:
@@ -798,14 +844,14 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					if not q["consumed_rewards"].has(rkey):
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
-					q["chapter"] = 5
+					_open_chapter(q, person, 5, float(context.get("current_hour", _hour)))
 					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Negotiated a balanced defense agreement for the valley."))
 				"support_edda":
 					var rkey := "%s_ch4_support" % reward_prefix
 					if not q["consumed_rewards"].has(rkey):
 						q["consumed_rewards"].append(rkey)
 						reward_claimed = true
-					q["chapter"] = 5
+					_open_chapter(q, person, 5, float(context.get("current_hour", _hour)))
 					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Stood firmly with %s before the council." % candidate_name))
 				"break_promise":
 					rel["strained"] = true
@@ -820,7 +866,7 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					rel["strained"] = false
 					rel["strained_reason"] = ""
 					q["strained_reason"] = ""
-					q["chapter"] = 5
+					_open_chapter(q, person, 5, float(context.get("current_hour", _hour)))
 					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Repaired your breach of word through honest restitution."))
 		5:
 			var rkey := "%s_ch5_final" % reward_prefix
@@ -1061,7 +1107,7 @@ func sponsor_replacements(house_id: String, target_id: String, target_kind: Stri
 func personal_record(person_id: String) -> Dictionary:
 	return personal_conversations.get(person_id, {
 		"schema_version": 1, "completed": {}, "cosmetic_choices": {},
-		"bonus_claims": {}, "in_progress": {}
+		"bonus_claims": {}, "in_progress": {}, "last_visit_day": -1
 	}).duplicate(true)
 
 
@@ -1099,7 +1145,14 @@ func personal_scene_access(person_id: String, scene_id: String, context: Diction
 		return {"ok": false, "reason": "First share: " + " or ".join(prerequisites.map(func(id): return PersonalConversations.SCENES[id]["title"]))}
 	if scene.get("coda", false) and not [Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED, Relationships.FRIENDSHIP].has(rel.get("status")):
 		return {"ok": false, "reason": "First choose commitment or a lasting friendship in the main story."}
+	# One new visit a day; one begun earlier can always be picked up.
+	if not record["in_progress"].has(scene_id) and int(record.get("last_visit_day", -1)) == _day_of(context):
+		return {"ok": false, "today": true, "reason": "It's late. Another day."}
 	return {"ok": true, "replay": false, "reason": "Optional visit · no time or resources spent."}
+
+
+func _day_of(context: Dictionary) -> int:
+	return floori(float(context.get("current_hour", _hour)) / 24.0)
 
 
 func available_personal_conversations(person_id: String, context: Dictionary) -> Array:
@@ -1124,6 +1177,7 @@ func personal_action(person_id: String, scene_id: String, action: String, contex
 	var rel: Dictionary = relationships[_personal_candidate(person_id)]
 	if action == "begin":
 		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+			record["last_visit_day"] = _day_of(context)
 			progress = {"scene_id": scene_id, "node": 0, "choice": -1,
 				"content_version": PersonalConversations.VERSION,
 				"context": {"completed": record["completed"].keys(), "choices": record["cosmetic_choices"].duplicate(true), "status": rel.get("status", Relationships.UNKNOWN),

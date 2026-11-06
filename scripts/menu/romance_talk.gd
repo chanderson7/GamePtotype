@@ -168,8 +168,12 @@ func _hub(first: bool = false) -> void:
 			"ready": "ready at %s · ride there" % Letters.place_name(String(w.get("place", "")))}.get(String(w["state"]), "")
 		replies.append({"id": "wedding", "text": "About our wedding…", "tag": tag, "tone": "gold", "act": _wedding_talk})
 	elif not cinfo.is_empty() and _status() != Relationships.ENDED and not (ch >= CHAPTERS and _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
-		replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "tag": "Chapter %d · %s" % [ch, cinfo.get("title", "")],
-			"tone": "gold", "act": _story})
+		var open: Dictionary = _social().chapter_open(cand, GameState.world.hour)
+		if bool(open["ok"]):
+			replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "tag": "Chapter %d · %s" % [ch, cinfo.get("title", "")],
+				"tone": "gold", "act": _story})
+		else:
+			replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "tag": "Chapter %d · %s" % [ch, String(open["reason"])], "tone": "locked"})
 	# Their letter, when one waits for an answer.
 	var letter_waits := false
 	for l in _social().letters:
@@ -196,7 +200,10 @@ func _hub(first: bool = false) -> void:
 				"tag": "time together · " + title, "act": _visit.bind(id, false)})
 			fresh += 1
 	if open.is_empty() and not locked.is_empty():
-		replies.append({"id": "visits_locked", "text": Lines.VISIT_OPENERS[0], "tag": String(locked[0].get("reason", "not yet")), "tone": "locked"})
+		# When today's visit is spent, say that rather than the next visit's prerequisite.
+		var today := locked.filter(func(v): return bool(v.get("today", false)))
+		var why: Dictionary = today[0] if not today.is_empty() else locked[0]
+		replies.append({"id": "visits_locked", "text": Lines.VISIT_OPENERS[0], "tag": String(why.get("reason", "not yet")), "tone": "locked"})
 	if not _social().memory_book(person_id).is_empty():
 		replies.append({"id": "remember", "text": "Remember when…", "tag": "your memories together", "act": _remember})
 	replies.append({"id": "leave", "text": Lines.leaving(_status()), "tone": "quiet", "act": close})
@@ -208,6 +215,9 @@ func _hub(first: bool = false) -> void:
 func _story() -> void:
 	var ch := _chapter()
 	var cinfo: Dictionary = RomanceStories.story_data(cand).get("chapters", {}).get(ch, {})
+	if not bool(_social().chapter_open(cand, GameState.world.hour)["ok"]):
+		_hub()
+		return
 	clear_log()
 	_face(String(cinfo.get("face", "")))
 	_tell(String(cinfo.get("text", "")))

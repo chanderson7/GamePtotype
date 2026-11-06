@@ -270,6 +270,7 @@ func open_scene(path: String) -> void:
 
 func _check_ui() -> void:
 	root.get_node("Scenes").active_person_id = PERSON
+	gs.world.hour += 24.0 # a new day: one new visit a day
 	await open_scene("personal_conversation")
 	var talk = current_scene
 	var baseline: Dictionary = gs.to_dict().duplicate(true)

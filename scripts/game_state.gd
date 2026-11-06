@@ -4133,6 +4133,7 @@ func _clean_bond_state() -> void:
 func personal_conversation_context() -> Dictionary:
 	var sound := get_node_or_null("/root/Sound")
 	return {"settlement_id": world.here() if world != null else "",
+		"current_hour": world.hour if world != null else 0.0,
 		"invitations_enabled": sound.romance_invitations_enabled() if sound != null else true}
 
 

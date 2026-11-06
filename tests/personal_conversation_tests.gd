@@ -26,6 +26,7 @@ func fresh():
 	return w
 
 func finish(social, id: String, choice: int = 0) -> Dictionary:
+	social._hour += 24.0 # a new visit is one a day
 	social.personal_action(PERSON, id, "begin", ctx)
 	social.personal_action(PERSON, id, "choose", ctx, choice)
 	return social.personal_action(PERSON, id, "finish", ctx)
@@ -82,6 +83,8 @@ func _run() -> void:
 	check(not soc.personal_action(PERSON, FIRST, "choose", ctx, 0)["ok"], "replay cannot overwrite campaign choices")
 	check(saved == soc.to_dict(), "duplicate requests leave all social state unchanged")
 	check(soc.personal_scene_access(PERSON, FIRST, {})["replay"], "archive accessible remotely")
+	check(soc.personal_scene_access(PERSON, "edda_boots_by_door", ctx).get("today", false), "the same day, a new visit waits for tomorrow")
+	soc._hour += 24.0
 	check(soc.personal_scene_access(PERSON, "edda_boots_by_door", ctx)["ok"], "either opening scene unlocks third")
 	soc.relationships["edda"]["strained"] = true
 	check(not soc.personal_scene_access(PERSON, "edda_wrong_verse", ctx)["ok"], "strained blocks new scenes")
@@ -152,12 +155,16 @@ func _check_progress_and_gates() -> void:
 	soc.apply_choice("edda", "know_better", {"invitations_enabled": true})
 	soc.personal_action(PERSON, FIRST, "begin", ctx)
 	soc.personal_action(PERSON, FIRST, "choose", ctx, 2)
+	check(not soc.personal_action(PERSON, "edda_wrong_verse", "begin", ctx)["ok"] and soc.personal_scene_access(PERSON, "edda_wrong_verse", ctx).get("today", false),
+		"one new visit a day: a second the same day waits")
+	soc._hour += 24.0
 	soc.personal_action(PERSON, "edda_wrong_verse", "begin", ctx)
 	check(soc.personal_action(PERSON, FIRST, "begin", ctx)["progress"]["choice"] == 2, "starting another story preserves unfinished visits")
 	var neutral: Dictionary = soc.personal_action(PERSON, FIRST, "begin", {"settlement_id": "ravensford", "invitations_enabled": false})
 	check(not neutral["progress"]["context"]["romantic"], "resuming after disabling invitations uses neutral presentation")
 	soc.relationships["edda"]["trust"] = 57
 	for id in [FIRST, "edda_wrong_verse", "edda_boots_by_door"]:
+		soc._hour += 24.0
 		soc.personal_action(PERSON, id, "begin", ctx)
 		soc.personal_action(PERSON, id, "summary", ctx)
 	check(soc.relationships["edda"]["trust"] == 60, "small bonus can tip 57 to 60")
@@ -242,6 +249,9 @@ func _check_ui(gs) -> void:
 	_read_to_end(talk)
 	talk.choose("finish")
 	check(archived == gs.to_dict(), "replay through real UI changes no campaign data")
+	check(not talk.has_reply("visit_edda_wrong_verse") and talk.has_reply("visits_locked", false), "the day's visit is spent; the talk says so")
+	gs.world.hour += 24.0
+	talk._hub()
 	talk.choose("visit_edda_wrong_verse")
 	talk.choose("summary")
 	check(gs.world.social.personal_record(PERSON)["completed"].size() == 2, "summary completes through real UI")

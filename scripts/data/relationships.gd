@@ -17,6 +17,10 @@ const ENDED := "ended"
 ## Trust range: 0 to 100.
 const PERSONAL_CONVERSATION_TRUST := 1
 const PERSONAL_CONVERSATION_CAP := 3
+## Pacing: the next chapter opens this long after the last decision (her letter comes
+## then), one new visit a day, and the last chapter waits for this much trust.
+const CHAPTER_GAP_HOURS := 24.0
+const TRUST_CH5_OPEN := 50
 
 const TRUST_MIN := 0
 const TRUST_MAX := 100

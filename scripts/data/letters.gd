@@ -83,6 +83,228 @@ const LETTERS := {
 			},
 		},
 	},
+	"ch3_invitation": {
+		"edda": {
+			"courting": {
+				"subject": "The horn, and the villages",
+				"salute": "Captain,",
+				"body": [
+					"The muster horn has been promised for the new moon, and every man in the valley has found an excellent reason to be elsewhere. The elders count riders. I count the houses those riders leave behind.",
+					"I would not ask this of you by letter, so I won't. But if you came to {place}, I would ask it to your face, and then I would feed you, which is more than the elders offer.",
+				],
+				"sign": "Edda",
+				"sign_title": "of House Caldmoor",
+				"ps": "The chair is still by the fire. The cat has claimed it. Negotiations continue.",
+			},
+			"friend": {
+				"subject": "A muster, and no one to hold the villages",
+				"salute": "Captain,",
+				"body": [
+					"The muster horn has been promised for the new moon. The elders count riders; I count the houses the riders leave behind, and the sum does not please me.",
+					"Come to {place} if you can. There is work for a company that keeps its word, and I will set out plainly what it is and what it pays.",
+				],
+				"sign": "Edda",
+				"sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "A quarrel with wagons behind it",
+				"salute": "Captain,",
+				"body": [
+					"Two houses have stopped sharing escorts over an insult at a wedding, and forty wagons of grain are now learning patience at the crossing. I have written to both. Both replied with great courtesy and no escorts.",
+					"I am out of letters. I would like to try a person instead. Come to {place}; I will explain over coffee what the grain cannot wait for.",
+				],
+				"sign": "Farah",
+				"sign_title": "Envoy of Qasr Hamra",
+				"ps": "This letter has business in it. I apologise. The next one won't.",
+			},
+			"friend": {
+				"subject": "Grain at the crossing",
+				"salute": "To the captain, with the envoy's regards,",
+				"body": [
+					"Two allied houses have stopped sharing escorts over an insult, and relief wagons wait behind their pride at the crossing. Courtesy has failed; I have tried it three times.",
+					"A company that belongs to neither house could end this in a week. Come to {place} and I will show you the crossing and the terms.",
+				],
+				"sign": "Farah",
+				"sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "Two copies and a ford",
+				"salute": "Captain,",
+				"body": [
+					"The clans have produced their copies of the covenant, and the copies disagree in exactly the places that matter. Each side has sent a polite young man to tell me the other is lying. They are both correct.",
+					"I need witnesses, and a ford held long enough for witnesses to be heard. Come to {place}. I will show you the two copies and let you be annoyed by them yourself.",
+				],
+				"sign": "Kaede",
+				"sign_title": "Archivist of Kitayama",
+				"ps": "I have added the ford to the private map. Marked 'contested; pleasant in the mornings'.",
+			},
+			"friend": {
+				"subject": "The covenant, in two versions",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"The clans' copies of the old covenant disagree exactly where it matters, and each side has sent someone to explain that the other is lying. Both explanations are accurate.",
+					"I need a witness neither clan can claim, and a ford kept quiet while the records are compared. Come to {place} and I will show you both copies.",
+				],
+				"sign": "Kaede",
+				"sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"ch4_invitation": {
+		"edda": {
+			"courting": {
+				"subject": "Before the council sits",
+				"salute": "Captain,",
+				"body": [
+					"The house head has called a council for the week's end, and I know already what he will say, because he has been saying it at supper. Riders east, the valley stripped, glory by the cartload.",
+					"I don't ask you to take my side. I ask you to be at {place} when it's said, so that one person in that hall has seen what the villages look like after.",
+				],
+				"sign": "Edda",
+				"sign_title": "of House Caldmoor",
+				"ps": "I have rehearsed what I'll say to him. It gets shorter every time.",
+			},
+			"friend": {
+				"subject": "The council at week's end",
+				"salute": "Captain,",
+				"body": [
+					"The house head has called a council for the week's end. He wants the riders east and the valley stripped; I want a garrison, and I am one voice against a table of cousins.",
+					"Your word carries weight in that hall now. Come to {place} and give it, whichever way you give it.",
+				],
+				"sign": "Edda",
+				"sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "My relatives have opinions",
+				"salute": "Captain,",
+				"body": [
+					"The settlement is drafted and the road nearly open, and now my relatives have discovered the negotiation and wish to win it. They want terms the other house cannot sign without shame. I promised the merchants terms they could.",
+					"Council sits when you reach {place}. I have never asked anyone to stand in a room for me. I am asking.",
+				],
+				"sign": "Farah",
+				"sign_title": "Envoy of Qasr Hamra",
+				"ps": "I tried to make this letter about tariffs. It refused.",
+			},
+			"friend": {
+				"subject": "The council and the merchants",
+				"salute": "To the captain, with the envoy's regards,",
+				"body": [
+					"The settlement is drafted, and my relatives have found it and wish to make it a triumph. The merchants were promised a peace they can live under, not a victory they must apologise for.",
+					"You know the road and what it needs. Come to {place} before the council sits, and say what you saw.",
+				],
+				"sign": "Farah",
+				"sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "The brush",
+				"salute": "Captain,",
+				"body": [
+					"The council has decided which version of the covenant is true, and has decided it before reading either. They have asked me to certify it. The brush is already on the table; they are only waiting for my hand.",
+					"I promised both villages an honest comparison. I would like you in the room when I keep or break that promise. Come to {place}.",
+				],
+				"sign": "Kaede",
+				"sign_title": "Archivist of Kitayama",
+				"ps": "I have not decided what I will do. That is a lie. I have decided; I would like company.",
+			},
+			"friend": {
+				"subject": "A certification I cannot give",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"The council wants the convenient version of the covenant certified, and has placed the brush before me. I promised both villages an honest comparison and have not yet been asked to break it aloud.",
+					"Come to {place} before the council sits. A commander's account of the ford would be heard where an archivist's is not.",
+				],
+				"sign": "Kaede",
+				"sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"ch5_invitation": {
+		"edda": {
+			"courting": {
+				"subject": "What we choose",
+				"salute": "Captain,",
+				"body": [
+					"The season has turned. The granary is roofed, the muster fed, the council survived. I find I have nothing urgent to write to you about, and I find that I am writing anyway.",
+					"Come to {place} when the road allows. There is something I would like to ask you, and I would rather watch your face while I ask it.",
+				],
+				"sign": "Edda",
+				"sign_title": "of House Caldmoor",
+				"ps": "Don't bring the company. Bring yourself.",
+			},
+			"friend": {
+				"subject": "A quiet season",
+				"salute": "Captain,",
+				"body": [
+					"The season has turned, and for once the valley has nothing to ask of either of us. The granary is roofed, the muster fed, the council survived.",
+					"Come to {place} when you can. I would like to talk about what we are to each other's houses, now that the urgent part is done.",
+				],
+				"sign": "Edda",
+				"sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "No business whatsoever",
+				"salute": "Captain,",
+				"body": [
+					"The road is open. The wagons have gone through, the houses have exchanged stiff and correct letters, and no one has needed me to phrase anything for four days.",
+					"I am writing to you with no business whatsoever, which I have never done before. Come to {place}. I have something to say that I would like to say badly, in person.",
+				],
+				"sign": "Farah",
+				"sign_title": "Envoy of Qasr Hamra",
+				"ps": "If anyone asks, this was about nothing.",
+			},
+			"friend": {
+				"subject": "A road that stays open",
+				"salute": "To the captain, with the envoy's regards,",
+				"body": [
+					"The road is open and, for once, staying that way. The houses write to each other now without my help, which is both the point and slightly wounding.",
+					"Come to {place} when you pass. I would like to talk about what our houses owe each other, now that nobody owes me a reply.",
+				],
+				"sign": "Farah",
+				"sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "Room in the margin",
+				"salute": "Captain,",
+				"body": [
+					"The covenant is signed with its uncertainties left visible, which the council dislikes and the villages do not. The archive is quiet. I have unrolled the private map twice this week for no reason I can record.",
+					"Come to {place}. There is a blank space on it that I have been leaving open on purpose, and I would like to ask you about it.",
+				],
+				"sign": "Kaede",
+				"sign_title": "Archivist of Kitayama",
+				"ps": "The uncertain cat has attended three days running. I am choosing to take this as a sign.",
+			},
+			"friend": {
+				"subject": "After the signing",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"The covenant is signed with its uncertainties left visible. The council dislikes this; the villages, who must live under it, do not. The archive is quiet for the first time in a season.",
+					"Come to {place} when the road allows. I would like to set down, in the margin where such things go, what our houses are to each other.",
+				],
+				"sign": "Kaede",
+				"sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
 	"relocation": {
 		"edda": {
 			"courting": {
@@ -369,8 +591,11 @@ static func render(key: String, candidate_id: String, courting: bool, ctx: Dicti
 	}
 
 
-## The replies you could send to letter `key`.
+## The replies you could send to letter `key`. Every chapter's invitation takes the same
+## three answers.
 static func replies(key: String) -> Array:
+	if not REPLIES.has(key) and key.ends_with("_invitation"):
+		return REPLIES["ch2_invitation"]
 	return REPLIES.get(key, [])
 
 

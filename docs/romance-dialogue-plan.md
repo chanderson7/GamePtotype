@@ -1,12 +1,17 @@
 # Romance dialogue: what's there, what other games do, and a plan
 
-**Status:** Phase 1 (the talk itself) is built; Phases 2 and 3 are not. Where the build
+**Status:** Phases 1 (the talk itself) and 2 (pacing) are built; Phase 3 is not. Phase 2
+as built: a chapter opens `CHAPTER_GAP_HOURS` (24) after the last decision, when her
+letter for it arrives (letters are written at the decision and held in `pending_letters`
+until their hour); there is no separate "you've left" condition, since the letter is the
+pacing. One new visit a day per person (`last_visit_day` on the record; resumes are free).
+Chapter 5 opens at trust 50 (`TRUST_CH5_OPEN`). Old saves have neither field and are open. Where the build
 differs from Phase 1 below: the hub keeps up to two time-together lines (one when a letter
 waits) and *Remember when…*, so it can reach five lines plus the exit; *Short version* and
 *Another time* sit side by side under *Go on* rather than in the caption, and *Another
 time* stays available after the visit's choice too; the stage lowers to 38% only while
 reading a visit; reaction chips name "Edda's house" rather than the long household name.
-Phase 1 renders: `mockups/romance-talk-built-1.png` to `-4.png`.
+Phase 1 renders: `mockups/romance-talk-built-1.png` to `-4.png`; Phase 2: `-5.png` (the hub after a decision, her letter the next day, the hub then).
 
 It covers the talk with Edda, Farah or Kaede (`romance_talk.gd` on
 `talk_view.gd`, content in `romance_stories.gd`, `personal_conversations.gd`,

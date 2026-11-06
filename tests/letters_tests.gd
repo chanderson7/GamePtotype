@@ -55,11 +55,16 @@ func _check_texts() -> void:
 
 func _check_social(gs) -> void:
 	var social = gs.world.social
-	gs.world.hour = 50.0
+	gs.world.hour = 26.0
 	var r: Dictionary = gs.apply_social_choice("edda", "know_better")
 	check(r["ok"], "courting Edda")
+	check(social.letters.filter(func(l): return l["template_key"] == "ch2_invitation").is_empty() and social.pending_letters.size() == 1,
+		"agreeing to court her: her invitation is written, and comes a day on")
+	check(not gs.preview_social_choice("edda", "villager")["ok"], "the next chapter waits for it")
+	gs.world.hour = 50.0
+	social.step(0.0, gs.world)
 	var mine: Array = social.letters.filter(func(l): return l["template_key"] == "ch2_invitation")
-	check(mine.size() == 1, "agreeing to court her brings her invitation")
+	check(mine.size() == 1 and social.pending_letters.is_empty() and gs.preview_social_choice("edda", "villager")["ok"], "a day on, the letter has come and the chapter is open")
 	var l: Dictionary = mine[0]
 	check(l["letter"]["subject"] == "A chair by the fire" and String(l["letter"]["place_line"]).begins_with("Ravensford"),
 		"the letter's words are written when it arrives, as a courtship letter from Ravensford")

@@ -405,7 +405,7 @@ func _next_step(cand: String) -> String:
 	var ride := _ride_text(_residence(cand))
 	var here: bool = GameState.world.here() == _residence(cand)
 	var unread := _unread_from(cand)
-	if not unread.is_empty() and String(unread[0].get("template_key", "")) == "ch2_invitation":
+	if not unread.is_empty() and String(unread[0].get("template_key", "")).ends_with("_invitation"):
 		return "%s has invited you to %s.%s" % [name, place, (" %s' ride." % ride) if ride != "" else " You're here."]
 	if not unread.is_empty():
 		return "%s has written to you." % name
@@ -413,6 +413,9 @@ func _next_step(cand: String) -> String:
 		return "Your story together is told. Spend time with %s whenever you like." % name
 	if not _met(cand):
 		return "Seek an audience at %s%s." % [place, (" · %s" % ride) if ride != "" else ""]
+	var open: Dictionary = _social().chapter_open(cand, GameState.world.hour)
+	if not bool(open["ok"]):
+		return "Not yet: %s. Time together is always welcome at %s." % [String(open["reason"]), place]
 	if here:
 		var object := String(RomanceStories.candidate_data(cand).get("pronouns", "they/them")).split("/")[1] if String(RomanceStories.candidate_data(cand).get("pronouns", "")).contains("/") else "them"
 		return "%s is here. Speak with %s to go on." % [name, object]
