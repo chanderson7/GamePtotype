@@ -4,16 +4,28 @@
 and the host armies' aims in `marshal_armies.gd`); screens on the Crown screen's Court tab
 (`kingdom_screen.gd`) and in your hall (`settlement_screen.gd`); tests in
 `tests/crown_court_tests.gd`. Renders of the built screens: `mockups/crown-court-built-1.png`
-(Court tab, the banners, the war council) and `-2.png` (the king's table, the lists before
-and after). Where the build differs from the plan below:
+(the Court tab, a gathering, the banners, the muster, the war council, the march sheet) and
+`-2.png` (the king's table, the lists before and after).
+
+**Layout, after the first build read as a wall of text:** one decision and one button per
+card, and the rules out of the cards. The Court tab is three cards with a line of status
+each (a gathering, the banners, petitions); a gathering and the banners open pages of their
+own, with the place a single row that unfolds, guests as switches with a count, and costs as
+a strip of numbers. The council shows the lords as faces (tap one to hear them), each aim
+with the faces of those who back it, and a bar at the foot with the men, days and silver;
+*Not yet* is the back arrow, *Dismiss* is under *⋯*, choosing a raid hands the lead to the
+lord, and *March!* opens a sheet with each lord's Regard before the host rides. Everything
+the cards no longer say is on the rules sheet behind *?*.
+
+Where the build differs from the plan below:
 
 - **The muster is fed in silver, not rations**: the crown treasury is silver, so it pays a
   silver a day for every ten men; the council's provisions are six days' worth up front.
 - **No arrival deadline**: lords ride in as fast as their roads allow; the council sits
   once two are in the hall. Only a lord who *refuses* (a bought lord below 0 Regard) is
   marked down (−10). A lord still on the road when the council marches goes home.
-- **"Wait a day" is "Not yet"**: the council closes and sits again when you open it; the
-  muster keeps eating meanwhile.
+- **"Wait a day" is the council's back arrow**: the council closes and sits again when you
+  open it; the muster keeps eating meanwhile.
 - **Counsel**: every lord has one (Daring storm; Cautious relieve, or hold the march; Cruel
   raid; Honorable relieve, or storm), so "spoke against" is any lord whose counsel you didn't
   take (−2).

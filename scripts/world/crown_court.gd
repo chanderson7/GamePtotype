@@ -68,6 +68,16 @@ static func _ride_words(hours: float) -> String:
 	return "%d day%s' ride" % [d, "" if d == 1 else "s"]
 
 
+## The same, for a tight row: "here", "14 h", "1 day", "2 days".
+static func _ride_short(hours: float) -> String:
+	if hours < 1.0:
+		return "here"
+	if hours < 20.0:
+		return "%d h" % ceili(hours)
+	var d := ceili(hours / 24.0)
+	return "%d day%s" % [d, "" if d == 1 else "s"]
+
+
 ## Whether you can call the banners to `place` now. {ok, reason}
 static func call_check(gs, place: String) -> Dictionary:
 	var w = gs.world
@@ -197,21 +207,23 @@ static func aims(gs) -> Array:
 	for id in storm.slice(0, 3):
 		out.append({"id": "storm_" + id, "aim": STORM, "target": id, "ok": true, "reason": "",
 			"label": "Storm %s" % Data.settlement(id)["name"],
-			"sub": "%s · garrison %d" % [_ride_words(hours.call(id)), w.men_of(w.garrison_at(id))]})
+			"sub": "%s · garrison %d" % [_ride_words(hours.call(id)), w.men_of(w.garrison_at(id))],
+			"short": "%s · %d held" % [_ride_short(hours.call(id)), w.men_of(w.garrison_at(id))]})
 	if storm.is_empty():
 		out.append({"id": "storm", "aim": STORM, "target": "", "ok": false, "reason": "you're at war with no one who holds walls",
-			"label": "Storm a castle", "sub": ""})
+			"label": "Storm a castle", "sub": "", "short": "no walls at war"})
 	# Relieve.
 	var besieged: Array = gs.crown_holdings().filter(func(id): return not w.siege_info(id).is_empty())
 	besieged.sort_custom(func(a, b): return hours.call(a) < hours.call(b))
 	if besieged.is_empty():
 		out.append({"id": "relieve", "aim": RELIEVE, "target": "", "ok": false, "reason": "none of yours is besieged",
-			"label": "Relieve a siege", "sub": "none of yours is besieged"})
+			"label": "Relieve a siege", "sub": "none of yours is besieged", "short": "none besieged"})
 	else:
 		var b: String = besieged[0]
 		out.append({"id": "relieve_" + b, "aim": RELIEVE, "target": b, "ok": true, "reason": "",
 			"label": "Relieve %s" % Data.settlement(b)["name"],
-			"sub": "%s · %d men camped under its walls" % [_ride_words(hours.call(b)), int(w.siege_info(b).get("attackers", 0))]})
+			"sub": "%s · %d men camped under its walls" % [_ride_words(hours.call(b)), int(w.siege_info(b).get("attackers", 0))],
+			"short": "%s · %d camped" % [_ride_short(hours.call(b)), int(w.siege_info(b).get("attackers", 0))]})
 	# Hold the march: between the muster and your holding nearest the enemy.
 	var edge := ""
 	var best := INF
@@ -226,10 +238,11 @@ static func aims(gs) -> Array:
 					edge = id
 	if edge == "":
 		out.append({"id": "march", "aim": MARCH, "target": "", "ok": false, "reason": "you hold nowhere else to march to",
-			"label": "Hold the march", "sub": "you hold nowhere else to march to"})
+			"label": "Hold the march", "sub": "you hold nowhere else to march to", "short": "nowhere to ride"})
 	else:
 		out.append({"id": "march_" + edge, "aim": MARCH, "target": edge, "anchors": [place, edge], "ok": true, "reason": "",
-			"label": "Hold the march", "sub": "ride between %s and %s" % [Data.settlement(place)["name"], Data.settlement(edge)["name"]]})
+			"label": "Hold the march", "sub": "ride between %s and %s" % [Data.settlement(place)["name"], Data.settlement(edge)["name"]],
+			"short": "%s – %s" % [Data.settlement(place)["name"], Data.settlement(edge)["name"]]})
 	# Raid.
 	var villages := []
 	for id in Data.SETTLEMENTS:
@@ -239,14 +252,15 @@ static func aims(gs) -> Array:
 	villages = villages.slice(0, Lords.HOST_RAID_VILLAGES)
 	if villages.is_empty():
 		out.append({"id": "raid", "aim": RAID, "target": "", "ok": false, "reason": "no enemy village to burn",
-			"label": "Raid their villages", "sub": "no enemy village within reach"})
+			"label": "Raid their villages", "sub": "no enemy village within reach", "short": "none in reach"})
 	else:
 		var realm: String = w.owner_of(villages[0])
 		var honorable := arrived(gs).filter(func(l): return String(l.get("bearing", "")) == Lords.HONORABLE).size()
 		out.append({"id": "raid_" + realm, "aim": RAID, "target": villages[0], "villages": villages, "ok": true, "reason": "",
 			"label": "Raid %s's villages" % gs.realm_word(realm),
 			"sub": "%s%s" % [" and ".join(villages.map(func(v): return String(Data.settlement(v)["name"]))),
-				(" · %d Honorable lord%s won't ride" % [honorable, "" if honorable == 1 else "s"]) if honorable > 0 else ""]})
+				(" · %d Honorable lord%s won't ride" % [honorable, "" if honorable == 1 else "s"]) if honorable > 0 else ""],
+			"short": "%d village%s%s" % [villages.size(), "" if villages.size() == 1 else "s", (" · %d won't ride" % honorable) if honorable > 0 else ""]})
 	return out
 
 
@@ -258,7 +272,8 @@ static func _sample_party(gs):
 	return gs.world.player()
 
 
-## What a lord in the hall says, by bearing: {aim, says}.
+## What a lord in the hall says, by bearing: {aim, target, says}. `target` is the place he
+## names, or "" when his counsel names none.
 static func counsel(gs, l: Dictionary) -> Dictionary:
 	var w = gs.world
 	var all := aims(gs)
@@ -273,18 +288,18 @@ static func counsel(gs, l: Dictionary) -> Dictionary:
 	var title := "my king"
 	match String(l.get("bearing", "")):
 		Lords.DARING:
-			return {"aim": STORM, "says": "\"%s. Give me the first ladder, %s.\"" % [name.call(first_storm), title]}
+			return {"aim": STORM, "target": first_storm, "says": "\"%s. Give me the first ladder, %s.\"" % [name.call(first_storm), title]}
 		Lords.CAUTIOUS:
 			if relieve != "":
-				return {"aim": RELIEVE, "says": "\"%s holds out for us. Break the siege before we start one of our own.\"" % name.call(relieve)}
-			return {"aim": MARCH, "says": "\"Hold what we have, %s. Ride the border, and let them come to us.\"" % title}
+				return {"aim": RELIEVE, "target": relieve, "says": "\"%s holds out for us. Break the siege before we start one of our own.\"" % name.call(relieve)}
+			return {"aim": MARCH, "target": "", "says": "\"Hold what we have, %s. Ride the border, and let them come to us.\"" % title}
 		Lords.CRUEL:
-			return {"aim": RAID, "says": "\"Burn their villages and their lords will come out to us. Cheaper than a siege.\""}
+			return {"aim": RAID, "target": "", "says": "\"Burn their villages and their lords will come out to us. Cheaper than a siege.\""}
 		Lords.HONORABLE:
 			if relieve != "":
-				return {"aim": RELIEVE, "says": "\"Our people at %s are starving behind their walls. We go to them first.\"" % name.call(relieve)}
-			return {"aim": STORM, "says": "\"%s's walls are high. High walls fall to patient men. And we burn no farms on the way.\"" % name.call(first_storm)}
-	return {"aim": STORM, "says": "\"I'll ride where you ride.\""}
+				return {"aim": RELIEVE, "target": relieve, "says": "\"Our people at %s are starving behind their walls. We go to them first.\"" % name.call(relieve)}
+			return {"aim": STORM, "target": first_storm, "says": "\"%s's walls are high. High walls fall to patient men. And we burn no farms on the way.\"" % name.call(first_storm)}
+	return {"aim": STORM, "target": "", "says": "\"I'll ride where you ride.\""}
 
 
 ## Who could lead if you don't: a Daring lord offers; otherwise the most renowned in the hall.
@@ -572,16 +587,16 @@ static func petitions(gs) -> Array:
 			# Each castle you have free is asked for by one lord at a time.
 			var want: String = free_fiefs.pop_front()
 			out.append({"lord": l, "kind": "fief", "fief": want,
-				"text": "%s asks for %s." % [name, Data.settlement(want)["name"]],
+				"text": "%s asks for %s." % [name, Data.settlement(want)["name"]], "ask": "Asks for %s" % Data.settlement(want)["name"],
 				"settle": "Grant it", "table": "a grant before everyone: +%d" % Gatherings.PUBLIC_GRANT_REGARD, "refuse": true})
 			continue
 		if fief != "" and w.is_burned(fief):
 			out.append({"lord": l, "kind": "rebuild", "fief": fief,
-				"text": "%s asks for silver to rebuild %s." % [name, Data.settlement(fief)["name"]],
-				"settle": "100 silver from the treasury", "table": "", "refuse": true})
+				"text": "%s asks for silver to rebuild %s." % [name, Data.settlement(fief)["name"]], "ask": "Silver to rebuild %s" % Data.settlement(fief)["name"],
+				"settle": "Pay 100 silver", "table": "", "refuse": true})
 			continue
 		if LordTalk.regard(gs, l) < 0:
-			out.append({"lord": l, "kind": "heard", "text": "%s wishes to be heard." % name,
+			out.append({"lord": l, "kind": "heard", "text": "%s wishes to be heard." % name, "ask": "Wishes to be heard",
 				"settle": "Hear them out", "table": "an hour at table", "refuse": false})
 			continue
 		var tr := LordTalk.trouble(gs, l)
@@ -589,6 +604,7 @@ static func petitions(gs) -> Array:
 		if String(tr.get("kind", "")) == "bandits" and not bands.has(int(tr["band"])):
 			bands[int(tr["band"])] = true
 			out.append({"lord": l, "kind": "bandits", "text": "%s: %s prey on their lands." % [name, String(tr["name"])],
+				"ask": "%s prey on their lands" % String(tr["name"]),
 				"settle": "Take up the hunt", "table": "", "refuse": true})
 	return out
 

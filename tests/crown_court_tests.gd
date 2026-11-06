@@ -71,6 +71,17 @@ func _set_regard(l: Dictionary, v: int) -> void:
 	gs.lord_relations[id] = v - base
 
 
+func _has_text(n: Node, text: String) -> bool:
+	if n == null:
+		return false
+	for c in n.find_children("*", "", true, false):
+		if (c is Label or c is Button) and String(c.text).contains(text):
+			return true
+		if c is RichTextLabel and (c as RichTextLabel).get_parsed_text().contains(text):
+			return true
+	return false
+
+
 func _find(n: Node, name: String) -> Node:
 	return n.find_child(name, true, false)
 
@@ -438,6 +449,73 @@ func _init() -> void:
 	open_c.pressed.emit()
 	await process_frame
 	check(_find(k, "Council") != null and _find(k, "March") != null and _find(k, "Lead") != null, "the war council: the lords, the aim, who leads")
+	check(_find(k, "KingdomTabs") == null and _find(k, "Back") != null and _find(k, "More") != null, "the council is a page of its own: back, and more")
+	# Tap a face: that lord speaks.
+	var here: Array = CrownCourt.arrived(gs)
+	var second: Dictionary = here[1]
+	(_find(k, "Speaker_%d" % int(second["id"])) as Button).pressed.emit()
+	await process_frame
+	check(_has_text(_find(k, "Counsel"), LordTalk.short_name(second)), "tap a lord's face and they give their counsel")
+	# Each aim carries the faces of the lords whose counsel names it.
+	var backed := 0
+	for x in CrownCourt.aims(gs):
+		var row := _find(k, "Aim_" + String(x["id"]))
+		if row != null:
+			backed += row.find_children("*", "TextureRect", true, false).size()
+	check(backed == here.size(), "every lord in the hall backs one aim, shown by their face")
+	# A raid needs a lord to lead it: choosing one hands them the host.
+	var raid_id := ""
+	for x in CrownCourt.aims(gs):
+		if String(x["aim"]) == CrownCourt.RAID and bool(x["ok"]):
+			raid_id = String(x["id"])
+	if raid_id != "":
+		(_find(k, "Aim_" + raid_id) as Button).pressed.emit()
+		await process_frame
+		check(not k._you_lead and not (_find(k, "March") as Button).disabled, "choose a raid and a lord takes the lead")
+		(_find(k, "Aim_" + String(CrownCourt.aims(gs)[0]["id"])) as Button).pressed.emit()
+		await process_frame
+	k._you_lead = true
+	k._build()
+	await process_frame
+	# Dismiss hides under "⋯".
+	check(_find(k, "Dismiss") == null, "dismissing the banners isn't beside March")
+	(_find(k, "More") as Button).pressed.emit()
+	await process_frame
+	check(_find(k, "Dismiss") != null, "it's under the more button")
+	(_find(k, "More") as Button).pressed.emit()
+	await process_frame
+	# March asks first, with each lord's Regard.
+	(_find(k, "March") as Button).pressed.emit()
+	await process_frame
+	var sheet := _find(k, "MarchSheet")
+	check(sheet != null and _find(sheet, "WhoRides") != null and _has_text(sheet, "+%d" % Lords.MUSTER_RIDE_REGARD), "March opens a sheet: who rides, and the Regard each takes")
+	check(gs.banners.is_empty(), "nothing moves until you confirm")
+	(_find(sheet, "NotYet") as Button).pressed.emit()
+	await process_frame
+	check(_find(k, "MarchSheet") == null or _find(k, "MarchSheet").is_queued_for_deletion(), "back to the council")
+	(_find(k, "March") as Button).pressed.emit()
+	await process_frame
+	(_find(_find(k, "MarchSheet"), "MarchConfirm") as Button).pressed.emit()
+	await process_frame
+	check(not gs.banners.is_empty() and k.tab == "court", "confirm, and the banners ride")
+	# The rules behind "?".
+	(_find(k, "CourtRules") as Button).pressed.emit()
+	await process_frame
+	check(_find(k, "RulesSheet") != null and _has_text(_find(k, "RulesSheet"), "+%d" % Gatherings.PUBLIC_GRANT_REGARD), "the rules sheet holds what the cards leave out")
+	k.queue_free()
+	# The gathering page: one place shown, the rest a tap away.
+	CrownCourt.dismiss(gs)
+	k = K.open(root, gs, "gathering")
+	await process_frame
+	var places: Array = gs.host_places()
+	if places.size() > 1:
+		check(_find(k, "HostAt_" + String(places[1])) == null, "the other halls are folded away")
+		(_find(k, "HostPlace") as Button).pressed.emit()
+		await process_frame
+		(_find(k, "HostAt_" + String(places[1])) as Button).pressed.emit()
+		await process_frame
+		check(k._host_place == String(places[1]) and _find(k, "HostAt_" + String(places[0])) == null, "tap the place, pick another, and the list folds")
+	check(_find(k, "SendInvitations") != null and _find(k, "GuestsCard") != null and _find(k, "Strip") != null, "the gathering page: kind, place, guests, costs, and send")
 	k.queue_free()
 
 	print("\nCrown court failures: %d" % failures)
