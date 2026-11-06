@@ -33,6 +33,8 @@ func _build() -> void:
 		Sound.set_illustrations(on)))
 	col.add_child(_switch_row("Vibration", "", Sound.haptics_enabled, func(on: bool):
 		Sound.set_haptics(on)))
+	col.add_child(_switch_row("Show performance", "What each battle frame costs, at the top left", Sound.show_performance, func(on: bool):
+		Sound.set_show_performance(on)))
 	col.add_child(Page.note("STORY"))
 	col.add_child(_switch_row("Romance invitations", "Friendships and house pacts stay either way", Sound.romance_invitations_enabled(), func(on: bool):
 		Sound.set_romance_invitations(on)))

@@ -84,6 +84,9 @@ var illustrations_enabled := true
 var haptics_enabled := true
 ## How hard the battle shakes: 0 off, 0.5 light, 1 full. Reduced motion stills it whatever this says.
 var shake := 1.0
+## A readout of what each battle frame costs (sim, drawing, the renderer), for judging how
+## big a battle a device can take.
+var show_performance := false
 ## Pulses sent, for tests (and so a headless run can see them).
 var haptic_count := 0
 ## Until this time, routine contact sounds play quieter, so a critical cue cuts through.
@@ -527,6 +530,7 @@ func _load_settings() -> void:
 		illustrations_enabled = bool(cfg.get_value("presentation", "illustrations", true))
 		haptics_enabled = bool(cfg.get_value("presentation", "haptics", true))
 		shake = float(cfg.get_value("presentation", "shake", 1.0))
+		show_performance = bool(cfg.get_value("debug", "performance", false))
 		if shake not in [0.0, 0.5, 1.0]:
 			shake = 1.0
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
@@ -545,6 +549,7 @@ func _save_settings() -> void:
 	cfg.set_value("presentation", "illustrations", illustrations_enabled)
 	cfg.set_value("presentation", "haptics", haptics_enabled)
 	cfg.set_value("presentation", "shake", shake)
+	cfg.set_value("debug", "performance", show_performance)
 	cfg.save(settings_path)
 
 
@@ -649,6 +654,10 @@ func _stream(path: String, looped: bool) -> AudioStream:
 
 func set_text_scale(value: float) -> void:
 	text_scale = value if value in [1.0, 1.25, 1.5] else 1.0
+	_save_settings()
+
+func set_show_performance(enabled: bool) -> void:
+	show_performance = enabled
 	_save_settings()
 
 func set_reduced_motion(enabled: bool) -> void:

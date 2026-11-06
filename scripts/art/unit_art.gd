@@ -18,6 +18,20 @@ const ICON_SCALE := 2
 
 static var _cache := {}
 
+## The unit atlas: every frame a battle draws, each in a CELL-sized cell (the sprite at (1, 1)
+## inside it, a clear pixel all round), so a whole army is one draw. Cells are filled as
+## frames are first asked for. The largest sprite is 22 by 28.
+const CELL := Vector2i(24, 30)
+const ATLAS := 1024
+## A disk for shadows: centre DISK_C, radius DISK_R, in its own pixels (22 by 22).
+const DISK_C := Vector2(11.0, 11.0)
+const DISK_R := 11.0
+const DISK_SIZE := 22
+static var _atlas_img: Image
+static var _atlas_tex: ImageTexture
+static var _atlas_cells := {}
+static var _atlas_dirty := false
+
 
 ## Frame `index` (0 and 1 walk, 2 strike) of a troop type as `culture` dresses it, in
 ## a team's colors. Bodies and arrows look the same for everyone.
@@ -59,6 +73,56 @@ static func flash(type: String, index: int, culture: String = "vardish") -> Text
 					img.set_pixel(x, y, Color.WHITE)
 		_cache[key] = ImageTexture.create_from_image(img)
 	return _cache[key]
+
+
+## Where frame `index` of a troop type, in a team's colours, sits in the atlas: its
+## top-left and size, in UV (the size times ATLAS is its size in pixels).
+static func atlas_cell(type: String, team: int, index: int, culture: String = "vardish") -> Rect2:
+	var name := sprite_name(type, culture)
+	var key := "%s/%d/%d" % [name, team, index]
+	if _atlas_cells.has(key):
+		return _atlas_cells[key]
+	return _atlas_add(key, _image(name, team, index))
+
+
+## The shadow disk's place in the atlas.
+static func atlas_disk() -> Rect2:
+	if _atlas_cells.has("disk"):
+		return _atlas_cells["disk"]
+	var img := Image.create_empty(DISK_SIZE, DISK_SIZE, false, Image.FORMAT_RGBA8)
+	for y in img.get_height():
+		for x in img.get_width():
+			if Vector2(x + 0.5, y + 0.5).distance_to(DISK_C) <= DISK_R:
+				img.set_pixel(x, y, Color.WHITE)
+	return _atlas_add("disk", img)
+
+
+static func _atlas_add(key: String, img: Image) -> Rect2:
+	if _atlas_img == null:
+		_atlas_img = Image.create_empty(ATLAS, ATLAS, false, Image.FORMAT_RGBA8)
+	var cols := ATLAS / CELL.x
+	var n := _atlas_cells.size()
+	if n >= cols * (ATLAS / CELL.y):
+		push_warning("unit atlas full")
+		n = 0
+	var at := Vector2i((n % cols) * CELL.x, (n / cols) * CELL.y)
+	_atlas_img.blit_rect(img, Rect2i(Vector2i.ZERO, img.get_size()), at + Vector2i.ONE)
+	_atlas_dirty = true
+	var uv := Rect2(Vector2(at + Vector2i.ONE) / float(ATLAS), Vector2(img.get_size()) / float(ATLAS))
+	_atlas_cells[key] = uv
+	return uv
+
+
+## The atlas, with any cells added since the last call.
+static func atlas() -> Texture2D:
+	if _atlas_img == null:
+		atlas_disk()
+	if _atlas_tex == null:
+		_atlas_tex = ImageTexture.create_from_image(_atlas_img)
+	elif _atlas_dirty:
+		_atlas_tex.update(_atlas_img)
+	_atlas_dirty = false
+	return _atlas_tex
 
 
 ## Where the man stands in his sprite, in sprite pixels.

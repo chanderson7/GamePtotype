@@ -212,6 +212,57 @@ var _volley_seen := {}
 var _band := "day"
 var _ground_tint := Color(0, 0, 0, 0)
 var _air_tint := Color(0, 0, 0, 0)
+## The performance readout (Settings › Show performance): what a frame costs, in ms, as
+## averages and worst cases over the last second. Kept whether or not it's shown, so a test
+## or a benchmark can read it.
+var perf := {"fps": 0.0, "frame": 0.0, "frame_worst": 0.0, "sim": 0.0, "sim_worst": 0.0, "draw": 0.0, "draw_worst": 0.0,
+	"render": 0.0, "gpu": 0.0, "men": 0, "squads": 0, "frames": 0}
+var _perf_win := {}
+var _perf_sim_us := 0
+var _perf_draw_us := 0
+const PERF_WINDOW := 1.0
+## The field is drawn in three canvas items, bottom to top: this node (the ground, the dead,
+## orders and effects), the troop layer (shadows and every man, each a single draw from
+## the unit atlas) and the top layer (trees, arrows in flight, flags and words). `_c` is
+## the one being drawn, so the drawing code works on any of them.
+var _c: CanvasItem
+var _troop_layer: Node2D
+var _top_layer: Node2D
+## The men and their shadows, batched: one instance each in a MultiMesh, written into a
+## flat buffer (a transform, a tint, and the atlas cell and hit flash) and drawn at once.
+var _men_mm: MultiMesh
+var _shadow_mm: MultiMesh
+var _men_buf := PackedFloat32Array()
+var _shadow_buf := PackedFloat32Array()
+var _men_n := 0
+var _shadow_n := 0
+## Drawn around the men: captains' rings and charging horsemen's streaks under them, and a
+## wavering man's "!" over them.
+var _rings := []
+var _streaks := []
+var _glances := []
+## The dead, one MultiMesh per body's texture.
+var _corpse_mm := {}
+var _shadow_cell := Rect2()
+var _shadow_col := Color.BLACK
+const BATCH_FLOATS := 16
+const TROOP_SHADER := """
+shader_type canvas_item;
+varying float flash;
+// INSTANCE_CUSTOM: the cell's top-left (xy) in the atlas; its width plus the hit flash in
+// 64ths (z); 1 plus its height (w). A draw that isn't one of the batch has w = 0.
+void vertex() {
+	flash = 0.0;
+	if (INSTANCE_CUSTOM.w > 0.5) {
+		UV = INSTANCE_CUSTOM.xy + UV * vec2(fract(INSTANCE_CUSTOM.z), INSTANCE_CUSTOM.w - 1.0);
+		flash = floor(INSTANCE_CUSTOM.z) / 64.0;
+	}
+}
+// COLOR arrives as the texture times the instance's tint; the flash whitens it.
+void fragment() {
+	COLOR.rgb = mix(COLOR.rgb, vec3(1.0), flash);
+}
+"""
 var _shadow_off := Vector2(1.5, 3.0)
 var _shadow_long := 1.0
 var _shadow_a := 0.32
@@ -383,7 +434,11 @@ var _terrain_site_type := ""
 
 
 func _ready() -> void:
+	_c = self
+	_make_layers()
 	font = ThemeDB.fallback_font
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+	_perf_reset()
 	# Pixel art: hard edges, and the grass tile repeats.
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
@@ -531,7 +586,7 @@ func _layout() -> void:
 		objective_chip.offset_top = top_h + 14.0
 	_layout_tray()
 	_apply_camera()
-	queue_redraw()
+	_redraw()
 
 
 func _bottom_height() -> float:
@@ -976,7 +1031,7 @@ func _draw_sparks() -> void:
 	for e in _sparks:
 		var a := 1.0 - float(e["age"]) / float(e["life"])
 		var size: float = e["size"]
-		draw_rect(Rect2(e["p"] - Vector2(size, size) * 0.5, Vector2(size, size)), Color(e["c"], a))
+		_c.draw_rect(Rect2(e["p"] - Vector2(size, size) * 0.5, Vector2(size, size)), Color(e["c"], a))
 
 
 ## Dust on the ground: kicked up behind squads and where arrows come down.
@@ -984,7 +1039,7 @@ func _draw_puffs() -> void:
 	for e in _puffs:
 		var t := float(e["age"]) / float(e["life"])
 		var r: float = lerpf(e["r0"], e["r1"], t)
-		draw_circle(e["p"], r, Color(Color(e["c"]).lightened(0.18), float(e["a"]) * (1.0 - t) * minf(1.0, t * 6.0 + 0.2)))
+		_c.draw_circle(e["p"], r, Color(Color(e["c"]).lightened(0.18), float(e["a"]) * (1.0 - t) * minf(1.0, t * 6.0 + 0.2)))
 
 
 ## Where the lines meet: a warm glow along the front, under the men.
@@ -1001,8 +1056,8 @@ func _draw_front() -> void:
 			if i % 2 == 1 or not so.alive or so.target == null or not so.target.alive or so.target.squad == null or so.target.squad.team == sq.team:
 				continue
 			var mid: Vector2 = so.pos.lerp(so.target.pos, 0.5)
-			draw_circle(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
-			draw_circle(mid, 5.0, Color(1.0, 0.82, 0.45, 0.11 + pulse))
+			_c.draw_circle(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
+			_c.draw_circle(mid, 5.0, Color(1.0, 0.82, 0.45, 0.11 + pulse))
 
 
 ## Where a volley will land: a shadow on the ground, darker as the arrows come down.
@@ -1020,10 +1075,10 @@ func _draw_volley_shadows() -> void:
 			continue
 		var c: Vector2 = Vector2(g[0]) / float(g[1])
 		var near: float = g[2]
-		draw_set_transform(field_origin + c * field_scale, 0.0, Vector2(field_scale, field_scale * 0.62))
-		draw_circle(Vector2.ZERO, 22.0, Color(0.08, 0.04, 0.02, 0.06 + 0.18 * near))
-		draw_arc(Vector2.ZERO, 22.0, 0.0, TAU, 36, Color(1.0, 0.82, 0.45, 0.2 + 0.4 * near), 1.6)
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		_c.draw_set_transform(field_origin + c * field_scale, 0.0, Vector2(field_scale, field_scale * 0.62))
+		_c.draw_circle(Vector2.ZERO, 22.0, Color(0.08, 0.04, 0.02, 0.06 + 0.18 * near))
+		_c.draw_arc(Vector2.ZERO, 22.0, 0.0, TAU, 36, Color(1.0, 0.82, 0.45, 0.2 + 0.4 * near), 1.6)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 
 
 ## Men going down, and what they dropped.
@@ -1039,7 +1094,7 @@ func _draw_falling() -> void:
 			# The blow that kills him: he reels, whitened, before he goes down.
 			var st := age / STAGGER_TIME
 			_sprite(type, int(c["team"]), 2, p, end - 1.4 - deg_to_rad(10.0) * sin(st * PI), Color(1, 1, 1).lerp(Color(0.85, 0.82, 0.8), st), 1.0, culture)
-			draw_texture(Art.flash(type, 2, culture), -Art.pivot(type, culture), Color(1, 1, 1, 0.5 * (1.0 - st)))
+			_c.draw_texture(Art.flash(type, 2, culture), -Art.pivot(type, culture), Color(1, 1, 1, 0.5 * (1.0 - st)))
 			continue
 		var t := clampf((age - STAGGER_TIME) / (FALL_TIME - STAGGER_TIME), 0.0, 1.0)
 		var fall := t * t
@@ -1051,16 +1106,16 @@ func _draw_falling() -> void:
 func _draw_gear(c: Dictionary) -> void:
 	var p: Vector2 = c["pos"]
 	var a := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
-	draw_set_transform(field_origin + (p + Vector2(1.5, 1.5)) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.6))
-	draw_circle(Vector2.ZERO, 8.0, Color(0.33, 0.06, 0.05, 0.26))
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_c.draw_set_transform(field_origin + (p + Vector2(1.5, 1.5)) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.6))
+	_c.draw_circle(Vector2.ZERO, 8.0, Color(0.33, 0.06, 0.05, 0.26))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	var d := Vector2.from_angle(a + 1.2)
-	draw_line(p + d * 6.0, p + d * 14.0, Color(0.5, 0.37, 0.22, 0.9), 1.3)
-	draw_line(p + d * 12.5, p + d * 15.0, Color(0.82, 0.82, 0.8, 0.9), 1.6)
+	_c.draw_line(p + d * 6.0, p + d * 14.0, Color(0.5, 0.37, 0.22, 0.9), 1.3)
+	_c.draw_line(p + d * 12.5, p + d * 15.0, Color(0.82, 0.82, 0.8, 0.9), 1.6)
 	var team_col := Style.PLAYER if int(c["team"]) == Sim.PLAYER else Style.ENEMY
 	var at := p - d.rotated(0.6) * 7.5
-	draw_circle(at, 3.0, team_col.darkened(0.35))
-	draw_arc(at, 3.0, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
+	_c.draw_circle(at, 3.0, team_col.darkened(0.35))
+	_c.draw_arc(at, 3.0, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
 
 
 ## Shields and spears dropped by men who ran.
@@ -1068,11 +1123,11 @@ func _draw_litter() -> void:
 	for e in _litter:
 		var p: Vector2 = e["p"]
 		if bool(e["shield"]):
-			draw_circle(p, 2.8, (Style.PLAYER if int(e["team"]) == Sim.PLAYER else Style.ENEMY).darkened(0.4))
-			draw_arc(p, 2.8, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
+			_c.draw_circle(p, 2.8, (Style.PLAYER if int(e["team"]) == Sim.PLAYER else Style.ENEMY).darkened(0.4))
+			_c.draw_arc(p, 2.8, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
 		else:
 			var d := Vector2.from_angle(float(e["a"]))
-			draw_line(p - d * 7.0, p + d * 7.0, Color(0.5, 0.37, 0.22, 0.9), 1.2)
+			_c.draw_line(p - d * 7.0, p + d * 7.0, Color(0.5, 0.37, 0.22, 0.9), 1.2)
 
 
 ## Standards lying where their squads broke (screen space).
@@ -1081,8 +1136,8 @@ func _draw_fallen_flags() -> void:
 		var base := _to_screen(f["p"])
 		var lean: float = f["lean"]
 		var top := base + Vector2(sin(lean), -cos(lean)) * POLE * 0.8
-		draw_line(base, top, Color(0.32, 0.22, 0.13, 0.9), 2.5)
-		_draw_flag(self, top, FLAG * 0.75, int(f["team"]), String(f["type"]), true, false, lean)
+		_c.draw_line(base, top, Color(0.32, 0.22, 0.13, 0.9), 2.5)
+		_draw_flag(_c, top, FLAG * 0.75, int(f["team"]), String(f["type"]), true, false, lean)
 
 
 ## A decisive moment: the field darkens round it and black bars slide in.
@@ -1100,16 +1155,17 @@ func _draw_spotlight() -> void:
 	var reach := _view.size.length()
 	for i in 14:
 		var r := lerpf(reach * 0.6, 130.0, float(i) / 14.0)
-		draw_circle(focus_at, r, Color(0.02, 0.02, 0.05, 0.045 * amount))
-	draw_arc(focus_at, 130.0, 0.0, TAU, 64, Color(1.0, 0.85, 0.5, 0.45 * amount), 2.5)
+		_c.draw_circle(focus_at, r, Color(0.02, 0.02, 0.05, 0.045 * amount))
+	_c.draw_arc(focus_at, 130.0, 0.0, TAU, 64, Color(1.0, 0.85, 0.5, 0.45 * amount), 2.5)
 	var bar := 46.0 * amount
-	draw_rect(Rect2(_view.position, Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85))
-	draw_rect(Rect2(_view.position + Vector2(0, _view.size.y - bar), Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85))
+	_c.draw_rect(Rect2(_view.position, Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85))
+	_c.draw_rect(Rect2(_view.position + Vector2(0, _view.size.y - bar), Vector2(_view.size.x, bar)), Color(0, 0, 0, 0.85))
 
 
 # ---------------------------------------------------------------- frame
 
 func _process(delta: float) -> void:
+	_perf_frame(delta)
 	_clock += delta
 	if not _roll.is_empty():
 		var before := float(_roll["t"])
@@ -1147,10 +1203,12 @@ func _process(delta: float) -> void:
 			if sq.team == Sim.PLAYER:
 				_pre_step_order[sq] = sq.order
 		var steps := 0
+		var t_sim := Time.get_ticks_usec()
 		while _accumulator >= Sim.STEP and steps < 16:
 			sim.step()
 			_accumulator -= Sim.STEP
 			steps += 1
+		_perf_sim_us += Time.get_ticks_usec() - t_sim
 		_consume_events()
 		_battle_sounds(delta)
 		_watch_gate(delta)
@@ -1183,7 +1241,7 @@ func _process(delta: float) -> void:
 		burst["age"] += delta
 	bursts = bursts.filter(func(burst): return burst["age"] < burst["life"])
 	_refresh_hud()
-	queue_redraw()
+	_redraw()
 
 
 # ---------------------------------------------------------------- input
@@ -2036,114 +2094,114 @@ func _draw_walls() -> void:
 	# `inward` points from the wall into the courtyard.
 	var inward := -1.0 if sim.siege_defender == Sim.ENEMY else 1.0
 	var court := Rect2(0, 0, w, top) if inward < 0.0 else Rect2(0, top + cell, w, Sim.ARENA.y - top - cell)
-	draw_rect(court, Color(st["paving"], 0.55))
+	_c.draw_rect(court, Color(st["paving"], 0.55))
 	for cy in range(int(court.position.y / cell), int(court.end.y / cell)):
 		for cx in Terrain.COLS:
 			if (cx * 7 + cy * 13) % 5 == 0:
-				draw_rect(Rect2(cx * cell + 3.0 + (cy % 2) * 12.0, cy * cell + 4.0, 14.0, 9.0), Color(Color(st["paving"]).lightened(0.12), 0.45))
+				_c.draw_rect(Rect2(cx * cell + 3.0 + (cy % 2) * 12.0, cy * cell + 4.0, 14.0, 9.0), Color(Color(st["paving"]).lightened(0.12), 0.45))
 	# Buildings.
 	for b in sim.castle_buildings:
 		var cr: Rect2i = b["cell"]
 		var r := Rect2(cr.position.x * cell, cr.position.y * cell, cr.size.x * cell, cr.size.y * cell).grow(-3.0)
-		draw_rect(Rect2(r.position + Vector2(7, 7), r.size), Color(0, 0, 0, 0.35))
+		_c.draw_rect(Rect2(r.position + Vector2(7, 7), r.size), Color(0, 0, 0, 0.35))
 		if String(b["kind"]) == "keep":
-			draw_rect(r, st["stone"])
-			draw_rect(r.grow(-7.0), st["top"])
+			_c.draw_rect(r, st["stone"])
+			_c.draw_rect(r.grow(-7.0), st["top"])
 			var x := r.position.x
 			while x < r.end.x - 4.0:
-				draw_rect(Rect2(x, r.position.y - 4.0, 8.0, 7.0), st["light"])
-				draw_rect(Rect2(x, r.end.y - 3.0, 8.0, 7.0), st["light"])
+				_c.draw_rect(Rect2(x, r.position.y - 4.0, 8.0, 7.0), st["light"])
+				_c.draw_rect(Rect2(x, r.end.y - 3.0, 8.0, 7.0), st["light"])
 				x += 14.0
 			if st["dome"]:
-				draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.32, st["dome_color"])
-				draw_circle(r.get_center() - Vector2(8, 8), minf(r.size.x, r.size.y) * 0.1, Color(st["dome_color"]).lightened(0.3))
+				_c.draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.32, st["dome_color"])
+				_c.draw_circle(r.get_center() - Vector2(8, 8), minf(r.size.x, r.size.y) * 0.1, Color(st["dome_color"]).lightened(0.3))
 			elif st["tiers"]:
-				draw_rect(r.grow(-16.0), st["roof"])
-				draw_rect(r.grow(-30.0), st["roof_light"])
+				_c.draw_rect(r.grow(-16.0), st["roof"])
+				_c.draw_rect(r.grow(-30.0), st["roof_light"])
 			else:
-				draw_rect(r.grow(-20.0), Color(st["top"]).darkened(0.15))
+				_c.draw_rect(r.grow(-20.0), Color(st["top"]).darkened(0.15))
 			# the realm's flag over the keep
 			var pole := Vector2(r.end.x - 10.0, r.position.y + 8.0)
 			var held := _garrison_realm if sim.siege_defender == Sim.ENEMY else _my_realm
-			Heraldry.realm_banner(self, held if Heraldry.REALM_SIZES.has(held) else "bandits", Rect2(pole + Vector2(-2, -62), Vector2(46, 64)),
+			Heraldry.realm_banner(_c, held if Heraldry.REALM_SIZES.has(held) else "bandits", Rect2(pole + Vector2(-2, -62), Vector2(46, 64)),
 				true, false, Transform2D(0.0, Vector2(field_scale, field_scale), 0.0, field_origin))
 		else:
-			draw_rect(r, st["roof"])
-			draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.5)), st["roof_light"])
-			draw_line(Vector2(r.position.x, r.get_center().y), Vector2(r.end.x, r.get_center().y), Color(st["roof"]).darkened(0.3), 2.0)
+			_c.draw_rect(r, st["roof"])
+			_c.draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.5)), st["roof_light"])
+			_c.draw_line(Vector2(r.position.x, r.get_center().y), Vector2(r.end.x, r.get_center().y), Color(st["roof"]).darkened(0.3), 2.0)
 			if st["dome"]:
-				draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.28, st["dome_color"])
+				_c.draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.28, st["dome_color"])
 	# The wall walk's depth: the stretch behind the battlements where men are covered.
 	var cover: float = Sim.WALL_COVER - cell * 0.5
 	var band := Rect2(0, top - cover, w, cover) if inward < 0.0 else Rect2(0, top + cell, w, cover)
-	draw_rect(band, Color(st["walk"], 0.55))
+	_c.draw_rect(band, Color(st["walk"], 0.55))
 	var inner_y: float = band.position.y if inward < 0.0 else band.end.y
-	draw_line(Vector2(0, inner_y), Vector2(w, inner_y), Color(st["dark"], 0.7), 2.0)
+	_c.draw_line(Vector2(0, inner_y), Vector2(w, inner_y), Color(st["dark"], 0.7), 2.0)
 	# The wall: its body, a wall walk on the inside, battlements on the outside.
 	var body := Rect2(0, top, w, cell)
-	draw_rect(Rect2(body.position + Vector2(0, 8.0 * -inward), body.size), Color(0, 0, 0, 0.3))
-	draw_rect(body, st["stone"])
+	_c.draw_rect(Rect2(body.position + Vector2(0, 8.0 * -inward), body.size), Color(0, 0, 0, 0.3))
+	_c.draw_rect(body, st["stone"])
 	var walk_y := top + (cell - 4.0 if inward > 0.0 else -10.0)
-	draw_rect(Rect2(0, walk_y, w, 14.0), st["walk"])
+	_c.draw_rect(Rect2(0, walk_y, w, 14.0), st["walk"])
 	var outer_y := top + (cell if inward < 0.0 else -8.0)
 	var x2 := 0.0
 	while x2 < w:
-		draw_rect(Rect2(x2 + 2.0, outer_y, 9.0, 8.0), st["light"])
+		_c.draw_rect(Rect2(x2 + 2.0, outer_y, 9.0, 8.0), st["light"])
 		x2 += 15.0
-	draw_rect(Rect2(0, top + cell - 5.0 if inward < 0.0 else top, w, 5.0), st["dark"])
+	_c.draw_rect(Rect2(0, top + cell - 5.0 if inward < 0.0 else top, w, 5.0), st["dark"])
 	# Towers.
 	for tc in TOWER_COLS:
 		var tr := Rect2(tc * cell - 6.0, top - 14.0, cell + 12.0, cell + 28.0)
-		draw_rect(Rect2(tr.position + Vector2(5, 6), tr.size), Color(0, 0, 0, 0.3))
-		draw_rect(tr, st["stone"])
+		_c.draw_rect(Rect2(tr.position + Vector2(5, 6), tr.size), Color(0, 0, 0, 0.3))
+		_c.draw_rect(tr, st["stone"])
 		if st["round"]:
-			draw_circle(tr.get_center(), tr.size.x * 0.36, st["roof"])
-			draw_circle(tr.get_center(), tr.size.x * 0.2, st["roof_light"])
+			_c.draw_circle(tr.get_center(), tr.size.x * 0.36, st["roof"])
+			_c.draw_circle(tr.get_center(), tr.size.x * 0.2, st["roof_light"])
 		elif st["tiers"]:
-			draw_rect(tr.grow(-5.0), st["roof"])
-			draw_rect(tr.grow(-11.0), st["roof_light"])
+			_c.draw_rect(tr.grow(-5.0), st["roof"])
+			_c.draw_rect(tr.grow(-11.0), st["roof_light"])
 		else:
-			draw_rect(tr.grow(-5.0), st["top"])
+			_c.draw_rect(tr.grow(-5.0), st["top"])
 			var bx := tr.position.x
 			while bx < tr.end.x - 3.0:
-				draw_rect(Rect2(bx, tr.position.y - 4.0, 6.0, 5.0), st["light"])
+				_c.draw_rect(Rect2(bx, tr.position.y - 4.0, 6.0, 5.0), st["light"])
 				bx += 10.0
 	# The gatehouse and its gate.
 	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
 	for side in [-1.0, 1.0]:
 		var gx := gate.position.x - 34.0 if side < 0.0 else gate.end.x + 4.0
 		var gt := Rect2(gx, top - 18.0, 30.0, cell + 36.0)
-		draw_rect(Rect2(gt.position + Vector2(5, 6), gt.size), Color(0, 0, 0, 0.3))
-		draw_rect(gt, st["stone"])
-		draw_rect(gt.grow(-5.0), st["top"])
+		_c.draw_rect(Rect2(gt.position + Vector2(5, 6), gt.size), Color(0, 0, 0, 0.3))
+		_c.draw_rect(gt, st["stone"])
+		_c.draw_rect(gt.grow(-5.0), st["top"])
 	var share := sim.gate_hp / maxf(1.0, sim.gate_max)
 	if sim.gate_hp > 0.0:
-		draw_rect(gate, Color("2a1a10"))
+		_c.draw_rect(gate, Color("2a1a10"))
 		for i in 7:
 			var gx2 := gate.position.x + 3.0 + i * (gate.size.x - 6.0) / 6.0
-			draw_line(Vector2(gx2, gate.position.y), Vector2(gx2, gate.end.y), Color("8a8f98"), 2.0)
+			_c.draw_line(Vector2(gx2, gate.position.y), Vector2(gx2, gate.end.y), Color("8a8f98"), 2.0)
 		for j in 4:
 			var gy := gate.position.y + 3.0 + j * (gate.size.y - 6.0) / 3.0
-			draw_line(Vector2(gate.position.x, gy), Vector2(gate.end.x, gy), Color("8a8f98"), 2.0)
+			_c.draw_line(Vector2(gate.position.x, gy), Vector2(gate.end.x, gy), Color("8a8f98"), 2.0)
 		# cracks as it weakens
 		var cracks := int((1.0 - share) * 6.0)
 		for k in cracks:
 			var a := gate.position + Vector2(6.0 + (k * 17) % int(gate.size.x - 12.0), 3.0 + (k * 7) % 10)
-			draw_polyline(PackedVector2Array([a, a + Vector2(5, 7), a + Vector2(1, 14), a + Vector2(6, 22)]), Color("e8a03c"), 2.0)
+			_c.draw_polyline(PackedVector2Array([a, a + Vector2(5, 7), a + Vector2(1, 14), a + Vector2(6, 22)]), Color("e8a03c"), 2.0)
 	else:
 		for i in 5:
 			var a2 := gate.position + Vector2(4.0 + i * 11.0, 4.0 + (i % 2) * 14.0)
-			draw_line(a2, a2 + Vector2(9.0, 6.0 - (i % 3) * 5.0), Color("6b4a2a"), 3.0)
+			_c.draw_line(a2, a2 + Vector2(9.0, 6.0 - (i % 3) * 5.0), Color("6b4a2a"), 3.0)
 	# Ladders against the outside of the wall.
 	for lp in sim.ladder_points():
 		var foot := Vector2(lp.x, top + (cell + 30.0 if inward < 0.0 else -30.0))
 		var head := Vector2(lp.x, top + (-4.0 if inward < 0.0 else cell + 4.0))
 		for rail in [-7.0, 7.0]:
-			draw_line(foot + Vector2(rail, 0), head + Vector2(rail * 0.7, 0), Color("8a5a2a"), 3.0)
+			_c.draw_line(foot + Vector2(rail, 0), head + Vector2(rail * 0.7, 0), Color("8a5a2a"), 3.0)
 		var t := 0.0
 		while t <= 1.0:
 			var p := foot.lerp(head, t)
-			draw_line(p + Vector2(-7, 0), p + Vector2(7, 0), Color("8a5a2a"), 2.0)
+			_c.draw_line(p + Vector2(-7, 0), p + Vector2(7, 0), Color("8a5a2a"), 2.0)
 			t += 0.12
 	# The ram under its roof, swinging while men work it.
 	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0:
@@ -2151,15 +2209,15 @@ func _draw_walls() -> void:
 		var outside := -inward
 		var shed := Rect2(gate.get_center().x - 18.0, 0, 36.0, 46.0)
 		shed.position.y = (gate.end.y + 4.0) if outside > 0.0 else (gate.position.y - 50.0)
-		draw_rect(Rect2(shed.position + Vector2(4, 4), shed.size), Color(0, 0, 0, 0.3))
-		draw_rect(shed, Color("6e4629"))
+		_c.draw_rect(Rect2(shed.position + Vector2(4, 4), shed.size), Color(0, 0, 0, 0.3))
+		_c.draw_rect(shed, Color("6e4629"))
 		var py := shed.position.y + 4.0
 		while py < shed.end.y:
-			draw_line(Vector2(shed.position.x, py), Vector2(shed.end.x, py), Color("4a2f1c"), 2.0)
+			_c.draw_line(Vector2(shed.position.x, py), Vector2(shed.end.x, py), Color("4a2f1c"), 2.0)
 			py += 7.0
 		var log_tip := Vector2(gate.get_center().x, gate.end.y - 4.0 if outside > 0.0 else gate.position.y + 4.0) + Vector2(0, swing * outside)
-		draw_line(log_tip, log_tip + Vector2(0, 58.0 * outside), Color("c09060"), 8.0)
-		draw_circle(log_tip, 5.0, Color("5b5e66"))
+		_c.draw_line(log_tip, log_tip + Vector2(0, 58.0 * outside), Color("c09060"), 8.0)
+		_c.draw_circle(log_tip, 5.0, Color("5b5e66"))
 
 
 func _consume_events() -> void:
@@ -3816,10 +3874,158 @@ func _draw_roll() -> void:
 # ---------------------------------------------------------------- drawing
 
 func _draw() -> void:
+	var t := Time.get_ticks_usec()
+	_c = self
+	_draw_battle()
+	_perf_draw_us += Time.get_ticks_usec() - t
+
+
+func _redraw() -> void:
+	queue_redraw()
+	if _troop_layer != null:
+		_troop_layer.queue_redraw()
+		_top_layer.queue_redraw()
+
+
+func _make_layers() -> void:
+	_troop_layer = Node2D.new()
+	_troop_layer.name = "TroopLayer"
+	var mat := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = TROOP_SHADER
+	mat.shader = sh
+	_troop_layer.material = mat
+	_troop_layer.draw.connect(_draw_troop_layer)
+	add_child(_troop_layer)
+	move_child(_troop_layer, 0)
+	_top_layer = Node2D.new()
+	_top_layer.name = "TopLayer"
+	_top_layer.draw.connect(_draw_top_layer)
+	add_child(_top_layer)
+	move_child(_top_layer, 1)
+	_men_mm = _batch()
+	_shadow_mm = _batch()
+
+
+## A MultiMesh of unit quads, each placed by a 2D transform, tinted, and told which atlas
+## cell to show.
+static func _batch(custom: bool = true) -> MultiMesh:
+	var quad := ArrayMesh.new()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
+	arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
+	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2, 0, 2, 3])
+	quad.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_2D
+	mm.use_colors = true
+	mm.use_custom_data = custom
+	mm.mesh = quad
+	return mm
+
+
+## Hand a batch its buffer and draw the first `n` instances.
+func _flush(mm: MultiMesh, buf: PackedFloat32Array, n: int, tex: Texture2D, stride: int = BATCH_FLOATS) -> void:
+	if n <= 0:
+		return
+	var cap := buf.size() / stride
+	if mm.instance_count != cap:
+		mm.instance_count = cap
+	mm.buffer = buf
+	mm.visible_instance_count = n
+	_c.draw_multimesh(mm, tex)
+
+
+func _draw_troop_layer() -> void:
+	if sim == null:
+		return
+	var t := Time.get_ticks_usec()
+	_c = _troop_layer
+	_draw_troops()
+	_c = self
+	_perf_draw_us += Time.get_ticks_usec() - t
+
+
+func _draw_top_layer() -> void:
+	var t := Time.get_ticks_usec()
+	_c = _top_layer
+	if sim != null:
+		_draw_above()
+	if Sound.show_performance:
+		_draw_perf()
+	_c = self
+	_perf_draw_us += Time.get_ticks_usec() - t
+
+
+# ---------------------------------------------------------------- the performance readout
+
+func _perf_reset() -> void:
+	_perf_win = {"t": 0.0, "frames": 0, "frame": 0.0, "frame_worst": 0.0, "sim": 0.0, "sim_worst": 0.0, "draw": 0.0, "draw_worst": 0.0,
+		"render": 0.0, "gpu": 0.0}
+
+
+## One frame's costs into the window: the frame's length, and the sim and drawing it did
+## (the drawing is the last frame's, done after its _process).
+func _perf_frame(delta: float) -> void:
+	var sim_ms := _perf_sim_us / 1000.0
+	var draw_ms := _perf_draw_us / 1000.0
+	_perf_sim_us = 0
+	_perf_draw_us = 0
+	var rid := get_viewport().get_viewport_rid()
+	var w := _perf_win
+	w["t"] = float(w["t"]) + delta
+	w["frames"] = int(w["frames"]) + 1
+	w["frame"] = float(w["frame"]) + delta * 1000.0
+	w["frame_worst"] = maxf(float(w["frame_worst"]), delta * 1000.0)
+	w["sim"] = float(w["sim"]) + sim_ms
+	w["sim_worst"] = maxf(float(w["sim_worst"]), sim_ms)
+	w["draw"] = float(w["draw"]) + draw_ms
+	w["draw_worst"] = maxf(float(w["draw_worst"]), draw_ms)
+	w["render"] = float(w["render"]) + RenderingServer.viewport_get_measured_render_time_cpu(rid)
+	w["gpu"] = float(w["gpu"]) + RenderingServer.viewport_get_measured_render_time_gpu(rid)
+	if float(w["t"]) < PERF_WINDOW:
+		return
+	var n := float(maxi(1, int(w["frames"])))
+	var men := 0
+	var squads := 0
+	if sim != null:
+		for sq in sim.squads:
+			if sq.alive_n > 0:
+				squads += 1
+				men += sq.alive_n
+	perf = {"fps": n / float(w["t"]), "frame": float(w["frame"]) / n, "frame_worst": w["frame_worst"],
+		"sim": float(w["sim"]) / n, "sim_worst": w["sim_worst"], "draw": float(w["draw"]) / n, "draw_worst": w["draw_worst"],
+		"render": float(w["render"]) / n, "gpu": float(w["gpu"]) / n, "men": men, "squads": squads, "frames": int(perf["frames"]) + int(w["frames"])}
+	_perf_reset()
+
+
+## Two lines in a dark box at the bottom left of the field, clear of the callouts: where a
+## frame's time goes, and the worst of the last second.
+func _draw_perf() -> void:
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	var size := Style.text_size(Style.SMALL)
+	var lines := [
+		"sim %.1f · draw %.1f · render %.1f · gpu %.1f ms" % [perf["sim"], perf["draw"], perf["render"], perf["gpu"]],
+		"%.0f fps · frame %.1f ms, worst %.0f · %d men, %d companies" % [perf["fps"], perf["frame"], perf["frame_worst"], perf["men"], perf["squads"]],
+	]
+	var w := 0.0
+	for l in lines:
+		w = maxf(w, font.get_string_size(l, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x)
+	var top := _view.end.y - (size * 2.6 + 12.0) - 8.0
+	_c.draw_rect(Rect2(8.0, top, w + 20.0, size * 2.6 + 12.0), Color(0, 0, 0, 0.72))
+	for i in lines.size():
+		var tone := Style.TEXT
+		if i == 1 and float(perf["frame_worst"]) > 34.0:
+			tone = Style.MORALE_LOW if float(perf["frame"]) > 20.0 else Style.MORALE_MID
+		_c.draw_string(font, Vector2(18.0, top + 6.0 + size * (1.05 + i * 1.3)), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, size, tone)
+
+
+func _draw_battle() -> void:
 	if sim == null:
 		return
 	_draw_field()
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_hour_ground()
 	_draw_scars()
 	_draw_zones()
@@ -3829,16 +4035,8 @@ func _draw() -> void:
 		going_down[e["corpse"]] = true
 	for c in sim.corpses:
 		_draw_gear(c)
-	for c in sim.corpses:
-		# A man still falling isn't a body yet.
-		if going_down.has(c):
-			continue
-		var horse: bool = c.get("type", "") == Troops.CAVALRY
-		var p: Vector2 = c["pos"]
-		# A steady, random-looking angle per body, so the dead don't spin between frames.
-		var angle := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
-		_sprite("corpse_horse" if horse else "corpse", c["team"], 0, p, angle, Color(1, 1, 1, 0.8))
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_draw_corpses(going_down)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_litter()
 	_draw_stuck_arrows()
 	_draw_puffs()
@@ -3850,8 +4048,19 @@ func _draw() -> void:
 	_draw_bonds()
 	_draw_bursts()
 	_draw_falling()
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	_draw_shadows()
+
+
+## The troop layer: every shadow in one draw, the captains' rings and the charging streaks,
+## then every man in one draw: the squads out of the fight in turn, then the men of the
+## melee back to front across squads.
+func _draw_troops() -> void:
+	_men_n = 0
+	_shadow_n = 0
+	_rings.clear()
+	_streaks.clear()
+	_glances.clear()
+	_shadow_cell = Art.atlas_disk()
+	_shadow_col = Color(0.05, 0.08, 0.02, _shadow_a)
 	var melee := []
 	for sq in sim.squads:
 		if sq.engaged and sq.is_active():
@@ -3859,17 +4068,44 @@ func _draw() -> void:
 		else:
 			_draw_men(sq)
 	_draw_melee(melee)
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	var atlas := Art.atlas()
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_flush(_shadow_mm, _shadow_buf, _shadow_n, atlas)
+	for s in _streaks:
+		var pos: Vector2 = s[0]
+		var fwd: Vector2 = s[1]
+		var back := -fwd
+		for k in 3:
+			var off: Vector2 = fwd.orthogonal() * (k - 1) * 3.5
+			_c.draw_line(pos + back * 11.0 + off, pos + back * (24.0 + k * 4.0) + off, Color(1, 1, 1, 0.35), 1.0)
+	for r in _rings:
+		var px := field_scale * Art.pixel_size(String(r[2]))
+		_c.draw_set_transform(field_origin + Vector2(r[0]) * field_scale, 0.0, Vector2(px, px))
+		_c.draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
+		_c.draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if int(r[1]) == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_flush(_men_mm, _men_buf, _men_n, atlas)
+
+
+## The top layer: what stands over the men.
+func _draw_above() -> void:
+	for at in _glances:
+		# A "!" over a wavering man's head while he looks back.
+		_c.draw_set_transform(field_origin + (Vector2(at) + Vector2(0, -13)) * field_scale, 0.0, Vector2(field_scale, field_scale))
+		_c.draw_rect(Rect2(-2.0, -5.0, 4.0, 7.0), Color(1, 1, 1, 0.95))
+		_c.draw_rect(Rect2(-0.8, -4.2, 1.6, 3.6), Style.ENEMY)
+		_c.draw_rect(Rect2(-0.8, 0.0, 1.6, 1.2), Style.ENEMY)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_treetops()
 	_draw_arrows()
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_sparks()
 	_draw_settled()
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_storm_plan()
 		_draw_gate_marker()
 	_draw_hour_air()
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_vignette_edge()
 	_draw_fallen_flags()
 	_draw_standards()
@@ -3877,7 +4113,7 @@ func _draw() -> void:
 	_draw_slow()
 	_draw_floaters()
 	_draw_carry_card()
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	_draw_spotlight()
 	_draw_ticker()
 	_draw_banner()
@@ -3886,49 +4122,49 @@ func _draw() -> void:
 ## Pixel-art ground for the land the battle is in, and what grows on it.
 func _draw_field() -> void:
 	var px := Art.GRASS_PIXEL
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
 	# The ground runs on past the field, so the screen never shows a dark band around it.
-	draw_texture_rect(Art.ground(_biome), Rect2(-BEYOND / px, (Sim.ARENA + BEYOND * 2.0) / px), true)
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	_c.draw_texture_rect(Art.ground(_biome), Rect2(-BEYOND / px, (Sim.ARENA + BEYOND * 2.0) / px), true)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_ground_marks()
 
 	# Elevation shading & contour lines
 	if _height_tex != null:
-		draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
+		_c.draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
 
 	# Rivers, fords, and rock outcrops
 	_draw_terrain_features()
 
 	var look: Dictionary = Art.GROUND.get(_biome, Art.GROUND["vardish"])
 	for patch in _patches:
-		draw_set_transform(field_origin + Vector2(patch["pos"]) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.7))
-		draw_circle(Vector2.ZERO, patch["r"], Color(look["light"] if patch["light"] else look["tuft"], 0.22))
+		_c.draw_set_transform(field_origin + Vector2(patch["pos"]) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.7))
+		_c.draw_circle(Vector2.ZERO, patch["r"], Color(look["light"] if patch["light"] else look["tuft"], 0.22))
 	for d in _doodads:
 		var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
-		draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
-		draw_texture(Art.frame(d["name"], 0, 0, _biome), -Art.pivot(d["name"], _biome))
+		_c.draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
+		_c.draw_texture(Art.frame(d["name"], 0, 0, _biome), -Art.pivot(d["name"], _biome))
 	for d in _beyond:
 		var name := String(d["name"])
 		if MapArt.has(name):
 			# Trees are the map's own, as in the field's woods.
-			draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+			_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 			var p: Vector2 = d["pos"]
 			var sc: float = float(d["scale"]) * 1.6
 			var sz := MapArt.size(name)
 			var flip: float = float(d["flip"])
-			draw_texture_rect(MapArt.texture(name), Rect2(p.x - sz.x * sc * 0.5 * flip, p.y - sz.y * sc, sz.x * sc * flip, sz.y * sc), false)
+			_c.draw_texture_rect(MapArt.texture(name), Rect2(p.x - sz.x * sc * 0.5 * flip, p.y - sz.y * sc, sz.x * sc * flip, sz.y * sc), false)
 		else:
 			var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
-			draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
-			draw_texture(Art.frame(name, 0, 0, _biome), -Art.pivot(name, _biome))
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+			_c.draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
+			_c.draw_texture(Art.frame(name, 0, 0, _biome), -Art.pivot(name, _biome))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	# Past the edge the land is a touch darker, so the field's bounds still read.
 	var dim := Color(0, 0, 0, 0.16)
-	draw_rect(Rect2(-BEYOND, Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y)), dim)
-	draw_rect(Rect2(Vector2(-BEYOND.x, Sim.ARENA.y), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y)), dim)
-	draw_rect(Rect2(Vector2(-BEYOND.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
-	draw_rect(Rect2(Vector2(Sim.ARENA.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
-	draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.3), false, 3.0)
+	_c.draw_rect(Rect2(-BEYOND, Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y)), dim)
+	_c.draw_rect(Rect2(Vector2(-BEYOND.x, Sim.ARENA.y), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y)), dim)
+	_c.draw_rect(Rect2(Vector2(-BEYOND.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
+	_c.draw_rect(Rect2(Vector2(Sim.ARENA.x, 0), Vector2(BEYOND.x, Sim.ARENA.y)), dim)
+	_c.draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.3), false, 3.0)
 
 
 ## The hour on the ground: its wash, mist along the far edge at dawn, and at night a warm
@@ -3936,10 +4172,10 @@ func _draw_field() -> void:
 func _draw_hour_ground() -> void:
 	var all := Rect2(-BEYOND, Sim.ARENA + BEYOND * 2.0)
 	if _ground_tint.a > 0.0:
-		draw_rect(all, _ground_tint)
+		_c.draw_rect(all, _ground_tint)
 	if _band == "dawn":
 		for i in 8:
-			draw_rect(Rect2(Vector2(-BEYOND.x, -BEYOND.y + i * 40.0), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y + 40.0)), Color(1.0, 0.95, 0.88, 0.035))
+			_c.draw_rect(Rect2(Vector2(-BEYOND.x, -BEYOND.y + i * 40.0), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y + 40.0)), Color(1.0, 0.95, 0.88, 0.035))
 	if _band == "night":
 		var lights := []
 		for sq in sim.squads:
@@ -3949,14 +4185,14 @@ func _draw_hour_ground() -> void:
 			lights.append(sim.gate_center)
 		for at in lights:
 			for k in 6:
-				draw_circle(at, 110.0 - k * 16.0, Color(1.0, 0.72, 0.4, 0.035))
+				_c.draw_circle(at, 110.0 - k * 16.0, Color(1.0, 0.72, 0.4, 0.035))
 
 
 ## The hour over the men: a lighter wash, so they keep their colours.
 func _draw_hour_air() -> void:
 	if _air_tint.a > 0.0:
-		draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-		draw_rect(Rect2(-BEYOND, Sim.ARENA + BEYOND * 2.0), _air_tint)
+		_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		_c.draw_rect(Rect2(-BEYOND, Sim.ARENA + BEYOND * 2.0), _air_tint)
 
 
 ## Dusk and night close in at the edges of the view.
@@ -3968,7 +4204,7 @@ func _draw_vignette_edge() -> void:
 		var inset := float(i) * 14.0
 		var r := _view.grow(-inset)
 		var a := _vignette * 0.09 * (1.0 - float(i) / float(steps))
-		draw_rect(r, Color(0.02, 0.03, 0.08, a), false, 14.0)
+		_c.draw_rect(r, Color(0.02, 0.03, 0.08, a), false, 14.0)
 
 
 ## How far the drawn land reaches past the field, in field units.
@@ -3983,40 +4219,40 @@ func _draw_ground_marks() -> void:
 	var base: Color = look["base"]
 	for paddy in _paddies:
 		var r: Rect2 = paddy
-		draw_rect(r, Color("8fb8c0"))
-		draw_rect(Rect2(r.position + Vector2(0, r.size.y - 6.0), Vector2(r.size.x, 6.0)), Color("6a5a3e"))
+		_c.draw_rect(r, Color("8fb8c0"))
+		_c.draw_rect(Rect2(r.position + Vector2(0, r.size.y - 6.0), Vector2(r.size.x, 6.0)), Color("6a5a3e"))
 		var y := r.position.y + 8.0
 		while y < r.end.y - 8.0:
 			var x := r.position.x + 6.0
 			while x < r.end.x - 4.0:
-				draw_rect(Rect2(x, y, 4, 4), Color("5c8a3c"))
+				_c.draw_rect(Rect2(x, y, 4, 4), Color("5c8a3c"))
 				x += 14.0
 			y += 12.0
 	if _strips.size.x > 0.0:
 		var x := _strips.position.x
 		var k := 0
 		while x < _strips.end.x:
-			draw_rect(Rect2(x, _strips.position.y, minf(18.0, _strips.end.x - x), _strips.size.y),
+			_c.draw_rect(Rect2(x, _strips.position.y, minf(18.0, _strips.end.x - x), _strips.size.y),
 				Color("b9a254") if k % 2 == 0 else Color(base.lightened(0.12)))
 			x += 18.0
 			k += 1
 		# A low hedge along its edge.
 		var hx := _strips.position.x
 		while hx < _strips.end.x:
-			draw_circle(Vector2(hx, _strips.position.y - 6.0), 7.0, Color("3e5a2e"))
+			_c.draw_circle(Vector2(hx, _strips.position.y - 6.0), 7.0, Color("3e5a2e"))
 			hx += 11.0
 	for ripple in _ripples:
-		draw_polyline(ripple, Color(look["tuft"], 0.7), 3.0)
-		draw_polyline(PackedVector2Array(Array(ripple).map(func(q): return q + Vector2(0, -3))), Color(look["light"], 0.8), 2.0)
+		_c.draw_polyline(ripple, Color(look["tuft"], 0.7), 3.0)
+		_c.draw_polyline(PackedVector2Array(Array(ripple).map(func(q): return q + Vector2(0, -3))), Color(look["light"], 0.8), 2.0)
 	if _track.size() > 1:
 		var dirt := Color("8c7452") if _biome != Cultures.RYUMON else Color("9a978e")
 		var edge := Color("6f5c40") if _biome != Cultures.RYUMON else Color("77746c")
 		var width := 26.0 if _biome == Cultures.KHARZANI else 20.0
-		draw_polyline(_track, edge, width + 6.0)
-		draw_polyline(_track, dirt, width)
+		_c.draw_polyline(_track, edge, width + 6.0)
+		_c.draw_polyline(_track, dirt, width)
 		if _biome == Cultures.RYUMON:
 			for i in range(0, _track.size(), 2):
-				draw_rect(Rect2(_track[i] - Vector2(6, 4), Vector2(12, 8)), edge)
+				_c.draw_rect(Rect2(_track[i] - Vector2(6, 4), Vector2(12, 8)), edge)
 
 
 func _draw_terrain_features() -> void:
@@ -4030,8 +4266,8 @@ func _draw_terrain_features() -> void:
 			var c: Vector2 = feat["center"]
 			var r: float = float(feat["radius"])
 			for k in WOODS_FLOOR_RINGS:
-				draw_circle(c, r * (1.0 - 0.18 * k), Color(WOODS_FLOOR, 0.16 + 0.04 * k))
-			draw_arc(c, r, 0.0, TAU, 48, Color(WOODS_FLOOR.darkened(0.3), 0.55), 2.0)
+				_c.draw_circle(c, r * (1.0 - 0.18 * k), Color(WOODS_FLOOR, 0.16 + 0.04 * k))
+			_c.draw_arc(c, r, 0.0, TAU, 48, Color(WOODS_FLOOR.darkened(0.3), 0.55), 2.0)
 		elif ft == "river":
 			var half_w: float = float(feat.get("half_width", 38.0))
 			var phase: float = float(feat.get("phase", 0.0))
@@ -4052,19 +4288,19 @@ func _draw_terrain_features() -> void:
 			poly.append_array(pts_top)
 			pts_bot.reverse()
 			poly.append_array(pts_bot)
-			draw_colored_polygon(poly, Color(0.14, 0.30, 0.54, 0.88))
+			_c.draw_colored_polygon(poly, Color(0.14, 0.30, 0.54, 0.88))
 
 			for fx in fords:
 				var fry := 630.0 + sin(fx * 0.007 + phase) * bend
 				var ford_rect := Rect2(fx - ford_w * 0.5, fry - half_w - 4.0, ford_w, half_w * 2.0 + 8.0)
-				draw_rect(ford_rect, Color(0.38, 0.68, 0.72, 0.80))
-				draw_rect(ford_rect, Color(0.72, 0.64, 0.42, 0.85), false, 2.0)
+				_c.draw_rect(ford_rect, Color(0.38, 0.68, 0.72, 0.80))
+				_c.draw_rect(ford_rect, Color(0.72, 0.64, 0.42, 0.85), false, 2.0)
 
 		elif ft == "rock" or ft == "building":
 			var rect: Rect2 = feat.get("rect", Rect2())
 			if rect.size != Vector2.ZERO:
-				draw_rect(rect, Color(0.24, 0.22, 0.20, 0.95))
-				draw_rect(rect, Color(0.12, 0.10, 0.09, 0.95), false, 3.0)
+				_c.draw_rect(rect, Color(0.24, 0.22, 0.20, 0.95))
+				_c.draw_rect(rect, Color(0.12, 0.10, 0.09, 0.95), false, 3.0)
 
 
 ## Draw treetops over troops, a little see-through so men in the woods still show.
@@ -4080,7 +4316,7 @@ func _draw_treetops() -> void:
 		var flip: float = float(tree["flip"])
 		var sz := MapArt.size(tree["name"])
 		var dest := Rect2(p.x - sz.x * s * 0.5 * flip, p.y - sz.y * s, sz.x * s * flip, sz.y * s)
-		draw_texture_rect(tex, dest, false, Color(1, 1, 1, TREETOP_ALPHA))
+		_c.draw_texture_rect(tex, dest, false, Color(1, 1, 1, TREETOP_ALPHA))
 
 
 func _setup_terrain_visuals() -> void:
@@ -4308,19 +4544,19 @@ func _culture_of(sq) -> String:
 func _draw_scars() -> void:
 	for c in sim.corpses:
 		var p: Vector2 = c["pos"]
-		draw_circle(p + Vector2(2, 3), 11.0, Color(0.27, 0.19, 0.09, 0.16))
-		draw_circle(p, 5.0, Color(0.36, 0.08, 0.06, 0.18))
+		_c.draw_circle(p + Vector2(2, 3), 11.0, Color(0.27, 0.19, 0.09, 0.16))
+		_c.draw_circle(p, 5.0, Color(0.36, 0.08, 0.06, 0.18))
 
 
 func _draw_zones() -> void:
 	if sim.phase != Sim.PHASE_DEPLOY or sim.winner != -1:
 		return
-	draw_dashed_line(Vector2(0.0, Sim.MID_Y), Vector2(Sim.ARENA.x, Sim.MID_Y), Color(1, 1, 1, 0.35), 3.0, 14.0)
+	_c.draw_dashed_line(Vector2(0.0, Sim.MID_Y), Vector2(Sim.ARENA.x, Sim.MID_Y), Color(1, 1, 1, 0.35), 3.0, 14.0)
 	var zone := sim.deploy_zone(Sim.PLAYER)
 	var picking := selected_id != -1
-	draw_rect(zone, Color(Style.PLAYER, 0.22 if picking else 0.12))
-	draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.85 if picking else 0.4), false, 3.0)
-	draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
+	_c.draw_rect(zone, Color(Style.PLAYER, 0.22 if picking else 0.12))
+	_c.draw_rect(zone, Color(Style.PLAYER_LIGHT, 0.85 if picking else 0.4), false, 3.0)
+	_c.draw_rect(sim.deploy_zone(Sim.ENEMY), Color(Style.ENEMY, 0.08))
 
 
 func _draw_objectives() -> void:
@@ -4332,29 +4568,29 @@ func _draw_objectives() -> void:
 		_draw_garrison_posts()
 	if sim.objective == Sim.OBJECTIVE_VILLAGE:
 		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
-		draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
-		draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, 0.0, TAU, 48, Color(Style.PLAYER_LIGHT, 0.75), 3.0)
+		_c.draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
+		_c.draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, 0.0, TAU, 48, Color(Style.PLAYER_LIGHT, 0.75), 3.0)
 		if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
 			var remain := maxf(0.0, Sim.VILLAGE_DURATION - sim.time)
 			var mins := int(remain) / 60
 			var secs := int(remain) % 60
 			var time_str := "%d:%02d" % [mins, secs]
-			draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.BODY, Style.BRASS)
+			_c.draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.BODY, Style.BRASS)
 		# How near the raiders are to firing it: they get there by holding the square.
 		if sim.village_burn > 0.0:
 			var burnt := sim.village_burn / Sim.VILLAGE_BURN
-			draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS + 9.0, -PI * 0.5, -PI * 0.5 + TAU * burnt, 48,
+			_c.draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS + 9.0, -PI * 0.5, -PI * 0.5 + TAU * burnt, 48,
 				Color(1.0, 0.45, 0.12, 0.9), 7.0)
 			var counts: Array = sim.men_in_village()
 			if counts[Sim.ENEMY] > counts[Sim.PLAYER] * Sim.VILLAGE_TAKEN:
-				draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-90.0, Sim.VILLAGE_ZONE_RADIUS + 44.0), "They're firing the village!",
+				_c.draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-90.0, Sim.VILLAGE_ZONE_RADIUS + 44.0), "They're firing the village!",
 					HORIZONTAL_ALIGNMENT_CENTER, 180.0, Style.SMALL, Color(1.0, 0.55, 0.25))
 	if sim.objective == Sim.OBJECTIVE_CHIEF:
 		for sq in sim.squads:
 			if (sq.is_bodyguard or sq.is_chief) and sq.is_active():
 				var pulse := 0.5 + 0.5 * sin(_clock * 4.0)
 				var r := minf(sq.extent, 65.0) + 14.0 + pulse * 4.0
-				draw_arc(sq.average_pos(), r, 0.0, TAU, 36, Color(Style.BRASS, 0.7 + pulse * 0.3), 3.5)
+				_c.draw_arc(sq.average_pos(), r, 0.0, TAU, 36, Color(Style.BRASS, 0.7 + pulse * 0.3), 3.5)
 	for r in sim.scheduled_reinforcements:
 		if not r.get("spawned", false) and sim.time >= float(r.get("at_time", 0.0)) - 10.0:
 			var edge: String = String(r.get("edge", "north"))
@@ -4375,15 +4611,15 @@ func _draw_objectives() -> void:
 					dir = Vector2.RIGHT
 			var right := Vector2(-dir.y, dir.x)
 			var tip := pt + dir * 20.0
-			draw_colored_polygon(PackedVector2Array([tip, pt + right * 14.0, pt - right * 14.0]), Color(Style.ENEMY_LIGHT, 0.85))
+			_c.draw_colored_polygon(PackedVector2Array([tip, pt + right * 14.0, pt - right * 14.0]), Color(Style.ENEMY_LIGHT, 0.85))
 
 
 func _draw_stuck_arrows() -> void:
 	for a in sim.stuck_arrows:
 		var p: Vector2 = a["pos"]
 		var d := Vector2.from_angle(float(a["angle"]))
-		draw_line(p - d * 5.0, p + d * 1.5, Color(0.29, 0.2, 0.12, 0.85), 1.4)
-		draw_circle(p - d * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
+		_c.draw_line(p - d * 5.0, p + d * 1.5, Color(0.29, 0.2, 0.12, 0.85), 1.4)
+		_c.draw_circle(p - d * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
 
 
 ## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing
@@ -4397,8 +4633,8 @@ func _sprite(name: String, team: int, index: int, at: Vector2, angle: float, tin
 	if Troops.TYPES.has(name) or Units.has(name):
 		var role := Units.role(name) if Units.has(name) else name
 		width = 0.92 if role == Troops.CAVALRY else 0.86
-	draw_set_transform(field_origin + at * field_scale, angle, Vector2(s * width, s * squash))
-	draw_texture(Art.frame(name, team, index, culture), -Art.pivot(name, culture), tint)
+	_c.draw_set_transform(field_origin + at * field_scale, angle, Vector2(s * width, s * squash))
+	_c.draw_texture(Art.frame(name, team, index, culture), -Art.pivot(name, culture), tint)
 
 
 func _draw_orders() -> void:
@@ -4407,7 +4643,7 @@ func _draw_orders() -> void:
 	if sim.phase == Sim.PHASE_DEPLOY:
 		var picked = sim.placed_squad(Sim.PLAYER, selected_id)
 		if picked != null and picked.ranged:
-			draw_arc(picked.center, picked.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.35), 2.0)
+			_c.draw_arc(picked.center, picked.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.35), 2.0)
 		return
 	# Every company keeps a quiet destination mark. A player can glance across the
 	# field and see where all orders lead without selecting squads one by one.
@@ -4416,29 +4652,29 @@ func _draw_orders() -> void:
 			continue
 		if squad.order == "move" or squad.order == "hold":
 			var alpha := 0.5 if squad == selected_squad else 0.24
-			draw_arc(squad.order_point, 12.0, 0.0, TAU, 20, Color(Style.BRASS, alpha), 2.0)
+			_c.draw_arc(squad.order_point, 12.0, 0.0, TAU, 20, Color(Style.BRASS, alpha), 2.0)
 			if _clock - float(_ordered_at.get(squad, -9.0)) < 1.0:
 				var pulse := 15.0 + (_clock - float(_ordered_at.get(squad, _clock))) * 13.0
-				draw_arc(squad.order_point, pulse, 0.0, TAU, 24, Color(Style.BRASS, 0.55), 2.0)
+				_c.draw_arc(squad.order_point, pulse, 0.0, TAU, 24, Color(Style.BRASS, 0.55), 2.0)
 	if sel == null or not sel.is_active():
 		return
 	var from: Vector2 = sel.average_pos()
 	var ring: float = minf(sel.extent, 70.0) + 16.0
-	draw_circle(from, ring, Color(Style.BRASS, 0.12))
-	draw_arc(from, ring, 0.0, TAU, 48, Color(Style.BRASS, 0.9), 3.0)
+	_c.draw_circle(from, ring, Color(Style.BRASS, 0.12))
+	_c.draw_arc(from, ring, 0.0, TAU, 48, Color(Style.BRASS, 0.9), 3.0)
 	if sel.ranged:
-		draw_arc(from, sel.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.3), 2.0)
+		_c.draw_arc(from, sel.reach, 0.0, TAU, 64, Color(Style.PLAYER_LIGHT, 0.3), 2.0)
 	if sel.wheeling:
-		draw_dashed_line(from, sel.wheel_point, Color(Style.BRASS, 0.7), 2.0, 10.0)
+		_c.draw_dashed_line(from, sel.wheel_point, Color(Style.BRASS, 0.7), 2.0, 10.0)
 	elif sel.order == "move" or sel.order == "hold":
 		var to: Vector2 = sel.order_point
 		if from.distance_to(to) > 20.0:
-			draw_dashed_line(from, to, Style.BRASS, 3.0, 12.0)
-		draw_arc(to, 16.0, 0.0, TAU, 24, Style.BRASS, 3.0)
+			_c.draw_dashed_line(from, to, Style.BRASS, 3.0, 12.0)
+		_c.draw_arc(to, 16.0, 0.0, TAU, 24, Style.BRASS, 3.0)
 	elif sel.order == "attack" and sel.order_target != null and sel.order_target.is_active():
-		draw_dashed_line(from, sel.order_target.average_pos(), Style.ENEMY_LIGHT, 3.0, 12.0)
+		_c.draw_dashed_line(from, sel.order_target.average_pos(), Style.ENEMY_LIGHT, 3.0, 12.0)
 	elif sel.order == "advance" and sel.focus != null and sel.focus.is_active():
-		draw_dashed_line(from, sel.focus.average_pos(), Color(Style.ENEMY_LIGHT, 0.6), 2.0, 10.0)
+		_c.draw_dashed_line(from, sel.focus.average_pos(), Color(Style.ENEMY_LIGHT, 0.6), 2.0, 10.0)
 
 
 ## A subtle link shows when an established bond is actively supporting two nearby
@@ -4460,9 +4696,9 @@ func _draw_bonds() -> void:
 			var pulse := 0.18 + sin(_clock * 3.0) * 0.05
 			var ap: Vector2 = a.average_pos()
 			var bp: Vector2 = b.average_pos()
-			draw_dashed_line(ap, bp, Color(Style.BRASS, pulse), 2.0, 11.0)
-			draw_circle(ap, 5.0, Color(Style.BRASS, pulse + 0.1))
-			draw_circle(bp, 5.0, Color(Style.BRASS, pulse + 0.1))
+			_c.draw_dashed_line(ap, bp, Color(Style.BRASS, pulse), 2.0, 11.0)
+			_c.draw_circle(ap, 5.0, Color(Style.BRASS, pulse + 0.1))
+			_c.draw_circle(bp, 5.0, Color(Style.BRASS, pulse + 0.1))
 
 
 func _draw_bursts() -> void:
@@ -4477,52 +4713,148 @@ func _draw_bursts() -> void:
 			"charge":
 				for i in 6:
 					var d := Vector2.from_angle(float(i) / 6.0 * TAU)
-					draw_line(pos + d * (6.0 + 18.0 * t), pos + d * (18.0 + 28.0 * t), color, 2.5)
+					_c.draw_line(pos + d * (6.0 + 18.0 * t), pos + d * (18.0 + 28.0 * t), color, 2.5)
 			"rout":
-				draw_arc(pos, 20.0 + 42.0 * t, 0.0, TAU, 30, color, 3.0)
-				draw_arc(pos, 9.0 + 25.0 * t, 0.0, TAU, 24, Color(color, color.a * 0.55), 2.0)
+				_c.draw_arc(pos, 20.0 + 42.0 * t, 0.0, TAU, 30, color, 3.0)
+				_c.draw_arc(pos, 9.0 + 25.0 * t, 0.0, TAU, 24, Color(color, color.a * 0.55), 2.0)
 			"land":
-				draw_arc(pos, 46.0 - 28.0 * t, 0.0, TAU, 32, Color(color, color.a * (1.0 - t)), 3.0)
+				_c.draw_arc(pos, 46.0 - 28.0 * t, 0.0, TAU, 32, Color(color, color.a * (1.0 - t)), 3.0)
 			"dust":
 				for i in 5:
 					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
-					draw_circle(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
+					_c.draw_circle(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
 			"stone":
 				var from: Vector2 = burst.get("from", pos)
 				if t < 0.7:
 					var k := t / 0.7
 					var at := from.lerp(pos, k * k)
-					draw_circle(at + Vector2(2, 2), 4.0, Color(0, 0, 0, 0.35))
-					draw_circle(at, 4.0, Color(burst["color"], 1.0))
-					draw_circle(at + Vector2(-1, -1), 1.6, Color(1, 1, 1, 0.5))
+					_c.draw_circle(at + Vector2(2, 2), 4.0, Color(0, 0, 0, 0.35))
+					_c.draw_circle(at, 4.0, Color(burst["color"], 1.0))
+					_c.draw_circle(at + Vector2(-1, -1), 1.6, Color(1, 1, 1, 0.5))
 				else:
 					var k2 := (t - 0.7) / 0.3
 					for i in 4:
 						var d := Vector2.from_angle(float(i) / 4.0 * TAU + 0.4)
-						draw_circle(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
+						_c.draw_circle(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
 			"fall":
-				draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
-				draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
-				draw_line(pos + Vector2(8, -8), pos + Vector2(-8, 8), color, 2.0)
+				_c.draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
+				_c.draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
+				_c.draw_line(pos + Vector2(8, -8), pos + Vector2(-8, 8), color, 2.0)
 
 
 ## Soft shadows lift the men off the grass.
-func _draw_shadows() -> void:
-	var still := Sound.reduced_motion
-	for sq in sim.squads:
-		var big: float = 5.0 if sq.type == Troops.CAVALRY else 1.5
-		var look := _squad_look(sq)
-		var i := -1
-		for so in sq.soldiers:
-			i += 1
-			if not so.alive:
-				continue
-			var at: Vector2 = so.pos
-			if not still:
-				at += Vector2(_pose(so, sq, i, look)["off"])
-			draw_set_transform(field_origin + (at + _shadow_off) * field_scale, 0.0, Vector2(field_scale * _shadow_long, field_scale * 0.62))
-			draw_circle(Vector2.ZERO, so.radius + big, Color(0.05, 0.08, 0.02, _shadow_a))
-	draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+## A man's shadow, a flattened disk from the atlas stretched by the hour's sun, under
+## where he's drawn (before a cheer lifts him).
+func _add_shadow(so, sq, at: Vector2) -> void:
+	at += _shadow_off
+	var r: float = so.radius + (5.0 if sq.type == Troops.CAVALRY else 1.5)
+	var kx := _shadow_long * r / Art.DISK_R
+	var ky := 0.62 * r / Art.DISK_R
+	_put_shadow(kx * Art.DISK_SIZE, ky * Art.DISK_SIZE, at.x - kx * Art.DISK_C.x, at.y - ky * Art.DISK_C.y, _shadow_col, _shadow_cell)
+
+
+func _put_shadow(xx: float, yy: float, ox: float, oy: float, col: Color, cell: Rect2) -> void:
+	var j := _shadow_n * BATCH_FLOATS
+	if j + BATCH_FLOATS > _shadow_buf.size():
+		_shadow_buf.resize(maxi(_shadow_buf.size() * 2, 256 * BATCH_FLOATS))
+	_shadow_buf[j] = xx
+	_shadow_buf[j + 1] = 0.0
+	_shadow_buf[j + 2] = 0.0
+	_shadow_buf[j + 3] = ox
+	_shadow_buf[j + 4] = 0.0
+	_shadow_buf[j + 5] = yy
+	_shadow_buf[j + 6] = 0.0
+	_shadow_buf[j + 7] = oy
+	_shadow_buf[j + 8] = col.r
+	_shadow_buf[j + 9] = col.g
+	_shadow_buf[j + 10] = col.b
+	_shadow_buf[j + 11] = col.a
+	_shadow_buf[j + 12] = cell.position.x
+	_shadow_buf[j + 13] = cell.position.y
+	_shadow_buf[j + 14] = cell.size.x
+	_shadow_buf[j + 15] = 1.0 + cell.size.y
+	_shadow_n += 1
+
+
+## A man into the batch: his frame's cell, where he stands, his turn and size, his tint, and
+## how white the hit flash makes him.
+func _put_man(cell: Rect2, at: Vector2, angle: float, sx: float, sy: float, piv: Vector2, tint: Color, flash: float) -> void:
+	var j := _men_n * BATCH_FLOATS
+	if j + BATCH_FLOATS > _men_buf.size():
+		_men_buf.resize(maxi(_men_buf.size() * 2, 256 * BATCH_FLOATS))
+	var c := cos(angle)
+	var s := sin(angle)
+	var w := sx * cell.size.x * Art.ATLAS
+	var h := sy * cell.size.y * Art.ATLAS
+	var px := sx * piv.x
+	var py := sy * piv.y
+	_men_buf[j] = c * w
+	_men_buf[j + 1] = -s * h
+	_men_buf[j + 2] = 0.0
+	_men_buf[j + 3] = at.x - c * px + s * py
+	_men_buf[j + 4] = s * w
+	_men_buf[j + 5] = c * h
+	_men_buf[j + 6] = 0.0
+	_men_buf[j + 7] = at.y - s * px - c * py
+	_men_buf[j + 8] = tint.r
+	_men_buf[j + 9] = tint.g
+	_men_buf[j + 10] = tint.b
+	_men_buf[j + 11] = tint.a
+	_men_buf[j + 12] = cell.position.x
+	_men_buf[j + 13] = cell.position.y
+	_men_buf[j + 14] = cell.size.x + floorf(flash * 64.0)
+	_men_buf[j + 15] = 1.0 + cell.size.y
+	_men_n += 1
+
+
+## The dead, one draw for each kind of body: man or horse, by side. Bodies of a kind lie in
+## the order they fell.
+func _draw_corpses(going_down: Dictionary) -> void:
+	var groups := {}
+	for c in sim.corpses:
+		# A man still falling isn't a body yet.
+		if going_down.has(c):
+			continue
+		var name := "corpse_horse" if c.get("type", "") == Troops.CAVALRY else "corpse"
+		var key := "%s/%d" % [name, int(c["team"])]
+		if not groups.has(key):
+			groups[key] = [name, int(c["team"]), []]
+		groups[key][2].append(c)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	for key in groups:
+		var name: String = groups[key][0]
+		var tex := Art.frame(name, int(groups[key][1]), 0)
+		var list: Array = groups[key][2]
+		var k := Art.pixel_size(name)
+		var piv := Art.pivot(name)
+		var w := tex.get_width() * k
+		var h := tex.get_height() * k
+		var buf := PackedFloat32Array()
+		buf.resize(list.size() * 12)
+		var j := 0
+		for c in list:
+			var p: Vector2 = c["pos"]
+			# A steady, random-looking angle per body, so the dead don't spin between frames.
+			var angle := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
+			var co := cos(angle)
+			var si := sin(angle)
+			buf[j] = co * w
+			buf[j + 1] = -si * h
+			buf[j + 3] = p.x - co * k * piv.x + si * k * piv.y
+			buf[j + 4] = si * w
+			buf[j + 5] = co * h
+			buf[j + 7] = p.y - si * k * piv.x - co * k * piv.y
+			buf[j + 8] = 1.0
+			buf[j + 9] = 1.0
+			buf[j + 10] = 1.0
+			buf[j + 11] = 0.8
+			j += 12
+		if not _corpse_mm.has(key):
+			_corpse_mm[key] = _batch(false)
+		var mm: MultiMesh = _corpse_mm[key]
+		mm.instance_count = list.size()
+		mm.buffer = buf
+		_c.draw_multimesh(mm, tex)
 
 
 ## How a squad's men are drawn this frame: kit, tint and what the squad as a whole is doing.
@@ -4543,6 +4875,7 @@ func _squad_look(sq) -> Dictionary:
 		"set": float(_set_k.get(sq, 0.0)),
 		"idle": sim.phase == Sim.PHASE_BATTLE and not sq.engaged and not sq.routing and not moving,
 		"ranged": sq.ranged and sq.arrows != 0,
+		"team": sq.team,
 	}
 
 
@@ -4647,41 +4980,36 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var face: Vector2 = pose.get("face", so.facing)
 	var angle: float = face.angle() + PI * 0.5 + float(pose["tilt"])
 	var at: Vector2 = so.pos + Vector2(pose["off"])
-	var glance := false
+	_add_shadow(so, sq, at)
 	if look["cheering"] and not still:
 		var beat := sin(_clock * 9.0 + i * 1.7)
 		at += Vector2(0, -absf(beat) * 3.0)
 		index = 2 if beat > 0.0 else 0
 	elif look["shaken"] and i % 3 == 0:
 		# A wavering man glances back over his shoulder now and then.
-		glance = fposmod(_clock * 0.8 + i * 0.37, 1.0) < 0.22
+		var glance := fposmod(_clock * 0.8 + i * 0.37, 1.0) < 0.22
 		if glance and not still:
 			angle += PI * 0.8
+		if glance:
+			_glances.append(at)
 	if look["charging"]:
-		var back: Vector2 = -so.facing
-		for k in 3:
-			var off: Vector2 = so.facing.orthogonal() * (k - 1) * 3.5
-			draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-			draw_line(so.pos + back * 11.0 + off, so.pos + back * (24.0 + k * 4.0) + off, Color(1, 1, 1, 0.35), 1.0)
+		_streaks.append([so.pos, so.facing])
 	var grow := 1.0
 	if so.captain:
 		# Captains stand a head taller, on a gold ring.
 		grow = 1.2
-		var px := field_scale * Art.pixel_size(type)
-		draw_set_transform(field_origin + at * field_scale, 0.0, Vector2(px, px))
-		draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Color(0, 0, 0, 0.6), 2.6)
-		draw_arc(Vector2.ZERO, 7.5, 0.0, TAU, 20, Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT, 1.4)
-	_sprite(type, sq.team, index, at, angle, look["tint"], grow, culture, float(pose["squash"]))
-	if so.flash > 0.05:
-		# A pale flash of the hit, light enough that the kit still reads.
-		draw_texture(Art.flash(type, index, culture), -Art.pivot(type, culture), Color(1, 1, 1, so.flash * 0.45))
-	if glance:
-		# A "!" over his head while he looks back.
-		draw_set_transform(field_origin + (at + Vector2(0, -13)) * field_scale, 0.0, Vector2(field_scale, field_scale))
-		draw_rect(Rect2(-2.0, -5.0, 4.0, 7.0), Color(1, 1, 1, 0.95))
-		draw_rect(Rect2(-0.8, -4.2, 1.6, 3.6), Style.ENEMY)
-		draw_rect(Rect2(-0.8, 0.0, 1.6, 1.2), Style.ENEMY)
-
+		_rings.append([at, sq.team, type])
+	if not look.has("cells"):
+		var team := int(look["team"])
+		look["cells"] = [Art.atlas_cell(type, team, 0, culture), Art.atlas_cell(type, team, 1, culture), Art.atlas_cell(type, team, 2, culture)]
+		look["piv"] = Art.pivot(type, culture)
+		var role := Units.role(type) if Units.has(type) else type
+		look["width"] = (0.92 if role == Troops.CAVALRY else 0.86) if (Troops.TYPES.has(type) or Units.has(type)) else 1.0
+		look["px"] = Art.pixel_size(type)
+	var k: float = float(look["px"]) * grow
+	# A pale flash of the hit, light enough that the kit still reads.
+	var flash: float = so.flash * 0.45 if so.flash > 0.05 else 0.0
+	_put_man(look["cells"][clampi(index, 0, 2)], at, angle, k * float(look["width"]), k * float(pose["squash"]), look["piv"], look["tint"], flash)
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
 func _draw_arrows() -> void:
@@ -4695,13 +5023,13 @@ func _draw_arrows() -> void:
 		var rise := minf(70.0, total * 0.2)
 		var height := 4.0 * rise * t * (1.0 - t)
 		var dir := to.normalized()
-		draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-		draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
+		_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		_c.draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
 		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
 		var screen_dir := (dir - Vector2(0, slope)).normalized()
 		# A streak behind it, so a volley reads as a flight of arrows.
 		var lifted: Vector2 = p.pos - Vector2(0, height)
-		draw_line(lifted - screen_dir * 16.0, lifted - screen_dir * 3.0, Color(1, 1, 1, 0.3), 1.0)
+		_c.draw_line(lifted - screen_dir * 16.0, lifted - screen_dir * 3.0, Color(1, 1, 1, 0.3), 1.0)
 		_sprite("arrow", 0, 0, p.pos - Vector2(0, height), screen_dir.angle() + PI * 0.5)
 
 
@@ -4731,7 +5059,7 @@ func _draw_settled() -> void:
 			_settled_at.erase(sq)
 			continue
 		var r: float = minf(sq.extent, 60.0) + 8.0 + (0.0 if Sound.reduced_motion else 10.0 * t)
-		draw_arc(sq.average_pos(), r, 0.0, TAU, 32, Color(Style.BRASS, 0.7 * (1.0 - t)), 3.0)
+		_c.draw_arc(sq.average_pos(), r, 0.0, TAU, 32, Color(Style.BRASS, 0.7 * (1.0 - t)), 3.0)
 
 
 ## Arrows at the edge of the field for your selected company, and any of yours fighting,
@@ -4761,8 +5089,8 @@ func _draw_edge_markers() -> void:
 		var tip := edge
 		var back := tip - dir * 22.0
 		var side := dir.orthogonal() * 11.0
-		draw_colored_polygon(PackedVector2Array([tip, back + side, back - side]), Color(0, 0, 0, 0.6))
-		draw_colored_polygon(PackedVector2Array([tip - dir * 2.0, back + side * 0.75, back - side * 0.75]), col)
+		_c.draw_colored_polygon(PackedVector2Array([tip, back + side, back - side]), Color(0, 0, 0, 0.6))
+		_c.draw_colored_polygon(PackedVector2Array([tip - dir * 2.0, back + side * 0.75, back - side * 0.75]), col)
 
 
 func _draw_standards() -> void:
@@ -4826,21 +5154,21 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		flag_x += sin(_clock * 31.0 + sq.id) * 2.5
 	var top := Vector2(flag_x, base.y) + Vector2(sin(lean), -cos(lean)) * POLE
 	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
-	draw_line(base + Vector2(1, 1), top + Vector2(1, 1), Color(0, 0, 0, 0.5), 4.0)
-	draw_line(base, top, Color("6b4a2a"), 3.0)
+	_c.draw_line(base + Vector2(1, 1), top + Vector2(1, 1), Color(0, 0, 0, 0.5), 4.0)
+	_c.draw_line(base, top, Color("6b4a2a"), 3.0)
 	var ready: bool = mine and sim.ability_ready(sq)
-	draw_circle(top, 5.0 if ready else 3.5, Style.BRASS if ready or not sq.routing else Color(0.5, 0.5, 0.5))
+	_c.draw_circle(top, 5.0 if ready else 3.5, Style.BRASS if ready or not sq.routing else Color(0.5, 0.5, 0.5))
 	if not sq.routing:
 		_std_tops[sq] = top
 	var edge := Style.BRASS if selected or sq.braced() else (Color("5bc0be") if sq.is_ally else Color(0.06, 0.05, 0.08))
 	if sim.winner != -1 and sq.team == sim.winner and sq.is_active():
 		# The winners' standards glow, held high.
-		draw_circle(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
+		_c.draw_circle(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
 	var wave: float = -1.0 if Sound.reduced_motion else _clock * 5.0 + sq.id * 1.3
-	_draw_flag(self, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge, wave)
+	_draw_flag(_c, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge, wave)
 	if sq.is_bodyguard or sq.is_chief:
 		var crown_c := top + Vector2(FLAG.x * 0.5, -16.0)
-		draw_colored_polygon(PackedVector2Array([
+		_c.draw_colored_polygon(PackedVector2Array([
 			crown_c + Vector2(-9, 5), crown_c + Vector2(-9, -4), crown_c + Vector2(-5, 0),
 			crown_c + Vector2(0, -7), crown_c + Vector2(5, 0), crown_c + Vector2(9, -4),
 			crown_c + Vector2(9, 5)
@@ -4855,19 +5183,19 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		# A warning mark beside the flag, steady with reduced motion, pulsing otherwise.
 		var pulse := 1.0 if Sound.reduced_motion else 0.6 + 0.4 * sin(_clock * 9.0)
 		var mark := top + Vector2(FLAG.x + 12.0, 8.0)
-		draw_circle(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
-		draw_string(font, mark + Vector2(-3.5, 6.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.05, 0.03, 0.03))
+		_c.draw_circle(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
+		_c.draw_string(font, mark + Vector2(-3.5, 6.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.05, 0.03, 0.03))
 	if sq.arrows == 0:
 		# Out of arrows: an empty quiver beside the flag, for as long as it lasts.
 		var q := top + Vector2(FLAG.x + 12.0, 8.0 + (22.0 if wavering(sq) else 0.0))
-		_draw_empty_quiver(self, q, 9.0)
-	draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
-	draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
+		_draw_empty_quiver(_c, q, 9.0)
+	_c.draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
+	_c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 	var count := str(sq.alive_n)
-	draw_string_outline(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 4, Color(0, 0, 0, 0.9))
-	draw_string(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.TEXT)
+	_c.draw_string_outline(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 4, Color(0, 0, 0, 0.9))
+	_c.draw_string(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.TEXT)
 	if sq.ability_left > 0.0 or sq.wheeling:
-		draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
+		_c.draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
 	if not mine and ref_type != "":
 		_draw_counter_hint(top, sq.type, ref_type)
 
@@ -4898,8 +5226,8 @@ func _draw_targets() -> void:
 	var pulse := 0.5 + 0.5 * sin(_clock * 5.0)
 	for foe in _targeted():
 		var r: float = minf(foe.extent, 70.0) + 18.0 + pulse * 5.0
-		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0)
-		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(TARGET_RED, 0.75 + 0.25 * pulse), 4.5)
+		_c.draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0)
+		_c.draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(TARGET_RED, 0.75 + 0.25 * pulse), 4.5)
 
 
 ## Two blades crossed over a standard: this squad is someone's target.
@@ -4911,8 +5239,8 @@ func _draw_crossed_swords(c: Vector2) -> void:
 		for pass_i in 2:
 			var w := 7.0 if pass_i == 0 else 3.5
 			var col := Color(0.06, 0.05, 0.08, 0.95) if pass_i == 0 else TARGET_RED.lightened(0.25)
-			draw_line(tip, hilt, col, w)
-			draw_line(hilt - (hilt - tip).normalized() * 3.0 + guard, hilt - (hilt - tip).normalized() * 3.0 - guard, col, w)
+			_c.draw_line(tip, hilt, col, w)
+			_c.draw_line(hilt - (hilt - tip).normalized() * 3.0 + guard, hilt - (hilt - tip).normalized() * 3.0 - guard, col, w)
 
 
 ## The line being drawn, with where each squad will stand on it and which way it will
@@ -4925,8 +5253,8 @@ func _draw_line_order() -> void:
 		var b := _to_field(_drag_to)
 		var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
 		var spots := sim.line_preview(Sim.PLAYER, _press_field, b, only)
-		draw_line(_press_field, b, Color(0, 0, 0, 0.5), 7.0)
-		draw_line(_press_field, b, Style.BRASS, 3.0)
+		_c.draw_line(_press_field, b, Color(0, 0, 0, 0.5), 7.0)
+		_c.draw_line(_press_field, b, Style.BRASS, 3.0)
 		_draw_spots(spots, sim.line_face(Sim.PLAYER, _press_field, b), 1.0, true)
 	elif not _line_shown.is_empty():
 		var age: float = _clock - float(_line_shown["at"])
@@ -4949,30 +5277,30 @@ func _draw_carry() -> void:
 		col = TARGET_RED
 		var foe = t["foe"]
 		var r: float = minf(foe.extent, 70.0) + 20.0
-		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0 * k)
-		draw_arc(foe.average_pos(), r, 0.0, TAU, 40, TARGET_RED, 4.0 * k)
-		draw_arc(foe.average_pos(), r + 7.0 * k, 0.0, TAU, 40, Color(TARGET_RED, 0.3), 6.0 * k)
+		_c.draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0 * k)
+		_c.draw_arc(foe.average_pos(), r, 0.0, TAU, 40, TARGET_RED, 4.0 * k)
+		_c.draw_arc(foe.average_pos(), r + 7.0 * k, 0.0, TAU, 40, Color(TARGET_RED, 0.3), 6.0 * k)
 		to = foe.average_pos()
 	elif not t.is_empty():
 		col = Style.BRASS if bool(t["ok"]) else Style.MUTED
-		draw_arc(to, 18.0 * k, 0.0, TAU, 32, Color(0, 0, 0, 0.5), 6.0 * k)
-		draw_arc(to, 18.0 * k, 0.0, TAU, 32, col, 3.0 * k)
+		_c.draw_arc(to, 18.0 * k, 0.0, TAU, 32, Color(0, 0, 0, 0.5), 6.0 * k)
+		_c.draw_arc(to, 18.0 * k, 0.0, TAU, 32, col, 3.0 * k)
 		if not bool(t["ok"]):
 			var d := 9.0 * k
-			draw_line(to + Vector2(-d, -d), to + Vector2(d, d), col, 3.0 * k)
-			draw_line(to + Vector2(d, -d), to + Vector2(-d, d), col, 3.0 * k)
+			_c.draw_line(to + Vector2(-d, -d), to + Vector2(d, d), col, 3.0 * k)
+			_c.draw_line(to + Vector2(d, -d), to + Vector2(-d, d), col, 3.0 * k)
 	else:
 		return
 	var own: float = minf(sq.extent, 70.0) + 14.0
-	draw_arc(from, own, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 6.0 * k)
-	draw_arc(from, own, 0.0, TAU, 40, Style.BRASS, 3.0 * k)
-	draw_line(from, to, Color(0, 0, 0, 0.35), 6.0 * k)
-	draw_dashed_line(from, to, Color(col, 0.9), 3.0 * k, 10.0 * k)
+	_c.draw_arc(from, own, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 6.0 * k)
+	_c.draw_arc(from, own, 0.0, TAU, 40, Style.BRASS, 3.0 * k)
+	_c.draw_line(from, to, Color(0, 0, 0, 0.35), 6.0 * k)
+	_c.draw_dashed_line(from, to, Color(col, 0.9), 3.0 * k, 10.0 * k)
 	var dir := (to - from).normalized()
 	if dir != Vector2.ZERO:
 		var tip := to - dir * (26.0 * k if t.has("foe") else 22.0 * k)
 		var side := dir.orthogonal() * 8.0 * k
-		draw_colored_polygon(PackedVector2Array([tip + dir * 10.0 * k, tip - dir * 6.0 * k + side, tip - dir * 6.0 * k - side]), col)
+		_c.draw_colored_polygon(PackedVector2Array([tip + dir * 10.0 * k, tip - dir * 6.0 * k + side, tip - dir * 6.0 * k - side]), col)
 
 
 ## The words beside the finger while a squad is carried: the matchup over an enemy, before
@@ -5005,8 +5333,8 @@ func _draw_carry_card() -> void:
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0
 		var box := Rect2(Vector2(_drag_to.x - w * 0.5, y), Vector2(w, 30.0))
 		box.position.x = clampf(box.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - w - 4.0))
-		draw_style_box(_pill_box(1.0, c), box)
-		draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
+		_c.draw_style_box(_pill_box(1.0, c), box)
+		_c.draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
 		y += 36.0
 
 
@@ -5018,18 +5346,18 @@ func _draw_slow() -> void:
 		return
 	var held := slow_held()
 	if held:
-		draw_rect(_view, Color(0.05, 0.1, 0.3, 0.26))
+		_c.draw_rect(_view, Color(0.05, 0.1, 0.3, 0.26))
 		for i in 8:
 			var inset := float(i) * 6.0
-			draw_rect(Rect2(_view.position + Vector2(inset, inset), _view.size - Vector2(inset * 2.0, inset * 2.0)),
+			_c.draw_rect(Rect2(_view.position + Vector2(inset, inset), _view.size - Vector2(inset * 2.0, inset * 2.0)),
 				Color(0.4, 0.7, 1.0, 0.04), false, 2.0)
 		var text := "¼ time · let go to run on"
 		var fs := 18
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0
 		var top := _view.position.y + 30.0 + (58.0 if objective_chip != null and objective_chip.visible else 0.0) + float(ticker.size()) * (Style.SMALL + 18.0)
 		var box := Rect2(Vector2(_view.get_center().x - w * 0.5, top - 6.0), Vector2(w, 30.0))
-		draw_style_box(_pill_box(1.0, Style.PLAYER_LIGHT), box)
-		draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.PLAYER_LIGHT)
+		_c.draw_style_box(_pill_box(1.0, Style.PLAYER_LIGHT), box)
+		_c.draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.PLAYER_LIGHT)
 	# The tab: a dark rounded edge with an hourglass, brighter while held.
 	var b := StyleBoxFlat.new()
 	b.bg_color = Color(Style.NIGHT, 0.85 if held else 0.6)
@@ -5037,17 +5365,17 @@ func _draw_slow() -> void:
 	b.set_border_width_all(2 if held else 1)
 	b.corner_radius_top_left = 14
 	b.corner_radius_bottom_left = 14
-	draw_style_box(b, r)
+	_c.draw_style_box(b, r)
 	var c := r.get_center() + Vector2(2.0, -8.0)
 	var ink := Style.PLAYER_LIGHT if held else Color(Style.TEXT, 0.75)
 	var hw := 11.0
 	var hh := 16.0
-	draw_colored_polygon(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(0, 0)]), Color(ink, 0.25))
-	draw_colored_polygon(PackedVector2Array([c + Vector2(0, 0), c + Vector2(hw, hh), c + Vector2(-hw, hh)]), ink)
-	draw_polyline(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(-hw, hh), c + Vector2(hw, hh), c + Vector2(-hw, -hh)]), ink, 2.0)
+	_c.draw_colored_polygon(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(0, 0)]), Color(ink, 0.25))
+	_c.draw_colored_polygon(PackedVector2Array([c + Vector2(0, 0), c + Vector2(hw, hh), c + Vector2(-hw, hh)]), ink)
+	_c.draw_polyline(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(-hw, hh), c + Vector2(hw, hh), c + Vector2(-hw, -hh)]), ink, 2.0)
 	var label := "¼×" if held else "hold"
 	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-	draw_string(font, Vector2(r.get_center().x - lw * 0.5 + 2.0, r.end.y - 12.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
+	_c.draw_string(font, Vector2(r.get_center().x - lw * 0.5 + 2.0, r.end.y - 12.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
 
 
 ## Each squad's place on a line: the ground it will cover and an arrow the way it faces,
@@ -5059,14 +5387,14 @@ func _draw_spots(spots: Array, face: Vector2, alpha: float, live: bool) -> void:
 		var half: Vector2 = spot["half"]
 		var sq = spot["squad"]
 		if live and sq.alive_n > 0:
-			draw_dashed_line(sq.average_pos(), at, Color(Style.BRASS, 0.45 * alpha), 2.0, 8.0)
+			_c.draw_dashed_line(sq.average_pos(), at, Color(Style.BRASS, 0.45 * alpha), 2.0, 8.0)
 		var box := PackedVector2Array([at - right * half.x - face * half.y, at + right * half.x - face * half.y,
 			at + right * half.x + face * half.y, at - right * half.x + face * half.y])
-		draw_colored_polygon(box, Color(Style.BRASS, 0.16 * alpha))
+		_c.draw_colored_polygon(box, Color(Style.BRASS, 0.16 * alpha))
 		box.append(box[0])
-		draw_polyline(box, Color(Style.BRASS, 0.9 * alpha), 2.0)
+		_c.draw_polyline(box, Color(Style.BRASS, 0.9 * alpha), 2.0)
 		var tip := at + face * (half.y + 16.0)
-		draw_colored_polygon(PackedVector2Array([tip, tip - face * 10.0 + right * 7.0, tip - face * 10.0 - right * 7.0]),
+		_c.draw_colored_polygon(PackedVector2Array([tip, tip - face * 10.0 + right * 7.0, tip - face * 10.0 - right * 7.0]),
 			Color(Style.BRASS, 0.9 * alpha))
 
 
@@ -5074,9 +5402,9 @@ func _draw_spots(spots: Array, face: Vector2, alpha: float, live: bool) -> void:
 func _draw_counter_hint(top: Vector2, type: String, ref_type: String) -> void:
 	var c := top + Vector2(FLAG.x * 0.5, -12.0)
 	if Troops.COUNTERED_BY[type] == ref_type:
-		draw_colored_polygon(PackedVector2Array([c + Vector2(0, -9), c + Vector2(9, 6), c + Vector2(-9, 6)]), Style.MORALE_HIGH)
+		_c.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -9), c + Vector2(9, 6), c + Vector2(-9, 6)]), Style.MORALE_HIGH)
 	elif Troops.COUNTERED_BY[ref_type] == type:
-		draw_colored_polygon(PackedVector2Array([c + Vector2(0, 7), c + Vector2(9, -8), c + Vector2(-9, -8)]), Style.MORALE_LOW)
+		_c.draw_colored_polygon(PackedVector2Array([c + Vector2(0, 7), c + Vector2(9, -8), c + Vector2(-9, -8)]), Style.MORALE_LOW)
 
 
 ## A team's flag on `ci`: a swallowtail for you, square for them, with a glyph for the
@@ -5097,8 +5425,8 @@ func _draw_floaters() -> void:
 		if sq == null:
 			# A word at a spot: rises and fades.
 			var pos: Vector2 = _to_screen(f["pos"]) + Vector2(-200.0, -minf(age, 1.3) * 34.0 * field_scale)
-			draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, 6, Color(0, 0, 0, a))
-			draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, Color(color, a))
+			_c.draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, 6, Color(0, 0, 0, a))
+			_c.draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, Color(color, a))
 			continue
 		# A squad's word: a pill over its standard, sliding up into place.
 		var anchor: Vector2 = Vector2(_std_tops[sq]) + Vector2(FLAG.x * 0.5, -24.0) if _std_tops.has(sq) else _to_screen(sq.average_pos()) + Vector2(0, -44.0)
@@ -5108,9 +5436,9 @@ func _draw_floaters() -> void:
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 30.0
 		var box := Rect2(anchor + Vector2(-w * 0.5, -15.0 + slide), Vector2(w, 30.0))
 		box.position.x = clampf(box.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - w - 4.0))
-		draw_style_box(_pill_box(a, color), box)
-		draw_circle(box.position + Vector2(13.0, 15.0), 4.0, Color(color, a))
-		draw_string(font, box.position + Vector2(22.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(color, a))
+		_c.draw_style_box(_pill_box(a, color), box)
+		_c.draw_circle(box.position + Vector2(13.0, 15.0), 4.0, Color(color, a))
+		_c.draw_string(font, box.position + Vector2(22.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(color, a))
 
 
 func _pill_box(a: float, edge: Color) -> StyleBoxFlat:
@@ -5143,14 +5471,14 @@ func _draw_ticker() -> void:
 		var lead := 34.0 if icon != null else 0.0
 		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL).x + 28.0 + lead, _view.size.x - 16.0)
 		var pill := Rect2(Vector2(_view.get_center().x - w * 0.5, y - Style.SMALL - 2.0), Vector2(w, Style.SMALL + 14.0))
-		draw_style_box(_ticker_box(a), pill)
+		_c.draw_style_box(_ticker_box(a), pill)
 		if icon != null:
 			var dot := Vector2(pill.position.x + 20.0, pill.get_center().y)
-			draw_circle(dot, 14.0, Color(Color("5a4a1a"), a))
-			draw_texture_rect(icon, Rect2(dot - Vector2(10, 10), Vector2(20, 20)), false, Color(Color("ffe08a"), a))
+			_c.draw_circle(dot, 14.0, Color(Color("5a4a1a"), a))
+			_c.draw_texture_rect(icon, Rect2(dot - Vector2(10, 10), Vector2(20, 20)), false, Color(Color("ffe08a"), a))
 		var tx := _view.position.x + 12.0 + lead * 0.5
-		draw_string_outline(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
-		draw_string(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
+		_c.draw_string_outline(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
+		_c.draw_string(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
 		y += Style.SMALL + 18.0
 
 
@@ -5184,8 +5512,8 @@ func _field_label(text: String, at: Vector2, fg: Color, bg: Color, edge: Color) 
 	var pad := 9.0 * k
 	var r := Rect2(at - Vector2(ts.x * 0.5 + pad, (ts.y + pad) * 0.5), Vector2(ts.x + pad * 2.0, ts.y + pad))
 	r.position.x = clampf(r.position.x, 4.0, Sim.ARENA.x - r.size.x - 4.0)
-	draw_style_box(Style.box(bg, edge, maxi(1, int(1.5 * k)), int(r.size.y * 0.5)), r)
-	draw_string(font, Vector2(r.position.x + pad, r.position.y + pad * 0.5 + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)
+	_c.draw_style_box(Style.box(bg, edge, maxi(1, int(1.5 * k)), int(r.size.y * 0.5)), r)
+	_c.draw_string(font, Vector2(r.position.x + pad, r.position.y + pad * 0.5 + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)
 
 
 ## Planning an assault: where the garrison's bows on the wall can reach (red), the cover
@@ -5214,18 +5542,18 @@ func _draw_siege_reach() -> void:
 	for poly in zone:
 		if Geometry2D.is_polygon_clockwise(poly):
 			continue
-		draw_colored_polygon(poly, Color(red, 0.16))
+		_c.draw_colored_polygon(poly, Color(red, 0.16))
 		var k := -Sim.ARENA.y
 		while k < w:
 			for seg in Geometry2D.intersect_polyline_with_polygon(PackedVector2Array([Vector2(k, outside), Vector2(k + Sim.ARENA.y, outside + Sim.ARENA.y)]), poly):
-				draw_polyline(seg, Color(red, 0.32), 3.0)
+				_c.draw_polyline(seg, Color(red, 0.32), 3.0)
 			k += 20.0
 		for i in poly.size():
 			var a2: Vector2 = poly[i]
 			var b2: Vector2 = poly[(i + 1) % poly.size()]
 			if absf(a2.y - outside) < 1.0 and absf(b2.y - outside) < 1.0:
 				continue
-			draw_dashed_line(a2, b2, Color("ff8a6a"), 2.5, 10.0)
+			_c.draw_dashed_line(a2, b2, Color("ff8a6a"), 2.5, 10.0)
 	if not zone.is_empty():
 		_field_label("Wall bows reach here", Vector2(label_x, minf(deepest + 20.0, Sim.ARENA.y - 20.0)), Color("ffb3a0"), Color(Style.NIGHT, 0.9), Color("a14a3c"))
 	# The ram's roof.
@@ -5233,12 +5561,12 @@ func _draw_siege_reach() -> void:
 	for i in 48:
 		roof.append(sim.gate_center + Vector2.from_angle(TAU * i / 48.0) * (Sim.GATE_REACH + 14.0))
 	for piece in Geometry2D.intersect_polygons(roof, below):
-		draw_colored_polygon(piece, Color(0.31, 0.55, 1.0, 0.28))
-		draw_polyline(piece + PackedVector2Array([piece[0]]), Color("8fb8ff"), 2.0)
+		_c.draw_colored_polygon(piece, Color(0.31, 0.55, 1.0, 0.28))
+		_c.draw_polyline(piece + PackedVector2Array([piece[0]]), Color("8fb8ff"), 2.0)
 	_field_label("Ram roof: arrows 40%", sim.gate_center + Vector2(0, Sim.GATE_REACH + 34.0), Color("bcd4ff"), Color(Style.NIGHT, 0.9), Color("5a7fc0"))
 	for lp in sim.ladder_points():
 		var mid: Vector2 = lp + Vector2(0, Terrain.CELL * 0.5 + 14.0)
-		draw_arc(mid, 26.0, 0.0, TAU, 32, Color("ffe08a"), 2.5)
+		_c.draw_arc(mid, 26.0, 0.0, TAU, 32, Color("ffe08a"), 2.5)
 		_field_label("Ladder", mid + Vector2(0, 46.0), Color("ffe08a"), Color(Style.NIGHT, 0.9), Color("8a7a3a"))
 
 
@@ -5254,12 +5582,12 @@ func _draw_garrison_posts() -> void:
 	var a := 1.0 if show_all else 0.45
 	var tower := Vector2(sim.gate_center.x, sim.wall_y + sim.inward() * Sim.WALK_DEPTH)
 	var stone := Color("e2e0dc")
-	draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.10 * a))
-	draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.6 * a), false, 2.0)
+	_c.draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.10 * a))
+	_c.draw_rect(Rect2(tower - Vector2(Sim.GATE_TOWER_HALF, 34.0), Vector2(Sim.GATE_TOWER_HALF * 2.0, 68.0)), Color(stone, 0.6 * a), false, 2.0)
 	var gold := Color("b8f5b0")
 	for i in sim.ladder_points().size():
 		var head: Vector2 = sim.ladder_head_post(i)
-		draw_arc(head, 30.0, 0.0, TAU, 32, Color(gold, 0.8 * a), 2.5)
+		_c.draw_arc(head, 30.0, 0.0, TAU, 32, Color(gold, 0.8 * a), 2.5)
 	var red := Color("ff8a6a")
 	var posts: Array = sim.breach_posts(3)
 	var arc := PackedVector2Array()
@@ -5267,7 +5595,7 @@ func _draw_garrison_posts() -> void:
 		var ang := deg_to_rad(lerpf(-Sim.BREACH_SPREAD - 15.0, Sim.BREACH_SPREAD + 15.0, k / 24.0))
 		arc.append(sim.gate_center + Vector2(sin(ang) * Sim.BREACH_RADIUS, cos(ang) * Sim.BREACH_RADIUS * sim.inward()))
 	for k in range(0, arc.size() - 1, 2):
-		draw_line(arc[k], arc[k + 1], Color(red, 0.85 * a), 3.0)
+		_c.draw_line(arc[k], arc[k + 1], Color(red, 0.85 * a), 3.0)
 	if not show_all:
 		return
 	_field_label("Gate tower · stones on the ram", Vector2(tower.x, sim.wall_y - sim.inward() * 44.0), stone, Color(Style.NIGHT, 0.9), Color("6a6a72"))
@@ -5317,10 +5645,10 @@ func _draw_storm_plan() -> void:
 					key = "ladder%d" % int(lp.x)
 		var col := Color("ffe08a") if job == "ladder" else Color("ffc06a")
 		var from: Vector2 = sq.center + (dest - sq.center).normalized() * 30.0
-		draw_dashed_line(from, dest, Color(0, 0, 0, 0.45), 7.0, 16.0)
-		draw_dashed_line(from, dest, col, 4.0, 16.0)
+		_c.draw_dashed_line(from, dest, Color(0, 0, 0, 0.45), 7.0, 16.0)
+		_c.draw_dashed_line(from, dest, col, 4.0, 16.0)
 		var dir := (dest - from).normalized()
-		draw_colored_polygon(PackedVector2Array([dest + dir * 10.0, dest - dir * 10.0 + dir.orthogonal() * 9.0, dest - dir * 10.0 - dir.orthogonal() * 9.0]), col)
+		_c.draw_colored_polygon(PackedVector2Array([dest + dir * 10.0, dest - dir * 10.0 + dir.orthogonal() * 9.0, dest - dir * 10.0 - dir.orthogonal() * 9.0]), col)
 		if not groups.has(key):
 			groups[key] = {"at": dest, "names": PackedStringArray(), "job": job}
 		groups[key]["names"].append(_captain_first(sq))
@@ -5343,20 +5671,20 @@ func _draw_gate_marker() -> void:
 	var top: float = sim.wall_row * cell
 	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
 	if _gate_flash > 0.0:
-		draw_rect(gate.grow(3.0), Color(1.0, 0.95, 0.7, 0.55 * _gate_flash))
+		_c.draw_rect(gate.grow(3.0), Color(1.0, 0.95, 0.7, 0.55 * _gate_flash))
 	var k := 1.0 / maxf(0.1, field_scale)
 	var size := Vector2(128.0, 30.0) * k
 	var inward := -1.0 if sim.siege_defender == Sim.ENEMY else 1.0
 	var cy: float = (top - 26.0 - size.y * 0.5) if inward < 0.0 else (top + cell + 26.0 + size.y * 0.5)
 	var r := Rect2(Vector2(gate.get_center().x - size.x * 0.5, cy - size.y * 0.5), size)
-	draw_style_box(Style.box(Color(Style.NIGHT, 0.92), Color("6d5222"), maxi(1, int(2.0 * k)), int(9.0 * k)), r)
+	_c.draw_style_box(Style.box(Color(Style.NIGHT, 0.92), Color("6d5222"), maxi(1, int(2.0 * k)), int(9.0 * k)), r)
 	var tex := Widgets.icon("gate")
 	if tex != null:
-		draw_texture_rect(tex, Rect2(r.position + Vector2(7, 5) * k, Vector2(20, 20) * k), false, Color("f3cf7a"))
+		_c.draw_texture_rect(tex, Rect2(r.position + Vector2(7, 5) * k, Vector2(20, 20) * k), false, Color("f3cf7a"))
 	var share: float = sim.gate_hp / maxf(1.0, sim.gate_max)
 	var track := Rect2(r.position + Vector2(34, 11) * k, Vector2(r.size.x - 44.0 * k, 9.0 * k))
-	draw_rect(track, Color("0b0f19"))
-	draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.94, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
+	_c.draw_rect(track, Color("0b0f19"))
+	_c.draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.94, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
 
 
 ## The breach: a band across the field with the news in big letters, for a moment.
@@ -5379,19 +5707,19 @@ func _draw_banner() -> void:
 	if bool(_banner.get("big", false)):
 		var cy := _view.get_center().y - 60.0
 		var band := Rect2(0, cy - 86.0, vs.x, 172.0)
-		draw_rect(band, Color(Style.NIGHT, 0.86 * a))
-		draw_rect(Rect2(vs.x * 0.2, band.position.y + 4.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
-		draw_rect(Rect2(vs.x * 0.2, band.end.y - 6.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
-		draw_set_transform(Vector2(vs.x * 0.5, cy), 0.0, Vector2(stamp, stamp))
+		_c.draw_rect(band, Color(Style.NIGHT, 0.86 * a))
+		_c.draw_rect(Rect2(vs.x * 0.2, band.position.y + 4.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
+		_c.draw_rect(Rect2(vs.x * 0.2, band.end.y - 6.0, vs.x * 0.6, 2.0), Color(Style.BRASS, 0.7 * a))
+		_c.draw_set_transform(Vector2(vs.x * 0.5, cy), 0.0, Vector2(stamp, stamp))
 		if tex != null:
-			draw_texture_rect(tex, Rect2(Vector2(-22.0, -74.0), Vector2(44, 44)), false, Color(col, a))
+			_c.draw_texture_rect(tex, Rect2(Vector2(-22.0, -74.0), Vector2(44, 44)), false, Color(col, a))
 		var fs := 52
 		while fs > 30 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > vs.x - 40.0:
 			fs -= 2
-		draw_string_outline(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.9 * a))
-		draw_string(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
-		draw_string(font, Vector2(-vs.x * 0.5, 68.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, a))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_c.draw_string_outline(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.9 * a))
+		_c.draw_string(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
+		_c.draw_string(font, Vector2(-vs.x * 0.5, 68.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, a))
+		_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	# A plate a quarter of the way down the field.
 	var fs2 := 30
@@ -5402,7 +5730,7 @@ func _draw_banner() -> void:
 	var w := minf(room, tw + (88.0 if tex != null else 48.0))
 	var h := 88.0
 	var center := Vector2(vs.x * 0.5, _view.position.y + _view.size.y * 0.24)
-	draw_set_transform(center, 0.0, Vector2(stamp, stamp))
+	_c.draw_set_transform(center, 0.0, Vector2(stamp, stamp))
 	var plate := Rect2(Vector2(-w * 0.5, -h * 0.5), Vector2(w, h))
 	var box := StyleBoxFlat.new()
 	box.bg_color = Color(Style.NIGHT, 0.9 * a)
@@ -5411,12 +5739,12 @@ func _draw_banner() -> void:
 	box.set_corner_radius_all(10)
 	box.shadow_color = Color(0, 0, 0, 0.45 * a)
 	box.shadow_size = 10
-	draw_style_box(box, plate)
+	_c.draw_style_box(box, plate)
 	var tx := plate.position.x + 24.0
 	if tex != null:
-		draw_circle(Vector2(tx + 14.0, -10.0), 17.0, Color(Color("5a4a1a"), a))
-		draw_texture_rect(tex, Rect2(Vector2(tx + 2.0, -22.0), Vector2(24, 24)), false, Color(Color("ffe08a"), a))
+		_c.draw_circle(Vector2(tx + 14.0, -10.0), 17.0, Color(Color("5a4a1a"), a))
+		_c.draw_texture_rect(tex, Rect2(Vector2(tx + 2.0, -22.0), Vector2(24, 24)), false, Color(Color("ffe08a"), a))
 		tx += 40.0
-	draw_string(big, Vector2(tx, -10.0 + fs2 * 0.36), title, HORIZONTAL_ALIGNMENT_LEFT, plate.end.x - tx - 16.0, fs2, Color(col, a))
-	draw_string(font, Vector2(plate.position.x, 30.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_c.draw_string(big, Vector2(tx, -10.0 + fs2 * 0.36), title, HORIZONTAL_ALIGNMENT_LEFT, plate.end.x - tx - 16.0, fs2, Color(col, a))
+	_c.draw_string(font, Vector2(plate.position.x, 30.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

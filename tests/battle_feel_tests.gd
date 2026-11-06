@@ -97,6 +97,18 @@ func _init() -> void:
 		if sq.team == Sim.ENEMY and theirs == null:
 			theirs = sq
 
+	# ---- the batch: every living man is in the one draw, with his shadow
+	sc._redraw()
+	await process_frame
+	await process_frame
+	var living := 0
+	for sq in sim.squads:
+		living += sq.alive_n
+	check(sc._men_n == living and sc._shadow_n == living, "every living man is drawn once in the batch, with his shadow (%d of %d)" % [sc._men_n, living])
+	check(sc.find_child("TroopLayer", false, false) != null and sc.get_child(0).name == "TroopLayer" and sc.get_child(1).name == "TopLayer",
+		"the men are drawn on their own layer, under the top layer and the HUD")
+	check(int(sc.perf["frames"]) >= 0 and sc.perf.has("draw") and sc.perf.has("sim"), "the performance readout keeps its numbers")
+
 	# ---- 2. men who act: poses are drawn, never stored
 	var so = mine.soldiers[0]
 	var look: Dictionary = sc._squad_look(mine)
