@@ -56,6 +56,9 @@ func _run() -> void:
 	check(current_scene.find_child("NextStepPanel", true, false) != null and _has_text(current_scene, "Next step"),
 		"Home shows one recommendation from the current campaign")
 	gs.apply_social_choice("edda", "know_better")
+	# Her letter comes a day on.
+	gs.world.hour += 24.0
+	gs.world.social.step(0.0, gs.world)
 	await open("title")
 	var letters_row = current_scene.find_child("WaitLetters", true, false)
 	check(letters_row != null and _has_text(letters_row, "invited you"), "Home lists an unread letter under Waiting for you")

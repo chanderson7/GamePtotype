@@ -26,6 +26,39 @@ var _scene_id := ""
 var _progress := {}
 var _replay := false
 var _ch1_topic_done := false
+## Their first words this visit, chosen from what has happened since the last.
+var _opening := ""
+
+
+## What has happened since you last came, for Lines.opening. Nothing counts before a
+## first visit: a stranger has no "since".
+func _facts() -> Dictionary:
+	var rel: Dictionary = _rel()
+	var w = GameState.world
+	var res := String(_social().get_candidate_person(cand).get("residence", ""))
+	if not rel.has("last_visit_hour"):
+		return {}
+	var facts := {"besieged": not w.siege_info(res).is_empty(), "burned": w.burned.has(res),
+		"war": GameState.is_at_war_with(String(_house().get("realm", w.owner_of(res)))),
+		"night": TalkView.time_word(w.hour) == "night"}
+	var since_hour := float(rel.get("last_visit_hour", 0.0))
+	var since_battle := int(rel.get("last_visit_battles", 0))
+	for m in GameState.fallen:
+		if int(m.get("battle", 0)) > since_battle:
+			facts["fallen"] = String(m.get("first", m.get("name", "")))
+	for s in GameState.army:
+		var c: Dictionary = s.get("captain", {})
+		if int(c.get("wounded", 0)) > 0:
+			facts["wounded"] = String(c.get("first", c.get("name", "")))
+	facts["company_hurt"] = GameState.is_wounded()
+	for e in w.events:
+		if String(e.get("type", "")) == "battle_fought" and bool(e.get("won", false)) and float(e.get("hour", -1.0)) > since_hour \
+				and w.hours_to(String(e.get("at", ""))) <= 48.0:
+			facts["victory"] = Letters.place_name(String(e.get("at", "")))
+	var days := int((w.hour - since_hour) / 24.0)
+	if days > 20:
+		facts["away"] = days
+	return facts
 
 
 func _ready() -> void:
@@ -47,6 +80,11 @@ func _ready() -> void:
 	set_face("left", _portrait(_expression()), false, 0.98)
 	_refresh_plate()
 	Sound.set_loop("camp")
+	_opening = Lines.opening(cand, _status(), _facts())
+	# This visit is now the last one, for next time's opening.
+	var rel: Dictionary = _rel()
+	rel["last_visit_hour"] = GameState.world.hour
+	rel["last_visit_battles"] = GameState.battles
 	_hub(true)
 	if Scenes.romance_relive != "":
 		var sid := Scenes.romance_relive
@@ -153,7 +191,7 @@ func _hub(first: bool = false) -> void:
 	_scene_id = ""
 	set_stage_share(STAGE_SHARE)
 	clear_log()
-	say("them", Lines.greeting(cand, _status()) if first else "What else is on your mind?", _name)
+	say("them", (_opening if _opening != "" else Lines.greeting(cand, _status())) if first else "What else is on your mind?", _name)
 	if bool(_rel().get("strained", false)):
 		add_to_log(note("Things are strained between you since a broken promise. %s will hear you out on it." % _name, Style.MORALE_LOW))
 	var replies := []

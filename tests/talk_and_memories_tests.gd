@@ -152,6 +152,40 @@ func _init() -> void:
 	var report: Dictionary = gs.battle_report({"won": true, "squads": {}, "bonds": {key_ab: 60.0}})
 	check(report["bonds"].size() == 1 and report.has("memorials"), "the report carries bonds and memorials")
 
+	# ---- she knows what happened since you last came
+	gs.world.player().node = "ravensford"
+	scenes.active_candidate_id = "edda"
+	var cap: Dictionary = gs.army[0]["captain"]
+	gs.fallen.append({"id": 999, "name": "Testa Grim", "first": "Testa", "battle": gs.battles + 1, "words": ""})
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	var first_words: String = current_scene._log.find_children("Words", "Label", true, false)[0].text
+	check(first_words.contains("Testa"), "a captain lost since your last visit is her first words (%s)" % first_words)
+	gs.fallen.clear()
+	cap["wounded"] = 3
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
+	check(first_words.contains(String(cap["first"])) and first_words.contains("hurt"), "a wounded captain is noticed (%s)" % first_words)
+	cap["wounded"] = 0
+	var hour0: float = gs.world.hour
+	gs.world.hour += 25.0 * 24.0
+	gs.world.hour = floor(gs.world.hour / 24.0) * 24.0 + 10.0
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
+	check(first_words.begins_with("2") and first_words.contains("days"), "a long absence is counted (%s)" % first_words)
+	gs.world.hour += 1.0
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
+	check(first_words == Lines.greeting("edda", "acquainted"), "with nothing new, the greeting for how things stand (%s)" % first_words)
+	for cand in ["edda", "farid", "kaede"]:
+		for key in Lines.OPENING_ORDER:
+			var line := Lines.opening(cand, "courting", {key: "Brann" if key in ["fallen", "wounded"] else ("Marchgate" if key == "victory" else (23 if key == "away" else true))})
+			check(line != Lines.greeting(cand, "courting") and not line.contains("{"), "%s has a line for %s (%s)" % [cand, key, line.left(40)])
+	gs.world.hour = hour0
+
 	# ---- Farah and Kaede speak in their own words too
 	for pair in [["farid", "qasr_hamra", "Farah"], ["kaede", "kitayama", "Kaede"]]:
 		gs.world.player().node = String(pair[1])

@@ -107,6 +107,61 @@ const VISIT_RESUME := "Where were we?"
 const LETTER_OPENER := "Your letter found me on the road."
 
 
+## How they open when something has happened since you last came, in order of what
+## matters most. {name} is a captain, {place} a settlement, {days} a count.
+const OPENING_ORDER := ["fallen", "wounded", "company_hurt", "besieged", "burned", "war", "victory", "away", "night"]
+const OPENINGS := {
+	"edda": {
+		"fallen": "You came back with fewer than you left with. Word of {name} reached us before you did. Sit. The ledgers will keep, and so will everyone else who wants a piece of you.",
+		"wounded": "{name} is hurt, they tell me. Sit down before you fall down. No, the chair. I'll move the ledgers.",
+		"company_hurt": "Your company looks like it walked here on its knees. There's bread, and there's a bench, and I'll hear the rest after.",
+		"besieged": "You'll have seen the camp under the walls. We're fine. I'm saying that so it becomes true.",
+		"burned": "Mind the ash by the door. We're rebuilding. Everyone here has an opinion on the roof, and none of them are carpenters.",
+		"war": "My cousin asked which side you're on today. I told him mine. He didn't find it funny, which is how I knew it was the right answer.",
+		"victory": "The whole hall is telling your battle at {place}. They've given you a horse you don't own and a speech you never made.",
+		"away": "{days} days. I didn't count. The ledger did.",
+		"night": "You keep late hours, captain. So does the ledger. Sit; I'll light the other lamp.",
+	},
+	"farid": {
+		"fallen": "I heard about {name}. I had a sentence prepared for you, and it was elegant, and I have thrown it away. Come in. Sit.",
+		"wounded": "They say {name} took a wound. Sit, and don't be polite about it; I have enough people being polite at me.",
+		"company_hurt": "Your company arrived looking like a treaty after a long council. Water first. Questions after.",
+		"besieged": "There is an army under our walls, and the house has decided to be dignified about it. I have decided to be glad you're here. One of us is being sensible.",
+		"burned": "Mind the smell of smoke; it gets into the letters. We're rebuilding. The house insists on rebuilding with a view.",
+		"war": "Our realms are at war, which means every greeting I give you is technically a negotiation. Hello, captain. That one was free.",
+		"victory": "The market has three versions of your battle at {place}, and in all of them you are taller. Sit. I'd like the one where you're your own height.",
+		"away": "{days} days. I'm not reproaching you; I'm an envoy, we count everything. Sit.",
+		"night": "The courtyard is quiet at this hour, and so is the house, which is rarer. Sit. Nobody will need a letter until morning.",
+	},
+	"kaede": {
+		"fallen": "I heard about {name}. I have written the name in the margin, where I keep the things the record is too small for. Sit down.",
+		"wounded": "{name} is wounded, I'm told. The archive has a chair that has never once been sat in. Try it.",
+		"company_hurt": "Your company came in like a damaged manuscript. Recoverable, but slowly. There is tea. It is bad. Sit.",
+		"besieged": "There is an army at the gate, and the council is debating what to call it. I have labelled it 'uncertain'. Sit; it can't hear us in here.",
+		"burned": "Mind the scorched shelf. We lost a century of tax records and nothing of value. I am told that is a scandalous thing to say.",
+		"war": "Our realms are at war, so officially you are an enemy. I have filed you under 'exceptions'. It is a growing file.",
+		"victory": "The scribes are already writing your battle at {place}, and they have the ford on the wrong side. I'll correct it. Tell me where you stood.",
+		"away": "{days} days. I know because I started a page, and it has stayed blank. Sit down; I'll fill it in.",
+		"night": "Late. The lamp is lit; it's not a symbol, it's just dark. Sit. The dead scribes won't mind.",
+	},
+}
+
+
+## Their first words this visit. `facts` is what has happened since you last came:
+## {fallen: a captain's name or "", wounded: a captain's name or "", company_hurt: bool,
+## besieged: bool, burned: bool, war: bool, victory: a place's name or "", away: days,
+## night: bool}. The first that holds is what they speak to; otherwise the greeting for
+## how things stand.
+static func opening(candidate: String, status: String, facts: Dictionary) -> String:
+	var lines: Dictionary = OPENINGS.get(candidate, {})
+	for key in OPENING_ORDER:
+		var v = facts.get(key, false)
+		var holds: bool = (v is bool and v) or (v is String and v != "") or ((v is int or v is float) and v > 0)
+		if holds and lines.has(key):
+			return String(lines[key]).format({"name": str(v), "place": str(v), "days": str(v)})
+	return greeting(candidate, status)
+
+
 static func greeting(candidate: String, status: String) -> String:
 	var g: Dictionary = GREETINGS.get(candidate, {})
 	return String(g.get(status, g.get("acquainted", "Captain.")))

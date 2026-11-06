@@ -1,6 +1,11 @@
 # Romance dialogue: what's there, what other games do, and a plan
 
-**Status:** Phases 1 (the talk itself) and 2 (pacing) are built; Phase 3 is not. Phase 2
+**Status:** all three phases are built. Phase 3 as built: nine opening lines per candidate
+(`romance_talk_lines.gd`, `OPENINGS`), chosen in the order fallen captain, wounded captain,
+company hurt, her town besieged, burned, your realms at war, a victory within two days' ride,
+away more than twenty days, night; nothing before a first visit. "Since you last came" is
+the relationship's `last_visit_hour` and `last_visit_battles`, set when the talk opens.
+There is no weather in the game, so night stands in for it. Renders: `mockups/romance-talk-built-6.png`. Phase 2
 as built: a chapter opens `CHAPTER_GAP_HOURS` (24) after the last decision, when her
 letter for it arrives (letters are written at the decision and held in `pending_letters`
 until their hour); there is no separate "you've left" condition, since the letter is the

@@ -700,6 +700,8 @@ func settlement_intelligence(id: String) -> String:
 ## Publish a transient simulation event and, when it matters to the campaign, a short
 ## readable chronicle entry.
 func emit_event(event: Dictionary) -> void:
+	if not event.has("hour"):
+		event["hour"] = hour
 	events.append(event)
 	var kind := String(event.get("type", ""))
 	if not ACTIVITY_TYPES.has(kind):
