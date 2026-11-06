@@ -15,7 +15,10 @@ a strip of numbers. The council shows the lords as faces (tap one to hear them),
 with the faces of those who back it, and a bar at the foot with the men, days and silver;
 *Not yet* is the back arrow, *Dismiss* is under *⋯*, choosing a raid hands the lead to the
 lord, and *March!* opens a sheet with each lord's Regard before the host rides. Everything
-the cards no longer say is on the rules sheet behind *?*.
+the cards no longer say is on the rules sheet behind *?*. The hall's own Court tab follows: the table's actions
+as short buttons, a strip of faces for the seat of honour, petitions as face, ask and two
+buttons, the lists as captains' faces to tap, and the result as the winner with the bouts
+folded away; the hold-a-gathering card there matches the Crown screen's page.
 
 Where the build differs from the plan below:
 

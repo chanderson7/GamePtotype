@@ -16,6 +16,7 @@ const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const CourtUI = preload("res://scripts/ui/court_ui.gd")
 
 signal closed
 ## Asked of the map: look at a place.
@@ -505,20 +506,11 @@ func _place_name(id: String) -> String:
 
 
 func _lord_face(l: Dictionary) -> TextureRect:
-	var face := TextureRect.new()
-	face.texture = CaptainArt.texture(LordVoice.portrait_record(l))
-	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	face.custom_minimum_size = Vector2(60, 80)
-	return face
+	return CourtUI.lord_face(l)
 
 
-## A lord's portrait in the game's arched frame, `w` wide.
 func _face(l: Dictionary, w: float, dim: bool = false) -> Control:
-	var f := Widgets.framed(_lord_face(l), Vector2(w, roundf(w * 1.25)), dim)
-	f.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	return f
+	return CourtUI.face(l, w, dim)
 
 
 ## A sub-page's head: back, the title with a line under it, and "?" (the rules) or "⋯"
@@ -563,19 +555,7 @@ func _page_head(title: String, sub: String, back: Callable, right: String = "rul
 
 
 func _round_button(text: String, act: Callable, id: String) -> Button:
-	var b := Button.new()
-	b.name = id
-	b.text = text
-	b.custom_minimum_size = Vector2(72, 72)
-	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	b.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
-	b.add_theme_color_override("font_color", Style.MUTED)
-	for state in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, Style.box(Color(0, 0, 0, 0), Style.RULE, 2, 36))
-	b.pressed.connect(func():
-		Sound.play("click", 0.0, 0.05)
-		act.call())
-	return b
+	return CourtUI.round_button(text, act, id)
 
 
 func _flat_button(text: String, act: Callable, id: String) -> Button:
@@ -587,48 +567,16 @@ func _flat_button(text: String, act: Callable, id: String) -> Button:
 	return b
 
 
-## Coloured words: a Regard change in green or red, inside a line of text.
 static func _n(v: int) -> String:
-	return "[color=#%s]%+d[/color]" % [Style.MORALE_HIGH.to_html(false) if v >= 0 else Style.ENEMY_LIGHT.to_html(false), v]
+	return CourtUI.n(v)
 
 
 func _rich(bb: String, color: Color = Style.MUTED, size_px: int = Style.SMALL) -> RichTextLabel:
-	var r := RichTextLabel.new()
-	r.bbcode_enabled = true
-	r.fit_content = true
-	r.scroll_active = false
-	r.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	r.add_theme_font_size_override("normal_font_size", Style.text_size(size_px))
-	r.add_theme_color_override("default_color", color)
-	r.text = bb
-	return r
+	return CourtUI.rich(bb, color, size_px)
 
 
-## Numbers side by side: [[value, word], ...].
 func _strip(cells: Array, parent: Control = null) -> void:
-	var p := PanelContainer.new()
-	p.name = "Strip"
-	var sb := Style.box(Style.PANEL, Style.RULE, 2, 14)
-	sb.content_margin_top = 14
-	sb.content_margin_bottom = 14
-	p.add_theme_stylebox_override("panel", sb)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 4)
-	for c in cells:
-		var v := VBoxContainer.new()
-		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		v.add_theme_constant_override("separation", 0)
-		var big := Style.label(String(c[0]), Style.BODY, Style.TEXT)
-		big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(big)
-		var word := Style.label(String(c[1]), Style.SMALL, Style.MUTED)
-		word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(word)
-		h.add_child(v)
-	p.add_child(h)
-	(parent if parent != null else _col).add_child(p)
+	(parent if parent != null else _col).add_child(CourtUI.strip(cells))
 
 
 ## A card's title with a quiet count beside it.
@@ -1254,62 +1202,12 @@ func _set_footer(big: String, small: String, button: Button) -> void:
 
 # ---------------------------------------------------------------- sheets
 
-## A sheet that slides over the page from the bottom; tap above it to close.
 func _sheet(sheet_name: String) -> VBoxContainer:
-	var old := get_node_or_null(sheet_name)
-	if old != null:
-		old.queue_free()
-	var layer := Control.new()
-	layer.name = sheet_name
-	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	layer.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(layer)
-	var dim := ColorRect.new()
-	dim.color = Color(0.02, 0.03, 0.07, 0.78)
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.gui_input.connect(func(e: InputEvent):
-		var mb := e as InputEventMouseButton
-		if mb != null and not mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
-			layer.queue_free())
-	layer.add_child(dim)
-	var panel := PanelContainer.new()
-	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	var sb := Style.box(Style.PANEL, Style.RULE, 2, 0)
-	sb.border_width_bottom = 0
-	sb.corner_radius_top_left = 40
-	sb.corner_radius_top_right = 40
-	sb.content_margin_left = 32
-	sb.content_margin_right = 32
-	sb.content_margin_top = 16
-	sb.content_margin_bottom = 32 + float(_insets.get("bottom", 0))
-	panel.add_theme_stylebox_override("panel", sb)
-	layer.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 16)
-	panel.add_child(v)
-	var grip := ColorRect.new()
-	grip.color = Style.RULE
-	grip.custom_minimum_size = Vector2(72, 8)
-	grip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(grip)
-	if not Style.motion_reduced():
-		panel.modulate.a = 0.0
-		panel.create_tween().tween_property(panel, "modulate:a", 1.0, 0.14)
-	return v
+	return CourtUI.sheet(self, sheet_name, _insets)
 
 
 func _sheet_title(v: VBoxContainer, text: String, close_on: Control) -> void:
-	var row := HBoxContainer.new()
-	var t := Style.label(text, Style.LARGE, Style.BRASS)
-	var display := Style.display_font()
-	if display != null:
-		t.add_theme_font_override("font", display)
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	row.add_child(t)
-	row.add_child(_round_button("×", func(): close_on.queue_free(), "CloseSheet"))
-	v.add_child(row)
+	CourtUI.sheet_title(v, text, close_on)
 
 
 ## Before the host rides: what it costs, and what each lord makes of it.
@@ -1383,41 +1281,7 @@ func _open_march_sheet(aim: Dictionary) -> void:
 
 ## Everything the cards no longer spell out, read once.
 func _open_rules() -> void:
-	var v := _sheet("RulesSheet")
-	var layer := v.get_parent().get_parent() as Control
-	_sheet_title(v, "The king's court", layer)
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size.y = get_viewport_rect().size.y * 0.7
-	v.add_child(scroll)
-	var body := VBoxContainer.new()
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_theme_constant_override("separation", 14)
-	scroll.add_child(body)
-	var head := func(text: String):
-		var h := Style.label(text, Style.BODY, Style.BRASS)
-		body.add_child(h)
-	var rule := func(term: String, bb: String):
-		body.add_child(_rich("[color=#%s]%s[/color]   %s" % [Style.TEXT.to_html(false), term, bb]))
-	head.call("Gatherings")
-	rule.call("Anywhere", "At your seat or any hall you hold. In a lord's hall, they host in your name: %s." % _n(Gatherings.HOST_IN_NAME_REGARD))
-	rule.call("The first night", "Be there, or the lords you're winning over: %s." % _n(Gatherings.ABSENT_KING_REGARD))
-	rule.call("Their lieges", "Asking a liege's lords without the liege is a snub: %s." % _n(Gatherings.SNUB_REGARD))
-	head.call("At your own table")
-	rule.call("Seat of honour", "One lord, %s. Lords of more renown, %s." % [_n(Gatherings.HONOUR_REGARD), _n(Gatherings.PASSED_OVER_REGARD)])
-	rule.call("Petitions", "Heard at table %s, from afar %s, refused %s. A castle granted before everyone %s, and %s with each lord who sees it." % [
-		_n(Gatherings.PETITION_TABLE), _n(Gatherings.PETITION_AFAR), _n(Gatherings.PETITION_REFUSED), _n(Gatherings.PUBLIC_GRANT_REGARD), _n(Gatherings.PUBLIC_GRANT_WITNESS)])
-	rule.call("The speech", "Needs renown %d. %s with each lord in the hall; at war, your sworn lords ride when called for a week." % [Gatherings.SPEECH_RENOWN, _n(Gatherings.SPEECH_REGARD)])
-	rule.call("Gifts", "%d silver a head, %s each." % [Gatherings.KING_GIFT_SILVER, _n(Gatherings.KING_GIFT_REGARD)])
-	rule.call("The tourney", "Up to %d of your captains against each lord's champion. Purse %d. Wounds, never deaths." % [Gatherings.TOURNEY_CAPTAINS, Gatherings.TOURNEY_PURSE])
-	head.call("The banners")
-	rule.call("Who rides", "Every sworn lord. Those holding a place by your order stay, and captives. A bought lord who thinks little of you refuses: %s." % _n(Lords.MUSTER_REFUSED_REGARD))
-	rule.call("Upkeep", "%d silver a day for every ten men, from the treasury. Unfed more than a day, they go home." % Lords.MUSTER_SILVER_PER_10)
-	rule.call("The council", "Sits once %d lords are in the hall. Provisions paid up front: %d days out. Unpaid: %d." % [
-		Lords.ARMY_MIN_MEMBERS, int(Lords.HOST_PAID_HOURS / 24.0), int(Lords.HOST_UNPAID_HOURS / 24.0)])
-	rule.call("Who leads", "You: they ride with you and join your fights and sieges. A lord: the host marches on its own. Only a lord leads a raid.")
-	rule.call("Regard", "Each lord who rides %s, once. Counsel you pass over %s. An Honorable lord asked to raid rides home, %s." % [
-		_n(Lords.MUSTER_RIDE_REGARD), _n(Lords.COUNSEL_IGNORED_REGARD), _n(Lords.RAID_REFUSED_REGARD)])
+	CourtUI.open_rules(self, _insets)
 
 
 ## Enemy castles and towns, nearest your seat first.

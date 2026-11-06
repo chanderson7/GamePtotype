@@ -254,6 +254,16 @@ func _init() -> void:
 	await process_frame
 	check(_find(page, "KingsTable") != null and _find(page, "Feast_Speech") != null and _find(page, "Feast_Toast") == null, "your hall offers the king's table, with a speech for a toast")
 	check(_find(page, "ListsResult") != null, "and the lists' results")
+	var res := _find(page, "ListsResult")
+	check(res != null and _find(res, "ListsBouts") != null and res.get_child_count() == 2, "the lists show who won, with the bouts folded away")
+	(_find(res, "ListsBouts") as Button).pressed.emit()
+	await process_frame
+	res = _find(page, "ListsResult")
+	check(res != null and res.get_child_count() > 2, "and unfold on a tap")
+	check(_find(page, "Rules") != null, "your own table has the rules behind ?")
+	(_find(page, "Rules") as Button).pressed.emit()
+	await process_frame
+	check(_find(page, "RulesSheet") != null and _has_text(_find(page, "RulesSheet"), "+%d" % Gatherings.HONOUR_REGARD), "the same rules sheet as the Crown screen")
 	w._end_gathering(g)
 
 	# ---- calling the banners
