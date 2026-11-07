@@ -68,9 +68,10 @@ func _run() -> void:
 		"and tapping it opens the letter")
 	await open("title")
 	button("New campaign").pressed.emit()
-	check(current_scene._confirmation.visible and gs.has_campaign(), "replacing a campaign requires an explicit confirmation")
-	current_scene._confirmation.canceled.emit()
-	current_scene._confirmation.hide()
+	check(current_scene.find_child("NewCampaignSheet", true, false) != null and gs.has_campaign(), "replacing a campaign requires an explicit confirmation")
+	button("Keep my campaign").pressed.emit()
+	await process_frame
+	check(current_scene.find_child("NewCampaignSheet", true, false) == null and gs.has_campaign(), "and keeping it closes the sheet")
 	button("Settings").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("settings.tscn") and button("Music: on") != null, "Home opens the separate Settings page")

@@ -10,9 +10,13 @@ const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 
-const TAGS := {"own": ["Yours", Color("2a3a6c"), Color("a9c4ff")], "battle": ["Battle", Color("4a2420"), Color("ffb7ae")],
-	"arrival": ["Arrival", Color("253325"), Color("a8dc9a")]}
+const TAGS := {"own": ["Yours", Color("2a3a6c"), Color("a9c4ff"), "save"], "battle": ["Battle", Color("4a2420"), Color("ffb7ae"), "battle"],
+	"arrival": ["Arrival", Color("253325"), Color("a8dc9a"), "keep"]}
 const UNDONE_ICONS := {"time": "ride", "battle": "battle", "captain": "men", "rise": "renown", "letter": "mail"}
+## The compare grid's rows, by the word save_slots gives them.
+const ROW_ICONS := {"Day": "day", "Men": "men", "Silver": "silver", "Renown": "renown", "Food": "food"}
+## Room for the bottom bar under the page, above the safe area.
+const BAR_ROOM := 124.0
 
 var _overlay: Control
 var _delete_armed := false
@@ -33,33 +37,37 @@ func _build() -> void:
 		remove_child(child)
 		child.queue_free()
 	_overlay = null
+	var insets := Style.safe_insets(get_viewport())
+	var col := Page.frame(self, BAR_ROOM + float(insets["bottom"]))
+	col.add_child(Style.label("Saves", 52, Style.BRASS))
+	var bar := Widgets.bottom_bar(Widgets.back_button(_back), insets)
+	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	if GameState.ironman:
-		var c := Page.column(self, "Saves", "This is an Ironman campaign. The game saves as you go, and there's no going back.")
-		c.add_child(Page.button("Back", _back, true))
+		col.add_child(Page.note("This is an Ironman campaign. The game saves as you go, and there's no going back."))
+		add_child(bar)
 		return
-	var col := Page.column(self, "Saves", "The game also keeps a save from just before each battle, and one from when you last entered a settlement.")
+	col.add_child(Page.note("The game also keeps a save from just before each battle, and one from when you last entered a settlement.", Style.SMALL))
 	if GameState.has_campaign():
 		col.add_child(_now_card())
 	var mine := SaveSlots.own()
+	# How many of your own there are, said once.
 	var head := HBoxContainer.new()
 	var title := Widgets.section("Your saves")
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
-	head.add_child(Style.label("%d of %d" % [mine.size(), SaveSlots.MAX_OWN], Style.SMALL, Style.MUTED))
+	var count := Style.label("%d of %d" % [mine.size(), SaveSlots.MAX_OWN], Style.SMALL, Style.MUTED)
+	count.name = "SpacesLeft"
+	head.add_child(count)
 	col.add_child(head)
 	for e in mine:
 		col.add_child(_row(e))
-	if SaveSlots.spaces_left() > 0:
-		var empty := Page.note("%d more space%s for saves of your own" % [SaveSlots.spaces_left(), "" if SaveSlots.spaces_left() == 1 else "s"], Style.SMALL)
-		empty.name = "SpacesLeft"
-		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		col.add_child(empty)
 	var kept := SaveSlots.automatic()
 	if not kept.is_empty():
 		col.add_child(Widgets.section("Kept for you"))
 		for e in kept:
 			col.add_child(_row(e))
-	col.add_child(Page.button("Back", _back))
+	add_child(bar)
 
 
 # ---------------------------------------------------------------- right now
@@ -87,10 +95,15 @@ func _now_card() -> Control:
 		words.offset_bottom = -10
 		words.add_theme_constant_override("separation", 0)
 		pic.add_child(words)
-		words.add_child(Style.label("RIGHT NOW", 18, Style.BRASS))
-		words.add_child(_display("Day %d · near %s" % [int(s["day"]), s["place_name"]], 34))
+		words.add_child(Style.label("RIGHT NOW", Style.SMALL, Style.BRASS))
+		words.add_child(_display(String(s["place_name"]), 34))
 	else:
-		v.add_child(Style.label("RIGHT NOW · Day %d · near %s" % [int(s["day"]), s["place_name"]], Style.BODY, Style.BRASS))
+		var plain := HBoxContainer.new()
+		plain.add_theme_constant_override("separation", 16)
+		var rn := Style.label("RIGHT NOW", Style.SMALL, Style.BRASS)
+		plain.add_child(rn)
+		plain.add_child(Widgets.icon_value("mappin", String(s["place_name"]), Style.TEXT, Style.BODY))
+		v.add_child(plain)
 	var body := MarginContainer.new()
 	for side in ["left", "right"]:
 		body.add_theme_constant_override("margin_" + side, 20)
@@ -98,35 +111,23 @@ func _now_card() -> Control:
 	var bv := VBoxContainer.new()
 	bv.add_theme_constant_override("separation", 14)
 	body.add_child(bv)
-	bv.add_child(Widgets.chip_row([_stat("men", str(int(s["men"]))), _stat("silver", str(int(s["silver"]))),
-		_stat("food", "%dd" % int(s["food"])), _stat("renown", str(int(s["renown"])))]))
+	# The day, then the four numbers as Home shows them.
+	bv.add_child(Widgets.icon_value("day", str(int(s["day"])), Style.TEXT, Style.BODY))
+	bv.add_child(Widgets.tile_grid([
+		Widgets.tile("men", str(int(s["men"])), ""),
+		Widgets.tile("silver", Widgets.thousands(int(s["silver"])), ""),
+		Widgets.tile("food", str(int(s["food"])), "days"),
+		Widgets.tile("renown", str(int(s["renown"])), ""),
+	], 4))
 	var save := Page.button("Save here", _on_save_here, true)
 	save.name = "SaveHere"
 	if SaveSlots.spaces_left() == 0:
 		save.disabled = true
-		save.text = "All %d spaces are used" % SaveSlots.MAX_OWN
 		bv.add_child(save)
-		bv.add_child(Page.note("Tap ⋯ on one of your saves to save over it, or delete one.", Style.SMALL))
+		bv.add_child(Page.note("Every space is used. Open one of your saves to save over it or delete it.", Style.SMALL))
 	else:
 		bv.add_child(save)
 	return card
-
-
-## A rounded chip with an icon and a number.
-func _stat(icon: String, value: String) -> Control:
-	var panel := PanelContainer.new()
-	var sb := Style.box(Style.RAISED, Style.RULE, 2, 40)
-	sb.content_margin_left = 12
-	sb.content_margin_right = 16
-	sb.content_margin_top = 4
-	sb.content_margin_bottom = 4
-	panel.add_theme_stylebox_override("panel", sb)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
-	panel.add_child(h)
-	h.add_child(Widgets.icon_rect(icon, 28.0))
-	h.add_child(Style.label(value, Style.SMALL, Style.TEXT))
-	return panel
 
 
 func _on_save_here() -> void:
@@ -164,10 +165,11 @@ func _row(e: Dictionary) -> Control:
 		pic.custom_minimum_size = Vector2(226, 104)
 		pic.size_flags_horizontal = 0
 		row.add_child(pic)
-		var day := Style.label(" Day %d " % int(s["day"]), 18, Style.TEXT)
-		day.position = Vector2(8, 70)
-		var tag := Style.box(Color(0.04, 0.05, 0.1, 0.85), Color(0, 0, 0, 0), 0, 8)
-		day.add_theme_stylebox_override("normal", tag)
+		var day := PanelContainer.new()
+		day.add_theme_stylebox_override("panel", Style.box(Color(0.04, 0.05, 0.1, 0.85), Color(0, 0, 0, 0), 0, 8))
+		day.position = Vector2(8, 64)
+		day.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		day.add_child(Widgets.icon_value("day", str(int(s["day"]))))
 		pic.add_child(day)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -186,42 +188,32 @@ func _row(e: Dictionary) -> Control:
 	line.add_child(name)
 	if kind != SaveSlots.OWN:
 		line.add_child(_tag(kind))
-	var where := "%s · %02d:00 · %s" % [s["place_name"], int(s["hour"]) % 24, SaveSlots.when(float(e["saved"]))]
-	var wl := Style.label(where, 20, Style.MUTED)
+	var where := "%s · %s" % [s["place_name"], SaveSlots.when(float(e["saved"]))]
+	var wl := Style.label(where, Style.SMALL, Style.MUTED)
 	wl.clip_text = true
 	wl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	words.add_child(wl)
-	var meta := HBoxContainer.new()
-	meta.add_theme_constant_override("separation", 6)
+	var meta := HFlowContainer.new()
+	meta.add_theme_constant_override("h_separation", 14)
+	meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	words.add_child(meta)
-	for pair in [["men", s["men"]], ["silver", s["silver"]], ["renown", s["renown"]]]:
-		meta.add_child(Widgets.icon_rect(String(pair[0]), 24.0))
-		var n := Style.label(str(int(pair[1])) + "  ", 20, Style.TEXT)
-		meta.add_child(n)
+	# The day sits on the picture; with no picture it leads the numbers.
+	if not (Style.illustrations_on() and not scene.is_empty()):
+		meta.add_child(Widgets.icon_value("day", str(int(s["day"]))))
+	for pair in [["men", s["men"]], ["silver", s["silver"]], ["food", s.get("food", 0)], ["renown", s["renown"]]]:
+		meta.add_child(Widgets.icon_value(String(pair[0]), Widgets.thousands(int(pair[1]))))
 	if kind == SaveSlots.OWN:
-		var more := Button.new()
-		more.name = "More"
-		more.text = "⋯"
+		var more := Widgets.icon_button("menu", _options.bind(e), "Rename, save over or delete", "More")
 		more.flat = true
-		more.custom_minimum_size = Vector2(64, 64)
-		more.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		more.add_theme_font_size_override("font_size", 34)
-		more.pressed.connect(_options.bind(e))
 		row.add_child(more)
 	return b
 
 
 func _tag(kind: String) -> Control:
 	var t: Array = TAGS.get(kind, TAGS["own"])
-	var l := Style.label(String(t[0]).to_upper(), 16, t[2])
-	var box := Style.box(t[1], Color(0, 0, 0, 0), 0, 8)
-	box.content_margin_left = 10
-	box.content_margin_right = 10
-	box.content_margin_top = 2
-	box.content_margin_bottom = 2
-	l.add_theme_stylebox_override("normal", box)
-	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	return l
+	var c := Widgets.chip(String(t[0]), t[2], "", String(t[3]))
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return c
 
 
 func _display(text: String, size: int) -> Label:
@@ -237,56 +229,30 @@ func _display(text: String, size: int) -> Label:
 # ---------------------------------------------------------------- sheets
 
 ## A sheet over the list, from the bottom; tapping the dimmed list closes it.
-func _sheet(sheet_name: String) -> VBoxContainer:
+func _sheet(sheet_name: String, title: String) -> VBoxContainer:
 	_close_sheet()
-	_overlay = Control.new()
-	_overlay.name = sheet_name
-	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(_overlay)
-	var dim := ColorRect.new()
-	dim.color = Color(0.02, 0.03, 0.05, 0.66)
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.gui_input.connect(func(ev: InputEvent):
-		if ev is InputEventMouseButton and ev.pressed:
-			_close_sheet())
-	_overlay.add_child(dim)
-	var stack := VBoxContainer.new()
-	stack.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_overlay.add_child(stack)
-	var gap := Control.new()
-	gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stack.add_child(gap)
-	var panel := PanelContainer.new()
-	var sb := Style.box(Style.PANEL, Style.RULE, 2, 36)
-	sb.corner_radius_bottom_left = 0
-	sb.corner_radius_bottom_right = 0
-	sb.content_margin_left = 32
-	sb.content_margin_right = 32
-	sb.content_margin_top = 26
-	sb.content_margin_bottom = 30 + Style.safe_insets(get_viewport())["bottom"]
-	panel.add_theme_stylebox_override("panel", sb)
-	stack.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 16)
-	panel.add_child(v)
-	if not Style.motion_reduced():
-		Style.ease_in(panel)
+	var v := Widgets.sheet(self, title, sheet_name, func():
+		_delete_armed = false
+		_overlay = null)
+	_overlay = get_node(sheet_name)
 	return v
 
 
 func _close_sheet() -> void:
 	_delete_armed = false
-	if _overlay != null:
-		_overlay.queue_free()
+	if _overlay != null and is_instance_valid(_overlay):
+		var o := _overlay
 		_overlay = null
+		Widgets.close_sheet(o)
+		# Gone at once, so a new sheet can take its name.
+		if o.get_parent() == self:
+			remove_child(o)
 
 
 ## What going back to `e` undoes, then the choice.
 func _confirm(e: Dictionary) -> void:
 	var then: Dictionary = e["summary"]
-	var v := _sheet("GoBackSheet")
+	var v := _sheet("GoBackSheet", "Go back?")
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 20)
 	v.add_child(head)
@@ -300,12 +266,11 @@ func _confirm(e: Dictionary) -> void:
 	hv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hv.alignment = BoxContainer.ALIGNMENT_CENTER
 	head.add_child(hv)
-	var t := _display("Go back to Day %d?" % int(then["day"]), 36)
-	t.add_theme_color_override("font_color", Style.BRASS)
+	var t := _display(String(e["name"]), 30)
 	t.name = "GoBackTitle"
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hv.add_child(t)
-	var sub := Style.label("%s · %s" % [e["name"], SaveSlots.when(float(e["saved"]))], 20, Style.MUTED)
+	var sub := Style.label(SaveSlots.when(float(e["saved"])), Style.SMALL, Style.MUTED)
 	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hv.add_child(sub)
 	var now := SaveSlots.summary(GameState) if GameState.has_campaign() else then
@@ -314,13 +279,14 @@ func _confirm(e: Dictionary) -> void:
 	if not diff["undone"].is_empty():
 		v.add_child(Widgets.section("Undone"))
 		for u in diff["undone"]:
-			v.add_child(_line(Widgets.icon_rect(String(UNDONE_ICONS.get(u[0], "o_back")), 30.0), String(u[1])))
+			v.add_child(_line(Widgets.icon_rect(String(UNDONE_ICONS.get(u[0], "back")), 30.0), String(u[1])))
 	if not diff["back"].is_empty():
 		v.add_child(Widgets.section("Back with you"))
 		for c in diff["back"]:
 			v.add_child(_line(CaptainArt.portrait(c["face"], Vector2(42, 54)), String(c["text"])))
-	var go := Page.button("Go back to Day %d" % int(then["day"]), _load.bind(String(e["id"])), true)
+	var go := Page.button("Go back", _load.bind(String(e["id"])), true)
 	go.name = "GoBack"
+	go.icon = Widgets.icon("revert")
 	v.add_child(go)
 	var pair := HBoxContainer.new()
 	pair.add_theme_constant_override("separation", 14)
@@ -329,7 +295,6 @@ func _confirm(e: Dictionary) -> void:
 	first.name = "SaveFirst"
 	if SaveSlots.spaces_left() == 0 or not GameState.has_campaign():
 		first.disabled = true
-		first.text = "No space to save first"
 	first.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pair.add_child(first)
 	var keep := Page.button("Keep playing", _close_sheet)
@@ -354,11 +319,15 @@ func _compare(rows: Array) -> Control:
 	grid.add_theme_constant_override("v_separation", 8)
 	panel.add_child(grid)
 	for h in ["", "NOW", "", "THEN"]:
-		grid.add_child(Style.label(h, 17, Style.MUTED))
+		grid.add_child(Style.label(h, Style.SMALL, Style.MUTED))
 	for r in rows:
-		var name := Style.label(String(r[0]), Style.SMALL, Style.MUTED)
-		name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		grid.add_child(name)
+		var key := String(ROW_ICONS.get(String(r[0]), ""))
+		if key != "":
+			var ic := Widgets.icon_rect(key, 30.0)
+			ic.tooltip_text = String(r[0])
+			grid.add_child(ic)
+		else:
+			grid.add_child(Style.label(String(r[0]), Style.SMALL, Style.MUTED))
 		var now := Style.label(String(r[1]), Style.SMALL, Style.TEXT)
 		now.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(now)
@@ -386,10 +355,7 @@ func _line(pic: Control, text: String) -> Control:
 ## Rename, save over, or delete one of your own saves.
 func _options(e: Dictionary) -> void:
 	var id := String(e["id"])
-	var v := _sheet("OptionsSheet")
-	var t := _display(String(e["name"]), 34)
-	t.add_theme_color_override("font_color", Style.BRASS)
-	v.add_child(t)
+	var v := _sheet("OptionsSheet", String(e["name"]))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	v.add_child(row)
@@ -409,12 +375,14 @@ func _options(e: Dictionary) -> void:
 	rename.custom_minimum_size = Vector2(170, Style.TOUCH)
 	row.add_child(rename)
 	field.text_submitted.connect(func(_t: String): rename.pressed.emit())
-	var over := Page.button("Save over it with where you are now", func():
+	var over := Page.button("Save over it", func():
 		SaveSlots.overwrite(GameState, id)
 		_build())
 	over.name = "Overwrite"
+	over.icon = Widgets.icon("save")
 	over.disabled = not GameState.has_campaign()
 	v.add_child(over)
+	v.add_child(Page.note("Saving over puts where you are now in its place.", Style.SMALL))
 	var del := Page.button("Delete", func(): pass)
 	del.name = "Delete"
 	del.add_theme_color_override("font_color", Style.ENEMY_LIGHT)
@@ -426,7 +394,6 @@ func _options(e: Dictionary) -> void:
 		SaveSlots.delete(id)
 		_build())
 	v.add_child(del)
-	v.add_child(Page.button("Close", _close_sheet))
 
 
 # ---------------------------------------------------------------- loading

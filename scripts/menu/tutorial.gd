@@ -3,6 +3,9 @@ extends Control
 const Page = preload("res://scripts/ui/menu_page.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const TutorialArt = preload("res://scripts/ui/tutorial_art.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
+## Room for the bottom bar under the page, above the safe area.
+const BAR_ROOM := 124.0
 const LESSONS := [
 	["Ride the Glass Sea", "Tap a settlement, then Ride there. Drag to look around; pinch or scroll to zoom. Double-tap to find your warband.", "Time passes only while you travel or wait. The campaign menu and encounters pause time so you can decide."],
 	["Keep your company supplied", "Watch silver and days of food on the map. Each day your men need wages and a ration each. Shortfalls cause desertion.", "Enter a settlement to buy food and hire recruits. Villages sell cheaper food; towns let you refill and train squads."],
@@ -21,26 +24,75 @@ func _build() -> void:
 		remove_child(child)
 		child.queue_free()
 	var lesson: Array = LESSONS[step]
-	var col := Page.column(self, "Learn to play", "Optional tutorial · %d of %d" % [step + 1, LESSONS.size()])
-	var progress := ProgressBar.new()
-	progress.max_value = LESSONS.size()
-	progress.value = step + 1
-	progress.show_percentage = false
-	progress.custom_minimum_size.y = 10
-	col.add_child(progress)
+	var insets := Style.safe_insets(get_viewport())
+	var col := Page.frame(self, BAR_ROOM + float(insets["bottom"]))
+	# The title with the way out beside it, then the lesson's place in six as pips.
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	col.add_child(head)
+	var title := Style.label("Learn to play", 52, Style.BRASS)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.add_child(title)
+	var skip := Button.new()
+	skip.name = "SkipTutorial"
+	skip.flat = true
+	skip.text = "Skip tutorial" if step == 0 else "Leave tutorial"
+	skip.custom_minimum_size = Vector2(0, Style.TOUCH)
+	skip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	skip.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	skip.add_theme_color_override("font_color", Style.MUTED)
+	skip.pressed.connect(_leave)
+	head.add_child(skip)
+	col.add_child(_pips())
 	if Style.illustrations_on():
 		col.add_child(TutorialArt.make(step))
 	col.add_child(Page.note(String(lesson[0]), 38, Style.TEXT))
 	col.add_child(Page.note(String(lesson[1]), Style.BODY, Style.TEXT))
 	col.add_child(Page.note(String(lesson[2])))
-	var next := Page.button("Finish tutorial" if step == LESSONS.size() - 1 else "Next", _next, true)
-	col.add_child(next)
+	var buttons := []
 	if step > 0:
-		col.add_child(Page.button("Previous", func():
+		var prev := Widgets.back_button(func():
 			step -= 1
-			_build()))
-	col.add_child(Page.button("Skip tutorial" if step == 0 else "Leave tutorial", _leave))
+			_build(), "Previous", "Previous")
+		buttons.append(prev)
+	var last := step == LESSONS.size() - 1
+	var next := Button.new()
+	next.name = "Next"
+	next.text = "Finish tutorial" if last else "Next"
+	next.icon = Widgets.icon("resume" if last else "advance")
+	next.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	Style.make_primary(next)
+	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+		next.add_theme_color_override(c, Style.BRASS_INK)
+	next.pressed.connect(_next)
+	buttons.append(next)
+	var bar := Widgets.bottom_bar(buttons, insets)
+	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	add_child(bar)
 	next.grab_focus()
+
+
+## Six pips, the ones done in brass and this one ringed.
+func _pips() -> Control:
+	var c := Control.new()
+	c.name = "Progress"
+	c.custom_minimum_size = Vector2(0, 26)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.tooltip_text = "%d of %d" % [step + 1, LESSONS.size()]
+	c.draw.connect(func():
+		for i in LESSONS.size():
+			var at := Vector2(13 + i * 34, 13)
+			if i < step:
+				c.draw_circle(at, 9, Style.BRASS)
+			elif i == step:
+				c.draw_circle(at, 9, Style.NIGHT)
+				c.draw_arc(at, 9, 0, TAU, 24, Style.BRASS, 3.0)
+			else:
+				c.draw_arc(at, 9, 0, TAU, 24, Style.RULE, 3.0))
+	return c
+
 
 func _next() -> void:
 	if step == LESSONS.size() - 1:

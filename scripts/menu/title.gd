@@ -16,10 +16,13 @@ const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
 const Opening = preload("res://scripts/menu/opening.gd")
+const NewCampaign = preload("res://scripts/menu/new_campaign.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+## The wordmark: the three banners beside the name, and the tagline.
+const WORDMARK := "res://assets/branding/wordmark.png"
 ## The light over the title's map: early morning.
 const DAWN := Color(1.0, 0.88, 0.76)
 
-var _confirmation: ConfirmationDialog
 var _new_button: Button
 var _backdrop
 var _sky: ColorRect
@@ -95,14 +98,13 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 	var campaign: bool = GameState.has_campaign()
-	var title := Style.label("Bannerfall", 80 if campaign else 92, Style.BRASS)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_constant_override("outline_size", 10)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	var title := _title(80 if campaign else 92)
 	col.add_child(title)
-	var sub := Style.label("The Glass Sea", Style.BODY, Color("d9dcea"))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(sub)
+	if title.get_node_or_null("Wordmark") == null:
+		# No wordmark to show: the name in the display face, and the sea under it.
+		var sub := Style.label("The Glass Sea", Style.BODY, Color("d9dcea"))
+		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		col.add_child(sub)
 	if campaign:
 		col.add_child(_campaign_card())
 	else:
@@ -145,6 +147,54 @@ func _build() -> void:
 		opening.setup(title)
 
 
+## The title: the wordmark, painted, over the word "Bannerfall" set clear. The opening
+## raises a copy of this label (wordmark and all) into its place, so the hand-over is
+## the same picture. With no wordmark file, the word itself shows in the display face.
+func _title(size: int) -> Label:
+	var title := Style.label("Bannerfall", size, Style.BRASS)
+	title.name = "HomeTitle"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	title.add_theme_constant_override("outline_size", 10)
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
+	var tex := _wordmark()
+	if tex == null:
+		return title
+	title.add_theme_color_override("font_color", Color(0, 0, 0, 0))
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0))
+	var mark := TextureRect.new()
+	mark.name = "Wordmark"
+	mark.texture = tex
+	mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# A little wider than the word and twice as tall, so the banners and tagline fit
+	# around it; proportional, so the opening's scaled copy carries it the same way.
+	mark.anchor_left = -0.08
+	mark.anchor_right = 1.08
+	mark.anchor_top = -0.45
+	mark.anchor_bottom = 1.45
+	title.add_child(mark)
+	return title
+
+
+static var _mark_tex: Texture2D = null
+static var _mark_tried := false
+
+
+func _wordmark() -> Texture2D:
+	if _mark_tried:
+		return _mark_tex
+	_mark_tried = true
+	if ResourceLoader.exists(WORDMARK, "Texture2D"):
+		_mark_tex = load(WORDMARK) as Texture2D
+	elif FileAccess.file_exists(WORDMARK):
+		var img := Image.load_from_file(WORDMARK)
+		if img != null and not img.is_empty():
+			_mark_tex = ImageTexture.create_from_image(img)
+	return _mark_tex
+
+
 ## A small button with an icon over its word, for the bottom row.
 func _minor(text: String, icon: String, callback: Callable) -> Button:
 	var b := Button.new()
@@ -154,7 +204,7 @@ func _minor(text: String, icon: String, callback: Callable) -> Button:
 	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
 	b.custom_minimum_size = Vector2(0, 100)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", Style.SMALL)
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
 		b.add_theme_color_override(c, Style.TEXT)
 	b.pressed.connect(callback)
@@ -180,7 +230,13 @@ func _campaign_card() -> PanelContainer:
 	hero.custom_minimum_size = Vector2(0, 230)
 	hero.clip_contents = true
 	v.add_child(hero)
-	var camp := StoryArt.location("company_camp", 230)
+	# Where the company is: the settlement it's at, as Saves paints it; on the road, the camp.
+	var here := String(w.player().node) if w != null and w.player() != null else ""
+	var camp: Control
+	if WorldData.SETTLEMENTS.has(here):
+		camp = SettlementVista.make(here, w, 230.0)
+	else:
+		camp = StoryArt.location("company_camp", 230)
 	camp.name = "HomeCampIllustration"
 	camp.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hero.add_child(camp)
@@ -217,7 +273,7 @@ func _campaign_card() -> PanelContainer:
 		nm.add_theme_font_override("font", big)
 	names.add_child(nm)
 	if GameState.company_title != "" and Achievements.DEEDS.has(GameState.company_title):
-		names.add_child(Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], 21, Color("f3cf7a")))
+		names.add_child(Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], Style.SMALL, Color("f3cf7a")))
 	var body := MarginContainer.new()
 	for side in ["left", "right"]:
 		body.add_theme_constant_override("margin_" + side, 22)
@@ -228,23 +284,30 @@ func _campaign_card() -> PanelContainer:
 	bv.add_theme_constant_override("separation", 16)
 	body.add_child(bv)
 	var h := int(w.hour)
-	var where := String(WorldData.settlement(w.player().node)["name"])
-	var line := Style.label("Day %d · %02d:00 · near %s" % [h / 24 + 1, h % 24, where], Style.SMALL, Style.MUTED)
+	var where := String(WorldData.settlement(w.player().node)["name"]) if WorldData.SETTLEMENTS.has(here) else "the road"
+	var line := HBoxContainer.new()
 	line.name = "WhereWhen"
+	line.add_theme_constant_override("separation", 18)
+	line.add_child(Widgets.icon_value("day", str(h / 24 + 1), Style.MUTED))
+	line.add_child(Widgets.icon_value("sun" if h % 24 >= 6 and h % 24 < 19 else "moon", "%02d:00" % (h % 24), Style.MUTED))
+	line.add_child(Widgets.icon_value("mappin", where, Style.MUTED))
 	bv.add_child(line)
-	var tiles := HBoxContainer.new()
-	tiles.add_theme_constant_override("separation", 10)
+	# The four numbers, the same way Saves shows them: an icon and the number.
+	var tiles := Widgets.tile_grid([
+		Widgets.tile("men", str(GameState.total_men()), ""),
+		Widgets.tile("silver", Widgets.thousands(GameState.silver), ""),
+		Widgets.tile("food", str(GameState.food_days()), "days"),
+		Widgets.tile("renown", str(GameState.renown), ""),
+	], 4)
+	tiles.name = "HomeTiles"
+	tiles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bv.add_child(tiles)
-	tiles.add_child(_tile("men", str(GameState.total_men()), "men"))
-	tiles.add_child(_tile("silver", Widgets.thousands(GameState.silver), "silver"))
-	tiles.add_child(_tile("food", "%dd" % GameState.food_days(), "food"))
-	tiles.add_child(_tile("renown", str(GameState.renown), "renown"))
 	var faces := _faces()
 	if faces != null:
 		bv.add_child(faces)
 	var waiting := _waiting()
 	if not waiting.is_empty():
-		bv.add_child(Style.label("WAITING FOR YOU", 19, Style.MUTED))
+		bv.add_child(Widgets.section("Waiting for you"))
 		for r in waiting:
 			bv.add_child(r)
 	var go := Button.new()
@@ -257,12 +320,28 @@ func _campaign_card() -> PanelContainer:
 	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
 		go.add_theme_color_override(c, Style.BRASS_INK)
 	go.pressed.connect(_on_continue)
+	# The next step rides with Continue, which is what takes you there.
+	var rec: Dictionary = GameState.recommendation()
+	if not rec.is_empty():
+		var next := HBoxContainer.new()
+		next.name = "NextStepPanel"
+		next.add_theme_constant_override("separation", 10)
+		var ic := Widgets.icon_rect("objective", 28.0)
+		ic.modulate = Color("d8cdfa")
+		next.add_child(ic)
+		var nl := Style.label("Next step: %s" % String(rec.get("title", "Carry on")), Style.SMALL, Color("d8cdfa"))
+		nl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		nl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nl.custom_minimum_size.x = 10
+		nl.tooltip_text = String(rec.get("body", ""))
+		next.add_child(nl)
+		bv.add_child(next)
 	bv.add_child(go)
 	go.grab_focus.call_deferred()
 	# Your other saves, under Continue. Ironman has only the one.
 	var saves := SaveSlots.list().size()
 	if GameState.ironman:
-		var iron := Style.label("Ironman · saved as you go", 19, Style.MUTED)
+		var iron := Style.label("Ironman · saved as you go", Style.SMALL, Style.MUTED)
 		iron.name = "IronmanNote"
 		iron.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		bv.add_child(iron)
@@ -270,33 +349,14 @@ func _campaign_card() -> PanelContainer:
 		var load := Button.new()
 		load.name = "LoadSave"
 		load.text = "Load a save · %d" % saves
-		load.custom_minimum_size = Vector2(0, 84)
+		load.icon = Widgets.icon("saves")
+		load.add_theme_constant_override("icon_max_width", 32)
+		load.custom_minimum_size = Vector2(0, Style.TOUCH)
 		load.pressed.connect(func():
 			Scenes.saves_return = "res://scenes/title.tscn"
 			Scenes.go("res://scenes/saves.tscn"))
 		bv.add_child(load)
 	return card
-
-
-func _tile(icon: String, value: String, caption: String) -> PanelContainer:
-	var t := PanelContainer.new()
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var sb := Style.box(Style.RAISED, Style.RULE, 1, 14)
-	sb.content_margin_left = 10
-	sb.content_margin_right = 6
-	sb.content_margin_top = 8
-	sb.content_margin_bottom = 8
-	t.add_theme_stylebox_override("panel", sb)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	t.add_child(row)
-	row.add_child(Widgets.icon_rect(icon, 34.0))
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", -4)
-	row.add_child(v)
-	v.add_child(Style.label(value, 30, Style.TEXT))
-	v.add_child(Style.label(caption, 16, Style.MUTED))
-	return t
 
 
 ## Your captains' faces in a row, and their names.
@@ -334,7 +394,7 @@ func _faces() -> Control:
 	for c in caps:
 		first.append(String(c.get("first", "")))
 	var list := ", ".join(first.slice(0, first.size() - 1)) + " and " + first[first.size() - 1] if first.size() > 1 else first[0]
-	var l := Style.label(list, 20, Style.MUTED)
+	var l := Style.label(list, Style.SMALL, Style.MUTED)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -365,7 +425,7 @@ func _waiting() -> Array:
 	if not c.is_empty() and int(c.get("days_left", 0)) > 0 and WorldData.FACTIONS.has(String(c.get("realm", ""))):
 		var realm := String(WorldData.FACTIONS[c["realm"]]["name"])
 		rows.append(_wait_row("WaitContract", "keep", Color("22385e"), Color("bfe0ff"), "Contract with %s" % realm,
-			"%d days left · %d silver a day" % [int(c["days_left"]), int(c.get("daily_pay", 0))], _open_warband.bind("deeds")))
+			"%s left · +%d silver a day" % [Style.time_short(int(c["days_left"]) * 24.0), int(c.get("daily_pay", 0))], _open_warband.bind("deeds")))
 	var hurt := ""
 	var hurt_sub := ""
 	var men := 0
@@ -380,12 +440,7 @@ func _waiting() -> Array:
 		hurt = "%d men are wounded" % men
 		hurt_sub = "healing in camp"
 	if hurt != "":
-		rows.append(_wait_row("WaitWounded", "plus", Color("3a1d1d"), Color("ffb3a0"), hurt, hurt_sub, _open_warband.bind("companies")))
-	var rec: Dictionary = GameState.recommendation()
-	if not rec.is_empty():
-		var r := _wait_row("NextStepPanel", "renown", Color("3a3156"), Color("d8cdfa"), String(rec.get("title", "Carry on")),
-			"Next step · " + String(rec.get("body", "")), _on_continue)
-		rows.append(r)
+		rows.append(_wait_row("WaitWounded", "wounded", Color("3a1d1d"), Color("ffb3a0"), hurt, hurt_sub, _open_warband.bind("companies")))
 	return rows
 
 
@@ -428,16 +483,16 @@ func _wait_row(name: String, icon: String, bg: Color, fg: Color, head: String, s
 	words.add_theme_constant_override("separation", 0)
 	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(words)
-	var h := Style.label(head, 22, Style.TEXT)
+	var h := Style.label(head, Style.SMALL, Style.TEXT)
 	h.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	h.custom_minimum_size.x = 10
 	words.add_child(h)
-	var s := Style.label(sub, 18, Style.MUTED)
+	var s := Style.label(sub, Style.SMALL, Style.MUTED)
 	s.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	s.custom_minimum_size.x = 10
 	words.add_child(s)
-	var arrow := Style.label("›", 34, Color("6d7699"))
-	arrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var arrow := Widgets.icon_rect("advance", 28.0)
+	arrow.modulate = Color("6d7699")
 	row.add_child(arrow)
 	return b
 
@@ -446,20 +501,32 @@ func _wait_row(name: String, icon: String, bg: Color, fg: Color, head: String, s
 
 func _build_first_time(col: VBoxContainer) -> void:
 	var gap := Control.new()
-	gap.custom_minimum_size.y = 90
+	gap.custom_minimum_size.y = 40
 	col.add_child(gap)
 	var lead := Style.label("Build a company. Lead the battle.\nMake your name.", Style.BODY, Color("d9dcea"))
 	lead.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(lead)
-	var hd := Style.label("BEGIN YOUR COMPANY", 19, Style.MUTED)
+	var hd := Widgets.section("Begin your company")
 	hd.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(hd)
+	# The same card New campaign shows, tappable as a whole to pick it.
 	for c in Cultures.ORDER:
-		col.add_child(_people_card(c))
+		var card := NewCampaign.people_card(c, 150.0)
+		var tap := Button.new()
+		tap.name = "People_%s" % c
+		tap.toggle_mode = true
+		tap.tooltip_text = String(Cultures.info(c)["people"])
+		var clear := StyleBoxEmpty.new()
+		for st in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+			tap.add_theme_stylebox_override(st, clear)
+		tap.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Color(Style.BRASS, 0.6), 2, 20))
+		tap.pressed.connect(_pick_people.bind(c))
+		card.add_child(tap)
+		col.add_child(card)
 	_new_button = Button.new()
 	_new_button.name = "BeginButton"
 	_new_button.custom_minimum_size = Vector2(0, 104)
-	_new_button.add_theme_font_size_override("font_size", 32)
+	_new_button.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE))
 	Style.make_primary(_new_button)
 	_new_button.pressed.connect(_on_new)
 	col.add_child(_new_button)
@@ -467,76 +534,16 @@ func _build_first_time(col: VBoxContainer) -> void:
 	_new_button.grab_focus.call_deferred()
 
 
-const STRENGTHS := {
-	"vardish": ["Shield walls", "Crossbows", "Knights"],
-	"kharzani": ["Horse archers", "Javelins", "Fast"],
-	"ryumon": ["Longbows", "Spear blocks", "Samurai"],
-}
-
-
-func _people_card(culture: String) -> Button:
-	var info := Cultures.info(culture)
-	var b := Button.new()
-	b.name = "People_%s" % culture
-	b.toggle_mode = true
-	b.custom_minimum_size = Vector2(0, 210)
-	b.pressed.connect(_pick_people.bind(culture))
-	var row := HBoxContainer.new()
-	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row.offset_left = 20
-	row.offset_right = -20
-	row.add_theme_constant_override("separation", 20)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	b.add_child(row)
-	var flag := Control.new()
-	flag.custom_minimum_size = Vector2(84, 120)
-	flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	flag.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	flag.draw.connect(func(): Heraldry.realm_banner(flag, Heraldry.realm_of_culture(culture), Rect2(Vector2.ZERO, flag.size)))
-	row.add_child(flag)
-	var v := VBoxContainer.new()
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	v.add_theme_constant_override("separation", 2)
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(v)
-	var nm := Style.label(String(info["people"]), 36, Style.TEXT)
-	var big: Font = Style.display_font()
-	if big != null:
-		nm.add_theme_font_override("font", big)
-	v.add_child(nm)
-	v.add_child(Style.label(String(info["realm"]), 19, Style.BRASS))
-	var bl := Style.label(String(info["blurb"]), 19, Color("c9cfdf"))
-	bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(bl)
-	var chips := HFlowContainer.new()
-	chips.add_theme_constant_override("h_separation", 6)
-	chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(chips)
-	for s in STRENGTHS.get(culture, []):
-		var chip := PanelContainer.new()
-		var cs := Style.box(Color("262c40"), Color("3a425e"), 1, 12)
-		cs.content_margin_left = 10
-		cs.content_margin_right = 10
-		chip.add_theme_stylebox_override("panel", cs)
-		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		chip.add_child(Style.label(String(s), 16, Color("c9cfdf")))
-		chips.add_child(chip)
-	return b
-
-
 ## Picks a people on the first screen: its card lights up and the big button names it.
 func _pick_people(culture: String) -> void:
 	_picked = culture
 	for c in Cultures.ORDER:
-		var card := find_child("People_%s" % c, true, false) as Button
-		if card == null:
+		var tap := find_child("People_%s" % c, true, false) as Button
+		if tap == null:
 			continue
 		var on: bool = c == culture
-		card.button_pressed = on
-		var sb := Style.box(Color(Style.PANEL, 0.96), Style.BRASS if on else Style.RULE, 3 if on else 1, 22)
-		for st in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
-			card.add_theme_stylebox_override(st, sb)
+		tap.button_pressed = on
+		NewCampaign.light_card(tap.get_parent() as PanelContainer, on)
 	if _new_button != null:
 		_new_button.text = "Begin as the %s" % Cultures.info(culture)["people"]
 
@@ -555,15 +562,6 @@ func _point_backdrop() -> void:
 	_backdrop.point_camera(center, vs.x / 560.0, vs * 0.5, vs, [_sky])
 
 
-func _button(text: String, callback: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.custom_minimum_size = Vector2(0, 92)
-	b.add_theme_font_size_override("font_size", Style.LARGE)
-	b.pressed.connect(callback)
-	return b
-
-
 func _on_continue() -> void:
 	Scenes.go("res://scenes/world_map.tscn")
 
@@ -574,13 +572,20 @@ func _on_new() -> void:
 		Scenes.new_campaign_pick = _picked
 		Scenes.go("res://scenes/new_campaign.tscn")
 		return
-	if _confirmation == null:
-		_confirmation = ConfirmationDialog.new()
-		_confirmation.title = "Start a new campaign?"
-		_confirmation.dialog_text = "Choosing a people will replace your saved campaign.\nYour current progress will be lost."
-		_confirmation.ok_button_text = "Choose a new people"
-		_confirmation.cancel_button_text = "Keep my campaign"
-		_confirmation.confirmed.connect(func(): Scenes.go("res://scenes/new_campaign.tscn"))
-		add_child(_confirmation)
-	_confirmation.popup_centered(Vector2i(620, 260))
-	_confirmation.get_cancel_button().grab_focus()
+	if has_node("NewCampaignSheet"):
+		return
+	var col := Widgets.sheet(self, "Start again?", "NewCampaignSheet")
+	col.add_child(Page.note("Choosing a people replaces your saved campaign. Its progress will be lost."))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	col.add_child(row)
+	var replace := Page.button("Choose a new people", func(): Scenes.go("res://scenes/new_campaign.tscn"))
+	replace.name = "ReplaceCampaign"
+	replace.add_theme_color_override("font_color", Style.ENEMY_LIGHT)
+	replace.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(replace)
+	var keep := Page.button("Keep my campaign", func(): Widgets.close_sheet(col), true)
+	keep.name = "KeepCampaign"
+	keep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(keep)
+	keep.grab_focus.call_deferred()
