@@ -168,6 +168,19 @@ const DANCE_MEMORY := {
 	"kaede": "You danced with Kaede on the tatami. The book was wrong about the third step.",
 }
 
+## Each dance kept as itself: the first, the second, the third (then round again).
+const DANCE_MEMORIES := {
+	"edda": ["You danced the midsummer reel with Edda. Nobody's feet were harmed. Mostly.",
+		"A second reel with Edda. You had learned the turn; she pretended not to notice.",
+		"You danced with Edda until the fiddlers stopped, and the hall went quiet around you."],
+	"farid": ["You danced with Farah under the lanterns, and she stopped pretending.",
+		"Farah led the slow one under the arches, and you let her.",
+		"The musicians played the slow one twice for you and Farah. Someone had paid them."],
+	"kaede": ["You danced with Kaede on the tatami. The book was wrong about the third step.",
+		"A second dance with Kaede. You bowed correctly; she laughed anyway.",
+		"You danced with Kaede, and for once she didn't write it down."],
+}
+
 ## A lord you ask, by bearing.
 const DANCE_LORD_LINES := {
 	Lords.CAUTIOUS: "\"I don't usually. But I suppose one can't hurt.\" They dance carefully, and well.",

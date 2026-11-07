@@ -2654,6 +2654,8 @@ func _watch_letters(delta: float) -> void:
 	if _sheet == "talk":
 		letter_banner.visible = false
 		return
+	# Married or sworn, she writes when something happens to you (once per thing).
+	world.social.married_life_check(GameState.battles, GameState.last_result, GameState.fallen, world.hour)
 	var fresh: Array = world.social.take_unannounced()
 	if not fresh.is_empty() and not autoplay:
 		_show_letter_banner(fresh[fresh.size() - 1])

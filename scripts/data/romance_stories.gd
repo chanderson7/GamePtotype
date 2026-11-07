@@ -33,7 +33,7 @@ const CANDIDATES := {
 		"project": "Fund a depleted force and negotiate a defensive commitment",
 		"interests": ["village records", "local accounts", "border protection"],
 		"boundaries": ["opposes reckless raids", "demands kept promises"],
-		"blurb": "A resolute steward overseeing the border villages of House Caldmoor. Pragmatic, thoughtful, and determined to keep war from crushing her people."
+		"blurb": "A resolute steward overseeing the border villages of the Ravensford household. Pragmatic, thoughtful, and determined to keep war from crushing her people."
 	},
 	FARAH: {
 		"id": FARAH,
@@ -93,7 +93,7 @@ const EDDA_STORY := {
 				{"id": "offer_help", "intent": "friendship", "text": "I came to offer my sword to your cause. As a friend.", "tag": "as a friend", "face": "warm",
 					"response": "She gives a firm nod.\n\nEdda: A steadfast friend is worth ten sworn knights. You're welcome at my table.",
 					"memory": "The day I offered Edda my friendship."},
-				{"id": "another_time", "intent": "none", "text": "We'll speak another time, steward.", "tag": "leave it there", "face": "neutral",
+				{"id": "another_time", "intent": "none", "text": "We'll speak another time, steward.", "tag": "nothing decided yet", "face": "neutral",
 					"response": "Edda: Fair roads and good hunting, captain.", "memory": "A first word with Edda, and nothing promised."}
 			],
 			"reward_key": "edda_ch1_intro",
@@ -129,9 +129,11 @@ const EDDA_STORY := {
 					"response": "Your coin raises sturdy recruits to guard the homes. Edda watches the new muster take its posts.\n\nEdda: I'll see every one of them fed. You've my word on that, which I give rarely.",
 					"memory": "The muster I paid for, standing watch over the villages."},
 				{"id": "defend_district", "name": "Defend the Valley", "text": "We'll hold the valley ourselves.", "tag": "your company guards Ravensford's roads", "face": "warm",
+					"promise": "Edda: Then the valley roads are yours until the raiders are gone. Thornwall first; they always come for Thornwall first.",
 					"response": "Your warband drives the raiders off. The villagers meet Edda on the road with bread and blessings for the company.\n\nEdda: They'll tell this one at the hearth for years, and they'll get your name wrong. I won't.",
 					"memory": "The day the company held the valley."},
 				{"id": "correspondence", "name": "Broker an Accord", "text": "Give me the letters. I ride tonight.", "tag": "carry word to the allied houses", "face": "amused",
+					"promise": "She presses the sealed letters into your hand, the wax still soft.\n\nEdda: One reply from each house. Don't let anyone talk you into carrying a fourth.",
 					"response": "You deliver the dispatch intact and bring back pledges of grain and defence, without a drop of blood spilt.\n\nEdda: Three houses agreeing on paper. I'd have bet the ledgers against it.",
 					"memory": "The letters I carried, and the pledges that came back."}
 			],
@@ -186,18 +188,22 @@ const EDDA_STORY := {
 			"final_trust": 10
 		}
 	},
+	# After the wedding or the pact: one more matter, told as a sixth chapter. Each answer
+	# raises her house's standing once (standing_gain) and is kept as a memory.
 	"post_project": {
 		"id": "empty_chairs",
 		"title": "The Empty Chairs",
-		"text": "Two household captains dispute the blame for an outpost lost in the border skirmishes. Edda asks if you will help bring them to a common table.",
+		"face": "thoughtful",
+		"text": "Two household captains dispute the blame for an outpost lost in the border skirmishes. Neither will sit at the same table as the other, and the hall has two empty chairs at every supper.\n\nEdda: They'll both listen to you. Neither of them listens to me, which they'll regret at the next harvest count.",
 		"choices": [
-			{
-				"id": "mediate",
-				"text": "Convene both captains, hear their accounts, and draft a mutual patrol division.",
-				"response": "The dispute is laid to rest with honor intact. Both captains pledge mutual vigilance.",
-				"reward_key": "edda_post_empty_chairs",
-				"standing_gain": 5
-			}
+			{"id": "mediate", "text": "Sit them down together. I'll hear both accounts and draw the patrols up between them.", "tag": "a common table", "face": "warm",
+				"response": "You hear both captains out, one after the other and then together, and draft a patrol division neither can call the other's. The dispute is laid to rest with honour intact.\n\nEdda: Two chairs, filled. I'm putting that in the ledger in red, so it stands out.",
+				"reward_key": "edda_post_empty_chairs", "standing_gain": 5,
+				"memory": "The night I brought the household's captains back to one table."},
+			{"id": "sergeant", "text": "Put my sergeant between them for a season. He's outlasted worse.", "tag": "lend them your sergeant", "face": "amused",
+				"response": "Your sergeant rides the patrols for a month and reports that both captains are equally useless, in the same words, to both of them. They stop blaming each other and start blaming him.\n\nEdda: United against your sergeant. I'll take it.",
+				"reward_key": "edda_post_empty_chairs", "standing_gain": 5,
+				"memory": "The month my sergeant rode the household's patrols."}
 		]
 	}
 }
@@ -223,7 +229,7 @@ const FARAH_STORY := {
 				{"id": "offer_help", "intent": "friendship", "text": "I'd rather be a friend you can trust than another obligation.", "tag": "as a friend", "face": "warm",
 					"response": "Farah: That is a welcome distinction. You may find a place at my table without bringing a petition.",
 					"memory": "The day I offered Farah my friendship."},
-				{"id": "another_time", "intent": "none", "text": "We'll speak when the road brings me back.", "tag": "leave it there", "face": "neutral",
+				{"id": "another_time", "intent": "none", "text": "We'll speak when the road brings me back.", "tag": "nothing decided yet", "face": "neutral",
 					"response": "Farah: Then I hope it is a kinder road next time.", "memory": "A first audience with Farah, and nothing promised."}
 			]},
 		2: {"title": "The Address People Use", "face": "amused",
@@ -246,9 +252,11 @@ const FARAH_STORY := {
 					"response": "Paid under a neutral seal, the escort rides without either house claiming the other bowed.\n\nFarah: You have bought a silence both houses can live inside. That is diplomacy.",
 					"memory": "The neutral escort I paid for."},
 				{"id": "defend_district", "name": "Ride the Relief Road", "text": "My company will take the first wagons through.", "tag": "guard the crossing yourself", "face": "amused",
+					"promise": "Farah: The wagons move when you do. I have told the drovers to look for your banner, and not to sing. They sing terribly.",
 					"response": "The convoy arrives intact, which gives both delegations a fact more useful than their grievance.\n\nFarah: Grain in the market. Nobody can argue with a loaf.",
 					"memory": "The first wagons through the crossing."},
 				{"id": "correspondence", "name": "Carry Matched Letters", "text": "Write it once. I'll carry the same words to both doors.", "tag": "deliver her proposal to both houses", "face": "thoughtful",
+					"promise": "Farah writes it once, copies it once, and seals both with the same care.\n\nFarah: Identical. If either house asks what the other was offered, let them read it.",
 					"response": "Neither side can pretend the other was offered better terms. The escorts return to the road.\n\nFarah: Identical letters. I have been told it is an insult to tailor nothing. It worked.",
 					"memory": "The two identical letters I carried."}
 			]},
@@ -285,6 +293,22 @@ const FARAH_STORY := {
 					"response": "Farah: Then fair roads, captain. I meant that before, and I mean it now."}
 			],
 			"final_reward_key": "farid_ch5_final", "final_trust": 10}
+	},
+	"post_project": {
+		"id": "blank_clause",
+		"title": "The Blank Clause",
+		"face": "thoughtful",
+		"text": "The merchants want the compact renewed. Both houses want a clause naming the other as the cause of the closure. Farah has left a space on the page where the clause would go, and has not filled it.\n\nFarah: I could write something elegant there. I would rather both houses agreed to nothing at all, in writing. Help me.",
+		"choices": [
+			{"id": "mediate", "text": "Ride with me to both houses. We'll ask each for the same silence.", "tag": "ask both houses together", "face": "warm",
+				"response": "You stand beside her in two halls on two days and hear the same objection twice. Each house agrees to leave the space blank once it is certain the other will.\n\nFarah: A treaty with a hole in it. The most honest thing I have ever sealed.",
+				"reward_key": "farid_post_blank_clause", "standing_gain": 5,
+				"memory": "The clause we persuaded both houses to leave blank."},
+			{"id": "escort", "text": "My company takes the first guild caravan through, under both seals.", "tag": "escort the guild's caravan", "face": "amused",
+				"response": "The caravan arrives under two seals and one banner, yours. By the time the houses think to argue about precedence, the goods are sold.\n\nFarah: Nobody can quarrel over a market that is already open. I should have married a convoy years ago.",
+				"reward_key": "farid_post_blank_clause", "standing_gain": 5,
+				"memory": "The guild caravan that went through under both seals."}
+		]
 	}
 }
 
@@ -309,7 +333,7 @@ const KAEDE_STORY := {
 				{"id": "offer_help", "intent": "friendship", "text": "Let me help, as a friend. I don't need a place in the account.", "tag": "as a friend", "face": "warm",
 					"response": "Kaede: A friend still appears in the margins. But I accept the distinction.",
 					"memory": "The day I offered Kaede my friendship."},
-				{"id": "another_time", "intent": "none", "text": "I'll leave the archive to its work.", "tag": "leave it there", "face": "neutral",
+				{"id": "another_time", "intent": "none", "text": "I'll leave the archive to its work.", "tag": "nothing decided yet", "face": "neutral",
 					"response": "Kaede: And I will try not to finish your conclusions for you.", "memory": "A first word with Kaede, and nothing promised."}
 			]},
 		2: {"title": "A Map of Useless Places", "face": "amused",
@@ -332,9 +356,11 @@ const KAEDE_STORY := {
 					"response": "The shared watch makes cooperation a daily practice before the council gives it a grander name.\n\nKaede: They have started arguing about the rota instead of the covenant. That is progress.",
 					"memory": "The joint watch I paid for."},
 				{"id": "defend_district", "name": "Hold the Ford", "text": "My company holds the ford while they talk.", "tag": "guard the crossing yourself", "face": "warm",
+					"promise": "Kaede: Hold it until the witnesses have crossed and spoken. I will write down everything, including who arrives late.",
 					"response": "Fighting beside one another gives the rivals a new event they cannot record separately.\n\nKaede: One account, for once. Yours. I have written it down.",
 					"memory": "The day the company held the ford."},
 				{"id": "correspondence", "name": "Gather Independent Copies", "text": "Temples, ferries, households. I'll bring you every copy there is.", "tag": "carry her requests for the other copies", "face": "amused",
+					"promise": "Kaede hands you a list of every temple, ferry and household that might keep a copy, ordered by how much they will resent being asked.\n\nKaede: Start with the ferrymen. They resent nothing. They simply charge.",
 					"response": "Three incomplete copies overlap around the same promise. Kaede can finally show what none proves alone.\n\nKaede: Three liars, agreeing by accident. I could kiss the ferryman.",
 					"memory": "The three copies I gathered, which agreed by accident."}
 			]},
@@ -371,12 +397,33 @@ const KAEDE_STORY := {
 					"response": "Kaede: Then I will record it accurately. Including the good parts."}
 			],
 			"final_reward_key": "kaede_ch5_final", "final_trust": 10}
+	},
+	"post_project": {
+		"id": "third_copy",
+		"title": "The Third Copy",
+		"face": "concerned",
+		"text": "A third clan has come to Kitayama with a copy of the covenant that names them too. It may be true. It may also be a very good forgery, and the first two clans have already begun to sharpen things.\n\nKaede: I would like to be right about this before I am kind about it. Help me find out which.",
+		"choices": [
+			{"id": "mediate", "text": "Let's ask the ferrymen again. They remember who crossed.", "tag": "find the witnesses", "face": "thoughtful",
+				"response": "The oldest ferryman remembers three boats, not two, and the colour of the third one's sail. The copy is genuine, and badly kept.\n\nKaede: Three clans, then. I will need a wider page.",
+				"reward_key": "kaede_post_third_copy", "standing_gain": 5,
+				"memory": "The ferryman who remembered the third boat."},
+			{"id": "stand", "text": "Tell them what you find. I'll stand beside you while you do.", "tag": "stand with her before the clans", "face": "warm",
+				"response": "Kaede reads her finding aloud with you at her shoulder. Nobody interrupts her, which she says has never once happened.\n\nKaede: I have recorded that they listened. I may frame it.",
+				"reward_key": "kaede_post_third_copy", "standing_gain": 5,
+				"memory": "The day the clans let Kaede finish."}
+		]
 	}
 }
 
 
 static func candidate_data(id: String) -> Dictionary:
 	return CANDIDATES.get(id, {})
+
+
+## The matter after the wedding or the pact (a sixth chapter), or {}.
+static func post_project(candidate_id: String) -> Dictionary:
+	return story_data(candidate_id).get("post_project", {})
 
 
 static func story_data(candidate_id: String) -> Dictionary:

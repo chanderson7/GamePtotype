@@ -11,6 +11,20 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Economy = preload("res://scripts/data/economy.gd")
 const Letters = preload("res://scripts/data/letters.gd")
+const TalkLines = preload("res://scripts/data/romance_talk_lines.gd")
+const Jobs = preload("res://scripts/data/jobs.gd")
+
+## The chapter-1 choices that say what you mean to be to each other.
+const INTENT_CHOICES := ["know_better", "offer_help", "another_time"]
+## Chapter 3's answers that are a task to do (a journal job), not done in the telling.
+const TASK_CHOICES := ["defend_district", "correspondence"]
+## Married or sworn: she writes when something happens to you. How near a won battle has
+## to be to her seat to reach her, how long away before she writes of it, and how often
+## at most she writes such a letter.
+const LIFE_NEAR := 520.0
+const LIFE_AWAY_DAYS := 20
+const LIFE_LETTER_GAP_HOURS := 48.0
+const LIFE_LETTER_DELAY_HOURS := 6.0
 
 var personal_conversations: Dictionary = {}
 var people: Dictionary = {}
@@ -90,6 +104,8 @@ func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
 		var h := {
 			"id": house_id,
 			"name": "Household of %s" % lord_name,
+			# The family name the house is known by ("Caldmoor"), as the lord's record has it.
+			"family": String(l.get("house", "")),
 			"head_person_id": person_id,
 			"member_ids": [person_id],
 			"seat": fief if fief != "" else String(l.get("seat", "")),
@@ -337,12 +353,29 @@ func _relocate_person(person: Dictionary, new_owner: String, world_ref: RefCount
 		var old_seat: String = String(person.get("residence", ""))
 		person["residence"] = new_seat
 		person["status"] = "relocated"
-		add_memory(person["id"], "Relocated to %s following the loss of %s." % [
-			Letters.place_name(new_seat), Letters.place_name(old_seat)], {"kind": "move", "place": new_seat})
-		add_letter(person["id"], "relocation", "", world_ref.hour, new_seat, {"old": Letters.place_name(old_seat)})
+		var by_you: bool = new_owner == WorldData.CROWN
+		if by_you:
+			add_memory(person["id"], "Left %s when your company took it, and went to %s." % [
+				Letters.place_name(old_seat), Letters.place_name(new_seat)], {"kind": "move", "place": new_seat})
+		else:
+			add_memory(person["id"], "Relocated to %s following the loss of %s." % [
+				Letters.place_name(new_seat), Letters.place_name(old_seat)], {"kind": "move", "place": new_seat})
+		# Only someone you've met writes; and when it was you who took her home, she
+		# doesn't console you for it.
+		if _writes_to_you(person):
+			add_letter(person["id"], "taken_by_you" if by_you else "relocation", "", world_ref.hour, new_seat, {"old": Letters.place_name(old_seat)})
 	else:
 		person["status"] = "displaced"
 		add_memory(person["id"], "Displaced from %s." % person["residence"], {"kind": "move"})
+
+
+## Whether `person` would write to you: one of the people you court or befriend (not a
+## lord), and only once you've met.
+func _writes_to_you(person: Dictionary) -> bool:
+	var cand := String(person.get("content_id", ""))
+	if cand == "" or not relationships.has(cand):
+		return false
+	return String(relationships[cand].get("status", Relationships.UNKNOWN)) != Relationships.UNKNOWN
 
 
 # ---------------------------------------------------------------- lookups & queries
@@ -519,9 +552,51 @@ func _render_letter(l: Dictionary) -> Dictionary:
 	ctx["place"] = Letters.place_name(String(l.get("destination", "")))
 	ctx["hour"] = float(l.get("created_hour", 0.0))
 	ctx["sender"] = String(sender.get("name", "A friend"))
+	ctx["house"] = house_family(String(sender.get("house_id", "")))
 	if not ctx.has("old"):
 		ctx["old"] = "the old seat"
 	return Letters.render(String(l.get("template_key", "")), cand, is_courting(cand), ctx)
+
+
+## The family name a house is known by ("Caldmoor"): the one its lord was given, or for
+## older saves the last word of its head's name.
+func house_family(house_id: String) -> String:
+	var house: Dictionary = houses.get(house_id, {})
+	var family := String(house.get("family", ""))
+	if family != "":
+		return family
+	var head := String(people.get(String(house.get("head_person_id", "")), {}).get("name", ""))
+	var parts := head.split(" ", false)
+	return parts[parts.size() - 1] if not parts.is_empty() else ""
+
+
+## The pact you hold with the house `lord_id` heads, or {} when none is active.
+func pact_for_lord(lord_id: int) -> Dictionary:
+	for hid in houses:
+		var head: Dictionary = people.get(String(houses[hid].get("head_person_id", "")), {})
+		if int(head.get("lord_id", -1)) == lord_id and pacts.has(hid) and String(pacts[hid].get("status", "active")) == "active":
+			return pacts[hid]
+	return {}
+
+
+## A lord died and `heir_name` holds their house now: the head of the house is renamed with
+## them, the house is known by the new head, and anyone you know in it remembers.
+func on_lord_succeeded(lord_id: int, prev_name: String, heir_name: String) -> void:
+	for pid in people:
+		var p: Dictionary = people[pid]
+		if int(p.get("lord_id", -1)) != lord_id:
+			continue
+		p["name"] = heir_name
+		var hid := String(p.get("house_id", ""))
+		if not houses.has(hid):
+			continue
+		var house: Dictionary = houses[hid]
+		house["name"] = "Household of %s" % heir_name
+		house["late_head"] = prev_name
+		for mid in house.get("member_ids", []):
+			var member: Dictionary = people.get(String(mid), {})
+			if String(member.get("content_id", "")) != "" and _writes_to_you(member):
+				add_memory(String(mid), "%s died. The house is %s's now." % [prev_name, heir_name], {"kind": "note"})
 
 
 func get_letter(letter_id: String) -> Dictionary:
@@ -567,7 +642,7 @@ func reply_preview(letter_id: String, reply_id: String, from_place: String = "")
 	ctx["hour"] = _hour
 	if not ctx.has("old"):
 		ctx["old"] = "the old seat"
-	return Letters.render_reply(String(l.get("template_key", "")), reply_id, is_courting(cand), ctx)
+	return Letters.render_reply(String(l.get("template_key", "")), reply_id, is_courting(cand), ctx, cand)
 
 
 ## Send a reply to a letter (one per letter). It warms them a little, by the reply's trust.
@@ -577,7 +652,7 @@ func reply_letter(letter_id: String, reply_id: String, from_place: String = "") 
 		return {"ok": false, "reason": "No such letter."}
 	if l.has("reply"):
 		return {"ok": false, "reason": "You've already answered this letter."}
-	var r := Letters.reply(String(l.get("template_key", "")), reply_id)
+	var r := Letters.reply(String(l.get("template_key", "")), reply_id, letter_candidate(l))
 	if r.is_empty():
 		return {"ok": false, "reason": "That isn't an answer to this letter."}
 	var sent := reply_preview(letter_id, reply_id, from_place)
@@ -646,7 +721,18 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 		out["ok"] = false
 		out["reason"] = "Your wedding is already being planned."
 		return out
-	if target_ch > 0 and target_ch != current_ch:
+	# What you mean to be to each other, never said at the first audience: it can be said
+	# at the top of any later chapter (not put off again).
+	var late_intent: bool = target_ch == 1 and current_ch > 1 and choice_id in INTENT_CHOICES and intent_open(candidate_id)
+	if late_intent and choice_id == "another_time":
+		out["ok"] = false
+		out["reason"] = "Nothing to decide."
+		return out
+	if target_ch == 3 and current_ch == 3 and not task(candidate_id).is_empty():
+		out["ok"] = false
+		out["reason"] = "You've given your word already: see it done."
+		return out
+	if target_ch > 0 and target_ch != current_ch and not late_intent:
 		if target_ch < current_ch:
 			out["ok"] = false
 			out["reason"] = "Chapter %d is already completed." % target_ch
@@ -655,7 +741,7 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 			out["ok"] = false
 			out["reason"] = "Chapter %d prerequisites not yet reached." % target_ch
 			return out
-	if target_ch > 1:
+	if target_ch > 1 and not late_intent:
 		var open := chapter_open(candidate_id, float(context.get("current_hour", _hour)))
 		if not bool(open["ok"]):
 			out["ok"] = false
@@ -667,14 +753,15 @@ func preview_choice(candidate_id: String, choice_id: String, context: Dictionary
 			if choice_id in ["know_better", "offer_help", "another_time"]:
 				if not q.get("consumed_rewards", []).has("%s_ch1_intro" % reward_prefix):
 					out["trust_change"] = Relationships.TRUST_INTRO_REWARD
+				var undecided: bool = String(rel.get("status", Relationships.UNKNOWN)) in [Relationships.UNKNOWN, Relationships.ACQUAINTED]
 				if choice_id == "know_better":
 					var check := Relationships.can_court(rel, person, bool(context.get("invitations_enabled", true)), String(limits.get("current_partner_id", "")))
 					if not check["ok"]:
 						out["ok"] = false
 						out["reason"] = check["reason"]
-					else:
+					elif undecided:
 						out["new_status"] = Relationships.COURTING
-				elif choice_id == "offer_help":
+				elif String(rel.get("status", "")) == Relationships.UNKNOWN:
 					out["new_status"] = Relationships.ACQUAINTED
 		2:
 			if not q.get("consumed_rewards", []).has("%s_ch2_personal" % reward_prefix):
@@ -796,29 +883,39 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 	var candidate_name := String(person.get("name", "this person"))
 	var reward_prefix := candidate_id
 
-	# Apply trust & standing changes
-	rel["trust"] = clampi(int(rel["trust"]) + int(prev["trust_change"]), Relationships.TRUST_MIN, Relationships.TRUST_MAX)
-	house["standing"] = clampi(int(house["standing"]) + int(prev["standing_change"]), Relationships.STANDING_MIN, Relationships.STANDING_MAX)
+	# Apply trust & standing changes (a task's wait until it's done).
+	if not (target_ch == 3 and choice_id in TASK_CHOICES):
+		rel["trust"] = clampi(int(rel["trust"]) + int(prev["trust_change"]), Relationships.TRUST_MIN, Relationships.TRUST_MAX)
+		house["standing"] = clampi(int(house["standing"]) + int(prev["standing_change"]), Relationships.STANDING_MIN, Relationships.STANDING_MAX)
 
 	match target_ch:
 		1:
-			if choice_id in ["know_better", "offer_help", "another_time"]:
+			if choice_id in INTENT_CHOICES:
 				var rkey := "%s_ch1_intro" % reward_prefix
 				if not q["consumed_rewards"].has(rkey):
 					q["consumed_rewards"].append(rkey)
 					reward_claimed = true
+				var was_undecided: bool = String(rel.get("status", Relationships.UNKNOWN)) in [Relationships.UNKNOWN, Relationships.ACQUAINTED]
 				if choice_id == "know_better":
 					rel["romantic_intent"] = true
 					rel["intent_chosen"] = true
-					rel["status"] = Relationships.COURTING
+					if was_undecided:
+						rel["status"] = Relationships.COURTING
 					limits["current_partner_id"] = candidate_id
 					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Agreed to court %s." % candidate_name))
 				elif choice_id == "offer_help":
 					rel["romantic_intent"] = false
 					rel["intent_chosen"] = true
-					rel["status"] = Relationships.ACQUAINTED
+					if String(rel.get("status", "")) == Relationships.UNKNOWN:
+						rel["status"] = Relationships.ACQUAINTED
 					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Offered friendship and service to %s." % candidate_name))
-				_open_chapter(q, person, 2, float(context.get("current_hour", _hour)))
+				else:
+					# Met, and nothing decided yet: she'll ask again at the next chapter.
+					if String(rel.get("status", "")) == Relationships.UNKNOWN:
+						rel["status"] = Relationships.ACQUAINTED
+					add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Met %s, and promised nothing." % candidate_name))
+				if int(q.get("chapter", 1)) == 1:
+					_open_chapter(q, person, 2, float(context.get("current_hour", _hour)))
 		2:
 			var rkey := "%s_ch2_personal" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
@@ -827,6 +924,16 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 			_open_chapter(q, person, 3, float(context.get("current_hour", _hour)))
 			add_memory(person["id"], _choice_memory(candidate_id, choice_id, "Shared personal stories with %s." % candidate_name))
 		3:
+			if choice_id in TASK_CHOICES:
+				# Given your word, not yet done: a job in the journal; the chapter (and what
+				# it brings) completes when the job does (see complete_task).
+				q["task"] = {"choice": choice_id, "trust": int(prev["trust_change"]), "standing": int(prev["standing_change"]),
+					"made_hour": _hour, "job_id": "", "done": false}
+				q["step"] = "task"
+				_memory_info = {}
+				prev["task"] = true
+				prev["reward_claimed"] = false
+				return prev
 			var rkey := "%s_ch3_shared" % reward_prefix
 			if not q["consumed_rewards"].has(rkey):
 				q["consumed_rewards"].append(rkey)
@@ -888,10 +995,12 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 					add_memory(person["id"], "Exchanged private vows with %s, by one candle." % candidate_name,
 						{"kind": "ceremony", "private": true, "scene_id": "wedding", "candidate": candidate_id,
 						"place": String(person.get("residence", ""))})
+					q["post_opens_hour"] = _hour + Relationships.CHAPTER_GAP_HOURS
 				"friendship":
 					rel["status"] = Relationships.FRIENDSHIP
 					_form_pact(house["id"], "friendship", [person["id"], "player"], [person["residence"]], float(context.get("current_hour", 0.0)))
 					add_memory(person["id"], "Swore mutual cooperation and friendship with %s." % candidate_name)
+					q["post_opens_hour"] = _hour + Relationships.CHAPTER_GAP_HOURS
 				"remain_close":
 					rel["status"] = Relationships.COMMITTED
 				"part_respectfully":
@@ -900,6 +1009,303 @@ func apply_choice(candidate_id: String, choice_id: String, context: Dictionary) 
 	_memory_info = {}
 	prev["reward_claimed"] = reward_claimed
 	return prev
+
+
+## Whether what you mean to be to each other is still unsaid after the first audience
+## ("We'll speak another time"): then she asks again at the top of each later chapter.
+func intent_open(candidate_id: String) -> bool:
+	var rel: Dictionary = relationships.get(candidate_id, {})
+	if rel.is_empty() or bool(rel.get("intent_chosen", false)) or bool(rel.get("romantic_intent", false)):
+		return false
+	if int(quests.get("quest_%s" % candidate_id, {}).get("chapter", 1)) <= 1:
+		return false
+	return String(rel.get("status", "")) in [Relationships.UNKNOWN, Relationships.ACQUAINTED, Relationships.COMMITTED]
+
+
+# ---------------------------------------------------------------- chapter 3's task
+
+## Chapter 3's promised task, while it waits to be done: {choice, trust, standing,
+## made_hour, job_id, done}, or {}.
+func task(candidate_id: String) -> Dictionary:
+	var t: Dictionary = quests.get("quest_%s" % candidate_id, {}).get("task", {})
+	return t if not t.is_empty() and not bool(t.get("done", false)) else {}
+
+
+## The journal job for chapter 3's task, bound to her seat and her villages: hunt the band
+## nearest her (or, with no band about, bring rations to her village) to hold her roads;
+## carry her letters to the nearest house of her realm. Records the job's id on the task.
+## {} when there's no task or no job can be made.
+func story_job(candidate_id: String, world_ref) -> Dictionary:
+	var t := task(candidate_id)
+	if t.is_empty() or world_ref == null:
+		return {}
+	var person: Dictionary = get_candidate_person(candidate_id)
+	var home := String(person.get("residence", ""))
+	if not WorldData.SETTLEMENTS.has(home):
+		return {}
+	var who := String(person.get("name", "her"))
+	var hour: float = float(world_ref.hour)
+	var choice := String(t["choice"])
+	var title := String(RomanceStories.choice_data(candidate_id, choice).get("name", "A promise"))
+	var job := {"id": "story_%s_%d" % [candidate_id, int(hour)], "origin_settlement": home, "story_candidate": candidate_id,
+		"reward_silver": 0, "reward_renown": 5, "reward_relation": 0}
+	var home_pos: Vector2 = WorldData.pos(home)
+	if choice == "defend_district":
+		var best = null
+		var best_d := LIFE_NEAR
+		for b in world_ref.bands():
+			var d: float = world_ref.party_pos(b).distance_to(home_pos)
+			if d < best_d:
+				best_d = d
+				best = b
+		if best != null:
+			job["type"] = Jobs.TYPE_HUNT
+			job["title"] = "%s, for %s" % [title, who]
+			job["description"] = "%s asked you to scatter %s, who trouble the roads about %s." % [who, String(best.name), Letters.place_name(home)]
+			job["deadline"] = hour + Jobs.HUNT_DEADLINE_HOURS * 2.0
+			job["target_party_id"] = int(best.id)
+			job["target_name"] = String(best.name)
+		else:
+			# No raiders about: hold the villages through the season with bread instead.
+			var village := _village_of(home)
+			job["type"] = Jobs.TYPE_RELIEF
+			job["origin_settlement"] = village
+			job["food_needed"] = 15
+			job["title"] = "%s, for %s" % [title, who]
+			job["description"] = "%s asked you to see %s through the hard season: bring %d rations." % [who, Letters.place_name(village), 15]
+			job["deadline"] = hour + Jobs.RELIEF_DEADLINE_HOURS * 2.0
+	else:
+		var realm := String(houses.get(String(person.get("house_id", "")), {}).get("realm", ""))
+		var dest := ""
+		var dest_d := INF
+		for id in WorldData.SETTLEMENTS:
+			var kind := String(WorldData.settlement(id).get("type", ""))
+			if id == home or kind == WorldData.VILLAGE:
+				continue
+			var d2: float = WorldData.pos(id).distance_to(home_pos)
+			# Her realm's houses first; any town or castle when none are left to it.
+			if realm != "" and world_ref.owner_of(id) != realm:
+				d2 += 100000.0
+			if d2 < dest_d:
+				dest_d = d2
+				dest = id
+		if dest == "":
+			return {}
+		var travel := maxf(24.0, WorldData.pos(dest).distance_to(home_pos) / 20.0)
+		job["type"] = Jobs.TYPE_COURIER
+		job["destination_settlement"] = dest
+		job["recipient_title"] = "the house at %s" % Letters.place_name(dest)
+		job["title"] = "%s, for %s" % [title, who]
+		job["description"] = "Carry %s's letters to %s and bring back the answer." % [who, Letters.place_name(dest)]
+		job["deadline"] = hour + maxf(72.0, travel * 2.5 + 24.0)
+	t["job_id"] = String(job["id"])
+	return job
+
+
+## A village that looks to `seat` for protection, else the nearest village, else the seat.
+func _village_of(seat: String) -> String:
+	var best := seat
+	var best_d := INF
+	for id in WorldData.SETTLEMENTS:
+		var s: Dictionary = WorldData.settlement(id)
+		if String(s.get("type", "")) != WorldData.VILLAGE:
+			continue
+		var d: float = WorldData.pos(id).distance_to(WorldData.pos(seat))
+		if String(s.get("bound_to", "")) == seat:
+			d -= 100000.0
+		if d < best_d:
+			best_d = d
+			best = id
+	return best
+
+
+## The task is done (its job completed): what the chapter brings comes now, the chapter is
+## remembered, and the next one opens. Her account of it waits for your next visit.
+func complete_task(candidate_id: String, cur_hour: float) -> Dictionary:
+	var t := task(candidate_id)
+	if t.is_empty():
+		return {"ok": false, "reason": "No promise is waiting."}
+	_hour = maxf(_hour, cur_hour)
+	var q: Dictionary = quests["quest_%s" % candidate_id]
+	var rel: Dictionary = relationships[candidate_id]
+	var person: Dictionary = get_candidate_person(candidate_id)
+	var house: Dictionary = houses.get(String(person.get("house_id", "")), {})
+	var choice := String(t["choice"])
+	var rkey := "%s_ch3_shared" % candidate_id
+	var gained_trust := 0
+	var gained_standing := 0
+	if not q["consumed_rewards"].has(rkey):
+		q["consumed_rewards"].append(rkey)
+		gained_trust = int(t.get("trust", 0))
+		gained_standing = int(t.get("standing", 0))
+		rel["trust"] = clampi(int(rel["trust"]) + gained_trust, Relationships.TRUST_MIN, Relationships.TRUST_MAX)
+		if not house.is_empty():
+			house["standing"] = clampi(int(house["standing"]) + gained_standing, Relationships.STANDING_MIN, Relationships.STANDING_MAX)
+	t["done"] = true
+	q["step"] = ""
+	# Told in her words at your next visit.
+	q["untold"] = choice
+	_memory_info = {"kind": "decision", "chapter": 3, "choice": choice, "candidate": candidate_id}
+	add_memory(String(person["id"]), _choice_memory(candidate_id, choice, "Completed a shared service with %s." % String(person.get("name", ""))))
+	_memory_info = {}
+	if int(q.get("chapter", 1)) == 3:
+		_open_chapter(q, person, 4, _hour)
+	return {"ok": true, "trust_change": gained_trust, "standing_change": gained_standing, "name": String(person.get("name", ""))}
+
+
+## Her account of chapter 3's deed, once, at the first visit after it was done ("" when
+## there's none waiting). Reading it clears it.
+func take_untold(candidate_id: String) -> String:
+	var q: Dictionary = quests.get("quest_%s" % candidate_id, {})
+	var choice := String(q.get("untold", ""))
+	if choice == "":
+		return ""
+	q.erase("untold")
+	return String(RomanceStories.choice_data(candidate_id, choice).get("response", ""))
+
+
+# ---------------------------------------------------------------- her house's good word
+
+## Whether you can pay for a muster at her house's seat now, for its standing: {ok, reason,
+## silver, standing}. From the council chapter on, every few days, up to a cap in all.
+func favour_check(candidate_id: String, hour: float) -> Dictionary:
+	var out := {"ok": false, "reason": "", "silver": Relationships.FAVOUR_SILVER, "standing": Relationships.STANDING_FAVOUR}
+	var rel: Dictionary = relationships.get(candidate_id, {})
+	var person: Dictionary = get_candidate_person(candidate_id)
+	var house: Dictionary = houses.get(String(person.get("house_id", "")), {})
+	if rel.is_empty() or house.is_empty():
+		out["reason"] = "no house to help"
+		return out
+	if String(rel.get("status", "")) == Relationships.ENDED:
+		out["reason"] = "you have parted"
+		return out
+	if int(quests.get("quest_%s" % candidate_id, {}).get("chapter", 1)) < Relationships.FAVOUR_FROM_CHAPTER:
+		out["reason"] = "after the house's council"
+		return out
+	if int(house.get("favour_gained", 0)) >= Relationships.STANDING_FAVOUR_CAP:
+		out["reason"] = "the house has thanked you all it will"
+		return out
+	var next := float(house.get("favour_hour", -999.0)) + Relationships.FAVOUR_COOLDOWN_HOURS
+	if hour < next:
+		out["reason"] = "again in %d days" % ceili((next - hour) / 24.0)
+		return out
+	out["ok"] = true
+	return out
+
+
+## The muster is paid for (the silver is the caller's to take): her house's standing rises.
+func house_favour(candidate_id: String, hour: float) -> Dictionary:
+	var check := favour_check(candidate_id, hour)
+	if not bool(check["ok"]):
+		return check
+	_hour = maxf(_hour, hour)
+	var person: Dictionary = get_candidate_person(candidate_id)
+	var house: Dictionary = houses[String(person["house_id"])]
+	var gain := mini(Relationships.STANDING_FAVOUR, Relationships.STANDING_FAVOUR_CAP - int(house.get("favour_gained", 0)))
+	house["standing"] = clampi(int(house["standing"]) + gain, Relationships.STANDING_MIN, Relationships.STANDING_MAX)
+	house["favour_gained"] = int(house.get("favour_gained", 0)) + gain
+	house["favour_hour"] = hour
+	add_memory(String(person["id"]), "Paid for a muster at %s, for her house." % Letters.place_name(String(house.get("seat", ""))), {"kind": "note"})
+	return {"ok": true, "standing_change": gain, "seat": String(house.get("seat", "")), "house_id": String(house["id"])}
+
+
+# ---------------------------------------------------------------- after the vows: chapter 6
+
+## The matter after the wedding or the pact: {available, ok, reason, done}. It opens a day
+## after you marry or swear the pact, and is told once.
+func post_state(candidate_id: String, hour: float) -> Dictionary:
+	var project: Dictionary = RomanceStories.post_project(candidate_id)
+	var rel: Dictionary = relationships.get(candidate_id, {})
+	var out := {"available": false, "ok": false, "reason": "", "done": false}
+	if project.is_empty() or not (String(rel.get("status", "")) in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
+		return out
+	out["available"] = true
+	var q: Dictionary = quests.get("quest_%s" % candidate_id, {})
+	if String(q.get("post_done", "")) != "":
+		out["done"] = true
+		return out
+	var opens := float(q.get("post_opens_hour", -1.0))
+	if hour < opens:
+		var left := opens - hour
+		out["reason"] = "tomorrow" if left <= 24.0 else "in %d days" % ceili(left / 24.0)
+		return out
+	out["ok"] = true
+	return out
+
+
+## Answer the matter after the vows: her house's standing rises once, and it's remembered.
+func apply_post(candidate_id: String, choice_id: String, hour: float) -> Dictionary:
+	var state := post_state(candidate_id, hour)
+	if not bool(state["ok"]):
+		return {"ok": false, "reason": String(state.get("reason", "Not now."))}
+	var choice: Dictionary = {}
+	for c in RomanceStories.post_project(candidate_id).get("choices", []):
+		if String(c.get("id", "")) == choice_id:
+			choice = c
+	if choice.is_empty():
+		return {"ok": false, "reason": "That isn't an answer to this."}
+	_hour = maxf(_hour, hour)
+	var q: Dictionary = quests["quest_%s" % candidate_id]
+	var person: Dictionary = get_candidate_person(candidate_id)
+	var house: Dictionary = houses.get(String(person.get("house_id", "")), {})
+	var gain := 0
+	var rkey := String(choice.get("reward_key", "%s_post" % candidate_id))
+	if not q["consumed_rewards"].has(rkey):
+		q["consumed_rewards"].append(rkey)
+		gain = int(choice.get("standing_gain", 0))
+		if not house.is_empty():
+			house["standing"] = clampi(int(house["standing"]) + gain, Relationships.STANDING_MIN, Relationships.STANDING_MAX)
+	q["post_done"] = choice_id
+	add_memory(String(person["id"]), String(choice.get("memory", "Helped %s's house." % String(person.get("name", "")))),
+		{"kind": "decision", "chapter": 6, "choice": choice_id, "candidate": candidate_id})
+	return {"ok": true, "standing_change": gain}
+
+
+# ---------------------------------------------------------------- married life
+
+## Married or sworn: she writes when something happens to you. Called often (from the
+## map); it compares with what it last saw, so a letter comes once per thing. `fallen` is
+## the company's memorials, `last_result` the last battle's report, `battles` how many
+## the company has fought. Nothing is written for what happened before the vows.
+func married_life_check(battles: int, last_result: Dictionary, fallen: Array, hour: float) -> void:
+	for cand in relationships:
+		var rel: Dictionary = relationships[cand]
+		if not (String(rel.get("status", "")) in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
+			continue
+		var person: Dictionary = get_candidate_person(cand)
+		if person.is_empty() or not (String(person.get("status", "normal")) in ["normal", "relocated"]):
+			continue
+		if not rel.has("life_battles"):
+			rel["life_battles"] = battles
+			rel["life_hour"] = hour
+			continue
+		var since_battles := int(rel.get("life_battles", battles))
+		var quiet: bool = hour < float(rel.get("life_letter_hour", -999.0)) + LIFE_LETTER_GAP_HOURS
+		var home := String(person.get("residence", ""))
+		if battles > since_battles:
+			rel["life_battles"] = battles
+			if quiet:
+				continue
+			var lost := ""
+			for f in fallen:
+				if f is Dictionary and int(f.get("battle", 0)) > since_battles:
+					lost = String(f.get("first", f.get("name", "")))
+			var at := String(last_result.get("place", ""))
+			if lost != "":
+				_life_letter(rel, person, "life_fallen", hour, {"captain": lost})
+			elif bool(last_result.get("won", false)) and WorldData.SETTLEMENTS.has(at) and WorldData.SETTLEMENTS.has(home) \
+					and WorldData.pos(at).distance_to(WorldData.pos(home)) <= LIFE_NEAR:
+				_life_letter(rel, person, "life_victory", hour, {"at": Letters.place_name(at)})
+			continue
+		var since_seen := maxf(float(rel.get("last_visit_hour", -1.0)), float(rel.get("life_hour", hour)))
+		if not quiet and hour - since_seen >= float(LIFE_AWAY_DAYS) * 24.0 and float(rel.get("away_sent_for", -1.0)) != since_seen:
+			rel["away_sent_for"] = since_seen
+			_life_letter(rel, person, "life_away", hour, {"days": str(int((hour - since_seen) / 24.0))})
+
+
+func _life_letter(rel: Dictionary, person: Dictionary, key: String, hour: float, extra: Dictionary) -> void:
+	rel["life_letter_hour"] = hour
+	add_letter(String(person["id"]), key, "", hour, String(person.get("residence", "")), extra, hour + LIFE_LETTER_DELAY_HOURS)
 
 
 # ---------------------------------------------------------------- ceremonies & pacts
@@ -981,6 +1387,9 @@ func finish_wedding(info: Dictionary, cur_hour: float) -> Dictionary:
 	if seat != "" and not sites.has(seat):
 		sites.append(seat)
 	_form_pact(String(person.get("house_id", "")), "marriage", [person["id"], "player"], sites, cur_hour)
+	var wq: Dictionary = quests.get("quest_%s" % cand_id, {})
+	if not wq.is_empty():
+		wq["post_opens_hour"] = cur_hour + Relationships.CHAPTER_GAP_HOURS
 	return {"ok": true, "wedding": wedding}
 
 
@@ -1016,7 +1425,10 @@ func dance_with(candidate_id: String, scene_id: String, memory_text: String, pla
 		rel["trust"] = mini(Relationships.TRUST_MAX, old + Gatherings.DANCE_TRUST)
 		delta = int(rel["trust"]) - old
 	rel["dances"] = had + 1
-	add_memory(String(rel.get("person_id", "")), memory_text, {"kind": "dance", "scene_id": scene_id, "place": place})
+	# Each dance is remembered as itself: the first, the second, the third...
+	var texts: Array = Gatherings.DANCE_MEMORIES.get(candidate_id, [])
+	var text := String(texts[had % texts.size()]) if not texts.is_empty() else memory_text
+	add_memory(String(rel.get("person_id", "")), text, {"kind": "dance", "scene_id": scene_id, "place": place, "candidate": candidate_id, "dance": had + 1})
 	return delta
 
 
@@ -1129,6 +1541,9 @@ func personal_scene_access(person_id: String, scene_id: String, context: Diction
 	var rel: Dictionary = relationships[candidate_id]
 	if int(quests.get("quest_" + candidate_id, {}).get("chapter", 1)) < 2:
 		return {"ok": false, "reason": "Introduce yourself in an audience first."}
+	# Parted: what you shared can still be remembered, but no new time together.
+	if String(rel.get("status", "")) == Relationships.ENDED:
+		return {"ok": false, "ended": true, "reason": TalkLines.parted(candidate_id)}
 	if rel.get("strained", false):
 		return {"ok": false, "reason": "Resolve the broken promise before a new visit."}
 	if not ["normal", "relocated"].has(person.get("status", "")):

@@ -50,6 +50,17 @@ func _check_texts() -> void:
 				var v := Letters.render_reply(key, r["id"], courting, {"name": "Edda", "place": "Ravensford", "old": "Kitayama"})
 				replies_ok = replies_ok and v["salute"] == "Edda," and not String(v["body"][0]).contains("{")
 	check(replies_ok, "every reply reads in full, addressed by name")
+	var own_ok := true
+	for key in Letters.CHAPTER_REPLIES:
+		for cand in ["edda", "farid", "kaede"]:
+			for r in Letters.replies(key, cand):
+				for courting in [true, false]:
+					var answer := Letters.render_reply(key, r["id"], courting, {"name": "Kaede", "place": "Kitayama"}, cand)
+					own_ok = own_ok and answer["salute"] == "Kaede," and not String(answer["body"][0]).contains("{")
+	check(own_ok, "each person's chapter letters have answers of their own that read in full")
+	check(not String(Letters.reply("ch3_invitation", "coming", "kaede")["courting"][1]).contains("chair"), "no more Edda's chair in a reply to Kaede")
+	var signed := Letters.render("ch2_invitation", "edda", true, {"place": "Ravensford", "house": "Fairholt"})
+	check(signed["sign_title"] == "of House Fairholt", "Edda signs with the house that actually holds her castle")
 	check(Letters.place_line("Ravensford", 13 * 24 + 21.0) == "Ravensford, the fourteenth day, by lamplight", "letters are dated in words, with the hour")
 
 
