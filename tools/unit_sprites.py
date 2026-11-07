@@ -152,32 +152,56 @@ def feet(g, cx, cy, frame, c="H"):
 def torso(g, cx, cy, culture, plain=False):
     """Shoulders and chest: a surcoat, a kaftan, or lacquered plates laced in the team color.
     A plain torso is an unarmored kimono with a crossed collar."""
-    g.ellipse(cx, cy, 5.3, 3.7, "k")
+    g.ellipse(cx, cy, 5.6, 3.9, "k")
     if plain:
-        g.ellipse(cx, cy, 4.6, 3.0, "T", shade="t", light="L")
+        g.ellipse(cx, cy, 4.9, 3.2, "T", shade="t", light="L")
         g.set(cx - 1, cy - 2, "f")
         g.set(cx, cy - 1, "f")
         g.set(cx + 1, cy - 2, "f")
         g.line(cx - 3, cy + 1, cx + 3, cy + 1, "b")   # the obi
     elif culture == RYUMON:
-        g.ellipse(cx, cy, 4.6, 3.0, "b", shade="k", light="B")
+        g.ellipse(cx, cy, 4.9, 3.2, "b", shade="k", light="B")
         # rows of lacing across the plates
         for dy in (-1, 1):
             g.line(cx - 3, cy + dy, cx + 3, cy + dy, "T")
-        g.set(cx - 4, cy, "t")
-        g.set(cx + 4, cy, "t")
+        # sode: broad shoulder plates laced in the team color, the clan's color from above
+        for side in (-1, 1):
+            g.rect(int(cx + side * 4 - (1 if side < 0 else 0)), int(cy - 1), int(cx + side * 4 + (0 if side < 0 else 1)), int(cy + 1), "T")
+            g.set(cx + side * 4 + (-1 if side < 0 else 1), cy - 1, "L")
+            g.set(cx + side * 4 + (-1 if side < 0 else 1), cy + 1, "t")
     elif culture == KHARZANI:
-        g.ellipse(cx, cy, 4.6, 3.0, "T", shade="t", light="L")
-        g.set(cx + 2, cy + 1, "g")                    # a sash knot
-        g.set(cx + 3, cy + 1, "g")
+        g.ellipse(cx, cy, 4.9, 3.2, "T", shade="t", light="L")
+        g.line(cx - 4, cy + 1, cx + 4, cy + 1, "g")   # a gold sash
+        g.set(cx + 2, cy + 2, "g")                    # its knot
     else:
-        g.ellipse(cx, cy, 4.6, 3.0, "T", shade="t", light="L")
+        g.ellipse(cx, cy, 4.9, 3.2, "T", shade="t", light="L")
         g.line(cx, cy - 2, cx, cy + 2, "L")           # the cross on the surcoat
         g.line(cx - 1, cy, cx + 1, cy, "L")
 
 
+def cloak(g, cx, cy, culture, short=False):
+    """What hangs behind the shoulders, seen from above: a Vardish cloak, the flared skirt
+    of a Kharzani kaftan. Most of a man seen from above is his back, so this is where the
+    team color reads from across the field. Ryumon carry theirs on the sashimono instead."""
+    if culture == RYUMON:
+        return
+    ry = 2.2 if short else 2.9
+    oy = cy + (1.9 if short else 2.4)
+    g.ellipse(cx, oy, 4.7, ry + 0.8, "k")
+    g.ellipse(cx, oy, 4.0, ry, "T", shade="t", light="L")
+    if culture == KHARZANI:
+        # a gold hem along the skirt's edge
+        y = int(round(oy + ry - 0.6))
+        g.set(cx - 2, y, "g")
+        g.set(cx + 1, y, "g")
+    else:
+        # folds down the cloak's back
+        g.set(cx - 1, oy + 1, "t")
+        g.set(cx + 1, oy + 1, "t")
+
+
 def steel_helm(g, cx, cy, point=False):
-    ringed_disc(g, cx, cy - 0.5, 1.7, "m", shade="M")
+    ringed_disc(g, cx, cy - 0.5, 1.95, "m", shade="M")
     g.set(cx - 1, cy - 1.5, "f")  # glint
     if point:
         g.set(cx, cy - 0.5, "M")
@@ -205,7 +229,7 @@ def kabuto(g, cx, cy, horns=False):
     crest spreads into tall horns."""
     g.ellipse(cx, cy + 0.6, 3.0, 1.6, "k")
     g.ellipse(cx, cy + 0.6, 2.4, 1.0, "b", light="B")
-    ringed_disc(g, cx, cy - 0.5, 1.6, "b", light="B")
+    ringed_disc(g, cx, cy - 0.5, 1.8, "b", light="B")
     g.set(cx - 1, cy - 2.5, "g")
     g.set(cx + 1, cy - 2.5, "g")
     g.set(cx, cy - 2.5, "k")
@@ -259,24 +283,26 @@ def veil(g, cx, cy):
 
 def topknot(g, cx, cy):
     """A bare head in a white headband, the topknot laid forward."""
-    ringed_disc(g, cx, cy - 0.5, 1.8, "f")
-    g.disc(cx, cy - 0.5, 1.1, "b", light="B")
+    ringed_disc(g, cx, cy - 0.5, 1.95, "f")
+    g.disc(cx, cy - 0.5, 1.2, "b", light="B")
     g.line(cx, cy - 1.5, cx, cy - 0.5, "n")
 
 
 def hood(g, cx, cy):
-    ringed_disc(g, cx, cy - 0.5, 1.7, "t", shade="k", light="T")
+    ringed_disc(g, cx, cy - 0.5, 1.95, "t", shade="k", light="T")
     g.set(cx, cy - 2.0, "s")  # face in the hood opening
 
 
 def sashimono(g, cx, cy, tall=6):
     """The little banner on a pole at a Ryumon soldier's back, in the team color."""
     x = int(cx)
+    top, bot = int(cy + 3), int(cy + 2 + tall)
+    g.rect(x - 4, top - 1, x, bot + 1, "k")
     g.line(x, cy + 2, x, cy + 2 + tall, "W")
-    g.rect(x - 2, int(cy + 3), x - 1, int(cy + 2 + tall), "T")
-    g.set(x - 2, cy + 3, "L")
-    g.set(x - 2, cy + 2 + tall, "t")
-    g.set(x - 1, cy + 2 + tall, "t")
+    g.rect(x - 3, top, x - 1, bot, "T")
+    g.line(x - 3, top, x - 3, bot - 1, "L")
+    g.line(x - 3, bot, x - 1, bot, "t")
+    g.set(x - 2, top + 1, "f")   # the clan's mon
 
 
 def kite_shield(g, cx, cy):
@@ -303,6 +329,7 @@ def infantry(frame, culture=VARDISH, unit=None):
         if unit == "ryumon_hatamoto":
             g.set(cx - 3, cy + 6, "g")
     feet(g, cx, cy, frame if frame < 2 else 0, "b" if culture == RYUMON else "H")
+    cloak(g, cx, cy, culture)
     torso(g, cx, cy, culture, plain=unit == "ryumon_ronin")
     if unit == "vardish_men_at_arms":
         pauldrons(g, cx, cy)
@@ -392,6 +419,7 @@ def spearmen(frame, culture=VARDISH, unit=None):
     if culture == RYUMON:
         sashimono(g, cx - 1, cy + 1)
     feet(g, cx, cy, frame if frame < 2 else 0, "b" if culture == RYUMON else "H")
+    cloak(g, cx, cy, culture)
     torso(g, cx, cy, culture)
     if unit == "kharzani_spear_guard":
         pauldrons(g, cx, cy, "M", "k")
@@ -508,6 +536,8 @@ def archers(frame, culture=VARDISH, unit=None):
         g.line(cx - 4, cy + 1, cx - 6, cy + 5, "b")
         g.set(cx - 4, cy + 1, "g")
     feet(g, cx, cy, frame if frame < 2 else 0, "b" if culture == RYUMON else "H")
+    if unit != "vardish_crossbowmen":   # the pavise covers his back
+        cloak(g, cx, cy, culture, short=True)
     # quiver on the back, fletchings showing
     g.rect(int(cx + 2), int(cy + 1), int(cx + 3), int(cy + 3), "h")
     g.set(cx + 2, cy + 4, "f")
@@ -590,16 +620,19 @@ def cavalry(frame, culture=VARDISH, unit=None):
         g.rect(int(cx - 1), int(cy - 7), int(cx), int(cy - 5), "T")
         g.rect(int(cx - 4), int(cy + 6), int(cx + 3), int(cy + 6), "g")
     elif culture == VARDISH:
-        # a saddle cloth, gold-edged for the retainers
-        g.ellipse(cx - 0.5, cy + 2.0, 3.4, 3.0, "T", shade="t", light="L")
+        # a saddle cloth hanging past the flanks, gold-edged for the retainers
+        g.ellipse(cx - 0.5, cy + 2.0, 4.6, 3.6, "k")
+        g.ellipse(cx - 0.5, cy + 2.0, 3.9, 3.0, "T", shade="t", light="L")
         g.rect(int(cx - 4), int(cy + 4), int(cx + 3), int(cy + 4), "t" if unit else "g")
     elif culture == KHARZANI:
         # a short saddle cloth with tassels
-        g.ellipse(cx - 0.5, cy + 2.0, 3.2, 2.6, "T", shade="t", light="L")
+        g.ellipse(cx - 0.5, cy + 2.0, 4.4, 3.3, "k")
+        g.ellipse(cx - 0.5, cy + 2.0, 3.7, 2.7, "T", shade="t", light="L")
         g.set(cx - 4, cy + 4, "g")
         g.set(cx + 3, cy + 4, "g")
     else:
-        g.ellipse(cx - 0.5, cy + 2.0, 3.4, 3.0, "T", shade="t", light="L")
+        g.ellipse(cx - 0.5, cy + 2.0, 4.6, 3.6, "k")
+        g.ellipse(cx - 0.5, cy + 2.0, 3.9, 3.0, "T", shade="t", light="L")
         g.rect(int(cx - 4), int(cy + 4), int(cx + 3), int(cy + 4), "b")
         if unit == "ryumon_mounted_samurai":
             # the horo: a cloak bellying out behind the rider
@@ -614,12 +647,15 @@ def cavalry(frame, culture=VARDISH, unit=None):
         g.set(cx + 2, cy + 7, "f")
         g.set(cx + 3, cy + 7, "f")
     # rider
-    g.ellipse(cx - 0.5, cy - 1.0, 3.6, 2.3, "k")
+    g.ellipse(cx - 0.5, cy - 1.0, 4.0, 2.6, "k")
     if culture == RYUMON:
-        g.ellipse(cx - 0.5, cy - 1.0, 3.0, 1.7, "b", light="B")
+        g.ellipse(cx - 0.5, cy - 1.0, 3.4, 2.0, "b", light="B")
         g.line(cx - 3, cy - 1, cx + 2, cy - 1, "T")
+        # sode laced in the team color, as on foot
+        for x in (cx - 4, cx + 3):
+            g.rect(int(x), int(cy - 2), int(x), int(cy), "T")
     else:
-        g.ellipse(cx - 0.5, cy - 1.0, 3.0, 1.7, "T", shade="t", light="L")
+        g.ellipse(cx - 0.5, cy - 1.0, 3.4, 2.0, "T", shade="t", light="L")
     if unit in HORSE_BOWS:
         # a short bow out over the horse's neck, drawn to loose
         _bow(g, cx - 0.5, cy - 1.0, 4 if culture == KHARZANI else 5, 2.0, 2 if frame == 2 else 0, culture)

@@ -6,10 +6,12 @@ extends RefCounted
 const Data = preload("res://scripts/art/sprite_data.gd")
 const Units = preload("res://scripts/data/units.gd")
 
-## Arena units per sprite pixel. Foot soldiers come out a little wider than the room
-## they take up in the sim, so formations read as solid blocks.
-const FOOT_PIXEL := 2.1
-const HORSE_PIXEL := 1.8
+## Arena units per sprite pixel. Men are drawn a size larger than the room they take up
+## in the sim, so they read on a phone and formations read as solid blocks.
+const FOOT_PIXEL := 2.4
+const HORSE_PIXEL := 2.05
+## Bushes and stones keep their own size, so a man stands a little taller than a shrub.
+const PROP_PIXEL := 2.1
 ## Grass is drawn chunkier than the men, so it stays in the background.
 const GRASS_PIXEL := 3.0
 ## Card and roster icons: frame 0 cropped to a square around the body, scaled up.

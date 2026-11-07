@@ -273,6 +273,8 @@ var _pf := Vector2.ZERO
 var _pf_set := false
 var _shadow_cell := Rect2()
 var _shadow_col := Color.BLACK
+## Each side's shadow, faintly in its own color, so in a melee the two hosts stay apart.
+var _shadow_cols := [Color.BLACK, Color.BLACK]
 const BATCH_FLOATS := 16
 const TROOP_SHADER := """
 shader_type canvas_item;
@@ -4548,6 +4550,8 @@ func _draw_troops() -> void:
 	_glances.clear()
 	_shadow_cell = Art.atlas_disk()
 	_shadow_col = Color(0.05, 0.08, 0.02, _shadow_a)
+	_shadow_cols[Sim.PLAYER] = Color(0.04, 0.09, 0.34, _shadow_a * 1.25)
+	_shadow_cols[Sim.ENEMY] = Color(0.34, 0.05, 0.04, _shadow_a * 1.25)
 	var melee := []
 	for sq in sim.squads:
 		if sq.engaged and sq.is_active():
@@ -4627,7 +4631,7 @@ func _draw_field() -> void:
 		_c.draw_set_transform(field_origin + Vector2(patch["pos"]) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.7))
 		_c.draw_circle(Vector2.ZERO, patch["r"], Color(look["light"] if patch["light"] else look["tuft"], 0.22))
 	for d in _doodads:
-		var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
+		var s: float = field_scale * Art.PROP_PIXEL * float(d["scale"])
 		_c.draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
 		_c.draw_texture(Art.frame(d["name"], 0, 0, _biome), -Art.pivot(d["name"], _biome))
 	for d in _beyond:
@@ -4641,7 +4645,7 @@ func _draw_field() -> void:
 			var flip: float = float(d["flip"])
 			_c.draw_texture_rect(MapArt.texture(name), Rect2(p.x - sz.x * sc * 0.5 * flip, p.y - sz.y * sc, sz.x * sc * flip, sz.y * sc), false)
 		else:
-			var s: float = field_scale * Art.FOOT_PIXEL * float(d["scale"])
+			var s: float = field_scale * Art.PROP_PIXEL * float(d["scale"])
 			_c.draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
 			_c.draw_texture(Art.frame(name, 0, 0, _biome), -Art.pivot(name, _biome))
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
@@ -5261,7 +5265,7 @@ func _add_shadow(so, sq, at: Vector2) -> void:
 	var r: float = so.radius + (5.0 if sq.type == Troops.CAVALRY else 1.5)
 	var kx := _shadow_long * r / Art.DISK_R
 	var ky := 0.62 * r / Art.DISK_R
-	_put_shadow(kx * Art.DISK_SIZE, ky * Art.DISK_SIZE, at.x - kx * Art.DISK_C.x, at.y - ky * Art.DISK_C.y, _shadow_col, _shadow_cell)
+	_put_shadow(kx * Art.DISK_SIZE, ky * Art.DISK_SIZE, at.x - kx * Art.DISK_C.x, at.y - ky * Art.DISK_C.y, _shadow_cols[clampi(int(sq.team), 0, 1)], _shadow_cell)
 
 
 func _put_shadow(xx: float, yy: float, ox: float, oy: float, col: Color, cell: Rect2) -> void:
