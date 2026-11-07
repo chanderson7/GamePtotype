@@ -217,6 +217,17 @@ func _changes() -> void:
 	var floats := _floats()
 	check(floats.any(func(f): return String(f.name).contains("silver")), "buying food, what it cost rises off the silver")
 	check(floats.any(func(f): return String(f.name).contains("food")), "and what it brought rises off the food")
+	var silver_float: Array = floats.filter(func(f): return String(f.name).contains("silver"))
+	var tile: Control = null
+	for n in page.find_children("Tile_silver", "Control", true, false):
+		if Widgets.live(n):
+			tile = n
+			break
+	if not silver_float.is_empty() and tile != null:
+		var fr: Rect2 = (silver_float[0] as Control).get_global_rect()
+		var tr: Rect2 = tile.get_global_rect()
+		check(fr.position.x < tr.end.x and fr.end.x > tr.position.x and absf(fr.get_center().y - tr.get_center().y) < tr.size.y + 60.0,
+			"it rises from the silver itself (%s by %s)" % [fr.position, tr.position])
 	var f0: Control = floats[0]
 	var y0: float = f0.position.y
 	await _wait(0.4)
@@ -395,6 +406,7 @@ func _ribbons() -> void:
 	await _frames(3)
 	var r := scenes.get_node_or_null("Ribbon") as Control
 	check(r != null and (r.find_child("RibbonTitle", true, false) as Label).text == "A deed to remember", "a deed drops in as a ribbon")
+	check(r != null and r.size.x > 300.0, "as wide as a banner, not squeezed (%.0f)" % (r.size.x if r != null else 0.0))
 	await _wait(0.5)
 	check(is_instance_valid(r) and r.position.y >= 0.0, "it holds in view")
 	await _wait(2.6)

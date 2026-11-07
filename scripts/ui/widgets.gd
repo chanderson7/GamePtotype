@@ -346,6 +346,20 @@ static func float_up(anchor: Control, chip: Control, delay: float = 0.0) -> void
 	chip.theme = Style.make_theme()
 	chip.modulate.a = 0.0
 	top.add_child(chip)
+	# The number it rises off may belong to a page built this very frame, which then lays
+	# out and gets its scroll back: place the chip once all that has happened.
+	_float_from(anchor, chip, delay)
+
+
+static func _float_from(anchor: Control, chip: Control, delay: float) -> void:
+	var tree := chip.get_tree()
+	for i in 2:
+		await tree.process_frame
+	if not is_instance_valid(chip):
+		return
+	if not is_instance_valid(anchor) or not anchor.is_inside_tree():
+		chip.queue_free()
+		return
 	chip.reset_size()
 	var r := anchor.get_global_rect()
 	chip.position = Vector2(r.position.x + (r.size.x - chip.size.x) * 0.5, r.position.y - chip.size.y * 0.35)

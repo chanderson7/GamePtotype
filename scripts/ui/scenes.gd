@@ -156,11 +156,21 @@ func _show_ribbon(r: Dictionary) -> void:
 	move_child(panel, _veil.get_index())
 	var vw := get_viewport().get_visible_rect().size.x
 	var insets: Dictionary = Style.safe_insets(get_viewport())
-	panel.size = Vector2(minf(vw - 32.0, 640.0), 0)
+	# Its words wrap, so it's given its width (they'd squeeze it to a column otherwise).
+	panel.custom_minimum_size.x = minf(vw - 32.0, 640.0)
+	_ribbon = panel
+	# Wrapped words know their height only once laid out: fit the ribbon after that.
+	panel.modulate.a = 0.0
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not is_instance_valid(panel):
+		_ribbon = null
+		return
+	panel.size = Vector2(panel.custom_minimum_size.x, 0)
 	panel.reset_size()
+	panel.modulate.a = 1.0
 	var rest_y := float(insets["top"]) + 14.0
 	panel.position = Vector2((vw - panel.size.x) * 0.5, rest_y)
-	_ribbon = panel
 	if String(r.get("sound", "")) != "":
 		Sound.play(String(r["sound"]), 0.0, 0.03)
 	Sound.haptic(false)
