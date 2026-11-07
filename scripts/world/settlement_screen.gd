@@ -580,6 +580,17 @@ func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
 	var card := _card(col, "Gates barred", "at war", Style.ENEMY_LIGHT)
 	var faction_name: String = WorldData.FACTIONS[owner]["name"]
 	card.add_child(_note("The %s is at war with you. Markets, barracks and halls are closed." % faction_name, Style.ENEMY_LIGHT))
+	var raid: Dictionary = GameState.raid_check(place)
+	if bool(raid["ok"]):
+		card.add_child(_note("Its people won't trade with you, but their barns are full.", Style.MUTED))
+		var b := _button("Raid %s" % WorldData.settlement(place)["name"], func():
+			GameState.save_game()
+			Scenes.settlement_place = ""
+			Scenes.settlement_scroll = 0
+			Scenes.map_raid = place
+			Scenes.go("res://scenes/world_map.tscn"))
+		b.name = "Raid"
+		card.add_child(b)
 	var g: Dictionary = GameState.world.gathering_at(place)
 	if not g.is_empty():
 		var feast := _note("%s is held behind the walls, but no enemy is seated at it. Make peace, or take the place, to sit at a feast here." % Gatherings.upper_first(GameState.gathering_title(g)), Style.MUTED)

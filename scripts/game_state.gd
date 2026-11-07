@@ -29,6 +29,7 @@ const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const CrownCourt = preload("res://scripts/world/crown_court.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 const SAVE_PATH := "user://campaign.json"
 const SAVE_VERSION := 6
 
@@ -2001,6 +2002,146 @@ func _siege_outcome(result: Dictionary, how: String) -> void:
 		_note("The assault on %s failed. %s The survivors fall back from the walls." % [place, how])
 
 
+# ---------------------------------------------------------------- raids
+
+## Who stands for the village `id` when you raid it: its militia, and any squads
+## stationed there.
+func raid_defenders(id: String) -> Array:
+	var out: Array = WorldSim.clean_army(world.village_militia(id))
+	out.append_array(WorldSim.clean_army(world.garrisons.get(id, [])))
+	return out
+
+
+## Whether the company can raid the village `id` now: {ok, reason, men, stand}. `stand`
+## says whether its defenders fight: always when soldiers are stationed there, otherwise
+## unless your warband outnumbers them RAID_SCATTER_RATIO to one.
+func raid_check(id: String) -> Dictionary:
+	var out := {"ok": false, "reason": "", "men": 0, "stand": false}
+	if world == null or not WorldData.SETTLEMENTS.has(id):
+		return out
+	if not WorldData.is_village(id):
+		out["reason"] = "Only villages can be raided; walls have to be stormed."
+		return out
+	var owner: String = world.owner_of(id)
+	if owner == WorldData.BANDITS or not is_at_war_with(owner):
+		out["reason"] = "You are not at war with its realm."
+		return out
+	if world.is_burned(id):
+		out["reason"] = "It has already been burned."
+		return out
+	if world.here() != id:
+		out["reason"] = "Ride there first."
+		return out
+	if total_men() == 0:
+		out["reason"] = "You have no men to lead."
+		return out
+	out["men"] = world.men_of(raid_defenders(id))
+	out["stand"] = not (world.garrisons.get(id, []) as Array).is_empty() \
+		or float(total_men()) < float(out["men"]) * Lords.RAID_SCATTER_RATIO
+	out["ok"] = true
+	return out
+
+
+## Raid `id` when its militia scatter: it burns now, and your men stay to load the carts.
+## Returns what was taken (see _pillage), or {} if it can't be done without a fight.
+func raid_village(id: String) -> Dictionary:
+	var check := raid_check(id)
+	if not check["ok"] or bool(check["stand"]):
+		return {}
+	var got := _pillage(id)
+	var place: String = WorldData.settlement(id)["name"]
+	_note("The militia of %s scatter before your warband. %s" % [place, String(got["text"])])
+	save_game()
+	return got
+
+
+## Set up the fight with `id`'s militia for the battle screen, fought among its houses.
+func start_raid_battle(id: String) -> void:
+	var check := raid_check(id)
+	if not check["ok"]:
+		return
+	var owner: String = world.owner_of(id)
+	var site := BattleSite.pick(world, world.party_pos(world.player()), "village", hash([id, int(world.hour)]) & 0x7fffffff)
+	site["biome"] = String(WorldData.settlement(id)["faction"])
+	pending_battle = {
+		"enemy": raid_defenders(id), "culture": WorldData.culture_of(owner), "temperament": Commander.PATIENT,
+		"name": "The militia of %s" % WorldData.settlement(id)["name"], "party_id": -1, "site": site,
+		"objective": "raid", "raid_target": id, "enemy_faction": owner, "allies": [],
+	}
+
+
+## Fight the militia without leading the men: settled at once.
+func auto_resolve_raid(id: String) -> Dictionary:
+	start_raid_battle(id)
+	if pending_battle.is_empty():
+		return {}
+	var fighters := army.filter(func(sq): return int(sq["men"]) > 0)
+	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, null, "rout")
+	result["objective"] = "raid"
+	apply_result(result)
+	return result
+
+
+## After the fight for a village you came to raid: it burns if the militia broke.
+func _raid_outcome(result: Dictionary, how: String) -> void:
+	var id := String(pending_battle.get("raid_target", ""))
+	if id == "" or not WorldData.SETTLEMENTS.has(id):
+		return
+	var place: String = WorldData.settlement(id)["name"]
+	if not bool(result.get("won", false)):
+		_note("The militia of %s held their homes. %s Your men fall back from the village." % [place, how])
+		return
+	var spoils := Economy.spoils(int(result.get("killed", 0)))
+	silver += int(spoils["silver"])
+	food += int(spoils["food"])
+	var got := _pillage(id)
+	_note("The militia of %s broke. %s %s" % [place, how, String(got["text"])])
+
+
+## Burn `id` and take what it has. The village pays nothing and offers no recruits for
+## BURNED_DAYS, its realm grows wearier of the war and angrier with you, your sworn lords
+## judge it by their bearing, and your men stay RAID_HOURS loading the carts while its
+## lords ride to catch them. Returns {silver, food, text}.
+func _pillage(id: String) -> Dictionary:
+	var owner: String = world.owner_of(id)
+	var place: String = WorldData.settlement(id)["name"]
+	var got := {"silver": Lords.RAID_LOOT, "food": Lords.PLAYER_RAID_FOOD}
+	if has_specialization(Captains.QUARTERMASTER):
+		got["silver"] = int(round(got["silver"] * 1.15))
+		got["food"] = int(round(got["food"] * 1.15))
+	silver += int(got["silver"])
+	food += int(got["food"])
+	world.burned[id] = world.hour + Lords.BURNED_DAYS * 24.0
+	world.offers.erase(id)
+	if world.realms.has(owner):
+		world.add_weariness(owner, Politics.WEARINESS_LOST_VILLAGE)
+	add_realm_relation(owner, Lords.PLAYER_RAID_REALM)
+	world.emit_event({"type": "burned", "village": id, "by": "your company"})
+	var liked := []
+	var shamed := []
+	for l in crown_lords():
+		match String(l.get("bearing", "")):
+			Lords.CRUEL:
+				LordTalk.change_regard(self, l, Lords.RAID_CRUEL_REGARD)
+				liked.append(LordTalk.short_name(l))
+			Lords.HONORABLE:
+				LordTalk.change_regard(self, l, Lords.RAID_HONORABLE_REGARD)
+				shamed.append(LordTalk.short_name(l))
+	var text := "%s burns. Your men carry off %d silver and %d rations; they need %d hours to load the carts." % [
+		place, int(got["silver"]), int(got["food"]), int(Lords.RAID_HOURS)]
+	if not shamed.is_empty():
+		text += " %s won't forget it (%d Regard)." % [", ".join(shamed), Lords.RAID_HONORABLE_REGARD]
+	if not liked.is_empty():
+		text += " %s approve%s (+%d Regard)." % [", ".join(liked), "s" if liked.size() == 1 else "", Lords.RAID_CRUEL_REGARD]
+	got["text"] = text
+	got["liked"] = liked
+	got["shamed"] = shamed
+	world.player_raid = {"village": id, "until": world.hour + Lords.RAID_HOURS}
+	world.wait(Lords.RAID_HOURS)
+	_count_deed("raids")
+	return got
+
+
 # ---------------------------------------------------------------- journal
 
 ## Remember how a commitment ended, so the journal can explain it after the notice is gone.
@@ -3746,6 +3887,8 @@ func apply_result(result: Dictionary) -> void:
 		var enemy_lid: int = int(pending_battle.get("enemy_lord_id", -1))
 		if obj == "siege":
 			_siege_outcome(result, how)
+		elif obj == "raid":
+			_raid_outcome(result, how)
 		elif result.get("won", false):
 			world.win_encounter()
 			var got := Economy.spoils(int(result.get("killed", 0)))
@@ -3851,7 +3994,7 @@ func apply_result(result: Dictionary) -> void:
 		# the map. Small skirmishes don't.
 		var place: String = world.here() if world.here() != "" else world.nearest_place(world.party_pos(world.player()))
 		report["place"] = place
-		if int(result.get("killed", 0)) + int(result.get("lost", 0)) >= 30 or obj in ["siege", "village", "chief"] or is_lord:
+		if int(result.get("killed", 0)) + int(result.get("lost", 0)) >= 30 or obj in ["siege", "village", "chief", "raid"] or is_lord:
 			world.emit_event({"type": "battle_fought", "at": place, "won": bool(result.get("won", false)),
 				"killed": int(result.get("killed", 0)), "lost": int(result.get("lost", 0))})
 		for line in fates:

@@ -510,6 +510,8 @@ func _ready() -> void:
 			_tick("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
 		Sim.OBJECTIVE_SIEGE:
 			pass  # the objective line under the top bar says it
+		"raid":
+			_tick("RAID: Drive off the militia, then the village is yours to burn.", Style.BRASS)
 		_:
 			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
 	# The enemy's people set the music; an assault on walls has its own.

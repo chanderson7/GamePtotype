@@ -189,6 +189,9 @@ var army_outcomes: Dictionary = {}
 var next_army_id := 1
 ## Villages raiders have burned: id → the hour they're rebuilt.
 var burned := {}
+## Your own raid while your men load the carts: {village, until}. The village's lords
+## ride to it as they would to any raider's.
+var player_raid := {}
 ## The last day the lords' purses were settled.
 var _lord_day := 0
 ## Feasts and dances called or under way (gatherings.gd): {id, realm, host_lord, place,
@@ -1689,6 +1692,17 @@ func wedding_blocked(id: String) -> String:
 	return ""
 
 
+## The village your company is still pillaging, or "" once it has ridden off or the
+## carts are loaded.
+func player_raiding() -> String:
+	if player_raid.is_empty():
+		return ""
+	var v := String(player_raid.get("village", ""))
+	if hour >= float(player_raid.get("until", 0.0)) or player() == null or player().node != v or player().moving():
+		return ""
+	return v
+
+
 func is_burned(id: String) -> bool:
 	return hour < float(burned.get(id, -1.0))
 
@@ -2169,6 +2183,14 @@ func _think_lord(l: Dictionary, p: Party) -> void:
 				var score := 5.0 + (1.0 if bearing in [Lords.CAUTIOUS, Lords.HONORABLE] else 0.0) - h * 0.05
 				if score > float(best[2]):
 					best = ["defend", v, score]
+	# ...and the same for your company, while it loads the carts at one of his villages.
+	var pv := player_raiding()
+	if pv != "" and owner_of(pv) == l["realm"]:
+		var h := _hours(p, from, pv)
+		if h <= Lords.DEFEND_HOURS:
+			var score := 5.5 + (1.0 if bearing in [Lords.CAUTIOUS, Lords.HONORABLE] else 0.0) - h * 0.05
+			if score > float(best[2]):
+				best = ["defend", pv, score]
 	# Hunt: bandits raiding a village of his realm, within reach. Bands on the road he
 	# leaves to the likes of you.
 	for b in bands():
@@ -3158,7 +3180,7 @@ func to_dict() -> Dictionary:
 		"garrisons": garrisons.duplicate(true),
 		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
 		"social": social.to_dict() if social != null else null,
-		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "lord_day": _lord_day,
+		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "player_raid": player_raid.duplicate(), "lord_day": _lord_day,
 		"gatherings": gatherings.duplicate(true), "gathering_ended": gathering_ended.duplicate(),
 		"victory_feasts": victory_feasts.duplicate(), "peace_feasts": peace_feasts.duplicate(), "next_gathering_id": _next_gathering_id,
 		"gather_seed": str(gather_rng.seed), "gather_state": str(gather_rng.state),
@@ -3300,6 +3322,7 @@ func from_dict(d: Dictionary) -> void:
 		p.army = clean_army(e["army"])
 		parties.append(p)
 	burned = {}
+	player_raid = (d.get("player_raid", {}) as Dictionary).duplicate()
 	var raw_burned = d.get("burned", {})
 	for k in raw_burned:
 		burned[String(k)] = float(raw_burned[k])

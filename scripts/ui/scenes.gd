@@ -17,6 +17,8 @@ var people_tab := ""
 var people_letter := ""
 ## The map centres on this place when it next opens (then forgets it).
 var map_focus := ""
+## The map opens the raid sheet for this village when it next opens (the town's Raid).
+var map_raid := ""
 ## The people picked on Home, shown first on the new-campaign screen.
 var new_campaign_pick := ""
 var conversation_return := "res://scenes/settlement.tscn"

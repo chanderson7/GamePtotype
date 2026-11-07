@@ -140,6 +140,14 @@ const HOST_RAID_VILLAGES := 2
 const SIEGE_PREP_HOURS := 48.0
 const SIEGE_FOOD_DAYS := {"castle": 4.0, "town": 6.0}
 const VILLAGE_MILITIA_MEN := 15
+## Your own raid on an enemy village: the grain your men carry off (with RAID_LOOT
+## silver), what it costs you with its realm, how far its militia must be outnumbered to
+## scatter without a fight, and what your sworn lords think of it by their bearing.
+const PLAYER_RAID_FOOD := 40
+const PLAYER_RAID_REALM := -10
+const RAID_SCATTER_RATIO := 3.0
+const RAID_CRUEL_REGARD := 2
+const RAID_HONORABLE_REGARD := -3
 const WALLS := {"castle": 1.6, "town": 1.4}
 
 ## Prisoners, ransoms, and mortality.

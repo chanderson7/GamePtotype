@@ -193,11 +193,14 @@ func _ready() -> void:
 		_open_assault_call()
 	elif GameState.desertion_warning != "":
 		_open_desertion_warning()
+	elif Scenes.map_raid != "" and Scenes.map_raid == world.here():
+		_open_raid(Scenes.map_raid)
 	elif GameState.has_notice():
 		var notice: Dictionary = GameState.take_map_notice()
 		_open_notice(notice["text"], notice["title"], notice["items"])
 	elif world.here() != "":
 		_open_here()
+	Scenes.map_raid = ""
 	# Back from People & Letters with a place to look at (or ride to).
 	if Scenes.map_focus != "":
 		var focus := Scenes.map_focus
@@ -962,6 +965,9 @@ func _open_here() -> void:
 		buttons.push_front(["Begin your wedding", _on_begin_wedding, true])
 	if GameState.siege_check(id)["ok"]:
 		buttons.push_front(["Storm the walls", _open_siege.bind(id), true])
+		buttons[1][2] = false
+	elif GameState.raid_check(id)["ok"]:
+		buttons.push_front(["Raid the village", _open_raid.bind(id), true])
 		buttons[1][2] = false
 	if GameState.crown_check()["ok"]:
 		buttons.insert(buttons.size() - 1, ["Raise your banner", _open_raise_crown])
@@ -2612,6 +2618,59 @@ func _open_siege(id: String) -> void:
 		body += "\nThe walls stand empty. It is yours for the taking."
 	_show_sheet("siege", "Storm %s" % place, body, [["Lead the assault", _on_storm.bind(id), true],
 		["Send them in", _on_storm_send.bind(id)], ["Back", _open_here]])
+
+
+## Before a raid: what the village holds, what burning it costs, and whether its militia
+## will fight for it.
+func _open_raid(id: String) -> void:
+	var check: Dictionary = GameState.raid_check(id)
+	if not check["ok"]:
+		_open_notice(String(check["reason"]), "The village")
+		return
+	var place: String = Data.settlement(id)["name"]
+	var owner: String = world.owner_of(id)
+	var realm: String = GameState.realm_word(owner)
+	var body := "About %d silver and %d rations. It pays %s nothing for %d days." % [
+		Lords.RAID_LOOT, Lords.PLAYER_RAID_FOOD, realm, Lords.BURNED_DAYS]
+	body += "\nLoading the carts takes %d hours; %s's lords nearby will ride at you." % [int(Lords.RAID_HOURS), realm]
+	var buttons := []
+	if bool(check["stand"]):
+		var fighters: Array = GameState.army.filter(func(s): return int(s["men"]) > 0)
+		var odds: Dictionary = AutoResolve.odds(fighters, GameState.raid_defenders(id), null, "rout")
+		body += "\n%d men will fight for their homes. Your captains think you %s." % [int(check["men"]), "can drive them off" if odds["player_wins"] else "would be beaten"]
+		buttons = [["Lead the attack", _on_raid_fight.bind(id), true], ["Send them in", _on_raid_send.bind(id)], ["Back", _open_here]]
+	else:
+		body += "\nIts %d militia won't stand against your %d men." % [int(check["men"]), GameState.total_men()]
+		buttons = [["Burn it", _on_raid_burn.bind(id), true], ["Back", _open_here]]
+	if GameState.is_crowned():
+		body += "\nYour Honorable lords will think less of you (%d); Cruel ones approve (+%d)." % [Lords.RAID_HONORABLE_REGARD, Lords.RAID_CRUEL_REGARD]
+	_show_sheet("raid", "Raid %s" % place, body, buttons)
+
+
+func _on_raid_fight(id: String) -> void:
+	GameState.start_raid_battle(id)
+	GameState.save_before_battle()
+	Scenes.go("res://scenes/battle.tscn")
+
+
+func _on_raid_send(id: String) -> void:
+	GameState.auto_resolve_raid(id)
+	_after_raid(id)
+
+
+func _on_raid_burn(id: String) -> void:
+	GameState.raid_village(id)
+	_after_raid(id)
+
+
+func _after_raid(id: String) -> void:
+	Sound.play("coins" if world.is_burned(id) else "bell")
+	_close_sheet()
+	_refresh_hud()
+	_sync_layers()
+	if GameState.has_notice():
+		var notice: Dictionary = GameState.take_map_notice()
+		_open_notice(notice["text"], "The raid", notice["items"])
 
 
 func _on_storm(id: String) -> void:
