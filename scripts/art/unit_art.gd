@@ -170,27 +170,46 @@ const GROUND := {
 }
 
 
-## A tile of pixel-art ground for a culture's land: a quiet base with darker tufts.
+## A tile of pixel-art ground for a culture's land: a quiet base with broad, soft patches
+## of lighter and darker growth (seamless noise, so the tile repeats without a seam), a
+## fine grain over it, darker tufts and a few specks. 192 pixels, so the patches are big
+## enough to read as ground and not as a pattern.
 static func ground(biome: String = "vardish") -> Texture2D:
 	var key := "ground/" + biome
 	if not _cache.has(key):
 		var look: Dictionary = GROUND.get(biome, GROUND["vardish"])
-		var size := 48
+		var size := 192
 		var img := Image.create_empty(size, size, false, Image.FORMAT_RGBA8)
 		var rng := RandomNumberGenerator.new()
 		rng.seed = 7
 		var base: Color = look["base"]
+		var tuft: Color = look["tuft"]
+		var light: Color = look["light"]
+		var patches := FastNoiseLite.new()
+		patches.seed = 11
+		patches.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+		patches.frequency = 0.028
+		patches.fractal_octaves = 2
+		var patch_img := patches.get_seamless_image(size, size)
+		var grain := FastNoiseLite.new()
+		grain.seed = 12
+		grain.noise_type = FastNoiseLite.TYPE_VALUE
+		grain.fractal_type = FastNoiseLite.FRACTAL_NONE
+		grain.frequency = 0.35
+		var grain_img := grain.get_seamless_image(size, size)
 		for y in size:
 			for x in size:
-				var v := rng.randf_range(-0.018, 0.018)
-				img.set_pixel(x, y, Color(base.r + v, base.g + v * 1.4, base.b + v * 0.6))
-		for i in 14:
+				var pv := patch_img.get_pixel(x, y).r - 0.5
+				var c := base.lerp(light if pv > 0.0 else tuft, absf(pv) * 0.55)
+				var g := (grain_img.get_pixel(x, y).r - 0.5) * 0.05
+				img.set_pixel(x, y, Color(c.r + g, c.g + g * 1.3, c.b + g * 0.6))
+		for i in 230:
 			var x := rng.randi_range(0, size - 1)
 			var y := rng.randi_range(0, size - 1)
-			img.set_pixel(x, y, look["tuft"])
-			img.set_pixel((x + 1) % size, y, look["tuft"])
-			img.set_pixel(x, (y + size - 1) % size, look["light"])
-		for i in int(look["specks"]):
+			img.set_pixel(x, y, tuft)
+			img.set_pixel((x + 1) % size, y, tuft)
+			img.set_pixel(x, (y + size - 1) % size, light)
+		for i in int(look["specks"]) * 16:
 			img.set_pixel(rng.randi_range(0, size - 1), rng.randi_range(0, size - 1), look["speck"])
 		_cache[key] = ImageTexture.create_from_image(img)
 	return _cache[key]

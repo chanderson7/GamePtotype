@@ -23,6 +23,7 @@ const Units = preload("res://scripts/data/units.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
+const FieldArt = preload("res://scripts/battle/field_art.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
@@ -346,8 +347,6 @@ var _castle_culture := Cultures.VARDISH
 var _garrison_realm := "vardmark"
 var _my_realm := "vardmark"
 var _doodads: Array = []
-## Broad patches of lighter and darker ground: [{pos, r, light}].
-var _patches: Array = []
 ## The land past the field's edge, and marks on the field itself, for looks only: trees
 ## and paddies beyond the edge, a track, crop strips or wind ripples on the ground.
 var _beyond: Array = []
@@ -474,11 +473,11 @@ var terrain_hint_panel: PanelContainer
 var terrain_hint_title: Label
 var terrain_hint_body: Label
 var _height_tex: ImageTexture = null
+## The field's features (woods floor, river, rocks, houses) baked once (FieldArt.plate).
+var _plate_tex: ImageTexture = null
 var _trees: Array = []
 ## Woods on the battlefield: the shade of the forest floor, in rings, and how solid the
 ## treetops over the men are.
-const WOODS_FLOOR := Color(0.10, 0.24, 0.10)
-const WOODS_FLOOR_RINGS := 4
 const TREETOP_ALPHA := 0.78
 var _terrain_site_type := ""
 
@@ -4619,17 +4618,13 @@ func _draw_field() -> void:
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_ground_marks()
 
-	# Elevation shading & contour lines
+	# The slopes, lit and shaded, then the features baked on the plate.
 	if _height_tex != null:
 		_c.draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
-
-	# Rivers, fords, and rock outcrops
-	_draw_terrain_features()
-
-	var look: Dictionary = Art.GROUND.get(_biome, Art.GROUND["vardish"])
-	for patch in _patches:
-		_c.draw_set_transform(field_origin + Vector2(patch["pos"]) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.7))
-		_c.draw_circle(Vector2.ZERO, patch["r"], Color(look["light"] if patch["light"] else look["tuft"], 0.22))
+	if _plate_tex != null:
+		_c.draw_texture_rect(_plate_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
+	if sim != null and _terrain_site_type == "river":
+		FieldArt.draw_water(_c, sim.terrain, _clock, 0.5 if _band == "night" else 1.0)
 	for d in _doodads:
 		var s: float = field_scale * Art.PROP_PIXEL * float(d["scale"])
 		_c.draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
@@ -4746,54 +4741,6 @@ func _draw_ground_marks() -> void:
 				_c.draw_rect(Rect2(_track[i] - Vector2(6, 4), Vector2(12, 8)), edge)
 
 
-func _draw_terrain_features() -> void:
-	if sim == null or sim.terrain == null:
-		return
-	var t: Terrain = sim.terrain
-	for feat in t.features:
-		var ft: String = feat.get("type", "")
-		if ft == "woods":
-			# The forest floor: shade that deepens toward the middle of the stand.
-			var c: Vector2 = feat["center"]
-			var r: float = float(feat["radius"])
-			for k in WOODS_FLOOR_RINGS:
-				_c.draw_circle(c, r * (1.0 - 0.18 * k), Color(WOODS_FLOOR, 0.16 + 0.04 * k))
-			_c.draw_arc(c, r, 0.0, TAU, 48, Color(WOODS_FLOOR.darkened(0.3), 0.55), 2.0)
-		elif ft == "river":
-			var half_w: float = float(feat.get("half_width", 38.0))
-			var phase: float = float(feat.get("phase", 0.0))
-			var bend: float = float(feat.get("bend", BattleSite.RIVER_BEND))
-			var fords: Array = feat.get("fords", [])
-			var ford_w: float = float(feat.get("ford_width", 90.0))
-
-			var pts_top := PackedVector2Array()
-			var pts_bot := PackedVector2Array()
-			var x_step := 20.0
-			var x := 0.0
-			while x <= Sim.ARENA.x + x_step:
-				var ry := 630.0 + sin(x * 0.007 + phase) * bend
-				pts_top.append(Vector2(x, ry - half_w))
-				pts_bot.append(Vector2(x, ry + half_w))
-				x += x_step
-			var poly := PackedVector2Array()
-			poly.append_array(pts_top)
-			pts_bot.reverse()
-			poly.append_array(pts_bot)
-			_c.draw_colored_polygon(poly, Color(0.14, 0.30, 0.54, 0.88))
-
-			for fx in fords:
-				var fry := 630.0 + sin(fx * 0.007 + phase) * bend
-				var ford_rect := Rect2(fx - ford_w * 0.5, fry - half_w - 4.0, ford_w, half_w * 2.0 + 8.0)
-				_c.draw_rect(ford_rect, Color(0.38, 0.68, 0.72, 0.80))
-				_c.draw_rect(ford_rect, Color(0.72, 0.64, 0.42, 0.85), false, 2.0)
-
-		elif ft == "rock" or ft == "building":
-			var rect: Rect2 = feat.get("rect", Rect2())
-			if rect.size != Vector2.ZERO:
-				_c.draw_rect(rect, Color(0.24, 0.22, 0.20, 0.95))
-				_c.draw_rect(rect, Color(0.12, 0.10, 0.09, 0.95), false, 3.0)
-
-
 ## Draw treetops over troops, a little see-through so men in the woods still show.
 func _draw_treetops() -> void:
 	if _trees.is_empty():
@@ -4817,29 +4764,7 @@ func _setup_terrain_visuals() -> void:
 	_trees.clear()
 	_terrain_site_type = "open"
 
-	# Build shaded height image
-	var iw := 112
-	var ih := 168
-	var img := Image.create_empty(iw, ih, false, Image.FORMAT_RGBA8)
-	var has_height := false
-	for y in ih:
-		for x in iw:
-			var p := Vector2((x + 0.5) / float(iw) * Sim.ARENA.x, (y + 0.5) / float(ih) * Sim.ARENA.y)
-			var h := t.height_at(p)
-			if h > 0.04:
-				has_height = true
-				var alpha := clampf(h * 0.40, 0.0, 0.45)
-				var mod_h := fmod(h, 0.20)
-				if mod_h < 0.025 and h > 0.15:
-					img.set_pixel(x, y, Color(1.0, 0.92, 0.65, 0.60))
-				else:
-					img.set_pixel(x, y, Color(1.0, 1.0, 0.85, alpha))
-			else:
-				img.set_pixel(x, y, Color(0, 0, 0, 0))
-	if has_height:
-		_height_tex = ImageTexture.create_from_image(img)
-	else:
-		_height_tex = null
+	_height_tex = FieldArt.hillshade(t, _biome)
 
 	# Populate woods trees
 	var tree_name := "tree"
@@ -4870,6 +4795,7 @@ func _setup_terrain_visuals() -> void:
 						"flip": 1.0 if rng.randf() < 0.5 else -1.0,
 					})
 	_trees.sort_custom(func(a, b): return a["pos"].y < b["pos"].y)
+	_plate_tex = FieldArt.plate(t, _biome, _trees, 999)
 
 	for feat in t.features:
 		var ft: String = feat.get("type", "")
@@ -4991,9 +4917,8 @@ func _scatter_doodads() -> void:
 			continue
 		_doodads.append({"name": kinds[rng.randi_range(0, kinds.size() - 1)], "pos": pos,
 			"scale": rng.randf_range(1.4, 2.2), "flip": 1.0 if rng.randf() < 0.5 else -1.0})
-	for i in 12:
-		_patches.append({"pos": Vector2(rng.randf_range(0.0, Sim.ARENA.x), rng.randf_range(0.0, Sim.ARENA.y)),
-			"r": rng.randf_range(60.0, 150.0), "light": rng.randf() < 0.5})
+	if sim != null and (sim.objective != Sim.OBJECTIVE_SIEGE):
+		_doodads.append_array(FieldArt.props(sim.terrain, rng))
 	_scatter_scenery(rng)
 
 
