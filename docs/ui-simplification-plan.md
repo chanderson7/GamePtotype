@@ -1,6 +1,33 @@
 # UI simplification plan: less text, more marks
 
-**Status:** planned. Nothing here changes a rule of the game.
+**Status:** built, not yet run in Godot. Nothing here changes a rule of the game.
+
+The kit, every screen section and the order-bar recommendation are in. The container that
+built it had no Godot binary, so the checks were `gdparse`, `tools/check_calls.py` (calls into
+other scripts and the autoloads name real functions with valid argument counts; private
+helpers exist; local argument counts) and `tools/check_infer.py` (no `:=` on a call without a
+return type). Run the suites before trusting it:
+
+    godot --headless --path . -s tests/widgets_tests.gd
+    godot --headless --path . -s tests/menu_tests.gd   (and the rest of tests/*_tests.gd)
+    xvfb-run -a godot --path . --resolution 405x878 -s tests/screen_width_tests.gd
+
+What was left, and why:
+- **Order bar:** words for the first three battles (`GameState.battles` below 3), icons after,
+  with the word as a tooltip. Fight, Storm!, Auto-place and Cancel keep words.
+- **Brand:** only the wordmark came over from `app-logo` and sits on Home over the title
+  label, with the Cinzel text as a fallback. The app icon still waits on a choice.
+- **Iron Company** is renamed **Mortal** in New campaign and Settings; change it freely.
+- **Not done:** tab icons on the Warband and settlement tab bars (five tabs with icon and word
+  overflow a phone); the settlement keeps its own shell rather than `Page.frame`; the marshal
+  army's "Expedition timed out" outcome type (it lives in `marshal_armies.gd`); the arrival
+  subtitle's realm (in `travel_presentation.gd`); the map's top-bar pills stay 64 tall; men and
+  morale are not in the battle info strip (the card and standard say them); grief and wavering
+  ticker lines stay, having no other channel.
+- **Found on the way, not fixed:** `world_sim.is_sieged()` looks for the state "sieging" while
+  marshal armies use "besieging", so siege drums never play; `tests/combined_battle_tests.gd`
+  calls `w._spawn_lord_party()`, which no longer exists (only reached when an allied lord has
+  no party).
 **Mockups:** `mockups/ui-patterns-before-after.png` (four recurring patterns as they are and as
 proposed) and `mockups/ui-new-icons.png` (the 25 new icons the plan needs, drawn and checked
 at size). The icons themselves are in `assets/ui/o_*.svg`, unused until a screen takes them.

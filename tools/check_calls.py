@@ -25,6 +25,62 @@ BUILTIN = {"new", "get", "set", "call", "has_method", "callv", "get_script", "re
            "get_class", "is_class", "connect", "emit", "bind"}
 
 _cache = {}
+AUTOLOADS = {"GameState": "scripts/game_state.gd", "Sound": "scripts/audio/sound.gd", "Scenes": "scripts/ui/scenes.gd"}
+ALL_FUNCS = None
+
+
+def all_funcs():
+    """Every function name defined in any script, for calls on objects of unknown type."""
+    global ALL_FUNCS
+    if ALL_FUNCS is None:
+        ALL_FUNCS = set()
+        for d, _, names in os.walk(os.path.join(ROOT, "scripts")):
+            for n in names:
+                if n.endswith(".gd"):
+                    ALL_FUNCS |= set(FUNC.findall(open(os.path.join(d, n), encoding="utf-8").read()))
+        for d, _, names in os.walk(os.path.join(ROOT, "tests")):
+            for n in names:
+                if n.endswith(".gd"):
+                    ALL_FUNCS |= set(FUNC.findall(open(os.path.join(d, n), encoding="utf-8").read()))
+    return ALL_FUNCS
+
+
+GODOT_PRIVATE = {"_ready", "_process", "_physics_process", "_input", "_unhandled_input", "_gui_input", "_draw",
+                 "_init", "_notification", "_enter_tree", "_exit_tree", "_get_minimum_size", "_to_string"}
+
+
+def check_private(path, text, aliases):
+    """A `_helper(` called bare must be defined in this script (or the one it extends);
+    `x._helper(` must be defined somewhere in the project."""
+    problems = []
+    rel = os.path.relpath(path, ROOT)
+    local = set(load(rel)["funcs"])
+    inner = set(re.findall(r'^\s*class\s+(\w+)', text, re.M))
+    for m in re.finditer(r'(?<![\w.])(_\w+)\s*\(', text):
+        name = m.group(1)
+        if name in local or name in GODOT_PRIVATE or name in inner:
+            continue
+        line = text.count("\n", 0, m.start()) + 1
+        problems.append("%s:%d: %s() is not defined in this script" % (path, line, name))
+    funcs = load(rel)["funcs"]
+    for m in re.finditer(r'(?<![\w.])(\w+)\s*\(', text):
+        name = m.group(1)
+        if name not in funcs or re.search(r'func\s+$', text[max(0, m.start() - 12):m.start()]):
+            continue
+        res = split_args(text, m.end() - 1)
+        if res is None:
+            continue
+        req, total = funcs[name]
+        if not (req <= len(res[0]) <= total):
+            line = text.count("\n", 0, m.start()) + 1
+            problems.append("%s:%d: %s() takes %d to %d arguments, given %d" % (path, line, name, req, total, len(res[0])))
+    for m in re.finditer(r'(\w+)\.(_\w+)\s*\(', text):
+        if m.group(1) in aliases or m.group(2) in GODOT_PRIVATE:
+            continue
+        if m.group(2) not in all_funcs():
+            line = text.count("\n", 0, m.start()) + 1
+            problems.append("%s:%d: %s.%s() is not defined in any script" % (path, line, m.group(1), m.group(2)))
+    return problems
 
 
 def split_args(text, start):
@@ -137,6 +193,9 @@ def check_file(path):
     raw = open(path, encoding="utf-8").read()
     text = strip_strings_and_comments(raw)
     aliases = {m.group(1): m.group(2) for m in PRELOAD.finditer(raw)}
+    for k, v in AUTOLOADS.items():
+        aliases.setdefault(k, v)
+    problems += check_private(path, text, aliases)
     for alias, rel in aliases.items():
         info = load(rel)
         if not info["ok"]:
