@@ -18,6 +18,8 @@ func _init() -> void:
 	_test_contract_daily_upkeep()
 	_test_break_contract()
 	_test_saveload_persistence()
+	_test_pay_follows_the_men()
+	_test_reparations()
 
 	print("\nMercenary Tests finished: %d passed, %d failed" % [_passes, _failures])
 	quit(1 if _failures > 0 else 0)
@@ -155,3 +157,52 @@ func _test_saveload_persistence() -> void:
 	_expect(copy.relation_with_realm("kharzan") == 10, "loaded relation with Kharzan matches")
 	_expect(copy.relation_with_lord(42) == 35, "loaded relation with lord 42 matches")
 	_expect(copy.world.player().faction == "kharzan", "loaded player party faction matches employer")
+
+
+## Contract pay is worked out each day from the men you bring to the field.
+func _test_pay_follows_the_men() -> void:
+	print("\n--- Contract Pay Follows the Men ---")
+	var gs := _setup_gs()
+	gs.sign_contract("vardmark")
+	var signed := gs.contract_daily_pay()
+	for sq in gs.army:
+		sq["men"] = 1
+	var expected := gs.calculate_contract_pay("vardmark")
+	var start := gs.silver
+	var wages := gs.daily_wages()
+	gs._upkeep()
+	_expect(expected < signed and gs.contract_daily_pay() == expected, "a warband cut down is paid for the men it has (%d, signed at %d)" % [expected, signed])
+	_expect(gs.silver == start + expected - wages, "and that is what the day pays")
+
+
+## A realm that bars you for your standing alone can be paid reparations: once a week, at
+## a cost that grows with how far below the line you are, back to just above it.
+func _test_reparations() -> void:
+	print("\n--- Reparations ---")
+	var gs := _setup_gs()
+	_expect(not gs.is_at_war_with("ryumon") and gs.barred_by("ryumon") == "", "Ryumon doesn't bar a stranger")
+	_expect(not gs.reparations_check("ryumon")["ok"], "and needs no reparations")
+	gs.add_realm_relation("ryumon", -40)
+	_expect(gs.is_at_war_with("ryumon") and gs.barred_by("ryumon") == "standing", "at -40 standing its gates are barred")
+	var cost: int = gs.reparations_cost("ryumon")
+	_expect(cost == GameStateScript.REPARATIONS_BASE + GameStateScript.REPARATIONS_PER_POINT * 20, "reparations cost more the further below the line (%d)" % cost)
+	gs.add_realm_relation("ryumon", -40)
+	_expect(gs.reparations_cost("ryumon") > cost, "and more again further down")
+	gs.add_realm_relation("ryumon", 40)
+	var purse := gs.silver
+	var treasury: int = int(gs.world.realms["ryumon"]["treasury"])
+	_expect(gs.pay_reparations("ryumon"), "an envoy pays them")
+	_expect(gs.silver == purse - cost and int(gs.world.realms["ryumon"]["treasury"]) == treasury + cost, "the silver goes to their treasury")
+	_expect(gs.relation_with_realm("ryumon") == GameStateScript.REPARATIONS_RELATION and not gs.is_at_war_with("ryumon"),
+		"standing rises to just above the line, and the gates open")
+	gs.add_realm_relation("ryumon", -30)
+	var again: Dictionary = gs.reparations_check("ryumon")
+	_expect(not again["ok"] and String(again["reason"]).contains("day"), "another envoy must wait a week")
+	gs.world.hour += GameStateScript.REPARATIONS_DAYS * 24.0
+	_expect(gs.reparations_check("ryumon")["ok"], "after which one can go again")
+	gs.silver = 0
+	_expect(not gs.reparations_check("ryumon")["ok"], "if you can pay")
+	# A real war isn't mended with silver.
+	gs.silver = 5000
+	gs.sign_contract("vardmark")
+	_expect(gs.barred_by("kharzan") == "employer" and not gs.reparations_check("kharzan")["ok"], "a war your employer fights can't be bought off")
