@@ -395,6 +395,12 @@ func weariness_of(realm: String) -> float:
 	return float(realms.get(realm, {}).get("weariness", 0.0))
 
 
+## Castles and towns `realm` holds anywhere: how peace weighs who is winning, the same
+## count for every realm.
+func seats_of(realm: String) -> int:
+	return holdings_of(realm, Data.CASTLE).size() + holdings_of(realm, Data.TOWN).size()
+
+
 func mainland_seats_of(realm: String) -> int:
 	var count := 0
 	for seat in Politics.MAINLAND_SEATS:
@@ -568,6 +574,8 @@ func make_peace(a: String, b: String, truce_days: int = Politics.TRUCE_DAYS, tri
 			truces[war_key(a, b)] = {"until": hour + truce_days * 24.0}
 		if tribute_daily > 0 and tribute_from != "":
 			var tribute_to := b if tribute_from == a else a
+			# One tribute between two realms at a time: a new peace replaces the old terms.
+			tributes = tributes.filter(func(t): return war_key(String(t.get("from", "")), String(t.get("to", ""))) != war_key(a, b))
 			tributes.append({
 				"from": tribute_from,
 				"to": tribute_to,
@@ -2529,6 +2537,9 @@ func _evaluate_peace() -> void:
 		var parts: PackedStringArray = key.split("|")
 		if parts.size() < 2:
 			continue
+		# The crown's wars end when you sue for peace or accept it, never behind your back.
+		if parts.has(Data.CROWN):
+			continue
 		var a: String = parts[0]
 		var b: String = parts[1]
 		var w_a := weariness_of(a)
@@ -2551,8 +2562,8 @@ func _evaluate_peace() -> void:
 		var is_fresh := w_resp < Politics.PEACE_ACCEPT_THRESHOLD
 		var diff := weariness_of(suitor) - w_resp
 
-		var seats_resp := mainland_seats_of(respondent) if respondent in ["vardmark", "kharzan"] else holdings_of(respondent).size()
-		var seats_suitor := mainland_seats_of(suitor) if suitor in ["vardmark", "kharzan"] else holdings_of(suitor).size()
+		var seats_resp := seats_of(respondent)
+		var seats_suitor := seats_of(suitor)
 		var winning_clearly := (seats_resp > seats_suitor) or (diff >= 30.0)
 
 		if is_fresh and winning_clearly:
@@ -2577,12 +2588,14 @@ func _sign_peace_treaty(a: String, b: String) -> void:
 	make_peace(a, b, Politics.TRUCE_DAYS, daily_tribute, loser, Politics.TRIBUTE_DAYS)
 
 
+## Ryumon goes to war with a mainland realm grown too strong, once: a truce signed since
+## holds it back until the truce runs out.
 func _evaluate_balance_of_power() -> void:
 	for realm in ["vardmark", "kharzan"]:
 		var seats := mainland_seats_of(realm)
 		if seats >= Politics.HEGEMONY_SEATS_THRESHOLD:
-			if not at_war("ryumon", realm):
-				declare_war("ryumon", realm, true, "balance of power")
+			if not at_war("ryumon", realm) and not has_truce("ryumon", realm):
+				declare_war("ryumon", realm, false, "balance of power")
 
 
 func _evaluate_war_declarations() -> void:
@@ -2980,13 +2993,27 @@ func return_allied_losses(squads: Dictionary) -> void:
 
 
 ## You beat the band: it's gone, and another rises in its realm a day later. If it was a lord,
-## he is routed back to his seat to regroup.
-func win_encounter() -> void:
+## he is routed back to his seat to regroup with whoever got away: `survivors` maps his
+## squad ids to the men left ({id: {men}}), as hurt_band takes them on a loss, and his
+## realm grows wearier for every man he lost. Lords riding with him in an army lose theirs too.
+func win_encounter(survivors: Dictionary = {}) -> void:
 	var b := party(encounter)
 	encounter = -1
 	if b == null:
 		return
 	if b.kind == LORD:
+		if not survivors.is_empty():
+			for member in army_parties(b):
+				var before := men_of(member.army)
+				_take_losses(member, survivors)
+				var fell := before - men_of(member.army)
+				if fell > 0 and realms.has(member.faction):
+					add_weariness(member.faction, float(fell) * Politics.WEARINESS_CASUALTY)
+				var ml := lord_of(member)
+				if not ml.is_empty():
+					ml["army"] = member.army
+				if member != b and member.army.is_empty():
+					_routed(member)
 		_routed(b)
 	else:
 		parties.erase(b)
@@ -3013,11 +3040,21 @@ func capture_lord(id: int, captor: String) -> void:
 	l["ransom_at"] = hour + (Lords.RANSOM_HOURS if captor == "player" else Lords.AI_RANSOM_HOURS)
 	l["ransom_amount"] = Lords.ransom_for(int(l.get("renown", 40)))
 	l["ransom_offered"] = false
+	# Without him his host scatters: a share of what was left goes home, the rest is gone.
+	var host: Array = l.get("army", [])
+	var p: Party = null
 	if int(l.get("party", -1)) >= 0:
-		var p := party(int(l["party"]))
+		p = party(int(l["party"]))
 		if p != null:
+			host = p.army
 			parties.erase(p)
 		l["party"] = -1
+	for sq in host:
+		sq["men"] = int(floor(int(sq["men"]) * Lords.CAPTIVE_HOST_SHARE))
+	host = host.filter(func(sq): return int(sq["men"]) > 0)
+	if p != null:
+		p.army = host
+	l["army"] = host
 	if realms.has(String(l.get("realm", ""))):
 		add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED)
 
@@ -3077,13 +3114,35 @@ func kill_lord(id: int, killer: String = "") -> Dictionary:
 	return l
 
 
+## What a captive lord's ransom can raise, up to `amount`: his realm's treasury, then his
+## own purse. Doesn't take anything.
+func ransom_payable(l: Dictionary, amount: int) -> int:
+	var realm := String(l.get("realm", ""))
+	var treasury: int = maxi(0, int(realms[realm].get("treasury", 0))) if realms.has(realm) else 0
+	return mini(amount, treasury + maxi(0, int(l.get("silver", 0))))
+
+
+## Take a ransom of up to `amount` from the lord's realm and then his purse, and return
+## what was paid.
+func pay_ransom(l: Dictionary, amount: int) -> int:
+	var paid := ransom_payable(l, amount)
+	var realm := String(l.get("realm", ""))
+	var from_realm := 0
+	if realms.has(realm):
+		from_realm = mini(paid, maxi(0, int(realms[realm].get("treasury", 0))))
+		realms[realm]["treasury"] = int(realms[realm].get("treasury", 0)) - from_realm
+	l["silver"] = int(l.get("silver", 0)) - (paid - from_realm)
+	return paid
+
+
 func _resolve_ai_ransom(l: Dictionary) -> void:
 	var captor_realm: String = String(l.get("captive_of", ""))
 	var lord_realm: String = String(l.get("realm", ""))
 	var amount: int = int(l.get("ransom_amount", 200))
 	if realms.has(captor_realm) and realms.has(lord_realm):
+		# Only what his realm and his own purse hold is paid: no silver from nowhere.
+		amount = pay_ransom(l, amount)
 		realms[captor_realm]["treasury"] = int(realms[captor_realm].get("treasury", 0)) + amount
-		realms[lord_realm]["treasury"] = maxi(0, int(realms[lord_realm].get("treasury", 0)) - amount)
 	l["state"] = "regroup"
 	l["back_at"] = hour + Lords.REGROUP_HOURS
 	l["captive_of"] = ""
@@ -3500,6 +3559,11 @@ static func clean_army(raw: Array) -> Array:
 			squad["lord_id"] = int(s["lord_id"])
 		if s.has("lord_name"):
 			squad["lord_name"] = String(s["lord_name"])
+		# Your own squads standing in a garrison: theirs to take back, wounds and all.
+		if s.has("wounded"):
+			squad["wounded"] = int(s["wounded"])
+		if s.has("stationed_by_company"):
+			squad["stationed_by_company"] = bool(s["stationed_by_company"])
 		var c = s.get("captain")
 		if typeof(c) == TYPE_DICTIONARY:
 			var cap: Dictionary = c.duplicate(true)

@@ -11,6 +11,9 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const Achievements = preload("res://scripts/data/achievements.gd")
+const Economy = preload("res://scripts/data/economy.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 
 var gs
 var failures := 0
@@ -81,8 +84,11 @@ func _init() -> void:
 	var seat := "ravensford"
 	_grant(seat)
 	_go(seat)
+	var seat_men: int = w.men_of(w.garrison_at(seat))
 	check(gs.declare_crown(), "a town can")
 	var liege := "vardmark"
+	check(seat_men > 0 and w.men_of(w.garrison_at(seat)) == seat_men and is_same(gs.player_fief["garrison"], w.garrisons[seat]),
+		"the seat's guards stand with the new crown, in the one garrison list the fief and the world share")
 
 	# ---- the seat's page: a ruler, not a vassal, and nothing to renounce
 	change_scene_to_file("res://scenes/settlement.tscn")
@@ -121,6 +127,21 @@ func _init() -> void:
 	var n: int = gs.army.size()
 	check(gs.station_in_holding(int(sq["id"])) and gs.army.size() == n - 1 and gs.stationed_at(castle).has(sq), "you station a squad in a crown castle you're at")
 	check(w.garrison_at(castle).has(sq), "and it stands with the garrison")
+	# Stationed squads are still yours after a save and a load, wounds and all.
+	sq["wounded"] = 3
+	var gs_copy = load("res://scripts/game_state.gd").new()
+	gs_copy.persist = false
+	gs_copy.from_dict(JSON.parse_string(JSON.stringify(gs.to_dict())))
+	var kept: Array = gs_copy.stationed_at(castle)
+	check(kept.size() == 1 and int(kept[0]["id"]) == int(sq["id"]) and int(kept[0].get("wounded", 0)) == 3,
+		"a squad stationed in a crown castle is still yours after a load, with its wounded")
+	var copy_n: int = gs_copy.army.size()
+	check(gs_copy.withdraw_from_holding(int(sq["id"])) and gs_copy.army.size() == copy_n + 1 and gs_copy.stationed_at(castle).is_empty()
+		and gs_copy.army.back().get("captain") is Dictionary and not gs_copy.army.back().has("stationed_by_company"),
+		"and can be taken back from the loaded game, captain and all")
+	gs_copy.free()
+	sq["wounded"] = 0
+	check(gs.stationed_wages() == int(ceil(Economy.daily_wage(sq) * gs.STATIONED_WAGE_SHARE)), "a stationed squad draws half its wages")
 	check(gs.withdraw_from_holding(int(sq["id"])) and gs.army.size() == n and not w.garrison_at(castle).has(sq), "and take it back")
 	change_scene_to_file("res://scenes/settlement.tscn")
 	for i in 4:
@@ -190,7 +211,21 @@ func _init() -> void:
 
 	# ---- war and peace
 	var other := "ryumon"
+	a["bearing"] = Lords.HONORABLE
+	var honour_before: int = gs.relation_with_lord(int(a["id"]))
 	check(gs.war_check(other)["ok"] and gs.declare_crown_war(other) and w.at_war(WorldData.CROWN, other), "you can declare war")
+	check(gs.relation_with_lord(int(a["id"])) == honour_before + gs.DECLARE_HONOR_REGARD, "and your Honorable lords think the less of a war you start")
+	# The crown's wars end only when you make peace: the world doesn't sign it for you.
+	w.realms[other]["weariness"] = 90.0
+	w.realms[WorldData.CROWN]["weariness"] = 90.0
+	w._evaluate_peace()
+	check(w.at_war(WorldData.CROWN, other), "however weary both sides are, the crown's peace is yours to make")
+	# Every man of yours who falls in the crown's wars wearies it.
+	w.realms[WorldData.CROWN]["weariness"] = 10.0
+	gs.pending_battle = {"objective": "raid", "raid_target": "", "enemy_faction": other, "name": "A test"}
+	gs.apply_result({"won": false, "lost": 20, "killed": 0, "squads": {}, "bonds": {}})
+	check(is_equal_approx(w.weariness_of(WorldData.CROWN), 10.0 + 20.0 * Politics.WEARINESS_CASUALTY), "your company's losses in its wars weary your crown")
+	gs.map_notice = ""
 	w.wars[w.war_key(WorldData.CROWN, other)]["since"] = w.hour - 24.0 * 10.0
 	w.realms[other]["weariness"] = 80.0
 	w.realms[WorldData.CROWN]["weariness"] = 10.0
@@ -246,6 +281,19 @@ func _init() -> void:
 	gs.renown = 0
 	gs._crown_day()
 	check(gs.crown_won and gs.renown >= 100 and gs.map_notice.contains("one crown"), "holding every capital wins the Glass Sea")
+	gs.map_notice = ""
+
+	# ---- after the crown: every castle and town at once
+	var seats_total: int = Achievements.seats_total()
+	check(seats_total == int(Achievements.DEEDS["keeper_of_the_sea"]["need"]), "the last deed asks for every castle and town on the map (%d)" % seats_total)
+	gs._award_deeds()
+	check(not gs.deeds.has("keeper_of_the_sea") and Achievements.progress(gs, "keeper_of_the_sea") == Achievements.seats_held(gs)
+		and Achievements.seats_held(gs) < seats_total, "its progress counts the seats your crown holds (%d of %d)" % [Achievements.seats_held(gs), seats_total])
+	for id in WorldData.SETTLEMENTS:
+		if String(WorldData.settlement(id)["type"]) != WorldData.VILLAGE:
+			w.set_owner(id, WorldData.CROWN)
+	gs._award_deeds()
+	check(gs.deeds.has("keeper_of_the_sea"), "holding them all makes the company Keepers of the Glass Sea")
 	gs.map_notice = ""
 
 	# ---- holding nothing, the crown falls

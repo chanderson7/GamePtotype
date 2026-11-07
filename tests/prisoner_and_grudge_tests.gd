@@ -9,6 +9,7 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 
 var passed := 0
 var failed := 0
@@ -38,6 +39,8 @@ func _init() -> void:
 	test_grudge_system_and_memorial_vengeance()
 	test_grudge_map_seeking_and_dialogue()
 	test_save_load_persistence()
+	test_beaten_lord_regroups_weaker()
+	test_capture_ransom_and_release_limits()
 
 	print("\nPrisoners and Grudge Tests finished: %d passed, %d failed" % [passed, failed])
 	quit(1 if failed > 0 else 0)
@@ -381,3 +384,90 @@ func test_save_load_persistence() -> void:
 	assert_eq(loaded_mem["killed_by_lord_id"], 6, "Loaded memorial preserves killed_by_lord_id")
 	assert_true(loaded_mem["avenged"], "Loaded memorial preserves avenged flag")
 	assert_eq(loaded_mem["avenged_words"], "Avenged at High Ridge.", "Loaded memorial preserves avenged words")
+
+
+## A lord you beat goes home with only the men who got away, and his realm feels the dead.
+func test_beaten_lord_regroups_weaker() -> void:
+	print("\n--- A Beaten Lord Regroups Weaker ---")
+	var world := _create_test_world()
+	var gs := _create_test_game_state(world)
+	var lord: Dictionary = {}
+	for l in world.lords:
+		if int(l.get("party", -1)) >= 0 and not bool(l.get("ruler", false)):
+			lord = l
+			break
+	assert_true(not lord.is_empty(), "A lord rides in the field")
+	if lord.is_empty():
+		return
+	var p = world.party(int(lord["party"]))
+	var realm := String(lord["realm"])
+	var before: int = world.men_of(p.army)
+	var survivors := {}
+	var expected := 0
+	for sq in p.army:
+		var left: int = int(sq["men"]) / 2
+		survivors[int(sq["id"])] = {"men": left}
+		expected += left
+	var wear: float = world.weariness_of(realm)
+	world.encounter = p.id
+	world.win_encounter(survivors)
+	assert_eq(String(lord["state"]), "regroup", "He rides home to regroup")
+	assert_true(world.men_of(lord["army"]) == expected and expected < before, "With only the men who got away (%d of %d)" % [expected, before])
+	assert_true(is_equal_approx(world.weariness_of(realm), wear + Politics.WEARINESS_LORD_ROUTED + float(before - expected) * Politics.WEARINESS_CASUALTY),
+		"And his realm is wearier for every man he lost")
+	world._lord_takes_field(lord, world.seat_of(lord))
+	var back = world.party(int(lord["party"]))
+	assert_true(back != null and world.men_of(back.army) == expected, "He takes the field again no stronger than he left it")
+
+
+## A captive's host scatters; his ransom is paid from what his house has; freeing the same
+## lord for honour again earns less.
+func test_capture_ransom_and_release_limits() -> void:
+	print("\n--- Capture, Ransom and Release Limits ---")
+	var world := _create_test_world()
+	var gs := _create_test_game_state(world)
+	var lord: Dictionary = world.lords[3]
+	var realm := String(lord["realm"])
+	var host: Array = lord["army"]
+	var p = world.party(int(lord.get("party", -1)))
+	if p != null:
+		host = p.army
+	var expected := 0
+	for sq in host:
+		expected += int(floor(int(sq["men"]) * Lords.CAPTIVE_HOST_SHARE))
+	world.capture_lord(3, "player")
+	assert_true(world.men_of(lord["army"]) == expected and expected > 0, "A captured lord's host scatters: half goes home (%d)" % expected)
+
+	# His house can raise only what it has.
+	world.realms[realm]["treasury"] = 50
+	lord["silver"] = 30
+	var asked: int = int(lord["ransom_amount"])
+	assert_true(asked > 80 and gs.ransom_offer(3) == 80, "The ransom offered is what his realm and purse hold")
+	var purse: int = gs.silver
+	gs.map_notice = ""
+	assert_true(gs.accept_lord_ransom(3), "The ransom is accepted")
+	assert_eq(gs.silver, purse + 80, "Only what exists is paid")
+	assert_true(int(world.realms[realm]["treasury"]) == 0 and int(lord["silver"]) == 0, "From the treasury, then his own purse")
+	assert_true(gs.map_notice.contains("only 80"), "And the notice says it fell short")
+
+	# Freed for honour: in full once, less after.
+	world.capture_lord(3, "player")
+	var renown: int = gs.renown
+	var regard: int = gs.relation_with_lord(3)
+	var standing: int = gs.relation_with_realm(realm)
+	gs.release_lord_for_honor(3)
+	assert_true(gs.renown == renown + gs.RELEASE_RENOWN and gs.relation_with_lord(3) == regard + gs.RELEASE_REGARD,
+		"The first release earns renown and Regard in full")
+	world.capture_lord(3, "player")
+	renown = gs.renown
+	regard = gs.relation_with_lord(3)
+	standing = gs.relation_with_realm(realm)
+	gs.release_lord_for_honor(3)
+	assert_true(gs.renown == renown and gs.relation_with_lord(3) == regard + gs.RELEASE_REGARD / 2
+		and gs.relation_with_realm(realm) == standing + gs.RELEASE_REALM / 2,
+		"Freeing the same lord again earns half the Regard and standing, and no renown")
+	var copy := GameStateScript.new()
+	copy.persist = false
+	copy.from_dict(JSON.parse_string(JSON.stringify(gs.to_dict())))
+	assert_true(int(copy.honour_releases.get(String(lord["name"]), 0)) == 2, "Who you have freed is saved")
+	copy.free()

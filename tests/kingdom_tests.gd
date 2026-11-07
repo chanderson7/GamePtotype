@@ -65,8 +65,12 @@ func _init() -> void:
 	_go(target)
 	w.garrisons[target] = []
 	check(gs.siege_check(target)["ok"], "a crowned company can storm its enemy's walls")
+	var men_before: int = gs.total_men()
 	gs.auto_resolve_siege(target)
 	check(w.owner_of(target) == WorldData.CROWN and gs.crown_holdings().has(target), "and what it storms joins the crown")
+	var held: int = w.men_of(w.garrison_at(target))
+	check(held > 0 and gs.total_men() == men_before - held and gs.stationed_at(target).is_empty(),
+		"with some of the stormers left on its walls as its garrison, not an empty keep (%d men)" % held)
 
 	# Crown dues.
 	var purse: int = gs.silver

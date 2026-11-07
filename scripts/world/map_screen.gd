@@ -31,6 +31,7 @@ const LordConversation = preload("res://scripts/world/lord_conversation.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 150.0
@@ -1486,7 +1487,7 @@ func _open_ransom_sheet(lord_id: int) -> void:
 	if l.is_empty():
 		return
 	var realm_name: String = Data.FACTIONS.get(l.get("realm", ""), {}).get("name", l.get("realm", ""))
-	var ransom: int = int(l.get("ransom_amount", 200))
+	var ransom: int = GameState.ransom_offer(lord_id)
 	var title := "Ransom for %s" % l.get("name", "a captive lord")
 	var text := "An envoy of %s rides under a banner of truce for %s's return." % [realm_name, l.get("name", "the lord")]
 	var buttons := []
@@ -1494,7 +1495,8 @@ func _open_ransom_sheet(lord_id: int) -> void:
 	if GameState.has_contract() and world.at_war(GameState.contract_realm(), String(l.get("realm", ""))):
 		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
 		buttons.append(["To employer", _on_deliver_lord_to_employer.bind(lord_id), false, "crown", [_gain("silver", bonus), _gain("bond", 10)]])
-	buttons.append(["Release", _on_release_lord_honor.bind(lord_id), false, "heart", [_gain("bond", 25), _gain("renown", 10)]])
+	var freed: Dictionary = GameState.release_reward(lord_id)
+	buttons.append(["Release", _on_release_lord_honor.bind(lord_id), false, "heart", [_gain("bond", int(freed["regard"])), _gain("renown", int(freed["renown"]))]])
 	buttons.append(["Talk", _open_talk.bind(lord_id, "captive"), false, "talk"])
 	buttons.append(["Keep in chains", _close_sheet, false, "lock"])
 	_show_sheet("ransom", title, text, buttons)
@@ -1854,16 +1856,18 @@ func _notice_groups(items: Array) -> Array:
 	var sworn := items.filter(func(i): return String(i.get("kind", "")) == "sworn")
 	if not released.is_empty():
 		var v := _notice_block("NoticeReleased", "Released without ransom", "")
-		(v.get_child(0) as HBoxContainer).add_child(Widgets.effect("renown", GameState.RELEASE_RENOWN * released.size()))
+		(v.get_child(0) as HBoxContainer).add_child(Widgets.effect("renown", released.reduce(func(acc, i): return acc + int(i.get("renown", GameState.RELEASE_RENOWN)), 0)))
 		# By realm: who went home to each, and how much that realm warmed to you.
 		var realms: Array = []
 		var by_realm := {}
+		var standing_by_realm := {}
 		for i in released:
 			var realm := String(i.get("realm", ""))
 			if not by_realm.has(realm):
 				by_realm[realm] = []
 				realms.append(realm)
 			by_realm[realm].append(String(i["name"]))
+			standing_by_realm[realm] = int(standing_by_realm.get(realm, 0)) + int(i.get("standing", GameState.RELEASE_REALM))
 		for realm in realms:
 			var names: Array = by_realm[realm]
 			var realm_name := String(Data.FACTIONS.get(realm, {}).get("name", realm))
@@ -1874,7 +1878,7 @@ func _notice_groups(items: Array) -> Array:
 			rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			rl.custom_minimum_size = Vector2(10, 0)
 			head.add_child(rl)
-			head.add_child(Widgets.effect("bond", GameState.RELEASE_REALM * names.size()))
+			head.add_child(Widgets.effect("bond", int(standing_by_realm.get(realm, GameState.RELEASE_REALM * names.size()))))
 			v.add_child(head)
 			var who := Style.label(", ".join(PackedStringArray(names)), Style.SMALL, Style.TEXT)
 			who.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2293,6 +2297,12 @@ func _open_wars() -> void:
 		sub.add_child(ruler)
 		sub.add_child(Widgets.icon_value("keep", str(holdings), Style.MUTED))
 		col.add_child(sub)
+		# What they think of your company.
+		if f != Data.CROWN:
+			var opinion := Widgets.effect("bond", GameState.relation_with_realm(f))
+			opinion.name = "Relation"
+			opinion.tooltip_text = "Your standing with them"
+			col.add_child(Widgets.chip_row([opinion]))
 		var men: int = world.realm_strength(f)
 		var wear: float = world.weariness_of(f)
 		var grid := GridContainer.new()
@@ -2307,6 +2317,11 @@ func _open_wars() -> void:
 		grid.add_child(Widgets.meter(wear / 100.0, Style.MORALE_LOW))
 		grid.add_child(Style.label("%d%%" % int(wear), Style.SMALL, Style.TEXT))
 		sheet_extra.add_child(row)
+	var thresholds := Style.label("They seek peace at %d weariness; they accept it from %d." % [int(Politics.PEACE_THRESHOLD), int(Politics.PEACE_ACCEPT_THRESHOLD)], Style.SMALL, Style.MUTED)
+	thresholds.name = "PeaceThresholds"
+	thresholds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	thresholds.custom_minimum_size = Vector2(10, 0)
+	sheet_extra.add_child(thresholds)
 	# Wars and truces, banner against banner.
 	sheet_extra.add_child(Widgets.section("Wars & truces"))
 	var pairs := 0

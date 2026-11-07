@@ -18,6 +18,9 @@ func _init() -> void:
 	_test_truce_blocks_war()
 	_test_tribute_payments()
 	_test_balance_of_power()
+	_test_balance_respects_truce()
+	_test_one_tribute_per_pair()
+	_test_seats_weighed_alike()
 	_test_saveload_roundtrip()
 
 	print("\nPolitics Tests finished: %d passed, %d failed" % [_passes, _failures])
@@ -155,6 +158,51 @@ func _test_balance_of_power() -> void:
 	w._evaluate_balance_of_power()
 	_expect(w.at_war("ryumon", "vardmark"), "Ryumon declares war on Vardmark to preserve balance of power")
 	_expect(not w.at_war("ryumon", "kharzan"), "Ryumon remains at peace with Kharzan")
+
+
+## Ryumon goes to war once over the balance of power; a peace signed since holds it back
+## until the truce runs out, instead of a new war the same day.
+func _test_balance_respects_truce() -> void:
+	print("\n--- Balance of Power Respects Truces ---")
+	var w = WorldSim.new()
+	w.setup(707, "vardmark")
+	w.set_owner("khalun", "vardmark")
+	w._evaluate_balance_of_power()
+	_expect(w.at_war("ryumon", "vardmark"), "Ryumon goes to war with the hegemon")
+	w.make_peace("ryumon", "vardmark")
+	w._evaluate_balance_of_power()
+	_expect(not w.at_war("ryumon", "vardmark") and w.has_truce("ryumon", "vardmark"), "a peace since holds it to the truce")
+	w.add_weariness("ryumon", Politics.PEACE_THRESHOLD + 5.0)
+	w._politics_day()
+	_expect(not w.at_war("ryumon", "vardmark"), "and a day of politics doesn't restart the war")
+	w.hour += (Politics.TRUCE_DAYS + 1) * 24.0
+	w._evaluate_balance_of_power()
+	_expect(w.at_war("ryumon", "vardmark"), "once the truce runs out, Ryumon may go to war again")
+
+
+## A second peace between the same two realms replaces their tribute rather than adding one.
+func _test_one_tribute_per_pair() -> void:
+	print("\n--- One Tribute Per Pair ---")
+	var w = WorldSim.new()
+	w.setup(808, "vardmark")
+	w.make_peace("vardmark", "kharzan", Politics.TRUCE_DAYS, 30, "vardmark", 5)
+	w.declare_war("vardmark", "kharzan", true)
+	w.make_peace("vardmark", "kharzan", Politics.TRUCE_DAYS, 40, "kharzan", 5)
+	_expect(w.tributes.size() == 1 and w.tributes[0]["from"] == "kharzan" and int(w.tributes[0]["daily"]) == 40,
+		"the new terms replace the old tribute between the pair")
+
+
+## Peace weighs who is winning by castles and towns on both sides, never villages on one.
+func _test_seats_weighed_alike() -> void:
+	print("\n--- Seats Weighed Alike ---")
+	var w = WorldSim.new()
+	w.setup(909, "vardmark")
+	_expect(w.seats_of("ryumon") == 3 and w.seats_of("kharzan") == 3, "Ryumon and Kharzan each hold three castles and towns")
+	w.declare_war("ryumon", "kharzan", true)
+	w.realms["kharzan"]["weariness"] = Politics.PEACE_THRESHOLD
+	w.realms["ryumon"]["weariness"] = 35.0
+	w._evaluate_peace()
+	_expect(not w.at_war("ryumon", "kharzan"), "a fresh Ryumon with no more seats than Kharzan accepts its peace")
 
 
 func _test_saveload_roundtrip() -> void:
