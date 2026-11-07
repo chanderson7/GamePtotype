@@ -2549,15 +2549,43 @@ func food_days() -> int:
 
 # ---------------------------------------------------------------- guidance
 
+## Silver for one day of food at village prices, the cheapest there is.
+func day_of_food_cost() -> int:
+	var head := total_headcount()
+	var daily_food := head
+	if has_specialization(Captains.QUARTERMASTER):
+		daily_food = maxi(1, int(ceil(head * 0.8)))
+	return int(ceil(daily_food * float(Economy.FOOD_PRICE.get(WorldData.VILLAGE, 0.2))))
+
+
+## Whether the purse can't cover tomorrow: not a day of the cheapest food, or not a day's
+## wages. Paid work is what the company needs then, not a shop.
+func short_of_silver() -> bool:
+	return silver < day_of_food_cost() or silver < daily_wages()
+
+
 ## One honest next step from the current campaign state. This points at existing
 ## systems and places; it does not create a quest or promise an unavailable siege.
+## A step aimed at a bandit band has the action "band" and the band's id as "party".
 func recommendation() -> Dictionary:
 	if world == null:
-		return {"title": "Form your company", "body": "Choose a people and begin a campaign.", "action": "home", "place": ""}
-	if food_days() < 2:
+		return {"title": "Form your warband", "body": "Choose a people and begin a campaign.", "action": "home", "place": ""}
+	if food_days() < 2 and silver >= day_of_food_cost():
 		var village := _nearest_settlement([WorldData.VILLAGE])
 		return {"title": "Buy provisions", "body": "Only %d days of food remain. Villages sell the cheapest supplies." % food_days(),
 			"action": "place", "place": village}
+	# A purse that can't cover tomorrow needs paid work before anything it would buy.
+	if short_of_silver() and active_jobs.is_empty():
+		var short_of: String = "wages" if silver < daily_wages() else "food"
+		var work := _nearest_work_place()
+		if work != "":
+			return {"title": "Take a contract at %s" % WorldData.settlement(work)["name"],
+				"body": "Your silver won't cover tomorrow's %s. Its notice board, under Work, posts paid contracts; a courier run pays without a battle." % short_of,
+				"action": "place", "place": work}
+		var weak_band = _band_to_hunt(true)
+		if weak_band != null:
+			return _band_advice(weak_band, "Your silver won't cover tomorrow's %s. These are the weakest bandits near you, %d men; a win pays a bounty and spoils." % [
+				short_of, int(world.men_of(weak_band.army))])
 	var ready := army.filter(func(s): return can_train(s))
 	if not ready.is_empty():
 		var town := _nearest_settlement([WorldData.TOWN])
@@ -2599,15 +2627,24 @@ func recommendation() -> Dictionary:
 	if not close_bond.is_empty():
 		return {"title": "A bond is taking shape", "body": "%s are %.1f points from rank %s. Fighting beside one another strengthens it." % [
 			close_bond["pair"], close_bond["remaining"], close_bond["rank"]], "action": "warband", "place": ""}
+	# Before the first fight, the first fight: the nearest band, by name.
+	if battles == 0:
+		var first_band = _band_to_hunt(false)
+		if first_band != null:
+			return _band_advice(first_band, "A win pays a bounty, spoils, food and renown.")
 	if army.size() < squad_cap():
 		var recruits := _nearest_settlement_with_recruits()
-		if recruits != "":
+		# Only when the hire leaves three days of wages in the purse.
+		if recruits != "" and _hire_leaves_pay_at(recruits):
 			return {"title": "Room for another company", "body": "Your renown supports %d more %s, and recruits are waiting nearby." % [
 				squad_cap() - army.size(), "company" if squad_cap() - army.size() == 1 else "companies"], "action": "place", "place": recruits}
 	if is_wounded():
 		var town := _nearest_settlement([WorldData.TOWN])
 		return {"title": "Rebuild the ranks", "body": "Some companies are below full strength. A town can reinforce them.",
 			"action": "place", "place": town}
+	var tier := _next_tier()
+	if not tier.is_empty():
+		return tier
 	if not world.activity_log.is_empty():
 		var latest: Dictionary = world.activity_log[0]
 		var place := String(latest.get("place", ""))
@@ -2615,6 +2652,119 @@ func recommendation() -> Dictionary:
 			return {"title": "News from the road", "body": String(latest["text"]), "action": "place", "place": place}
 	return {"title": "Build your name", "body": "Patrol the roads, protect villages and seek battles to earn silver and renown.",
 		"action": "map", "place": ""}
+
+
+## The nearest town or castle whose notice board can take the company on: not burned,
+## not at war with you, and not known to have nothing posted.
+func _nearest_work_place() -> String:
+	var best := ""
+	var best_hours := INF
+	for id in WorldData.SETTLEMENTS:
+		var kind := String(WorldData.settlement(id)["type"])
+		if kind == WorldData.VILLAGE or world.is_burned(id) or is_at_war_with(String(world.owner_of(id))):
+			continue
+		var posted_back: float = float(world.settlement_jobs_back.get(id, INF))
+		if world.settlement_jobs.has(id) and (world.settlement_jobs[id] as Array).is_empty() and world.hour < posted_back:
+			continue
+		var hours: float = world.hours_to(id)
+		if hours < best_hours:
+			best_hours = hours
+			best = id
+	return best
+
+
+## The bandit band to ride at: the one reached soonest, or with `weakest` the smallest of
+## those within two days' ride (the nearest when none are). Null when none roam.
+func _band_to_hunt(weakest: bool):
+	var best = null
+	var best_score := INF
+	for b in world.bands():
+		var hours: float = world.hours_to(String(b.node))
+		var score: float = hours
+		if weakest:
+			score = float(world.men_of(b.army)) if hours <= 48.0 else 100000.0 + hours
+		if score < best_score:
+			best_score = score
+			best = b
+	return best
+
+
+## A next step that points at a bandit band: its name, where it was last seen and how far.
+func _band_advice(band, lead: String) -> Dictionary:
+	var seen := String(band.node)
+	var away: float = world.hours_to(seen)
+	var ride: String = ("%d hours" % int(ceil(away))) if away < 24.0 else ("%d days" % int(ceil(away / 24.0)))
+	var seen_name := String(WorldData.settlement(seen)["name"])
+	return {"title": "Hunt the %s" % String(band.name),
+		"body": "%s Last seen near %s, %s away. Tap them on the map, then Ride at them." % [lead, seen_name, ride],
+		"action": "band", "party": int(band.id), "place": seen}
+
+
+## Whether some company on offer at `place` can be hired with three days of wages (the
+## new company's pay counted in) still in the purse after its price.
+func _hire_leaves_pay_at(place: String) -> bool:
+	for offer in world.offers_at(place):
+		var unit_id := Units.recruit(String(offer["culture"]), String(offer["type"]))
+		var full := Units.full_size(unit_id)
+		var cost := Economy.recruit_cost(unit_id, full)
+		var wage := int(ceil(Economy.daily_wage({"unit": unit_id, "type": String(offer["type"]), "men": full, "level": 1})))
+		if silver - cost >= 3 * (daily_wages() + wage):
+			return true
+	return false
+
+
+## The step up from where the company stands: a vassal toward a crown of its own, a crown
+## toward every seat. Empty for a free company.
+func _next_tier() -> Dictionary:
+	if is_crowned():
+		var seats := 0
+		var held := 0
+		var outside := ""
+		var outside_hours := INF
+		for id in WorldData.SETTLEMENTS:
+			if String(WorldData.settlement(id)["type"]) == WorldData.VILLAGE:
+				continue
+			seats += 1
+			if String(world.owner_of(id)) == WorldData.CROWN:
+				held += 1
+				continue
+			var hours: float = world.hours_to(id)
+			if hours < outside_hours:
+				outside_hours = hours
+				outside = id
+		if outside == "":
+			return {"title": "Every seat is yours", "body": "All %d castles and towns answer to your crown. Hold them." % seats,
+				"action": "map", "place": ""}
+		return {"title": "Bring every seat under the crown", "body": "%d of %d held. The nearest still outside it is %s." % [
+			held, seats, WorldData.settlement(outside)["name"]], "action": "place", "place": outside}
+	if not has_fief() or bool(player_fief.get("lost", false)):
+		return {}
+	var liege := fief_realm()
+	if liege == "" or liege == WorldData.CROWN or not WorldData.FACTIONS.has(liege):
+		return {}
+	var seat := fief_id()
+	var seat_name := String(WorldData.settlement(seat)["name"])
+	var walled: bool = String(WorldData.settlement(seat)["type"]) != WorldData.VILLAGE
+	if walled and renown >= CROWN_RENOWN:
+		var crown: Dictionary = crown_check()
+		if bool(crown.get("ok", false)) or String(crown.get("reason", "")) == "Raise it at your own seat.":
+			return {"title": "Raise your crown", "body": "%s has walls and your name is known. At %s you can raise your own banner; your liege will call it war." % [
+				seat_name, seat_name], "action": "place", "place": seat}
+		return {"title": "Toward a crown", "body": String(crown.get("reason", "")), "action": "place", "place": seat}
+	var fame: String = "" if renown >= CROWN_RENOWN else "A crown needs %d renown; you have %d. " % [CROWN_RENOWN, renown]
+	if walled:
+		return {"title": "Toward a crown", "body": "%s%s has the walls a crown's seat needs." % [fame, seat_name], "action": "map", "place": ""}
+	var court := String(WorldData.FACTIONS[liege].get("capital", ""))
+	var free_castle := ""
+	for s_id in available_fiefs_for_grant(liege):
+		if String(WorldData.settlement(s_id)["type"]) == WorldData.CASTLE:
+			free_castle = String(s_id)
+			break
+	var castle_line: String = "No castle of %s stands free yet; when one does, ask at your liege's court." % String(WorldData.FACTIONS[liege]["name"])
+	if free_castle != "":
+		castle_line = "%s stands without a lord: ask at your liege's court to hold it instead." % WorldData.settlement(free_castle)["name"]
+	return {"title": "Toward a crown", "body": "%sA crown's seat needs walls, and %s is a village. %s" % [fame, seat_name, castle_line],
+		"action": "place" if WorldData.SETTLEMENTS.has(court) else "map", "place": court}
 
 
 func _nearest_settlement(kinds: Array) -> String:
@@ -2995,7 +3145,7 @@ func _upkeep() -> void:
 	if hungry > 0.0:
 		fix += "Buy food in any settlement. "
 	if unpaid > 0.0:
-		fix += "Earn silver from bounties and spoils to pay the rest."
+		fix += "Earn silver to pay the rest: take a contract from a town's notice board (Work), or win bounties and spoils."
 	var message := "End of day %d: %d men left the warband, %s. %s" % [_paid_day, left, why, fix.strip_edges()]
 	desertion_warning = message if desertion_warning == "" else desertion_warning + "\n" + message
 	_note(message)
