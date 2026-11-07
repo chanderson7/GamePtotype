@@ -13,6 +13,8 @@ const MAX_ACTIVE_JOBS := 3
 const REFRESH_HOURS := 72.0
 const HUNT_DEADLINE_HOURS := 72.0
 const RELIEF_DEADLINE_HOURS := 96.0
+## A job you abandon or let run out costs this much standing with the realm that posted it.
+const ABANDON_RELATION := -3
 
 const TITLES_BY_TYPE := {
 	TYPE_HUNT: "Bounty: Hunt Marauders",
@@ -158,5 +160,5 @@ static func make_relief_job(settlement_id: String, world, rng: RandomNumberGener
 		"deadline": world.hour + RELIEF_DEADLINE_HOURS,
 		"reward_silver": 80,
 		"reward_renown": 5,
-		"reward_relation": 10,
+		"reward_relation": 5,
 	}

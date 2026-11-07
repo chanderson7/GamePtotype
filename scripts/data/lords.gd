@@ -157,6 +157,8 @@ const RANSOM_HOURS := 48.0
 const AI_RANSOM_HOURS := 72.0
 const DEATH_CHANCE_PERCENT := 5
 const CAPTURE_CHANCE_PERCENT := 70
+## A lord taken captive loses his host: this share of what was left of it goes home.
+const CAPTIVE_HOST_SHARE := 0.5
 
 ## Ransom silver offered for a lord based on renown.
 static func ransom_for(renown: int) -> int:

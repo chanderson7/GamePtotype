@@ -3,6 +3,8 @@
 ## nothing more: no bonuses). Reaching one never ends the campaign.
 extends RefCounted
 
+const WorldData = preload("res://scripts/world/world_data.gd")
+
 ## id: {title (the name it earns), goal (what to do), need (how many)}.
 ## None needs a romance or a particular people.
 const DEEDS := {
@@ -16,8 +18,31 @@ const DEEDS := {
 	"pact": {"title": "Friends of a House", "goal": "Form a lasting pact with a noble house.", "need": 1},
 	"fief": {"title": "the Landed", "goal": "Hold a fief of your own.", "need": 1},
 	"renown": {"title": "the Renowned", "goal": "Reach 300 renown.", "need": 300},
+	# After the crown: every castle and town on the map flying your banner at once. Its
+	# need is the number of walled seats there are (see seats_total()).
+	"keeper_of_the_sea": {"title": "Keepers of the Glass Sea", "goal": "Hold every castle and town on the map under your crown at once.", "need": 9},
 }
-const ORDER := ["contract", "jobs", "villages", "chiefs", "lord", "walls", "veteran", "pact", "fief", "renown"]
+const ORDER := ["contract", "jobs", "villages", "chiefs", "lord", "walls", "veteran", "pact", "fief", "renown", "keeper_of_the_sea"]
+
+
+## Every castle and town on the map: the seats a crown must hold to keep the Glass Sea.
+static func seats_total() -> int:
+	var n := 0
+	for id in WorldData.SETTLEMENTS:
+		if String(WorldData.settlement(id)["type"]) != WorldData.VILLAGE:
+			n += 1
+	return n
+
+
+## The castles and towns your crown holds now.
+static func seats_held(gs) -> int:
+	if gs.world == null or not gs.is_crowned():
+		return 0
+	var n := 0
+	for id in gs.world.holdings_of(WorldData.CROWN):
+		if String(WorldData.settlement(id)["type"]) != WorldData.VILLAGE:
+			n += 1
+	return n
 
 
 ## How far the company has come toward `id`: what it has, capped at what's needed.
@@ -38,6 +63,8 @@ static func progress(gs, id: String) -> int:
 			have = 1 if gs.has_fief() else 0
 		"renown":
 			have = gs.renown
+		"keeper_of_the_sea":
+			have = seats_held(gs)
 		_:
 			have = int(gs.deed_counts.get(id, 0))
 	return mini(have, need)
