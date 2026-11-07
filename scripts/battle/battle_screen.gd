@@ -51,6 +51,24 @@ const ROLE_BADGES := {
 const CHIP_GAP := 8.0
 const MAX_CHIPS_PER_ROW := 8
 const ORDER_WORDS := {"hold": "holding", "advance": "advancing", "attack": "attacking", "move": "marching"}
+## Each order state's icon in the info strip.
+const ORDER_ICONS := {"hold": "hold", "advance": "advance", "attack": "fight", "move": "mappin",
+	"wheeling": "wheel", "braced": "shieldwall", "fighting": "fight"}
+## The order bar has words under its icons for a campaign's first few battles, while the
+## orders are new; after that the icons alone, each word kept in its tooltip. The same
+## battles narrate every order in the hint toast; after them only refusals and first
+## sights do.
+const ORDER_WORD_BATTLES := 3
+## The icon at the head of each word called over a squad. Zoomed out, the icon alone.
+const CALLOUT_ICONS := {"CHARGE": "wheel", "BRACED": "shieldwall", "BROKEN": "retreat", "FLANK": "flank",
+	"REAR": "rear", "TARGET": "fight", "FURY": "vengeful", "STEADY": "steadfast", "SHAKEN": "fragile",
+	"VOLLEY": "volley"}
+const CALLOUT_WORDS_ZOOM := 1.3
+## How long a hint stays over the field, and the fade at its end.
+const HINT_LIFE := 3.6
+const HINT_FADE := 0.4
+## How long the readout of a tapped enemy stays up.
+const INSPECT_LIFE := 4.0
 
 ## The camera frames every squad still fighting, with this much room around them, and
 ## zooms in up to MAX_ZOOM over the whole-field view.
@@ -422,6 +440,23 @@ var _gate_flash := 0.0
 ## A big line over the field for a moment that turns the battle (the breach).
 var _banner := {}
 var hint_label: Label
+## The hint floats over the field above the bottom panel and fades.
+var hint_toast: PanelContainer
+var _hint_age := 99.0
+## Narrations already shown this battle, by key.
+var _hinted := {}
+## Words on the order bar (the first few battles of a campaign) or icons alone.
+var _order_words := true
+## The selection as icons and numbers, drawn; info_label keeps the sentence for its tooltip.
+var info_strip: Control
+var _strip_items: Array = []
+## Deploying: a pip for each squad, filled once it's placed.
+var deploy_pips: Control
+## A tapped enemy: its sprite, men, morale and level, for a moment.
+var inspect_pill: PanelContainer
+var _inspect_age := 99.0
+var objective_icon: TextureRect
+var terrain_hint_rows: VBoxContainer
 var roll_layer: Control
 var pause_panel: PanelContainer
 var pause_note: Label
@@ -501,19 +536,9 @@ func _ready() -> void:
 	_setup_terrain_visuals()
 	_scatter_doodads()
 	_set_hour(float(GameState.world.hour) if GameState.world != null else 12.0)
-	match sim.objective:
-		Sim.OBJECTIVE_CHIEF:
-			_tick("OBJECTIVE: Slay the Bandit Chief (%s)!" % (sim.chief_name if sim.chief_name != "" else "Bandit Chief"), Style.BRASS)
-		Sim.OBJECTIVE_VILLAGE:
-			_tick("OBJECTIVE: Hold the village square for 2 minutes!", Style.BRASS)
-		Sim.OBJECTIVE_AMBUSH:
-			_tick("AMBUSH: Protect your marching column!", Style.MORALE_LOW)
-		Sim.OBJECTIVE_SIEGE:
-			pass  # the objective line under the top bar says it
-		"raid":
-			_tick("RAID: Drive off the militia, then the village is yours to burn.", Style.BRASS)
-		_:
-			_tick("OBJECTIVE: Rout the enemy host!", Style.TEXT)
+	# Words on the order bar while the orders are new (the objective is in its chip under
+	# the top bar, for every kind of battle).
+	_order_words = GameState.battles < ORDER_WORD_BATTLES
 	# The enemy's people set the music; an assault on walls has its own.
 	Sound.play_battle("siege" if sim.objective == Sim.OBJECTIVE_SIEGE else _enemy_culture)
 	# A river runs through a ford; birds sing in a wood.
@@ -598,6 +623,10 @@ func _layout() -> void:
 		_fit_scale = maxf(0.1, _view.size.x / Sim.ARENA.x)
 	if objective_chip != null:
 		objective_chip.offset_top = top_h + 14.0
+	if hint_toast != null:
+		hint_toast.offset_bottom = -bottom_h - 10.0
+	if inspect_pill != null:
+		inspect_pill.offset_top = top_h + 72.0
 	_layout_tray()
 	_apply_camera()
 	_redraw()
@@ -605,10 +634,10 @@ func _layout() -> void:
 
 func _bottom_height() -> float:
 	if _deploying():
-		# one row of squads, a one-line hint, then Auto-place and Fight
-		return 14.0 + CHIP_H + 10.0 + 34.0 + 10.0 + CMD_H + 14.0
+		# one row of squads, then Auto-place and Fight (hints float above, as a toast)
+		return 14.0 + CHIP_H + 10.0 + CMD_H + 14.0
 	var rows := _tray_rows()
-	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + CMD_H + 8.0 + 64.0 + 14.0 + Style.TOUCH + 10.0
+	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + CMD_H + 14.0 + Style.TOUCH + 10.0
 
 
 func _chip_h() -> float:
@@ -839,11 +868,11 @@ func _draw_beats() -> void:
 			fs -= 2
 		ci.draw_string_outline(big, Vector2(0, cy - 12.0 + rise), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.8 * a))
 		ci.draw_string(big, Vector2(0, cy - 12.0 + rise), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(Style.TEXT, a))
-		ci.draw_string(font, Vector2(0, cy + 22.0 + rise), "%s · %s" % [_title["ground"], _title["odds"]], HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.BRASS, a))
+		ci.draw_string(font, Vector2(0, cy + 22.0 + rise), "%s · %s" % [_title["ground"], _title["odds"]], HORIZONTAL_ALIGNMENT_CENTER, vs.x, _fs(Style.BODY), Color(Style.BRASS, a))
 		ci.draw_rect(Rect2(vs.x * 0.5 - 80.0, cy + 36.0 + rise, 160.0, 1.0), Color(Style.BRASS, 0.6 * a))
 		if String(_title["who"]) != "":
-			ci.draw_string(font, Vector2(24.0, cy + 62.0 + rise), String(_title["who"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x - 48.0, Style.SMALL, Color(Style.MUTED, a))
-		ci.draw_string(font, Vector2(0, _view.end.y - bar * 0.5 + 6.0), "tap to skip", HORIZONTAL_ALIGNMENT_CENTER, vs.x, 16, Color(Style.MUTED, 0.8 * a))
+			ci.draw_string(font, Vector2(24.0, cy + 62.0 + rise), String(_title["who"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x - 48.0, _fs(Style.SMALL), Color(Style.MUTED, a))
+		ci.draw_string(font, Vector2(0, _view.end.y - bar * 0.5 + 6.0), "tap to skip", HORIZONTAL_ALIGNMENT_CENTER, vs.x, _fs(Style.SMALL), Color(Style.MUTED, 0.8 * a))
 	if not _beat.is_empty() and not _result_shown:
 		var age := float(_beat["age"])
 		var won := bool(_beat["won"])
@@ -863,8 +892,8 @@ func _draw_beats() -> void:
 		ci.draw_string(big, Vector2(-vs.x * 0.5, fs * 0.35), word, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
 		ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		var sub_a := clampf((age - 0.25) / 0.2, 0.0, 1.0)
-		ci.draw_string_outline(font, Vector2(0, cy + 52.0), String(_beat["why"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, 6, Color(0, 0, 0, 0.8 * sub_a))
-		ci.draw_string(font, Vector2(0, cy + 52.0), String(_beat["why"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, sub_a))
+		ci.draw_string_outline(font, Vector2(0, cy + 52.0), String(_beat["why"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, _fs(Style.BODY), 6, Color(0, 0, 0, 0.8 * sub_a))
+		ci.draw_string(font, Vector2(0, cy + 52.0), String(_beat["why"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, _fs(Style.BODY), Color(Style.TEXT, sub_a))
 
 
 ## Shakes the view by `amount` (screen units), along `dir` if given. One shake at a time:
@@ -1254,6 +1283,7 @@ func _process(delta: float) -> void:
 	for burst in bursts:
 		burst["age"] += delta
 	bursts = bursts.filter(func(burst): return burst["age"] < burst["life"])
+	_age_overlays(delta)
 	_refresh_hud()
 	_redraw()
 
@@ -1454,7 +1484,7 @@ func _drop_squad(sq, at: Vector2) -> void:
 			_hint("No room there. Try a more open spot.")
 			return
 		Sound.haptic()
-		_hint("%s stand there. Drag another flag, or press Fight." % _company_or_type(sq))
+		_hint("%s stand there. Drag another flag, or press Fight." % _company_or_type(sq), "placed")
 		return
 	selected_squad = sq
 	if t.has("foe"):
@@ -1469,7 +1499,7 @@ func _order_attack(sq, foe) -> void:
 	_mark_ordered(foe)
 	_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
 	Sound.play("clash2", -6.0, 0.05)
-	_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()])
+	_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()], "attack")
 
 
 func _order_move(sq, p: Vector2) -> void:
@@ -1481,9 +1511,8 @@ func _order_move(sq, p: Vector2) -> void:
 		_hint("Cannot march there: no route to that ground.")
 		return
 	sim.order_move(sq, p)
-	_float_text("MOVE", p, Style.BRASS)
 	_mark_ordered(sq)
-	_hint("%s march there and hold." % _company_or_type(sq))
+	_hint("%s march there and hold." % _company_or_type(sq), "move")
 
 
 ## How a squad of `type` fares against `foe_type`: [arrow, words, colour].
@@ -1511,11 +1540,11 @@ func _order_line(a: Vector2, b: Vector2) -> void:
 	Sound.play("page", 0.0, 0.05)
 	if sim.phase == Sim.PHASE_DEPLOY:
 		selected_id = -1
-		_hint("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.")
+		_hint("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.", "line")
 	elif only != null:
-		_hint("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])])
+		_hint("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])], "line")
 	else:
-		_hint("The army forms up along the line, each squad to its own stretch of it, and holds there.")
+		_hint("The army forms up along the line, each squad to its own stretch of it, and holds there.", "line")
 
 
 ## The squad whose standard is under a tap, or null.
@@ -1541,11 +1570,11 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 			_select_next_card() # tapping the picked-up squad again leaves it where it is
 		else:
 			selected_id = mine.roster_id
-			_hint("Tap where you want %s to stand." % _company_or_type(mine))
+			_hint("Tap where you want %s to stand." % _company_or_type(mine), "place")
 		return
 	var foe = tapped if tapped != null and tapped.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
 	if foe != null:
-		_hint(_describe(foe))
+		_inspect(foe)
 		return
 	if selected_id == -1:
 		var thint := _terrain_hint(p)
@@ -1580,12 +1609,12 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_hint("Tap the blue zone to place %s, or drag a line for everyone." % _card_name(e))
+			_hint("Tap the blue zone to place %s, or drag a line for everyone." % _card_name(e), "place_next")
 			return
 	if sim.caught_on_march(Sim.PLAYER):
 		_hint("Ambushed on the march, strung out along the road! No time to form up. Press Fight.")
 		return
-	_hint("Everyone's placed. Move a squad or drag a new line, then Fight.")
+	_hint("Everyone's placed. Move a squad or drag a new line, then Fight.", "all_placed")
 
 
 func _tap_battle(p: Vector2, tapped) -> void:
@@ -1604,7 +1633,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 	var foe = tapped if tapped != null and tapped.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
 	if selected_squad == null:
 		if foe != null:
-			_hint(_describe(foe))
+			_inspect(foe)
 		else:
 			var thint := _terrain_hint(p)
 			if thint != "":
@@ -1621,7 +1650,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 func _select(sq) -> void:
 	selected_squad = sq
 	if sq == null:
-		_hint("Orders go to the whole army.")
+		_hint("Orders go to the whole army.", "army")
 		return
 	if not _taught:
 		_taught = true
@@ -1631,7 +1660,7 @@ func _select(sq) -> void:
 	var who := _company_or_type(sq)
 	if not sq.info.is_empty():
 		who += ", led by %s (%s)" % [sq.info["first"], Captains.traits(sq.info)]
-	_hint("%s. %s: %s" % [who, ab["name"], ab["blurb"]])
+	_hint("%s. %s: %s" % [who, ab["name"], ab["blurb"]], "select_%s" % sq.type)
 
 
 func _on_chip(index: int) -> void:
@@ -1657,7 +1686,7 @@ func _on_chip(index: int) -> void:
 	var level: int = e["level"]
 	var veteran := " Level %d veterans." % level if level > 1 else ""
 	_hint("%s%s %s" % [_card_story(e), veteran,
-		"Tap the field to move them." if placed else "Tap the blue zone to place them."])
+		"Tap the field to move them." if placed else "Tap the blue zone to place them."], "card_%d" % int(e["roster_id"]))
 
 
 func _on_auto() -> void:
@@ -1684,7 +1713,7 @@ func _start_battle() -> void:
 	selected_id = -1
 	selected_squad = null
 	_layout()
-	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.")
+	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.", "start")
 
 
 ## Storm the walls, first tap: the plan goes up on the field (who takes a ladder, who goes
@@ -1695,7 +1724,7 @@ func _on_storm() -> void:
 		return
 	_select(null)
 	_storm_plan = sim.storm_plan(Sim.PLAYER)
-	_hint(_storm_plan_text() + " Tap a card to swap ladder and ram.")
+	_hint(_storm_plan_text() + " Tap a card to swap ladder and ram.", "storm_plan")
 
 
 func _storm_plan_text() -> String:
@@ -1743,12 +1772,12 @@ func _on_storm_go() -> void:
 			_mark_ordered(sq)
 	Sound.play("charge", 0.0, 0.05, 0.6)
 	Sound.haptic(false)
-	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate, the bows shoot the walls.")
+	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate, the bows shoot the walls.", "storm_go")
 
 
 func _on_storm_cancel() -> void:
 	_storm_plan = {}
-	_hint("Orders go to the whole army.")
+	_hint("Orders go to the whole army.", "army")
 
 
 ## On the storm plan, a tapped card swaps its company between ladder and ram.
@@ -1757,7 +1786,7 @@ func _swap_storm(sq) -> void:
 		_hint("%s can't climb a ladder." % _company_or_type(sq))
 		return
 	_storm_plan[sq.id] = "ram" if _storm_plan[sq.id] == "ladder" else "ladder"
-	_hint(_storm_plan_text())
+	_hint(_storm_plan_text(), "storm_swap")
 
 
 func _on_advance() -> void:
@@ -1766,16 +1795,16 @@ func _on_advance() -> void:
 	if selected_squad != null:
 		sim.order_advance(selected_squad)
 		_mark_ordered(selected_squad)
-		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad))
+		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad), "advance")
 	else:
 		sim.order_all(Sim.PLAYER, "advance")
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
 		if sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER:
-			_hint("Sally! The garrison leaves its posts and goes for the enemy.")
+			_hint("Sally! The garrison leaves its posts and goes for the enemy.", "advance")
 		else:
-			_hint("The whole army advances. Each squad goes for the enemy it fights best.")
+			_hint("The whole army advances. Each squad goes for the enemy it fights best.", "advance")
 
 
 ## Defending a siege: send every company to its post on the walls, or, once the gate is
@@ -1786,10 +1815,10 @@ func _on_post() -> void:
 	_select(null)
 	if sim.gate_hp > 0.0:
 		sim.man_the_walls(Sim.PLAYER)
-		_hint("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.")
+		_hint("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.", "post")
 	else:
 		var sent: Array = sim.form_breach(Sim.PLAYER)
-		_hint("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])))
+		_hint("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])), "post_breach")
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.is_active() and not sq.is_ally:
 			_mark_ordered(sq)
@@ -1803,13 +1832,13 @@ func _on_hold() -> void:
 	if selected_squad != null:
 		sim.order_hold(selected_squad)
 		_mark_ordered(selected_squad)
-		_hint("%s hold where they stand, and brace." % _company_or_type(selected_squad))
+		_hint("%s hold where they stand, and brace." % _company_or_type(selected_squad), "hold")
 	else:
 		sim.order_all(Sim.PLAYER, "hold")
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
-		_hint("The whole army holds and braces. Squads fight anyone who comes close.")
+		_hint("The whole army holds and braces. Squads fight anyone who comes close.", "hold")
 
 
 func _on_ability() -> void:
@@ -1818,7 +1847,7 @@ func _on_ability() -> void:
 		return
 	var ab := Troops.ability(sq.type)
 	if sim.use_ability(sq):
-		_hint("%s: %s" % [ab["name"], ab["blurb"]])
+		_hint("%s: %s" % [ab["name"], ab["blurb"]], "ability_%s" % sq.type)
 	elif sq.ability_cd > 0.0:
 		_hint("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
 	elif sq.type == Troops.ARCHERS:
@@ -1833,9 +1862,9 @@ func _on_hold_fire() -> void:
 	sim.set_hold_fire(sq, not sq.hold_fire)
 	_mark_ordered(sq)
 	if sq.hold_fire:
-		_hint("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq))
+		_hint("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq), "holdfire")
 	else:
-		_hint("%s loose at will." % _company_or_type(sq))
+		_hint("%s loose at will." % _company_or_type(sq), "loose")
 
 
 func _on_menu() -> void:
@@ -1868,9 +1897,37 @@ func _on_retreat() -> void:
 	retreat_button.text = "Tap again to retreat"
 
 
-func _hint(text: String) -> void:
-	if hint_label != null:
-		hint_label.text = text
+## A line over the field, above the orders, that fades after a few seconds. Refusals,
+## answers to a tap and first sights always show. A narration of an order the field
+## already confirms with a mark (`key`) shows once a battle, and only in a campaign's
+## first few battles, while the player is learning what the marks mean.
+func _hint(text: String, key: String = "") -> void:
+	if hint_label == null:
+		return
+	if key != "":
+		if not _order_words or _hinted.has(key):
+			return
+		_hinted[key] = true
+	hint_label.text = text
+	_hint_age = 0.0 if text != "" else 99.0
+	if hint_toast != null:
+		hint_toast.visible = text != ""
+		hint_toast.modulate.a = 1.0
+
+
+## The hint toast and the enemy readout fade on their own clocks, paused or not.
+func _age_overlays(delta: float) -> void:
+	if hint_toast != null and hint_toast.visible:
+		_hint_age += delta
+		var life := HINT_LIFE + 0.03 * hint_label.text.length()
+		hint_toast.modulate.a = clampf((life - _hint_age) / HINT_FADE, 0.0, 1.0)
+		if _hint_age >= life:
+			hint_toast.visible = false
+	if inspect_pill != null and inspect_pill.visible:
+		_inspect_age += delta
+		inspect_pill.modulate.a = clampf((INSPECT_LIFE - _inspect_age) / HINT_FADE, 0.0, 1.0)
+		if _inspect_age >= INSPECT_LIFE:
+			inspect_pill.visible = false
 
 
 # ---------------------------------------------------------------- words
@@ -1955,6 +2012,70 @@ func _describe(sq) -> String:
 	elif sim.phase == Sim.PHASE_BATTLE:
 		text += " · %d%% morale" % maxi(0, int(sq.morale))
 	return "%s. %s" % [text, Troops.stats(sq.type)["blurb"]]
+
+
+## A tapped enemy read at a glance under the objective: its sprite, its men, its morale,
+## its level as pips, and a skull for a captain at its head. The sentence it replaces
+## (with the troop's blurb) is the pill's tooltip.
+func _inspect(sq) -> void:
+	if inspect_pill == null:
+		return
+	for c in inspect_pill.get_children():
+		inspect_pill.remove_child(c)
+		c.queue_free()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	inspect_pill.add_child(row)
+	var sprite := TextureRect.new()
+	sprite.texture = Art.icon(sq.type, Sim.ENEMY, _culture_of(sq))
+	sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.custom_minimum_size = Vector2(44, 44)
+	row.add_child(sprite)
+	var name_label := Style.label(_name(sq.type, Sim.ENEMY), Style.SMALL, Style.ENEMY_LIGHT)
+	name_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(name_label)
+	var men := Widgets.icon_value("men", str(sq.alive_count()))
+	men.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(men)
+	if sim.phase == Sim.PHASE_BATTLE and not sq.routing:
+		var m := Widgets.meter(sq.morale / 100.0, Style.morale_color(sq.morale), 12.0)
+		m.custom_minimum_size.x = 80.0
+		m.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		m.tooltip_text = "%d%% morale" % maxi(0, int(sq.morale))
+		row.add_child(m)
+	elif sq.routing:
+		var run := Widgets.icon_rect("retreat", 28.0)
+		run.modulate = Style.MORALE_LOW
+		row.add_child(run)
+	if sq.level > 1:
+		row.add_child(_pips(sq.level - 1, Style.BRASS))
+	if sq.arrows == 0:
+		var q := Widgets.icon_rect("holdfire", 28.0)
+		q.modulate = Style.MUTED
+		row.add_child(q)
+	if not sq.info.is_empty():
+		var skull := Widgets.icon_rect("skull", 28.0)
+		skull.modulate = Style.ENEMY_LIGHT if sq.captain != null else Style.MUTED
+		row.add_child(skull)
+	inspect_pill.tooltip_text = _describe(sq)
+	inspect_pill.visible = true
+	inspect_pill.modulate.a = 1.0
+	inspect_pill.reset_size()
+	_inspect_age = 0.0
+
+
+## `n` small filled dots: a level's pips, a wound's battles out.
+func _pips(n: int, color: Color, r: float = 5.0) -> Control:
+	var c := Control.new()
+	c.custom_minimum_size = Vector2(n * (r * 2.0 + 5.0), r * 2.0 + 4.0)
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.draw.connect(func():
+		for i in n:
+			c.draw_circle(Vector2(r + 1.0 + i * (r * 2.0 + 5.0), c.size.y * 0.5), r, color))
+	return c
 
 
 func _scouting() -> String:
@@ -2283,12 +2404,9 @@ func _consume_events() -> void:
 				_burst(sim.gate_center, "charge", Style.BRASS, 1.0)
 				_burst(sim.gate_center, "dust", Color("e9d3a0"), 1.2)
 				var defending: bool = sim.siege_defender == Sim.PLAYER
+				# One message: the band across the field (no ticker line as well).
 				_moment("The gate is broken!", "Hold the breach!" if defending else "Into the courtyard!",
 					Style.ENEMY_LIGHT if defending else Color("ffd77a"), "breach", true)
-				if defending:
-					_tick("The gate is broken! Hold the breach!", Style.ENEMY_LIGHT, "breach")
-				else:
-					_tick("The gate gives way! Into the breach!", Style.PLAYER_LIGHT, "breach")
 				Sound.play_at("gate_break", _to_screen(sim.gate_center))
 				Sound.haptic(true)
 				_kick(12.0)
@@ -2314,10 +2432,6 @@ func _consume_events() -> void:
 					Sound.haptic(true)
 				else:
 					_callout(sq, "BROKEN", Style.PLAYER_LIGHT, true)
-				if mine:
-					_tick("%s broke and run for the edge." % _company_or_type(sq), Style.ENEMY_LIGHT)
-				else:
-					_tick("Their %s break and run." % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT)
 			"charge":
 				var sq = e["squad"]
 				_shove(e["victim"], e["pos"], sq)
@@ -2349,7 +2463,7 @@ func _consume_events() -> void:
 				# No words: the standard and the card carry an empty quiver from now on.
 				Sound.play_at("quiver_empty", _to_screen(sq.average_pos()))
 				if mine:
-					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.")
+					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.", "no_arrows")
 			"captain_down":
 				_captain_down(e)
 			"grief":
@@ -2359,9 +2473,8 @@ func _consume_events() -> void:
 				var mine: bool = sq.team == Sim.PLAYER
 				if sq.type == Troops.ARCHERS:
 					Sound.play_at("arrows", _to_screen(sq.average_pos()), 2.0, 0.05, 0.3)
-				_callout(sq, String(e["name"]).to_upper(), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
-				if not mine:
-					_tick("Their %s: %s." % [_name(sq.type, Sim.ENEMY).to_lower(), String(e["name"]).to_lower()], Style.ENEMY_LIGHT)
+				_callout(sq, String(e["name"]).to_upper(), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT, false,
+					String(ABILITY_ICONS.get(sq.type, "fight")))
 			"braced":
 				var sq = e["squad"]
 				_callout(sq, "BRACED", Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
@@ -2373,32 +2486,26 @@ func _consume_events() -> void:
 			"chief_broken":
 				Sound.play("objective")
 				_moment("The chief falls back", "His guard is broken", Style.BRASS, "crown")
-				_tick("Their chief's guard is broken, and the whole band feels it.", Style.PLAYER_LIGHT)
 			"chief_slain":
 				Sound.play("objective")
-				_tick("%s is cut down!" % String(e["chief_name"] if e["chief_name"] != "" else "Their chief"), Style.BRASS)
 				_moment("%s is cut down" % String(e["chief_name"] if e["chief_name"] != "" else "Their chief"), "The band loses its head", Style.BRASS, "crown")
 			"lord_broken":
 				Sound.play("objective")
 				_moment("The lord's guard breaks", "%s's host quails" % String(e.get("lord_name", "The lord")), Style.BRASS, "crown")
-				_tick("%s's guard is broken, and his host quails!" % String(e.get("lord_name", "The lord")), Style.PLAYER_LIGHT)
 			"lord_captured":
 				Sound.play("objective")
-				_tick("%s was captured in the press of shields!" % String(e.get("lord_name", "The lord")), Style.BRASS)
 				_moment("%s is taken" % String(e.get("lord_name", "The lord")), "Captured in the press of shields", Style.BRASS, "crown")
 			"lord_slain":
 				Sound.play("objective")
-				_tick("%s falls mortally wounded in the fray!" % String(e.get("lord_name", "The lord")), Style.BRASS)
 				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Mortally wounded in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
 				var where := "REAR" if e["rear"] else "FLANK"
 				Sound.play_at("heavy", _to_screen(e["pos"]), 3.0, 0.1, 0.3)
 				_callout(sq, where, Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
+				# The REAR or FLANK arrow over the squad and its card's red edge say it.
 				if sq.team == Sim.PLAYER:
 					_card_hit[sq] = _clock
-				if sq.team == Sim.PLAYER and e["rear"]:
-					_tick("%s are hit from behind!" % _company_or_type(sq), Style.ENEMY_LIGHT)
 	sim.events.clear()
 	if struck > 0:
 		_impact(struck, struck_at, struck_dir)
@@ -2444,7 +2551,6 @@ func _captain_down(e: Dictionary) -> void:
 		_spotlight(e["pos"], SLOW_TIME + 0.4)
 		_slow = SLOW_TIME
 		_moment("%s cut down" % String(info.get("name", info.get("first", "Their captain"))), "Their %s waver" % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT, "skull")
-		_tick("You cut down %s, captain of their %s. Their nerve wavers." % [info.get("name", ""), _name(sq.type, Sim.ENEMY).to_lower()], Style.PLAYER_LIGHT)
 		return
 	_kick(9.0)
 	_hush_until = _clock + 0.6
@@ -2463,15 +2569,9 @@ func _captain_down(e: Dictionary) -> void:
 		_roll_queue.append(roll)
 
 
-## The roll on screen is done (or skipped): its outcome goes to the hint line, and the
-## next captain's roll, if any, takes its place.
+## The roll on screen is done (or skipped): the plate said the outcome, so nothing echoes
+## it; the next captain's roll, if any, takes its place.
 func _next_roll() -> void:
-	if not _roll.is_empty():
-		if _roll["fate"] == "killed":
-			_hint("\"%s\" %s is dead. Death roll %d; needed %d or more to live." % [_roll["words"], _roll["name"], _roll["roll"], _roll["needed"]])
-		else:
-			_hint("\"%s\" %s is down but alive. Death roll %d; needed %d or more. Out for %d battles." % [
-				_roll["words"], _roll["name"], _roll["roll"], _roll["needed"], Captains.WOUND_BATTLES])
 	_roll = {} if _roll_queue.is_empty() else _roll_queue.pop_front()
 
 
@@ -2513,10 +2613,12 @@ func _float_text(text: String, at: Vector2, color: Color, life: float = 1.3) -> 
 	floaters.append({"text": text, "pos": pos, "color": color, "age": 0.0, "life": life, "sq": null})
 
 
-## Tier 2: a word over a squad's standard (CHARGE, BRACED, FLANK, a broken enemy). One per
-## squad: a new one replaces the last. The same words on the same squad wait 3 seconds, and
-## while a moment holds the field (`always` aside, for answers to your own orders) they wait.
-func _callout(sq, text: String, color: Color, always: bool = false) -> void:
+## Tier 2: a word over a squad's standard (CHARGE, BRACED, FLANK, a broken enemy), led by
+## its icon (`icon`, or the word's own from CALLOUT_ICONS); zoomed out, the icon alone. One
+## per squad: a new one replaces the last. The same words on the same squad wait 3 seconds,
+## and while a moment holds the field (`always` aside, for answers to your own orders) they
+## wait.
+func _callout(sq, text: String, color: Color, always: bool = false, icon: String = "") -> void:
 	if sq == null:
 		return
 	if not always and _clock < _hush_until:
@@ -2526,7 +2628,8 @@ func _callout(sq, text: String, color: Color, always: bool = false) -> void:
 		return
 	_said[key] = _clock
 	floaters = floaters.filter(func(f): return f["sq"] != sq)
-	floaters.append({"text": text, "pos": sq.average_pos(), "color": color, "age": 0.0, "life": CALLOUT_LIFE, "sq": sq})
+	floaters.append({"text": text, "pos": sq.average_pos(), "color": color, "age": 0.0, "life": CALLOUT_LIFE, "sq": sq,
+		"icon": icon if icon != "" else String(CALLOUT_ICONS.get(text, ""))})
 
 
 ## Tier 1: a plate across the field for a moment that turns the battle. One at a time; the
@@ -2604,15 +2707,9 @@ func _show_result() -> void:
 		"village_lost": ["", "The raiders held the village square when time ran out."],
 		"village_burned": ["", "The raiders held the square long enough to fire the village."],
 	}
+	# Where it was fought is on the picture above this line ("Near Thornwall"), so the line
+	# says only why it ended.
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
-	# Where it happened, so the map and the chronicle tell the same story.
-	var w = GameState.world
-	if w != null and not GameState.pending_battle.is_empty():
-		var place: String = String(GameState.pending_battle.get("siege_target", ""))
-		if place == "":
-			place = w.here() if w.here() != "" else w.nearest_place(w.party_pos(w.player()))
-		if WorldData.SETTLEMENTS.has(place):
-			why = ("Fought at %s. " if GameState.pending_battle.has("siege_target") else "Fought near %s. ") % WorldData.settlement(place)["name"] + why
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
 	Sound.stinger("victory" if won else "defeat")
@@ -2638,55 +2735,70 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		result_content.add_child(_field_vignette())
 	result_body.text = why
 	result_content.add_child(result_body)
-	var story := Style.label(String(report.get("story", "")), Style.BODY, Style.TEXT)
-	story.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	story.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	result_content.add_child(story)
 
+	# The tally as tiles: your slain and wounded, theirs down. (The report's story sentence
+	# said the same in words; the hardest fighting is a star on that captain's face below.)
+	var lost := int(report.get("lost", 0))
+	var wounded := int(round(lost * 0.5))
+	var tally := [
+		Widgets.tile("skull", str(lost - wounded), "slain", Style.ENEMY_LIGHT),
+		Widgets.tile("wounded", str(wounded), "wounded", Style.MORALE_MID),
+		Widgets.tile("fight", str(int(report.get("killed", 0))), "theirs down" if siege and sim.siege_defender == Sim.PLAYER else "enemy down", Style.BRASS),
+	]
 	if siege:
 		var defending: bool = sim.siege_defender == Sim.PLAYER
-		result_content.add_child(Widgets.tile_grid([
-			Widgets.tile("skull", str(int(report.get("lost", 0))), "your men lost", Style.ENEMY_LIGHT),
-			Widgets.tile("fight", str(int(report.get("killed", 0))), "theirs down" if defending else "garrison down", Style.BRASS),
-			Widgets.tile("ladder", str(sim.climbed), "came over the ladders" if defending else "went up the ladders"),
-			Widgets.tile("ram", str(int(sim.gate_max - sim.gate_hp)), "blows on your gate" if defending else "ram blows"),
-		]))
-	else:
-		var tally := HBoxContainer.new()
-		tally.add_theme_constant_override("separation", 10)
-		tally.add_child(_result_stat("LOST", int(report.get("lost", 0)), Style.ENEMY_LIGHT))
-		tally.add_child(_result_stat("ENEMY DOWN", int(report.get("killed", 0)), Style.BRASS))
-		result_content.add_child(tally)
+		tally.append(Widgets.tile("ladder", str(sim.climbed), "came over" if defending else "went up"))
+		tally.append(Widgets.tile("ram", str(int(sim.gate_max - sim.gate_hp)), "blows on the gate" if defending else "ram blows"))
+	var tally_grid := Widgets.tile_grid(tally, 3)
+	tally_grid.name = "Tally"
+	result_content.add_child(tally_grid)
 
 	var rewards: Dictionary = report.get("rewards", {})
 	if int(rewards.get("silver", 0)) + int(rewards.get("food", 0)) + int(rewards.get("renown", 0)) > 0:
-		result_content.add_child(_result_heading("Rewards"))
-		result_content.add_child(_result_note("%d silver  ·  %d food  ·  %d renown" % [
-			int(rewards.get("silver", 0)), int(rewards.get("food", 0)), int(rewards.get("renown", 0))], Style.BRASS))
+		var tiles := []
+		var counts := []
+		for r in [["silver", "silver"], ["food", "rations"], ["renown", "renown"]]:
+			var n := int(rewards.get(r[0], 0))
+			var t := Widgets.tile(r[0], "+%s" % Widgets.thousands(n), r[1], Style.BRASS)
+			tiles.append(t)
+			counts.append([t, n])
+		var grid := Widgets.tile_grid(tiles, 3)
+		grid.name = "Rewards"
+		result_content.add_child(grid)
+		# The spoils count up as the panel comes in.
+		for pair in counts:
+			var value := (pair[0] as Control).find_child("Value", true, false) as Label
+			Widgets.tick_to(value, 0, int(pair[1]), func(v: int) -> String: return "+%s" % Widgets.thousands(v))
 
 	if siege:
-		result_content.add_child(_result_heading("How it went"))
+		result_content.add_child(Widgets.section("How it went"))
 		result_content.add_child(_siege_timeline())
 
 	var captains: Array = report.get("captains", [])
 	if not captains.is_empty():
-		result_content.add_child(_result_heading("Captains"))
+		result_content.add_child(Widgets.section("Captains"))
+		var hardest := _hardest_company(report.get("squads", []))
 		for captain in captains:
-			result_content.add_child(_result_captain(captain, _siege_note(captain)))
+			result_content.add_child(_result_captain(captain, _siege_note(captain), String(captain.get("company", "")) == hardest))
 
 	_result_bonds(report.get("bonds", []), report.get("memorials", []))
 
 	var squads: Array = report.get("squads", [])
 	if not squads.is_empty():
-		result_content.add_child(_result_heading("Company record"))
+		result_content.add_child(Widgets.section("Company record"))
 		for squad in squads:
 			result_content.add_child(_result_squad(squad))
 
 
-func _result_heading(text: String) -> Label:
-	var label := Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
-	label.add_theme_constant_override("line_spacing", 2)
-	return label
+## The company that cut down the most, if any did: its captain gets the star.
+func _hardest_company(squads: Array) -> String:
+	var best := ""
+	var most := 0
+	for sq in squads:
+		if int(sq.get("kills", 0)) > most:
+			most = int(sq.get("kills", 0))
+			best = String(sq.get("name", ""))
+	return best
 
 
 func _result_note(text: String, color: Color = Style.TEXT) -> Label:
@@ -2695,51 +2807,101 @@ func _result_note(text: String, color: Color = Style.TEXT) -> Label:
 	return label
 
 
-func _result_stat(caption: String, value: int, color: Color) -> Control:
-	var panel := PanelContainer.new()
-	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var col := VBoxContainer.new()
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	panel.add_child(col)
-	var number := Style.label(str(value), Style.LARGE, color)
-	number.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(number)
-	var words := Style.label(caption, Style.SMALL, Style.MUTED)
-	words.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(words)
-	return panel
+## A face with its fate badged on the corner: a star for the hardest fighting, the wounded
+## mark, or a skull for the fallen (dimmed).
+func _badged_face(face: Dictionary, badge: String, tint: Color, size: Vector2 = Vector2(54, 72), dim: bool = false) -> Control:
+	var holder := Control.new()
+	holder.custom_minimum_size = size
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var portrait := CaptainArt.portrait(face, size)
+	if dim:
+		portrait.modulate = Color(0.55, 0.55, 0.6)
+	holder.add_child(portrait)
+	if badge != "":
+		var dot := PanelContainer.new()
+		dot.name = "Badge"
+		dot.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, tint, 2, 16))
+		dot.position = Vector2(size.x - 22.0, size.y - 26.0)
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var ic := Widgets.icon_rect(badge, 20.0)
+		ic.modulate = tint
+		dot.add_child(ic)
+		holder.add_child(dot)
+	return holder
 
 
-func _result_captain(captain: Dictionary, note: String = "") -> Control:
+func _result_captain(captain: Dictionary, note: String = "", hardest: bool = false) -> Control:
 	var panel := PanelContainer.new()
+	panel.name = "Captain_%d" % int(captain.get("id", 0))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	panel.add_child(row)
 	var face: Dictionary = captain.get("face", captain)
-	if String(captain.get("fate", "")) == "wounded":
+	var fate := String(captain.get("fate", "standing"))
+	if fate == "wounded":
 		face = face.duplicate(true)
 		face["wounded"] = maxi(1, int(face.get("wounded", 0)))
-	var portrait := CaptainArt.portrait(face, Vector2(54, 72))
-	if String(captain.get("fate", "")) == "killed":
-		portrait.modulate = Color(0.55, 0.55, 0.6)
-	row.add_child(portrait)
+	var badge := ""
+	var tint := Style.BRASS
+	if fate == "killed":
+		badge = "skull"
+		tint = Style.ENEMY_LIGHT
+	elif fate == "wounded":
+		badge = "wounded"
+		tint = Style.ENEMY_LIGHT
+	elif hardest:
+		badge = "renown"
+	row.add_child(_badged_face(face, badge, tint, Vector2(54, 72), fate == "killed"))
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_child(words)
-	words.add_child(_result_note("%s · %s" % [captain.get("name", "Captain"), captain.get("company", "Company")]))
-	if note != "":
-		words.add_child(_result_note(note, Style.BRASS))
-	var fate := String(captain.get("fate", "standing"))
-	var line := "%d kills · held the field" % int(captain.get("kills", 0))
-	var color := Style.MUTED
+	# The first name; the company is in the company record below.
+	words.add_child(Style.name_label(String(captain.get("first", captain.get("name", "Captain")))))
+	var marks: Array = [Widgets.stat("fight", str(int(captain.get("kills", 0))))]
+	if hardest:
+		marks.append(Widgets.chip("Hardest fighting", Style.BRASS, "★", "", true))
+	if fate == "wounded" or fate == "killed":
+		marks.append(_roll_chip(int(captain.get("roll", 0)), int(captain.get("needed", 0)), fate == "killed"))
 	if fate == "wounded":
-		line = "Wounded · death roll %d, needed %d · out for %d battles" % [captain.get("roll", 0), captain.get("needed", 0), Captains.WOUND_BATTLES]
-		color = Style.BRASS
+		var out := Widgets.chip("", Style.ENEMY_LIGHT, "", "wounded")
+		out.name = "OutFor"
+		out.tooltip_text = "Out for %d battles" % Captains.WOUND_BATTLES
+		(out.get_child(0) as HBoxContainer).add_child(_pips(Captains.WOUND_BATTLES, Style.ENEMY_LIGHT))
+		marks.append(out)
 	elif fate == "killed":
-		line = "Fallen · death roll %d, needed %d" % [captain.get("roll", 0), captain.get("needed", 0)]
-		color = Style.ENEMY_LIGHT
-	words.add_child(_result_note(line, color))
+		marks.append(Widgets.chip("Fallen", Style.ENEMY_LIGHT, "▼"))
+	if note != "":
+		marks.append(Widgets.chip(note, Style.BRASS, "★", "", true))
+	words.add_child(Widgets.chip_row(marks))
 	return panel
+
+
+## The death roll as the die showed it: what came up over what was needed ("37 / 41"),
+## red if it killed.
+func _roll_chip(roll: int, needed: int, killed: bool) -> PanelContainer:
+	var chip := Widgets.chip("%d / %d" % [roll, needed], Style.ENEMY_LIGHT if killed else Style.TEXT)
+	chip.name = "DeathRoll"
+	chip.tooltip_text = "Death roll %d, needed %d or more to live" % [roll, needed]
+	var row := chip.get_child(0) as HBoxContainer
+	var shape := row.get_node_or_null("Shape")
+	if shape != null:
+		row.remove_child(shape)
+		shape.queue_free()
+	var die := Control.new()
+	die.custom_minimum_size = Vector2(24, 24)
+	die.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	die.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ink := Style.ENEMY_LIGHT if killed else Style.TEXT
+	die.draw.connect(func():
+		var r := Rect2(Vector2(2, 2), die.size - Vector2(4, 4))
+		die.draw_style_box(Style.box(Color(0, 0, 0, 0), ink, 2, 5), r)
+		var c := r.get_center()
+		for d in [Vector2(-5, -5), Vector2.ZERO, Vector2(5, 5)]:
+			die.draw_circle(c + d, 2.0, ink))
+	row.add_child(die)
+	row.move_child(die, 0)
+	return chip
 
 
 ## What a captain did in the siege worth a line of their own.
@@ -2893,8 +3055,8 @@ func _draw_field_vignette(c: Control, won: bool) -> void:
 	if big == null:
 		big = font
 	var title := _place_line()
-	var fs := 26
-	while fs > 18 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > size.x - 40.0:
+	var fs := _fs(26)
+	while fs > Style.SMALL and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > size.x - 40.0:
 		fs -= 2
 	c.draw_string(big, Vector2(0, band.position.y + 31.0), title, HORIZONTAL_ALIGNMENT_CENTER, size.x, fs, Color("f3cf7a") if won else Style.ENEMY_LIGHT)
 	c.draw_rect(frame, Color("6d5222"), false, 2.0)
@@ -2956,7 +3118,7 @@ func _result_bonds(bonds: Array, memorials: Array) -> void:
 		return
 	var ups: Array = bonds.filter(func(b): return bool(b.get("rank_up", false)))
 	var rest: Array = bonds.filter(func(b): return not bool(b.get("rank_up", false)))
-	result_content.add_child(_result_heading("Bonds"))
+	result_content.add_child(Widgets.section("Bonds"))
 	for bond in ups:
 		result_content.add_child(_result_rank_up(bond))
 	for m in memorials:
@@ -2976,7 +3138,7 @@ func _result_bonds(bonds: Array, memorials: Array) -> void:
 	var toggle := Button.new()
 	toggle.name = "OtherBondsToggle"
 	toggle.text = "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]
-	toggle.custom_minimum_size.y = 64
+	toggle.custom_minimum_size.y = Style.TOUCH
 	toggle.pressed.connect(func():
 		list.visible = not list.visible
 		toggle.text = ("Hide" if list.visible else "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]))
@@ -2998,22 +3160,25 @@ func _result_rank_up(bond: Dictionary) -> Control:
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
-	var title := Style.label("%s & %s · Rank %s" % [bond.get("a_name", ""), bond.get("b_name", ""), bond.get("rank_after", "")], Style.BODY, Style.BRASS)
+	var title := Style.label("%s & %s" % [bond.get("a_name", ""), bond.get("b_name", "")], Style.BODY, Style.BRASS)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(title)
-	var effect := Style.label(GameState.bond_effect_text(float(bond.get("after", 0.0))), Style.SMALL, Style.TEXT)
-	effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	words.add_child(effect)
+	words.add_child(Widgets.chip_row(_bond_effects(float(bond.get("after", 0.0)))))
 	row.add_child(words)
-	var badge := Style.label(String(bond.get("rank_after", "")), Style.LARGE, Style.BRASS_INK)
-	var chip := PanelContainer.new()
-	chip.add_theme_stylebox_override("panel", Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 30))
-	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	badge.custom_minimum_size = Vector2(44, 0)
-	chip.add_child(badge)
-	row.add_child(chip)
+	row.add_child(Widgets.rank_badge(String(bond.get("rank_after", "")), 52.0))
 	return panel
+
+
+## What a bond does in battle at `points`, as chips: morale a second nearby, extra damage.
+func _bond_effects(points: float) -> Array:
+	var rank := Captains.rank_for(points)
+	if rank <= 0:
+		return [Widgets.chip("No effect until C", Style.MUTED, "◆")]
+	var out: Array = [Widgets.stat("morale", "+%.1f/s" % Captains.RANK_REGEN[rank])]
+	var damage := roundi(Captains.RANK_POWER[rank] * 100.0)
+	if damage > 0:
+		out.append(Widgets.stat("damage", "+%d%%" % damage))
+	return out
 
 
 func _result_memorial(m: Dictionary) -> Control:
@@ -3024,18 +3189,22 @@ func _result_memorial(m: Dictionary) -> Control:
 	row.add_theme_constant_override("separation", 10)
 	panel.add_child(row)
 	row.add_child(CaptainArt.portrait(m.get("survivor_face", {}), Vector2(54, 72), "grief"))
-	var gone := CaptainArt.portrait(m.get("fallen_face", {}), Vector2(54, 72))
-	gone.modulate = Color(0.5, 0.5, 0.58)
-	row.add_child(gone)
+	row.add_child(_badged_face(m.get("fallen_face", {}), "skull", Style.MUTED, Vector2(54, 72), true))
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
 	var title := Style.label("%s remembers %s" % [m.get("survivor", ""), m.get("fallen", "")], Style.BODY, Style.TEXT)
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(title)
+	var marks: Array = []
+	if String(m.get("rank", "")) != "":
+		marks.append(Widgets.rank_badge(String(m.get("rank", ""))))
 	var shared := int(m.get("shared", 0))
-	var line := Style.label("Rank %s · %s. One place by the fire will stay empty tonight." % [m.get("rank", ""),
-		"%d battle%s together" % [shared, "" if shared == 1 else "s"] if shared > 0 else "fought together"], Style.SMALL, Style.MUTED)
+	if shared > 0:
+		marks.append(Widgets.stat("battle", str(shared)))
+	if not marks.is_empty():
+		words.add_child(Widgets.chip_row(marks))
+	var line := Style.label("One place by the fire will stay empty tonight.", Style.SMALL, Style.MUTED)
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(line)
 	row.add_child(words)
@@ -3051,37 +3220,52 @@ func _result_bond(bond: Dictionary) -> Control:
 	var b: Dictionary = bond.get("b_face", {"id": bond.get("b_id", 0), "first": bond.get("b_name", ""), "culture": bond.get("b_culture", Cultures.VARDISH)})
 	row.add_child(CaptainArt.portrait(a, Vector2(40, 54)))
 	row.add_child(CaptainArt.portrait(b, Vector2(40, 54)))
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(words)
+	words.add_child(Style.label("%s & %s" % [bond.get("a_name", ""), bond.get("b_name", "")], Style.SMALL, Style.TEXT))
+	words.add_child(Widgets.chip_row([Widgets.stat("bond", "+%.1f" % float(bond.get("earned", 0.0)), Style.MORALE_HIGH)]))
 	var rank := String(bond.get("rank_after", ""))
-	var text := "%s & %s · +%.1f bond points" % [bond.get("a_name", ""), bond.get("b_name", ""), float(bond.get("earned", 0.0))]
 	if rank != "":
-		text += " · rank %s" % rank
-	if bool(bond.get("rank_up", false)):
-		text += " reached"
-	var note := _result_note(text, Style.BRASS if bool(bond.get("rank_up", false)) else Style.TEXT)
-	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(note)
+		row.add_child(Widgets.rank_badge(rank))
 	return panel
 
 
 func _result_squad(squad: Dictionary) -> Control:
 	var panel := PanelContainer.new()
+	panel.name = "Company_%d" % int(squad.get("id", 0))
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 12)
 	panel.add_child(row)
+	var rec := _squad_record(int(squad.get("id", -1)))
+	if not rec.is_empty():
+		var sprite := TextureRect.new()
+		sprite.texture = Art.icon(String(rec.get("type", Troops.INFANTRY)), Sim.PLAYER, String(rec.get("culture", GameState.culture)))
+		sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		sprite.custom_minimum_size = Vector2(48, 48)
+		sprite.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(sprite)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_theme_constant_override("separation", 6)
 	row.add_child(words)
-	words.add_child(_result_note(String(squad.get("name", "Company"))))
-	words.add_child(_result_note("%d → %d soldiers · %d kills · %d XP" % [squad.get("men_before", 0), squad.get("men_after", 0), squad.get("kills", 0), squad.get("xp_after", 0)], Style.MUTED))
-	var level_text := "Lv%d" % int(squad.get("level_after", 1))
+	words.add_child(Style.label(String(squad.get("name", "Company")), Style.BODY, Style.TEXT))
+	# Men before and after: the meter's track is the men it went in with, the fill those
+	# who came out.
+	var before := int(squad.get("men_before", 0))
+	var after := int(squad.get("men_after", 0))
+	var men_row := HBoxContainer.new()
+	men_row.add_theme_constant_override("separation", 10)
+	men_row.add_child(Widgets.icon_value("men", "%d/%d" % [after, before]))
+	men_row.add_child(Widgets.meter(float(after) / maxf(1.0, float(before)), Style.PLAYER_LIGHT if after == before else Style.MORALE_MID, 12.0))
+	words.add_child(men_row)
+	var marks: Array = [Widgets.stat("fight", str(int(squad.get("kills", 0)))), Widgets.stat("level", str(int(squad.get("level_after", 1))))]
 	if bool(squad.get("training_ready", false)):
-		level_text += "+ READY"
-	var level := Style.label(level_text, Style.SMALL, Style.BRASS)
-	level.custom_minimum_size.x = 112
-	level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	level.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	level.autowrap_mode = TextServer.AUTOWRAP_OFF
-	row.add_child(level)
+		marks.append(Widgets.chip("Train", Style.BRASS, "▲", "", true))
+	words.add_child(Widgets.chip_row(marks))
 	return panel
 
 
@@ -3097,34 +3281,13 @@ func _layout_tray() -> void:
 	for b in chip_buttons:
 		b.custom_minimum_size.y = CHIP_H if deploying else _chip_h()
 	view_row.visible = not deploying
-	info_label.visible = not deploying
-	hint_label.custom_minimum_size.y = 34.0 if deploying else 64.0
-	hint_label.max_lines_visible = 1 if deploying else 2
+	info_strip.visible = not deploying
 	scout_chip.visible = deploying and _scouting() != ""
 	if scout_chip.visible:
 		var ai = sim.ai[Sim.ENEMY]
 		scout_chip.text = String(SCOUT_SHORT.get(String(ai.temperament).to_lower(), "Scouts' report"))
-	menu_button.icon = _glyph("menu" if deploying else "pause")
-
-
-## Small icons drawn here rather than taken from the font.
-var _glyphs := {}
-
-func _glyph(kind: String) -> Texture2D:
-	if _glyphs.has(kind):
-		return _glyphs[kind]
-	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var c := Color(0.93, 0.89, 0.8)
-	if kind == "menu":
-		for y in [8, 15, 22]:
-			img.fill_rect(Rect2i(6, y, 20, 3), c)
-	else:
-		img.fill_rect(Rect2i(9, 7, 5, 18), c)
-		img.fill_rect(Rect2i(18, 7, 5, 18), c)
-	var tex := ImageTexture.create_from_image(img)
-	_glyphs[kind] = tex
-	return tex
+	menu_button.icon = Widgets.icon("menu" if deploying else "pause")
+	menu_button.add_theme_constant_override("icon_max_width", 34)
 
 
 ## Your side's result, plus what's left of the enemy, so a band that beats you stays
@@ -3191,27 +3354,29 @@ func _build_hud() -> void:
 	top_panel.add_child(top_row)
 	menu_button = _button("", Vector2(Style.TOUCH, Style.TOUCH), _on_menu)
 	menu_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	menu_button.add_theme_font_size_override("font_size", Style.SMALL)
+	menu_button.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	top_row.add_child(menu_button)
 	title_label = Style.label("Deploy", Style.LARGE, Style.BRASS)
 	title_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top_row.add_child(title_label)
+	# "3 of 5 placed" as pips; the cards' ticks say which. The words stay as a tooltip.
 	status_label = Style.label("", Style.BODY)
-	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	status_label.visible = false
 	top_row.add_child(status_label)
+	deploy_pips = Control.new()
+	deploy_pips.name = "DeployPips"
+	deploy_pips.custom_minimum_size = Vector2(0, 30)
+	deploy_pips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	deploy_pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	deploy_pips.mouse_filter = Control.MOUSE_FILTER_PASS
+	deploy_pips.draw.connect(_draw_deploy_pips)
+	top_row.add_child(deploy_pips)
 	scout_chip = _button("", Vector2(0, 52), func(): _hint(_scouting()))
 	scout_chip.name = "ScoutChip"
-	scout_chip.add_theme_font_size_override("font_size", Style.SMALL)
+	scout_chip.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	scout_chip.add_theme_color_override("font_color", Color("f3b0a8"))
-	var chip_box := StyleBoxFlat.new()
-	chip_box.bg_color = Color("3a1c1c")
-	chip_box.border_color = Color(Style.ENEMY_LIGHT, 0.55)
-	chip_box.set_border_width_all(1)
-	chip_box.set_corner_radius_all(14)
-	chip_box.content_margin_left = 12.0
-	chip_box.content_margin_right = 12.0
+	_set_icon(scout_chip, "eye", false, Color("f3b0a8"))
+	var chip_box := _chip_box(Color("3a1c1c"), Color(Style.ENEMY_LIGHT, 0.55))
 	for st in ["normal", "hover", "pressed", "focus"]:
 		scout_chip.add_theme_stylebox_override(st, chip_box)
 	scout_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -3226,7 +3391,7 @@ func _build_hud() -> void:
 	speed_button = _button("1×", Vector2(Style.TOUCH, Style.TOUCH), _on_speed)
 	top_row.add_child(speed_button)
 
-	# Bottom panel: the squad tray, a line about the selection, the orders, and a hint.
+	# Bottom panel: the squad tray, the selection as icons, the orders. Hints float above it.
 	bottom_panel = PanelContainer.new()
 	bottom_panel.add_theme_stylebox_override("panel", _bar_box(false))
 	bottom_panel.anchor_top = 1.0
@@ -3258,10 +3423,18 @@ func _build_hud() -> void:
 		tray.add_child(b)
 		chip_buttons.append(b)
 
+	# The selection as icons and numbers. The sentence it replaces stays in info_label,
+	# never shown, as the strip's tooltip.
+	info_strip = Control.new()
+	info_strip.name = "InfoStrip"
+	info_strip.custom_minimum_size = Vector2(10, 34)
+	info_strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info_strip.mouse_filter = Control.MOUSE_FILTER_PASS
+	info_strip.draw.connect(_draw_info_strip)
+	col.add_child(info_strip)
 	info_label = Style.label("", Style.SMALL, Style.TEXT)
-	info_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	info_label.custom_minimum_size = Vector2(10, 34)
-	col.add_child(info_label)
+	info_label.visible = false
+	info_strip.add_child(info_label)
 
 	var buttons_row := HBoxContainer.new()
 	buttons_row.add_theme_constant_override("separation", 10)
@@ -3285,13 +3458,9 @@ func _build_hud() -> void:
 	ability_button = _order_button("", "fight", _on_ability, buttons_row)
 	ability_button.draw.connect(_draw_ability_cooldown)
 	hold_fire_button = _order_button("Hold fire", "holdfire", _on_hold_fire, buttons_row)
+	for b in [advance_button, hold_button, storm_button, post_button, ability_button, hold_fire_button]:
+		_order_label(b, b.text)
 
-	hint_label = Style.label("", Style.SMALL, Style.MUTED)
-	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	hint_label.custom_minimum_size = Vector2(10, 64)
-	hint_label.max_lines_visible = 2
-	hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	col.add_child(hint_label)
 
 	view_row = HBoxContainer.new()
 	view_row.add_theme_constant_override("separation", 10)
@@ -3300,29 +3469,56 @@ func _build_hud() -> void:
 	_view_button("Re-center", "center", _recenter_camera)
 	_view_button("Whole army", "company", func(): _select(null))
 
-	# The objective, under the top bar (sieges).
-	objective_chip = PanelContainer.new()
+	# The objective, under the top bar, for every battle: the kit's chip, dark for the field.
+	objective_chip = Widgets.chip("Objective", Color("f3cf7a"), "", "objective")
 	objective_chip.name = "ObjectiveChip"
-	var ob := Style.box(Color(Style.NIGHT, 0.92), Color("6d5222"), 2, 22)
-	ob.content_margin_left = 14.0
-	ob.content_margin_right = 20.0
-	ob.content_margin_top = 6.0
-	ob.content_margin_bottom = 6.0
-	objective_chip.add_theme_stylebox_override("panel", ob)
+	objective_chip.add_theme_stylebox_override("panel", _chip_box(Color(Style.NIGHT, 0.92), Color("6d5222"), 2))
 	objective_chip.anchor_left = 0.5
 	objective_chip.anchor_right = 0.5
 	objective_chip.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	objective_chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	objective_chip.visible = false
-	var orow := HBoxContainer.new()
-	orow.add_theme_constant_override("separation", 10)
-	objective_chip.add_child(orow)
-	var oicon := Widgets.icon_rect("objective", 30.0)
-	oicon.modulate = Color("f3cf7a")
-	orow.add_child(oicon)
-	objective_label = Style.label("", Style.SMALL, Color("f3cf7a"))
-	orow.add_child(objective_label)
+	objective_icon = objective_chip.find_child("Icon", true, false) as TextureRect
+	objective_label = objective_chip.find_child("Text", true, false) as Label
+	objective_label.add_theme_color_override("font_color", Color("f3cf7a"))
 	hud.add_child(objective_chip)
+
+	# A tapped enemy, read at a glance, under the objective.
+	inspect_pill = PanelContainer.new()
+	inspect_pill.name = "InspectPill"
+	inspect_pill.add_theme_stylebox_override("panel", _chip_box(Color(Style.NIGHT, 0.92), Color(Style.ENEMY_LIGHT, 0.55), 2))
+	inspect_pill.anchor_left = 0.5
+	inspect_pill.anchor_right = 0.5
+	inspect_pill.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	inspect_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inspect_pill.visible = false
+	hud.add_child(inspect_pill)
+
+	# The hint: a toast above the orders that fades, so the field keeps its room.
+	hint_toast = PanelContainer.new()
+	hint_toast.name = "HintToast"
+	var tb := _chip_box(Color(Style.NIGHT, 0.9), Color(Style.BRASS, 0.35))
+	tb.set_corner_radius_all(18)
+	tb.content_margin_left = 18.0
+	tb.content_margin_right = 18.0
+	tb.content_margin_top = 8.0
+	tb.content_margin_bottom = 10.0
+	hint_toast.add_theme_stylebox_override("panel", tb)
+	hint_toast.anchor_left = 0.0
+	hint_toast.anchor_right = 1.0
+	hint_toast.anchor_top = 1.0
+	hint_toast.anchor_bottom = 1.0
+	hint_toast.offset_left = 20.0
+	hint_toast.offset_right = -20.0
+	hint_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hint_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint_toast.visible = false
+	hud.add_child(hint_toast)
+	hint_label = Style.label("", Style.SMALL, Style.TEXT)
+	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint_label.max_lines_visible = 3
+	hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	hint_toast.add_child(hint_label)
 
 	# The death roll plays over the field.
 	roll_layer = Control.new()
@@ -3340,7 +3536,7 @@ func _build_hud() -> void:
 	var pv := VBoxContainer.new()
 	pv.add_theme_constant_override("separation", 16)
 	pause_panel.add_child(pv)
-	var paused_title := Style.label("Paused", 48, Style.BRASS)
+	var paused_title := Style.label("Paused", Style.TITLE_SIZE, Style.BRASS)
 	paused_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	pv.add_child(paused_title)
 	pause_note = Style.label("", Style.SMALL, Style.MUTED)
@@ -3395,7 +3591,7 @@ func _build_hud() -> void:
 	var thv := VBoxContainer.new()
 	thv.add_theme_constant_override("separation", 16)
 	terrain_hint_panel.add_child(thv)
-	terrain_hint_title = Style.label("Battlefield Ground", 44, Style.BRASS)
+	terrain_hint_title = Style.label("Battlefield Ground", Style.TITLE_SIZE, Style.BRASS)
 	terrain_hint_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	thv.add_child(terrain_hint_title)
 	terrain_hint_body = Style.label("", Style.BODY)
@@ -3403,6 +3599,11 @@ func _build_hud() -> void:
 	terrain_hint_body.custom_minimum_size = Vector2(500, 0)
 	terrain_hint_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	thv.add_child(terrain_hint_body)
+	terrain_hint_rows = VBoxContainer.new()
+	terrain_hint_rows.name = "TerrainRows"
+	terrain_hint_rows.custom_minimum_size = Vector2(500, 0)
+	terrain_hint_rows.add_theme_constant_override("separation", 12)
+	thv.add_child(terrain_hint_rows)
 	var dismiss_btn := _button("Understood", Vector2(0, Style.TOUCH), func(): terrain_hint_panel.visible = false)
 	Style.make_primary(dismiss_btn)
 	thv.add_child(dismiss_btn)
@@ -3444,7 +3645,7 @@ func _button(text: String, min_size: Vector2, callback: Callable) -> Button:
 func _order_button(text: String, icon_key: String, callback: Callable, row: HBoxContainer, primary: bool = false, wide: bool = false) -> Button:
 	var b := _wide_button(text, callback, row)
 	b.custom_minimum_size.y = CMD_H
-	b.add_theme_font_size_override("font_size", Style.LARGE if wide else Style.SMALL)
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE if wide else Style.SMALL))
 	if primary:
 		Style.make_primary(b)
 		b.size_flags_stretch_ratio = 2.4 if wide else 1.6
@@ -3454,7 +3655,7 @@ func _order_button(text: String, icon_key: String, callback: Callable, row: HBox
 
 func _view_button(text: String, icon_key: String, callback: Callable) -> Button:
 	var b := _wide_button(text, callback, view_row)
-	b.add_theme_font_size_override("font_size", Style.SMALL)
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	_set_icon(b, icon_key, false, Style.MUTED)
 	return b
 
@@ -3472,7 +3673,7 @@ func _set_icon(b: Button, key: String, stacked: bool = true, tint: Color = Style
 func _wide_button(text: String, callback: Callable, row: HBoxContainer) -> Button:
 	var b := _button(text, Vector2(0, Style.TOUCH), callback)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", Style.BODY)
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
 	b.clip_text = true
 	row.add_child(b)
 	return b
@@ -3481,7 +3682,7 @@ func _wide_button(text: String, callback: Callable, row: HBoxContainer) -> Butto
 func _refresh_hud() -> void:
 	var deploying := sim.phase == Sim.PHASE_DEPLOY
 	title_label.visible = deploying
-	status_label.visible = deploying
+	deploy_pips.visible = deploying
 	power_bar.visible = not deploying
 	speed_button.visible = not deploying
 	auto_button.visible = deploying
@@ -3491,13 +3692,18 @@ func _refresh_hud() -> void:
 	hold_button.visible = not deploying and not planning
 	cancel_button.visible = planning
 	storm_go_button.visible = planning
-	objective_chip.visible = sim.objective == Sim.OBJECTIVE_SIEGE and sim.winner == -1
+	var goal := _objective_text()
+	objective_chip.visible = sim.winner == -1 and goal != ""
 	if objective_chip.visible:
-		objective_label.text = _objective_text()
+		objective_label.text = goal
+		objective_icon.texture = Widgets.icon(_objective_icon())
 	menu_button.disabled = sim.winner != -1
 	menu_button.text = ""
 	speed_button.text = "¼×" if slow_held() else ("2×" if speed > 1.5 else "1×")
-	pause_note.text = _scouting()
+	# The scouting is on the title card and behind the scout chip; the pause card doesn't
+	# say it a third time.
+	pause_note.text = ""
+	pause_note.visible = false
 	if deploying:
 		_refresh_deploy()
 	else:
@@ -3515,6 +3721,8 @@ func _refresh_deploy() -> void:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			unplaced_player += 1
 	status_label.text = "%d of %d placed" % [_cards.size() - unplaced_player, _cards.size()]
+	deploy_pips.tooltip_text = status_label.text
+	deploy_pips.queue_redraw()
 	auto_button.disabled = unplaced_player == 0 or sim.winner != -1
 	fight_button.disabled = unplaced_player > 0 or sim.winner != -1
 	ability_button.visible = false
@@ -3522,11 +3730,13 @@ func _refresh_deploy() -> void:
 	storm_button.visible = false
 	post_button.visible = false
 	info_label.text = ""
+	_strip_items = []
+	info_strip.queue_redraw()
 
 
 func _refresh_battle() -> void:
-	info_label.add_theme_color_override("font_color", Style.TEXT)
 	var sq = selected_squad
+	var items: Array = []
 	ability_button.visible = sq != null
 	hold_fire_button.visible = sq != null and sq.ranged
 	# Storm stays in the bar for an assault, greyed out once the gate is down.
@@ -3537,8 +3747,8 @@ func _refresh_battle() -> void:
 	post_button.visible = sq == null and defending and sim.winner == -1
 	if post_button.visible:
 		var broken: bool = sim.gate_hp <= 0.0
-		post_button.text = "Hold breach" if broken else "Man the walls"
-		_set_icon(post_button, "breach" if broken else "walls")
+		_order_label(post_button, "Hold breach" if broken else "Man the walls")
+		post_button.icon = Widgets.icon("breach" if broken else "walls")
 	if sq != null:
 		var title := _company(sq.roster_id)
 		if title == "":
@@ -3550,6 +3760,7 @@ func _refresh_battle() -> void:
 			state = "braced"
 		elif sq.engaged:
 			state = "fighting"
+		var base_state := state
 		if sq.hold_fire:
 			state = "holding fire" if sq.order == "hold" else state + ", holding fire"
 		var arrows := ""
@@ -3560,14 +3771,25 @@ func _refresh_battle() -> void:
 		var mood := " · fury" if sq.fury > 0.0 else ""
 		info_label.text = "Selected: %s · %d men · %d%% morale%s%s · %s" % [
 			title, sq.alive_count(), maxi(0, int(sq.morale)), mood, arrows, state]
-		advance_button.text = "Advance"
-		hold_button.text = "Hold"
+		# Men and morale are on the card and the standard; the strip says what the card
+		# doesn't: who, what they're doing, arrows, fury.
+		items.append(["", title, Style.TEXT])
+		var state_key := base_state if ORDER_ICONS.has(base_state) else String(sq.order)
+		items.append([String(ORDER_ICONS.get(state_key, "hold")), base_state, Style.BRASS])
+		if sq.hold_fire:
+			items.append(["holdfire", "", Style.MUTED])
+		if sq.arrows >= 0:
+			items.append(["bow", str(sq.arrows), Style.TEXT if sq.arrows > 0 else Style.ENEMY_LIGHT])
+		if sq.fury > 0.0:
+			items.append(["vengeful", "", Style.ENEMY_LIGHT])
+		_order_label(advance_button, "Advance")
+		_order_label(hold_button, "Hold")
 		var ab := Troops.ability(sq.type)
-		ability_button.text = String(ab["name"])
+		_order_label(ability_button, String(ab["name"]))
 		ability_button.icon = Widgets.icon(String(ABILITY_ICONS.get(sq.type, "fight")))
 		ability_button.modulate = Color(1, 1, 1, 1.0 if sim.ability_ready(sq) else 0.55)
 		ability_button.queue_redraw()
-		hold_fire_button.text = "Fire at will" if sq.hold_fire else "Hold fire"
+		_order_label(hold_fire_button, "Fire at will" if sq.hold_fire else "Hold fire")
 		hold_fire_button.icon = Widgets.icon("bow" if sq.hold_fire else "holdfire")
 	else:
 		var allies_active := 0
@@ -3579,6 +3801,18 @@ func _refresh_battle() -> void:
 		if allies_active > 0 or res_count > 0:
 			extra = " · Allies: %d · Reserves: %d" % [allies_active, res_count]
 		info_label.text = "Whole army · " + _order_summary() + extra
+		# The whole army as counts by order: the company mark, then each order's icon.
+		items.append(["company", "", Style.MUTED])
+		var counts := _order_counts()
+		for word in ORDER_WORDS:
+			if counts.has(word):
+				items.append([String(ORDER_ICONS[word]), str(counts[word]), Style.TEXT])
+		if counts.is_empty():
+			items.append(["", "none left", Style.MUTED])
+		if allies_active > 0:
+			items.append(["bond", str(allies_active), Style.PLAYER_LIGHT])
+		if res_count > 0:
+			items.append(["plus", str(res_count), Style.PLAYER_LIGHT])
 		if not _storm_plan.is_empty():
 			var up := 0
 			var ram := 0
@@ -3586,36 +3820,122 @@ func _refresh_battle() -> void:
 				up += 1 if _storm_plan[id] == "ladder" else 0
 				ram += 1 if _storm_plan[id] == "ram" else 0
 			info_label.text = "Storm plan · %d to the ladders · %d to the ram" % [up, ram]
-		advance_button.text = "Sally" if defending else "Advance all"
-		hold_button.text = "Hold all"
+			items = [["storm", "", Style.BRASS], ["ladder", str(up), Color("ffe08a")], ["ram", str(ram), Color("ffd79a")]]
+		_order_label(advance_button, "Sally" if defending else "Advance all")
+		_order_label(hold_button, "Hold all")
 	advance_button.disabled = sim.winner != -1
 	hold_button.disabled = sim.winner != -1
+	_strip_items = items
+	info_strip.tooltip_text = info_label.text
+	info_strip.queue_redraw()
 
 
-## The line under the top bar in a siege.
+## The objective chip under the top bar, for every kind of battle: a short phrase, and
+## for holding the village the time still to hold.
 func _objective_text() -> String:
-	var defending: bool = sim.siege_defender == Sim.PLAYER
-	if not _storm_plan.is_empty():
-		return "Storm plan · tap Storm! to go"
-	if sim.gate_hp <= 0.0:
-		return "Hold the breach" if defending else "Rout the garrison"
-	if defending:
-		return "Man the walls · stones on the ram, hold the ladders"
-	return "Take the walls · break the gate or climb" if _deploying() else "Take the walls"
+	match String(sim.objective):
+		Sim.OBJECTIVE_SIEGE:
+			var defending: bool = sim.siege_defender == Sim.PLAYER
+			if not _storm_plan.is_empty():
+				return "Storm plan"
+			if sim.gate_hp <= 0.0:
+				return "Hold the breach" if defending else "Rout the garrison"
+			return "Man the walls" if defending else "Take the walls"
+		Sim.OBJECTIVE_CHIEF:
+			return "Slay %s" % (sim.chief_name if sim.chief_name != "" else "their chief")
+		Sim.OBJECTIVE_VILLAGE:
+			return "Defend %s" % _clock_text(maxf(0.0, Sim.VILLAGE_DURATION - sim.time))
+		Sim.OBJECTIVE_AMBUSH:
+			return "Protect the column"
+		"raid":
+			return "Drive off the militia"
+	return "Rout their host"
+
+
+func _objective_icon() -> String:
+	match String(sim.objective):
+		Sim.OBJECTIVE_SIEGE:
+			return "breach" if sim.gate_hp <= 0.0 else "walls"
+		Sim.OBJECTIVE_CHIEF:
+			return "skull"
+		Sim.OBJECTIVE_VILLAGE:
+			return "clock"
+		Sim.OBJECTIVE_AMBUSH:
+			return "company"
+		"raid":
+			return "fire"
+	return "objective"
 
 
 ## "5 holding · 2 advancing" for the squads you still have fighting.
 func _order_summary() -> String:
+	var counts := _order_counts()
+	var parts := PackedStringArray()
+	for order in ORDER_WORDS:
+		if counts.has(order):
+			parts.append("%d %s" % [counts[order], ORDER_WORDS[order]])
+	return "none left" if parts.is_empty() else " · ".join(parts)
+
+
+## How many of your squads still fighting have each order: {"hold": 5, "advance": 2}.
+func _order_counts() -> Dictionary:
 	var counts := {}
 	for sq in sim.squads:
-		if sq.team == Sim.PLAYER and sq.is_active():
-			var word: String = ORDER_WORDS.get(sq.order, sq.order)
-			counts[word] = int(counts.get(word, 0)) + 1
-	var parts := PackedStringArray()
-	for word in ORDER_WORDS.values():
-		if counts.has(word):
-			parts.append("%d %s" % [counts[word], word])
-	return "none left" if parts.is_empty() else " · ".join(parts)
+		if sq.team == Sim.PLAYER and sq.is_active() and not sq.is_ally:
+			counts[sq.order] = int(counts.get(sq.order, 0)) + 1
+	return counts
+
+
+## An order button's word: under its icon in a campaign's first few battles, then only in
+## its tooltip, the icon centred alone.
+func _order_label(b: Button, word: String) -> void:
+	b.tooltip_text = word
+	var shown := word if _order_words else ""
+	if b.text != shown:
+		b.text = shown
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP if shown != "" else VERTICAL_ALIGNMENT_CENTER
+
+
+## The selection as icons and numbers: [icon, text, colour] each, left to right, as many
+## as fit.
+func _draw_info_strip() -> void:
+	var c := info_strip
+	var fs := _fs(Style.SMALL)
+	var x := 0.0
+	var mid := c.size.y * 0.5
+	for it in _strip_items:
+		var key := String(it[0])
+		var text := String(it[1])
+		var col: Color = it[2]
+		var need := (30.0 if key != "" else 0.0) + (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x if text != "" else 0.0)
+		if x + need > c.size.x:
+			break
+		if key != "":
+			var tex := Widgets.icon(key)
+			if tex != null:
+				c.draw_texture_rect(tex, Rect2(x, mid - 13.0, 26.0, 26.0), false, col if text == "" else Style.MUTED)
+			x += 30.0
+		if text != "":
+			c.draw_string(font, Vector2(x, mid + fs * 0.36), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+			x += font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		x += 18.0
+
+
+## A pip for each of your squads, brass once it's on the field.
+func _draw_deploy_pips() -> void:
+	var c := deploy_pips
+	var n := _cards.size()
+	if n == 0:
+		return
+	var step := minf(22.0, (c.size.x - 8.0) / float(n))
+	var r := minf(7.0, step * 0.38)
+	for i in n:
+		var placed: bool = sim.placed_squad(Sim.PLAYER, _cards[i]["roster_id"]) != null
+		var at := Vector2(8.0 + step * (float(i) + 0.5), c.size.y * 0.5)
+		if placed:
+			c.draw_circle(at, r, Style.BRASS)
+		else:
+			c.draw_arc(at, r - 1.0, 0.0, TAU, 16, Style.MUTED, 2.0)
 
 
 ## The tug of war: how much of each army is still fighting. The clock only shows in
@@ -3631,8 +3951,12 @@ func _draw_power() -> void:
 		y = 0.0
 		var gy := h + 8.0
 		var share := sim.gate_hp / maxf(1.0, sim.gate_max)
-		var label := "Gate %d%%" % int(ceil(share * 100.0)) if sim.gate_hp > 0.0 else "Gate broken"
-		power_bar.draw_string(font, Vector2(0, gy + 11.0), label, HORIZONTAL_ALIGNMENT_LEFT, 120.0, 16, Style.BRASS if sim.gate_hp > 0.0 else Style.PLAYER_LIGHT)
+		var label := "%d%%" % int(ceil(share * 100.0)) if sim.gate_hp > 0.0 else ""
+		var gate_ink := Style.BRASS if sim.gate_hp > 0.0 else Style.PLAYER_LIGHT
+		var gate_icon := Widgets.icon("gate" if sim.gate_hp > 0.0 else "breach")
+		if gate_icon != null:
+			power_bar.draw_texture_rect(gate_icon, Rect2(0, gy - 6.0, 22, 22), false, gate_ink)
+		power_bar.draw_string(font, Vector2(26, gy + 11.0), label, HORIZONTAL_ALIGNMENT_LEFT, 90.0, _fs(Style.SMALL), gate_ink)
 		var track := Rect2(118.0, gy, w - 118.0, 10.0)
 		power_bar.draw_rect(track, Style.NIGHT)
 		power_bar.draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.91, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
@@ -3652,13 +3976,13 @@ func _draw_power() -> void:
 	power_bar.draw_rect(Rect2(split, y, red_start - split, h), Style.ENEMY_LIGHT)
 	power_bar.draw_rect(Rect2(red_start, y, w - red_start, h), Style.ENEMY)
 	power_bar.draw_rect(Rect2(split - 2.0, y - 5.0, 4.0, h + 10.0), Style.TEXT)
-	power_bar.draw_string(font, Vector2(8, y + h - 5.0), str(int(mine)), HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL, Style.TEXT)
-	power_bar.draw_string(font, Vector2(w - 68.0, y + h - 5.0), str(int(theirs)), HORIZONTAL_ALIGNMENT_RIGHT, 60.0, Style.SMALL, Style.TEXT)
+	power_bar.draw_string(font, Vector2(8, y + h - 5.0), str(int(mine)), HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), Style.TEXT)
+	power_bar.draw_string(font, Vector2(w - 68.0, y + h - 5.0), str(int(theirs)), HORIZONTAL_ALIGNMENT_RIGHT, 60.0, _fs(Style.SMALL), Style.TEXT)
 	var left := Sim.TIME_LIMIT - sim.time
 	if left < 60.0 and sim.winner == -1:
 		var clock := "%d:%02d" % [floori(left / 60.0), int(left) % 60]
-		power_bar.draw_string_outline(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, 5, Style.NIGHT)
-		power_bar.draw_string(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Style.TEXT)
+		power_bar.draw_string_outline(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), 5, Style.NIGHT)
+		power_bar.draw_string(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Style.TEXT)
 
 
 ## A card in the tray: the squad's standard, its captain, its men, and in battle its
@@ -3684,22 +4008,42 @@ func _draw_chip(i: int) -> void:
 	b.draw_rect(Rect2(Vector2.ZERO, size), bg)
 	b.draw_rect(Rect2(Vector2.ZERO, size), Style.BRASS if picked else Style.RULE, false, 3.0 if picked else 2.0)
 	var dim := 0.45 if out else 1.0
-	var c = _squad_record(e["roster_id"]).get("captain")
+	var rec := _squad_record(e["roster_id"])
+	var c = rec.get("captain")
 	var face: Texture2D = CaptainArt.texture(c) if typeof(c) == TYPE_DICTIONARY else null
+	# Deploying, the card shows the troop itself; in battle, the flag its standard flies.
+	var troop: Texture2D = Art.icon(String(e["type"]), Sim.PLAYER, String(rec.get("culture", GameState.culture))) if not battle else null
+	var mark := Rect2(36, 8, 28, 28) if face != null else Rect2(6, 4, 34, 34)
 	if face != null:
 		b.draw_texture_rect(face, Rect2(5, 3, 30, 40), false, Color(1, 1, 1, dim))
+	if troop != null:
+		b.draw_texture_rect(troop, mark, false, Color(1, 1, 1, dim))
+	elif face != null:
 		_draw_flag(b, Vector2(39, 9), Vector2(22, 16), Sim.PLAYER, String(e["type"]), out, false, 0.0)
 	else:
 		_draw_flag(b, Vector2(8, 8), Vector2(28, 21), Sim.PLAYER, String(e["type"]), out, false, 0.0)
 	var who := _name(e["type"], Sim.PLAYER, e["roster_id"])
+	var hurt := false
 	if c != null:
-		who = String(c["first"]) + ("*" if int(c.get("wounded", 0)) > 0 else "")
+		who = String(c["first"])
+		hurt = int(c.get("wounded", 0)) > 0
 	var men: int = e["men"] if sq == null else sq.alive_count()
-	b.draw_string(font, Vector2(size.x - 6.0 - 40.0, 27), str(men), HORIZONTAL_ALIGNMENT_RIGHT, 40.0, Style.SMALL, Color(Style.TEXT, dim))
-	var fit := 21
-	while fit > 16 and font.get_string_size(who, HORIZONTAL_ALIGNMENT_LEFT, -1, fit).x > size.x - 12.0:
-		fit -= 1
-	b.draw_string(font, Vector2(6, 58), who, HORIZONTAL_ALIGNMENT_LEFT, size.x - 12.0, fit, Color(Style.TEXT if not (placed and not battle and not picked) else Style.MUTED, dim))
+	var fs := _fs(Style.SMALL)
+	var men_w := font.get_string_size(str(men), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	b.draw_string(font, Vector2(size.x - 6.0 - men_w, 27), str(men), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Style.TEXT, dim))
+	var men_icon := Widgets.icon("men")
+	if men_icon != null:
+		b.draw_texture_rect(men_icon, Rect2(size.x - 8.0 - men_w - 20.0, 10, 20, 20), false, Color(Style.MUTED, dim))
+	# A wounded captain: the wounded mark after the name, not a star in it.
+	var room := size.x - 12.0 - (24.0 if hurt else 0.0)
+	var shown := _fit(who, fs, room)
+	var ink := Color(Style.TEXT if not (placed and not battle and not picked) else Style.MUTED, dim)
+	b.draw_string(font, Vector2(6, 58), shown, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
+	if hurt:
+		var wtex := Widgets.icon("wounded")
+		if wtex != null:
+			var nx := 6.0 + font.get_string_size(shown, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 4.0
+			b.draw_texture_rect(wtex, Rect2(nx, 40, 20, 20), false, Color(1, 1, 1, dim))
 	if battle and sq != null:
 		if sq.is_active():
 			var bar := Rect2(6, size.y - 14.0, size.x - 12.0, 7)
@@ -3731,7 +4075,7 @@ func _draw_chip(i: int) -> void:
 				b.draw_rect(Rect2(Vector2.ZERO, size), Color(Style.MORALE_LOW, 1.0 - hit_t / 0.3), false, 4.0)
 			_draw_role_badge(b, sq)
 		else:
-			b.draw_string(font, Vector2(6, size.y - 6.0), "out", HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.MUTED)
+			b.draw_string(font, Vector2(6, size.y - 6.0), "out", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.MUTED)
 			if _card_broke.has(sq):
 				# The crack it took when it broke.
 				var k := clampf(broke_t / 0.12, 0.0, 1.0)
@@ -3761,15 +4105,26 @@ func _draw_role_badge(b: Button, sq) -> void:
 	if not ROLE_BADGES.has(role):
 		return
 	var badge: Array = ROLE_BADGES[role]
-	var word := String(badge[1])
-	var fs := 18
-	var r := Rect2(5, 64, minf(b.size.x - 30.0, 34.0 + font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 10.0), 26)
-	var pill := Style.box(badge[2], Color(badge[3], 0.35), 1, 13)
-	b.draw_style_box(pill, r)
+	var fs := _fs(Style.SMALL)
+	var word := _fit(String(badge[1]), fs, b.size.x - 30.0 - 40.0)
+	var h := float(fs) + 8.0
+	var r := Rect2(5, b.size.y - h - 14.0, minf(b.size.x - 30.0, 34.0 + font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 10.0), h)
+	b.draw_style_box(_chip_box(badge[2], Color(badge[3], 0.35)), r)
 	var tex := Widgets.icon(String(badge[0]))
 	if tex != null:
-		b.draw_texture_rect(tex, Rect2(r.position + Vector2(6, 3), Vector2(20, 20)), false, badge[3])
-	b.draw_string(font, r.position + Vector2(30, 19), word, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 34.0, fs, badge[3])
+		b.draw_texture_rect(tex, Rect2(r.position + Vector2(6, (h - 20.0) * 0.5), Vector2(20, 20)), false, badge[3])
+	b.draw_string(font, r.position + Vector2(30, h * 0.5 + fs * 0.36), word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, badge[3])
+
+
+## `text` cut with an ellipsis to fit `width` at `size`, for words drawn on the field and the
+## cards, which can't shrink below SMALL.
+func _fit(text: String, size: int, width: float) -> String:
+	if font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= width:
+		return text
+	var t := text
+	while t.length() > 1 and font.get_string_size(t + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > width:
+		t = t.substr(0, t.length() - 1)
+	return t + "…"
 
 
 ## A fill over the ability button that drains as its cooldown runs down.
@@ -3811,9 +4166,9 @@ func _draw_roll() -> void:
 	ci.draw_style_box(plate, box)
 	var x := box.position.x
 	var y := box.position.y
-	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
-	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, 34, Color(Style.TEXT, a))
-	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
+	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(34), Color(Style.TEXT, a))
+	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
 	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain")
 	if face != null:
 		# The face in a brass frame.
@@ -3864,7 +4219,7 @@ func _draw_roll() -> void:
 	if landed:
 		var mx: float = bar.position.x + bar.size.x * float(_roll["roll"]) / 100.0
 		ci.draw_rect(Rect2(mx - 2.0, bar.position.y - 6.0, 4.0, bar.size.y + 12.0), Color(Style.TEXT, a))
-	ci.draw_string(font, Vector2(x, y + 312), "Needs %d or more to live" % needed, HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.TEXT, a))
+	ci.draw_string(font, Vector2(x, y + 312), "Needs %d or more to live" % needed, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.TEXT, a))
 	var mods := PackedStringArray(["base %d%%" % Captains.DEATH_CHANCE])
 	if _roll["holding"]:
 		mods.append("squad holding -%d" % Captains.RESCUED_BY_SQUAD)
@@ -3872,7 +4227,7 @@ func _draw_roll() -> void:
 		mods.append("friends near -%d" % Captains.RESCUED_BY_FRIENDS)
 	if _roll["lucky"]:
 		mods.append("lucky -%d" % Captains.LUCK)
-	ci.draw_string(font, Vector2(x, y + 342), " · ".join(mods), HORIZONTAL_ALIGNMENT_CENTER, w, 20, Color(Style.MUTED, a))
+	ci.draw_string(font, Vector2(x, y + 342), " · ".join(mods), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
 
 	if landed:
 		var killed: bool = _roll["fate"] == "killed"
@@ -3884,12 +4239,12 @@ func _draw_roll() -> void:
 			# Death stamps down; a wound slides in.
 			var st := 1.0 if still else lerpf(1.5, 1.0, _ease_out(since / 0.14))
 			ci.draw_set_transform(vc, 0.0, Vector2(st, st))
-			ci.draw_string(font, Vector2(-w * 0.5, 8.0), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, Style.LARGE, Color(Style.ENEMY_LIGHT, va))
+			ci.draw_string(font, Vector2(-w * 0.5, 8.0), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.LARGE), Color(Style.ENEMY_LIGHT, va))
 			ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		else:
 			var slide := 0.0 if still else -24.0 * (1.0 - _ease_out(since / 0.2))
-			ci.draw_string(font, Vector2(x + slide, y + 388), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, Style.LARGE, Color(Style.BRASS, va))
-		ci.draw_string(font, Vector2(x + 16, y + 424), "\"%s\"" % _roll["words"], HORIZONTAL_ALIGNMENT_CENTER, w - 32.0, Style.SMALL, Color(Style.TEXT, va))
+			ci.draw_string(font, Vector2(x + slide, y + 388), verdict, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.LARGE), Color(Style.BRASS, va))
+		ci.draw_string(font, Vector2(x + 16, y + 424), "\"%s\"" % _roll["words"], HORIZONTAL_ALIGNMENT_CENTER, w - 32.0, _fs(Style.SMALL), Color(Style.TEXT, va))
 
 
 # ---------------------------------------------------------------- drawing
@@ -4450,6 +4805,8 @@ func _maybe_show_terrain_hint() -> void:
 		if not o_card.is_empty():
 			terrain_hint_title.text = o_card[0]
 			terrain_hint_body.text = o_card[1]
+			terrain_hint_body.visible = true
+			_terrain_rows([])
 			terrain_hint_panel.visible = true
 			cfg.set_value("objective_hints", obj_key, true)
 			cfg.save(Sound.SETTINGS_PATH)
@@ -4460,22 +4817,50 @@ func _maybe_show_terrain_hint() -> void:
 		return
 	if bool(cfg.get_value("terrain_hints", _terrain_site_type, false)):
 		return
+	# Each ground's rules as an icon and its modifier, one to a row.
 	var texts := {
-		"hills": ["Hills & Ridges", "High ground grants archers up to +25% range and downhill fighters a 25% damage advantage. Charging uphill grants no charge shock or bonus."],
-		"woods": ["Woods & Forests", "Dense stands slow foot troops by 25% and cavalry by 50%. Tree cover intercepts 50% of incoming arrows, cuts volley shock in half, and prevents cavalry charges."],
-		"river": ["River Fords", "Deep river water is impassable; troops must cross at shallow fords. Soldiers fighting in shallow water take +25% damage and cannot brace."],
-		"pass": ["Rocky Pass", "Impassable stone narrows the center of the field into a bottleneck. Arrows fly freely over the rocks."],
-		"village": ["Village Streets", "Buildings and walls divide the combat zone into tight streets and chokepoints."],
+		"hills": ["Hills & Ridges", [["bow", "+25%", "archer range from high ground"], ["fight", "+25%", "damage fighting downhill"],
+			["wheel", "No", "charge shock uphill"]]],
+		"woods": ["Woods & Forests", [["speed", "−25%", "foot speed (horse −50%)"], ["holdfire", "½", "of arrows stopped by the trees"],
+			["volley", "½", "volley shock"], ["wheel", "No", "charges"]]],
+		"river": ["River Fords", [["cancel", "Deep", "water: cross at the fords"], ["damage", "+25%", "damage taken in a ford"],
+			["shieldwall", "No", "bracing in water"]]],
+		"pass": ["Rocky Pass", [["cancel", "Rock", "narrows the field to a bottleneck"], ["bow", "Over", "arrows fly over the rocks"]]],
+		"village": ["Village Streets", [["keep", "Streets", "buildings and walls split the field"], ["company", "Tight", "chokepoints"]]],
 	}
 	var card_data: Array = texts.get(_terrain_site_type, [])
 	if card_data.is_empty():
 		return
 	terrain_hint_title.text = card_data[0]
-	terrain_hint_body.text = card_data[1]
+	terrain_hint_body.text = ""
+	terrain_hint_body.visible = false
+	_terrain_rows(card_data[1])
 	terrain_hint_panel.visible = true
 
 	cfg.set_value("terrain_hints", _terrain_site_type, true)
 	cfg.save(Sound.SETTINGS_PATH)
+
+
+## The ground card's rows: an icon, the modifier in brass, what it applies to.
+func _terrain_rows(rows: Array) -> void:
+	for c in terrain_hint_rows.get_children():
+		terrain_hint_rows.remove_child(c)
+		c.queue_free()
+	terrain_hint_rows.visible = not rows.is_empty()
+	for r in rows:
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 14)
+		h.add_child(Widgets.icon_rect(String(r[0]), 36.0))
+		var amount := Style.label(String(r[1]), Style.LARGE, Style.BRASS)
+		amount.custom_minimum_size.x = 96.0
+		amount.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(amount)
+		var what := Style.label(String(r[2]), Style.BODY, Style.TEXT)
+		what.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		what.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		what.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		h.add_child(what)
+		terrain_hint_rows.add_child(h)
 
 
 func _terrain_hint(p: Vector2) -> String:
@@ -4611,12 +4996,6 @@ func _draw_objectives() -> void:
 		var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
 		_c.draw_circle(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, Color(Style.PLAYER, 0.08 + pulse * 0.04))
 		_c.draw_arc(Sim.VILLAGE_ZONE_CENTER, Sim.VILLAGE_ZONE_RADIUS, 0.0, TAU, 48, Color(Style.PLAYER_LIGHT, 0.75), 3.0)
-		if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
-			var remain := maxf(0.0, Sim.VILLAGE_DURATION - sim.time)
-			var mins := int(remain) / 60
-			var secs := int(remain) % 60
-			var time_str := "%d:%02d" % [mins, secs]
-			_c.draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-60.0, -170.0), "Defend: %s" % time_str, HORIZONTAL_ALIGNMENT_CENTER, 120.0, Style.BODY, Style.BRASS)
 		# How near the raiders are to firing it: they get there by holding the square.
 		if sim.village_burn > 0.0:
 			var burnt := sim.village_burn / Sim.VILLAGE_BURN
@@ -4624,8 +5003,8 @@ func _draw_objectives() -> void:
 				Color(1.0, 0.45, 0.12, 0.9), 7.0)
 			var counts: Array = sim.men_in_village()
 			if counts[Sim.ENEMY] > counts[Sim.PLAYER] * Sim.VILLAGE_TAKEN:
-				_c.draw_string(font, Sim.VILLAGE_ZONE_CENTER + Vector2(-90.0, Sim.VILLAGE_ZONE_RADIUS + 44.0), "They're firing the village!",
-					HORIZONTAL_ALIGNMENT_CENTER, 180.0, Style.SMALL, Color(1.0, 0.55, 0.25))
+				_field_label("They're firing the village!", Sim.VILLAGE_ZONE_CENTER + Vector2(0.0, Sim.VILLAGE_ZONE_RADIUS + 40.0),
+					Color(1.0, 0.55, 0.25), Color(Style.NIGHT, 0.85), Color(1.0, 0.45, 0.12))
 	if sim.objective == Sim.OBJECTIVE_CHIEF:
 		for sq in sim.squads:
 			if (sq.is_bodyguard or sq.is_chief) and sq.is_active():
@@ -5256,8 +5635,8 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	_c.draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
 	_c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 	var count := str(sq.alive_n)
-	_c.draw_string_outline(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 4, Color(0, 0, 0, 0.9))
-	_c.draw_string(font, top + Vector2(38, FLAG.y + 17.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Style.TEXT)
+	_c.draw_string_outline(font, top + Vector2(38, FLAG.y + 19.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), 4, Color(0, 0, 0, 0.9))
+	_c.draw_string(font, top + Vector2(38, FLAG.y + 19.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), Style.TEXT)
 	if sq.ability_left > 0.0 or sq.wheeling:
 		_c.draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
 	if not mine and ref_type != "":
@@ -5387,19 +5766,19 @@ func _draw_carry_card() -> void:
 	else:
 		lines.append(["March here and hold" if bool(t["ok"]) else "Not there: %s" % t["why"], Style.BRASS if bool(t["ok"]) else Style.MUTED])
 	# Above the finger, where the hand doesn't cover it; below it near the top of the field.
-	var y := _drag_to.y - 84.0 - 36.0 * float(lines.size() - 1)
+	var y := _drag_to.y - 84.0 - float(_fs(Style.SMALL) + 18) * float(lines.size() - 1)
 	if y < _view.position.y + 12.0:
 		y = _drag_to.y + 60.0
+	var fs := _fs(Style.SMALL)
 	for l in lines:
 		var text: String = l[0]
 		var c: Color = l[1]
-		var fs := 18
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0
-		var box := Rect2(Vector2(_drag_to.x - w * 0.5, y), Vector2(w, 30.0))
+		var box := Rect2(Vector2(_drag_to.x - w * 0.5, y), Vector2(w, fs + 12.0))
 		box.position.x = clampf(box.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - w - 4.0))
-		_c.draw_style_box(_pill_box(1.0, c), box)
-		_c.draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-		y += 36.0
+		_c.draw_style_box(_chip_box(Color(Style.NIGHT, 0.88), Color(c, 0.55)), box)
+		_c.draw_string(font, box.position + Vector2(14.0, (fs + 12.0) * 0.5 + fs * 0.36), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
+		y += fs + 18.0
 
 
 ## The slow handle on the field's edge, and while it's held, the cool cast over the field
@@ -5416,12 +5795,12 @@ func _draw_slow() -> void:
 			_c.draw_rect(Rect2(_view.position + Vector2(inset, inset), _view.size - Vector2(inset * 2.0, inset * 2.0)),
 				Color(0.4, 0.7, 1.0, 0.04), false, 2.0)
 		var text := "¼ time · let go to run on"
-		var fs := 18
+		var fs := _fs(Style.SMALL)
 		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0
-		var top := _view.position.y + 30.0 + (58.0 if objective_chip != null and objective_chip.visible else 0.0) + float(ticker.size()) * (Style.SMALL + 18.0)
-		var box := Rect2(Vector2(_view.get_center().x - w * 0.5, top - 6.0), Vector2(w, 30.0))
-		_c.draw_style_box(_pill_box(1.0, Style.PLAYER_LIGHT), box)
-		_c.draw_string(font, box.position + Vector2(14.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.PLAYER_LIGHT)
+		var top := _view.position.y + 30.0 + (58.0 if objective_chip != null and objective_chip.visible else 0.0) + float(ticker.size()) * (fs + 18.0)
+		var box := Rect2(Vector2(_view.get_center().x - w * 0.5, top - 6.0), Vector2(w, fs + 12.0))
+		_c.draw_style_box(_chip_box(Color(Style.NIGHT, 0.88), Color(Style.PLAYER_LIGHT, 0.55)), box)
+		_c.draw_string(font, box.position + Vector2(14.0, (fs + 12.0) * 0.5 + fs * 0.36), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.PLAYER_LIGHT)
 	# The tab: a dark rounded edge with an hourglass, brighter while held.
 	var b := StyleBoxFlat.new()
 	b.bg_color = Color(Style.NIGHT, 0.85 if held else 0.6)
@@ -5437,9 +5816,10 @@ func _draw_slow() -> void:
 	_c.draw_colored_polygon(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(0, 0)]), Color(ink, 0.25))
 	_c.draw_colored_polygon(PackedVector2Array([c + Vector2(0, 0), c + Vector2(hw, hh), c + Vector2(-hw, hh)]), ink)
 	_c.draw_polyline(PackedVector2Array([c + Vector2(-hw, -hh), c + Vector2(hw, -hh), c + Vector2(-hw, hh), c + Vector2(hw, hh), c + Vector2(-hw, -hh)]), ink, 2.0)
-	var label := "¼×" if held else "hold"
-	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
-	_c.draw_string(font, Vector2(r.get_center().x - lw * 0.5 + 2.0, r.end.y - 12.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, ink)
+	var tab_fs := _fs(Style.SMALL)
+	var label := _fit("¼×" if held else "hold", tab_fs, r.size.x - 6.0)
+	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, tab_fs).x
+	_c.draw_string(font, Vector2(r.get_center().x - lw * 0.5 + 2.0, r.end.y - 10.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, tab_fs, ink)
 
 
 ## Each squad's place on a line: the ground it will cover and an arrow the way it faces,
@@ -5481,6 +5861,7 @@ func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: Str
 
 func _draw_floaters() -> void:
 	var still := Sound.reduced_motion
+	var fs := _fs(Style.SMALL)
 	for f in floaters:
 		var age: float = f["age"]
 		var a := clampf((float(f["life"]) - age) / 0.3, 0.0, 1.0) * clampf(age / 0.08, 0.0, 1.0)
@@ -5489,43 +5870,53 @@ func _draw_floaters() -> void:
 		if sq == null:
 			# A word at a spot: rises and fades.
 			var pos: Vector2 = _to_screen(f["pos"]) + Vector2(-200.0, -minf(age, 1.3) * 34.0 * field_scale)
-			_c.draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, 6, Color(0, 0, 0, a))
-			_c.draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, Style.BODY, Color(color, a))
+			_c.draw_string_outline(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, _fs(Style.BODY), 6, Color(0, 0, 0, a))
+			_c.draw_string(font, pos, f["text"], HORIZONTAL_ALIGNMENT_CENTER, 400.0, _fs(Style.BODY), Color(color, a))
 			continue
-		# A squad's word: a pill over its standard, sliding up into place.
+		# A squad's word: a pill over its standard, led by its icon, sliding up into place.
+		# Zoomed out the word goes and the icon stands alone.
 		var anchor: Vector2 = Vector2(_std_tops[sq]) + Vector2(FLAG.x * 0.5, -24.0) if _std_tops.has(sq) else _to_screen(sq.average_pos()) + Vector2(0, -44.0)
 		var slide := 0.0 if still else 12.0 * (1.0 - _ease_out(age / 0.15))
+		var key := String(f.get("icon", ""))
+		var tex: Texture2D = Widgets.icon(key) if key != "" else null
 		var text := String(f["text"])
-		var fs := 18
-		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 30.0
-		var box := Rect2(anchor + Vector2(-w * 0.5, -15.0 + slide), Vector2(w, 30.0))
+		if tex != null and cam_zoom < CALLOUT_WORDS_ZOOM:
+			text = ""
+		var h := float(fs) + 12.0
+		var lead := h if tex != null else 22.0
+		var w := lead + (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 14.0 if text != "" else 0.0)
+		var box := Rect2(anchor + Vector2(-w * 0.5, -h * 0.5 + slide), Vector2(w, h))
 		box.position.x = clampf(box.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - w - 4.0))
-		_c.draw_style_box(_pill_box(a, color), box)
-		_c.draw_circle(box.position + Vector2(13.0, 15.0), 4.0, Color(color, a))
-		_c.draw_string(font, box.position + Vector2(22.0, 21.5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(color, a))
+		_c.draw_style_box(_chip_box(Color(Style.NIGHT, 0.88 * a), Color(color, 0.55 * a)), box)
+		if tex != null:
+			_c.draw_texture_rect(tex, Rect2(box.position + Vector2(6.0, 6.0), Vector2(h - 12.0, h - 12.0)), false, Color(color, a))
+		else:
+			_c.draw_circle(box.position + Vector2(13.0, h * 0.5), 4.0, Color(color, a))
+		if text != "":
+			_c.draw_string(font, box.position + Vector2(lead, h * 0.5 + fs * 0.36), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(color, a))
 
 
-func _pill_box(a: float, edge: Color) -> StyleBoxFlat:
-	var b := StyleBoxFlat.new()
-	b.bg_color = Color(Style.NIGHT, 0.88 * a)
-	b.border_color = Color(edge, 0.55 * a)
-	b.set_border_width_all(1)
-	b.set_corner_radius_all(15)
+## The one chip shape on the battle screen: a pill with the kit's radius, on any ground.
+func _chip_box(bg: Color, edge: Color, width: int = 1) -> StyleBoxFlat:
+	var b := Style.box(bg, edge, width, 40)
+	b.content_margin_left = 14.0
+	b.content_margin_right = 16.0
+	b.content_margin_top = 6.0
+	b.content_margin_bottom = 6.0
 	return b
 
 
-## The story so far, along the top of the field.
-func _ticker_box(a: float) -> StyleBoxFlat:
-	var b := StyleBoxFlat.new()
-	b.bg_color = Color(Style.NIGHT, 0.82 * a)
-	b.border_color = Color(Style.BRASS, 0.4 * a)
-	b.set_border_width_all(1)
-	b.set_corner_radius_all(12)
-	return b
+## A text size for the field, through the Text size setting like every label.
+func _fs(base: int) -> int:
+	return Style.text_size(base)
 
 
+## The story so far, along the top of the field, in the same pill as every chip.
 func _draw_ticker() -> void:
+	var fs := _fs(Style.SMALL)
 	var y := _view.position.y + 30.0 + (58.0 if objective_chip != null and objective_chip.visible else 0.0)
+	if inspect_pill != null and inspect_pill.visible:
+		y += inspect_pill.size.y + 8.0
 	for t in ticker:
 		var age: float = t["age"]
 		var a := clampf(float(t["life"]) - age, 0.0, 1.0) * clampf(age / 0.2, 0.0, 1.0)
@@ -5533,17 +5924,17 @@ func _draw_ticker() -> void:
 		# a dark pill behind each line, so it reads over grass and sand alike
 		var icon := Widgets.icon(String(t.get("icon", ""))) if String(t.get("icon", "")) != "" else null
 		var lead := 34.0 if icon != null else 0.0
-		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, Style.SMALL).x + 28.0 + lead, _view.size.x - 16.0)
-		var pill := Rect2(Vector2(_view.get_center().x - w * 0.5, y - Style.SMALL - 2.0), Vector2(w, Style.SMALL + 14.0))
-		_c.draw_style_box(_ticker_box(a), pill)
+		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0 + lead, _view.size.x - 16.0)
+		var pill := Rect2(Vector2(_view.get_center().x - w * 0.5, y - fs - 2.0), Vector2(w, fs + 14.0))
+		_c.draw_style_box(_chip_box(Color(Style.NIGHT, 0.82 * a), Color(Style.BRASS, 0.4 * a)), pill)
 		if icon != null:
 			var dot := Vector2(pill.position.x + 20.0, pill.get_center().y)
 			_c.draw_circle(dot, 14.0, Color(Color("5a4a1a"), a))
 			_c.draw_texture_rect(icon, Rect2(dot - Vector2(10, 10), Vector2(20, 20)), false, Color(Color("ffe08a"), a))
 		var tx := _view.position.x + 12.0 + lead * 0.5
-		_c.draw_string_outline(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, 6, Color(0, 0, 0, 0.85 * a))
-		_c.draw_string(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, Style.SMALL, Color(color, a))
-		y += Style.SMALL + 18.0
+		_c.draw_string_outline(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, fs, 6, Color(0, 0, 0, 0.85 * a))
+		_c.draw_string(font, Vector2(tx, y), t["text"], HORIZONTAL_ALIGNMENT_CENTER, _view.size.x - 24.0, fs, Color(color, a))
+		y += fs + 18.0
 
 
 # ---------------------------------------------------------------- siege marks
@@ -5571,7 +5962,7 @@ func _watch_gate(delta: float) -> void:
 ## A word on the field in a pill, the same size on screen however far the camera zooms.
 func _field_label(text: String, at: Vector2, fg: Color, bg: Color, edge: Color) -> void:
 	var k := 1.0 / maxf(0.1, field_scale)
-	var fs := int(17.0 * k)
+	var fs := int(float(_fs(Style.SMALL)) * k)
 	var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 	var pad := 9.0 * k
 	var r := Rect2(at - Vector2(ts.x * 0.5 + pad, (ts.y + pad) * 0.5), Vector2(ts.x + pad * 2.0, ts.y + pad))
@@ -5782,13 +6173,13 @@ func _draw_banner() -> void:
 			fs -= 2
 		_c.draw_string_outline(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, 8, Color(0, 0, 0, 0.9 * a))
 		_c.draw_string(big, Vector2(-vs.x * 0.5, 26.0), title, HORIZONTAL_ALIGNMENT_CENTER, vs.x, fs, Color(col, a))
-		_c.draw_string(font, Vector2(-vs.x * 0.5, 68.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, Style.BODY, Color(Style.TEXT, a))
+		_c.draw_string(font, Vector2(-vs.x * 0.5, 68.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, vs.x, _fs(Style.BODY), Color(Style.TEXT, a))
 		_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	# A plate a quarter of the way down the field.
 	var fs2 := 30
 	var room := minf(vs.x - 32.0, 560.0)
-	while fs2 > 18 and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x > room - (72.0 if tex != null else 32.0):
+	while fs2 > Style.SMALL and big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x > room - (72.0 if tex != null else 32.0):
 		fs2 -= 2
 	var tw := big.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
 	var w := minf(room, tw + (88.0 if tex != null else 48.0))
@@ -5810,5 +6201,5 @@ func _draw_banner() -> void:
 		_c.draw_texture_rect(tex, Rect2(Vector2(tx + 2.0, -22.0), Vector2(24, 24)), false, Color(Color("ffe08a"), a))
 		tx += 40.0
 	_c.draw_string(big, Vector2(tx, -10.0 + fs2 * 0.36), title, HORIZONTAL_ALIGNMENT_LEFT, plate.end.x - tx - 16.0, fs2, Color(col, a))
-	_c.draw_string(font, Vector2(plate.position.x, 30.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, w, Style.SMALL, Color(Style.MUTED, a))
+	_c.draw_string(font, Vector2(plate.position.x, 30.0), String(_banner["sub"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
 	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

@@ -27,7 +27,24 @@ func _run() -> void:
 	check(screen.info_label.text.begins_with("Selected:"), "selected squad scope is explicit")
 	screen._select(null)
 	screen._refresh_hud()
-	check(screen.info_label.text.begins_with("Whole army") and screen.advance_button.text == "Advance all", "company orders clearly show their scope")
+	check(screen.info_label.text.begins_with("Whole army") and screen.advance_button.tooltip_text == "Advance all", "company orders clearly show their scope")
+	check(screen.info_strip.tooltip_text == screen.info_label.text and not screen._strip_items.is_empty(),
+		"the selection reads as icons, the sentence kept as the strip's tooltip")
+	# The order bar has its words in a campaign's first battles, then the icons alone.
+	check(gs.battles < screen.ORDER_WORD_BATTLES and screen.advance_button.text == "Advance all", "a new campaign's order bar has words")
+	screen._hint("", "")
+	screen._hinted.clear()
+	screen._hint("The whole army holds.", "hold_probe")
+	check(screen.hint_label.text == "The whole army holds." and screen.hint_toast.visible, "and its orders are narrated while they're new")
+	screen._order_words = false
+	screen._refresh_hud()
+	check(screen.advance_button.text == "" and screen.advance_button.tooltip_text == "Advance all" and screen.advance_button.icon != null,
+		"after the first battles the order bar is icons, each word in its tooltip")
+	screen._hint("Out of arrows.")
+	screen._hint("The whole army advances.", "advance_probe")
+	check(screen.hint_label.text == "Out of arrows.", "and only refusals and first sights reach the hint")
+	screen._order_words = true
+	screen._refresh_hud()
 	var before: float = screen.sim.time
 	screen.cam_center = Vector2(400, 650)
 	screen.cam_zoom = 1.25
@@ -63,7 +80,8 @@ func _run() -> void:
 	ground.bake()
 	screen.sim.terrain = ground
 	screen._tap_battle(Vector2(60, 620), null)
-	check(squad.order == "move" and screen.floaters.any(func(f): return f["text"] == "MOVE"), "accepted move receives a destination marker")
+	check(squad.order == "move" and screen._ordered_at.has(squad) and not screen.floaters.any(func(f): return f["text"] == "MOVE"),
+		"accepted move receives a destination ring, and no floating word")
 	_check_carry_and_slow(screen)
 	var first: Dictionary = gs.army[0]
 	var second: Dictionary = gs.army[1]
@@ -284,8 +302,8 @@ func _check_siege_screen(gs) -> void:
 	check(screen._storm_plan.is_empty() and foot.use_ladders == ladder and foot.order == "advance", "Storm! gives the order as planned")
 	sim.events.append({"type": "gate_breached"})
 	screen._consume_events()
-	check(not screen._banner.is_empty() and screen.ticker.any(func(t): return t.get("icon", "") == "breach"),
-		"the breach gets its banner and a ticker line with an icon")
+	check(not screen._banner.is_empty() and not screen.ticker.any(func(t): return t.get("icon", "") == "breach"),
+		"the breach gets its banner, and no ticker line saying it again")
 	sim.gate_hp = 0.0
 	screen._refresh_hud()
 	check(screen.storm_button.disabled and screen.objective_label.text == "Rout the garrison", "after the breach Storm greys out and the objective moves on")
