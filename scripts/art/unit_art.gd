@@ -58,7 +58,11 @@ static func sprite_name(type: String, culture: String) -> String:
 		return name
 	if Data.SPRITES.has(role):
 		return role
-	return "vardish/" + role
+	if Data.SPRITES.has("vardish/" + role):
+		return "vardish/" + role
+	# An id nothing knows (an old save, a renamed unit) still draws, as a footman of its
+	# people, rather than stopping the page.
+	return "%s/infantry" % cult if Data.SPRITES.has("%s/infantry" % cult) else "vardish/infantry"
 
 
 ## A white silhouette of the same frame, drawn over a man for a moment when he's hit.
