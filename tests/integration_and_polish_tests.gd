@@ -153,10 +153,14 @@ func test_siege_detection_and_query() -> void:
 	assert_true(not w.is_sieged("khalun"), "Settlement initially not under siege")
 	assert_true(w.sieging_army("khalun").is_empty(), "No sieging army returned when not under siege")
 
-	# Add active sieging army
+	# A marching army isn't a siege yet.
+	w.campaign_armies.append({"id": 2, "state": "marching", "realm": "vardmark", "target": "khalun", "leader": 1, "members": []})
+	assert_true(not w.is_sieged("khalun"), "An army marching on a place isn't besieging it")
+
+	# Add an army camped beneath it, in the state marshal armies really use
 	w.campaign_armies.append({
 		"id": 1,
-		"state": "sieging",
+		"state": "besieging",
 		"realm": "vardmark",
 		"target": "khalun",
 		"leader": 1,
@@ -167,6 +171,7 @@ func test_siege_detection_and_query() -> void:
 	var army: Dictionary = w.sieging_army("khalun")
 	assert_eq(int(army.get("id", 0)), 1, "sieging_army returns correct expedition")
 	assert_true(not w.is_sieged("highcliff"), "Other settlements unaffected")
+	assert_true(not w.siege_info("khalun").is_empty(), "is_sieged agrees with the siege the assault is settled from")
 
 
 func test_sound_cue_methods() -> void:

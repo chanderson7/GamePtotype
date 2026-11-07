@@ -24,10 +24,11 @@ What was left, and why:
   subtitle's realm (in `travel_presentation.gd`); the map's top-bar pills stay 64 tall; men and
   morale are not in the battle info strip (the card and standard say them); grief and wavering
   ticker lines stay, having no other channel.
-- **Found on the way, not fixed:** `world_sim.is_sieged()` looks for the state "sieging" while
-  marshal armies use "besieging", so siege drums never play; `tests/combined_battle_tests.gd`
-  calls `w._spawn_lord_party()`, which no longer exists (only reached when an allied lord has
-  no party).
+- **Found on the way, since fixed:** `world_sim.is_sieged()` and `sieging_army()` looked for
+  the state "sieging" while marshal armies use "besieging", so no place ever read as besieged:
+  siege drums never played, and feasts, summons and hosting went ahead under a siege. They now
+  read "besieging", like `siege_info`. `tests/combined_battle_tests.gd` called the removed
+  `w._spawn_lord_party()`; it now calls `_lord_takes_field()`.
 **Mockups:** `mockups/ui-patterns-before-after.png` (four recurring patterns as they are and as
 proposed) and `mockups/ui-new-icons.png` (the 25 new icons the plan needs, drawn and checked
 at size). The icons themselves are in `assets/ui/o_*.svg`, unused until a screen takes them.

@@ -1152,7 +1152,7 @@ func host_check(place: String = "", kind: String = Gatherings.FEAST) -> Dictiona
 	if food < Gatherings.HOST_FOOD:
 		return {"ok": false, "reason": "You need %d rations." % Gatherings.HOST_FOOD}
 	if world.is_sieged(place):
-		return {"ok": false, "reason": "Not under siege."}
+		return {"ok": false, "reason": "Not while %s is besieged." % WorldData.settlement(place)["name"]}
 	if world.is_burned(place):
 		return {"ok": false, "reason": "Not while %s is rebuilding." % WorldData.settlement(place)["name"]}
 	for r in world.realms:

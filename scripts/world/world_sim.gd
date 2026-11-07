@@ -215,15 +215,14 @@ var _path_cache: Dictionary = {}
 func clear_path_cache() -> void:
 	_path_cache.clear()
 
+## Whether an army is camped beneath `id`. Marshal armies mark that state "besieging",
+## the same state siege_info and the assault read.
 func is_sieged(id: String) -> bool:
-	for army in campaign_armies:
-		if String(army.get("state", "")) == "sieging" and String(army.get("target", "")) == id:
-			return true
-	return false
+	return not sieging_army(id).is_empty()
 
 func sieging_army(id: String) -> Dictionary:
 	for army in campaign_armies:
-		if String(army.get("state", "")) == "sieging" and String(army.get("target", "")) == id:
+		if String(army.get("state", "")) == "besieging" and String(army.get("target", "")) == id:
 			return army
 	return {}
 

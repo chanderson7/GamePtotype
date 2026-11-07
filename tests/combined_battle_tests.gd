@@ -226,7 +226,7 @@ func _test_allied_troop_loss_conservation() -> void:
 	var lord = w.lords[0]
 	var lp = w.party(int(lord["party"]))
 	if lp == null:
-		w._spawn_lord_party(lord, w.seat_of(lord))
+		w._lord_takes_field(lord, w.seat_of(lord))
 		lp = w.party(int(lord["party"]))
 	_expect(lp != null, "Allied lord party exists")
 
