@@ -1570,11 +1570,13 @@ func _show_odds(b, fighters: Array, odds: Dictionary, their_men: int, trapped: b
 	chip.add_theme_stylebox_override("panel", sb)
 	chip.add_child(Style.label("%s %s" % [danger[2], danger[0]], Style.BODY, Color(danger[1]).lightened(0.35)))
 	head.add_child(chip)
-	var mix := HBoxContainer.new()
+	# Their troops wrap onto a second line rather than run off the sheet.
+	var mix := HFlowContainer.new()
 	mix.name = "EnemyMix"
-	mix.add_theme_constant_override("separation", 6)
+	mix.add_theme_constant_override("h_separation", 6)
+	mix.add_theme_constant_override("v_separation", 4)
 	mix.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mix.alignment = BoxContainer.ALIGNMENT_END
+	mix.alignment = FlowContainer.ALIGNMENT_END
 	head.add_child(mix)
 	var by_type := {}
 	for sq in b.army:
@@ -1589,8 +1591,11 @@ func _show_odds(b, fighters: Array, odds: Dictionary, their_men: int, trapped: b
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.custom_minimum_size = Vector2(40, 40)
-		mix.add_child(icon)
-		mix.add_child(Style.label("×%d" % by_type[t], Style.SMALL, Style.TEXT))
+		var pair := HBoxContainer.new()
+		pair.add_theme_constant_override("separation", 4)
+		pair.add_child(icon)
+		pair.add_child(Style.label("×%d" % by_type[t], Style.SMALL, Style.TEXT))
+		mix.add_child(pair)
 	var mine := 0
 	for s in fighters:
 		mine += int(s.get("men", 0))
@@ -2559,11 +2564,13 @@ func _build_letter_banner() -> void:
 	words.add_theme_constant_override("separation", 2)
 	top.add_child(words)
 	_banner_title = Style.label("A rider brings a letter", 30, Style.BRASS)
+	_banner_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var big: Font = Style.display_font()
 	if big != null:
 		_banner_title.add_theme_font_override("font", big)
 	words.add_child(_banner_title)
 	_banner_from = Style.label("", Style.SMALL, Style.TEXT)
+	_banner_from.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(_banner_from)
 	_banner_line = Style.label("", 22, Color("cdbf9c"))
 	var italic: Font = Style.letter_font(true)

@@ -3584,6 +3584,7 @@ func battle_report(result: Dictionary) -> Dictionary:
 			"xp_before": before_xp, "xp_after": after_xp,
 			"level_before": level, "level_after": Troops.level_for(after_xp),
 			"training_ready": Troops.level_for(after_xp) > level,
+			"newly_ready": Troops.level_for(after_xp) > maxi(level, Troops.level_for(before_xp)),
 		}
 		squad_rows.append(row)
 		if strongest.is_empty() or battle_kills > int(strongest.get("kills", -1)):
@@ -3650,14 +3651,16 @@ func battle_report(result: Dictionary) -> Dictionary:
 		elif objective == "village" and String(pending_battle.get("raid_village", "")) != "":
 			rewards["food"] = int(rewards["food"]) + 15
 
-	var story := "The company withdrew from the field." if not won else "The company held the field."
+	# The title says who won and the tiles count the dead; the story adds only who led and
+	# how many of the lost will come back.
+	var story := ""
 	if not strongest.is_empty() and int(strongest["kills"]) > 0:
 		story = "%s bore the hardest fighting, cutting down %d." % [strongest["name"], strongest["kills"]]
-		story += " The company held the field." if won else " The survivors withdrew."
 	if lost > 0:
 		var wounded_count := int(round(lost * 0.5))
-		var killed_count := lost - wounded_count
-		story += " %d casualties (%d slain, %d wounded in baggage)." % [lost, killed_count, wounded_count]
+		story += (" " if story != "" else "") + "%d of the %d lost are wounded and ride in the baggage." % [wounded_count, lost]
+	if story == "":
+		story = "The company held the field." if won else "The company withdrew from the field."
 	return {
 		"won": won, "lost": lost, "killed": killed,
 		"reason": String(result.get("reason", "")), "story": story,

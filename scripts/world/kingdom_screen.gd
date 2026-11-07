@@ -913,6 +913,12 @@ func _place_picker(v: VBoxContainer, places: Array, current: String, prefix: Str
 
 ## A row you tap: bold words, quiet words after them, something on the right, and in the
 ## middle anything else (the faces of lords who back an aim).
+## The widest a choice row's aside may start before the row knows its width.
+const ASIDE_MAX := 230.0
+## Narrower than this, a cut-short aside is hidden instead.
+const ASIDE_MIN := 110.0
+
+
 func _choice_row(id: String, title: String, sub: String, aside: String, act: Callable, lit: bool = false, enabled: bool = true,
 		middle: Control = null, boxed: bool = false) -> Button:
 	var b := Button.new()
@@ -954,7 +960,21 @@ func _choice_row(id: String, title: String, sub: String, aside: String, act: Cal
 	if aside != "":
 		var a := Style.label(aside, Style.SMALL, quiet)
 		a.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# The aside gives way first: cut short rather than push the row off the screen.
+		a.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		var natural: float = ceilf(a.get_theme_font("font").get_string_size(aside, HORIZONTAL_ALIGNMENT_LEFT, -1, Style.text_size(Style.SMALL)).x) + 2.0
+		a.custom_minimum_size.x = minf(natural, ASIDE_MAX)
 		h.add_child(a)
+		# Once the row knows its width, the aside takes what the title and faces leave.
+		b.resized.connect(func():
+			var used := 36.0 + 10.0 * (h.get_child_count() - 1)
+			for other in h.get_children():
+				if other != a:
+					used += (other as Control).get_combined_minimum_size().x
+			var room := b.size.x - used - 4.0
+			# A few letters and "…" say nothing; then the title has the row to itself.
+			a.visible = room >= minf(natural, ASIDE_MIN)
+			a.custom_minimum_size.x = clampf(room, 10.0, natural))
 	b.add_child(h)
 	return b
 

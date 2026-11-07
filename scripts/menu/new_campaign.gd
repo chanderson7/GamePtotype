@@ -92,7 +92,9 @@ static func light_card(panel: PanelContainer, on: bool) -> void:
 func _ready() -> void:
 	var insets := Style.safe_insets(get_viewport())
 	var col := Page.frame(self, BAR_ROOM + float(insets["bottom"]))
-	col.add_child(Style.label("Choose your people", 52, Style.BRASS))
+	var heading := Style.label("Choose your people", 52, Style.BRASS)
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(heading)
 	var intro := Style.label("Three realms share the shores of the Glass Sea. You start at your people's capital and can ride anywhere.", Style.SMALL, Style.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(intro)

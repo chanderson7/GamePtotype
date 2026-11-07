@@ -2774,20 +2774,45 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		result_content.add_child(Widgets.section("How it went"))
 		result_content.add_child(_siege_timeline())
 
-	var captains: Array = report.get("captains", [])
-	if not captains.is_empty():
-		result_content.add_child(Widgets.section("Captains"))
-		var hardest := _hardest_company(report.get("squads", []))
-		for captain in captains:
-			result_content.add_child(_result_captain(captain, _siege_note(captain), String(captain.get("company", "")) == hardest))
-
+	_result_companies(report)
 	_result_bonds(report.get("bonds", []), report.get("memorials", []))
 
-	var squads: Array = report.get("squads", [])
-	if not squads.is_empty():
-		result_content.add_child(Widgets.section("Company record"))
-		for squad in squads:
-			result_content.add_child(_result_squad(squad))
+
+## Only the companies with something to tell: a captain fallen or wounded, men lost,
+## enemies cut down, newly ready to train, or a deed on the walls. The rest are one line.
+func _result_companies(report: Dictionary) -> void:
+	var captains := {}
+	for c in report.get("captains", []):
+		captains[String(c.get("company", ""))] = c
+	var hardest := _hardest_company(report.get("squads", []))
+	var rows := []
+	var quiet := 0
+	for squad in report.get("squads", []):
+		var captain: Dictionary = captains.get(String(squad.get("name", "")), {})
+		var fate := String(captain.get("fate", "standing"))
+		var note := _siege_note(captain) if not captain.is_empty() else ""
+		var weight := int(squad.get("kills", 0)) + int(squad.get("lost", 0))
+		if fate == "killed":
+			weight += 1000
+		elif fate == "wounded":
+			weight += 500
+		if bool(squad.get("newly_ready", false)) or note != "":
+			weight += 1
+		if weight == 0:
+			quiet += 1
+			continue
+		rows.append({"squad": squad, "captain": captain, "note": note, "weight": weight})
+	if rows.is_empty():
+		return
+	rows.sort_custom(func(a, b): return int(a["weight"]) > int(b["weight"]))
+	result_content.add_child(Widgets.section("Your companies"))
+	for r in rows:
+		result_content.add_child(_result_company(r["squad"], r["captain"], String(r["note"]), String(r["squad"].get("name", "")) == hardest))
+	if quiet > 0:
+		var rest := _result_note("%d other compan%s saw no fighting." % [quiet, "y" if quiet == 1 else "ies"], Style.MUTED)
+		rest.name = "QuietCompanies"
+		rest.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		result_content.add_child(rest)
 
 
 ## The company that cut down the most, if any did: its captain gets the star.
@@ -2830,36 +2855,67 @@ func _badged_face(face: Dictionary, badge: String, tint: Color, size: Vector2 = 
 	return holder
 
 
-func _result_captain(captain: Dictionary, note: String = "", hardest: bool = false) -> Control:
+## One company: its captain's face with a badge for the fate (a star for the hardest
+## fighting), its first name, the men who came out over those who went in, and only the
+## marks that aren't zero.
+func _result_company(squad: Dictionary, captain: Dictionary, note: String, hardest: bool) -> Control:
 	var panel := PanelContainer.new()
-	panel.name = "Captain_%d" % int(captain.get("id", 0))
+	panel.name = "Company_%d" % int(squad.get("id", 0))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	panel.add_child(row)
-	var face: Dictionary = captain.get("face", captain)
 	var fate := String(captain.get("fate", "standing"))
-	if fate == "wounded":
-		face = face.duplicate(true)
-		face["wounded"] = maxi(1, int(face.get("wounded", 0)))
-	var badge := ""
-	var tint := Style.BRASS
-	if fate == "killed":
-		badge = "skull"
-		tint = Style.ENEMY_LIGHT
-	elif fate == "wounded":
-		badge = "wounded"
-		tint = Style.ENEMY_LIGHT
-	elif hardest:
-		badge = "renown"
-	row.add_child(_badged_face(face, badge, tint, Vector2(54, 72), fate == "killed"))
+	if not captain.is_empty():
+		var face: Dictionary = captain.get("face", captain)
+		if fate == "wounded":
+			face = face.duplicate(true)
+			face["wounded"] = maxi(1, int(face.get("wounded", 0)))
+		var badge := ""
+		var tint := Style.BRASS
+		if fate == "killed":
+			badge = "skull"
+			tint = Style.ENEMY_LIGHT
+		elif fate == "wounded":
+			badge = "wounded"
+			tint = Style.ENEMY_LIGHT
+		elif hardest:
+			badge = "renown"
+		row.add_child(_badged_face(face, badge, tint, Vector2(54, 72), fate == "killed"))
+	else:
+		var rec := _squad_record(int(squad.get("id", -1)))
+		if not rec.is_empty():
+			var sprite := TextureRect.new()
+			sprite.texture = Art.icon(String(rec.get("type", Troops.INFANTRY)), Sim.PLAYER, String(rec.get("culture", GameState.culture)))
+			sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			sprite.custom_minimum_size = Vector2(48, 48)
+			sprite.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(sprite)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", 6)
 	row.add_child(words)
-	# The first name; the company is in the company record below.
-	words.add_child(Style.name_label(String(captain.get("first", captain.get("name", "Captain")))))
-	var marks: Array = [Widgets.stat("fight", str(int(captain.get("kills", 0))))]
-	if hardest:
+	var title := Style.label(String(squad.get("name", "Company")), Style.BODY, Style.TEXT)
+	title.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	title.custom_minimum_size.x = 10
+	words.add_child(title)
+	# Men before and after: the meter's track is the men it went in with, the fill those
+	# who came out. Only when some were lost.
+	var before := int(squad.get("men_before", 0))
+	var after := int(squad.get("men_after", 0))
+	if int(squad.get("lost", 0)) > 0 and before > 0:
+		var men_row := HBoxContainer.new()
+		men_row.add_theme_constant_override("separation", 10)
+		men_row.add_child(Widgets.icon_value("men", "%d/%d" % [after, before]))
+		men_row.add_child(Widgets.meter(float(after) / maxf(1.0, float(before)), Style.MORALE_MID, 12.0))
+		words.add_child(men_row)
+	var marks: Array = []
+	var kills := int(squad.get("kills", 0))
+	if kills > 0:
+		marks.append(Widgets.stat("fight", str(kills)))
+	if hardest and fate == "standing":
 		marks.append(Widgets.chip("Hardest fighting", Style.BRASS, "★", "", true))
 	if fate == "wounded" or fate == "killed":
 		marks.append(_roll_chip(int(captain.get("roll", 0)), int(captain.get("needed", 0)), fate == "killed"))
@@ -2870,10 +2926,15 @@ func _result_captain(captain: Dictionary, note: String = "", hardest: bool = fal
 		(out.get_child(0) as HBoxContainer).add_child(_pips(Captains.WOUND_BATTLES, Style.ENEMY_LIGHT))
 		marks.append(out)
 	elif fate == "killed":
-		marks.append(Widgets.chip("Fallen", Style.ENEMY_LIGHT, "▼"))
+		marks.append(Widgets.chip("%s fell" % String(captain.get("first", captain.get("name", ""))), Style.ENEMY_LIGHT, "▼"))
 	if note != "":
 		marks.append(Widgets.chip(note, Style.BRASS, "★", "", true))
-	words.add_child(Widgets.chip_row(marks))
+	if bool(squad.get("newly_ready", false)):
+		var tag := Widgets.chip("Ready to train", Style.BRASS, "▲", "", true)
+		tag.name = "ReadyToTrain"
+		marks.append(tag)
+	if not marks.is_empty():
+		words.add_child(Widgets.chip_row(marks))
 	return panel
 
 
@@ -3111,13 +3172,12 @@ func _draw_vignette(c: Control, title: String, realm: String, ours: bool) -> voi
 	c.draw_rect(frame, Color("6d5222"), false, 2.0)
 
 
-## Bonds, told once: ranks reached first, then bonds a death has ended, then one line for
-## every other pair that grew closer, which opens the list.
+## Bonds, told only when something changed: ranks reached, and bonds a death has ended.
+## Pairs that only grew a little closer go unsaid; their talks wait at the fire.
 func _result_bonds(bonds: Array, memorials: Array) -> void:
-	if bonds.is_empty() and memorials.is_empty():
-		return
 	var ups: Array = bonds.filter(func(b): return bool(b.get("rank_up", false)))
-	var rest: Array = bonds.filter(func(b): return not bool(b.get("rank_up", false)))
+	if ups.is_empty() and memorials.is_empty():
+		return
 	result_content.add_child(Widgets.section("Bonds"))
 	for bond in ups:
 		result_content.add_child(_result_rank_up(bond))
@@ -3127,23 +3187,6 @@ func _result_bonds(bonds: Array, memorials: Array) -> void:
 		var hint := _result_note("A talk waits at the fire for each new rank.", Style.MUTED)
 		hint.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		result_content.add_child(hint)
-	if rest.is_empty():
-		return
-	var list := VBoxContainer.new()
-	list.name = "OtherBonds"
-	list.visible = false
-	list.add_theme_constant_override("separation", 6)
-	for bond in rest:
-		list.add_child(_result_bond(bond))
-	var toggle := Button.new()
-	toggle.name = "OtherBondsToggle"
-	toggle.text = "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]
-	toggle.custom_minimum_size.y = Style.TOUCH
-	toggle.pressed.connect(func():
-		list.visible = not list.visible
-		toggle.text = ("Hide" if list.visible else "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]))
-	result_content.add_child(toggle)
-	result_content.add_child(list)
 
 
 func _result_rank_up(bond: Dictionary) -> Control:
@@ -3208,64 +3251,6 @@ func _result_memorial(m: Dictionary) -> Control:
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(line)
 	row.add_child(words)
-	return panel
-
-
-func _result_bond(bond: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 9)
-	panel.add_child(row)
-	var a: Dictionary = bond.get("a_face", {"id": bond.get("a_id", 0), "first": bond.get("a_name", ""), "culture": bond.get("a_culture", Cultures.VARDISH)})
-	var b: Dictionary = bond.get("b_face", {"id": bond.get("b_id", 0), "first": bond.get("b_name", ""), "culture": bond.get("b_culture", Cultures.VARDISH)})
-	row.add_child(CaptainArt.portrait(a, Vector2(40, 54)))
-	row.add_child(CaptainArt.portrait(b, Vector2(40, 54)))
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_child(words)
-	words.add_child(Style.label("%s & %s" % [bond.get("a_name", ""), bond.get("b_name", "")], Style.SMALL, Style.TEXT))
-	words.add_child(Widgets.chip_row([Widgets.stat("bond", "+%.1f" % float(bond.get("earned", 0.0)), Style.MORALE_HIGH)]))
-	var rank := String(bond.get("rank_after", ""))
-	if rank != "":
-		row.add_child(Widgets.rank_badge(rank))
-	return panel
-
-
-func _result_squad(squad: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	panel.name = "Company_%d" % int(squad.get("id", 0))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	panel.add_child(row)
-	var rec := _squad_record(int(squad.get("id", -1)))
-	if not rec.is_empty():
-		var sprite := TextureRect.new()
-		sprite.texture = Art.icon(String(rec.get("type", Troops.INFANTRY)), Sim.PLAYER, String(rec.get("culture", GameState.culture)))
-		sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		sprite.custom_minimum_size = Vector2(48, 48)
-		sprite.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(sprite)
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.add_theme_constant_override("separation", 6)
-	row.add_child(words)
-	words.add_child(Style.label(String(squad.get("name", "Company")), Style.BODY, Style.TEXT))
-	# Men before and after: the meter's track is the men it went in with, the fill those
-	# who came out.
-	var before := int(squad.get("men_before", 0))
-	var after := int(squad.get("men_after", 0))
-	var men_row := HBoxContainer.new()
-	men_row.add_theme_constant_override("separation", 10)
-	men_row.add_child(Widgets.icon_value("men", "%d/%d" % [after, before]))
-	men_row.add_child(Widgets.meter(float(after) / maxf(1.0, float(before)), Style.PLAYER_LIGHT if after == before else Style.MORALE_MID, 12.0))
-	words.add_child(men_row)
-	var marks: Array = [Widgets.stat("fight", str(int(squad.get("kills", 0)))), Widgets.stat("level", str(int(squad.get("level_after", 1))))]
-	if bool(squad.get("training_ready", false)):
-		marks.append(Widgets.chip("Train", Style.BRASS, "▲", "", true))
-	words.add_child(Widgets.chip_row(marks))
 	return panel
 
 
