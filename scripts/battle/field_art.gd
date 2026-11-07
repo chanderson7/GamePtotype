@@ -176,7 +176,7 @@ static func plate(t: Terrain, biome: String, trees: Array, seed: int) -> ImageTe
 				_river(img, feat, lk, blob, grain)
 				drew = true
 			"rock":
-				_rock(img, feat["rect"], lk, blob, grain, seed)
+				_rock(img, feat, lk, blob, grain, seed)
 				drew = true
 			"building":
 				houses.append(feat["rect"])
@@ -325,10 +325,15 @@ static func _river(img: Image, feat: Dictionary, lk: Dictionary, blob: Image, gr
 
 ## A rock outcrop: boulders packed shoulder to shoulder, lit from the upper left and dark
 ## in the cracks between, a ragged edge, scree at its foot and a shadow to the lower right;
-## a little growth on top in the land's colour.
-static func _rock(img: Image, rect: Rect2, lk: Dictionary, blob: Image, grain: Image, seed: int) -> void:
+## a little growth on top in the land's colour. The outcrop is the site's rock blobs
+## (ellipses [cx, cy, rx, ry]); a feature without them is taken as its rect.
+static func _rock(img: Image, feat: Dictionary, lk: Dictionary, blob: Image, grain: Image, seed: int) -> void:
 	var w := img.get_width()
 	var h := img.get_height()
+	var rect: Rect2 = feat.get("rect", Rect2())
+	var blobs: Array = feat.get("blobs", [])
+	if blobs.is_empty():
+		blobs = [[rect.get_center().x, rect.get_center().y, rect.size.x * 0.5 + 6.0, rect.size.y * 0.5 + 6.0]]
 	var cells := _noise(seed + 7, 0.075, w, h, "cells")
 	var edges := _noise(seed + 7, 0.075, w, h, "edges")
 	var rock: Color = lk["rock"]
@@ -336,31 +341,42 @@ static func _rock(img: Image, rect: Rect2, lk: Dictionary, blob: Image, grain: I
 	var dark: Color = lk["rock_dark"]
 	var growth: Color = lk["growth"]
 	var pebble: Color = lk["pebble"]
-	var outer := rect.grow(SCREE + 2.0)
+	var outer := Rect2()
+	for b in blobs:
+		var r := Rect2(float(b[0]) - float(b[2]), float(b[1]) - float(b[3]), float(b[2]) * 2.0, float(b[3]) * 2.0)
+		outer = r if outer.size == Vector2.ZERO else outer.merge(r)
+	outer = outer.grow(SCREE + 2.0)
 	for py in range(_px(outer.position.y), _px(outer.end.y) + 1):
 		for px in range(_px(outer.position.x), _px(outer.end.x) + 1):
 			if px < 0 or py < 0 or px >= w or py >= h:
 				continue
 			var p := Vector2((px + 0.5) * PLATE_PX, (py + 0.5) * PLATE_PX)
-			# Distance in from the rect's edge (negative outside); the field's own border
-			# doesn't count as an edge, so an outcrop against it runs off the field.
-			var d_in := minf(minf(p.y - rect.position.y, rect.end.y - p.y),
-				minf(p.x - rect.position.x if rect.position.x > 1.0 else 999.0, rect.end.x - p.x if rect.end.x < Terrain.ARENA.x - 1.0 else 999.0))
+			# How far inside the rock `p` is (negative outside), and which way the nearest
+			# blob's middle lies, for the light on the mass as a whole.
+			var d_in := -999.0
+			var mx := 0.0
+			var my := 0.0
+			for b in blobs:
+				var dx := (p.x - float(b[0])) / float(b[2])
+				var dy := (p.y - float(b[1])) / float(b[3])
+				var d := (1.0 - sqrt(dx * dx + dy * dy)) * minf(float(b[2]), float(b[3]))
+				if d > d_in:
+					d_in = d
+					mx = dx
+					my = dy
 			var n := blob.get_pixel(px, py).r
 			var g := grain.get_pixel(px, py).r
-			var ragged := d_in + (n - 0.5) * 16.0
+			# The edge is ragged inward only, so no drawn rock lies where a man may stand.
+			var ragged := d_in - n * 12.0
 			if ragged > 0.0:
 				var v := cells.get_pixel(px, py).r
 				var e := edges.get_pixel(px, py).r
 				var c := dark.lerp(light, 0.25 + v * 0.6)
-				# Each boulder is lit on the side that faces the light.
+				# Each boulder is lit on the side that faces the light, and the outcrop as a
+				# whole on its upper-left flank.
 				var ex := edges.get_pixel(mini(px + 1, w - 1), py).r - edges.get_pixel(maxi(px - 1, 0), py).r
 				var ey := edges.get_pixel(px, mini(py + 1, h - 1)).r - edges.get_pixel(px, maxi(py - 1, 0)).r
-				var s := -(ex * LIGHT.x + ey * LIGHT.y) * 2.2
-				# And the outcrop as a whole: its upper-left face toward the light.
-				var mx := (p.x - rect.get_center().x) / maxf(rect.size.x, 1.0)
-				var my := (p.y - rect.get_center().y) / maxf(rect.size.y, 1.0)
-				s += -(mx * LIGHT.x + my * LIGHT.y) * 0.5
+				var s := -(ex * LIGHT.x + ey * LIGHT.y) * 2.2 - (mx * LIGHT.x + my * LIGHT.y) * 0.22
 				c = c.lightened(clampf(s, -0.25, 0.3)) if s > 0.0 else c.darkened(clampf(-s, 0.0, 0.3))
 				if e < 0.13:
 					c = dark.darkened(0.4)
@@ -371,8 +387,8 @@ static func _rock(img: Image, rect: Rect2, lk: Dictionary, blob: Image, grain: I
 				var outside := -ragged
 				if outside < SCREE and g > 0.55 + outside / SCREE * 0.4:
 					_put(img, px, py, Color(pebble.lerp(rock, 0.4), 0.9))
-				elif outside < 7.0 and (p.x > rect.end.x - 1.0 or p.y > rect.end.y - 1.0):
-					_put(img, px, py, Color(0.0, 0.0, 0.02, 0.30 * (1.0 - outside / 7.0)))
+				elif outside < 8.0 and (mx * LIGHT.x + my * LIGHT.y) < -0.3:
+					_put(img, px, py, Color(0.0, 0.0, 0.02, 0.30 * (1.0 - outside / 8.0)))
 
 
 ## The village: a trodden square with a well in it, houses roofed the way the land roofs

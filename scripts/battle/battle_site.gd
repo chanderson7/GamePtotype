@@ -121,12 +121,29 @@ static func generate(site: Dictionary) -> Terrain:
 	return t
 
 
+## A ridge across the field: its brow at `y` (wandering by `wander` along its length), its
+## peak and width swelling and falling along it, so it stands as a line of knolls and
+## saddles rather than a bank. Height falls off from the brow with a smooth step.
+static func _ridge(t: Terrain, rng: RandomNumberGenerator, y: float, peak: float, half_w: float, wander: float) -> void:
+	var ph := [rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU), rng.randf_range(0.0, TAU)]
+	for cy in Terrain.ROWS:
+		for cx in Terrain.COLS:
+			var p := t.cell_pos(cx, cy)
+			var brow := y + sin(p.x * 0.008 + ph[0]) * wander
+			var hw := half_w * (0.80 + 0.20 * sin(p.x * 0.0075 + ph[1]))
+			var pk := peak * (0.70 + 0.30 * (0.5 + 0.5 * sin(p.x * 0.0105 + ph[2]))) + 0.06 * sin(p.x * 0.023 + ph[3])
+			var dy := absf(p.y - brow)
+			if dy < hw:
+				var f := 1.0 - dy / hw
+				t.height[cy * Terrain.COLS + cx] = maxf(t.height[cy * Terrain.COLS + cx], clampf(pk, 0.0, 1.0) * (f * f * (3.0 - 2.0 * f)))
+
+
 static func _build_hills(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> void:
 	var hills := []
 	if fair:
-		# Either a central ridge or two mirrored hills (one enemy side, one player side)
+		# Either a central ridge along the midline or two mirrored hills (one enemy side,
+		# one player side)
 		if rng.randf() < 0.5:
-			# Central ridge along the midline
 			var ridge_peak := rng.randf_range(0.65, 0.85)
 			var ridge_half_w := rng.randf_range(160.0, 220.0)
 			hills.append({
@@ -135,19 +152,14 @@ static func _build_hills(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 				"half_w": ridge_half_w,
 				"peak": ridge_peak,
 			})
-			for cy in Terrain.ROWS:
-				for cx in Terrain.COLS:
-					var p := t.cell_pos(cx, cy)
-					var dy := absf(p.y - 630.0)
-					if dy < ridge_half_w:
-						var f := 1.0 - (dy / ridge_half_w)
-						var h := ridge_peak * (f * f * (3.0 - 2.0 * f))
-						t.height[cy * Terrain.COLS + cx] = h
+			# The brow stays on the midline, so each side faces the same slope.
+			_ridge(t, rng, 630.0, ridge_peak, ridge_half_w, 0.0)
 		else:
-			# Two mirrored hills
+			# Two mirrored hills, each a little lumpy in the same way
 			var h1_pos := Vector2(rng.randf_range(180.0, 660.0), rng.randf_range(280.0, 460.0))
 			var h1_rad := rng.randf_range(180.0, 250.0)
 			var h1_peak := rng.randf_range(0.70, 0.85)
+			var lump := rng.randf_range(0.0, TAU)
 
 			var h2_pos := Vector2(h1_pos.x, Terrain.ARENA.y - h1_pos.y)
 			var h2_rad := h1_rad
@@ -162,24 +174,21 @@ static func _build_hills(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 					var max_h := 0.0
 					for h in [h1_pos, h2_pos]:
 						var d := p.distance_to(h)
-						if d < h1_rad:
-							var f := 1.0 - (d / h1_rad)
+						# The same lumps on both, measured from each hill's own side of the field.
+						var ang := atan2(absf(p.y - h.y) * (1.0 if h.y < 630.0 else 1.0), p.x - h.x)
+						var rad := h1_rad * (1.0 + 0.14 * sin(3.0 * ang + lump))
+						if d < rad:
+							var f := 1.0 - (d / rad)
 							max_h = maxf(max_h, h1_peak * (f * f * (3.0 - 2.0 * f)))
 					t.height[cy * Terrain.COLS + cx] = max_h
 	else:
 		# Unfair: the enemy holds the high ground, a ridge across the whole of his half, wide
-		# enough for his line to stand along its brow.
+		# enough for his line to stand along its brow, and free to wander.
 		var ridge_y := rng.randf_range(360.0, 400.0)
 		var ridge_peak := rng.randf_range(0.8, 0.9)
 		var ridge_half_w := rng.randf_range(200.0, 230.0)
 		hills.append({"type": "ridge", "y": ridge_y, "half_w": ridge_half_w, "peak": ridge_peak})
-		for cy in Terrain.ROWS:
-			for cx in Terrain.COLS:
-				var p := t.cell_pos(cx, cy)
-				var dy := absf(p.y - ridge_y)
-				if dy < ridge_half_w:
-					var f := 1.0 - dy / ridge_half_w
-					t.height[cy * Terrain.COLS + cx] = ridge_peak * (f * f * (3.0 - 2.0 * f))
+		_ridge(t, rng, ridge_y, ridge_peak, ridge_half_w, 35.0)
 
 	t.features = hills
 
@@ -272,24 +281,45 @@ static func _build_river(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 	t.features = river_features
 
 
+## True if `p` lies in any of the ellipses [cx, cy, rx, ry].
+static func in_blobs(blobs: Array, p: Vector2) -> bool:
+	for b in blobs:
+		var dx := (p.x - float(b[0])) / float(b[2])
+		var dy := (p.y - float(b[1])) / float(b[3])
+		if dx * dx + dy * dy <= 1.0:
+			return true
+	return false
+
+
+## A pass: a mass of rock comes in from each side of the field, a main outcrop astride
+## the middle with a shoulder above and below it, so the way through winds between two
+## rounded masses rather than two blocks. Each mass is mirrored across the middle of the
+## field, so both sides face the same gap.
 static func _build_pass(t: Terrain, rng: RandomNumberGenerator, _fair: bool) -> void:
 	var pass_features := []
-	var left_w := rng.randf_range(220.0, 280.0)
-	var right_w := rng.randf_range(220.0, 280.0)
-	var pass_y_min := 520.0
-	var pass_y_max := 740.0
-
-	var left_rect := Rect2(0.0, pass_y_min, left_w, pass_y_max - pass_y_min)
-	var right_rect := Rect2(Terrain.ARENA.x - right_w, pass_y_min, right_w, pass_y_max - pass_y_min)
-
-	for cy in Terrain.ROWS:
-		for cx in Terrain.COLS:
-			var p := t.cell_pos(cx, cy)
-			if left_rect.has_point(p) or right_rect.has_point(p):
-				t.rock[cy * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
-
-	pass_features.append({"type": "rock", "rect": left_rect})
-	pass_features.append({"type": "rock", "rect": right_rect})
+	for side in [-1.0, 1.0]:
+		var sd := float(side)
+		var edge_x := 0.0 if sd < 0.0 else Terrain.ARENA.x
+		var inward := -sd
+		var reach := rng.randf_range(200.0, 270.0)
+		var blobs := []
+		# Each blob runs from a little past the field's edge to `reach` into the field.
+		blobs.append([edge_x + inward * (reach - 34.0) * 0.5, 630.0, (reach + 34.0) * 0.5, rng.randf_range(70.0, 95.0)])
+		var sh_reach := reach * rng.randf_range(0.5, 0.8)
+		var sh_dy := rng.randf_range(95.0, 135.0)
+		var sh_ry := rng.randf_range(48.0, 68.0)
+		var sh_x := edge_x + inward * (sh_reach - 34.0) * 0.5
+		blobs.append([sh_x, 630.0 - sh_dy, (sh_reach + 34.0) * 0.5, sh_ry])
+		blobs.append([sh_x, 630.0 + sh_dy, (sh_reach + 34.0) * 0.5, sh_ry])
+		var bounds := Rect2()
+		for b in blobs:
+			var r := Rect2(float(b[0]) - float(b[2]), float(b[1]) - float(b[3]), float(b[2]) * 2.0, float(b[3]) * 2.0)
+			bounds = r if bounds.size == Vector2.ZERO else bounds.merge(r)
+		for cy in Terrain.ROWS:
+			for cx in Terrain.COLS:
+				if in_blobs(blobs, t.cell_pos(cx, cy)):
+					t.rock[cy * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
+		pass_features.append({"type": "rock", "rect": bounds.intersection(Rect2(Vector2.ZERO, Terrain.ARENA)), "blobs": blobs})
 	t.features = pass_features
 
 
