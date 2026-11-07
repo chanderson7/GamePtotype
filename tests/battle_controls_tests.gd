@@ -96,7 +96,16 @@ func _run() -> void:
 		"structured last-battle account survives a save round trip")
 	restored.free()
 	screen._rebuild_result(report, "Their army broke and fled.")
-	check(screen.result_content.get_child_count() >= 8 and screen.result_body.text.contains("broke"), "result screen builds a structured, scrollable account")
+	check(screen.result_content.get_child_count() >= 6 and screen.result_body.text.contains("broke"), "result screen builds a structured, scrollable account")
+	var first_row = screen.result_content.find_child("Company_%d" % int(first["id"]), true, false)
+	check(first_row != null and first_row.get_index() < screen.result_content.find_child("Company_%d" % int(second["id"]), true, false).get_index(),
+		"companies that fought are listed, a wounded captain's first")
+	var quiet_ids: Array = gs.army.filter(func(sq): return not battle_result["squads"].has(int(sq["id"]))).map(func(sq): return int(sq["id"]))
+	check(quiet_ids.all(func(id): return screen.result_content.find_child("Company_%d" % id, true, false) == null),
+		"companies with nothing to report aren't listed")
+	check(screen.result_content.find_child("OtherBondsToggle", true, false) == null and screen.result_content.find_child("RankUp_*", true, false) != null,
+		"bonds show only the rank reached, not every pair that grew closer")
+	check(not String(report["story"]).contains("held the field"), "the story doesn't repeat what the title says")
 	await _check_siege_screen(gs)
 	print("Battle controls failures: %d" % failures)
 	quit(failures)

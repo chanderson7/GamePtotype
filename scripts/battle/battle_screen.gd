@@ -2605,14 +2605,7 @@ func _show_result() -> void:
 		"village_burned": ["", "The raiders held the square long enough to fire the village."],
 	}
 	var why: String = reasons.get(_pending_result["reason"], ["", ""])[0 if won else 1]
-	# Where it happened, so the map and the chronicle tell the same story.
-	var w = GameState.world
-	if w != null and not GameState.pending_battle.is_empty():
-		var place: String = String(GameState.pending_battle.get("siege_target", ""))
-		if place == "":
-			place = w.here() if w.here() != "" else w.nearest_place(w.party_pos(w.player()))
-		if WorldData.SETTLEMENTS.has(place):
-			why = ("Fought at %s. " if GameState.pending_battle.has("siege_target") else "Fought near %s. ") % WorldData.settlement(place)["name"] + why
+	# Where it happened is the caption under the picture of the field.
 	result_title.text = "Victory" if won else "Defeat"
 	result_title.add_theme_color_override("font_color", Style.BRASS if won else Style.ENEMY_LIGHT)
 	Sound.stinger("victory" if won else "defeat")
@@ -2668,19 +2661,91 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		result_content.add_child(_result_heading("How it went"))
 		result_content.add_child(_siege_timeline())
 
-	var captains: Array = report.get("captains", [])
-	if not captains.is_empty():
-		result_content.add_child(_result_heading("Captains"))
-		for captain in captains:
-			result_content.add_child(_result_captain(captain, _siege_note(captain)))
-
+	_result_companies(report)
 	_result_bonds(report.get("bonds", []), report.get("memorials", []))
 
-	var squads: Array = report.get("squads", [])
-	if not squads.is_empty():
-		result_content.add_child(_result_heading("Company record"))
-		for squad in squads:
-			result_content.add_child(_result_squad(squad))
+
+## Only the companies with something to tell: a captain fallen or wounded, men lost,
+## enemies cut down, newly ready to train, or a deed on the walls. The rest are one line.
+func _result_companies(report: Dictionary) -> void:
+	var captains := {}
+	for c in report.get("captains", []):
+		captains[String(c.get("company", ""))] = c
+	var rows := []
+	var quiet := 0
+	for squad in report.get("squads", []):
+		var captain: Dictionary = captains.get(String(squad.get("name", "")), {})
+		var fate := String(captain.get("fate", "standing"))
+		var note := _siege_note(captain) if not captain.is_empty() else ""
+		var weight := int(squad.get("kills", 0)) + int(squad.get("lost", 0))
+		if fate == "killed":
+			weight += 1000
+		elif fate == "wounded":
+			weight += 500
+		if bool(squad.get("newly_ready", false)) or note != "":
+			weight += 1
+		if weight == 0:
+			quiet += 1
+			continue
+		rows.append({"squad": squad, "captain": captain, "note": note, "weight": weight})
+	if rows.is_empty():
+		return
+	rows.sort_custom(func(a, b): return int(a["weight"]) > int(b["weight"]))
+	result_content.add_child(_result_heading("Your companies"))
+	for r in rows:
+		result_content.add_child(_result_company(r["squad"], r["captain"], String(r["note"])))
+	if quiet > 0:
+		var rest := _result_note("%d other compan%s saw no fighting." % [quiet, "y" if quiet == 1 else "ies"], Style.MUTED)
+		rest.name = "QuietCompanies"
+		rest.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		result_content.add_child(rest)
+
+
+## One company: its captain's face, its name, and only the numbers that aren't zero.
+func _result_company(squad: Dictionary, captain: Dictionary, note: String) -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "Company_%d" % int(squad.get("id", 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	panel.add_child(row)
+	var fate := String(captain.get("fate", "standing"))
+	if not captain.is_empty():
+		var face: Dictionary = captain.get("face", captain)
+		if fate == "wounded":
+			face = face.duplicate(true)
+			face["wounded"] = maxi(1, int(face.get("wounded", 0)))
+		var portrait := CaptainArt.portrait(face, Vector2(46, 62))
+		if fate == "killed":
+			portrait.modulate = Color(0.55, 0.55, 0.6)
+		row.add_child(portrait)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(words)
+	words.add_child(_result_note(String(squad.get("name", "Company"))))
+	var bits := PackedStringArray()
+	var kills := int(squad.get("kills", 0))
+	var lost := int(squad.get("lost", 0))
+	if kills > 0:
+		bits.append("%d kill%s" % [kills, "" if kills == 1 else "s"])
+	if lost > 0:
+		bits.append("%d lost" % lost)
+	if not bits.is_empty():
+		words.add_child(_result_note(" · ".join(bits), Style.MUTED))
+	var first := String(captain.get("first", captain.get("name", "")))
+	if fate == "killed":
+		words.add_child(_result_note("%s fell" % first, Style.ENEMY_LIGHT))
+	elif fate == "wounded":
+		words.add_child(_result_note("%s wounded · out %d battles" % [first, Captains.WOUND_BATTLES], Style.BRASS))
+	if note != "":
+		words.add_child(_result_note(note, Style.BRASS))
+	if bool(squad.get("newly_ready", false)):
+		var tag := Style.label("Ready to train", Style.SMALL, Style.BRASS)
+		tag.name = "ReadyToTrain"
+		tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		tag.autowrap_mode = TextServer.AUTOWRAP_OFF
+		row.add_child(tag)
+	return panel
 
 
 func _result_heading(text: String) -> Label:
@@ -2707,38 +2772,6 @@ func _result_stat(caption: String, value: int, color: Color) -> Control:
 	var words := Style.label(caption, Style.SMALL, Style.MUTED)
 	words.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(words)
-	return panel
-
-
-func _result_captain(captain: Dictionary, note: String = "") -> Control:
-	var panel := PanelContainer.new()
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	panel.add_child(row)
-	var face: Dictionary = captain.get("face", captain)
-	if String(captain.get("fate", "")) == "wounded":
-		face = face.duplicate(true)
-		face["wounded"] = maxi(1, int(face.get("wounded", 0)))
-	var portrait := CaptainArt.portrait(face, Vector2(54, 72))
-	if String(captain.get("fate", "")) == "killed":
-		portrait.modulate = Color(0.55, 0.55, 0.6)
-	row.add_child(portrait)
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(words)
-	words.add_child(_result_note("%s · %s" % [captain.get("name", "Captain"), captain.get("company", "Company")]))
-	if note != "":
-		words.add_child(_result_note(note, Style.BRASS))
-	var fate := String(captain.get("fate", "standing"))
-	var line := "%d kills · held the field" % int(captain.get("kills", 0))
-	var color := Style.MUTED
-	if fate == "wounded":
-		line = "Wounded · death roll %d, needed %d · out for %d battles" % [captain.get("roll", 0), captain.get("needed", 0), Captains.WOUND_BATTLES]
-		color = Style.BRASS
-	elif fate == "killed":
-		line = "Fallen · death roll %d, needed %d" % [captain.get("roll", 0), captain.get("needed", 0)]
-		color = Style.ENEMY_LIGHT
-	words.add_child(_result_note(line, color))
 	return panel
 
 
@@ -2949,13 +2982,12 @@ func _draw_vignette(c: Control, title: String, realm: String, ours: bool) -> voi
 	c.draw_rect(frame, Color("6d5222"), false, 2.0)
 
 
-## Bonds, told once: ranks reached first, then bonds a death has ended, then one line for
-## every other pair that grew closer, which opens the list.
+## Bonds, told only when something changed: ranks reached, and bonds a death has ended.
+## Pairs that only grew a little closer go unsaid; their talks wait at the fire.
 func _result_bonds(bonds: Array, memorials: Array) -> void:
-	if bonds.is_empty() and memorials.is_empty():
-		return
 	var ups: Array = bonds.filter(func(b): return bool(b.get("rank_up", false)))
-	var rest: Array = bonds.filter(func(b): return not bool(b.get("rank_up", false)))
+	if ups.is_empty() and memorials.is_empty():
+		return
 	result_content.add_child(_result_heading("Bonds"))
 	for bond in ups:
 		result_content.add_child(_result_rank_up(bond))
@@ -2965,23 +2997,6 @@ func _result_bonds(bonds: Array, memorials: Array) -> void:
 		var hint := _result_note("A talk waits at the fire for each new rank.", Style.MUTED)
 		hint.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		result_content.add_child(hint)
-	if rest.is_empty():
-		return
-	var list := VBoxContainer.new()
-	list.name = "OtherBonds"
-	list.visible = false
-	list.add_theme_constant_override("separation", 6)
-	for bond in rest:
-		list.add_child(_result_bond(bond))
-	var toggle := Button.new()
-	toggle.name = "OtherBondsToggle"
-	toggle.text = "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]
-	toggle.custom_minimum_size.y = 64
-	toggle.pressed.connect(func():
-		list.visible = not list.visible
-		toggle.text = ("Hide" if list.visible else "%d other pair%s grew closer" % [rest.size(), "" if rest.size() == 1 else "s"]))
-	result_content.add_child(toggle)
-	result_content.add_child(list)
 
 
 func _result_rank_up(bond: Dictionary) -> Control:
@@ -3039,49 +3054,6 @@ func _result_memorial(m: Dictionary) -> Control:
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(line)
 	row.add_child(words)
-	return panel
-
-
-func _result_bond(bond: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 9)
-	panel.add_child(row)
-	var a: Dictionary = bond.get("a_face", {"id": bond.get("a_id", 0), "first": bond.get("a_name", ""), "culture": bond.get("a_culture", Cultures.VARDISH)})
-	var b: Dictionary = bond.get("b_face", {"id": bond.get("b_id", 0), "first": bond.get("b_name", ""), "culture": bond.get("b_culture", Cultures.VARDISH)})
-	row.add_child(CaptainArt.portrait(a, Vector2(40, 54)))
-	row.add_child(CaptainArt.portrait(b, Vector2(40, 54)))
-	var rank := String(bond.get("rank_after", ""))
-	var text := "%s & %s · +%.1f bond points" % [bond.get("a_name", ""), bond.get("b_name", ""), float(bond.get("earned", 0.0))]
-	if rank != "":
-		text += " · rank %s" % rank
-	if bool(bond.get("rank_up", false)):
-		text += " reached"
-	var note := _result_note(text, Style.BRASS if bool(bond.get("rank_up", false)) else Style.TEXT)
-	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(note)
-	return panel
-
-
-func _result_squad(squad: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	panel.add_child(row)
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(words)
-	words.add_child(_result_note(String(squad.get("name", "Company"))))
-	words.add_child(_result_note("%d → %d soldiers · %d kills · %d XP" % [squad.get("men_before", 0), squad.get("men_after", 0), squad.get("kills", 0), squad.get("xp_after", 0)], Style.MUTED))
-	var level_text := "Lv%d" % int(squad.get("level_after", 1))
-	if bool(squad.get("training_ready", false)):
-		level_text += "+ READY"
-	var level := Style.label(level_text, Style.SMALL, Style.BRASS)
-	level.custom_minimum_size.x = 112
-	level.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	level.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	level.autowrap_mode = TextServer.AUTOWRAP_OFF
-	row.add_child(level)
 	return panel
 
 
