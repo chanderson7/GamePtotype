@@ -1,8 +1,9 @@
 ## Two captains at the fire, face to face: what the company remembers of their battles
 ## together, then what they say to each other. Their talks go in order, rank C, then B,
 ## then A, none skipped: a pair that reached A in one go hears B first, then A. Once all
-## are heard, the latest is told again. Narrative only: it changes no battle values or
-## campaign resources.
+## are heard, the latest is told again. When one of them has fallen, the survivor sits by
+## the empty place, and the fallen's face is shown greyed. Narrative only: it changes no
+## battle values or campaign resources.
 extends "res://scripts/ui/talk_view.gd"
 
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
@@ -11,6 +12,8 @@ const Captains = preload("res://scripts/data/captains.gd")
 var _rank := ""
 var _a: Dictionary = {}
 var _b: Dictionary = {}
+## The survivor's talk by a fallen friend's place.
+var _memorial := false
 
 
 func _ready() -> void:
@@ -23,11 +26,30 @@ func _ready() -> void:
 		return
 	_a = conversation["a"]
 	_b = conversation["b"]
+	_memorial = bool(conversation.get("memorial", false))
 	stage.name = "BondConversationPortraits"
-	set_face("left", CaptainArt.texture(_a, "warm"), true, 0.62)
-	set_face("right", CaptainArt.texture(_b, "warm"), true, 0.62)
+	set_face("left", CaptainArt.texture(_a, "grief" if _memorial else "warm"), true, 0.62)
+	set_face("right", CaptainArt.texture(_b, "" if _memorial else "warm"), true, 0.62, _memorial)
+	if _memorial:
+		_show_memorial(conversation)
+		return
 	var next := GameState.next_bond_talk(int(_a["id"]), int(_b["id"]))
 	_show(next if next != "" else String(conversation["rank"]))
+
+
+## By the empty place: what the company remembers, then the survivor's own words.
+func _show_memorial(conversation: Dictionary) -> void:
+	_rank = String(conversation["rank"])
+	var lost := String(_b.get("first", _b.get("name", "")))
+	var badge: Array = [Widgets.rank_badge(_rank, 48.0)]
+	set_plate(String(_a["first"]) + " & " + lost + " · remembered", badge)
+	clear_log()
+	var passages: Array = conversation["passages"]
+	for i in passages.size() - 1:
+		say("narration", String(passages[i]))
+	for line in conversation.get("exchange", []):
+		say("them", String(line["text"]), String(_a["first"]))
+	set_replies([{"id": "back", "text": _back_text(), "tone": "primary", "act": close}])
 
 
 const TalkView = preload("res://scripts/ui/talk_view.gd")

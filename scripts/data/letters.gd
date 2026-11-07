@@ -24,7 +24,7 @@ const LETTERS := {
 					"The ledgers balance tonight for the first time since the thaw, and I find I have no one to tell. Thornwall's granary has its roof again. Kettlebrook sends its thanks in turnips, which I am assured is a compliment.",
 					"If your road bends toward {place}, the hall keeps a chair by the fire. I would like to hear what you saw on the border, and I would like, I think, simply to see you.",
 				],
-				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"sign": "Edda", "sign_title": "of House {house}",
 				"ps": "My cousin asks what you cost. I told him: more than he has.",
 			},
 			"friend": {
@@ -93,7 +93,7 @@ const LETTERS := {
 					"I would not ask this of you by letter, so I won't. But if you came to {place}, I would ask it to your face, and then I would feed you, which is more than the elders offer.",
 				],
 				"sign": "Edda",
-				"sign_title": "of House Caldmoor",
+				"sign_title": "of House {house}",
 				"ps": "The chair is still by the fire. The cat has claimed it. Negotiations continue.",
 			},
 			"friend": {
@@ -167,7 +167,7 @@ const LETTERS := {
 					"I don't ask you to take my side. I ask you to be at {place} when it's said, so that one person in that hall has seen what the villages look like after.",
 				],
 				"sign": "Edda",
-				"sign_title": "of House Caldmoor",
+				"sign_title": "of House {house}",
 				"ps": "I have rehearsed what I'll say to him. It gets shorter every time.",
 			},
 			"friend": {
@@ -241,7 +241,7 @@ const LETTERS := {
 					"Come to {place} when the road allows. There is something I would like to ask you, and I would rather watch your face while I ask it.",
 				],
 				"sign": "Edda",
-				"sign_title": "of House Caldmoor",
+				"sign_title": "of House {house}",
 				"ps": "Don't bring the company. Bring yourself.",
 			},
 			"friend": {
@@ -314,7 +314,7 @@ const LETTERS := {
 					"{old} is lost. We went out by the river gate with the household's ledgers and as many of the village families as would come. I counted them twice on the road; the number did not improve.",
 					"We are at {place} now. I am well, which I write first because you will ask it first. I would rather you heard the rest from me in person than from a herald.",
 				],
-				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"sign": "Edda", "sign_title": "of House {house}",
 				"ps": "I kept the chair. It is a terrible chair. It came anyway.",
 			},
 			"friend": {
@@ -382,7 +382,7 @@ const LETTERS := {
 					"The hall at {place} is swept and the cook is weeping, which I am told is traditional. The cord is bought. The head of the house has found a speech somewhere and is threatening us with it.",
 					"Come when the road allows. There is no hurry, and I will not pretend I am not counting the days.",
 				],
-				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"sign": "Edda", "sign_title": "of House {house}",
 				"ps": "I have set a spare spoon. You know which one.",
 			},
 			"friend": {
@@ -392,7 +392,7 @@ const LETTERS := {
 					"The hall at {place} is swept and the cook is weeping, which I am told is traditional. The cord is bought. The head of the house has found a speech somewhere and is threatening us with it.",
 					"Come when the road allows. There is no hurry, and I will not pretend I am not counting the days.",
 				],
-				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"sign": "Edda", "sign_title": "of House {house}",
 				"ps": "I have set a spare spoon. You know which one.",
 			},
 		},
@@ -450,7 +450,7 @@ const LETTERS := {
 					"{old} can't host us now; you will have heard why. I am well, and I am not giving up the cord, so you needn't ask.",
 					"Come and see me at {place} and we'll choose somewhere else together. The flowers will keep. I will too.",
 				],
-				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"sign": "Edda", "sign_title": "of House {house}",
 				"ps": "",
 			},
 			"friend": {
@@ -460,7 +460,7 @@ const LETTERS := {
 					"{old} can't host us now; you will have heard why. I am well, and I am not giving up the cord, so you needn't ask.",
 					"Come and see me at {place} and we'll choose somewhere else together. The flowers will keep. I will too.",
 				],
-				"sign": "Edda", "sign_title": "of House Caldmoor",
+				"sign": "Edda", "sign_title": "of House {house}",
 				"ps": "",
 			},
 		},
@@ -503,6 +503,283 @@ const LETTERS := {
 				"body": [
 					"{old} can't host us now. I have crossed out the place in the register, neatly, and left the rest as it was.",
 					"Find me at {place} and we'll write in a new one. Nothing else needs correcting.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	# When your own company took the place she lived: not consolation. {old} is her lost
+	# home, {place} where she has gone.
+	"taken_by_you": {
+		"edda": {
+			"courting": {
+				"subject": "You took {old}",
+				"salute": "Captain,",
+				"body": [
+					"Your banner is over {old}. I watched it go up from the river road with the household's ledgers in a cart behind me, and I could not decide which of us I was angrier with.",
+					"We are at {place}. I am well. I will want to hear from your own mouth why it had to be my home, and I would rather hear it soon than sit here and stew.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "The chair is in the cart. It came anyway. I am still deciding whether you deserve it.",
+			},
+			"friend": {
+				"subject": "{old}",
+				"salute": "Captain,",
+				"body": [
+					"Your company holds {old} now. The household left by the river gate before the walls were tested; nobody was hurt, which I will credit to you when I am less tired.",
+					"We are at {place}. The villages are mine to look after still, whoever flies over the hall, and I will hold you to treating them better than the last lot did.",
+				],
+				"sign": "Edda", "sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "A change of address, by your hand",
+				"salute": "Captain,",
+				"body": [
+					"You will hear that {old} has changed hands, and this time you will not need anyone to tell you how. I left with the treaty boxes and my good shoes, and I did not look back, mostly so that I would not have to look at your banner.",
+					"I am at {place}. Come and explain it to me. I have negotiated with worse, but never with someone I wanted so badly to forgive.",
+				],
+				"sign": "Farah", "sign_title": "Envoy, for the present without a seat",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "On the matter of {old}",
+				"salute": "To the captain, with the envoy's regards,",
+				"body": [
+					"{old} is yours now. The envoy's office has removed to {place}, with its correspondence intact and its opinions withheld for the present.",
+					"When you have a moment between conquests, call on me. There are merchants in {old} who need to know whose word keeps their road open now.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "The archive, under your banner",
+				"salute": "Captain,",
+				"body": [
+					"{old} is under your banner, and the east wing of the archive is under your soldiers' boots. I carried out what I could hold, and the map. I am trying to record this accurately, and finding that I cannot be accurate and calm at once.",
+					"I am at {place}. Come and tell me why. I will write down what you say, and I will try to be fair to it.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist, lately of {old}",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "A note for the record",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"The record will show that your company took {old}, and that the archive was moved to {place} in good order, with its covenant boxes. I am telling you myself so that you hear it from the person who carried them.",
+					"If your soldiers are quartered in the east wing, please ask them not to burn anything with writing on it. That is most of it.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist, lately of {old}",
+				"ps": "",
+			},
+		},
+	},
+	# Married ("courting") or sworn friends ("friend"): a battle you won near her ({at}).
+	"life_victory": {
+		"edda": {
+			"courting": {
+				"subject": "The talk of the hall",
+				"salute": "Captain,",
+				"body": [
+					"Word came from {at} before the dust had settled: the company held, and won. The hall has already decided you killed forty men with a ladle. I have not corrected them; it is good for morale.",
+					"Come home when the wounded are seen to. I will have the ledger closed and the other chair by the fire, and you can tell me how it really went, which I expect is worse and better.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "Thornwall sent a cheese. For you, it says. I have eaten a third of it as your steward.",
+			},
+			"friend": {
+				"subject": "News from {at}",
+				"salute": "Captain,",
+				"body": [
+					"The fight at {at} is being told in every kitchen in the valley, and in each telling the raiders run a little faster. The villages near it slept last night, which is the part I care about.",
+					"If your road brings you back through {place}, the household owes you a supper, and I mean to collect the debt on its behalf.",
+				],
+				"sign": "Edda", "sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Three versions of {at}",
+				"salute": "Captain,",
+				"body": [
+					"The market has three versions of your fight at {at} already, and by evening there will be five. In all of them you are taller and the enemy more numerous. I have stopped correcting them; it is bad for trade.",
+					"Come back to {place} when the road allows, and tell me the one where you are your own height. I would rather have that one.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "If anyone asks, this letter concerned tariffs.",
+			},
+			"friend": {
+				"subject": "A victory, with my regards",
+				"salute": "To the captain, with the envoy's regards,",
+				"body": [
+					"The caravans brought word of {at} this morning. Two houses who could not agree on a seating at dinner have agreed that it was well done, which I count as a second victory.",
+					"My door at {place} is open whenever your road passes it. There will be coffee, and fewer questions than you would expect.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "A correction, in advance",
+				"salute": "Captain,",
+				"body": [
+					"The scribes are writing up {at} already, and they have the hill on the wrong side and you in the wrong place. I have made a note to correct them, and a second note to ask you where you actually stood.",
+					"Come home to {place} when you can. The lamp is lit. It is not a symbol; it is simply dark, and I would like to see you by it.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "The uncertain cat sat on the report. I have chosen not to read anything into this.",
+			},
+			"friend": {
+				"subject": "On the matter of {at}",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"An account of the fighting at {at} reached the archive today. It is badly written and very flattering, and I have filed it under both.",
+					"If you pass {place}, stop and tell me what happened. The record would be better for it.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	# Married or sworn: you have been away {days} days.
+	"life_away": {
+		"edda": {
+			"courting": {
+				"subject": "The chair, still empty",
+				"salute": "Captain,",
+				"body": [
+					"{days} days. The ledger counted them, not me; I only checked its sums. The roof at Thornwall held through the storms. The cat has given up on you and taken the chair outright.",
+					"Nothing at {place} needs you. I want that understood before I say that I would like you to come home anyway.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "Bring your own spoon. The spare one has been promoted.",
+			},
+			"friend": {
+				"subject": "From the hall at {place}",
+				"salute": "Captain,",
+				"body": [
+					"It has been {days} days since the company passed this way. The villages are well. My cousins are not, but that is their usual condition.",
+					"Come through when the road allows. There is always work and there is always supper, and I would rather give you the second.",
+				],
+				"sign": "Edda", "sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "No business in this letter",
+				"salute": "Captain,",
+				"body": [
+					"It has been {days} days. I am an envoy; we count everything, and I would prefer not to say what else I have been counting.",
+					"Come back to {place}. I have saved you the good cup, and a great deal of unimportant news that nobody else will listen to.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "The baker's cat has learned a second gate. I am told this is progress.",
+			},
+			"friend": {
+				"subject": "The road has been quiet",
+				"salute": "To the captain, with the envoy's regards,",
+				"body": [
+					"{days} days since your company passed {place}. The caravans have missed your banner; it kept the road honest.",
+					"When your road bends this way, call on me. I have three maps that disagree and would value a fourth opinion.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "A blank page",
+				"salute": "Captain,",
+				"body": [
+					"I started a page the day you left. It has stayed blank for {days} days, which is the longest any page of mine has gone without a note in the margin.",
+					"Come home to {place} and help me fill it. I am told that is what pages are for.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "The lamp is still lit. Still not a symbol.",
+			},
+			"friend": {
+				"subject": "The archive keeps its hours",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"It has been {days} days since you were at {place}. The covenant holds. The clans have found new things to disagree about, which is how I know they are well.",
+					"Visit when you can. The tea has not improved, but the company would.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	# Married or sworn: one of your captains, {captain}, has fallen.
+	"life_fallen": {
+		"edda": {
+			"courting": {
+				"subject": "For {captain}",
+				"salute": "Captain,",
+				"body": [
+					"Word of {captain} came by the river road. I did not know them as you did. I knew the way you said their name, which I suppose is knowing something.",
+					"Come home to {place} when you can bear to. I won't make you talk. I'll keep the lamp lit and the ledgers shut, and you can sit.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "I have written the name in the household book, under the guests. That is where it belongs.",
+			},
+			"friend": {
+				"subject": "{captain}",
+				"salute": "Captain,",
+				"body": [
+					"I heard about {captain}. I am sorry. The company carries its losses quietly, I know, and I don't mean to make you set this one down before you're ready.",
+					"There is a place at {place} for you whenever you need one, and no one here will ask you to be cheerful.",
+				],
+				"sign": "Edda", "sign_title": "Steward of the household",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "{captain}",
+				"salute": "Captain,",
+				"body": [
+					"I heard about {captain}. I had a sentence prepared, and it was elegant, and I have thrown it away. I am sorry. That is the whole of it.",
+					"Come back to {place} when you can. I will not make a speech. I may hold your hand for longer than is diplomatic.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "With my sympathy",
+				"salute": "Captain,",
+				"body": [
+					"I heard of {captain}'s fall from a caravan master who had it from your own sergeant. I am sorry. A company is a household too, and you have lost someone from it.",
+					"If you pass {place}, my door is open, and I am better at listening than my profession suggests.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "In the margin",
+				"salute": "Captain,",
+				"body": [
+					"I heard about {captain}. I have written the name in the margin, where I keep the things the record is too small for.",
+					"Come home to {place} when you are ready. You don't have to tell me about them. If you want to, I will write it down exactly as you say it.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+			"friend": {
+				"subject": "{captain}",
+				"salute": "To the captain of the free company,",
+				"body": [
+					"I heard of {captain}'s death. The archive keeps many names; I wanted you to know this one has been entered properly, with the battle and the date, and not left to be guessed at later.",
+					"If you pass {place}, stop. I will have tea, and no questions unless you want them.",
 				],
 				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
 				"ps": "",
@@ -552,6 +829,153 @@ const REPLIES := {
 			"courting": ["{name},", "Heard about {old}. Glad you're out.", "Captain,"],
 			"friend": ["{name},", "Heard about {old}. Glad you're out.", "Captain,"]},
 	],
+	"taken_by_you": [
+		{"id": "sorry", "label": "I'm sorry it was your home", "trust": 2,
+			"courting": ["{name},", "I am sorry it was {old}. I won't pretend it wasn't my order, and I won't ask you to forgive it in a letter. I'll come to {place} and you can say all of it to my face.", "Yours, still,"],
+			"friend": ["{name},", "I am sorry it was your home. Nobody at {old} will be harmed while my banner is over it, and I'll come to {place} to answer for it myself.", "Your friend, I hope,"]},
+		{"id": "reasons", "label": "It had to be done", "trust": 0,
+			"courting": ["{name},", "It had to be {old}. I'll tell you why at {place}, and you can decide what you think of the reasons.", "Until then,"],
+			"friend": ["{name},", "It had to be done. I'll explain at {place}, as plainly as I can.", "Captain,"]},
+		{"id": "plain", "label": "A soldier's answer", "trust": 0,
+			"courting": ["{name},", "Received. I'll come.", "Captain,"],
+			"friend": ["{name},", "Received.", "Captain,"]},
+	],
+	"life_victory": [
+		{"id": "home", "label": "I'll be home soon", "trust": 2,
+			"courting": ["{name},", "The tellings are all wrong and I'll give you the right one at {place}, as soon as the wounded can travel. Save me a corner of whatever they sent.", "Until I'm home,"],
+			"friend": ["{name},", "We held at {at}, and the cost was real. I'll come through {place} and tell you the true version over supper.", "Your friend,"]},
+		{"id": "plain", "label": "A soldier's answer", "trust": 0,
+			"courting": ["{name},", "We won. All well. Coming home.", "Captain,"],
+			"friend": ["{name},", "We won. All well.", "Captain,"]},
+	],
+	"life_away": [
+		{"id": "home", "label": "I'm coming home", "trust": 2,
+			"courting": ["{name},", "I've been counting too, though not as well. The company turns for {place} as soon as I can manage it. Tell the cat the chair is mine.", "Until I'm home,"],
+			"friend": ["{name},", "Too long, I know. I'll bring the company through {place} as soon as the road allows.", "Your friend,"]},
+		{"id": "soon", "label": "Not yet, but soon", "trust": 1,
+			"courting": ["{name},", "The road won't let me go yet. Keep the lamp lit at {place}; I mean to see it.", "Until I'm home,"],
+			"friend": ["{name},", "We're held where we are for now. I'll come to {place} when I can.", "Your friend,"]},
+		{"id": "plain", "label": "A soldier's answer", "trust": 0,
+			"courting": ["{name},", "Well. Busy. Coming when able.", "Captain,"],
+			"friend": ["{name},", "Well. Busy. Coming when able.", "Captain,"]},
+	],
+	"life_fallen": [
+		{"id": "thanks", "label": "Thank you for writing", "trust": 2,
+			"courting": ["{name},", "Thank you for {captain}'s name in your book. I'll come to {place} when I can bear to, and I'll sit, as you said.", "Yours,"],
+			"friend": ["{name},", "Thank you. It helps that someone outside the company knows the name. I'll come to {place} when I can.", "Your friend,"]},
+		{"id": "plain", "label": "A soldier's answer", "trust": 0,
+			"courting": ["{name},", "Thank you. I'll come when I can.", "Captain,"],
+			"friend": ["{name},", "Thank you.", "Captain,"]},
+	],
+}
+
+## Each person's chapter letters get answers of their own (the captain writing back about
+## what she wrote), then the plain answer that fits any of them.
+const CHAPTER_REPLIES := {
+	"ch2_invitation": {
+		"edda": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Keep the chair. The company marches for {place} as soon as the horses are shod, and I will be at the front of it, which my sergeant says is bad form for a captain.", "Until then,"],
+				"friend": ["{name},", "Count me in. Lay out the tallies; we march for {place} as soon as the horses are shod.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "The road has opinions of its own this week, but it will bend toward {place} soon. I have not forgotten, and I will not.", "Until then,"],
+				"friend": ["{name},", "The company is tied up for now. I'll come to {place} when the road allows, and I'll bring hands that can work.", "Yours in good faith,"]},
+		],
+		"farid": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "I accept the courtyard, the dusk and the reason. I'll be at {place} as soon as the road allows. If anyone asks, I am coming about tariffs.", "Until then,"],
+				"friend": ["{name},", "Have the coffee and the map ready. The company rides for {place}, and I'll want the names of whoever wants that road closed.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "The road is being difficult this week, but it will bend toward {place}. Keep a seat in the courtyard; I mean to be the reason.", "Until then,"],
+				"friend": ["{name},", "We're held up for now. I'll come to {place} when the road allows, and I'll bring men who can keep a road open.", "Yours in good faith,"]},
+		],
+		"kaede": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Keep the map rolled until I get there. I want to be the first to see it, and I am coming to {place} as fast as the company can march.", "Until then,"],
+				"friend": ["{name},", "I'll be your witness. The company rides for {place}; have the copy that disagrees with itself ready.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "The road won't let me come yet, but I will. Add nothing to the map until I can watch you do it.", "Until then,"],
+				"friend": ["{name},", "We're tied up for now. I'll come to {place} when the road allows. Save me the worse tea.", "Yours in good faith,"]},
+		],
+	},
+	"ch3_invitation": {
+		"edda": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Ask it to my face, then. I'm coming to {place}, and you can feed me after.", "Until then,"],
+				"friend": ["{name},", "Set it out plainly and I'll answer plainly. The company rides for {place}.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "The horn waits for the new moon; I won't wait that long. I'll be at {place} as soon as I can.", "Until then,"],
+				"friend": ["{name},", "We'll come to {place} as soon as we're free. Count the houses; I'll count the men.", "Yours in good faith,"]},
+		],
+		"farid": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Try a person, then. I'm on my way to {place}; have the coffee ready and the grain's patience counted.", "Until then,"],
+				"friend": ["{name},", "Forty wagons and two proud houses. The company rides for {place}; show me the crossing.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "I'll come as soon as the road lets me, and I'll come in person, since letters have failed you.", "Until then,"],
+				"friend": ["{name},", "We're held for now. I'll be at {place} when I can, before the grain spoils if I can manage it.", "Yours in good faith,"]},
+		],
+		"kaede": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "I am already annoyed by the two copies and I haven't seen them. Coming to {place}.", "Until then,"],
+				"friend": ["{name},", "I'll be a witness neither clan can claim. Riding for {place}.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "Hold the ford in your notes until I can hold it in fact. I'll come to {place} when the road allows.", "Until then,"],
+				"friend": ["{name},", "Delayed, not deterred. I'll be at {place} as soon as I can.", "Yours in good faith,"]},
+		],
+	},
+	"ch4_invitation": {
+		"edda": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "I'll be in that hall, and I'll have seen the villages. I'm on my way to {place}.", "Until then,"],
+				"friend": ["{name},", "I'll be at {place} for the council, and I'll say what I think. You asked for that.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "Keep your speech short, the way you like it. I'll be at {place} before the council if the road lets me.", "Until then,"],
+				"friend": ["{name},", "I'll try to reach {place} before the council sits. Don't let them start without me.", "Yours in good faith,"]},
+		],
+		"farid": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "You've never asked anyone to stand in a room for you. I'm coming to {place} to stand in it.", "Until then,"],
+				"friend": ["{name},", "I'll be at the council at {place}. Your merchants' terms deserve a witness.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "Keep the floor until I get there. I'm coming to {place} as fast as the road allows.", "Until then,"],
+				"friend": ["{name},", "I'll reach {place} as soon as I can. Ask your relatives to wait; they won't, but ask.", "Yours in good faith,"]},
+		],
+		"kaede": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Don't pick up the brush until I'm there. I'm on my way to {place}.", "Until then,"],
+				"friend": ["{name},", "I'll be at {place} when the council sits. An honest comparison should have a witness.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "Leave the brush where it lies a little longer. I'll come to {place} when the road allows.", "Until then,"],
+				"friend": ["{name},", "I'll come to {place} as soon as I can. Make them wait; it's good for them.", "Yours in good faith,"]},
+		],
+	},
+	"ch5_invitation": {
+		"edda": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Whatever you mean to ask, ask it. I'm riding for {place}.", "Until then,"],
+				"friend": ["{name},", "I'll come to {place}. Have whatever you mean to write ready, and I'll sign it.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "I'll come to {place} as soon as I can. Save me the chair, and the question.", "Until then,"],
+				"friend": ["{name},", "I'll be at {place} when the road allows. Whatever it is, the answer is probably yes.", "Yours in good faith,"]},
+		],
+		"farid": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Keep the letter you didn't write. I'm on my way to {place} to hear it instead.", "Until then,"],
+				"friend": ["{name},", "I'll come to {place}. Draft it badly; I'll know what you mean.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "The road is slow, but it ends at {place}. Wait for me.", "Until then,"],
+				"friend": ["{name},", "I'll be at {place} when I can. Whatever our houses are to each other, I'll want it written down.", "Yours in good faith,"]},
+		],
+		"kaede": [
+			{"id": "coming", "label": "I'll come", "trust": 3,
+				"courting": ["{name},", "Leave the blank space open. I'm coming to {place} to see what goes in it.", "Until then,"],
+				"friend": ["{name},", "I'll come to {place}. Put it in the margin where such things go, and I'll put my name beside it.", "Yours in good faith,"]},
+			{"id": "soon", "label": "When the road allows", "trust": 1,
+				"courting": ["{name},", "I'll be at {place} as soon as the road allows. Don't fill the space without me.", "Until then,"],
+				"friend": ["{name},", "I'll come when I can. The margin will keep.", "Yours in good faith,"]},
+		],
+	},
 }
 
 ## How you sign your own letters.
@@ -591,24 +1015,30 @@ static func render(key: String, candidate_id: String, courting: bool, ctx: Dicti
 	}
 
 
-## The replies you could send to letter `key`. Every chapter's invitation takes the same
-## three answers.
-static func replies(key: String) -> Array:
+## The replies you could send to letter `key` from `candidate_id`: a chapter's invitation
+## gets answers about what she wrote, and the plain one; with no candidate (or anything
+## unknown) every invitation takes the general three.
+static func replies(key: String, candidate_id: String = "") -> Array:
+	var own: Array = CHAPTER_REPLIES.get(key, {}).get(candidate_id, [])
+	if not own.is_empty():
+		var out: Array = own.duplicate()
+		out.append(REPLIES["ch2_invitation"][2])
+		return out
 	if not REPLIES.has(key) and key.ends_with("_invitation"):
 		return REPLIES["ch2_invitation"]
 	return REPLIES.get(key, [])
 
 
-static func reply(key: String, reply_id: String) -> Dictionary:
-	for r in replies(key):
+static func reply(key: String, reply_id: String, candidate_id: String = "") -> Dictionary:
+	for r in replies(key, candidate_id):
 		if r["id"] == reply_id:
 			return r
 	return {}
 
 
 ## Your reply as a letter: {salute, body, close, sign, sign_title}.
-static func render_reply(key: String, reply_id: String, courting: bool, ctx: Dictionary) -> Dictionary:
-	var r := reply(key, reply_id)
+static func render_reply(key: String, reply_id: String, courting: bool, ctx: Dictionary, candidate_id: String = "") -> Dictionary:
+	var r := reply(key, reply_id, candidate_id)
 	if r.is_empty():
 		return {}
 	var lines: Array = r["courting" if courting else "friend"]
@@ -648,9 +1078,14 @@ static func _suffix(n: int) -> String:
 	return "th"
 
 
+## Fills a letter's blanks: {place}, {old}, {name}; {house} (her family's name), {at} (a
+## battle's place), {captain} (a fallen captain) and {days}.
 static func _fill(text: String, ctx: Dictionary) -> String:
+	var house := String(ctx.get("house", ""))
 	return text.replace("{place}", String(ctx.get("place", ""))).replace("{old}", String(ctx.get("old", "")))\
-		.replace("{name}", String(ctx.get("name", "")))
+		.replace("{name}", String(ctx.get("name", ""))).replace("{house}", house if house != "" else "Caldmoor")\
+		.replace("{at}", String(ctx.get("at", "the field"))).replace("{captain}", String(ctx.get("captain", "a captain")))\
+		.replace("{days}", String(ctx.get("days", "Many")))
 
 
 ## A settlement's name, or the id itself if it isn't one.

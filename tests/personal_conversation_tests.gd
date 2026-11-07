@@ -114,6 +114,7 @@ func _run() -> void:
 	check(migrated.relationships == soc.relationships, "legacy migration preserves relationships")
 	_check_cap_and_content()
 	_check_progress_and_gates()
+	_check_intent_later_and_parting()
 	await _check_ui(gs)
 	print("Personal conversations: %d checks, %d failures" % [checks, failures])
 	quit(failures)
@@ -181,6 +182,42 @@ func _check_progress_and_gates() -> void:
 	check(not Relationships.can_marry_public(soc.relationships["edda"], house)["ok"], "trust cannot replace house standing")
 	w.setup(42, Cultures.VARDISH)
 	check(w.social.personal_record(PERSON)["bonus_claims"].is_empty(), "new campaign resets optional history")
+
+## "We'll speak another time" is not final: you've met, and what you mean to be to each
+## other can be said at any later chapter. Parting ends new visits, in her words.
+func _check_intent_later_and_parting() -> void:
+	var w = fresh()
+	var soc = w.social
+	soc.apply_choice("edda", "another_time", {})
+	var rel: Dictionary = soc.relationships["edda"]
+	check(rel["status"] == Relationships.ACQUAINTED and not bool(rel["intent_chosen"]), "nothing decided yet: met, not a stranger")
+	check(soc.get_quest("quest_edda")["chapter"] == 2 and soc.intent_open("edda"), "the story goes on, and the question stays open")
+	var later: Dictionary = soc.preview_choice("edda", "know_better", {"invitations_enabled": true})
+	check(later["ok"] and later["new_status"] == Relationships.COURTING and int(later["trust_change"]) == 0,
+		"at a later chapter you can still ask to court her (the first audience's trust given once)")
+	check(not soc.preview_choice("edda", "another_time", {})["ok"], "and it can't be put off a second time")
+	check(soc.apply_choice("edda", "know_better", {"invitations_enabled": true})["ok"] and rel["status"] == Relationships.COURTING
+		and bool(rel["romantic_intent"]) and soc.get_quest("quest_edda")["chapter"] == 2 and not soc.intent_open("edda"),
+		"courting now, and the story stays at the chapter it reached")
+	w = fresh()
+	soc = w.social
+	soc.apply_choice("edda", "another_time", {})
+	soc.quests["quest_edda"]["chapter"] = 5
+	soc.relationships["edda"]["status"] = Relationships.COMMITTED
+	check(soc.apply_choice("edda", "offer_help", {})["ok"] and soc.relationships["edda"]["status"] == Relationships.COMMITTED,
+		"said late, a friendship keeps how close you already are")
+	# Parted: no new time together, said in her voice; what you shared can still be told.
+	w = fresh()
+	soc = w.social
+	soc.apply_choice("edda", "offer_help", {})
+	soc._hour += 24.0
+	finish(soc, FIRST)
+	soc.separate("edda")
+	soc._hour += 24.0
+	var refused: Dictionary = soc.personal_scene_access(PERSON, "edda_wrong_verse", ctx)
+	check(not refused["ok"] and String(refused["reason"]).contains("chair"), "parted, she won't start a new visit, and says why (%s)" % refused["reason"])
+	check(soc.personal_scene_access(PERSON, FIRST, {})["replay"], "a visit you shared can still be told again")
+
 
 func button(text: String) -> Button:
 	return _find(current_scene, text)

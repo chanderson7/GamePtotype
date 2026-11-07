@@ -28,6 +28,17 @@ var _replay := false
 var _ch1_topic_done := false
 ## Their first words this visit, chosen from what has happened since the last.
 var _opening := ""
+## Her account of chapter 3's deed, told once at the first visit after it was done.
+var _untold := ""
+## Which page of memories "Remember when…" shows (newest first).
+var _memory_page := 0
+## How many memories show on a page of "Remember when…".
+const MEMORY_PAGE := 6
+## Things that stay true for a while (a war, a siege, a burned hall): they open one visit,
+## then the greeting for how things stand comes back, until they end and begin again.
+const LASTING_FACTS := ["besieged", "burned", "war"]
+## Those things as they stand now, whether or not they were told (see _note_visit).
+var _lasting_now := {}
 
 
 ## What has happened since you last came, for Lines.opening. Nothing counts before a
@@ -36,21 +47,26 @@ func _facts() -> Dictionary:
 	var rel: Dictionary = _rel()
 	var w = GameState.world
 	var res := String(_social().get_candidate_person(cand).get("residence", ""))
+	_lasting_now = {"besieged": not w.siege_info(res).is_empty(), "burned": w.burned.has(res),
+		"war": GameState.is_at_war_with(String(_house().get("realm", w.owner_of(res))))}
 	if not rel.has("last_visit_hour"):
 		return {}
-	var facts := {"besieged": not w.siege_info(res).is_empty(), "burned": w.burned.has(res),
-		"war": GameState.is_at_war_with(String(_house().get("realm", w.owner_of(res)))),
-		"night": TalkView.time_word(w.hour) == "night"}
+	var facts := {"night": TalkView.time_word(w.hour) == "night"}
+	var told: Array = rel.get("told_facts", [])
+	for key in LASTING_FACTS:
+		facts[key] = bool(_lasting_now[key]) and not told.has(key)
 	var since_hour := float(rel.get("last_visit_hour", 0.0))
 	var since_battle := int(rel.get("last_visit_battles", 0))
 	for m in GameState.fallen:
 		if int(m.get("battle", 0)) > since_battle:
 			facts["fallen"] = String(m.get("first", m.get("name", "")))
+	# A wound, or the company's hurt, counts when it's new since you last came.
+	var seen_wounded: Array = rel.get("seen_wounded", [])
 	for s in GameState.army:
-		var c: Dictionary = s.get("captain", {})
-		if int(c.get("wounded", 0)) > 0:
+		var c: Dictionary = s.get("captain", {}) if s.get("captain") is Dictionary else {}
+		if int(c.get("wounded", 0)) > 0 and not seen_wounded.has(str(int(c.get("id", -1)))):
 			facts["wounded"] = String(c.get("first", c.get("name", "")))
-	facts["company_hurt"] = GameState.is_wounded()
+	facts["company_hurt"] = GameState.is_wounded() and not bool(rel.get("seen_hurt", false))
 	for e in w.events:
 		if String(e.get("type", "")) == "battle_fought" and bool(e.get("won", false)) and float(e.get("hour", -1.0)) > since_hour \
 				and w.hours_to(String(e.get("at", ""))) <= 48.0:
@@ -80,9 +96,12 @@ func _ready() -> void:
 	set_face("left", _portrait(_expression()), false, 0.98)
 	_refresh_plate()
 	Sound.set_loop("camp")
-	_opening = Lines.opening(cand, _status(), _facts())
-	# This visit is now the last one, for next time's opening.
+	var facts := _facts()
 	var rel: Dictionary = _rel()
+	_opening = Lines.opening(cand, _status(), facts, int(rel.get("visits", 0)))
+	_note_visit(Lines.opening_key(cand, facts))
+	_untold = _social().take_untold(cand)
+	# This visit is now the last one, for next time's opening.
 	rel["last_visit_hour"] = GameState.world.hour
 	rel["last_visit_battles"] = GameState.battles
 	_hub(true)
@@ -95,6 +114,28 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Sound.set_loop("")
+
+
+## What this visit saw, for the next one's "since": the lasting things she has spoken of
+## (forgotten once they end), the captains already wounded, the company's hurt, and the
+## count of visits (their greetings take turns).
+func _note_visit(spoken: String) -> void:
+	var rel: Dictionary = _rel()
+	var told: Array = (rel.get("told_facts", []) as Array).duplicate()
+	for key in LASTING_FACTS:
+		if not bool(_lasting_now.get(key, false)):
+			told.erase(key)
+		elif key == spoken and not told.has(key):
+			told.append(key)
+	rel["told_facts"] = told
+	var hurt: Array = []
+	for s in GameState.army:
+		var c = s.get("captain")
+		if c is Dictionary and int(c.get("wounded", 0)) > 0:
+			hurt.append(str(int(c.get("id", -1))))
+	rel["seen_wounded"] = hurt
+	rel["seen_hurt"] = GameState.is_wounded()
+	rel["visits"] = int(rel.get("visits", 0)) + 1
 
 
 const TalkView = preload("res://scripts/ui/talk_view.gd")
@@ -192,20 +233,43 @@ func _hub(first: bool = false) -> void:
 	_scene_id = ""
 	set_stage_share(STAGE_SHARE)
 	clear_log()
-	say("them", (_opening if _opening != "" else Lines.greeting(cand, _status())) if first else "What else is on your mind?", _name)
+	if first and _untold != "":
+		# What came of chapter 3's task, in her words, the first time you're back.
+		_tell(_untold)
+		_untold = ""
+		add_to_log(note("Done, as you promised. The next chapter follows.", Style.MORALE_HIGH))
+	else:
+		say("them", (_opening if _opening != "" else Lines.greeting(cand, _status(), int(_rel().get("visits", 0)))) if first else "What else is on your mind?", _name)
 	if bool(_rel().get("strained", false)):
 		add_to_log(note("Things are strained between you since a broken promise. %s will hear you out on it." % _name, Style.MORALE_LOW))
 	var replies := []
+	# What you never said at the first audience, first of all.
+	if _social().intent_open(cand):
+		replies.append({"id": "intent", "text": Lines.INTENT_OPENER, "icon": "heart", "tag": "say what you mean to be to %s" % _name,
+			"tone": "gold", "act": _intent_again})
 	# The story first.
 	var ch := _chapter()
 	var story: Dictionary = RomanceStories.story_data(cand)
 	var cinfo: Dictionary = story.get("chapters", {}).get(ch, {})
+	var post: Dictionary = _social().post_state(cand, GameState.world.hour)
+	var promised: Dictionary = _social().task(cand)
 	if _social().wedding_active(cand):
 		var w: Dictionary = GameState.wedding()
 		var tag: String = {"planning": "choose where", "postponed": "postponed · choose a new place",
 			"preparing": "at %s · %s" % [Letters.place_name(String(w.get("place", ""))), "being made ready"],
 			"ready": "ready at %s · ride there" % Letters.place_name(String(w.get("place", "")))}.get(String(w["state"]), "")
 		replies.append({"id": "wedding", "text": "About our wedding…", "icon": "rings", "tag": tag, "tone": "gold", "act": _wedding_talk})
+	elif ch == 3 and not promised.is_empty():
+		replies.append(_task_reply(promised))
+	elif bool(post.get("available", false)):
+		# After the vows: one more matter, told as a sixth chapter.
+		var project: Dictionary = RomanceStories.post_project(cand)
+		if bool(post.get("ok", false)):
+			replies.append({"id": "story", "text": Lines.story_opener(cand, CHAPTERS + 1), "icon": "book",
+				"tag": "Chapter %d · %s" % [CHAPTERS + 1, String(project.get("title", ""))], "tone": "gold", "act": _post})
+		elif not bool(post.get("done", false)):
+			replies.append({"id": "story", "text": Lines.story_opener(cand, CHAPTERS + 1),
+				"tag": "Chapter %d · %s" % [CHAPTERS + 1, String(post.get("reason", ""))], "tone": "locked"})
 	elif not cinfo.is_empty() and _status() != Relationships.ENDED and not (ch >= CHAPTERS and _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
 		var open: Dictionary = _social().chapter_open(cand, GameState.world.hour)
 		if bool(open["ok"]):
@@ -238,13 +302,27 @@ func _hub(first: bool = false) -> void:
 			replies.append({"id": "visit_" + id, "text": Lines.VISIT_OPENERS[mini(fresh, Lines.VISIT_OPENERS.size() - 1)],
 				"icon": "cup", "tag": "time together · " + title, "act": _visit.bind(id, false)})
 			fresh += 1
-	if open.is_empty() and not locked.is_empty():
+	var together: bool = _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]
+	if open.is_empty() and not locked.is_empty() and not (together and fresh == 0):
 		# When today's visit is spent, say that rather than the next visit's prerequisite.
 		var today := locked.filter(func(v): return bool(v.get("today", false)))
 		var why: Dictionary = today[0] if not today.is_empty() else locked[0]
 		replies.append({"id": "visits_locked", "text": Lines.VISIT_OPENERS[0], "tag": String(why.get("reason", "not yet")), "tone": "locked"})
+	# Married or sworn: an evening together is always there to be had.
+	if together:
+		replies.append({"id": "together", "text": Lines.TOGETHER_OPENER, "icon": "cup", "tag": "an evening together", "act": _together})
+	# Her house's good word, which a wedding or a pact needs: a muster at its seat.
+	var favour: Dictionary = _social().favour_check(cand, GameState.world.hour)
+	if bool(favour.get("ok", false)) or String(favour.get("reason", "")).begins_with("again in"):
+		var seat := Letters.place_name(String(_house().get("seat", "")))
+		if bool(favour.get("ok", false)) and GameState.silver >= int(favour["silver"]):
+			replies.append({"id": "favour", "text": Lines.FAVOUR_OPENER, "icon": "keep", "fx": [["silver", -int(favour["silver"])]],
+				"tag": "pay for a muster at %s · her house's good word" % seat, "act": _favour})
+		else:
+			replies.append({"id": "favour", "text": Lines.FAVOUR_OPENER, "fx": [["silver", -int(favour["silver"])]],
+				"tag": String(favour.get("reason", "")) if not bool(favour.get("ok", false)) else "need %d silver" % int(favour["silver"]), "tone": "locked"})
 	if not _social().memory_book(person_id).is_empty():
-		replies.append({"id": "remember", "text": "Remember when…", "icon": "journal", "tag": "your memories together", "act": _remember})
+		replies.append({"id": "remember", "text": "Remember when…", "icon": "journal", "tag": "your memories together", "act": _remember.bind(0)})
 	replies.append({"id": "leave", "text": Lines.leaving(_status()), "tone": "quiet", "act": close})
 	set_replies(replies)
 
@@ -299,13 +377,146 @@ func _story() -> void:
 	set_replies(replies)
 
 
-func _intents(cinfo: Dictionary) -> void:
+## What you mean to be to each other. Asked again later (`late`), it can't be put off by
+## saying nothing: "Not now." simply leaves it for another day.
+func _intents(cinfo: Dictionary, late: bool = false) -> void:
 	add_to_log(note(String(cinfo.get("intent_prompt", "What do you mean to be to each other?")), Style.BRASS))
 	var replies := []
 	for it in cinfo.get("intent_choices", []):
+		if late and String(it.get("intent", "")) == "none":
+			continue
 		replies.append(_decision(it))
 	replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
 	set_replies(replies)
+
+
+## The first audience's question, never answered: you bring it up again.
+func _intent_again() -> void:
+	clear_log()
+	say("you", Lines.INTENT_OPENER)
+	_face("thoughtful")
+	say("them", String(Lines.INTENT_AGAIN.get(cand, "You never said, that first day.")), _name)
+	_intents(RomanceStories.story_data(cand).get("chapters", {}).get(1, {}), true)
+
+
+# ---------------------------------------------------------------- chapter 3's task
+
+## The journal job for chapter 3's promise, if it's still in the journal, or {}.
+func _task_job(t: Dictionary) -> Dictionary:
+	var id := String(t.get("job_id", ""))
+	if id == "":
+		return {}
+	for j in GameState.active_jobs:
+		if String(j.get("id", "")) == id:
+			return j
+	return {}
+
+
+## The hub's line for a promise not yet kept: in the journal, or (if the job lapsed) taken up again.
+func _task_reply(t: Dictionary) -> Dictionary:
+	var choice := String(t.get("choice", ""))
+	var title := String(RomanceStories.choice_data(cand, choice).get("name", "Your promise"))
+	if not _task_job(t).is_empty():
+		return {"id": "story", "text": Lines.story_opener(cand, 3), "icon": "objective", "tag": "Chapter 3 · %s · in your journal" % title,
+			"act": _task_waiting.bind(choice)}
+	return {"id": "story", "text": "I gave you my word. I'll see it done.", "icon": "objective",
+		"tag": "Chapter 3 · %s · a job in your journal" % title, "tone": "gold", "act": _take_task.bind(true)}
+
+
+func _task_waiting(choice: String) -> void:
+	clear_log()
+	say("you", Lines.story_opener(cand, 3))
+	_face("concerned")
+	say("them", String(Lines.TASK_WAITING.get(cand, {}).get(choice, "It isn't done yet, captain.")), _name)
+	add_to_log(note("Your promise waits in the journal. The chapter ends when it's done.", Style.MUTED))
+	set_replies([_back_or_leave()])
+
+
+## Put chapter 3's task in the journal as a job, bound to her seat and villages.
+func _take_task(spoken: bool = false) -> void:
+	var job: Dictionary = _social().story_job(cand, GameState.world)
+	if spoken:
+		clear_log()
+		say("you", "I gave you my word. I'll see it done.")
+	if job.is_empty():
+		add_to_log(note("There's nothing to be done about it just now. Ask again later.", Style.MORALE_LOW))
+	else:
+		GameState.active_jobs.append(job)
+		GameState.save_game()
+		add_to_log(note("In your journal: %s." % String(job.get("title", "a promise")), Style.MORALE_HIGH))
+	set_replies([_back_or_leave()])
+
+
+# ---------------------------------------------------------------- after the vows
+
+func _post() -> void:
+	var project: Dictionary = RomanceStories.post_project(cand)
+	if not bool(_social().post_state(cand, GameState.world.hour).get("ok", false)):
+		_hub()
+		return
+	clear_log()
+	say("you", Lines.story_opener(cand, CHAPTERS + 1))
+	_face(String(project.get("face", "")))
+	_tell(String(project.get("text", "")))
+	var replies := []
+	for c in project.get("choices", []):
+		replies.append({"id": "post_" + String(c["id"]), "text": String(c["text"]), "tag": String(c.get("tag", "")), "tone": "gold",
+			"act": _post_decide.bind(c)})
+	replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
+	set_replies(replies)
+
+
+func _post_decide(c: Dictionary) -> void:
+	var r: Dictionary = _social().apply_post(cand, String(c["id"]), GameState.world.hour)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "Not now.")), Style.MORALE_LOW))
+		return
+	GameState.save_game()
+	say("you", String(c["text"]))
+	_face(String(c.get("face", "")))
+	_tell(String(c.get("response", "")))
+	var reaction := _reaction({"standing_change": int(r.get("standing_change", 0))})
+	if reaction != null:
+		add_to_log(reaction)
+	add_to_log(keepsake("A memory kept: %s" % String(c.get("memory", "")), "book"))
+	_after_change()
+	set_replies([_back_or_leave()])
+
+
+## An evening together, married or sworn: nothing to decide, nothing kept count of.
+func _together() -> void:
+	clear_log()
+	say("you", Lines.TOGETHER_OPENER)
+	var rel: Dictionary = _rel()
+	var n := int(rel.get("evenings", 0))
+	rel["evenings"] = n + 1
+	say("narration", Lines.together(cand, _status(), n))
+	_face("warm")
+	set_replies([_back_or_leave()])
+
+
+## Pay for a muster at her house's seat: its standing rises (a wedding or a pact needs it).
+func _favour() -> void:
+	var check: Dictionary = _social().favour_check(cand, GameState.world.hour)
+	var cost := int(check.get("silver", Relationships.FAVOUR_SILVER))
+	if not bool(check.get("ok", false)) or GameState.silver < cost:
+		add_to_log(note(String(check.get("reason", "")) if not bool(check.get("ok", false)) else "You need %d silver." % cost, Style.MORALE_LOW))
+		return
+	var r: Dictionary = _social().house_favour(cand, GameState.world.hour)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "Not now.")), Style.MORALE_LOW))
+		return
+	GameState.sponsor_replacements(String(r["house_id"]), String(r["seat"]), "settlement", cost)
+	clear_log()
+	say("you", Lines.FAVOUR_OPENER)
+	_face("warm")
+	say("them", String(Lines.FAVOUR_THANKS.get(cand, "Thank you.")), _name)
+	add_to_log(TalkView.fx_note([["silver", -cost]], "A muster at %s, paid for" % Letters.place_name(String(r["seat"])), Style.MUTED))
+	var reaction := _reaction({"standing_change": int(r.get("standing_change", 0))})
+	if reaction != null:
+		add_to_log(reaction)
+	_after_change()
+	set_replies([_back_or_leave()])
 
 
 ## Authored text into the talk: narration centred, their words in their bubble, yours in
@@ -350,6 +561,8 @@ func _decision(c: Dictionary) -> Dictionary:
 	var bits := PackedStringArray()
 	if String(c.get("tag", "")) != "":
 		bits.append(String(c["tag"]))
+	if String(c.get("promise", "")) != "":
+		bits.append("a job in your journal")
 	var now := _new_status(prev)
 	if now != "":
 		bits.append(now)
@@ -409,6 +622,13 @@ func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
 	if not confirmed:
 		say("you", text)
 	_face(String(c.get("face", "")))
+	if bool(res.get("task", false)):
+		# Promised, not yet done: her word on it, and the job in your journal.
+		_tell(String(c.get("promise", "")))
+		_ch1_topic_done = false
+		_after_change()
+		_take_task()
+		return
 	_tell(String(c.get("response", "")))
 	var reaction := _reaction(prev)
 	if reaction != null:
@@ -702,16 +922,30 @@ func _finish(action: String) -> void:
 
 # ---------------------------------------------------------------- remembering
 
-func _remember() -> void:
+## Your memories together, newest first, a page at a time; further back and more recent
+## turn the pages.
+func _remember(page: int = -1) -> void:
+	if page >= 0:
+		_memory_page = page
 	clear_log()
 	say("you", "Remember when…")
-	say("them", "Which time?", _name)
+	say("them", "Which time?" if _memory_page == 0 else "Further back, then.", _name)
 	var replies := []
 	var book: Array = _social().memory_book(person_id)
 	book.reverse()
-	for m in book.slice(0, 6):
+	var pages := maxi(1, ceili(book.size() / float(MEMORY_PAGE)))
+	_memory_page = clampi(_memory_page, 0, pages - 1)
+	var from := _memory_page * MEMORY_PAGE
+	for m in book.slice(from, from + MEMORY_PAGE):
 		var when := [["day", str(int(m["day"]))]] if int(m.get("day", 0)) > 0 else []
 		replies.append({"id": "memory_" + String(m["id"]), "text": String(m["text"]), "bare": true, "fx": when, "act": _recall.bind(m)})
+	var turn := []
+	if _memory_page > 0:
+		turn.append({"id": "newer", "text": "More recent…", "tone": "quiet", "act": _remember.bind(_memory_page - 1)})
+	if _memory_page < pages - 1:
+		turn.append({"id": "older", "text": "Further back…", "tone": "quiet", "tag": "page %d of %d" % [_memory_page + 1, pages], "act": _remember.bind(_memory_page + 1)})
+	if not turn.is_empty():
+		replies.append({"row": turn})
 	replies.append({"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub})
 	set_replies(replies)
 
@@ -719,7 +953,7 @@ func _remember() -> void:
 func _recall(m: Dictionary) -> void:
 	clear_log()
 	say("narration", String(m["text"]))
-	say("them", Lines.callback(m), _name)
+	say("them", Lines.callback(m, cand), _name)
 	var replies := []
 	var sid := String(m.get("scene_id", ""))
 	if String(m.get("kind", "")) == "visit" and _social().personal_record(person_id)["completed"].has(sid):

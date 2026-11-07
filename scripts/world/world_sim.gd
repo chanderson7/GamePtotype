@@ -3109,6 +3109,9 @@ func kill_lord(id: int, killer: String = "") -> Dictionary:
 	l["army"] = _lord_army(l)
 	l["full"] = men_of(l["army"])
 	emit_event({"type": "lord_slain", "lord": prev_name, "heir": heir_name, "realm": l["realm"], "by": killer})
+	# The house is the heir's now: its head and its name follow (social_sim.gd).
+	if social != null:
+		social.on_lord_succeeded(id, prev_name, heir_name)
 	if realms.has(String(l.get("realm", ""))):
 		add_weariness(String(l["realm"]), Politics.WEARINESS_LORD_ROUTED * 1.5)
 	return l

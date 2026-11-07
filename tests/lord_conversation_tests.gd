@@ -8,6 +8,7 @@ const Data = preload("res://scripts/world/world_data.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
 
 var failures := 0
 
@@ -239,7 +240,23 @@ func _init() -> void:
 	await process_frame
 	check(night_talk.get_node_or_null("Stage/SettlementVista") != null or Data.SETTLEMENTS.has(w.player().node) and w.player().node in LordConversation.PAINTED,
 		"elsewhere, the game paints the place you're at")
+	check(not night_talk.speech_text().contains("captain everyone's talking about") and int(LordTalk.record(fresh).get("talks", 0)) >= 2,
+		"meeting again, a lord you've talked with greets you as someone they know")
 	night_talk.queue_free()
+	# Married into their house: the head of it greets you as kin.
+	var kin_house := ""
+	for h in w.social.houses:
+		if int(w.social.get_person(String(w.social.houses[h]["head_person_id"])).get("lord_id", -1)) == int(fresh["id"]):
+			kin_house = String(h)
+	w.social._form_pact(kin_house, "marriage", ["person_edda", "player"], [], w.hour)
+	var turn := int(LordTalk.record(fresh).get("talks", 0))
+	var kin_said := LordVoice.line("kin", fresh, turn)
+	var kin_words := kin_said.substr(kin_said.find("\"") + 1, kin_said.rfind("\"") - kin_said.find("\"") - 1)
+	var kin_talk = LordConversation.open(root, gs, int(fresh["id"]), "road")
+	await process_frame
+	check(kin_house != "" and kin_talk.speech_text().contains(kin_words), "the head of a house you married into greets you as kin (%s)" % kin_talk.speech_text())
+	kin_talk.queue_free()
+	w.social.pacts.erase(kin_house)
 	var camp = LordConversation.open(root, gs, int(captive["id"]), "captive")
 	await process_frame
 	check(camp.caption().begins_with("Your camp") and camp.has_reply("release") and camp.has_reply("swear", false) and not camp.has_reply("swear"),

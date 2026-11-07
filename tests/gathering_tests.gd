@@ -313,6 +313,11 @@ func _init() -> void:
 	gs.dance(rg, "romance", "edda")
 	var trust_cap: int = int(soc.relationships["edda"]["trust"])
 	check(trust_cap == 20 + Gatherings.DANCE_TRUST_CAP, "dances add trust up to a cap (%d)" % trust_cap)
+	var danced: Array = soc.memory_book(String(soc.get_candidate_person("edda")["id"])).filter(func(m): return String(m["kind"]) == "dance")
+	var dance_texts := {}
+	for m in danced:
+		dance_texts[String(m["text"])] = true
+	check(danced.size() == 3 and dance_texts.size() == 3 and String(danced[2]["candidate"]) == "edda", "each dance is remembered as itself")
 
 	# ---- the hall on an ordinary day
 	for x in w.gatherings.duplicate():

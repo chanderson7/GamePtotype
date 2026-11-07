@@ -3,6 +3,7 @@ extends SceneTree
 
 const Cultures = preload("res://scripts/data/cultures.gd")
 const CampMoments = preload("res://scripts/data/camp_moments.gd")
+const Captains = preload("res://scripts/data/captains.gd")
 
 var gs
 var failures := 0
@@ -103,6 +104,30 @@ func _init() -> void:
 	tokens[0].pressed.emit()
 	await create_timer(0.6).timeout
 	check(root.get_node("Scenes").active_captain_id == token_id, "a captain at the fire opens their profile")
+
+	# Three lines for every moment and temper, in turn: never the same twice running.
+	var three := true
+	for kind in CampMoments.LINES:
+		for temper in CampMoments.LINES[kind]:
+			three = three and (CampMoments.LINES[kind][temper] as Array).size() >= 3
+	check(three, "every moment has three lines for each temper")
+	check(CampMoments.line("victory", Captains.STEADFAST, "Brann", "", 4) != CampMoments.line("victory", Captains.STEADFAST, "Brann", "", 5),
+		"one battle's line isn't the next one's")
+	# A fall is mourned at the fire even if another battle came first.
+	gs.camp_seen = []
+	gs.fallen.append({"id": 9997, "name": "Osric of Holloway", "first": "Osric", "temperament": "", "battle": gs.battles - 2,
+		"type": "infantry", "mourned": false})
+	check(CampMoments.candidates(gs).any(func(c): return String(c["key"]) == "fallen_9997"), "a captain lost two battles ago still waits to be mourned")
+	CampMoments.dismiss(gs, "fallen_9997")
+	check(not CampMoments.candidates(gs).any(func(c): return String(c["key"]) == "fallen_9997"), "and once mourned, is let be")
+	# Last words: what anyone says, and what their own people say.
+	for cult in [Cultures.VARDISH, Cultures.KHARZANI, Cultures.RYUMON]:
+		check(Captains.CULTURE_LAST_WORDS[cult].size() >= 5 and Captains.words_for(cult, true).size() >= Captains.LAST_WORDS.size() + 5,
+			"%s captains have last words of their own" % cult)
+	check(Captains.WOUNDED_WORDS.size() >= 10 and Captains.words_for(Cultures.RYUMON, false).has("Help me up. I'm not done."), "and more to say when carried off wounded")
+	# A hero keeps their own voice at the fire.
+	var mori := {"is_hero": true, "hero_id": "mori", "first": "Mori", "temperament": Captains.VENGEFUL}
+	check(CampMoments.line_for("victory", mori, "Mori").contains("naginata"), "a hero speaks in their own voice after a battle")
 
 	print("\nCamp tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
