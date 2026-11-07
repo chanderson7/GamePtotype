@@ -47,23 +47,34 @@ func _show(rank: String) -> void:
 	if conversation.is_empty():
 		return
 	_rank = String(conversation["rank"])
-	set_plate("%s & %s" % [_a["first"], _b["first"]], [
-		TalkView.plate_chip("Rank %s" % _rank, Style.BRASS, "heart"),
-		TalkView.plate_chip(GameState.bond_effect_text(Captains.RANK_POINTS[Captains.RANKS.find(_rank)] + 0.01), Style.MORALE_HIGH)])
+	set_plate("%s & %s" % [_a["first"], _b["first"]], _rank_marks(_rank))
 	clear_log()
 	var passages: Array = conversation["passages"]
-	# What the company remembers, then their own words.
+	# What the company remembers, then their own words: the first captain on the left, the
+	# second on the right in a neutral bubble (your blue is for you).
 	for i in passages.size() - 1:
 		say("narration", String(passages[i]))
 	for line in conversation.get("exchange", []):
 		var who: Dictionary = _a if String(line["who"]) == "a" else _b
-		say("them" if who == _a else "you", String(line["text"]), String(who["first"]))
+		say("them" if who == _a else "other", String(line["text"]), String(who["first"]))
 	GameState.acknowledge_bond_conversation(int(_a["id"]), int(_b["id"]), _rank)
 	var next := GameState.next_bond_talk(int(_a["id"]), int(_b["id"]))
 	if next != "":
 		set_replies([{"id": "next", "text": "Their next talk · Rank %s" % next, "tone": "primary", "act": _show.bind(next)}])
 	else:
 		set_replies([{"id": "back", "text": _back_text(), "tone": "primary", "act": close}])
+
+
+## A bond's rank as its badge, with what it does in battle as chips: morale back each
+## second nearby, and the damage it adds from rank B.
+static func _rank_marks(rank: String) -> Array:
+	var i := maxi(0, Captains.RANKS.find(rank))
+	var out: Array = [Widgets.rank_badge(rank, 48.0)]
+	out.append(TalkView.stage_chip("+%.1f/s" % Captains.RANK_REGEN[i], Style.TEXT, "morale"))
+	var damage := roundi(Captains.RANK_POWER[i] * 100.0)
+	if damage > 0:
+		out.append(TalkView.stage_chip("+%d%%" % damage, Style.TEXT, "fight"))
+	return out
 
 
 func _on_close() -> void:

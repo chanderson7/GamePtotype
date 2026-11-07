@@ -156,6 +156,8 @@ func _init() -> void:
 	day.choose("toast_absent")
 	check(soc.relationships["edda"]["status"] == Relationships.MARRIED and gs.wedding()["state"] == "done", "married")
 	check(day.find_child("MarriedTitle", true, false) != null and day.has_reply("done"), "one closing card, one way back")
+	check(day.find_child("ClosingCard", true, false) != null and day.find_children("Keepsake", "", true, false).is_empty(),
+		"Married is said once, on its card, without quoting the vow again")
 	check(gs.renown == renown0 + Relationships.WEDDING_RENOWN, "renown for a public wedding")
 	check(gs.relation_with_lord(int(host["id"])) == host_rel0 + Relationships.WEDDING_HOST_REGARD and gs.relation_with_lord(int(friend["id"])) == friend_rel0 + Relationships.WEDDING_GUEST_REGARD,
 		"Regard for the host and the guest who came")

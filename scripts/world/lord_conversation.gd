@@ -19,6 +19,11 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const HallScene = preload("res://scripts/ui/hall_scene.gd")
+const TalkView = preload("res://scripts/ui/talk_view.gd")
+
+## Replies that take you back or away: they sit in a footer of two quiet buttons, not in
+## the list of things to say.
+const FOOTER_IDS := ["back", "leave"]
 
 ## Places with a painted picture of their own.
 const PAINTED := ["ravensford", "qasr_hamra", "kitayama"]
@@ -236,26 +241,11 @@ func _build_stage() -> void:
 	cap.add_theme_stylebox_override("panel", cb)
 	cap.position = Vector2(20, 20)
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cap_label := Style.label(caption(), Style.SMALL, Style.TEXT)
-	cap_label.name = "Caption"
-	cap.add_child(cap_label)
+	# Where, at what gathering, and the hour: a pin, a cup and the sun or the moon.
+	var feast := mode == "hall" and Data.SETTLEMENTS.has(id) and world.gathering_on(world.gathering_at(id))
+	cap.add_child(TalkView.caption_row(caption(), "cup" if feast else ""))
 	_stage.add_child(cap)
-	var x := Button.new()
-	x.name = "Close"
-	x.custom_minimum_size = Vector2(64, 64)
-	x.icon = Widgets.icon("cancel")
-	x.expand_icon = true
-	x.add_theme_stylebox_override("normal", Style.box(Color(Style.NIGHT, 0.75), Style.RULE, 2, 32))
-	x.add_theme_stylebox_override("hover", Style.box(Color(Style.NIGHT, 0.85), Style.MUTED, 2, 32))
-	x.add_theme_stylebox_override("pressed", Style.box(Style.NIGHT, Style.BRASS, 2, 32))
-	x.anchor_left = 1.0
-	x.anchor_right = 1.0
-	x.offset_left = -84
-	x.offset_right = -20
-	x.offset_top = 16
-	x.offset_bottom = 80
-	x.pressed.connect(_leave)
-	_stage.add_child(x)
+	_stage.add_child(TalkView.close_button(_leave))
 	# Their face, their banner, and yours.
 	var face := TextureRect.new()
 	face.name = "Face"
@@ -285,11 +275,12 @@ func _build_stage() -> void:
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	plate.add_theme_constant_override("separation", 4)
 	if String(lord.get("captive_of", "")) == "player":
-		plate.add_child(Widgets.chip("Your captive", Style.MORALE_MID, "·"))
+		plate.add_child(Widgets.chip("Your captive", Style.MORALE_MID, "", "lock"))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
-	var name_label := Style.label(LordTalk.short_name(lord), Style.LARGE, Style.TEXT)
+	var name_label := Style.name_label(LordTalk.short_name(lord))
 	name_label.name = "LordName"
+	name_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 	var display := Style.display_font()
 	if display != null:
 		name_label.add_theme_font_override("font", display)
@@ -350,7 +341,7 @@ func _refresh_regard() -> void:
 	_regard_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 6)
-	var heart := Widgets.icon_rect("heart", 22)
+	var heart := Widgets.icon_rect("bond", 26)
 	heart.modulate = tone
 	h.add_child(heart)
 	var sworn := String(lord.get("realm", "")) == Data.CROWN
@@ -362,7 +353,8 @@ func _refresh_regard() -> void:
 
 # ---------------------------------------------------------------- the talk
 
-## One exchange: your last line, dimmed; their answer; anything to show with it; your replies.
+## One exchange: your last line, dimmed; their answer (the plate says who); anything to
+## show with it; your replies; and a footer with the way back and the way out.
 func _show(speech: String, extras: Array, replies: Array) -> void:
 	for c in _talk.get_children():
 		_talk.remove_child(c)
@@ -373,8 +365,6 @@ func _show(speech: String, extras: Array, replies: Array) -> void:
 		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		said.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		_talk.add_child(said)
-	var who := Style.label(LordTalk.first_name(lord).to_upper(), Style.SMALL, Style.BRASS)
-	_talk.add_child(who)
 	var line := Style.label(speech, Style.BODY, Style.TEXT)
 	line.name = "Speech"
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -384,8 +374,16 @@ func _show(speech: String, extras: Array, replies: Array) -> void:
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 8)
 	_talk.add_child(gap)
+	var footer := []
 	for r in replies:
-		_talk.add_child(_reply(r))
+		if r.has("row"):
+			_talk.add_child(_order_row(r))
+		elif String(r.get("id", "")) in FOOTER_IDS:
+			footer.append(r)
+		else:
+			_talk.add_child(_reply(r))
+	if not footer.is_empty():
+		_talk.add_child(_footer(footer))
 	_refresh_regard()
 	_scroll.scroll_vertical = 0
 	if not Style.motion_reduced():
@@ -399,8 +397,9 @@ func speech_text() -> String:
 	return n.text if n != null else ""
 
 
-## A reply you can give: {id, text, tag, tone ("plain", "gold", "red", "locked"), act,
-## extra (a Control shown inside it)}.
+## A reply you can give: {id, text, tone ("plain", "gold", "red", "locked"), act, and
+## under its words: icon (what kind of thing it is), fx (what it does, as chips, see
+## TalkView.fx_chips), tag (any words still needed), extra (a Control shown inside it)}.
 func _reply(r: Dictionary) -> Control:
 	var tone := String(r.get("tone", "plain"))
 	var locked := tone == "locked"
@@ -431,26 +430,16 @@ func _reply(r: Dictionary) -> Control:
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(text)
-	var tag := String(r.get("tag", ""))
-	if tag != "" or locked:
-		var tag_row := HBoxContainer.new()
-		tag_row.add_theme_constant_override("separation", 6)
-		tag_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if locked:
-			tag_row.add_child(Widgets.icon_rect("lock", 18))
-		var tl := Style.label(tag, Style.SMALL - 2, Style.BRASS if tone == "gold" else (Style.ENEMY_LIGHT if tone == "red" else Style.MUTED))
-		tl.name = "Tag"
-		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tag_row.add_child(tl)
-		box.add_child(tag_row)
+	var marks := TalkView.marks(r, tone)
+	if marks != null:
+		box.add_child(marks)
 	if r.has("extra"):
 		box.add_child(r["extra"])
 	b.add_child(box)
-	# A button doesn't grow to its children: size it to them once they've measured.
-	box.minimum_size_changed.connect(func(): b.custom_minimum_size.y = box.get_combined_minimum_size().y + 20)
-	b.custom_minimum_size.y = 72
+	# A button doesn't grow to its children: size it to them once they've measured, and
+	# never under a full touch target.
+	box.minimum_size_changed.connect(func(): b.custom_minimum_size.y = maxf(Style.TOUCH, box.get_combined_minimum_size().y + 20))
+	b.custom_minimum_size.y = Style.TOUCH
 	if not locked and r.has("act"):
 		var act: Callable = r["act"]
 		var said := String(r["text"])
@@ -461,9 +450,77 @@ func _reply(r: Dictionary) -> Control:
 	return b
 
 
+## The way back ("Something else", "Another time") and the way out ("Safe roads."), side
+## by side under the replies: quiet, with an icon each, the words as you'd say them.
+func _footer(replies: Array) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = "Footer"
+	row.add_theme_constant_override("separation", 12)
+	for r in replies:
+		var b := Button.new()
+		b.name = "Reply_" + String(r["id"])
+		b.text = String(r["text"])
+		b.icon = Widgets.icon("ride" if String(r["id"]) == "leave" else "back")
+		b.add_theme_constant_override("icon_max_width", 30)
+		b.add_theme_constant_override("h_separation", 10)
+		b.custom_minimum_size = Vector2(0, Style.TOUCH)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.clip_text = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		for state in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(state, Style.box(Color(0, 0, 0, 0), Style.RULE if state != "hover" else Style.MUTED, 2, 16))
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			b.add_theme_color_override(c, Style.MUTED)
+		for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+			b.add_theme_color_override(c, Style.MUTED)
+		if r.has("act"):
+			var act: Callable = r["act"]
+			var said := String(r["text"])
+			b.pressed.connect(func():
+				Sound.play("page", 0.0, 0.05)
+				_said = said
+				act.call())
+		row.add_child(b)
+	return row
+
+
+## Orders to a lord sworn to you, as one row of three: Follow, Hold, Free. The order they
+## have now is lit and can't be pressed again. `r` is {"row": [{id, label, icon, tip, lit,
+## act}]}.
+func _order_row(r: Dictionary) -> Control:
+	var box := VBoxContainer.new()
+	box.name = "Orders"
+	box.add_theme_constant_override("separation", 6)
+	box.add_child(Widgets.section("Orders"))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	for o in r["row"]:
+		var lit := bool(o.get("lit", false))
+		var b := Widgets.icon_tile(String(o["icon"]), String(o["label"]), lit, func(): pass, "Reply_" + String(o["id"]))
+		b.custom_minimum_size = Vector2(0, 100)
+		b.tooltip_text = String(o.get("tip", ""))
+		b.focus_mode = Control.FOCUS_NONE
+		b.disabled = lit or not o.has("act")
+		if lit:
+			b.add_theme_stylebox_override("disabled", Style.box(Color("33290f"), Style.BRASS, 3))
+			b.add_theme_color_override("font_disabled_color", Color("f3d891"))
+			b.add_theme_color_override("icon_disabled_color", Style.BRASS)
+		if not b.disabled:
+			var act: Callable = o["act"]
+			var said := String(o.get("says", o["label"]))
+			b.pressed.connect(func():
+				Sound.play("page", 0.0, 0.05)
+				_said = said
+				act.call())
+		row.add_child(b)
+	return box
+
+
 ## Press a reply by id, as a tap would (tests and autoplay).
 func choose(id: String) -> bool:
-	var b := _talk.get_node_or_null("Reply_" + id) as Button
+	var b := _talk.find_child("Reply_" + id, true, false) as Button
 	if b == null or b.disabled:
 		return false
 	b.pressed.emit()
@@ -471,18 +528,17 @@ func choose(id: String) -> bool:
 
 
 func has_reply(id: String, enabled_only: bool = true) -> bool:
-	var b := _talk.get_node_or_null("Reply_" + id) as Button
+	var b := _talk.find_child("Reply_" + id, true, false) as Button
 	return b != null and (not enabled_only or not b.disabled)
 
 
 func _note(text: String, tone: Color = Style.MORALE_HIGH) -> Control:
-	var p := PanelContainer.new()
-	p.name = "Note"
-	p.add_theme_stylebox_override("panel", Style.box(Color(tone, 0.12), Color(tone, 0.6), 2, 12))
-	var l := Style.label(text, Style.SMALL, tone.lightened(0.3))
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	p.add_child(l)
-	return p
+	return TalkView.fx_note([], text, tone)
+
+
+## What changed, as chips (see TalkView.fx_chips) and the words still needed after them.
+func _fx_note(fx: Array, text: String = "", tone: Color = Style.MORALE_HIGH) -> Control:
+	return TalkView.fx_note(fx, text, tone)
 
 
 func _leave_reply(text: String = "Safe roads.") -> Dictionary:
@@ -519,7 +575,7 @@ func _beat_greet() -> void:
 			words = "Captain. Come to drink %s's wine with the rest of us?" % gs.gathering_host_name(g)
 		var bonus: int = gs.first_word(lord)
 		if bonus > 0:
-			extras.append(_note("+%d Regard · first word at the table" % bonus))
+			extras.append(_fx_note([["bond", bonus]], "first word at the table"))
 	_show("\"%s\"" % words, extras, _root_replies())
 
 
@@ -533,22 +589,22 @@ func _house_line() -> String:
 func _root_replies() -> Array:
 	var out := []
 	var news: Array = world.fresh_news()
-	out.append({"id": "news", "text": "Peaceably. What news from the war?" if _beat == "greet" else "What news from the war?",
-		"tag": ("%d thing%s you haven't heard" % [news.size(), "" if news.size() == 1 else "s"]) if not news.is_empty() else "no news since you last heard",
-		"act": _beat_news})
+	out.append({"id": "news", "text": "Peaceably. What news from the war?" if _beat == "greet" else "What news from the war?", "icon": "book",
+		"fx": [["mail", "%d new" % news.size()]] if not news.is_empty() else [],
+		"tag": "" if not news.is_empty() else "nothing new", "act": _beat_news})
 	out.append({"id": "trouble", "text": "Something weighs on you, %s." % String(lord.get("house", LordTalk.first_name(lord))),
-		"tag": "learn what they want", "act": _beat_trouble})
+		"icon": "objective", "tag": "learn what they want", "act": _beat_trouble})
 	if not LordTalk.stories(gs, lord).is_empty():
-		out.append({"id": "story", "text": "A story for the road?", "tag": "talk · builds Regard", "act": _beat_stories})
+		out.append({"id": "story", "text": "A story for the road?", "icon": "talk", "tag": "builds Regard", "act": _beat_stories})
 	var army_ride: bool = gs.has_contract() and gs.contract_realm() == String(lord.get("realm", "")) and int(lord.get("party", -1)) >= 0
 	if army_ride and mode != "hall":
 		var pid := int(lord["party"])
 		if world.following_party == pid:
-			out.append({"id": "part", "text": "I'll ride my own road now.", "tag": "stop riding with them", "act": func():
+			out.append({"id": "part", "text": "I'll ride my own road now.", "icon": "ride", "tag": "stop riding with them", "act": func():
 				world.following_party = -1
 				_leave()})
 		else:
-			out.append({"id": "ride", "text": "Let us ride with you.", "tag": "follow their army", "act": func():
+			out.append({"id": "ride", "text": "Let us ride with you.", "icon": "ride", "tag": "follow their army", "act": func():
 				wants_follow.emit(pid)
 				_leave()})
 	out.append_array(_order_replies())
@@ -558,14 +614,16 @@ func _root_replies() -> Array:
 		# No swords under a host's roof: a challenge is a duel outside the walls at dawn.
 		if String(lord.get("realm", "")) != Data.CROWN:
 			var dc := LordTalk.duel_check(gs, lord)
-			out.append({"id": "outside", "text": "Meet me outside the walls at dawn.",
+			out.append({"id": "outside", "text": "Meet me outside the walls at dawn.", "icon": "fight",
 				"tag": ("a duel · no swords under %s roof" % _roof_possessive()) if bool(dc["ok"]) else String(dc["reason"]),
 				"tone": "red" if bool(dc["ok"]) else "locked", "act": _beat_duel})
 		out.append(_leave_reply(_hall_goodbye()))
 		return out
 	if bool(ch["ok"]) or String(lord.get("realm", "")) != Data.CROWN:
-		out.append({"id": "sword", "text": "Draw your sword.",
-			"tag": ("challenge · means war with %s" % _realm_name()) if bool(ch["ok"]) and bool(ch["war"]) else ("challenge" if bool(ch["ok"]) else String(ch["reason"])),
+		var war: bool = bool(ch["ok"]) and bool(ch["war"])
+		out.append({"id": "sword", "text": "Draw your sword.", "icon": "fight",
+			"fx": [{"realm": _banner_realm, "text": "war"}] if war else [],
+			"tag": "challenge" if bool(ch["ok"]) else String(ch["reason"]),
 			"tone": "red" if bool(ch["ok"]) or LordTalk.duel_check(gs, lord)["ok"] else "locked", "act": _beat_challenge.bind(false)})
 	out.append(_leave_reply())
 	return out
@@ -605,23 +663,25 @@ func _order_replies() -> Array:
 	var lid := int(lord["id"])
 	var order: Dictionary = lord.get("order", {}) if lord.get("order") is Dictionary else {}
 	var kind := String(order.get("kind", ""))
-	var out := []
-	if kind != "follow":
-		out.append({"id": "order_follow", "text": "Ride with me.", "tag": "order · they follow you and join your fights", "tone": "gold", "act": func():
+	var row := []
+	row.append({"id": "order_follow", "label": "Follow", "icon": "company", "says": "Ride with me.", "tip": "They follow you and join your fights",
+		"lit": kind == "follow", "act": func():
 			gs.order_lord(lid, "follow")
 			_show("\"At your side, then.\"", [_note("%s rides with you." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Good.")])})
 	var hold := String(lord.get("fief", ""))
 	if hold == "" or not gs.crown_holdings().has(hold):
 		hold = world.capital_of(Data.CROWN)
-	if hold != "" and not (kind == "guard" and String(order.get("target", "")) == hold):
-		out.append({"id": "order_guard", "text": "Hold %s for the crown." % Data.settlement(hold)["name"], "tag": "order · they guard it", "act": func():
-			gs.order_lord(lid, "guard", hold)
-			_show("\"It will stand.\"", [_note("%s will hold %s." % [LordTalk.short_name(lord), Data.settlement(hold)["name"]], Style.BRASS)], [_leave_reply("Good.")])})
-	if kind != "":
-		out.append({"id": "order_free", "text": "Go about the realm's business.", "tag": "order · they choose for themselves", "act": func():
+	if hold != "":
+		var hold_name := String(Data.settlement(hold)["name"])
+		row.append({"id": "order_guard", "label": "Hold", "icon": "keep", "says": "Hold %s for the crown." % hold_name, "tip": "They guard %s" % hold_name,
+			"lit": kind == "guard" and String(order.get("target", "")) == hold, "act": func():
+				gs.order_lord(lid, "guard", hold)
+				_show("\"It will stand.\"", [_note("%s will hold %s." % [LordTalk.short_name(lord), hold_name], Style.BRASS)], [_leave_reply("Good.")])})
+	row.append({"id": "order_free", "label": "Free", "icon": "mappin", "says": "Go about the realm's business.", "tip": "They choose for themselves",
+		"lit": kind == "", "act": func():
 			gs.order_lord(lid, "")
 			_show("\"As you say.\"", [], [_leave_reply("Go well.")])})
-	return out
+	return [{"row": row}]
 
 
 ## The crown lines: open once you're crowned, shown locked before so you know they're coming.
@@ -630,13 +690,13 @@ func _crown_replies() -> Array:
 		return []
 	var check := LordTalk.persuade_check(gs, lord)
 	if not gs.is_crowned():
-		return [{"id": "crown", "text": "Swear to my banner.", "tag": "raise your own banner first", "tone": "locked"},
-			{"id": "price", "text": "Name your price to change sides.", "tag": "raise your own banner first", "tone": "locked"}]
+		# One locked line, so you know crowns are coming.
+		return [{"id": "crown", "text": "I've come to talk of crowns.", "tag": "raise your own banner first", "tone": "locked"}]
 	if not bool(check["ok"]):
 		return [{"id": "crown", "text": "I've come to talk of crowns.", "tag": String(check["reason"]), "tone": "locked"}]
 	var c := LordTalk.conviction(gs, lord)
-	return [{"id": "crown", "text": "I've come to talk of crowns.", "tag": "win them over · convinced %d / %d" % [c, LordTalk.CONVINCED],
-		"tone": "gold", "act": _beat_persuade.bind(true)}]
+	return [{"id": "crown", "text": "I've come to talk of crowns.", "icon": "crown", "fx": [["crown", "%d / %d" % [c, LordTalk.CONVINCED]]],
+		"tag": "win them over", "tone": "gold", "act": _beat_persuade.bind(true)}]
 
 
 # ---------------------------------------------------------------- news
@@ -661,10 +721,10 @@ func _beat_news() -> void:
 		world.news_heard_at = float(news[0]["hour"])
 	var replies := []
 	if not bool(lord.get("ruler", false)) and String(lord.get("realm", "")) != Data.CROWN:
-		replies.append({"id": "king", "text": "And what will %s do?" % LordTalk.ruler_name(lord),
+		replies.append({"id": "king", "text": "And what will %s do?" % LordTalk.ruler_name(lord), "icon": "crown",
 			"tag": "their view of their ruler" + (" · counts toward crowns" if gs.is_crowned() else ""), "act": _beat_king})
 	if mode != "hall":
-		replies.append({"id": "chronicle", "text": "More in the chronicle.", "tag": "opens War & Politics", "act": func(): wants_news.emit()})
+		replies.append({"id": "chronicle", "text": "More in the chronicle.", "icon": "journal", "tag": "War & Politics", "act": func(): wants_news.emit()})
 	replies.append({"id": "back", "text": "Something else.", "tag": "", "act": _beat_greet_again})
 	replies.append(_leave_reply("Thank you. Safe roads."))
 	_show(speech, extras, replies)
@@ -676,10 +736,11 @@ func _news_chip(e: Dictionary) -> Control:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 10)
 	var hours: float = world.hour - float(e.get("hour", 0.0))
-	var when := "Today" if hours < 24.0 else ("Yesterday" if hours < 48.0 else "%d days ago" % int(hours / 24.0))
-	var w := Style.label(when, Style.SMALL - 2, Style.BRASS)
+	var when := "Today" if hours < 24.0 else ("Yesterday" if hours < 48.0 else "%s ago" % Style.time_short(hours))
+	var w := Style.label(when, Style.SMALL, Style.BRASS)
+	w.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	h.add_child(w)
-	var t := Style.label(String(e.get("text", "")), Style.SMALL - 2, Style.TEXT)
+	var t := Style.label(String(e.get("text", "")), Style.SMALL, Style.TEXT)
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(t)
@@ -720,11 +781,15 @@ func _beat_stories() -> void:
 			break
 		shown += 1
 		var tag := "your chronicle" if String(s["id"]).begins_with("log_") else "a company tale"
+		var fx := []
 		if String(s["theme"]) == LordTalk.likes(lord) and LordTalk.like_known(lord):
+			fx.append(["bond", LordTalk.STORY_LIKED])
 			tag += " · they like %s" % LordTalk.THEME_WORDS[s["theme"]]
 		elif String(s["theme"]) == LordTalk.dislikes(lord) and LordTalk.dislike_known(lord):
+			fx.append(["bond", LordTalk.STORY_DISLIKED])
 			tag += " · they dislike %s" % LordTalk.THEME_WORDS[s["theme"]]
-		replies.append({"id": "tell_" + String(s["id"]), "text": String(s["says"]), "tag": tag, "act": _tell.bind(String(s["id"]))})
+		replies.append({"id": "tell_" + String(s["id"]), "text": String(s["says"]), "icon": "journal" if String(s["id"]).begins_with("log_") else "talk",
+			"fx": fx, "tag": tag, "act": _tell.bind(String(s["id"]))})
 	replies.append({"id": "back", "text": "Another time.", "act": _beat_greet_again})
 	var ask := "\"Go on, then. Tell me something your company did that I won't have heard in a tavern.\""
 	_show(ask, [], replies)
@@ -734,13 +799,10 @@ func _tell(story_id: String) -> void:
 	var r := LordTalk.tell_story(gs, lord, story_id)
 	var extras := []
 	var change := int(r.get("regard", 0))
-	var line := "%s%d Regard." % ["+" if change > 0 else "", change]
-	if String(r.get("learned", "")) != "":
-		line += " " + String(r["learned"])
-	extras.append(_note(line, Style.MORALE_HIGH if change > 0 else Style.MORALE_LOW))
+	extras.append(_fx_note([["bond", change]], String(r.get("learned", "")), Style.MORALE_HIGH if change > 0 else Style.MORALE_LOW))
 	var replies := []
 	if not LordTalk.stories(gs, lord).is_empty():
-		replies.append({"id": "story", "text": "Another?", "tag": "tell another", "act": _beat_stories})
+		replies.append({"id": "story", "text": "Another?", "icon": "talk", "tag": "tell another", "act": _beat_stories})
 	replies.append({"id": "back", "text": "Something else.", "act": _beat_greet_again})
 	replies.append(_leave_reply())
 	_show(String(r.get("reaction", "")), extras, replies)
@@ -754,13 +816,17 @@ func _beat_trouble() -> void:
 	var replies := []
 	if String(tr["kind"]) == "bandits":
 		var full: bool = gs.active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS
-		replies.append({"id": "take", "text": "I'll clear %s." % String(tr["name"]),
-			"tag": "your journal is full" if full else "new job · +%d Regard when done%s" % [LordTalk.JOB_REGARD, " · counts toward crowns" if gs.is_crowned() else ""],
+		replies.append({"id": "take", "text": "I'll clear %s." % String(tr["name"]), "icon": "journal",
+			"fx": [] if full else [["bond", LordTalk.JOB_REGARD]],
+			"tag": "your journal is full" if full else "new job · when done%s" % (" · counts toward crowns" if gs.is_crowned() else ""),
 			"tone": "locked" if full else "gold", "act": _take_trouble.bind(0)})
 		if int(LordTalk.record(lord).get("haggled", 0)) == 0:
 			var cost := LordTalk.haggle_cost(lord)
-			replies.append({"id": "haggle", "text": "What would that be worth to you?",
-				"tag": "they'd add %d silver%s" % [LordTalk.haggle_silver(lord), (" · %d Regard, %s dislikes haggling" % [cost, String(lord["bearing"])]) if cost != 0 else ""],
+			var haggle_fx := [["silver", LordTalk.haggle_silver(lord)]]
+			if cost != 0:
+				haggle_fx.append(["bond", cost])
+			replies.append({"id": "haggle", "text": "What would that be worth to you?", "icon": "silver", "fx": haggle_fx,
+				"tag": ("%s dislikes haggling" % String(lord["bearing"])) if cost != 0 else "",
 				"act": _haggle})
 		replies.append({"id": "no", "text": "Not my fight.", "tag": "nothing changes", "act": _beat_greet_again})
 	else:
@@ -776,7 +842,8 @@ func _haggle() -> void:
 		said = "\"Hm. I'd hoped you'd do it for the road's sake. %d silver, then.\"" % silver
 	var tr := LordTalk.trouble(gs, lord)
 	_show(said, [], [
-		{"id": "take", "text": "Done. I'll clear %s." % String(tr.get("name", "them")), "tag": "new job · %d silver · +%d Regard when done" % [silver, LordTalk.JOB_REGARD],
+		{"id": "take", "text": "Done. I'll clear %s." % String(tr.get("name", "them")), "icon": "journal",
+			"fx": [["silver", silver], ["bond", LordTalk.JOB_REGARD]], "tag": "new job · when done",
 			"tone": "gold", "act": _take_trouble.bind(silver)},
 		{"id": "no", "text": "Not for that.", "tag": "nothing changes", "act": _beat_greet_again}])
 
@@ -823,17 +890,27 @@ func _conviction_bar() -> Control:
 func _persuade_replies() -> Array:
 	var out := []
 	for a in LordTalk.arguments(gs, lord):
-		out.append({"id": "arg_" + String(a["id"]), "text": String(a["says"]), "tag": String(a["tag"]), "act": _argue.bind(String(a["id"]))})
+		# A known effect is a crown chip with its points; "a guess" stays a guess.
+		var tag := String(a["tag"])
+		var fx := []
+		var bits := tag.split(" · ", false)
+		if bits.size() > 1 and not tag.begins_with("a guess"):
+			fx.append(["crown", int(a["points"])])
+			tag = String(bits[1])
+		out.append({"id": "arg_" + String(a["id"]), "text": String(a["says"]), "icon": "talk", "fx": fx, "tag": tag, "act": _argue.bind(String(a["id"]))})
 	var chips := HFlowContainer.new()
 	chips.add_theme_constant_override("h_separation", 8)
 	chips.add_theme_constant_override("v_separation", 8)
 	for amount in LordTalk.SILVER_OFFERS:
 		var b := Button.new()
 		b.name = "Silver_%d" % amount
-		b.text = "%s · +%d" % [Widgets.thousands(amount), amount / LordTalk.SILVER_PER_POINT]
+		b.text = "%s  +%d" % [Widgets.thousands(amount), amount / LordTalk.SILVER_PER_POINT]
+		b.tooltip_text = "%s silver for %d toward conviction" % [Widgets.thousands(amount), amount / LordTalk.SILVER_PER_POINT]
+		b.icon = Widgets.icon("silver")
+		b.add_theme_constant_override("icon_max_width", 28)
 		b.disabled = int(gs.silver) < amount
 		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
-		b.custom_minimum_size = Vector2(0, 56)
+		b.custom_minimum_size = Vector2(0, Style.TOUCH)
 		b.focus_mode = Control.FOCUS_NONE
 		var sb := Style.box(Color("3a2c10"), Style.BRASS, 2, 14)
 		b.add_theme_stylebox_override("normal", sb)
@@ -841,8 +918,8 @@ func _persuade_replies() -> Array:
 			_said = "Then let me make it worth the risk. %s silver." % Widgets.thousands(amount)
 			_offer(amount))
 		chips.add_child(b)
-	out.append({"id": "silver", "text": "Then let me make it worth the risk.", "tag": "name a sum · from %s" % Widgets.thousands(int(gs.silver)),
-		"tone": "gold", "extra": chips})
+	out.append({"id": "silver", "text": "Then let me make it worth the risk.", "icon": "silver", "fx": [["silver", Widgets.thousands(int(gs.silver))]],
+		"tag": "name a sum", "tone": "gold", "extra": chips})
 	out.append({"id": "think", "text": "Think on it. I'll ride this way again.", "tag": "nothing lost", "act": _leave})
 	return out
 
@@ -865,17 +942,17 @@ func _after_case(r: Dictionary) -> void:
 		return
 	if bool(r.get("refused", false)):
 		gs.save_game()
-		_show(String(r["reaction"]), [_note("They refuse you: %d Regard, and they won't hear of it for a week." % LordTalk.REFUSAL_REGARD, Style.MORALE_LOW)],
+		_show(String(r["reaction"]), [_fx_note([["bond", LordTalk.REFUSAL_REGARD], ["clock", Style.time_short(LordTalk.REFUSAL_HOURS)]],
+			"They refuse you, and won't hear of it again till then.", Style.MORALE_LOW)],
 			[_leave_reply("As you like.")])
 		return
 	if bool(r.get("sworn", false)):
 		_beat_sworn()
 		return
 	var extras := [_conviction_bar()]
-	if String(r.get("learned", "")) != "":
-		extras.append(_note(String(r["learned"]), Style.BRASS))
 	var pts := int(r.get("points", 0))
-	extras.push_front(_note("%s%d toward conviction" % ["+" if pts >= 0 else "", pts], Style.MORALE_HIGH if pts > 0 else Style.MORALE_LOW))
+	# The points, once, with what you learned beside them; the bar below shows the total.
+	extras.push_front(_fx_note([["crown", pts]], String(r.get("learned", "")), Style.MORALE_HIGH if pts > 0 else Style.MORALE_LOW))
 	_show(String(r.get("reaction", "")), extras, _persuade_replies())
 
 
@@ -904,30 +981,37 @@ func _beat_sworn() -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(title)
-	var lines := []
+	# What comes with them, as chips: their seat, their men, and what their old realm
+	# thinks of it; how they were won, in words.
+	var gains := []
 	if String(r["fief"]) != "":
-		lines.append("%s%s join your realm" % [Data.settlement(String(r["fief"]))["name"], " and its villages" if not (r["villages"] as Array).is_empty() else ""])
-	lines.append("%d men" % int(r["men"]))
-	lines.append("Bought with silver: may leave if Regard falls below 0" if bool(r["bought"]) else "Sworn in good faith: silver under half the case")
-	var body := Style.label(" · ".join(PackedStringArray(lines)), Style.SMALL, Style.TEXT)
-	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(body)
+		var seat := String(Data.settlement(String(r["fief"]))["name"])
+		var villages := (r["villages"] as Array).size()
+		gains.append(Widgets.stat("keep", seat + (" +%d" % villages if villages > 0 else "")))
+	gains.append(Widgets.stat("men", Widgets.thousands(int(r["men"]))))
 	var from := String(r["from"])
-	var cost := Style.label("%s's opinion of your crown −30" % (String(Data.FACTIONS[from]["name"]) if Data.FACTIONS.has(from) else from), Style.SMALL, Style.ENEMY_LIGHT)
-	cost.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(cost)
+	gains.append(TalkView.realm_chip(from if Heraldry.REALM_SIZES.has(from) else Heraldry.realm_of_culture(Data.culture_of(from)), {"amount": -30}))
+	var row := Widgets.chip_row(gains)
+	row.alignment = FlowContainer.ALIGNMENT_CENTER
+	v.add_child(row)
+	var how := Style.label("Bought with silver: may leave if Regard falls below 0" if bool(r["bought"]) else "Sworn in good faith",
+		Style.SMALL, Style.ENEMY_LIGHT if bool(r["bought"]) else Style.MUTED)
+	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	how.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(how)
 	card.add_child(v)
 	var fief := String(r["fief"])
 	var replies := []
 	if fief != "":
 		var lid := int(lord["id"])
-		replies.append({"id": "hold", "text": "Hold %s for the crown." % Data.settlement(fief)["name"], "tag": "order · they guard their lands", "act": func():
-			gs.order_lord(lid, "guard", fief)
-			_leave()})
-		replies.append({"id": "order_follow", "text": "Ride with me.", "tag": "order · they follow you and join your fights", "act": func():
-			gs.order_lord(lid, "follow")
-			_leave()})
+		var fief_name := String(Data.settlement(fief)["name"])
+		replies.append({"row": [
+			{"id": "order_follow", "label": "Follow", "icon": "company", "says": "Ride with me.", "tip": "They follow you and join your fights", "act": func():
+				gs.order_lord(lid, "follow")
+				_leave()},
+			{"id": "hold", "label": "Hold", "icon": "keep", "says": "Hold %s for the crown." % fief_name, "tip": "They guard %s" % fief_name, "act": func():
+				gs.order_lord(lid, "guard", fief)
+				_leave()}]})
 	replies.append(_leave_reply("Ride well, and raise your men."))
 	_refresh_regard()
 	_show("\"Then hear it plainly: House %s stands with your crown, as long as your crown stands.\"" % String(lord.get("house", "")), [card], replies)
@@ -955,34 +1039,34 @@ func _beat_challenge(blocked: bool) -> void:
 	if bool(ch["ok"]) or blocked:
 		var st := LordTalk.stakes(gs, lord)
 		var stakes := VBoxContainer.new()
-		stakes.add_theme_constant_override("separation", 6)
-		var sl := Style.label("You %d · %s %d%s" % [int(st["mine"]), LordTalk.first_name(lord), int(st["theirs"]),
-			" · already at war" if not bool(ch.get("war", false)) else " · means war with %s" % _realm_name()], Style.SMALL - 2, Style.TEXT)
-		sl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		stakes.add_child(sl)
-		var wl := Style.label("Win: likely your captive, +15 renown, 150 silver · Lose: about %d men, the rest fall back" % int(st["lost"]), Style.SMALL - 2, Style.MUTED)
-		wl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		stakes.add_child(wl)
+		stakes.add_theme_constant_override("separation", 8)
+		# Your men against theirs, and the war it starts; then what winning and losing bring.
+		var sides: Array = [Widgets.stat("men", "%d  v  %d" % [int(st["mine"]), int(st["theirs"])])]
+		if bool(ch.get("war", false)):
+			sides.append(TalkView.realm_chip(_banner_realm, {"text": "war"}))
+		stakes.add_child(Widgets.chip_row(sides))
+		stakes.add_child(_win_lose([["lock", "captive"], ["renown", 15], ["silver", 150]], [["men", -int(st["lost"])]], "the rest fall back"))
 		var go := Button.new()
 		go.name = "DrawSwords"
 		go.text = "Draw swords"
 		go.icon = Widgets.icon("fight")
 		go.expand_icon = false
-		go.custom_minimum_size = Vector2(0, 60)
+		go.custom_minimum_size = Vector2(0, Style.TOUCH)
 		go.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		go.add_theme_stylebox_override("normal", Style.box(Style.ENEMY, Color(0, 0, 0, 0), 0, 14))
 		go.add_theme_stylebox_override("hover", Style.box(Style.ENEMY.lightened(0.1), Color(0, 0, 0, 0), 0, 14))
 		go.add_theme_stylebox_override("pressed", Style.box(Style.ENEMY_DARK, Style.TEXT, 2, 14))
 		go.pressed.connect(_draw_swords)
 		stakes.add_child(go)
-		replies.append({"id": "battle", "text": "Then settle it here, your riders against mine.", "tag": "battle", "tone": "red", "extra": stakes})
+		replies.append({"id": "battle", "text": "Then settle it here, your riders against mine.", "icon": "battle", "tag": "battle", "tone": "red", "extra": stakes})
 	var dc := LordTalk.duel_check(gs, lord)
-	replies.append({"id": "duel", "text": "Your champion and mine.", "tag": "single combat · no armies, no war" if bool(dc["ok"]) else String(dc["reason"]),
+	replies.append({"id": "duel", "text": "Your champion and mine.", "icon": "fight", "tag": "single combat · no armies, no war" if bool(dc["ok"]) else String(dc["reason"]),
 		"tone": "red" if bool(dc["ok"]) else "locked", "act": _beat_duel})
 	var tc := LordTalk.tribute_check(gs, lord)
 	if String(lord.get("bearing", "")) == Lords.CRUEL and world.relation_to_player(String(lord.get("realm", ""))) == "hostile":
-		replies.append({"id": "tribute", "text": "Here, %d silver for the road." % LordTalk.TRIBUTE,
-			"tag": ("tribute · Cruel lords like this · +%d Regard" % LordTalk.TRIBUTE_REGARD) if bool(tc["ok"]) else String(tc["reason"]),
+		replies.append({"id": "tribute", "text": "Here, %d silver for the road." % LordTalk.TRIBUTE, "icon": "silver",
+			"fx": [["silver", -LordTalk.TRIBUTE], ["bond", LordTalk.TRIBUTE_REGARD]] if bool(tc["ok"]) else [],
+			"tag": "Cruel lords like this" if bool(tc["ok"]) else String(tc["reason"]),
 			"tone": "plain" if bool(tc["ok"]) else "locked", "act": _pay_tribute})
 	if blocked:
 		replies.append_array(_crown_replies().filter(func(r): return String(r.get("tone", "")) != "locked"))
@@ -990,6 +1074,32 @@ func _beat_challenge(blocked: bool) -> void:
 	else:
 		replies.append({"id": "back", "text": "Another time.", "tag": "nothing changes", "act": _beat_greet_again})
 	_show(speech, [], replies)
+
+
+## What's at stake as two columns, Win and Lose, each a column of chips (see
+## TalkView.fx_chips) and any words still needed under the Lose side.
+func _win_lose(win: Array, lose: Array, lose_words: String = "") -> GridContainer:
+	var grid := GridContainer.new()
+	grid.name = "Stakes"
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 6)
+	for side in [["Win", win, Style.MORALE_HIGH, ""], ["Lose", lose, Style.ENEMY_LIGHT, lose_words]]:
+		var v := VBoxContainer.new()
+		v.name = String(side[0])
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		v.add_theme_constant_override("separation", 6)
+		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(Style.label(String(side[0]).to_upper(), Style.SMALL, side[2]))
+		var chips := Widgets.chip_row(TalkView.fx_chips(side[1]))
+		chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(chips)
+		if String(side[3]) != "":
+			var l := Style.label(String(side[3]), Style.SMALL, Style.MUTED)
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			v.add_child(l)
+		grid.add_child(v)
+	return grid
 
 
 func _draw_swords() -> void:
@@ -1011,7 +1121,7 @@ func _pay_tribute() -> void:
 	if LordTalk.pay_tribute(gs, lord):
 		Sound.play("coins")
 		gs.save_game()
-		_show("\"Wise. Ride on, then, before I change my mind.\"", [_note("-%d silver, +%d Regard. They let you pass." % [LordTalk.TRIBUTE, LordTalk.TRIBUTE_REGARD], Style.BRASS)],
+		_show("\"Wise. Ride on, then, before I change my mind.\"", [_fx_note([["silver", -LordTalk.TRIBUTE], ["bond", LordTalk.TRIBUTE_REGARD]], "They let you pass.", Style.BRASS)],
 			[_leave_reply("Safe roads.")])
 
 
@@ -1034,11 +1144,13 @@ func _beat_duel() -> void:
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		face.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(face)
-		var n := Style.label(String(cap.get("first", cap.get("name", ""))), Style.SMALL - 2, Style.TEXT)
+		var n := Style.label(String(cap.get("first", cap.get("name", ""))), Style.SMALL, Style.TEXT)
 		n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		v.add_child(n)
-		var odds := Style.label("%s · %d%%" % [Troops.TYPES.get(String(c["type"]), {}).get("name", String(c["type"])), roundi(LordTalk.duel_chance(cap, lord) * 100.0)], Style.SMALL - 4, Style.MUTED)
-		odds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		# Their odds, as a number with the fight mark; the troop is on the face already.
+		var odds := Widgets.icon_value("fight", "%d%%" % roundi(LordTalk.duel_chance(cap, lord) * 100.0), Style.MUTED)
+		odds.alignment = BoxContainer.ALIGNMENT_CENTER
+		odds.tooltip_text = String(Troops.TYPES.get(String(c["type"]), {}).get("name", String(c["type"])))
 		v.add_child(odds)
 		b.add_child(v)
 		var sid := int(c["squad"])
@@ -1048,15 +1160,14 @@ func _beat_duel() -> void:
 			_fight_duel(sid))
 		row.add_child(b)
 	var win := LordTalk.duel_win_regard(lord)
-	var stakes := Style.label("Win: +%d Regard%s, +%d renown · Lose: your champion is wounded for %d battles, %d Regard" % [
-		win, " (they respect strength)" if win == LordTalk.DUEL_WIN_REGARD else "", LordTalk.DUEL_RENOWN, 2, LordTalk.DUEL_LOSE_REGARD], Style.SMALL - 2, Style.MUTED)
-	stakes.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var stakes := _win_lose([["bond", win], ["renown", LordTalk.DUEL_RENOWN]], [["wounded", "2 battles"], ["bond", LordTalk.DUEL_LOSE_REGARD]],
+		"your champion is hurt")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	box.add_child(row)
 	box.add_child(stakes)
 	_show("\"Ha! A duel, then. Choose your champion. Mine has never lost.\"", [],
-		[{"id": "champion", "text": "My champion is...", "tag": "choose a captain", "tone": "red", "extra": box},
+		[{"id": "champion", "text": "My champion is...", "icon": "fight", "tag": "choose a captain", "tone": "red", "extra": box},
 		{"id": "back", "text": "On second thought, no.", "tag": "nothing changes", "act": _beat_greet_again}])
 
 
@@ -1068,14 +1179,14 @@ func _fight_duel(squad_id: int) -> void:
 	Sound.play("charge" if bool(r["won"]) else "bell")
 	gs.save_game()
 	var said := ""
-	var note := ""
+	var result: Control
 	if bool(r["won"]):
 		said = "\"...Yielded. Your %s fights like a devil. I'll remember this, captain.\"" % String(r["captain"]).split(" ")[0]
-		note = "%s won. +%d Regard, +%d renown." % [String(r["captain"]), int(r["regard"]), int(r["renown"])]
+		result = _fx_note([["bond", int(r["regard"])], ["renown", int(r["renown"])]], "%s won." % String(r["captain"]))
 	else:
 		said = "\"Get your champion to a surgeon. Better luck next time.\""
-		note = "%s was beaten and wounded: out for 2 battles. %d Regard." % [String(r["captain"]), int(r["regard"])]
-	_show(said, [_note(note, Style.MORALE_HIGH if bool(r["won"]) else Style.MORALE_LOW)],
+		result = _fx_note([["wounded", "2 battles"], ["bond", int(r["regard"])]], "%s was beaten." % String(r["captain"]), Style.MORALE_LOW)
+	_show(said, [result],
 		[{"id": "back", "text": "Something else.", "act": _beat_greet_again} if mode != "hostile" else {"id": "back", "text": "Back to the road.", "act": _leave}, _leave_reply()])
 
 
@@ -1097,7 +1208,7 @@ func _beat_captive() -> void:
 	var replies := []
 	if gs.is_crowned():
 		var sw: Dictionary = gs.swear_check(lid)
-		replies.append({"id": "swear", "text": "Swear to my crown.", "tag": "join your realm" if bool(sw["ok"]) else String(sw["reason"]),
+		replies.append({"id": "swear", "text": "Swear to my crown.", "icon": "crown", "tag": "join your realm" if bool(sw["ok"]) else String(sw["reason"]),
 			"tone": "gold" if bool(sw["ok"]) else "locked", "act": func():
 				if gs.swear_lord_to_crown(lid):
 					Sound.play("horn")
@@ -1105,25 +1216,30 @@ func _beat_captive() -> void:
 					_show("\"So be it. I'll serve your crown.\"", [_note("%s swears to your crown." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Welcome.")])})
 	else:
 		replies.append({"id": "swear", "text": "Swear to my crown.", "tag": "raise your own banner first", "tone": "locked"})
-	replies.append({"id": "release", "text": "Go home, and remember who freed you.",
-		"tag": "release for honor · +%d Regard · %s +%d" % [gs.RELEASE_REGARD, _realm_name(), gs.RELEASE_REALM], "tone": "gold", "act": func():
+	replies.append({"id": "release", "text": "Go home, and remember who freed you.", "icon": "bond",
+		"fx": [["bond", gs.RELEASE_REGARD], {"realm": _banner_realm, "amount": gs.RELEASE_REALM}], "tag": "for honor", "tone": "gold", "act": func():
 			gs.release_lord_for_honor(lid)
 			Sound.play("page")
-			_show("\"I won't forget it.\"", [_note("Released. +%d Regard." % gs.RELEASE_REGARD)], [_leave_reply("Go.")])})
+			_show("\"I won't forget it.\"", [_note("Released.")], [_leave_reply("Go.")])})
 	var ransom := int(lord.get("ransom_amount", Lords.ransom_for(int(lord.get("renown", 0)))))
-	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "tag": "ransom · +5 Regard", "act": func():
-		gs.accept_lord_ransom(lid)
-		Sound.play("coins")
-		_show("\"They'll pay. Gladly, I expect.\"", [_note("+%d silver." % ransom, Style.BRASS)], [_leave_reply("Go.")])})
-	if gs.has_contract() and world.at_war(gs.contract_realm(), String(lord.get("realm", ""))):
-		replies.append({"id": "deliver", "text": "My employer will want to see you.", "tag": "deliver for the bounty", "act": func():
-			gs.deliver_lord_to_employer(lid)
+	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "icon": "silver",
+		"fx": [["silver", ransom], ["bond", 5]], "tag": "ransom", "act": func():
+			gs.accept_lord_ransom(lid)
 			Sound.play("coins")
-			_leave()})
-	replies.append({"id": "chains", "text": "Then you'll stay in chains.", "tag": "%d Regard · Honorable lords hear of it" % LordTalk.CHAINS_REGARD, "tone": "red", "act": func():
-		LordTalk.keep_in_chains(gs, lord)
-		gs.save_game()
-		_show("\"...\"", [_note("%d Regard." % LordTalk.CHAINS_REGARD, Style.MORALE_LOW)], [_leave_reply("Take them back.")])})
+			_show("\"They'll pay. Gladly, I expect.\"", [_note("Ransomed.", Style.BRASS)], [_leave_reply("Go.")])})
+	if gs.has_contract() and world.at_war(gs.contract_realm(), String(lord.get("realm", ""))):
+		var employer: String = gs.contract_realm()
+		replies.append({"id": "deliver", "text": "My employer will want to see you.", "icon": "lock",
+			"fx": [["silver", int(gs.contract.get("bonus_per_lord", 100))], {"realm": employer if Heraldry.REALM_SIZES.has(employer) else "bandits", "amount": 10}],
+			"tag": "the bounty", "act": func():
+				gs.deliver_lord_to_employer(lid)
+				Sound.play("coins")
+				_leave()})
+	replies.append({"id": "chains", "text": "Then you'll stay in chains.", "icon": "lock", "fx": [["bond", LordTalk.CHAINS_REGARD]],
+		"tag": "Honorable lords hear of it", "tone": "red", "act": func():
+			LordTalk.keep_in_chains(gs, lord)
+			gs.save_game()
+			_show("\"...\"", [_note("Kept in chains.", Style.MORALE_LOW)], [_leave_reply("Take them back.")])})
 	replies.append(_leave_reply("Later."))
 	_show(speech, [], replies)
 

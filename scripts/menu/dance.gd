@@ -34,9 +34,10 @@ func _ready() -> void:
 	setup(hall, "%s at %s · %s" % [Gatherings.upper_first(String(g["name"])), Data.settlement(place)["name"], when])
 	Sound.play_music("camp_" + String(g.get("culture", Data.culture_of(owner))))
 	var check: Dictionary = GameState.dance_check(g)
+	var guests := TalkView.stage_chip(str(GameState.gathering_lords(g).size()), Style.TEXT, "men")
+	guests.tooltip_text = "guests"
 	set_plate(Gatherings.upper_first(String(g["name"])), [
-		TalkView.plate_chip("the music starts" if bool(check["ok"]) else "between dances", Style.PLAYER_LIGHT, "dance"),
-		TalkView.plate_chip("%d guests" % GameState.gathering_lords(g).size(), Style.MORALE_HIGH)])
+		TalkView.stage_chip("the music starts" if bool(check["ok"]) else "between dances", Style.PLAYER_LIGHT, "dance"), guests])
 	say("narration", String(Gatherings.DANCE_OPEN.get(String(g.get("culture", "")), Gatherings.DANCE_OPEN["vardish"])))
 	if not bool(check["ok"]):
 		add_to_log(note("You've danced tonight." if String(check["reason"]) == "you've danced tonight" else String(check["reason"]).capitalize() + ".", Style.MUTED))
@@ -58,13 +59,21 @@ func _ask() -> void:
 	for p in GameState.dance_partners(g):
 		match String(p["kind"]):
 			"romance":
-				replies.append({"id": "partner_" + String(p["id"]), "text": "Dance with %s." % String(p["name"]), "tag": String(p["tag"]),
+				replies.append({"id": "partner_" + String(p["id"]), "text": "Dance with %s." % String(p["name"]), "icon": "heart", "tag": String(p["tag"]),
 					"tone": "gold", "act": _dance.bind("romance", String(p["id"]))})
 			"lord":
-				replies.append({"id": "partner_lord_" + String(p["id"]), "text": "Dance with %s." % String(p["name"]), "tag": String(p["tag"]),
-					"act": _dance.bind("lord", String(p["id"]))})
+				# "+3 Regard · Daring: ..." becomes a Regard chip and the words after it.
+				var tag := String(p["tag"])
+				var fx := []
+				var words := tag.split(" · ", false)
+				if not words.is_empty() and String(words[0]).begins_with("+") and String(words[0]).ends_with("Regard"):
+					fx.append(["bond", String(words[0]).to_int()])
+					words.remove_at(0)
+					tag = " · ".join(words)
+				replies.append({"id": "partner_lord_" + String(p["id"]), "text": "Dance with %s." % String(p["name"]), "icon": "dance", "fx": fx,
+					"tag": tag, "act": _dance.bind("lord", String(p["id"]))})
 			"wall":
-				replies.append({"id": "wall", "text": "Watch from the wall.", "tag": String(p["tag"]), "tone": "quiet",
+				replies.append({"id": "wall", "text": "Watch from the wall.", "icon": "eye", "tag": String(p["tag"]), "tone": "quiet",
 					"act": _dance.bind("wall", "")})
 	set_replies(replies)
 
@@ -81,19 +90,16 @@ func _dance(kind: String, id: String) -> void:
 			set_face("center", _portrait(id), false, 0.9)
 			say("you", "Dance with me.")
 			say("narration", String(r["text"]))
-			var bits := PackedStringArray(["Time together"])
-			if int(r["trust"]) > 0:
-				bits.append("+%d trust" % int(r["trust"]))
-			bits.append("kept as a memory")
-			add_to_log(note(" · ".join(bits) + ".", Color("e58fa8")))
-			set_plate(String(person.get("name", "")), [TalkView.plate_chip("dancing", Color("e58fa8"), "dance")])
+			# What it gives was on the button; the result is the memory, once.
+			add_to_log(keepsake("A dance with %s, kept as a memory." % String(person.get("name", "")), "dance"))
+			set_plate(String(person.get("name", "")), [TalkView.stage_chip("dancing", Style.ROMANCE, "dance")])
 		"lord":
 			var l: Dictionary = GameState.world.lord_by_id(int(id))
 			set_face("center", CaptainArt.texture(LordVoice.portrait_record(l)), true, 0.8)
 			say("you", "Will you dance?")
 			say("narration", String(r["text"]))
-			add_to_log(note("+%d Regard with %s." % [int(r["regard"]), LordTalk.short_name(l)]))
-			set_plate(LordTalk.short_name(l), [TalkView.plate_chip("dancing", Style.PLAYER_LIGHT, "dance")])
+			add_to_log(TalkView.fx_note([], "%s thinks better of you." % LordTalk.first_name(l)))
+			set_plate(LordTalk.short_name(l), [TalkView.stage_chip("dancing", Style.PLAYER_LIGHT, "dance")])
 		"wall":
 			say("narration", String(r["text"]))
 			var gossip: Dictionary = r.get("gossip", {})

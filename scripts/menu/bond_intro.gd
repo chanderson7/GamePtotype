@@ -3,6 +3,8 @@ extends Control
 const Page = preload("res://scripts/ui/menu_page.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const Widgets = preload("res://scripts/ui/widgets.gd")
+const Captains = preload("res://scripts/data/captains.gd")
 
 var _event := {}
 
@@ -36,8 +38,7 @@ func _ready() -> void:
 		col.add_child(Page.note("The surviving captain keeps the memory in their personal record. Their battlefield reaction still follows their temperament."))
 	else:
 		col.add_child(Page.note(_rank_story(rank, shared), Style.BODY, Style.TEXT))
-		var points := float(_event.get("points", 0.0))
-		col.add_child(Page.note("Rank %s effect: %s" % [rank, GameState.bond_effect_text(points)], Style.BODY, Style.BRASS))
+		col.add_child(_rank_row(rank))
 		col.add_child(Page.note("The effect applies only while both captains are active and their squads remain close together. Shared fighting continues to build the next rank."))
 	var go := Page.button("Continue to the map", _finish.bind("res://scenes/world_map.tscn"), true)
 	col.add_child(go)
@@ -45,6 +46,26 @@ func _ready() -> void:
 		col.add_child(Page.button("Spend time at camp", _talk))
 	col.add_child(Page.button("View my warband", _finish.bind("res://scenes/main_menu.tscn")))
 	go.grab_focus()
+
+## The rank as its badge, and what it does in battle as chips: morale back each second
+## nearby, and the damage it adds from rank B.
+func _rank_row(rank: String) -> Control:
+	var i := maxi(0, Captains.RANKS.find(rank))
+	var row := HBoxContainer.new()
+	row.name = "RankEffect"
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 12)
+	row.add_child(Widgets.rank_badge(rank, 56.0))
+	var regen := Widgets.stat("morale", "+%.1f/s" % Captains.RANK_REGEN[i])
+	regen.tooltip_text = "morale each second nearby"
+	row.add_child(regen)
+	var damage := roundi(Captains.RANK_POWER[i] * 100.0)
+	if damage > 0:
+		var hit := Widgets.stat("fight", "+%d%%" % damage)
+		hit.tooltip_text = "damage"
+		row.add_child(hit)
+	return row
+
 
 func _rank_story(rank: String, shared: int) -> String:
 	match rank:

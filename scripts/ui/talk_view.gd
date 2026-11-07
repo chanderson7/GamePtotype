@@ -23,6 +23,8 @@ var _log: VBoxContainer
 var _replies: VBoxContainer
 var _continue: Callable
 var _faces := {}
+## Whose name is on the plate: their bubbles don't repeat it.
+var _plate_name := ""
 
 
 func _init() -> void:
@@ -76,25 +78,10 @@ func setup(backdrop: Control, caption: String) -> void:
 	cap.add_theme_stylebox_override("panel", cb)
 	cap.position = Vector2(20, 20)
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var cap_label := Style.label(caption, Style.SMALL, Style.TEXT)
-	cap_label.name = "Caption"
-	cap.add_child(cap_label)
+	cap.add_child(caption_row(caption))
+	cap.visible = caption != ""
 	stage.add_child(cap)
-	var x := Button.new()
-	x.name = "Close"
-	x.custom_minimum_size = Vector2(64, 64)
-	x.icon = Widgets.icon("cancel")
-	x.expand_icon = true
-	x.add_theme_stylebox_override("normal", Style.box(Color(Style.NIGHT, 0.75), Style.RULE, 2, 32))
-	x.add_theme_stylebox_override("pressed", Style.box(Style.NIGHT, Style.BRASS, 2, 32))
-	x.anchor_left = 1.0
-	x.anchor_right = 1.0
-	x.offset_left = -84
-	x.offset_right = -20
-	x.offset_top = 16
-	x.offset_bottom = 80
-	x.pressed.connect(close)
-	stage.add_child(x)
+	stage.add_child(close_button(close))
 	_plate = VBoxContainer.new()
 	_plate.name = "Nameplate"
 	_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -173,6 +160,61 @@ static func room(id: String, when: String) -> TextureRect:
 	return art
 
 
+## Where and when as marks: a pin and the place, an icon and the gathering, the sun or
+## the moon for the hour. `caption` is "Place · gathering · hour" (any part may be
+## missing); an hour word becomes its icon, with the word as the tooltip. `middle_icon`
+## marks the parts between the place and the hour (a feast, a dance).
+static func caption_row(caption: String, middle_icon: String = "") -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = "CaptionRow"
+	row.add_theme_constant_override("separation", 8)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var parts := caption.split(" · ", false)
+	for i in parts.size():
+		var part := String(parts[i])
+		if part in TIME_WORDS:
+			var t := Widgets.icon_rect("moon" if part == "night" else "sun", 28.0)
+			t.name = "When"
+			t.tooltip_text = part
+			t.modulate = {"night": Color("c9d4ff"), "dusk": Color("ffb36b"), "morning": Color("ffe6a8")}.get(part, Color("fff1b8"))
+			row.add_child(t)
+			continue
+		var key := "mappin" if i == 0 else middle_icon
+		if key != "":
+			var ic := Widgets.icon_rect(key, 26.0)
+			ic.modulate = Style.MUTED
+			row.add_child(ic)
+		var l := Style.label(part, Style.SMALL, Style.TEXT)
+		l.name = "Caption" if i == 0 else "CaptionPart"
+		row.add_child(l)
+	return row
+
+
+const TIME_WORDS := ["morning", "midday", "afternoon", "dusk", "night"]
+
+
+## The round ✕ at the top right of a stage: a full touch target.
+static func close_button(act: Callable) -> Button:
+	var x := Button.new()
+	x.name = "Close"
+	x.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
+	x.icon = Widgets.icon("cancel")
+	x.tooltip_text = "Leave"
+	x.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	x.add_theme_constant_override("icon_max_width", 36)
+	x.add_theme_stylebox_override("normal", Style.box(Color(Style.NIGHT, 0.75), Style.RULE, 2, 40))
+	x.add_theme_stylebox_override("hover", Style.box(Color(Style.NIGHT, 0.85), Style.MUTED, 2, 40))
+	x.add_theme_stylebox_override("pressed", Style.box(Style.NIGHT, Style.BRASS, 2, 40))
+	x.anchor_left = 1.0
+	x.anchor_right = 1.0
+	x.offset_left = -20 - Style.TOUCH
+	x.offset_right = -20
+	x.offset_top = 14
+	x.offset_bottom = 14 + Style.TOUCH
+	x.pressed.connect(act)
+	return x
+
+
 static func time_word(hour: float) -> String:
 	var h := fposmod(hour, 24.0)
 	if h >= 5.0 and h < 10.0:
@@ -238,11 +280,12 @@ func set_plate(name_text: String, chips: Array) -> void:
 	for c in _plate.get_children():
 		_plate.remove_child(c)
 		c.queue_free()
+	_plate_name = name_text
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("h_separation", 12)
 	row.add_theme_constant_override("v_separation", 6)
-	var name_label := Style.label(name_text, Style.LARGE, Style.TEXT)
-	name_label.name = "Name"
+	var name_label := Style.name_label(name_text)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 	var display := Style.display_font()
 	if display != null:
 		name_label.add_theme_font_override("font", display)
@@ -253,22 +296,126 @@ func set_plate(name_text: String, chips: Array) -> void:
 	_plate.add_child(row)
 
 
-## A small chip with an icon, for the nameplate.
-static func plate_chip(text: String, tone: Color, icon: String = "") -> PanelContainer:
+## A chip on the stage: the shared chip on a darker ground, so it reads over the picture.
+## With an icon it leads with the icon in `tone`; without one, with a shape.
+static func stage_chip(text: String, tone: Color, icon_key: String = "", shape: String = "") -> PanelContainer:
+	var c := Widgets.chip(text, tone, shape, icon_key)
+	var sb := (c.get_theme_stylebox("panel") as StyleBoxFlat).duplicate() as StyleBoxFlat
+	sb.bg_color = Color(Style.NIGHT, 0.85)
+	c.add_theme_stylebox_override("panel", sb)
+	return c
+
+
+## How things stand with someone you court, as an icon: talk while you're getting to know
+## each other, a heart while courting, rings once engaged or wed, a lock when it's over.
+static func status_icon(status: String) -> String:
+	match status:
+		"engaged", "married":
+			return "rings"
+		"courting", "committed":
+			return "heart"
+		"ended":
+			return "lock"
+	return "talk"
+
+
+## Effects as chips. Each entry is [icon, amount] (a signed change, green up and red
+## down), [icon, amount, suffix], [icon, "text"] (a plain quantity), or a realm's banner
+## with what changes with it: {"realm": id, "amount": n} or {"realm": id, "text": "war"}.
+static func fx_chips(fx: Array) -> Array:
+	var out := []
+	for e in fx:
+		if e is Dictionary:
+			out.append(realm_chip(String(e.get("realm", "")), e))
+		elif e[1] is String:
+			out.append(Widgets.stat(String(e[0]), String(e[1])))
+		else:
+			out.append(Widgets.effect(String(e[0]), int(e[1]), String(e[2]) if e.size() > 2 else ""))
+	return out
+
+
+static func realm_chip(realm: String, e: Dictionary) -> PanelContainer:
 	var p := PanelContainer.new()
-	var sb := Style.box(Color(Style.NIGHT, 0.85), tone, 2, 20)
+	p.name = "Realm_%s" % realm
+	var sb := Style.box(Style.RAISED, Style.RULE, 2, 40)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 16
 	sb.content_margin_top = 4
 	sb.content_margin_bottom = 4
 	p.add_theme_stylebox_override("panel", sb)
 	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 6)
-	if icon != "":
-		var i := Widgets.icon_rect(icon, 22)
-		i.modulate = tone
-		h.add_child(i)
-	h.add_child(Style.label(text, Style.SMALL, Style.TEXT))
+	h.add_theme_constant_override("separation", 8)
 	p.add_child(h)
+	h.add_child(Widgets.banner(realm, Vector2(20, 30)))
+	var text := String(e.get("text", ""))
+	var tone := Style.ENEMY_LIGHT if text == "war" else Style.TEXT
+	if e.has("amount"):
+		var n := int(e["amount"])
+		text = "%s%d" % ["+" if n > 0 else ("−" if n < 0 else ""), absi(n)]
+		tone = Style.MORALE_HIGH if n > 0 else (Style.ENEMY_LIGHT if n < 0 else Style.MUTED)
+	var l := Style.label(text, Style.SMALL, tone)
+	l.name = "Text"
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(l)
+	return p
+
+
+## What a reply is and does, under its words: the lock if it's shut, its kind as an icon,
+## its effects as chips, and any words still needed (in a label named Tag).
+static func marks(r: Dictionary, tone: String) -> Control:
+	var tag := String(r.get("tag", ""))
+	var key := String(r.get("icon", ""))
+	var fx: Array = r.get("fx", [])
+	var locked := tone == "locked"
+	if tag == "" and key == "" and fx.is_empty() and not locked:
+		return null
+	var row := HFlowContainer.new()
+	row.name = "Marks"
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ink: Color = Style.BRASS if tone == "gold" else (Style.ENEMY_LIGHT if tone == "red" else Style.MUTED)
+	if locked or key != "":
+		var ic := Widgets.icon_rect("lock" if locked else key, 26.0)
+		ic.name = "Kind"
+		ic.modulate = ink
+		row.add_child(ic)
+	if not locked:
+		for c in fx_chips(fx):
+			row.add_child(c)
+	if tag != "":
+		var tl := Style.label(tag, Style.SMALL, ink)
+		tl.name = "Tag"
+		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(tl)
+	return row
+
+
+## What changed, as chips with any words after them, for the log. Named "Note", like a
+## note, and fades in once: the one animated result of a choice.
+static func fx_note(fx: Array, text: String = "", tone: Color = Style.MORALE_HIGH) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.name = "Note"
+	p.add_theme_stylebox_override("panel", Style.box(Color(tone, 0.12), Color(tone, 0.6), 2, 12))
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for c in fx_chips(fx):
+		row.add_child(c)
+	if text != "":
+		var l := Style.label(text, Style.SMALL, tone.lightened(0.3))
+		l.name = "Words"
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(l)
+	p.add_child(row)
+	if not Style.motion_reduced():
+		p.modulate.a = 0.0
+		p.create_tween().tween_property(p, "modulate:a", 1.0, 0.3)
 	return p
 
 
@@ -280,13 +427,15 @@ func clear_log() -> void:
 		c.queue_free()
 
 
-## A line in the conversation. `who` is "them" (left, under `speaker`), "you" (right) or
-## "narration" (centred, no bubble).
+## A line in the conversation. `who` is "them" (left, under `speaker`), "you" (right, in
+## your blue), "other" (right, a second speaker who isn't you, in a neutral bubble) or
+## "narration" (centred, no bubble). The speaker's name shows only when it isn't the name
+## on the plate: one on one, the face and the plate already say who it is.
 func say(who: String, text: String, speaker: String = "") -> Control:
 	var holder := HBoxContainer.new()
 	holder.name = "Line"
 	if who == "narration":
-		var l := Style.label(text, Style.BODY - 2, Style.MUTED)
+		var l := Style.label(text, Style.BODY, Style.MUTED)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -295,9 +444,12 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 		_log.add_child(holder)
 		return holder
 	var bubble := PanelContainer.new()
-	bubble.name = "Them" if who == "them" else "You"
+	bubble.name = {"them": "Them", "other": "Other"}.get(who, "You")
 	var mine := who == "you"
-	var sb := Style.box(Color("26304f") if mine else Color("1d2238"), Style.PLAYER_LIGHT.darkened(0.55) if mine else Style.RULE, 2, 16)
+	var right := who != "them"
+	var fill := Color("26304f") if mine else (Color("252a3b") if who == "other" else Color("1d2238"))
+	var edge := Style.PLAYER_LIGHT.darkened(0.55) if mine else (Style.MUTED.darkened(0.45) if who == "other" else Style.RULE)
+	var sb := Style.box(fill, edge, 2, 16)
 	sb.content_margin_left = 16
 	sb.content_margin_right = 16
 	sb.content_margin_top = 10
@@ -307,8 +459,12 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	bubble.size_flags_stretch_ratio = 5.0
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 2)
-	if speaker != "":
-		v.add_child(Style.label(speaker.to_upper(), Style.SMALL - 2, Style.BRASS))
+	if speaker != "" and speaker != _plate_name:
+		var who_label := Style.label(speaker, Style.SMALL, Style.BRASS)
+		who_label.name = "Speaker"
+		if right:
+			who_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		v.add_child(who_label)
 	var l := Style.label(text, Style.BODY, Style.TEXT)
 	l.name = "Words"
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -317,7 +473,7 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gap.size_flags_stretch_ratio = 1.0
-	if mine:
+	if right:
 		holder.add_child(gap)
 		holder.add_child(bubble)
 	else:
@@ -339,6 +495,32 @@ func note(text: String, tone: Color = Style.MORALE_HIGH) -> PanelContainer:
 	var l := Style.label(text, Style.SMALL, tone.lightened(0.3))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	p.add_child(l)
+	return p
+
+
+## A memory kept, in rose: its icon, its words and any chips with it (trust gained).
+func keepsake(text: String, icon_key: String = "cup", fx: Array = []) -> PanelContainer:
+	var p := PanelContainer.new()
+	p.name = "Keepsake"
+	p.add_theme_stylebox_override("panel", Style.box(Color("2a1f26"), Style.ROMANCE, 2, 14))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 12)
+	var i := Widgets.icon_rect(icon_key, 36)
+	i.modulate = Style.ROMANCE_LIGHT
+	h.add_child(i)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var l := Style.label(text, Style.SMALL, Style.TEXT)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(l)
+	if not fx.is_empty():
+		v.add_child(Widgets.chip_row(fx_chips(fx)))
+	h.add_child(v)
+	p.add_child(h)
+	if not Style.motion_reduced():
+		p.modulate.a = 0.0
+		p.create_tween().tween_property(p, "modulate:a", 1.0, 0.3)
 	return p
 
 
@@ -440,25 +622,14 @@ func reply_button(r: Dictionary) -> Control:
 	if quiet or primary:
 		text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(text)
-	var tag := String(r.get("tag", ""))
-	if tag != "" or locked:
-		var tag_row := HBoxContainer.new()
-		tag_row.add_theme_constant_override("separation", 6)
-		tag_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		if locked:
-			tag_row.add_child(Widgets.icon_rect("lock", 18))
-		var tl := Style.label(tag, Style.SMALL - 2, Style.BRASS if tone == "gold" else (Style.ENEMY_LIGHT if tone == "red" else Style.MUTED))
-		tl.name = "Tag"
-		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tag_row.add_child(tl)
+	var tag_row := marks(r, tone)
+	if tag_row != null:
 		box.add_child(tag_row)
 	if r.has("extra"):
 		box.add_child(r["extra"])
 	b.add_child(box)
 	# Tall enough for its words, and never under its touch height.
-	var floor_y := 80.0 if primary else (64.0 if quiet else 72.0)
+	var floor_y := Style.TOUCH
 	box.minimum_size_changed.connect(func(): b.custom_minimum_size.y = maxf(floor_y, box.get_combined_minimum_size().y + 20))
 	b.custom_minimum_size.y = floor_y
 	if not locked and r.has("act"):

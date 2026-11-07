@@ -185,7 +185,7 @@ func _place_banners() -> void:
 
 
 func _set_chips(chip: String, extra: Array = []) -> void:
-	var chips := [TalkView.plate_chip(chip, Color("e88aa0"), "heart")]
+	var chips := [TalkView.stage_chip(chip, Style.ROMANCE, "rings")] if chip != "" else []
 	chips.append_array(extra)
 	set_plate(_name, chips)
 
@@ -202,7 +202,9 @@ func _fill(text: String) -> String:
 
 func _arrive() -> void:
 	var lords: int = _guests["guests"].size()
-	_set_chips("Wedding day", [TalkView.plate_chip("%d guest%s" % [lords, "" if lords == 1 else "s"], Style.MORALE_HIGH)])
+	var guests := TalkView.stage_chip(str(lords), Style.TEXT, "men")
+	guests.tooltip_text = "%d guest%s" % [lords, "" if lords == 1 else "s"]
+	_set_chips("Wedding day", [guests])
 	clear_log()
 	var hers := String(GameState.world.social.get_candidate_person(cand).get("residence", ""))
 	var kind := "hers" if place == hers else ("yours" if place == GameState.wedding_seat() else "other")
@@ -222,7 +224,7 @@ func _guest_card() -> Control:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	p.add_child(v)
-	v.add_child(Style.label("WHO CAME · %d" % _guests["guests"].size(), Style.SMALL - 2, Style.BRASS))
+	v.add_child(Widgets.section("Who came · %d" % _guests["guests"].size()))
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("h_separation", 10)
 	row.add_theme_constant_override("v_separation", 8)
@@ -230,8 +232,8 @@ func _guest_card() -> Control:
 	for g in _guests["guests"]:
 		var cell := VBoxContainer.new()
 		cell.name = "Guest_%s_%d" % [g["kind"], int(g["id"])]
-		cell.custom_minimum_size = Vector2(86, 0)
-		cell.add_theme_constant_override("separation", 2)
+		cell.custom_minimum_size = Vector2(100, 0)
+		cell.add_theme_constant_override("separation", 4)
 		var face := TextureRect.new()
 		face.texture = CaptainArt.texture(g["face"])
 		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -239,14 +241,11 @@ func _guest_card() -> Control:
 		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		face.custom_minimum_size = Vector2(72, 96)
 		cell.add_child(face)
-		var nm := Style.label(String(g.get("short", g["name"])).get_slice(" ", 0), Style.SMALL - 4, Style.TEXT)
+		var nm := Style.label(String(g.get("short", g["name"])).get_slice(" ", 0), Style.SMALL, Style.TEXT)
 		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		nm.clip_text = true
 		cell.add_child(nm)
-		var role: String = {"host": "host", "lord": "Regard %+d" % int(g.get("regard", 0)), "crown_lord": "your lord", "captain": "captain"}.get(String(g["kind"]), "")
-		var rl := Style.label(role, Style.SMALL - 6, Style.BRASS if String(g["kind"]) == "host" else (Style.MORALE_HIGH if String(g["kind"]) == "lord" else Style.MUTED))
-		rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cell.add_child(rl)
+		cell.add_child(_role_badge(g))
 		row.add_child(cell)
 	var bits := PackedStringArray()
 	if String(_guests.get("gift_from", "")) != "":
@@ -254,10 +253,27 @@ func _guest_card() -> Control:
 	for a in _guests["absent"]:
 		bits.append("%s stayed away: %s." % [a["name"], a["reason"]])
 	if not bits.is_empty():
-		var l := Style.label(" ".join(bits), Style.SMALL - 2, Style.MUTED)
+		var l := Style.label(" ".join(bits), Style.SMALL, Style.MUTED)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(l)
 	return p
+
+
+## A guest's part in the day as a badge: the keep for the host, the crown for your lord,
+## the company for a captain, and Regard gained for a lord who came.
+func _role_badge(g: Dictionary) -> Control:
+	var kind := String(g["kind"])
+	var badge: PanelContainer
+	match kind:
+		"lord":
+			badge = Widgets.effect("bond", int(g.get("regard", 0)))
+		_:
+			var key: String = {"host": "keep", "crown_lord": "crown", "captain": "company"}.get(kind, "men")
+			badge = Widgets.chip("", Style.BRASS if kind == "host" else Style.MUTED, "", key)
+			badge.tooltip_text = {"host": "Host", "crown_lord": "Your lord", "captain": "Captain"}.get(kind, "")
+	badge.name = "Role"
+	badge.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	return badge
 
 
 func _vows() -> void:
@@ -285,10 +301,12 @@ func _their_vow(text: String, scene_id: String, day: int) -> void:
 	var h := HBoxContainer.new()
 	h.name = "Remembers"
 	h.add_theme_constant_override("separation", 6)
-	var i := Widgets.icon_rect("cup", 22)
-	i.modulate = Color("f6cdd9")
+	var i := Widgets.icon_rect("cup", 26)
+	i.modulate = Style.ROMANCE_LIGHT
 	h.add_child(i)
-	h.add_child(Style.label("She remembers: %s%s" % [String(Stories.SCENES[scene_id]["title"]).to_lower(), (" · Day %d" % day) if day > 0 else ""], Style.SMALL - 4, Color("f6cdd9")))
+	h.add_child(Style.label("She remembers: %s" % String(Stories.SCENES[scene_id]["title"]).to_lower(), Style.SMALL, Style.ROMANCE_LIGHT))
+	if day > 0:
+		h.add_child(Widgets.icon_value("day", str(day), Style.ROMANCE_LIGHT))
 	v.add_child(h)
 
 
@@ -365,80 +383,91 @@ func _finish() -> void:
 		set_replies([{"id": "leave", "text": "Back to the map", "tone": "quiet", "act": close}])
 		return
 	Sound.play("bell", 0.0, 0.0)
-	_set_chips("Married")
+	# "Married" is said once, on the closing card; the plate keeps only her name.
+	_set_chips("")
 	change_face("center", _portrait("amused"))
-	var title := Style.label("Married", Style.TITLE_SIZE, Style.BRASS)
-	title.name = "MarriedTitle"
-	var display := Style.display_font()
-	if display != null:
-		title.add_theme_font_override("font", display)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_to_log(title)
-	var sub := Style.label("%s and you · %s · day %d" % [_name, _place_name(), int(GameState.world.hour / 24.0) + 1], Style.SMALL, Style.MUTED)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	add_to_log(sub)
-	add_to_log(_keepsake("A memory kept. Married %s at %s. You promised: \"%s\" You drank: \"%s\"\nOpen it again from %s's page." % [_name, _place_name(), _vow, _toast, _name]))
-	add_to_log(_pact_card(r.get("pact", {})))
-	var came := PackedStringArray()
-	for x in r.get("regard", []):
-		came.append("%s +%d Regard" % [x["name"], int(x["amount"])])
-	var captains: int = r.get("guests", []).filter(func(g): return String(g["kind"]) == "captain").size()
-	var who := " · ".join(came)
-	if captains > 0:
-		who += ("\n" if who != "" else "") + "Your %d captain%s drank to you, loudly." % [captains, "" if captains == 1 else "s"]
-	if String(_guests.get("gift_from", "")) != "":
-		who += "\n%s's gift, %s, is in your baggage." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")]
-	add_to_log(_card("Who came", who if who != "" else "Your company, and the town."))
-	var w: Dictionary = GameState.wedding()
-	add_to_log(note("%d silver and %d rations, set aside when you planned it · +%d renown" % [int(w.get("reserved_silver", 0)), int(w.get("reserved_food", 0)), int(r.get("renown", 0))], Style.BRASS))
+	add_to_log(_closing_card(r))
 	var home := String(GameState.world.social.get_candidate_person(cand).get("residence", place))
 	var home_name := String(Data.settlement(home)["name"]) if Data.SETTLEMENTS.has(home) else _place_name()
 	say("narration", Lines.fill(Lines.AFTER.get(cand, Lines.AFTER["edda"]), {"name": _name, "place": home_name}))
 	set_replies([{"id": "done", "text": "Back to the map", "tone": "gold", "bare": true, "act": close}])
 
 
-func _pact_card(pact: Dictionary) -> Control:
+## The one closing card: Married, where and when, the memory kept, what the marriage pact
+## gives, and what the day cost and earned. Your vow and toast are just above it in the
+## talk and Regard was on the guests' badges, so neither is said again here.
+func _closing_card(r: Dictionary) -> Control:
+	var p := PanelContainer.new()
+	p.name = "ClosingCard"
+	var sb := Style.box(Color("2a1f26"), Style.ROMANCE, 2, 18)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 20
+	sb.content_margin_top = 16
+	sb.content_margin_bottom = 18
+	p.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	p.add_child(v)
+	var title := Style.label("Married", Style.TITLE_SIZE, Style.BRASS)
+	title.name = "MarriedTitle"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(title)
+	var where := HBoxContainer.new()
+	where.alignment = BoxContainer.ALIGNMENT_CENTER
+	where.add_theme_constant_override("separation", 18)
+	where.add_child(Widgets.icon_value("mappin", _place_name()))
+	where.add_child(Widgets.icon_value("day", str(int(GameState.world.hour / 24.0) + 1)))
+	v.add_child(where)
+	v.add_child(_icon_line("rings", "A memory kept. Open it again from %s's page." % _name, Style.ROMANCE_LIGHT))
+	# The pact, as three lines: who stands together, what breaks it, what you may ask.
+	var pact: Dictionary = r.get("pact", {})
 	var house: Dictionary = GameState.world.social.get_house(String(pact.get("house_id", "")))
 	var sites := PackedStringArray()
 	for s in pact.get("protected_sites", []):
 		if Data.SETTLEMENTS.has(String(s)):
 			sites.append(String(Data.settlement(String(s))["name"]))
 	var head := _host_name() if not _host.is_empty() else "the head of the house"
-	var text := "%s and your company stand together. Attacking %s breaks it. Ask %s for up to %d silver every %d days, and for help refilling troops." % [
-		String(house.get("name", "Her house")), " or ".join(sites) if not sites.is_empty() else "her house's lands", head,
-		Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)]
-	return _card("The marriage pact", text)
-
-
-func _card(title: String, body: String) -> Control:
-	var p := PanelContainer.new()
-	p.name = "Card"
-	p.add_theme_stylebox_override("panel", Style.box(Style.PANEL, Style.RULE, 2, 14))
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	v.add_child(Style.label(title.to_upper(), Style.SMALL - 4, Style.BRASS))
-	var l := Style.label(body, Style.SMALL, Style.TEXT)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(l)
-	p.add_child(v)
+	v.add_child(Widgets.section("The marriage pact"))
+	v.add_child(_icon_line("keep", "%s and your company stand together." % String(house.get("name", "Her house"))))
+	v.add_child(_icon_line("fight", "Attacking %s breaks it." % (" or ".join(sites) if not sites.is_empty() else "her house's lands")))
+	var ask := _icon_line("silver", "Ask %s for up to %d every %d days, and for help refilling troops." % [head, Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)])
+	v.add_child(ask)
+	# Who came, in words only for what the guest badges didn't say.
+	var bits := PackedStringArray()
+	var captains: int = r.get("guests", []).filter(func(g): return String(g["kind"]) == "captain").size()
+	if captains > 0:
+		bits.append("Your %d captain%s drank to you, loudly." % [captains, "" if captains == 1 else "s"])
+	if String(_guests.get("gift_from", "")) != "":
+		bits.append("%s's gift, %s, is in your baggage." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
+	if not bits.is_empty():
+		v.add_child(_icon_line("company", " ".join(bits)))
+	# The day's cost (set aside when you planned it) and what it earned.
+	var w: Dictionary = GameState.wedding()
+	var fx := [["silver", Widgets.thousands(int(w.get("reserved_silver", 0)))], ["food", Widgets.thousands(int(w.get("reserved_food", 0)))]]
+	if int(r.get("renown", 0)) != 0:
+		fx.append(["renown", int(r["renown"])])
+	var cost := Widgets.chip_row(TalkView.fx_chips(fx))
+	cost.name = "DayCost"
+	cost.alignment = FlowContainer.ALIGNMENT_CENTER
+	v.add_child(cost)
+	if not Style.motion_reduced():
+		p.modulate.a = 0.0
+		p.create_tween().tween_property(p, "modulate:a", 1.0, 0.4)
 	return p
 
 
-func _keepsake(text: String) -> Control:
-	var p := PanelContainer.new()
-	p.name = "Keepsake"
-	p.add_theme_stylebox_override("panel", Style.box(Color("2a1f26"), Color("e88aa0"), 2, 14))
+## An icon and a line of words beside it, for a card.
+func _icon_line(key: String, text: String, tone: Color = Style.TEXT) -> HBoxContainer:
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 12)
-	var i := Widgets.icon_rect("rings", 36)
-	i.modulate = Color("f6cdd9")
+	var i := Widgets.icon_rect(key, 30)
+	i.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	h.add_child(i)
-	var l := Style.label(text, Style.SMALL, Style.TEXT)
+	var l := Style.label(text, Style.SMALL, tone)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	h.add_child(l)
-	p.add_child(h)
-	return p
+	return h
 
 
 # ---------------------------------------------------------------- remembered
@@ -464,7 +493,7 @@ func _tell_again() -> void:
 			say("narration", _fill(String(line)))
 	if String(m.get("toast", "")) != "":
 		say("you", String(m["toast"]))
-	add_to_log(_keepsake(String(m.get("text", ""))))
+	add_to_log(keepsake(String(m.get("text", "")), "rings"))
 	set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": close}])
 
 

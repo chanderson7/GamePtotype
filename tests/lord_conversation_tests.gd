@@ -217,6 +217,10 @@ func _init() -> void:
 	check(talk.caption().begins_with("At Ravensford") and talk.get_node("Stage/Painted") != null, "at a painted place, you talk before its painting")
 	check(talk.speech_text().contains("captain everyone's talking about"), "a lord you've never met says so")
 	check(talk.has_reply("news") and talk.has_reply("trouble") and talk.has_reply("leave") and talk.has_reply("crown", false), "you can ask for news, their troubles, talk of crowns or part ways")
+	check(talk._talk.get_node_or_null("Footer") != null and talk._talk.get_node("Footer").get_node_or_null("Reply_leave") != null,
+		"the way out sits in a footer, not the list of things to say")
+	check(not talk.has_reply("price", false), "before a crown, the crown lines are one locked line")
+	check(talk._talk.find_child("Reply_trouble", true, false).find_child("Kind", true, false) != null, "a reply shows what kind of thing it is as an icon")
 	talk.choose("story")
 	check(talk.has_reply("back") and talk._talk.get_children().any(func(c): return String(c.name).begins_with("Reply_tell_")), "asked for a story, you choose which to tell")
 	var first_story: String = talk._talk.get_children().filter(func(c): return String(c.name).begins_with("Reply_tell_"))[0].name
@@ -240,6 +244,9 @@ func _init() -> void:
 	await process_frame
 	check(camp.caption().begins_with("Your camp") and camp.has_reply("release") and camp.has_reply("swear", false) and not camp.has_reply("swear"),
 		"a captive is talked to at your camp, and an Honorable one won't swear")
+	var release: Node = camp._talk.find_child("Reply_release", true, false)
+	check(release.find_child("Effect_bond", true, false) != null and release.find_child("Tag", true, false).text == "for honor",
+		"releasing shows its Regard as a chip, not in the words")
 	camp.choose("release")
 	check(captive["state"] == "regroup", "released for honor, they ride home")
 	camp.queue_free()

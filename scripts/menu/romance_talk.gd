@@ -144,35 +144,36 @@ func _expression() -> String:
 func _refresh_plate() -> void:
 	var trust := int(_rel().get("trust", 0))
 	if _status() == Relationships.UNKNOWN and trust <= 0:
-		set_plate(_name, [TalkView.plate_chip("Not yet met", Style.MUTED)])
+		set_plate(_name, [TalkView.stage_chip("Not yet met", Style.MUTED, "", "·")])
 		return
-	var chips := [TalkView.plate_chip(Relationships.status_label(_status()), Color("e88aa0"), "heart")]
+	# How things stand as a badge, trust as a meter, a strain as a lock.
+	var chips := [TalkView.stage_chip(Relationships.status_label(_status()), Style.ROMANCE, TalkView.status_icon(_status()))]
 	chips.append(_trust_bar(trust))
 	if bool(_rel().get("strained", false)):
-		chips.append(TalkView.plate_chip("Strained: a broken promise", Style.ENEMY, "lock"))
+		chips.append(TalkView.stage_chip("Strained", Style.ENEMY_LIGHT, "lock"))
 	set_plate(_name, chips)
 
 
-## Trust as a bar, marked where vows and a wedding open.
+## Trust as a meter, marked where a public wedding opens.
 func _trust_bar(trust: int) -> Control:
 	var box := PanelContainer.new()
 	box.name = "TrustBar"
-	var sb := Style.box(Color(Style.NIGHT, 0.85), Style.RULE, 2, 20)
-	sb.content_margin_top = 4
-	sb.content_margin_bottom = 4
+	box.tooltip_text = "Trust %d" % trust
+	var sb := Style.box(Color(Style.NIGHT, 0.85), Style.RULE, 2, 40)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 16
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
 	box.add_theme_stylebox_override("panel", sb)
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
-	h.add_child(Style.label("Trust %d" % trust, Style.SMALL, Style.TEXT))
-	var bar := Control.new()
-	bar.custom_minimum_size = Vector2(120, 14)
-	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	bar.draw.connect(func():
-		var r := Rect2(Vector2.ZERO, bar.size)
-		bar.draw_rect(r, Color("1a1f33"))
-		bar.draw_rect(Rect2(r.position, Vector2(r.size.x * clampf(trust / 100.0, 0.0, 1.0), r.size.y)), Color("e88aa0"))
-		var mark := r.size.x * Relationships.TRUST_PUBLIC_WEDDING / 100.0
-		bar.draw_line(Vector2(mark, -2), Vector2(mark, r.size.y + 2), Style.BRASS, 2.0))
+	var heart := Widgets.icon_rect("heart", 26.0)
+	heart.modulate = Style.ROMANCE
+	h.add_child(heart)
+	h.add_child(Style.label(str(trust), Style.SMALL, Style.TEXT))
+	var bar := Widgets.meter(trust / 100.0, Style.ROMANCE, 14.0, [Relationships.TRUST_PUBLIC_WEDDING / 100.0])
+	bar.custom_minimum_size.x = 120
+	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	h.add_child(bar)
 	box.add_child(h)
 	return box
@@ -204,11 +205,11 @@ func _hub(first: bool = false) -> void:
 		var tag: String = {"planning": "choose where", "postponed": "postponed · choose a new place",
 			"preparing": "at %s · %s" % [Letters.place_name(String(w.get("place", ""))), "being made ready"],
 			"ready": "ready at %s · ride there" % Letters.place_name(String(w.get("place", "")))}.get(String(w["state"]), "")
-		replies.append({"id": "wedding", "text": "About our wedding…", "tag": tag, "tone": "gold", "act": _wedding_talk})
+		replies.append({"id": "wedding", "text": "About our wedding…", "icon": "rings", "tag": tag, "tone": "gold", "act": _wedding_talk})
 	elif not cinfo.is_empty() and _status() != Relationships.ENDED and not (ch >= CHAPTERS and _status() in [Relationships.MARRIED, Relationships.FRIENDSHIP]):
 		var open: Dictionary = _social().chapter_open(cand, GameState.world.hour)
 		if bool(open["ok"]):
-			replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "tag": "Chapter %d · %s" % [ch, cinfo.get("title", "")],
+			replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "icon": "book", "tag": "Chapter %d · %s" % [ch, cinfo.get("title", "")],
 				"tone": "gold", "act": _story})
 		else:
 			replies.append({"id": "story", "text": Lines.story_opener(cand, ch), "tag": "Chapter %d · %s" % [ch, String(open["reason"])], "tone": "locked"})
@@ -218,7 +219,7 @@ func _hub(first: bool = false) -> void:
 		if String(l.get("sender_id", "")) == person_id and not bool(l.get("read", false)):
 			var lid := String(l.get("id", ""))
 			letter_waits = true
-			replies.append({"id": "letter", "text": Lines.LETTER_OPENER, "tag": "read and answer it", "act": func():
+			replies.append({"id": "letter", "text": Lines.LETTER_OPENER, "icon": "mail", "tag": "a letter waits", "act": func():
 				Scenes.people_letter = lid
 				Scenes.go("res://scenes/people.tscn")})
 			break
@@ -232,10 +233,10 @@ func _hub(first: bool = false) -> void:
 		var id := String(v["scene_id"])
 		var title := String(Stories.SCENES[id]["title"])
 		if record["in_progress"].has(id):
-			replies.append({"id": "visit_" + id, "text": Lines.VISIT_RESUME, "tag": "resume · " + title, "act": _visit.bind(id, false)})
+			replies.append({"id": "visit_" + id, "text": Lines.VISIT_RESUME, "icon": "resume", "tag": "resume · " + title, "act": _visit.bind(id, false)})
 		else:
 			replies.append({"id": "visit_" + id, "text": Lines.VISIT_OPENERS[mini(fresh, Lines.VISIT_OPENERS.size() - 1)],
-				"tag": "time together · " + title, "act": _visit.bind(id, false)})
+				"icon": "cup", "tag": "time together · " + title, "act": _visit.bind(id, false)})
 			fresh += 1
 	if open.is_empty() and not locked.is_empty():
 		# When today's visit is spent, say that rather than the next visit's prerequisite.
@@ -243,7 +244,7 @@ func _hub(first: bool = false) -> void:
 		var why: Dictionary = today[0] if not today.is_empty() else locked[0]
 		replies.append({"id": "visits_locked", "text": Lines.VISIT_OPENERS[0], "tag": String(why.get("reason", "not yet")), "tone": "locked"})
 	if not _social().memory_book(person_id).is_empty():
-		replies.append({"id": "remember", "text": "Remember when…", "tag": "your memories together", "act": _remember})
+		replies.append({"id": "remember", "text": "Remember when…", "icon": "journal", "tag": "your memories together", "act": _remember})
 	replies.append({"id": "leave", "text": Lines.leaving(_status()), "tone": "quiet", "act": close})
 	set_replies(replies)
 
@@ -349,36 +350,43 @@ func _decision(c: Dictionary) -> Dictionary:
 	var bits := PackedStringArray()
 	if String(c.get("tag", "")) != "":
 		bits.append(String(c["tag"]))
-	bits.append_array(_costs(prev))
+	var now := _new_status(prev)
+	if now != "":
+		bits.append(now)
 	var grave := bool(c.get("strained", false)) or choice_id == "part_respectfully"
-	return {"id": "decide_" + choice_id, "text": text, "tag": " · ".join(bits), "tone": String(c.get("tone", "red" if grave else "gold")),
-		"act": _decide.bind(c, prev)}
+	return {"id": "decide_" + choice_id, "text": text, "tag": " · ".join(bits), "fx": _costs(prev),
+		"tone": String(c.get("tone", "red" if grave else "gold")), "act": _decide.bind(c, prev)}
 
 
-## What a choice costs or changes, in words: silver, rations, how things will stand.
-func _costs(prev: Dictionary) -> PackedStringArray:
-	var bits := PackedStringArray()
+## What a choice costs, as chips on its button (and only there): silver and rations.
+func _costs(prev: Dictionary) -> Array:
+	var fx := []
 	if int(prev.get("cost_silver", 0)) > 0:
-		bits.append("%d silver" % int(prev["cost_silver"]))
+		fx.append(["silver", -int(prev["cost_silver"])])
 	if int(prev.get("cost_food", 0)) > 0:
-		bits.append("%d rations" % int(prev["cost_food"]))
+		fx.append(["food", -int(prev["cost_food"])])
+	return fx
+
+
+## How things will stand after a choice, in words ("now courting"), or "".
+func _new_status(prev: Dictionary) -> String:
 	var ns := String(prev.get("new_status", ""))
 	if ns != "" and ns != _status():
-		bits.append("now %s" % Relationships.status_label(ns).to_lower())
-	return bits
+		return "now %s" % Relationships.status_label(ns).to_lower()
+	return ""
 
 
-## Everything a choice does, with its numbers: for the step that asks you to be sure.
-func _effects(prev: Dictionary) -> String:
-	var bits := PackedStringArray()
+## What a choice does to trust and to their house, with its numbers: for the step that
+## asks you to be sure. The costs were on the button you pressed and aren't said again.
+func _effects(prev: Dictionary) -> Array:
+	var fx := []
 	var t := int(prev.get("trust_change", 0))
 	if t != 0:
-		bits.append("%s%d trust" % ["+" if t > 0 else "", t])
+		fx.append(["heart", t])
 	var st := int(prev.get("standing_change", 0))
 	if st != 0:
-		bits.append("%s%d house standing" % ["+" if st > 0 else "", st])
-	bits.append_array(_costs(prev))
-	return " · ".join(bits) if not bits.is_empty() else "it stays between you"
+		fx.append(["keep", st])
+	return fx
 
 
 func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
@@ -387,8 +395,10 @@ func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
 	if bool(prev.get("requires_confirmation", false)) and not confirmed:
 		say("you", text)
 		add_to_log(note(String(prev.get("confirmation_text", "Are you sure?")), Style.BRASS))
+		var fx := _effects(prev)
 		set_replies([
-			{"id": "confirm", "text": "Yes. I mean it.", "tag": _effects(prev), "tone": "red" if bool(c.get("strained", false)) or choice_id == "part_respectfully" else "gold",
+			{"id": "confirm", "text": "Yes. I mean it.", "fx": fx, "tag": "it stays between you" if fx.is_empty() else "",
+				"tone": "red" if bool(c.get("strained", false)) or choice_id == "part_respectfully" else "gold",
 				"act": _decide.bind(c, prev, true)},
 			{"id": "back", "text": "Not yet.", "tone": "quiet", "act": _story}])
 		return
@@ -414,21 +424,20 @@ func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
 	set_replies([_back_or_leave()])
 
 
-## What changed, told as how they and their house take it, not as a sum.
+## What changed, told once, as how they and their house take it, not as a sum. The cost
+## was on the button and the numbers on the step that asked you to be sure.
 func _reaction(prev: Dictionary) -> Control:
 	var chips := []
 	var t := int(prev.get("trust_change", 0))
 	if t > 0:
-		chips.append(TalkView.plate_chip("%s trusts you more" % _name, Color("e88aa0"), "heart"))
+		chips.append(Widgets.chip("%s trusts you more" % _name, Style.ROMANCE, "", "heart"))
 	elif t < 0:
-		chips.append(TalkView.plate_chip("%s is hurt" % _name, Style.ENEMY_LIGHT, "heart"))
+		chips.append(Widgets.chip("%s is hurt" % _name, Style.ENEMY_LIGHT, "", "heart"))
 	var st := int(prev.get("standing_change", 0))
 	if st > 0:
-		chips.append(TalkView.plate_chip("%s's house takes note" % _name, Style.BRASS, "home"))
+		chips.append(Widgets.chip("%s's house takes note" % _name, Style.BRASS, "", "keep"))
 	elif st < 0:
-		chips.append(TalkView.plate_chip("%s's house is displeased" % _name, Style.ENEMY_LIGHT, "home"))
-	for cost in _costs(prev):
-		chips.append(TalkView.plate_chip(cost, Style.MUTED))
+		chips.append(Widgets.chip("%s's house is displeased" % _name, Style.ENEMY_LIGHT, "", "keep"))
 	if chips.is_empty():
 		return null
 	var row := HFlowContainer.new()
@@ -452,26 +461,29 @@ func _back_or_leave() -> Dictionary:
 
 # ---------------------------------------------------------------- the wedding
 
-## Where you'll marry: her seat, yours, or another friendly town near you.
+## Where you'll marry: her seat, yours, or another friendly town near you. Each place shows
+## its ride as a clock; what's set aside for it shows once, as chips.
 func _where(cost_note: bool = true) -> void:
 	var w: Dictionary = GameState.wedding()
 	add_to_log(note("Where will you marry?", Style.BRASS))
 	if cost_note:
-		add_to_log(note("%d silver and %d rations are set aside for it, and come back if it's called off." % [int(w.get("reserved_silver", 0)), int(w.get("reserved_food", 0))], Style.MUTED))
+		add_to_log(TalkView.fx_note([["silver", Widgets.thousands(int(w.get("reserved_silver", 0)))], ["food", Widgets.thousands(int(w.get("reserved_food", 0)))]],
+			"set aside; it comes back if it's called off", Style.MUTED))
 	var replies := []
 	var others := []
+	var ready := "ready %s" % GameState._when_text(_social().wedding_ready_hour(GameState.world.hour))
 	for p in GameState.wedding_places(cand):
-		var days := _ride_text(float(p["hours"]))
 		match String(p["kind"]):
 			"hers":
 				replies.append(_place_reply(p, "Here in %s, with your house." % p["name"] if p["hours"] < 1.0 else "At %s, with your house." % p["name"],
-					"Her house's seat · %s · ready %s" % [days, GameState._when_text(_social().wedding_ready_hour(GameState.world.hour))]))
+					"her house's seat · " + ready, "keep"))
 			"yours":
-				replies.append(_place_reply(p, "At %s, under my own banner." % p["name"], "Your seat · %s · you host" % days))
+				replies.append(_place_reply(p, "At %s, under my own banner." % p["name"], "your seat · you host", "crown"))
 			_:
 				others.append(p)
 	if not others.is_empty():
-		replies.append({"id": "elsewhere", "text": "Somewhere else we both know.", "tag": "a friendly town or castle near you", "act": _elsewhere.bind(others)})
+		replies.append({"id": "elsewhere", "text": "Somewhere else we both know.", "icon": "mappin", "tag": "a friendly town or castle near you",
+			"act": _elsewhere.bind(others)})
 	replies.append({"id": "later", "text": "Let's decide later.", "tone": "quiet", "tag": "stay engaged · no hurry", "act": _hub})
 	set_replies(replies)
 
@@ -479,25 +491,20 @@ func _where(cost_note: bool = true) -> void:
 func _elsewhere(others: Array) -> void:
 	say("you", "Somewhere else we both know.")
 	var replies := []
+	var ready := "ready %s" % GameState._when_text(_social().wedding_ready_hour(GameState.world.hour))
 	for p in others:
-		replies.append(_place_reply(p, "At %s." % p["name"], "%s · ready %s" % [_ride_text(float(p["hours"])), GameState._when_text(_social().wedding_ready_hour(GameState.world.hour))]))
+		replies.append(_place_reply(p, "At %s." % p["name"], ready, "mappin"))
 	replies.append({"id": "back", "text": "Back", "tone": "quiet", "act": _where})
 	set_replies(replies)
 
 
-func _place_reply(p: Dictionary, text: String, tag: String) -> Dictionary:
+func _place_reply(p: Dictionary, text: String, tag: String, icon_key: String) -> Dictionary:
 	if not bool(p["ok"]):
 		return {"id": "place_" + String(p["id"]), "text": text, "tag": String(p["reason"]).capitalize(), "tone": "locked"}
-	return {"id": "place_" + String(p["id"]), "text": text, "tag": tag, "tone": "gold", "act": _choose_place.bind(String(p["id"]), text)}
-
-
-static func _ride_text(hours: float) -> String:
-	if hours < 1.0:
-		return "you're here"
-	if hours < 20.0:
-		return "%d hours' ride" % ceili(hours)
-	var d := ceili(hours / 24.0)
-	return "%d day%s' ride" % [d, "" if d == 1 else "s"]
+	var hours := float(p["hours"])
+	var ride := [["clock", "here" if hours < 1.0 else Style.time_short(hours)]]
+	return {"id": "place_" + String(p["id"]), "text": text, "icon": icon_key, "fx": ride, "tag": tag, "tone": "gold",
+		"act": _choose_place.bind(String(p["id"]), text)}
 
 
 func _choose_place(place: String, text: String) -> void:
@@ -548,7 +555,7 @@ func _call_off(confirmed: bool = false) -> void:
 		add_to_log(note(String(r.get("reason", "")), Style.MORALE_LOW))
 		return
 	say("them", "All right. I'm not going anywhere. Ask me again when the time is right.", _name)
-	add_to_log(note("Called off · %d silver and %d rations back" % [int(r.get("silver", 0)), int(r.get("food", 0))], Style.MUTED))
+	add_to_log(TalkView.fx_note([["silver", int(r.get("silver", 0))], ["food", int(r.get("food", 0))]], "Called off: what was set aside is back", Style.MUTED))
 	_after_change()
 	set_replies([_back_or_leave()])
 
@@ -570,8 +577,9 @@ func _private_vows() -> void:
 		replies.append({"id": "vow_" + String(v["id"]), "text": said, "tag": String(v["tag"]), "act": func():
 			say("you", said)
 			GameState.record_private_vows(cand, said, String(their["text"]))
-			add_to_log(_keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
-			add_to_log(note("%s wasn't asked: %d standing · no marriage pact yet. Their good word can still be earned." % [String(house.get("name", "Her house")), Relationships.STANDING_PRIVATE_VOWS_PENALTY], Style.MORALE_LOW))
+			add_to_log(keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
+			add_to_log(TalkView.fx_note([["keep", Relationships.STANDING_PRIVATE_VOWS_PENALTY]],
+				"%s wasn't asked: no marriage pact yet. Their good word can still be earned." % String(house.get("name", "Her house")), Style.MORALE_LOW))
 			set_replies([_back_or_leave()])})
 	set_replies(replies)
 
@@ -684,30 +692,12 @@ func _finish(action: String) -> void:
 		add_to_log(note(String(r.get("reason", "Not now.")), Style.MORALE_LOW))
 		return
 	var claims: int = _social().personal_record(person_id)["bonus_claims"].size()
-	var line := "A memory kept: %s" % scene["memory"]
+	var fx := []
 	if int(r.get("trust_change", 0)) > 0:
-		line += "\nTime together: +%d trust (%d of %d)." % [int(r["trust_change"]), claims, Relationships.PERSONAL_CONVERSATION_CAP]
-	add_to_log(_keepsake(line))
+		fx = [["heart", int(r["trust_change"])], ["cup", "%d of %d" % [claims, Relationships.PERSONAL_CONVERSATION_CAP]]]
+	add_to_log(keepsake("A memory kept: %s" % scene["memory"], "cup", fx))
 	_after_change()
 	set_replies([_back_or_leave()])
-
-
-func _keepsake(text: String, icon: String = "cup") -> Control:
-	var p := PanelContainer.new()
-	p.name = "Keepsake"
-	p.add_theme_stylebox_override("panel", Style.box(Color("2a1f26"), Color("e88aa0"), 2, 14))
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 12)
-	h.add_child(Widgets.icon_rect(icon, 36))
-	var l := Style.label(text, Style.SMALL, Style.TEXT)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	h.add_child(l)
-	p.add_child(h)
-	if not Style.motion_reduced():
-		p.modulate.a = 0.0
-		p.create_tween().tween_property(p, "modulate:a", 1.0, 0.3)
-	return p
 
 
 # ---------------------------------------------------------------- remembering
@@ -720,8 +710,8 @@ func _remember() -> void:
 	var book: Array = _social().memory_book(person_id)
 	book.reverse()
 	for m in book.slice(0, 6):
-		var when := ("Day %d" % int(m["day"])) if int(m.get("day", 0)) > 0 else ""
-		replies.append({"id": "memory_" + String(m["id"]), "text": String(m["text"]), "bare": true, "tag": when, "act": _recall.bind(m)})
+		var when := [["day", str(int(m["day"]))]] if int(m.get("day", 0)) > 0 else []
+		replies.append({"id": "memory_" + String(m["id"]), "text": String(m["text"]), "bare": true, "fx": when, "act": _recall.bind(m)})
 	replies.append({"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub})
 	set_replies(replies)
 

@@ -170,7 +170,8 @@ func _init() -> void:
 	var talk = page._talk
 	check(talk != null and talk.mode == "hall", "tapping a lord opens the talk indoors")
 	var cap := _find(talk, "Caption") as Label
-	check(cap != null and cap.text.begins_with("In the hall at Highcliff · the peace feast"), "captioned in the hall (%s)" % (cap.text if cap != null else ""))
+	check(cap != null and cap.text == "In the hall at Highcliff" and talk.caption().begins_with("In the hall at Highcliff · the peace feast")
+		and _find(talk, "When") != null, "captioned in the hall, the feast and the hour as marks (%s)" % talk.caption())
 	check(_find(talk, "Hall") != null, "with the hall drawn behind them")
 	check(LordTalk.regard(gs, guest) == before + Gatherings.FIRST_WORD, "the first word is +2 Regard")
 	check(not talk.has_reply("sword", false) and talk.has_reply("outside", false), "no sword under the king's roof: a duel outside the walls instead")
