@@ -1,11 +1,9 @@
 # Game feel audit: where the UI should move
 
-**Status: proposal.** A pass over every screen for what moves, what doesn't, and what
+**Status: built (all twelve), with three corrections to this audit, listed under
+"As built" at the end.** A pass over every screen for what moves, what doesn't, and what
 the genre's best do at the same moments. Nothing here changes rules; it's all
-presentation, and all of it respects *Reduced motion*. The battle's own feel is
-`combat-feel-plan.md` (built); the road, places and faces are
-`game-feel-and-immersion-roadmap.md`. This is the menus: buttons, sheets, tabs,
-tallies and the moments between screens, which neither of those covers.
+presentation, and all of it respects *Reduced motion*.
 
 ## What already moves
 
@@ -155,3 +153,42 @@ Roughly five days for the lot; the first four items are under two.
 - Durations stay under 0.25 s for feedback and under 2 s for sequences; game UI that
   moves slowly feels broken, not rich.
 - One helper per motion in `Style`/`Widgets`, so the whole game moves the same way.
+
+## As built
+
+Every item is in, each checked by `tests/game_feel_tests.gd` (with its Reduced-motion
+branch) and the floating numbers, ribbon and encounter also checked in renders.
+
+Three things this audit got wrong, found while building:
+
+- **1. Buttons** already sank under the thumb (`Sound._on_node_added`); the audit only
+  searched the UI scripts. What was missing, and is now there: the spring back with an
+  overshoot, a press that a scrolling page takes over no longer stays sunk, and primary
+  (brass) buttons tick.
+- **6. Time** on the map was never jumping: Wait and travel already run the clock frame
+  by frame. The sweep is for hours that pass out of sight (a town, a talk, a battle, a
+  regroup); the map remembers the last hour it showed (`Scenes.map_clock_seen`).
+- **12. The battle** already had a hit-stop on charges and a title card at the start.
+  Added: the same beat for a captain's fall, a lord taken or slain and a chief's band
+  breaking, and the horn as the title goes up.
+
+Other choices made while building:
+
+- **3.** After hiring, the new company lives on another tab, so it's the **Squads tab**
+  that glows: where the company went. Floating numbers come from `Widgets.tick_to`,
+  so every silver- or food-changing tap on the town and Warband pages gets one without
+  wiring each action. Regard floats from any face built by `CourtUI` (it carries the
+  lord's id) on the town and Crown pages.
+- **4.** The tab bar animates only when it's rebuilt within 1.5 s of its last build, so a
+  real tab change slides and fades while arriving on a screen doesn't.
+- **5.** VICTORY already stamps on the field before the card, so the card's title only
+  settles in (1.15 → 1); the sequence is the content.
+- **7.** The lord's portrait pops rather than sliding: its container owns its position.
+- **10.** Their lines are written out; yours appear at once (you chose them).
+- **11.** The dance, the wedding and the indoor hall all build on `TalkView`, so faces
+  sliding in and firelight after dark cover all three; the wedding's bunting, lanterns
+  and petals have their own breeze.
+
+Helpers, so the whole game moves the same way: `Style.ease_out / closing / stop_easing`,
+`Widgets.dismiss_sheet / float_up / flash / show_regard / live`, `Scenes.ribbon`,
+`TalkView.writing / finish_writing`.
