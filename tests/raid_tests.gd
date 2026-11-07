@@ -123,7 +123,7 @@ func _init() -> void:
 	check(_has_text(current_scene, "Raid the village"), "the map's place sheet offers Raid the village")
 	current_scene._open_raid(v)
 	await process_frame
-	check(_has_text(current_scene, "Burn it") and not _has_text(current_scene, "Lead the attack"),
+	check(_has_text(current_scene, "Burn it") and current_scene.sheet_row.get_node_or_null("Dock_Lead") == null,
 		"the raid sheet: the militia won't stand, so it's Burn it")
 
 	# ---- burning it
@@ -193,7 +193,7 @@ func _init() -> void:
 	check(bool(c["stand"]), "with soldiers stationed there, the militia stand")
 	current_scene._open_raid(v2)
 	await process_frame
-	check(_has_text(current_scene, "Lead the attack") and _has_text(current_scene, "Send them in"), "so the sheet offers a fight")
+	check(current_scene.sheet_row.get_node_or_null("Dock_Lead") != null and current_scene.sheet_row.get_node_or_null("Dock_Sendin") != null, "so the sheet offers a fight")
 	var lost: Dictionary = gs.auto_resolve_raid(v2)
 	check(bool(lost.get("won", false)) == w.is_burned(v2), "it burns only if they broke (%s)" % ("won" if lost.get("won", false) else "lost"))
 	check(gs.pending_battle.is_empty(), "the battle is cleared after")

@@ -123,8 +123,9 @@ func _run() -> void:
 	button("Back").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("world_map.tscn"), "map Settings returns to the map")
-	check(current_scene.resource_buttons.size() == 3 and current_scene.resource_buttons["silver"].icon != null,
-		"silver, food and renown have labeled icon controls in the HUD")
+	check(current_scene.resource_buttons.size() == 4 and current_scene.resource_buttons["silver"].icon != null
+		and current_scene.resource_buttons["men"].icon != null,
+		"men, silver, food and renown have labeled icon controls in the HUD")
 	check(current_scene.find_child("NextStepButton", true, false) == null, "the top bar carries no goal chip")
 	current_scene._close_sheet()
 	current_scene._on_menu()
@@ -145,13 +146,13 @@ func _run() -> void:
 	current_scene._close_sheet()
 	current_scene._open_preview("highcliff")
 	var extra = current_scene.sheet_extra
-	check(extra.find_child("SheetHeader", true, false) != null and _has_text(extra, "Kingdom of Vardmark") and _has_text(extra, "away")
+	check(extra.find_child("SheetHeader", true, false) != null and _has_text(extra, "Kingdom of Vardmark") and extra.find_child("RideTime", true, false) != null
 		and not _has_text(extra, "Why it matters:") and current_scene.sheet_body.text == "",
 		"settlement preview stays brief: what it is, who holds it and how far (the details wait inside)")
 	current_scene._close_sheet()
 	gs.world.emit_event({"type": "fight", "winner": "King Aldwin", "loser": "a raiding band", "at": "highcliff"})
 	current_scene._open_activity()
-	check(current_scene.sheet_body.text.contains("King Aldwin defeated") and current_scene.sheet_body.text.contains("Day"),
+	check(_has_text(current_scene.sheet_extra, "King Aldwin defeated") and current_scene.sheet_extra.find_child("Stat_day", true, false) != null,
 		"activity feed reports battles with a campaign date")
 	var chronicle_reload := State.new()
 	chronicle_reload.persist = false

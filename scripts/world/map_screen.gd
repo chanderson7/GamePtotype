@@ -33,12 +33,9 @@ const Gatherings = preload("res://scripts/data/gatherings.gd")
 const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
-const TOP_BAR := 132.0
-const RESOURCE_ICON_PATHS := {
-	"silver": "res://assets/ui/silver.svg",
-	"food": "res://assets/ui/food.svg",
-	"renown": "res://assets/ui/renown.svg",
-}
+const TOP_BAR := 150.0
+## The pills in the top bar, in order: the four numbers every choice on the map weighs.
+const RESOURCE_KEYS := ["men", "silver", "food", "renown"]
 ## Game hours that pass each real second at 1x.
 const HOURS_PER_SECOND := 1.0
 ## How far you can zoom: map units across the screen, most and fewest.
@@ -113,9 +110,19 @@ var _hud: Control
 ## How close a friendly lord must be, in encounter radii, for his sheet to offer Talk.
 const TALK_REACH := 4.0
 var clock_label: Label
+var day_label: Label
 var resource_buttons := {}
-var _resource_icons := {}
 var status_label: Label
+## What the company is doing, as an icon before the status line (ride, wait, home, fight).
+var status_icon: TextureRect
+## Chips after the status line: who chases you, what's running low, who's in chains.
+var status_chips: HBoxContainer
+var _status_sig := ""
+## The pinned commitment, as a chip under the top bar: tap it to open the commitment.
+var pinned_chip: Button
+var _pinned_sig := ""
+var _pinned_hour := -1
+var _pinned_for := ""
 var speed_button: Button
 var warband_button: Button
 var status_progress: ProgressBar
@@ -140,7 +147,7 @@ var _banner_title: Label
 var _banner_from: Label
 var _banner_line: Label
 var _banner_seal := Color("8e1f17")
-var unread_badge: Label
+var unread_badge: PanelContainer
 const LETTER_BANNER_SECONDS := 9.0
 var sheet_title: Label
 ## The sheet's header: a tile with the sheet's icon, the title and a line under it, and a
@@ -238,6 +245,9 @@ func _layout() -> void:
 		bottom.content_margin_top = 14.0
 		sheet_panel.add_theme_stylebox_override("panel", bottom)
 	var top: float = TOP_BAR + float(insets["top"])
+	if pinned_chip != null:
+		pinned_chip.offset_top = top + 10.0
+		pinned_chip.offset_bottom = top + 10.0 + Style.TOUCH
 	_view = Rect2(Vector2(0.0, top), Vector2(vs.x, vs.y - top))
 	_clamp_camera()
 	_sync_layers()
@@ -479,24 +489,6 @@ func _tap(at: Vector2) -> void:
 
 # ---------------------------------------------------------------- sheets
 
-## The silver, food and renown icons for the top bar.
-func _resource_icon(key: String) -> Texture2D:
-	if _resource_icons.has(key):
-		return _resource_icons[key]
-	# The imported texture first: an exported game (the phone) carries only that, not the
-	# .svg itself, so reading the file alone leaves the pills blank there.
-	var path := String(RESOURCE_ICON_PATHS.get(key, ""))
-	var texture: Texture2D = null
-	if ResourceLoader.exists(path, "Texture2D"):
-		texture = load(path) as Texture2D
-	elif FileAccess.file_exists(path):
-		var image := Image.load_from_file(path)
-		if image != null and not image.is_empty():
-			texture = ImageTexture.create_from_image(image)
-	_resource_icons[key] = texture
-	return texture
-
-
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -514,28 +506,32 @@ func _build_hud() -> void:
 	var stack_top := VBoxContainer.new()
 	stack_top.add_theme_constant_override("separation", 6)
 	top_panel.add_child(stack_top)
-	# Row one: the day, the purse, food and renown as small pills, and the menu.
+	# Row one: the day and the hour, the men, purse, food and renown as pills, and the menu.
 	var resource_row := HBoxContainer.new()
 	resource_row.add_theme_constant_override("separation", 6)
 	stack_top.add_child(resource_row)
-	day_icon = TextureRect.new()
-	day_icon.custom_minimum_size = Vector2(26, 26)
-	day_icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-	day_icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	resource_row.add_child(Widgets.icon_rect("day", 28.0))
+	day_label = Style.label("", Style.SMALL, Style.BRASS)
+	day_label.name = "DayLabel"
+	day_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	resource_row.add_child(day_label)
+	day_icon = Widgets.icon_rect("sun", 28.0)
+	day_icon.name = "HourIcon"
 	resource_row.add_child(day_icon)
-	clock_label = Style.label("", Style.SMALL, Style.BRASS)
+	clock_label = Style.label("", Style.SMALL, Style.MUTED)
 	clock_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clock_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	clock_label.clip_text = true
 	clock_label.custom_minimum_size = Vector2(10, 0)
 	resource_row.add_child(clock_label)
-	for key in ["silver", "food", "renown"]:
+	for key in RESOURCE_KEYS:
 		var badge := _button("", _open_resource.bind(key))
-		badge.icon = _resource_icon(key)
+		badge.name = "Pill_%s" % key
+		badge.icon = Widgets.icon(key)
 		badge.expand_icon = true
-		badge.add_theme_constant_override("icon_max_width", 24)
-		badge.add_theme_font_size_override("font_size", Style.SMALL)
-		badge.custom_minimum_size = Vector2(104, 52)
+		badge.add_theme_constant_override("icon_max_width", 26)
+		badge.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		badge.custom_minimum_size = Vector2(92, 64)
 		badge.add_theme_stylebox_override("normal", _pill_box(Style.PANEL))
 		badge.add_theme_stylebox_override("hover", _pill_box(Style.PANEL.lightened(0.08)))
 		badge.add_theme_stylebox_override("pressed", _pill_box(Style.PANEL.darkened(0.1)))
@@ -544,31 +540,32 @@ func _build_hud() -> void:
 	warband_button = _button("", _on_menu)
 	warband_button.name = "MenuButton"
 	warband_button.tooltip_text = "Menu"
-	warband_button.icon = _glyph("menu")
-	warband_button.custom_minimum_size = Vector2(56, 52)
+	warband_button.icon = Widgets.icon("menu")
+	warband_button.expand_icon = true
+	warband_button.add_theme_constant_override("icon_max_width", 30)
+	warband_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	warband_button.custom_minimum_size = Vector2(64, 64)
 	resource_row.add_child(warband_button)
 	# Unread letters, counted on the menu button.
-	unread_badge = Style.label("", 18, Style.BRASS_INK)
-	unread_badge.name = "UnreadBadge"
-	unread_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	unread_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	var ub := Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 12)
-	unread_badge.add_theme_stylebox_override("normal", ub)
-	unread_badge.custom_minimum_size = Vector2(26, 24)
-	unread_badge.position = Vector2(30, 0)
-	unread_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	unread_badge.visible = false
+	unread_badge = Widgets.count_badge(0, "UnreadBadge")
+	unread_badge.position = Vector2(34, -6)
 	warband_button.add_child(unread_badge)
-	# Row two: what the company is doing (with how far along), and the goal chip.
+	# Row two: what the company is doing (with how far along), then chips for what's
+	# pressing: a chaser, supplies running low, captives in your train.
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	stack_top.add_child(row)
+	status_icon = Widgets.icon_rect("ride", 30.0)
+	status_icon.name = "StatusIcon"
+	status_icon.modulate = Style.MUTED
+	row.add_child(status_icon)
 	var status_box := VBoxContainer.new()
 	status_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_box.add_theme_constant_override("separation", 3)
 	status_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(status_box)
-	status_label = Style.label("", Style.SMALL, Style.MUTED)
+	status_label = Style.label("", Style.SMALL, Style.TEXT)
+	status_label.name = "StatusLine"
 	status_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	status_label.custom_minimum_size = Vector2(10, 0)
 	status_box.add_child(status_label)
@@ -583,12 +580,39 @@ func _build_hud() -> void:
 	status_progress.add_theme_stylebox_override("background", bg)
 	status_progress.add_theme_stylebox_override("fill", fill)
 	status_box.add_child(status_progress)
+	status_chips = HBoxContainer.new()
+	status_chips.name = "StatusChips"
+	status_chips.add_theme_constant_override("separation", 6)
+	status_chips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(status_chips)
+
+	# The pinned commitment, under the bar: the goal you chose to keep in sight.
+	pinned_chip = _quiet_button("", _open_pinned)
+	pinned_chip.name = "PinnedCommitment"
+	pinned_chip.anchor_left = 0.5
+	pinned_chip.anchor_right = 0.5
+	pinned_chip.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	pinned_chip.custom_minimum_size = Vector2(0, Style.TOUCH)
+	var pb := Style.box(Color(Style.NIGHT, 0.92), Color("6d5222"), 2, 40)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		pinned_chip.add_theme_stylebox_override(state, pb)
+	pinned_chip.visible = false
+	var pin_row := HBoxContainer.new()
+	pin_row.name = "PinnedRow"
+	pin_row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pin_row.offset_left = 16
+	pin_row.offset_right = -16
+	pin_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	pin_row.add_theme_constant_override("separation", 10)
+	pin_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pinned_chip.add_child(pin_row)
+	hud.add_child(pinned_chip)
 
 	# In thumb reach at the bottom: the Warband, and the clock's controls.
 	bottom_bar = MarginContainer.new()
 	bottom_bar.name = "TimeControls"
 	bottom_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	bottom_bar.offset_top = -96.0
+	bottom_bar.offset_top = -112.0
 	bottom_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	for side in ["left", "right"]:
 		bottom_bar.add_theme_constant_override("margin_" + side, 14)
@@ -600,9 +624,17 @@ func _build_hud() -> void:
 	var camp := _button("Warband", _on_warband)
 	camp.name = "WarbandButton"
 	_warband_btn = camp
-	camp.custom_minimum_size = Vector2(150, 64)
+	camp.icon = Widgets.icon("company")
+	camp.expand_icon = true
+	camp.add_theme_constant_override("icon_max_width", 30)
+	camp.add_theme_constant_override("h_separation", 10)
+	camp.custom_minimum_size = Vector2(170, Style.TOUCH)
 	camp.add_theme_stylebox_override("normal", _pill_box(Color(Style.PANEL, 0.94)))
 	brow.add_child(camp)
+	# Talks waiting at the fire, counted on the button.
+	var talks := Widgets.count_badge(0, "TalksBadge")
+	talks.position = Vector2(146, -8)
+	camp.add_child(talks)
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -717,22 +749,11 @@ func _button(text: String, callback: Callable) -> Button:
 ## Labels that only put the sheet away. They become the ✕ in its corner instead of taking
 ## a tile in the dock; a real choice (Withdraw, Back to journal) stays a tile.
 const SHEET_DISMISS := ["close", "leave", "part ways", "not yet"]
-## The icon for an action, by the words on its button; first match wins.
-const ACTION_ICONS := [
-	["storm", "storm"], ["assault", "storm"], ["hold the walls", "walls"], ["enter", "inside"],
-	["wait", "revert"], ["warband", "company"], ["banner", "crown"], ["crown", "crown"],
-	["fight", "fight"], ["attack", "fight"], ["ride at", "fight"], ["send", "advance"],
-	["withdraw", "retreat"], ["let them", "retreat"], ["leave it", "walls"], ["stop following", "back"],
-	["ride with", "ride"], ["ride there", "ride"], ["news", "journal"], ["chronicle", "book"],
-	["journal", "journal"], ["show on map", "mappin"], ["unpin", "pin"], ["carry on", "resume"],
-	["understood", "resume"], ["chains", "lock"], ["release", "heart"], ["ransom", "silver"],
-	["settings", "gear"], ["home", "home"], ["new campaign", "plus"], ["back", "back"],
-]
-
-
 ## The dock layout (mockup B): a header with an icon tile, the title, a line under it and a
 ## ✕; the text; then the actions side by side as big icon tiles in thumb reach. `sub` is the
 ## line under the title; `icon` overrides the tile's icon (otherwise chosen by `kind`).
+## Each button is [verb, callback, primary?, icon key, costs]: the icon is named, never
+## guessed from the words, and costs ([[key, text]] or [[key, text, tone]]) sit under it.
 func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub: String = "", icon: String = "") -> void:
 	_sheet = kind
 	# A sheet opened from a talk (the war news) shows over it; closing it goes back.
@@ -742,6 +763,8 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub:
 		bottom_bar.visible = false
 	sheet_lord_row.visible = false
 	for c in sheet_extra.get_children():
+		# Out now, so a sheet opened again this frame keeps its pieces' names.
+		sheet_extra.remove_child(c)
 		c.queue_free()
 	sheet_extra.visible = false
 	var danger := _sheet_is_danger(kind)
@@ -775,21 +798,22 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub:
 		sheet_row.remove_child(c)
 		c.queue_free()
 	for spec in actions:
-		sheet_row.add_child(_dock_button(String(spec[0]), spec[1], spec.size() > 2 and spec[2], danger, n))
+		sheet_row.add_child(_dock_button(String(spec[0]), spec[1], spec.size() > 2 and spec[2], danger, n,
+			String(spec[3]) if spec.size() > 3 else "", spec[4] if spec.size() > 4 else []))
 	if not sheet_panel.visible:
 		sheet_panel.visible = true
 		Style.ease_in(sheet_panel)
 
 
 ## One action in the sheet's dock: its icon above its words, a big tile in thumb reach.
-## The main one is brass, or red when it means a fight.
-func _dock_button(text: String, callback: Callable, primary: bool, danger: bool, count: int) -> Button:
+## The main one is brass, or red when it means a fight. What it costs or earns sits under
+## the tile as icons and numbers, never in the words.
+func _dock_button(text: String, callback: Callable, primary: bool, danger: bool, count: int, key: String = "", costs: Array = []) -> Control:
 	var b := _button(text, callback)
 	b.name = "Dock_" + text.validate_node_name().replace(" ", "")
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
-	var key := _action_icon(text)
 	if key != "":
 		b.icon = Widgets.icon(key)
 	b.expand_icon = true
@@ -809,7 +833,19 @@ func _dock_button(text: String, callback: Callable, primary: bool, danger: bool,
 			Style.make_primary(b)
 			for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
 				b.add_theme_color_override(c, Style.BRASS_INK)
+	if not costs.is_empty():
+		return Widgets.priced(b, costs)
 	return b
+
+
+## A gain under a dock button: a green number with its icon.
+func _gain(key: String, amount: int) -> Array:
+	return [key, "+%s" % Widgets.thousands(amount), Style.MORALE_HIGH]
+
+
+## A loss under a dock button: a red number with its icon.
+func _loss(key: String, amount: int) -> Array:
+	return [key, "−%s" % Widgets.thousands(amount), Style.ENEMY_LIGHT]
 
 
 ## A round ✕ for the corner of a sheet.
@@ -829,14 +865,6 @@ func _close_x() -> Button:
 		if _sheet_close_cb.is_valid():
 			_sheet_close_cb.call())
 	return x
-
-
-func _action_icon(text: String) -> String:
-	var t := text.to_lower()
-	for pair in ACTION_ICONS:
-		if t.contains(pair[0]):
-			return pair[1]
-	return ""
 
 
 ## The tile's icon for a kind of sheet.
@@ -921,35 +949,53 @@ func _close_or_back() -> void:
 
 func _open_preview(id: String) -> void:
 	var hours: float = world.hours_to(id)
-	var sea := ""
+	var sea := false
 	var route: Array = world.path(world.player().next if world.player().moving() else world.player().node, id)
 	var a: String = world.player().node
 	for b in route:
 		if world.is_sea(a, b):
-			sea = ", partly by sea"
+			sea = true
 		a = b
 	# Kept short on the map: what it is, how far, and only danger worth knowing. The full
 	# picture is inside the settlement.
-	var body := "%s\n%s away%s." % [world.brief(id), _hours_text(hours), sea]
 	var danger: String = world.settlement_danger(id)
-	if danger != "":
-		body += "\n" + danger.substr(0, 1).to_upper() + danger.substr(1) + "."
 	_show_sheet("preview", String(Data.settlement(id)["name"]), "",
-		[["Ride there", _on_travel.bind(id), true], ["Close", _close_sheet]])
+		[["Ride there", _on_travel.bind(id), true, "ride"], ["Close", _close_sheet]])
 	if Style.illustrations_on():
 		var scene := SettlementVista.make(id, world, 200.0)
 		scene.name = "PreviewScene"
 		sheet_extra.add_child(scene)
 	var owner := String(world.owner_of(id))
 	var rel := String(world.relation_to_player(owner))
-	var chips := [Widgets.chip("%s away%s" % [_hours_text(hours), sea], Style.MORALE_MID, "◆")]
+	var ride := Widgets.stat("clock", Style.time_short(hours))
+	ride.name = "RideTime"
+	var chips := [ride]
+	if sea:
+		var by_sea := Widgets.chip("", Style.TEXT, "", "sail")
+		by_sea.name = "BySea"
+		chips.append(by_sea)
 	if rel == "hostile":
-		chips.append(Widgets.chip("At war with your realm", Style.MORALE_LOW))
+		chips.append(Widgets.chip("At war", Style.MORALE_LOW, "", "fight"))
 	if danger != "":
-		chips.append(Widgets.chip(danger.split(";")[0].split(":")[0].capitalize(), Style.MORALE_LOW))
+		chips.append(_danger_chip(danger))
 	else:
 		chips.append(Widgets.chip("Quiet roads", Style.MORALE_HIGH))
 	_sheet_header(null, owner, String(Data.settlement(id)["name"]), world.brief(id), chips)
+
+
+## A settlement's danger ("under siege by …; …") as one chip: its icon and the first words.
+func _danger_chip(danger: String) -> PanelContainer:
+	var lower := danger.to_lower()
+	var key := "fight"
+	if lower.contains("siege") or lower.contains("besieg"):
+		key = "storm"
+	elif lower.contains("raid") or lower.contains("burn"):
+		key = "fire"
+	elif lower.contains("army") or lower.contains("marshal"):
+		key = "advance"
+	var c := Widgets.chip(danger.split(";")[0].split(":")[0].capitalize(), Style.MORALE_LOW, "", key)
+	c.name = "DangerNote"
+	return c
 
 
 func _open_here() -> void:
@@ -958,46 +1004,50 @@ func _open_here() -> void:
 		_close_sheet()
 		return
 	_selected = id
-	var buttons := [["Enter", _on_enter, true], ["Wait", _on_wait], ["Warband", _on_warband], ["Close", _close_sheet]]
+	var buttons := [["Enter", _on_enter, true, "inside"], ["Wait", _on_wait, false, "revert"], ["Warband", _on_warband, false, "company"], ["Close", _close_sheet]]
 	var wedding_here := GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == id
 	if wedding_here:
 		buttons[0][2] = false
-		buttons.push_front(["Begin your wedding", _on_begin_wedding, true])
+		buttons.push_front(["Wedding", _on_begin_wedding, true, "rings"])
 	if GameState.siege_check(id)["ok"]:
-		buttons.push_front(["Storm the walls", _open_siege.bind(id), true])
+		buttons.push_front(["Storm", _open_siege.bind(id), true, "storm"])
 		buttons[1][2] = false
 	elif GameState.raid_check(id)["ok"]:
-		buttons.push_front(["Raid the village", _open_raid.bind(id), true])
+		buttons.push_front(["Raid the village", _open_raid.bind(id), true, "fire"])
 		buttons[1][2] = false
 	if GameState.crown_check()["ok"]:
-		buttons.insert(buttons.size() - 1, ["Raise your banner", _open_raise_crown])
-	var offers: Array = world.offers_at(id)
-	var body := "You are here. "
-	var danger: String = world.settlement_danger(id)
-	if danger != "":
-		body = "%s.\nYou are here. " % (danger.substr(0, 1).to_upper() + danger.substr(1))
-	if offers.is_empty():
-		body += "Nobody here is looking for work."
-	else:
-		body += "%d %s looking for work." % [offers.size(), "squad is" if offers.size() == 1 else "squads are"]
-	if world.player_in_town():
-		body += " Reinforce and train in town."
+		buttons.insert(buttons.size() - 1, ["Raise crown", _open_raise_crown, false, "crown"])
+	# The title names the place and the bar says you're at it: the sheet says only what's
+	# here, as chips.
+	var body := ""
 	if wedding_here:
 		var who := String(world.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
-		body = "Your wedding is ready here. %s is waiting for you. It waits while you're in town; there's no hurry.\n" % who + body
+		body = "Your wedding is ready. %s is waiting for you; there's no hurry while you're in town." % who
 	_show_sheet("here", String(Data.settlement(id)["name"]), body, buttons, world.brief(id))
+	var chips := []
+	var danger: String = world.settlement_danger(id)
+	if danger != "":
+		chips.append(_danger_chip(danger))
+	var offers: Array = world.offers_at(id)
+	var hire := Widgets.stat("men", "%d for hire" % offers.size() if not offers.is_empty() else "None for hire", Style.TEXT if not offers.is_empty() else Style.MUTED)
+	hire.name = "ForHire"
+	chips.append(hire)
+	if world.player_in_town():
+		chips.append(Widgets.chip("Reinforce and train", Style.MORALE_HIGH, "", "plus"))
+	sheet_extra.add_child(Widgets.chip_row(chips))
+	sheet_extra.visible = true
 
 
 func _open_band(b) -> void:
 	var men: int = world.men_of(b.army)
 	var near := _near_place(world.party_pos(b))
-	var what := "Raiding %s" % Data.settlement(b.raid_village)["name"] if b.raiding and Data.SETTLEMENTS.has(b.raid_village) else "Roaming near %s" % near
-	_show_sheet("band", b.name, "%d squads of the %s's outlaws. Ride into them to fight." % [b.army.size(), _realm_short(b.faction)],
-		[["Ride at them", _on_ride_at.bind(b), true], ["Close", _close_sheet]])
+	var what := "Raiding %s" % Data.settlement(b.raid_village)["name"] if b.raiding and Data.SETTLEMENTS.has(b.raid_village) else "Near %s" % near
+	# The sub line says whose outlaws; the chips say how many and how quick.
+	_show_sheet("band", b.name, "", [["Ride at them", _on_ride_at.bind(b), true, "fight"], ["Close", _close_sheet]])
 	var kind := "wako" if String(b.name).contains("Wako") else Data.culture_of(b.faction)
 	var pic := _sprite_picture("outlaws/" + kind if MapArt.has("outlaws/" + kind) else "bandits", Color("4a4038"), Data.culture_of(b.faction))
 	_sheet_header(pic, "bandits", b.name, "Outlaws of %s" % _realm_short(b.faction),
-		[_men_chip(men), _pace_chip(b), Widgets.chip(what, Style.MORALE_LOW if b.raiding else Style.MORALE_MID)])
+		[_men_chip(men), _pace_chip(b), Widgets.chip(what, Style.MORALE_LOW, "", "fire") if b.raiding else Widgets.chip(what, Style.MORALE_MID, "", "mappin")])
 
 
 ## Ride for where a band is heading, to meet it on the road.
@@ -1021,27 +1071,33 @@ func _near_place(at: Vector2) -> String:
 	return best
 
 
-## How a party's men compare with yours, as a chip.
+## How a party's men compare with yours, as a chip: their men by the men icon, with the
+## kit's marks for what it means to you (▲ weaker than you, ◆ even, ▼ stronger). The same
+## marks as the plates over parties on the map (`_odds_mark`).
 func _men_chip(men: int, about: bool = false) -> PanelContainer:
-	var mine := maxf(1.0, float(GameState.total_men()))
-	var ratio := float(men) / mine
-	var text := ("About %d men" % (int(round(men / 10.0)) * 10)) if about else "%d men" % men
-	if ratio > 1.25:
-		return Widgets.chip(text + " · stronger", Style.MORALE_LOW, "▲")
-	if ratio < 0.8:
-		return Widgets.chip(text + " · weaker", Style.MORALE_HIGH, "▼")
-	return Widgets.chip(text + " · evenly matched", Style.MORALE_MID, "◆")
+	var mark := _odds_mark(men)
+	var c := Widgets.chip(("~%d" % (int(round(men / 10.0)) * 10)) if about else str(men), mark[1], mark[0], "men")
+	c.name = "MenChip"
+	c.tooltip_text = String(mark[2])
+	return c
 
 
-## Who's quicker on the road, as a chip.
+## Who's quicker on the road, as a chip: the speed icon, theirs to yours, ▼ when they're
+## faster (they can catch you), ▲ when you are.
 func _pace_chip(p) -> PanelContainer:
 	var theirs: float = world.party_speed(p)
 	var mine: float = world.player_speed()
+	var tone := Style.MORALE_MID
+	var shape := "◆"
 	if theirs > mine * 1.02:
-		return Widgets.chip("They're faster (%d to %d)" % [roundi(theirs), roundi(mine)], Style.MORALE_LOW)
-	if theirs < mine * 0.98:
-		return Widgets.chip("You're faster (%d to %d)" % [roundi(mine), roundi(theirs)], Style.MORALE_HIGH)
-	return Widgets.chip("As quick as you (%d)" % roundi(mine), Style.MORALE_MID)
+		tone = Style.MORALE_LOW
+		shape = "▼"
+	elif theirs < mine * 0.98:
+		tone = Style.MORALE_HIGH
+		shape = "▲"
+	var c := Widgets.chip("%d · you %d" % [roundi(theirs), roundi(mine)], tone, shape, "speed")
+	c.name = "PaceChip"
+	return c
 
 
 ## A map sprite on a patch of its own ground, scaled up crisp, for a sheet's picture.
@@ -1101,51 +1157,29 @@ func _open_lord(lp) -> void:
 	var rel: String = world.relation_to_player(lp.faction)
 	var buttons := []
 	if not army.is_empty():
-		var names: Array = []
-		var total := 0
-		for member in world.MarshalArmies.members(world, army):
-			var men: int = world.men_of(member.army)
-			total += men
-			names.append("%s — %d men" % [member.name, men])
-		var body := "%s · %d men\nDestination: %s\n%s.\n\n%s" % [String(army["state"]).capitalize(), total,
-			Data.settlement(army["destination"])["name"], _pace_text(lp), "\n".join(names)]
-		if rel == "friendly" and (army["realm"] == Data.CROWN or GameState.has_contract() and GameState.contract_realm() == army["realm"]):
-			if world.following_party == lp.id or world.following_party == int(army["leader"]):
-				buttons.append(["Stop following", _on_stop_following])
-			else:
-				buttons.append(["Ride with army", _on_follow_lord.bind(int(army["leader"]))])
-		elif rel == "neutral":
-			buttons.append(["Attack", _on_attack_lord.bind(lp), true])
-		buttons.append(["Close", _close_sheet])
-		_show_sheet("lord", "Marshal's army", body, buttons)
+		_open_marshal_army(lp, army, rel)
 		return
 	var l: Dictionary = world.lord_of(lp)
 	var men := 0
 	for sq in lp.army:
 		men += int(sq["men"])
-	var realm: String = Data.FACTIONS[lp.faction]["name"]
-	var who := "Ruler of %s" % Data.the_realm(realm) if l.get("ruler", false) else "A lord of %s" % Data.the_realm(realm)
-	var fief := String(l.get("fief", ""))
-	if fief != "" and not l.get("ruler", false):
-		who += ", holding %s" % Data.settlement(fief)["name"]
 	var bearing := String(l.get("bearing", ""))
-	var strength_text := "%d men" % men if GameState.has_specialization(Captains.SCOUT) else "About %d men" % (int(round(men / 10.0)) * 10)
-	var body := "%s. %s: %s.\n%s in %d squads. %s.\n%s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, ""),
-		strength_text, lp.army.size(), _lord_doing(l, lp), _pace_text(lp)]
 	if rel == "friendly" and GameState.has_contract() and GameState.contract_realm() == lp.faction:
 		if world.following_party == lp.id:
-			buttons.append(["Stop following", _on_stop_following])
+			buttons.append(["Stop following", _on_stop_following, false, "back"])
 		else:
-			buttons.append(["Ride with us", _on_follow_lord.bind(lp.id)])
+			buttons.append(["Ride with us", _on_follow_lord.bind(lp.id), false, "ride"])
 	elif rel == "neutral":
-		buttons.append(["Attack", _on_attack_lord.bind(lp), true])
-	if rel in ["friendly", "neutral"] and world.encounter == -1 \
-			and world.party_pos(lp).distance_to(world.party_pos(world.player())) <= WorldSim.ENCOUNTER_RADIUS * TALK_REACH:
+		buttons.append(["Attack", _on_attack_lord.bind(lp), true, "fight"])
+	var near: bool = world.party_pos(lp).distance_to(world.party_pos(world.player())) <= WorldSim.ENCOUNTER_RADIUS * TALK_REACH
+	if rel in ["friendly", "neutral"] and world.encounter == -1 and near:
 		# A friendly lord rides past without stopping when there's nothing new; tap them
 		# while they're near to talk anyway. So can you a lord of a realm at peace with you.
-		buttons.push_front(["Talk", _on_talk_to_lord.bind(lp.id), true])
+		buttons.push_front(["Talk", _on_talk_to_lord.bind(lp.id), true, "talk"])
 	buttons.append(["Close", _close_sheet])
-	_show_sheet("lord", lp.name, "%s. %s: %s." % [who, bearing, Lords.BEARING_TEXT.get(bearing, "")], buttons)
+	# The banner says the realm and the sub line the rank: the body is only the bearing.
+	var body := "%s: %s." % [bearing, Lords.BEARING_TEXT.get(bearing, "")] if bearing != "" else ""
+	_show_sheet("lord", lp.name, body, buttons)
 	var face := TextureRect.new()
 	face.texture = CaptainArt.texture(LordVoice.portrait_record(l))
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -1153,17 +1187,76 @@ func _open_lord(lp) -> void:
 	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	face.custom_minimum_size = Vector2(72, 92)
 	var realm_id := String(l.get("realm", lp.faction))
-	var rel_chip := Widgets.chip({"hostile": "At war with you", "friendly": "Friendly", "allied": "Your ally", "employer": "Your employer"}.get(rel, "Neutral"),
+	var rel_chip := Widgets.chip({"hostile": "At war", "friendly": "Friendly", "allied": "Your ally", "employer": "Your employer"}.get(rel, "Neutral"),
 		Style.MORALE_LOW if rel == "hostile" else (Style.MORALE_HIGH if rel in ["friendly", "allied", "employer"] else Style.MORALE_MID))
-	_sheet_header(face, realm_id if Heraldry.REALM_SIZES.has(realm_id) else _party_realm(lp), lp.name,
-		("Ruler" if l.get("ruler", false) else "Lord") + " of %s · %d squads" % [_realm_short(lp.faction), lp.army.size()],
-		[_men_chip(men, not GameState.has_specialization(Captains.SCOUT)), _pace_chip(lp), Widgets.chip(_lord_doing(l, lp), Style.MORALE_MID, "◆"), rel_chip, _regard_chip(l)])
+	var rank := "Ruler" if l.get("ruler", false) else "Lord"
+	var fief := String(l.get("fief", ""))
+	if fief != "" and not l.get("ruler", false) and Data.SETTLEMENTS.has(fief):
+		rank += " of %s" % Data.settlement(fief)["name"]
+	_sheet_header(face, realm_id if Heraldry.REALM_SIZES.has(realm_id) else _party_realm(lp), lp.name, rank,
+		[_men_chip(men, not GameState.has_specialization(Captains.SCOUT)), _pace_chip(lp), Widgets.chip(_lord_doing(l, lp), Style.MORALE_MID, "", "mappin"), rel_chip, _regard_chip(l)])
 
 
-## What a lord thinks of you, as a chip: "+12 Regard".
+## A marshal's host: the realm's banner and what the army is doing, its strength, where it's
+## bound and how quick, then the lords who ride in it, each with their face.
+func _open_marshal_army(lp, army: Dictionary, rel: String) -> void:
+	var buttons := []
+	if rel == "friendly" and (army["realm"] == Data.CROWN or GameState.has_contract() and GameState.contract_realm() == army["realm"]):
+		if world.following_party == lp.id or world.following_party == int(army["leader"]):
+			buttons.append(["Stop following", _on_stop_following, false, "back"])
+		else:
+			buttons.append(["Ride with army", _on_follow_lord.bind(int(army["leader"])), false, "ride"])
+	elif rel == "neutral":
+		buttons.append(["Attack", _on_attack_lord.bind(lp), true, "fight"])
+	buttons.append(["Close", _close_sheet])
+	_show_sheet("lord", "Marshal's army", "", buttons)
+	var members: Array = world.MarshalArmies.members(world, army)
+	var total := 0
+	for member in members:
+		total += world.men_of(member.army)
+	var state := String(army["state"])
+	var badge := Control.new()
+	badge.name = "ArmyState"
+	badge.custom_minimum_size = Vector2(72, 72)
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.draw.connect(func(): _paint_army_badge(badge, Vector2(36, 36), state, 4.6))
+	var realm := String(army["realm"])
+	var dest := String(army.get("destination", ""))
+	var chips := [_men_chip(total), _pace_chip(lp)]
+	if Data.SETTLEMENTS.has(dest):
+		chips.append(Widgets.chip(String(Data.settlement(dest)["name"]), Style.TEXT, "", "mappin"))
+	_sheet_header(badge, realm if Heraldry.REALM_SIZES.has(realm) else _party_realm(lp),
+		"Marshal %s" % short_lord_name(lp.name), state.capitalize(), chips)
+	var list := VBoxContainer.new()
+	list.name = "ArmyMembers"
+	list.add_theme_constant_override("separation", 8)
+	sheet_extra.add_child(list)
+	for member in members:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var face := TextureRect.new()
+		face.texture = CaptainArt.texture(LordVoice.portrait_record(world.lord_of(member)))
+		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.custom_minimum_size = Vector2(44, 56)
+		row.add_child(face)
+		var who := Style.label(String(member.name), Style.SMALL, Style.TEXT)
+		who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		who.custom_minimum_size = Vector2(10, 0)
+		row.add_child(who)
+		row.add_child(Widgets.icon_value("men", str(world.men_of(member.army))))
+		list.add_child(row)
+
+
+## What a lord thinks of you, as a chip: the bond icon and "+12".
 func _regard_chip(l: Dictionary) -> PanelContainer:
 	var v := LordTalk.regard(GameState, l)
-	var c := Widgets.chip("%s%d Regard" % ["+" if v > 0 else "", v], Style.MORALE_HIGH if v >= 10 else (Style.MORALE_MID if v >= -14 else Style.MORALE_LOW))
+	var tone := Style.MORALE_HIGH if v >= 10 else (Style.MORALE_MID if v >= -14 else Style.MORALE_LOW)
+	var c := Widgets.chip("%s%d" % ["+" if v > 0 else ("−" if v < 0 else ""), absi(v)], tone,
+		"▲" if tone == Style.MORALE_HIGH else ("◆" if tone == Style.MORALE_MID else "▼"), "bond")
+	c.tooltip_text = "Regard"
 	c.name = "RegardChip"
 	return c
 
@@ -1209,7 +1302,8 @@ func _toast(text: String) -> void:
 	# their height a frame later: fit it now and again then.
 	_toast_panel.reset_size()
 	_toast_panel.reset_size.call_deferred()
-	_toast_panel.position = Vector2((get_viewport_rect().size.x - width) * 0.5, top_panel.get_global_rect().end.y + 14.0)
+	var under: float = pinned_chip.get_global_rect().end.y if pinned_chip != null and pinned_chip.visible else top_panel.get_global_rect().end.y
+	_toast_panel.position = Vector2((get_viewport_rect().size.x - width) * 0.5, under + 14.0)
 	_toast_panel.visible = true
 	_toast_panel.modulate.a = 1.0
 	if _toast_tween != null:
@@ -1246,17 +1340,6 @@ func _chaser():
 			if lp != null:
 				return lp
 	return null
-
-
-## Who's quicker on the road, you or them, in words.
-func _pace_text(p) -> String:
-	var theirs: float = world.party_speed(p)
-	var mine: float = world.player_speed()
-	if theirs > mine * 1.02:
-		return "Faster than you (%d to your %d): they can catch you" % [roundi(theirs), roundi(mine)]
-	if theirs < mine * 0.98:
-		return "Slower than you (%d to your %d): you can outrun them" % [roundi(theirs), roundi(mine)]
-	return "As quick as you (%d)" % roundi(mine)
 
 
 func _lord_doing(l: Dictionary, lp) -> String:
@@ -1336,19 +1419,18 @@ func _open_ransom_sheet(lord_id: int) -> void:
 		return
 	var realm_name: String = Data.FACTIONS.get(l.get("realm", ""), {}).get("name", l.get("realm", ""))
 	var ransom: int = int(l.get("ransom_amount", 200))
-	var title := "Ransom Envoy: %s" % l.get("name", "Captive Lord")
-	var text := "An envoy rides under a banner of truce bearing an offer from %s.\n\n\"We offer %d silver for the honorable return of %s to their hall.\"" % [
-		realm_name, ransom, l.get("name", "the lord")
-	]
+	var title := "Ransom for %s" % l.get("name", "a captive lord")
+	var text := "An envoy of %s rides under a banner of truce for %s's return." % [realm_name, l.get("name", "the lord")]
 	var buttons := []
-	buttons.append(["Accept Ransom (+%d s)" % ransom, _on_accept_ransom.bind(lord_id), true])
+	buttons.append(["Ransom", _on_accept_ransom.bind(lord_id), true, "silver", [_gain("silver", ransom)]])
 	if GameState.has_contract() and world.at_war(GameState.contract_realm(), String(l.get("realm", ""))):
 		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
-		buttons.append(["Deliver to Employer (+%d s, +10 rel)" % bonus, _on_deliver_lord_to_employer.bind(lord_id)])
-	buttons.append(["Release for Honor (+25 Regard, +10 renown)", _on_release_lord_honor.bind(lord_id)])
-	buttons.append(["Talk", _open_talk.bind(lord_id, "captive")])
-	buttons.append(["Keep in Chains", _close_sheet])
+		buttons.append(["To employer", _on_deliver_lord_to_employer.bind(lord_id), false, "crown", [_gain("silver", bonus), _gain("bond", 10)]])
+	buttons.append(["Release", _on_release_lord_honor.bind(lord_id), false, "heart", [_gain("bond", 25), _gain("renown", 10)]])
+	buttons.append(["Talk", _open_talk.bind(lord_id, "captive"), false, "talk"])
+	buttons.append(["Keep in chains", _close_sheet, false, "lock"])
 	_show_sheet("ransom", title, text, buttons)
+	_show_lord_header(l)
 
 
 func _on_accept_ransom(lord_id: int) -> void:
@@ -1381,15 +1463,8 @@ func _open_encounter() -> void:
 		_stop_reason = ""
 		return
 	var men := 0
-	var kinds := {}
-	var band_culture := Data.culture_of(b.faction)
 	for sq in b.army:
 		men += int(sq["men"])
-		var word := Cultures.troop_name(band_culture, sq["type"]).to_lower()
-		kinds[word] = int(kinds.get(word, 0)) + 1
-	var parts := PackedStringArray()
-	for k in kinds:
-		parts.append("%s (%d %s)" % [k, kinds[k], "squad" if kinds[k] == 1 else "squads"])
 	var fighters := []
 	for s in GameState.army:
 		if int(s["men"]) > 0:
@@ -1412,37 +1487,38 @@ func _open_encounter() -> void:
 				title = "%s confronts you" % b.name
 			"ambush":
 				title = "AMBUSH! %s attack from the woods" % b.name
-
-	var buttons := [["Fight", _on_fight, true], ["Send in", _on_send_in]]
-	if b.kind == WorldSim.LORD and int(b.lord) >= 0:
-		buttons.append(["Talk", _open_talk.bind(int(b.lord), "hostile")])
-	var withdraw_text := ""
-	if is_ambush:
-		withdraw_text = "\nYou cannot withdraw from an ambush!"
-	elif not can_withdraw:
-		withdraw_text = "\nThey are faster and stronger: you cannot withdraw!"
-	else:
-		buttons.append(["Withdraw", _on_withdraw])
-		withdraw_text = "\nOr withdraw to %s, losing the hours it takes." % Data.settlement(world.player().node)["name"]
-
-	var ground := ""
-	if site.get("river", "") != "":
-		ground = "\nYou meet them at a ford over %s." % site["river"]
-	elif not bool(site.get("fair", true)):
-		ground = "\nThey chose their ground: %s, and they'll wait for you on it." % (
-			"the brow of a ridge" if site["type"] == "hills" else "the edge of a wood")
 	var odds: Dictionary = AutoResolve.odds(fighters, b.army, site, objective)
 	var lost: int = odds["lost"]
-	var encounter_body := "%sSent in without you, you'd lose about %d %s.%s" % [
-		ground.strip_edges() + "\n" if ground != "" else "", lost, "man" if lost == 1 else "men", withdraw_text]
-	if grudge_text != "":
-		encounter_body = grudge_text + "\n\n" + encounter_body
+	# Send in: the men you'd lose sit under the button, not in a sentence.
+	var buttons := [["Fight", _on_fight, true, "fight"], ["Send in", _on_send_in, false, "advance", [_loss("skull", lost)]]]
+	if b.kind == WorldSim.LORD and int(b.lord) >= 0:
+		buttons.append(["Talk", _open_talk.bind(int(b.lord), "hostile"), false, "talk"])
+	if not is_ambush and can_withdraw:
+		buttons.append(["Withdraw", _on_withdraw, false, "retreat"])
+	# The lord's own voice is the only prose; a grudge is part of what they say.
+	var encounter_body := grudge_text
 	var foe_lord: Dictionary = world.lord_of(b) if b.kind == WorldSim.LORD else {}
 	if not foe_lord.is_empty():
 		var met := int(foe_lord.get("met_player", 0))
-		encounter_body = LordVoice.line("again" if met > 0 else "face", foe_lord) + "\n\n" + encounter_body
+		encounter_body = LordVoice.line("again" if met > 0 else "face", foe_lord) + ("\n\n" + grudge_text if grudge_text != "" else "")
 	_show_sheet("encounter", title, encounter_body, buttons)
 	_show_odds(b, fighters, odds, men, is_ambush or not can_withdraw)
+	# The ground and the way out, as chips.
+	var chips := []
+	if site.get("river", "") != "":
+		chips.append(Widgets.chip("Ford · %s" % site["river"], Style.MORALE_MID, "◆"))
+	elif not bool(site.get("fair", true)):
+		chips.append(Widgets.chip("Their ground: %s" % ("ridge" if site["type"] == "hills" else "wood's edge"), Style.MORALE_LOW, "▼"))
+	if is_ambush:
+		chips.append(Widgets.chip("Ambush · no way out", Style.MORALE_LOW, "", "retreat"))
+	elif not can_withdraw:
+		chips.append(Widgets.chip("Can't withdraw", Style.MORALE_LOW, "", "retreat"))
+	elif world.party_speed(b) > world.player_speed():
+		chips.append(Widgets.chip("Withdrawing may fail", Style.MORALE_MID, "", "retreat"))
+	if not chips.is_empty():
+		var row := Widgets.chip_row(chips)
+		row.name = "EncounterChips"
+		sheet_extra.add_child(row)
 	_show_lord_header(foe_lord)
 	Sound.play("alarm")
 
@@ -1519,26 +1595,23 @@ func _show_odds(b, fighters: Array, odds: Dictionary, their_men: int, trapped: b
 	for s in fighters:
 		mine += int(s.get("men", 0))
 	var top: float = maxf(float(odds["player"]), float(odds["enemy"]))
-	sheet_extra.add_child(_odds_bar("You", mine, float(odds["player"]) / maxf(1.0, top), Style.PLAYER))
-	sheet_extra.add_child(_odds_bar("Them", their_men, float(odds["enemy"]) / maxf(1.0, top), Style.ENEMY))
-	var pace := HBoxContainer.new()
-	pace.add_theme_constant_override("separation", 10)
-	pace.add_child(Widgets.icon_rect("speed", 32.0))
-	var quick: bool = world.party_speed(b) > world.player_speed()
-	var pace_text := _pace_text(b)
-	if quick and not trapped:
-		pace_text += " · withdrawing may fail"
-	pace.add_child(Style.label(pace_text, Style.SMALL, Style.ENEMY_LIGHT if quick else Style.MUTED))
+	sheet_extra.add_child(_odds_bar(_party_realm(world.player()), mine, float(odds["player"]) / maxf(1.0, top), Style.PLAYER, "OddsYou"))
+	sheet_extra.add_child(_odds_bar(_party_realm(b) if b.kind != WorldSim.BAND else "bandits", their_men, float(odds["enemy"]) / maxf(1.0, top), Style.ENEMY, "OddsThem"))
+	var pace := Widgets.chip_row([_pace_chip(b)])
+	pace.name = "OddsPace"
 	sheet_extra.add_child(pace)
 	sheet_extra.visible = true
 
 
-func _odds_bar(who: String, men: int, share: float, tone: Color) -> Control:
+## One side's strength: its banner, a bar against the stronger side, and its men.
+func _odds_bar(realm: String, men: int, share: float, tone: Color, bar_name: String = "") -> Control:
 	var row := HBoxContainer.new()
+	if bar_name != "":
+		row.name = bar_name
 	row.add_theme_constant_override("separation", 10)
-	var name_label := Style.label(who, Style.SMALL, Style.MUTED)
-	name_label.custom_minimum_size = Vector2(70, 0)
-	row.add_child(name_label)
+	var flag := Widgets.banner(realm, Vector2(34, 46))
+	flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(flag)
 	var track := Panel.new()
 	track.custom_minimum_size = Vector2(0, 22)
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1553,28 +1626,17 @@ func _odds_bar(who: String, men: int, share: float, tone: Color) -> Control:
 	if not Style.motion_reduced():
 		fill.anchor_right = 0.04
 		fill.create_tween().tween_property(fill, "anchor_right", clampf(share, 0.04, 1.0), 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	var count := Style.label("%d men" % men, Style.SMALL, Style.TEXT)
-	count.custom_minimum_size = Vector2(110, 0)
-	count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var count := Widgets.icon_value("men", str(men))
+	count.custom_minimum_size = Vector2(100, 0)
+	count.alignment = BoxContainer.ALIGNMENT_END
 	row.add_child(count)
 	return row
-
-
-func _odds_text(odds: Dictionary) -> String:
-	var r: float = odds["ratio"]
-	var call: String
-	if odds["player_wins"]:
-		call = "they're no match for you" if r < 0.5 else ("you have the stronger force" if r < 0.85 else "it's close, with the edge to you")
-	else:
-		call = "you're badly outmatched" if r < 0.5 else ("they have the stronger force" if r < 0.85 else "it's close, with the edge to them")
-	var lost: int = odds["lost"]
-	return "Your scouts say %s. Sent in without you, you'd lose about %d %s." % [call, lost, "man" if lost == 1 else "men"]
 
 
 func _open_desertion_warning() -> void:
 	_show_sheet("warning", "Warning: men are leaving", GameState.desertion_warning +
 		"\n\nTime is paused. Restore supplies and wages before another day passes.",
-		[["Understood", _acknowledge_desertion, true]])
+		[["Understood", _acknowledge_desertion, true, "resume"]])
 	GameState.save_game()
 	Sound.play("alarm")
 
@@ -1600,19 +1662,41 @@ static func _short_amount(value: int) -> String:
 func _open_resource(key: String) -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
-	var text := ""
+	var tiles := []
+	var tip := ""
+	var short := false
 	match key:
 		"silver":
-			text = "%d silver. Your men need %d silver in wages each day. Win battles for bounties and spoils." % [GameState.silver, GameState.daily_wages()]
-			if GameState.silver < GameState.daily_wages():
-				text += "\nWarning: you cannot cover the next day's wages. Unpaid men may leave."
+			var wages: int = GameState.daily_wages()
+			short = GameState.silver < wages
+			tiles = [Widgets.tile("silver", Widgets.thousands(GameState.silver), "in the purse", Style.ENEMY_LIGHT if short else Style.TEXT),
+				Widgets.tile("men", "−%s" % Widgets.thousands(wages), "wages a day"),
+				Widgets.tile("clock", str(GameState.silver / maxi(1, wages)), "days of wages")]
+			tip = "Win battles for bounties and spoils." if not short else "You can't cover the next day's wages. Unpaid men may leave."
 		"food":
-			text = "%d rations, enough for %d days. Every man eats one ration a day. Buy food in any settlement; villages are cheapest." % [GameState.food, GameState.food_days()]
-			if GameState.food < GameState.total_men():
-				text += "\nWarning: there is not enough food for the next day. Hungry men may leave."
+			short = GameState.food < GameState.total_men()
+			tiles = [Widgets.tile("food", Widgets.thousands(GameState.food), "rations", Style.ENEMY_LIGHT if short else Style.TEXT),
+				Widgets.tile("men", "−%s" % Widgets.thousands(GameState.total_men()), "eaten a day"),
+				Widgets.tile("clock", str(GameState.food_days()), "days of food")]
+			tip = "Each man eats one ration a day. Villages sell rations cheapest." if not short else "Not enough rations for the next day. Hungry men may leave."
 		"renown":
-			text = "%d renown. You can lead up to %d squads. Winning battles builds your reputation and increases your squad limit." % [GameState.renown, GameState.squad_cap()]
-	_show_sheet("menu", key.capitalize(), text, [["Close", _close_sheet]])
+			tiles = [Widgets.tile("renown", Widgets.thousands(GameState.renown), "renown"),
+				Widgets.tile("company", "%d / %d" % [GameState.army.size(), GameState.squad_cap()], "squads you can lead")]
+			tip = "Winning battles builds your name, and a greater name leads more squads."
+		"men":
+			var wounded := 0
+			for sq in GameState.army:
+				wounded += int(sq.get("wounded", 0))
+			tiles = [Widgets.tile("men", Widgets.thousands(GameState.total_men()), "fit to fight"),
+				Widgets.tile("wounded", str(wounded), "wounded in the baggage", Style.ENEMY_LIGHT if wounded > 0 else Style.TEXT),
+				Widgets.tile("company", "%d / %d" % [GameState.army.size(), GameState.squad_cap()], "squads"),
+				Widgets.tile("speed", str(roundi(world.player_speed())), "pace on the road")]
+			tip = "Every fight on the map weighs these men against theirs."
+	_show_sheet("menu", key.capitalize(), tip, [["Close", _close_sheet]], "", key)
+	var grid := Widgets.tile_grid(tiles, 2)
+	grid.name = "ResourceTiles"
+	sheet_extra.add_child(grid)
+	sheet_extra.visible = true
 
 
 ## A message on a card. With no title, it's titled by where you are: a battle's own
@@ -1630,12 +1714,12 @@ func _open_notice(text: String, title: String = "", items: Array = []) -> void:
 			return
 	if GameState.total_men() == 0:
 		_show_sheet("notice", "Your warband is gone", text + " Raise a new one to ride again.",
-			[["New campaign", _on_new_campaign, true]])
+			[["New campaign", _on_new_campaign, true, "plus"]])
 		return
 	# Only releases and oaths to tell: name the sheet for them, not for a battle.
 	if text == "" and not items.is_empty():
 		title = "Your court" if items.any(func(i): return String(i.get("kind", "")) == "sworn") else "Your captives"
-	_show_sheet("notice", title, text, [["Carry on", _on_notice_done, true]])
+	_show_sheet("notice", title, text, [["Carry on", _on_notice_done, true, "resume"]])
 	if not items.is_empty():
 		sheet_extra.visible = true
 		# The groups sit above any plain notes (the sheet's extra area comes before its body).
@@ -1650,8 +1734,8 @@ func _notice_groups(items: Array) -> Array:
 	var released := items.filter(func(i): return String(i.get("kind", "")) == "released")
 	var sworn := items.filter(func(i): return String(i.get("kind", "")) == "sworn")
 	if not released.is_empty():
-		var v := _notice_block("NoticeReleased", "Released without ransom",
-			"+%d renown" % (GameState.RELEASE_RENOWN * released.size()))
+		var v := _notice_block("NoticeReleased", "Released without ransom", "")
+		(v.get_child(0) as HBoxContainer).add_child(Widgets.effect("renown", GameState.RELEASE_RENOWN * released.size()))
 		# By realm: who went home to each, and how much that realm warmed to you.
 		var realms: Array = []
 		var by_realm := {}
@@ -1671,21 +1755,19 @@ func _notice_groups(items: Array) -> Array:
 			rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			rl.custom_minimum_size = Vector2(10, 0)
 			head.add_child(rl)
-			head.add_child(Style.label("+%d realm" % (GameState.RELEASE_REALM * names.size()), Style.SMALL, Style.BRASS))
+			head.add_child(Widgets.effect("bond", GameState.RELEASE_REALM * names.size()))
 			v.add_child(head)
 			var who := Style.label(", ".join(PackedStringArray(names)), Style.SMALL, Style.TEXT)
 			who.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			who.custom_minimum_size = Vector2(10, 0)
 			v.add_child(who)
-		var each := Style.label(("Each remembers it: +%d Regard." if released.size() > 1 else "They'll remember it: +%d Regard.")
-			% GameState.RELEASE_REGARD, Style.SMALL, Style.MUTED)
-		each.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		each.custom_minimum_size = Vector2(10, 0)
+		var each := Widgets.chip_row([Widgets.effect("bond", GameState.RELEASE_REGARD, " each")])
+		each.name = "RegardEach"
 		v.add_child(each)
 		blocks.append(v.get_parent())
 	if not sworn.is_empty():
-		var v := _notice_block("NoticeSworn", "Sworn to your crown",
-			"%d %s" % [sworn.size(), "lord" if sworn.size() == 1 else "lords"])
+		var v := _notice_block("NoticeSworn", "Sworn to your crown", "")
+		(v.get_child(0) as HBoxContainer).add_child(Widgets.icon_value("crown", str(sworn.size()), Style.BRASS))
 		for i in sworn:
 			var seat := String(i.get("seat", ""))
 			var line := Style.label(String(i["name"]) + (" · holds %s" % seat if seat != "" else ""), Style.SMALL, Style.TEXT)
@@ -1718,7 +1800,8 @@ func _notice_block(block_name: String, heading: String, aside: String) -> VBoxCo
 	h.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	h.custom_minimum_size = Vector2(10, 0)
 	head.add_child(h)
-	head.add_child(Style.label(aside, Style.SMALL, Style.BRASS))
+	if aside != "":
+		head.add_child(Style.label(aside, Style.SMALL, Style.BRASS))
 	return v
 
 
@@ -1736,11 +1819,7 @@ func _on_notice_done() -> void:
 
 
 func _hours_text(hours: float) -> String:
-	var h := int(ceil(hours))
-	if h >= 24:
-		var days := "1 day" if h / 24 == 1 else "%d days" % (h / 24)
-		return days if h % 24 == 0 else "%s %s" % [days, _hours_text(h % 24)]
-	return "%d hours" % h if h != 1 else "1 hour"
+	return Style.time_short(ceilf(hours))
 
 
 # ---------------------------------------------------------------- actions
@@ -1786,14 +1865,14 @@ func _on_menu() -> void:
 	sheet_extra.add_child(grid)
 	var men: int = GameState.total_men()
 	var companies: int = GameState.army.size()
-	grid.add_child(_menu_card("Warband", "company", "%d men\n%d %s" % [men, companies, "company" if companies == 1 else "companies"], _on_warband))
+	grid.add_child(_menu_card("Warband", "company", "", _on_warband, 0, [["men", Widgets.thousands(men)], ["company", str(companies)]]))
 	var open: int = GameState.commitments().size()
-	grid.add_child(_menu_card("Journal", "journal", "%d commitment%s" % [open, "" if open == 1 else "s"] if open > 0 else "Nothing pending", _open_journal))
+	grid.add_child(_menu_card("Journal", "journal", "" if open > 0 else "Nothing pending", _open_journal, 0, [["objective", str(open)]] if open > 0 else []))
 	var unread: int = world.social.unread_letters_count() if world.social != null else 0
-	grid.add_child(_menu_card(_people_label(), "mail", "%d unread" % unread if unread > 0 else "No new letters", _on_people, unread))
+	grid.add_child(_menu_card(_people_label(), "mail", "New letters" if unread > 0 else "No new letters", _on_people, unread))
 	grid.add_child(_menu_card("War & Politics", "battle", _war_status(), _open_wars))
 	if GameState.is_crowned():
-		grid.add_child(_menu_card("Your Crown", "crown", "%d held" % GameState.crown_holdings().size(), _open_crown))
+		grid.add_child(_menu_card("Your Crown", "crown", "", _open_crown, 0, [["keep", str(GameState.crown_holdings().size())]]))
 	var foot := HBoxContainer.new()
 	foot.add_theme_constant_override("separation", 14)
 	sheet_extra.add_child(foot)
@@ -1811,6 +1890,7 @@ func _on_menu() -> void:
 		pic.modulate = Style.MUTED
 		inner.add_child(pic)
 		inner.add_child(Style.label(String(spec[0]), Style.BODY, Style.MUTED))
+		f.custom_minimum_size.y = Style.TOUCH
 		foot.add_child(f)
 
 
@@ -1824,11 +1904,14 @@ func _menu_header() -> Control:
 	if face != null:
 		t.add_theme_font_override("font", face)
 	row.add_child(t)
-	var paused := Style.label("Paused", 22, Style.MUTED)
-	paused.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var paused := Widgets.chip("Paused", Style.MUTED, "", "pause")
 	paused.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(paused)
-	var x := _icon_button("Close", "cancel", _close_sheet, 72.0)
+	var gap := Control.new()
+	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(gap)
+	var x := _icon_button("Close", "cancel", _close_sheet, Style.TOUCH)
 	x.name = "CloseMenu"
 	x.add_theme_stylebox_override("normal", Style.box(Style.RAISED, Style.RULE, 2, 36))
 	row.add_child(x)
@@ -1858,7 +1941,7 @@ func _icon_button(text: String, icon: String, callback: Callable, side: float = 
 	pic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(pic)
 	if word != "":
-		var l := Style.label(word, 17, Style.MUTED)
+		var l := Style.label(word, Style.SMALL, Style.MUTED)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		v.add_child(l)
@@ -1886,23 +1969,29 @@ func _last_save_card() -> Control:
 	row.add_child(words)
 	if GameState.ironman:
 		words.add_child(Style.label("Ironman", Style.BODY, Style.BRASS))
-		var n := Style.label("The game saves as you go. There's no going back.", 20, Style.MUTED)
+		var n := Style.label("The game saves as you go. There's no going back.", Style.SMALL, Style.MUTED)
 		n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		words.add_child(n)
 		return card
 	var last := SaveSlots.latest()
 	if last.is_empty():
 		words.add_child(Style.label("No saves yet", Style.BODY, Style.TEXT))
-		words.add_child(Style.label("Save a moment to come back to", 20, Style.MUTED))
+		words.add_child(Style.label("Save a moment to come back to", Style.SMALL, Style.MUTED))
 	else:
 		var s: Dictionary = last["summary"]
-		words.add_child(Style.label("Saved Day %d · %02d:00" % [int(s["day"]), int(s["hour"]) % 24], Style.BODY, Style.TEXT))
+		var when := HBoxContainer.new()
+		when.name = "SavedWhen"
+		when.add_theme_constant_override("separation", 12)
+		when.add_child(Widgets.icon_value("day", str(int(s["day"])), Style.TEXT, Style.BODY))
+		when.add_child(Widgets.icon_value("clock", "%02d:00" % (int(s["hour"]) % 24), Style.MUTED))
+		words.add_child(when)
 		var fought := GameState.battles - int(s["battles"])
 		var since := "%d battle%s since" % [fought, "" if fought == 1 else "s"] if fought > 0 else SaveSlots.when(float(last["saved"]))
-		words.add_child(Style.label("%s · %s" % [s["place_name"], since], 20, Style.MORALE_MID if fought > 0 else Style.MUTED))
+		words.add_child(Style.label("%s · %s" % [s["place_name"], since], Style.SMALL, Style.MORALE_MID if fought > 0 else Style.MUTED))
 	for c in words.get_children():
-		(c as Label).clip_text = true
-		(c as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		if c is Label:
+			(c as Label).clip_text = true
+			(c as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var save := _icon_button("Save game", "save", _on_save_game, 88.0, "Save")
 	Style.make_primary(save)
 	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color", "font_hover_pressed_color"]:
@@ -1946,20 +2035,20 @@ func _menu_next_step() -> Control:
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(words)
-	words.add_child(Style.label("NEXT STEP", 17, Color(Style.BRASS_INK, 0.7)))
+	words.add_child(Style.label("NEXT STEP", Style.SMALL, Color(Style.BRASS_INK, 0.7)))
 	var what := Style.label(String(rec.get("title", "See what to do next")), Style.BODY, Style.BRASS_INK)
 	what.clip_text = true
 	what.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	words.add_child(what)
-	var go := Style.label("›", 40, Style.BRASS_INK)
-	go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var go := Widgets.icon_rect("advance", 36.0)
+	go.modulate = Style.BRASS_INK
 	row.add_child(go)
 	return b
 
 
-## A big card: an icon in a tile, the name, and a line of what's there; a red count when
-## something waits unread.
-func _menu_card(text: String, icon: String, status: String, callback: Callable, badge: int = 0) -> Control:
+## A big card: an icon in a tile, the name, and what's there as icons and numbers (`stats`,
+## [[key, text]]) or a short line; a red count when something waits unread.
+func _menu_card(text: String, icon: String, status: String, callback: Callable, badge: int = 0, stats: Array = []) -> Control:
 	var b := _quiet_button(text, callback)
 	b.name = "Menu_" + text.split(" ")[0]
 	b.custom_minimum_size = Vector2(0, 136)
@@ -1984,29 +2073,30 @@ func _menu_card(text: String, icon: String, status: String, callback: Callable, 
 	tile.add_child(pic)
 	var words := VBoxContainer.new()
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
-	words.add_theme_constant_override("separation", 0)
+	words.add_theme_constant_override("separation", 2)
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(words)
 	var name := Style.label(text.split(" (")[0], Style.BODY, Style.TEXT)
 	name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(name)
-	var line := Style.label(status, 20, Style.MUTED)
-	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	words.add_child(line)
+	if not stats.is_empty():
+		var figures := HFlowContainer.new()
+		figures.add_theme_constant_override("h_separation", 14)
+		figures.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for st in stats:
+			figures.add_child(Widgets.icon_value(String(st[0]), String(st[1]), Style.MUTED))
+		words.add_child(figures)
+	if status != "":
+		var line := Style.label(status, Style.SMALL, Style.MUTED)
+		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(line)
 	if badge > 0:
-		var dot := Style.label(str(badge), 20, Color.WHITE)
-		dot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		dot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		dot.add_theme_stylebox_override("normal", Style.box(Style.ENEMY, Color(0, 0, 0, 0), 0, 18))
-		dot.custom_minimum_size = Vector2(36, 36)
-		dot.size = Vector2(36, 36)
+		var dot := Widgets.count_badge(badge)
 		dot.anchor_left = 1.0
 		dot.anchor_right = 1.0
-		dot.offset_left = -30
-		dot.offset_right = 6
+		dot.offset_left = -34
 		dot.offset_top = -10
-		dot.offset_bottom = 26
 		b.add_child(dot)
 	return b
 
@@ -2051,7 +2141,7 @@ func _on_saves() -> void:
 
 
 func _open_wars() -> void:
-	_show_sheet("wars", "War & Politics", "", [["The Chronicle", _open_chronicle.bind("war")], ["Close", _close_or_back, true]])
+	_show_sheet("wars", "War & Politics", "", [["Chronicle", _open_chronicle.bind("war"), false, "book"], ["Close", _close_or_back, true]])
 	sheet_extra.visible = true
 	# The realms: each with its banner, its strength against the strongest, how weary of
 	# war it is, and what it holds.
@@ -2071,7 +2161,15 @@ func _open_wars() -> void:
 		row.add_child(col)
 		var holdings: int = world.holdings_of(f).size()
 		col.add_child(Style.label(String(Data.FACTIONS[f]["name"]), Style.BODY, Style.TEXT))
-		col.add_child(Style.label("%s · %d holding%s" % [String(Data.FACTIONS[f].get("ruler", "")), holdings, "" if holdings == 1 else "s"], Style.SMALL, Style.MUTED))
+		var sub := HBoxContainer.new()
+		sub.add_theme_constant_override("separation", 14)
+		var ruler := Style.label(String(Data.FACTIONS[f].get("ruler", "")), Style.SMALL, Style.MUTED)
+		ruler.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ruler.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		ruler.custom_minimum_size = Vector2(10, 0)
+		sub.add_child(ruler)
+		sub.add_child(Widgets.icon_value("keep", str(holdings), Style.MUTED))
+		col.add_child(sub)
 		var men: int = world.realm_strength(f)
 		var wear: float = world.weariness_of(f)
 		var grid := GridContainer.new()
@@ -2079,10 +2177,10 @@ func _open_wars() -> void:
 		grid.add_theme_constant_override("h_separation", 12)
 		grid.add_theme_constant_override("v_separation", 4)
 		col.add_child(grid)
-		grid.add_child(Style.label("Strength", Style.SMALL, Style.MUTED))
+		grid.add_child(Widgets.icon_rect("men", 28.0))
 		grid.add_child(Widgets.meter(float(men) / strongest, Color(String(REALM_INK.get(f, "a9c4ff")))))
-		grid.add_child(Style.label("%d men" % men, Style.SMALL, Style.TEXT))
-		grid.add_child(Style.label("Weariness", Style.SMALL, Style.MUTED))
+		grid.add_child(Style.label(Widgets.thousands(men), Style.SMALL, Style.TEXT))
+		grid.add_child(Style.label("Weary", Style.SMALL, Style.MUTED))
 		grid.add_child(Widgets.meter(wear / 100.0, Style.MORALE_LOW))
 		grid.add_child(Style.label("%d%%" % int(wear), Style.SMALL, Style.TEXT))
 		sheet_extra.add_child(row)
@@ -2092,25 +2190,35 @@ func _open_wars() -> void:
 	for k in world.wars:
 		var parts: PackedStringArray = k.split("|")
 		var days := int((world.hour - float(world.wars[k].get("since", 0.0))) / 24.0)
-		sheet_extra.add_child(_versus(parts[0], parts[1], "at war · %s" % ("since today" if days < 1 else "%d day%s" % [days, "" if days == 1 else "s"]), Style.MORALE_LOW, "⚔"))
+		sheet_extra.add_child(_versus(parts[0], parts[1], "today" if days < 1 else "%d day%s" % [days, "" if days == 1 else "s"], Style.MORALE_LOW, "fight"))
 		pairs += 1
 	for k in world.truces:
 		var parts: PackedStringArray = k.split("|")
 		var left := int(ceil(maxf(0.0, float(world.truces[k].get("until", 0.0)) - world.hour) / 24.0))
-		sheet_extra.add_child(_versus(parts[0], parts[1], "truce · %d day%s left" % [left, "" if left == 1 else "s"], Style.MORALE_HIGH, "☮"))
+		sheet_extra.add_child(_versus(parts[0], parts[1], "%d day%s left" % [left, "" if left == 1 else "s"], Style.MORALE_HIGH, "peace"))
 		pairs += 1
 	if pairs == 0:
 		sheet_extra.add_child(Style.label("Every realm is at peace.", Style.SMALL, Style.MUTED))
 	for t in world.tributes:
-		sheet_extra.add_child(Style.label("%s pays %s %d silver a day · %d days left" % [_realm_short(t["from"]), _realm_short(t["to"]), int(t["daily"]), int(t["days_left"])], Style.SMALL, Style.MUTED))
+		# Tribute: who pays whom, then the silver a day and the days left as icons.
+		var trow := HBoxContainer.new()
+		trow.name = "Tribute"
+		trow.add_theme_constant_override("separation", 10)
+		trow.add_child(Widgets.banner(String(t["from"]), Vector2(26, 36)))
+		trow.add_child(Widgets.icon_rect("advance", 24.0))
+		trow.add_child(Widgets.banner(String(t["to"]), Vector2(26, 36)))
+		var gap := Control.new()
+		gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		trow.add_child(gap)
+		trow.add_child(Widgets.icon_value("silver", "%d/day" % int(t["daily"])))
+		trow.add_child(Widgets.icon_value("clock", "%d days" % int(t["days_left"]), Style.MUTED))
+		sheet_extra.add_child(trow)
 	# The latest news of war, with the day.
 	sheet_extra.add_child(Widgets.section("Lately"))
 	var shown := 0
 	for entry in world.activity_log:
 		if String(entry.get("type", "")) in ["war", "peace", "captured", "fight", "siege_assault"]:
-			var news := Style.label("Day %d · %s" % [int(float(entry.get("hour", 0.0))) / 24 + 1, String(entry.get("text", ""))], Style.SMALL, Style.TEXT)
-			news.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			sheet_extra.add_child(news)
+			sheet_extra.add_child(_chronicle_row(int(float(entry.get("hour", 0.0))) / 24 + 1, _entry_icon(entry), String(entry.get("text", ""))))
 			shown += 1
 			if shown >= 3:
 				break
@@ -2128,61 +2236,133 @@ func _realm_short(f: String) -> String:
 	return String(REALM_SHORT.get(f, Data.FACTIONS.get(f, {}).get("name", f)))
 
 
-## One war or truce: both realms' banners and names, and what stands between them.
-func _versus(a: String, b: String, text: String, tone: Color, mark: String) -> Control:
+## One war or truce: both realms' banners, and between them its icon (crossed blades for
+## war, the olive for a truce) and how long. The banners name the realms.
+func _versus(a: String, b: String, text: String, tone: Color, key: String) -> Control:
 	var row := HBoxContainer.new()
+	row.name = "Versus"
 	row.add_theme_constant_override("separation", 10)
-	row.add_child(Widgets.banner(a, Vector2(34, 46)))
-	var left := Style.label(_realm_short(a), Style.SMALL, Style.TEXT)
+	var left := Widgets.banner(a, Vector2(34, 46))
+	left.tooltip_text = _realm_short(a)
 	row.add_child(left)
-	var mid := Style.label("%s %s" % [mark, text], Style.SMALL, tone)
+	var mid := HBoxContainer.new()
+	mid.alignment = BoxContainer.ALIGNMENT_CENTER
 	mid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	mid.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mid.add_theme_constant_override("separation", 10)
+	var pic := Widgets.icon_rect(key, 30.0)
+	pic.modulate = tone
+	mid.add_child(pic)
+	mid.add_child(Widgets.icon_value("clock", text, tone))
 	row.add_child(mid)
-	row.add_child(Style.label(_realm_short(b), Style.SMALL, Style.TEXT))
-	row.add_child(Widgets.banner(b, Vector2(34, 46)))
+	var right := Widgets.banner(b, Vector2(34, 46))
+	right.tooltip_text = _realm_short(b)
+	row.add_child(right)
 	return row
 
 
 # ---------------------------------------------------------------- journal
 
-## "12h left" / "3 days left", or "" when a commitment has no deadline.
+## "8 h" / "3 days", or "" when a commitment has no deadline.
 func _commitment_time(c: Dictionary, prefix: String = "") -> String:
 	var h := float(c.get("hours_left", -1.0))
 	if h < 0.0:
 		return ""
-	return prefix + ("%d days left" % int(ceil(h / 24.0)) if h >= 48.0 else "%dh left" % int(ceil(h)))
+	return prefix + Style.time_short(ceilf(h))
 
 
-## What the company has promised to do. Reading it takes no time.
+## What the company has promised to do, one row each: the objective (or the pin, for the
+## pinned one), the title, and a clock with the time left. Reading it takes no time.
 func _open_journal() -> void:
 	if _sheet in ["encounter", "notice", "warning"]:
 		return
 	var all: Array = GameState.commitments()
-	var lines: PackedStringArray = []
-	var buttons := []
+	var body := ""
 	if all.is_empty():
 		var rec: Dictionary = GameState.recommendation()
-		lines.append("No promises bind the company yet.")
-		lines.append("Settlements offer jobs, and realms at war hire sellswords. %s: %s" % [rec.get("title", "Next step"), rec.get("body", "")])
+		body = "No promises bind the company yet. Settlements offer jobs, and realms at war hire sellswords."
+		if String(rec.get("title", "")) != "":
+			body += "\nNext step: %s" % rec.get("title", "")
 	# The pinned entry leads the list.
 	all.sort_custom(func(a, b): return a["id"] == GameState.pinned_commitment and b["id"] != GameState.pinned_commitment)
-	for c in all:
-		var line := "• %s%s" % [c["title"], _commitment_time(c, " · ")]
-		if c["id"] == GameState.pinned_commitment:
-			line += " · pinned"
-		if String(c["blocked"]) != "":
-			line += "\n   Waiting: %s" % c["blocked"]
-		lines.append(line)
-		buttons.append([String(c["title"]), _open_commitment.bind(String(c["id"]))])
+	var buttons := [["Chronicle", _open_chronicle.bind("all"), false, "book"], [_people_label(), _on_people, false, "mail"], ["Close", _close_sheet, true]]
+	_show_sheet("journal", "Journal · %d active" % all.size(), body, buttons)
+	if not all.is_empty():
+		var rows := VBoxContainer.new()
+		rows.name = "JournalRows"
+		rows.add_theme_constant_override("separation", 8)
+		for c in all:
+			rows.add_child(_commitment_row(c))
+		sheet_extra.add_child(rows)
 	if not GameState.ended_commitments.is_empty():
-		lines.append("\nRecently ended:")
+		sheet_extra.add_child(Widgets.section("Recently ended"))
 		for e in GameState.ended_commitments.slice(0, 3):
-			lines.append("• Day %d · %s: %s" % [int(float(e.get("hour", 0.0))) / 24 + 1, e.get("title", ""), e.get("outcome", "")])
-	buttons.append(["Chronicle", _open_chronicle.bind("all")])
-	buttons.append([_people_label(), _on_people])
-	buttons.append(["Close", _close_sheet, true])
-	_show_sheet("journal", "Journal · %d active" % all.size(), "\n".join(lines), buttons)
+			sheet_extra.add_child(_chronicle_row(int(float(e.get("hour", 0.0))) / 24 + 1, "objective",
+				"%s: %s" % [e.get("title", ""), e.get("outcome", "")]))
+	sheet_extra.visible = sheet_extra.get_child_count() > 0
+
+
+## A commitment as one row to tap: its icon, its title, what it waits on, its clock.
+func _commitment_row(c: Dictionary) -> Button:
+	var id := String(c["id"])
+	var pinned := id == GameState.pinned_commitment
+	var b := _quiet_button(String(c["title"]), _open_commitment.bind(id))
+	b.name = "Commitment_" + id.validate_node_name()
+	b.set_meta("pinned", pinned)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.custom_minimum_size = Vector2(0, 88 if String(c["blocked"]) != "" else Style.TOUCH)
+	if pinned:
+		b.add_theme_stylebox_override("normal", Style.box(Color("221d10"), Style.BRASS, 2))
+	var row := HBoxContainer.new()
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14
+	row.offset_right = -12
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(row)
+	var pic := Widgets.icon_rect("pin" if pinned else "objective", 32.0)
+	pic.modulate = Style.BRASS
+	row.add_child(pic)
+	var words := VBoxContainer.new()
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_theme_constant_override("separation", 0)
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(words)
+	var t := Style.label(String(c["title"]), Style.SMALL, Style.TEXT)
+	t.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	t.custom_minimum_size = Vector2(10, 0)
+	words.add_child(t)
+	if String(c["blocked"]) != "":
+		var w := Style.label("Waiting: %s" % c["blocked"], Style.SMALL, Style.MORALE_MID)
+		w.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		w.custom_minimum_size = Vector2(10, 0)
+		words.add_child(w)
+	var time := _commitment_time(c)
+	if time != "":
+		var clock := Widgets.icon_value("clock", time, Style.ENEMY_LIGHT if float(c.get("hours_left", 99.0)) < 12.0 else Style.MUTED)
+		clock.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(clock)
+	return b
+
+
+## One line of the chronicle: a day badge, the kind's icon and what happened.
+func _chronicle_row(day: int, key: String, text: String) -> Control:
+	var row := HBoxContainer.new()
+	row.name = "Entry"
+	row.add_theme_constant_override("separation", 10)
+	var d := Widgets.stat("day", str(day))
+	d.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(d)
+	var pic := Widgets.icon_rect(key, 28.0)
+	pic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	pic.modulate = Style.MUTED
+	row.add_child(pic)
+	var l := Style.label(text, Style.SMALL, Style.TEXT)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.custom_minimum_size = Vector2(10, 0)
+	row.add_child(l)
+	return row
 
 
 func _find_commitment(id: String) -> Dictionary:
@@ -2202,28 +2382,31 @@ func _open_commitment(id: String) -> void:
 		lines.append("Reward: %s" % c["reward"])
 	if String(c["cost"]) != "":
 		lines.append("Cost: %s" % c["cost"])
-	var t := _commitment_time(c)
-	if t != "":
-		lines.append("Time: %s" % t)
 	if String(c["blocked"]) != "":
 		lines.append("Waiting: %s" % c["blocked"])
 	var buttons := []
 	if String(c["place"]) != "" and Data.SETTLEMENTS.has(String(c["place"])):
-		buttons.append(["Show on map", _focus_place.bind(String(c["place"])), true])
+		buttons.append(["Show on map", _focus_place.bind(String(c["place"])), true, "mappin"])
 	if id.begins_with("captive_"):
-		buttons.append(["Talk", _open_talk.bind(int(id.trim_prefix("captive_")), "captive"), true])
+		buttons.append(["Talk", _open_talk.bind(int(id.trim_prefix("captive_")), "captive"), true, "talk"])
 	if id.begins_with("gathering_"):
 		var gid := int(id.trim_prefix("gathering_"))
 		if world.here() != String(c["place"]):
-			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true])
-		buttons.append(["Who's coming", _open_guest_list.bind(gid)])
+			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true, "ride"])
+		buttons.append(["Who's coming", _open_guest_list.bind(gid), false, "company"])
 	if id == "muster" or id == "banners":
 		if id == "muster" and world.here() != String(c["place"]):
-			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true])
-		buttons.append(["Your court", _open_court, id == "muster" and world.here() == String(c["place"])])
-	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to top", _on_pin.bind(id)])
-	buttons.append(["Back to journal", _open_journal])
+			buttons.append(["Ride there", _on_ride_to.bind(String(c["place"])), true, "ride"])
+		buttons.append(["Your court", _open_court, id == "muster" and world.here() == String(c["place"]), "crown"])
+	buttons.append(["Unpin" if GameState.pinned_commitment == id else "Pin to top", _on_pin.bind(id), false, "pin"])
+	buttons.append(["Journal", _open_journal, false, "journal"])
 	_show_sheet("commitment", String(c["title"]), "\n".join(lines), buttons)
+	var t := _commitment_time(c)
+	if t != "":
+		var clock := Widgets.stat("clock", t, Style.ENEMY_LIGHT if float(c.get("hours_left", 99.0)) < 12.0 else Style.TEXT)
+		clock.name = "TimeLeft"
+		sheet_extra.add_child(Widgets.chip_row([clock]))
+		sheet_extra.visible = true
 
 
 func _on_pin(id: String) -> void:
@@ -2232,29 +2415,69 @@ func _on_pin(id: String) -> void:
 	_open_commitment(id)
 
 
-## The chronicle: the last 30 events (wars, peace, captures, sieges, company deeds)
+## The chronicle's filters, their words and icons.
+const CHRONICLE_FILTERS := [["all", "All", "book"], ["war", "Wars", "battle"], ["siege", "Sieges", "storm"], ["deed", "Deeds", "renown"]]
+
+
+## The chronicle: the last 30 events (wars, peace, captures, sieges, company deeds), one
+## row each with its day and the kind's icon, under All / Wars / Sieges / Deeds.
 func _open_chronicle(filter: String = "all") -> void:
-	var lines: Array[String] = []
 	var entries: Array = []
 	for entry in world.activity_log:
 		if filter == "all" or entry.get("category", "") == filter:
 			entries.append(entry)
 			if entries.size() >= 30:
 				break
+	_show_sheet("chronicle", "The Chronicle", "No chronicle events in this category yet." if entries.is_empty() else "",
+		[["Close", _close_or_back]])
+	var words: Array = []
+	var icons: Array = []
+	var current := 0
+	for i in CHRONICLE_FILTERS.size():
+		words.append(CHRONICLE_FILTERS[i][1])
+		icons.append(CHRONICLE_FILTERS[i][2])
+		if CHRONICLE_FILTERS[i][0] == filter:
+			current = i
+	sheet_extra.add_child(Widgets.segmented(words, current, func(i: int): _open_chronicle(String(CHRONICLE_FILTERS[i][0])), "ChronicleFilter", icons))
+	var list := VBoxContainer.new()
+	list.name = "ChronicleEntries"
+	list.add_theme_constant_override("separation", 10)
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for entry in entries:
-		var h := int(float(entry.get("hour", 0.0)))
-		lines.append("Day %d · %s" % [h / 24 + 1, entry.get("text", "")])
-	if lines.is_empty():
-		lines.append("No chronicle events in this category yet.")
-	var buttons := [
-		["All", _open_chronicle.bind("all"), filter == "all"],
-		["Wars", _open_chronicle.bind("war"), filter == "war"],
-		["Sieges", _open_chronicle.bind("siege"), filter == "siege"],
-		["Deeds", _open_chronicle.bind("deed"), filter == "deed"],
-		["Close", _close_or_back]
-	]
-	var cat_label := "" if filter == "all" else (" · " + filter.capitalize())
-	_show_sheet("chronicle", "The Chronicle%s" % cat_label, "\n".join(lines), buttons)
+		list.add_child(_chronicle_row(int(float(entry.get("hour", 0.0))) / 24 + 1, _entry_icon(entry), String(entry.get("text", ""))))
+	# Thirty entries would push the sheet off the top: they scroll in half the screen.
+	var scroll := ScrollContainer.new()
+	scroll.name = "ChronicleScroll"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size = Vector2(0, minf(float(entries.size()) * 56.0, get_viewport_rect().size.y * 0.5))
+	scroll.add_child(list)
+	sheet_extra.add_child(scroll)
+	sheet_extra.visible = true
+
+
+## The icon for a chronicle entry, by its type and category.
+func _entry_icon(entry: Dictionary) -> String:
+	match String(entry.get("type", "")):
+		"war":
+			return "battle"
+		"peace":
+			return "peace"
+		"captured":
+			return "lock"
+		"fight":
+			return "fight"
+		"siege_assault", "siege":
+			return "storm"
+		"raid", "burned":
+			return "fire"
+	match String(entry.get("category", "")):
+		"siege":
+			return "storm"
+		"deed":
+			return "renown"
+		"war":
+			return "battle"
+	return "book"
 
 
 func _open_activity() -> void:
@@ -2270,11 +2493,11 @@ func _open_recommendation() -> void:
 		"place":
 			var place := String(rec.get("place", ""))
 			if Data.SETTLEMENTS.has(place):
-				buttons.append(["Show %s" % Data.settlement(place)["name"], _focus_place.bind(place), true])
+				buttons.append(["Show on map", _focus_place.bind(place), true, "mappin"])
 		"warband":
-			buttons.append(["View warband", _on_warband, true])
+			buttons.append(["Warband", _on_warband, true, "company"])
 	buttons.append(["Close", _close_sheet])
-	_show_sheet("recommendation", String(rec.get("title", "Next step")), String(rec.get("body", "")), buttons)
+	_show_sheet("recommendation", String(rec.get("title", "Next step")), String(rec.get("body", "")), buttons, "", "objective")
 
 
 func _focus_place(id: String) -> void:
@@ -2285,9 +2508,10 @@ func _focus_place(id: String) -> void:
 	_open_preview(id)
 
 
+## People & Letters, by name only: the unread count is the red badge on its card and on
+## the menu button, not a number in the words.
 func _people_label() -> String:
-	var n: int = world.social.unread_letters_count() if world.social != null else 0
-	return "People & Letters (%d)" % n if n > 0 else "People & Letters"
+	return "People & Letters"
 
 
 ## The banner a newly arrived letter shows under the top bar.
@@ -2441,13 +2665,16 @@ func _open_invitation(gid: int) -> void:
 		"when": GameState.gathering_when(g).trim_prefix("from "), "why": String(inv["why"])}
 	var body := Gatherings.fill(Gatherings.INVITE if bool(inv["invited"]) else Gatherings.NOT_INVITED, ctx)
 	var coming: int = world.gathering_guests(g).size()
-	body += "\n\n%d lord%s coming · %s" % [coming, "" if coming == 1 else "s", _ride_words(world.hours_to(place)) if world.here() != place else "you're there"]
 	var buttons := []
 	if world.here() != place:
-		buttons.append(["Ride there", _on_ride_to.bind(place), true])
-	buttons.append(["Who's coming", _open_guest_list.bind(gid)])
+		buttons.append(["Ride there", _on_ride_to.bind(place), true, "ride"])
+	buttons.append(["Who's coming", _open_guest_list.bind(gid), false, "company"])
 	buttons.append(["Close", _close_sheet])
-	_show_sheet("invitation", "The %s at %s" % [String(g["name"]), Data.settlement(place)["name"]], body, buttons, "", "lantern")
+	_show_sheet("invitation", "The %s at %s" % [String(g["name"]), Data.settlement(place)["name"]], body, buttons, "", _gathering_icon(g))
+	var chips := [Widgets.stat("men", "%d coming" % coming)]
+	chips.append(Widgets.stat("clock", Style.time_short(world.hours_to(place))) if world.here() != place else Widgets.chip("You're there", Style.MORALE_HIGH, "", "mappin"))
+	sheet_extra.add_child(Widgets.chip_row(chips))
+	sheet_extra.visible = true
 
 
 func _open_guest_list(gid: int) -> void:
@@ -2455,35 +2682,46 @@ func _open_guest_list(gid: int) -> void:
 	if g.is_empty():
 		_close_sheet()
 		return
-	var lines: PackedStringArray = []
 	var host: Dictionary = world.lord_by_id(int(g["host_lord"])) if int(g["host_lord"]) >= 0 else {}
+	var guests: Array = []
 	if not host.is_empty():
-		lines.append("• %s · host · %s" % [LordTalk.short_name(host), LordTalk.regard_text(LordTalk.regard(GameState, host))])
+		guests.append(host)
 	for l in world.gathering_guests(g):
+		if l != host:
+			guests.append(l)
+	_show_sheet("invitation", "Who's coming", "No one has answered yet." if guests.is_empty() else "",
+		[["Back", _open_invitation.bind(gid), true, "back"], ["Close", _close_sheet]])
+	# Each guest as a face, a name and what they think of you; the host wears the keep.
+	var list := VBoxContainer.new()
+	list.name = "GuestList"
+	list.add_theme_constant_override("separation", 8)
+	for l in guests:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var face := TextureRect.new()
+		face.texture = CaptainArt.texture(LordVoice.portrait_record(l))
+		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.custom_minimum_size = Vector2(44, 56)
+		row.add_child(face)
+		var who := Style.label(LordTalk.short_name(l), Style.SMALL, Style.TEXT)
+		who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		who.custom_minimum_size = Vector2(10, 0)
+		row.add_child(who)
 		if l == host:
-			continue
-		lines.append("• %s · %s" % [LordTalk.short_name(l), LordTalk.regard_text(LordTalk.regard(GameState, l))])
-	if lines.is_empty():
-		lines.append("No one has answered yet.")
-	_show_sheet("invitation", "Who's coming", "\n".join(lines), [["Back", _open_invitation.bind(gid), true], ["Close", _close_sheet]])
+			row.add_child(Widgets.chip("Host", Style.BRASS, "", "keep", true))
+		row.add_child(_regard_chip(l))
+		list.add_child(row)
+	sheet_extra.add_child(list)
+	sheet_extra.visible = true
 
 
 func _on_ride_to(place: String) -> void:
 	if world.travel(place) or world.here() == place:
 		_close_sheet()
 		_refresh_hud()
-
-
-static func _ride_words(hours: float) -> String:
-	if hours <= 3.0:
-		return "a short ride"
-	if hours <= 10.0:
-		return "a few hours' ride"
-	if hours <= 18.0:
-		return "half a day's ride"
-	if hours <= 32.0:
-		return "a day's ride"
-	return "%d days' ride" % ceili(hours / 24.0)
 
 
 func _on_people() -> void:
@@ -2529,14 +2767,18 @@ func _open_assault_call() -> void:
 	var garrison_men: int = world.men_of(world.garrisons.get(target, []))
 	if String(call["role"]) == "lead":
 		_show_sheet("encounter", "The assault on %s" % place,
-			"The army of %s is ready to storm %s: %d men against %d on the walls. The marshal offers you the van. Lead the assault, with the lords' men fighting beside you?" % [
-				realm, place, their_men, garrison_men],
-			[["Lead the assault", _on_assault_answer.bind(true), true], ["Let them storm it", _on_assault_answer.bind(false)]])
+			"The marshal of %s offers you the van." % realm,
+			[["Lead", _on_assault_answer.bind(true), true, "storm"], ["Stand aside", _on_assault_answer.bind(false), false, "retreat"]])
 	else:
 		_show_sheet("encounter", "%s is stormed!" % place,
-			"The army of %s storms the walls of your fief: %d men against its %d. Will you hold the walls yourself, with the garrison beside you?" % [
-				realm, their_men, garrison_men],
-			[["Hold the walls", _on_assault_answer.bind(true), true], ["Leave it to the garrison", _on_assault_answer.bind(false)]])
+			"The army of %s storms the walls of your fief." % realm,
+			[["Defend", _on_assault_answer.bind(true), true, "walls"], ["Stand aside", _on_assault_answer.bind(false), false, "retreat"]])
+	var share: float = maxf(1.0, maxf(float(their_men), float(garrison_men)))
+	var stormers := String(army["realm"])
+	var holder: String = world.owner_of(target)
+	sheet_extra.add_child(_odds_bar(stormers, their_men, float(their_men) / share, Style.ENEMY if String(call["role"]) != "lead" else Style.PLAYER, "OddsStormers"))
+	sheet_extra.add_child(_odds_bar(holder, garrison_men, float(garrison_men) / share, Style.PLAYER if String(call["role"]) != "lead" else Style.ENEMY, "OddsWalls"))
+	sheet_extra.visible = true
 
 
 func _on_assault_answer(fight: bool) -> void:
@@ -2554,7 +2796,7 @@ func _open_raise_crown() -> void:
 	_show_sheet("crown", "Raise your banner",
 		"Declare %s the seat of your own crown. %s will go to war with you at once and send its armies for your walls. Every castle or town you storm after this is yours, and its dues fill your purse and your garrisons. There is no going back." % [
 			Data.settlement(GameState.fief_id())["name"], liege],
-		[["Raise the crown", _on_raise_crown, true], ["Not yet", _open_here]])
+		[["Raise crown", _on_raise_crown, true, "crown"], ["Not yet", _open_here]])
 
 
 func _on_raise_crown() -> void:
@@ -2598,26 +2840,34 @@ func _open_siege(id: String) -> void:
 		_open_notice(String(check["reason"]), "The walls")
 		return
 	var place: String = Data.settlement(id)["name"]
-	var realm: String = Data.FACTIONS[check["realm"]]["name"]
 	var walls: float = float(Lords.WALLS[check["kind"]])
 	var fighters: Array = GameState.army.filter(func(s): return int(s["men"]) > 0)
 	var garrison: Array = world.garrisons.get(id, [])
-	var body := "Storm %s for %s. %d men hold its walls against your %d.\n" % [place, realm, check["men"], GameState.total_men()]
-	body += "Men on foot must batter down the gate while the walls shelter the defenders' archers; then rout the garrison. A gate still standing when time runs out means the walls held."
 	var allies: Array = GameState.siege_allies(id)
-	if not allies.is_empty():
-		var ally_men := 0
-		for a in allies:
-			ally_men += int(a["men"])
-		body += "\n%d men of the lords camped here will storm the walls beside you." % ally_men
-		fighters = fighters + allies
+	var ally_men := 0
+	for a in allies:
+		ally_men += int(a["men"])
+	fighters = fighters + allies
+	var body := "Batter down the gate under their archers, then rout the garrison. A gate still standing when time runs out means the walls held."
+	if garrison.is_empty():
+		body = "The walls stand empty. It is yours for the taking."
+	_show_sheet("siege", "Storm %s" % place, body, [["Lead", _on_storm.bind(id), true, "storm"],
+		["Send in", _on_storm_send.bind(id), false, "advance"], ["Back", _open_here, false, "back"]])
+	var mine := GameState.total_men() + ally_men
+	var theirs := int(check["men"])
+	var top := float(maxi(1, maxi(mine, theirs)))
+	sheet_extra.add_child(_odds_bar(_party_realm(world.player()), mine, float(mine) / top, Style.PLAYER, "OddsYou"))
+	sheet_extra.add_child(_odds_bar(String(check["realm"]), theirs, float(theirs) / top, Style.ENEMY, "OddsWalls"))
+	var chips := [Widgets.chip("Walls ×%s" % String.num(walls, 1), Style.MORALE_MID, "", "walls")]
+	if ally_men > 0:
+		chips.append(Widgets.chip("+%d beside you" % ally_men, Style.MORALE_HIGH, "", "company"))
 	if not garrison.is_empty():
 		var odds: Dictionary = AutoResolve.odds(fighters, garrison, null, "rout", walls)
-		body += "\nYour captains think the assault %s." % ("can succeed" if odds["player_wins"] else "would fail")
-	else:
-		body += "\nThe walls stand empty. It is yours for the taking."
-	_show_sheet("siege", "Storm %s" % place, body, [["Lead the assault", _on_storm.bind(id), true],
-		["Send them in", _on_storm_send.bind(id)], ["Back", _open_here]])
+		chips.append(Widgets.chip("Can succeed" if odds["player_wins"] else "Would fail", Style.MORALE_HIGH if odds["player_wins"] else Style.MORALE_LOW))
+	var row := Widgets.chip_row(chips)
+	row.name = "SiegeChips"
+	sheet_extra.add_child(row)
+	sheet_extra.visible = true
 
 
 ## Before a raid: what the village holds, what burning it costs, and whether its militia
@@ -2630,21 +2880,36 @@ func _open_raid(id: String) -> void:
 	var place: String = Data.settlement(id)["name"]
 	var owner: String = world.owner_of(id)
 	var realm: String = GameState.realm_word(owner)
-	var body := "About %d silver and %d rations. It pays %s nothing for %d days." % [
-		Lords.RAID_LOOT, Lords.PLAYER_RAID_FOOD, realm, Lords.BURNED_DAYS]
-	body += "\nLoading the carts takes %d hours; %s's lords nearby will ride at you." % [int(Lords.RAID_HOURS), realm]
+	var body := "%s's lords nearby will ride at you while the carts are loaded." % realm
 	var buttons := []
+	var odds := {}
 	if bool(check["stand"]):
 		var fighters: Array = GameState.army.filter(func(s): return int(s["men"]) > 0)
-		var odds: Dictionary = AutoResolve.odds(fighters, GameState.raid_defenders(id), null, "rout")
-		body += "\n%d men will fight for their homes. Your captains think you %s." % [int(check["men"]), "can drive them off" if odds["player_wins"] else "would be beaten"]
-		buttons = [["Lead the attack", _on_raid_fight.bind(id), true], ["Send them in", _on_raid_send.bind(id)], ["Back", _open_here]]
+		odds = AutoResolve.odds(fighters, GameState.raid_defenders(id), null, "rout")
+		buttons = [["Lead", _on_raid_fight.bind(id), true, "fight"], ["Send in", _on_raid_send.bind(id), false, "advance"], ["Back", _open_here, false, "back"]]
 	else:
-		body += "\nIts %d militia won't stand against your %d men." % [int(check["men"]), GameState.total_men()]
-		buttons = [["Burn it", _on_raid_burn.bind(id), true], ["Back", _open_here]]
-	if GameState.is_crowned():
-		body += "\nYour Honorable lords will think less of you (%d); Cruel ones approve (+%d)." % [Lords.RAID_HONORABLE_REGARD, Lords.RAID_CRUEL_REGARD]
+		buttons = [["Burn it", _on_raid_burn.bind(id), true, "fire"], ["Back", _open_here, false, "back"]]
 	_show_sheet("raid", "Raid %s" % place, body, buttons)
+	var tiles := Widgets.tile_grid([
+		Widgets.tile("silver", "+%d" % Lords.RAID_LOOT, "loot"),
+		Widgets.tile("food", "+%d" % Lords.PLAYER_RAID_FOOD, "rations"),
+		Widgets.tile("clock", Style.time_short(Lords.RAID_HOURS), "to load"),
+		Widgets.tile("fire", "%d days" % Lords.BURNED_DAYS, "pays %s nothing" % realm)], 2)
+	tiles.name = "RaidTiles"
+	sheet_extra.add_child(tiles)
+	var chips := []
+	if bool(check["stand"]):
+		chips.append(Widgets.chip("%d stand" % int(check["men"]), Style.MORALE_LOW, "", "militia"))
+		chips.append(Widgets.chip("You'd drive them off" if odds["player_wins"] else "You'd be beaten", Style.MORALE_HIGH if odds["player_wins"] else Style.MORALE_LOW))
+	else:
+		chips.append(Widgets.chip("%d won't stand" % int(check["men"]), Style.MORALE_HIGH, "", "militia"))
+	if GameState.is_crowned():
+		chips.append(Widgets.chip("Honorable %d" % Lords.RAID_HONORABLE_REGARD, Style.MORALE_LOW, "", "bond"))
+		chips.append(Widgets.chip("Cruel +%d" % Lords.RAID_CRUEL_REGARD, Style.MORALE_HIGH, "", "bond"))
+	var row := Widgets.chip_row(chips)
+	row.name = "RaidChips"
+	sheet_extra.add_child(row)
+	sheet_extra.visible = true
 
 
 func _on_raid_fight(id: String) -> void:
@@ -2712,8 +2977,8 @@ func _on_withdraw() -> void:
 	if not world.can_withdraw():
 		var b = world.party(world.encounter)
 		var l_name: String = b.name if b != null else "The enemy"
-		_show_sheet("encounter", "Ridden Down!", "%s's cavalry ride you down as you attempt to withdraw! You have no choice but to fight." % l_name,
-			[["Fight", _on_fight, true], ["Send in", _on_send_in]])
+		_show_sheet("encounter", "Ridden down!", "%s's riders cut off your retreat. You have to fight." % l_name,
+			[["Fight", _on_fight, true, "fight"], ["Send in", _on_send_in, false, "advance"]])
 		return
 	world.withdraw()
 	# Riding back takes hours: pay for any day that ended on the way.
@@ -2754,55 +3019,12 @@ func _time_button(kind: String, callback: Callable) -> Button:
 	var b := _button("", callback)
 	b.name = "Time_" + kind
 	b.tooltip_text = {"pause": "Pause", "play": "Play", "fast": "Fast"}[kind]
-	b.icon = _glyph(kind)
+	b.icon = Widgets.icon(kind)
+	b.expand_icon = true
+	b.add_theme_constant_override("icon_max_width", 32)
 	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	b.custom_minimum_size = Vector2(72, 64)
+	b.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
 	return b
-
-
-## Small icons drawn here rather than taken from the font, which may not carry them.
-var _glyphs := {}
-
-func _glyph(kind: String) -> Texture2D:
-	if _glyphs.has(kind):
-		return _glyphs[kind]
-	var n := 32
-	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
-	img.fill(Color(0, 0, 0, 0))
-	var c := Color(0.93, 0.89, 0.8)
-	match kind:
-		"menu":
-			for y in [8, 15, 22]:
-				img.fill_rect(Rect2i(6, y, 20, 3), c)
-		"pause":
-			img.fill_rect(Rect2i(9, 7, 5, 18), c)
-			img.fill_rect(Rect2i(18, 7, 5, 18), c)
-		"play", "fast":
-			var tris := [[9, 23]] if kind == "play" else [[4, 15], [15, 26]]
-			for t in tris:
-				for x in range(t[0], t[1]):
-					var h := int((float(t[1] - x) / float(t[1] - t[0])) * 9.0)
-					img.fill_rect(Rect2i(x, 16 - h, 1, h * 2 + 1), c)
-		"sun":
-			var sc := Style.BRASS
-			for y in n:
-				for x in n:
-					var d := Vector2(x - 15.5, y - 15.5).length()
-					if d < 6.0:
-						img.set_pixel(x, y, sc)
-			for i in 8:
-				var a := TAU * i / 8.0
-				for r in range(9, 13):
-					img.set_pixel(int(15.5 + cos(a) * r), int(15.5 + sin(a) * r), sc)
-		"moon":
-			var mc := Color(0.78, 0.82, 0.95)
-			for y in n:
-				for x in n:
-					if Vector2(x - 15.5, y - 15.5).length() < 10.0 and Vector2(x - 20.5, y - 12.5).length() > 8.0:
-						img.set_pixel(x, y, mc)
-	var tex := ImageTexture.create_from_image(img)
-	_glyphs[kind] = tex
-	return tex
 
 
 ## How far along the current ride or wait is, for the thin bar under the status line.
@@ -2830,14 +3052,17 @@ func _on_new_campaign() -> void:
 	Scenes.go("res://scenes/new_campaign.tscn")
 
 
-## "Warband · 2" while talks wait at the fire.
+## A red count on the Warband button while talks wait at the fire.
 func _refresh_talks_badge() -> void:
 	if _warband_btn == null:
 		return
 	var n: int = GameState.new_bond_talks().size()
 	if n != _talks_waiting:
 		_talks_waiting = n
-		_warband_btn.text = "Warband · %d" % n if n > 0 else "Warband"
+		var badge := _warband_btn.get_node_or_null("TalksBadge") as PanelContainer
+		if badge != null:
+			(badge.get_node("Count") as Label).text = str(n)
+			badge.visible = n > 0
 
 
 func _refresh_hud() -> void:
@@ -2848,9 +3073,12 @@ func _refresh_hud() -> void:
 	if unread_badge != null and world.social != null:
 		var unread: int = world.social.unread_letters_count()
 		unread_badge.visible = unread > 0
-		unread_badge.text = str(unread)
-	clock_label.text = "Day %d · %02d:00" % [h / 24 + 1, h % 24]
-	day_icon.texture = _glyph("moon" if h % 24 < 6 or h % 24 >= 20 else "sun")
+		(unread_badge.get_node("Count") as Label).text = str(unread)
+	day_label.text = str(h / 24 + 1)
+	clock_label.text = "%02d:00" % (h % 24)
+	var night_now := h % 24 < 6 or h % 24 >= 20
+	day_icon.texture = Widgets.icon("moon" if night_now else "sun")
+	day_icon.modulate = Color(0.78, 0.82, 0.95) if night_now else Style.BRASS
 	var current := pause_button if paused else (fast_button if speed > 1.5 else play_button)
 	for b in [pause_button, play_button, fast_button]:
 		var on: bool = b == current
@@ -2867,45 +3095,125 @@ func _refresh_hud() -> void:
 	for badge in resource_buttons.values():
 		badge.disabled = modal
 	var days: int = GameState.food_days()
+	resource_buttons["men"].text = _short_amount(GameState.total_men())
 	resource_buttons["silver"].text = _short_amount(GameState.silver)
-	resource_buttons["food"].text = "%sd" % _short_amount(days)
+	resource_buttons["food"].text = _short_amount(days)
 	resource_buttons["renown"].text = _short_amount(GameState.renown)
+	resource_buttons["men"].tooltip_text = "%d men in %d squads" % [GameState.total_men(), GameState.army.size()]
 	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_wages()]
 	resource_buttons["food"].tooltip_text = "%d rations · %d days of food" % [GameState.food, days]
 	resource_buttons["renown"].tooltip_text = "%d renown · capacity %d squads" % [GameState.renown, GameState.squad_cap()]
 	resource_buttons["silver"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if GameState.silver < GameState.daily_wages() else Style.TEXT)
 	resource_buttons["food"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if days < 2 else Style.TEXT)
 	var p = world.player()
+	var activity := "home"
 	if world.encounter != -1:
 		var enc_p = world.party(world.encounter)
+		activity = "fight"
 		if enc_p != null and enc_p.kind == WorldSim.LORD:
-			status_label.text = ("%s stops to talk" if _sheet_is_danger("encounter") == false and enc_p.kind == WorldSim.LORD else "%s blocks your road") % enc_p.name
+			var stops: bool = _sheet_is_danger("encounter") == false
+			activity = "talk" if stops else "fight"
+			status_label.text = ("%s stops to talk" if stops else "%s blocks your road") % enc_p.name
 		else:
 			status_label.text = "Bandits block the road"
 	elif world.following_party != -1:
 		var fp = world.party(world.following_party)
-		status_label.text = "Riding with %s" % (fp.name if fp != null else "allies")
+		activity = "ride"
+		status_label.text = "With %s" % (fp.name if fp != null else "allies")
 	elif p.moving():
 		var to: String = world.destination()
-		status_label.text = "Riding to %s · %s" % [Data.settlement(to)["name"], _hours_text(world.hours_to(to))]
+		activity = "ride"
+		status_label.text = "%s · %s" % [Data.settlement(to)["name"], _hours_text(world.hours_to(to))]
 	elif p.wait > 0.0:
-		status_label.text = "Waiting at %s · %s" % [Data.settlement(p.node)["name"], _hours_text(p.wait)]
+		activity = "revert"
+		status_label.text = "%s · %s" % [Data.settlement(p.node)["name"], _hours_text(p.wait)]
 	else:
-		status_label.text = "At %s" % Data.settlement(p.node)["name"]
-	var at_risk: bool = GameState.food < GameState.total_men() or GameState.silver < GameState.daily_wages()
+		status_label.text = String(Data.settlement(p.node)["name"])
+	status_icon.texture = Widgets.icon(activity)
+	var low_food: bool = GameState.food < GameState.total_men()
+	var low_silver: bool = GameState.silver < GameState.daily_wages()
 	var chaser = _chaser()
-	if chaser != null:
-		status_label.text += "\n%s is riding after you%s" % [chaser.name,
-			" and is faster" if world.can_catch_player(chaser) else ", but you're quicker"]
-		at_risk = true
-	elif at_risk:
-		status_label.text += "\nLow supplies: men may leave."
-	if not GameState.captive_lords().is_empty():
-		var n_captives: int = GameState.captive_lords().size()
-		status_label.text += " · %d captive%s" % [n_captives, "" if n_captives == 1 else "s"]
-	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if at_risk else Style.MUTED)
+	var captives: int = GameState.captive_lords().size()
+	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if low_food or low_silver or chaser != null else Style.TEXT)
+	_refresh_status_chips(chaser, low_food, low_silver, captives)
+	_refresh_pinned(h)
 	_update_progress(p)
 
+
+## The chips after the status line, rebuilt only when what they say changes: the lord
+## riding after you (▼ when he can catch you, ▲ when you're quicker), red food and silver
+## when they won't last the day, and the lock with your captives.
+func _refresh_status_chips(chaser, low_food: bool, low_silver: bool, captives: int) -> void:
+	var catches: bool = chaser != null and world.can_catch_player(chaser)
+	var sig := "%s|%s|%s|%s|%d" % [short_lord_name(chaser.name) if chaser != null else "", catches, low_food, low_silver, captives]
+	if sig == _status_sig:
+		return
+	_status_sig = sig
+	for c in status_chips.get_children():
+		status_chips.remove_child(c)
+		c.queue_free()
+	if chaser != null:
+		var hunt := Widgets.chip(short_lord_name(chaser.name), Style.MORALE_LOW if catches else Style.MORALE_MID, "▼" if catches else "▲", "skull")
+		hunt.name = "ChaserChip"
+		hunt.tooltip_text = "%s is riding after you%s" % [chaser.name, " and is faster" if catches else ", but you're quicker"]
+		status_chips.add_child(hunt)
+	if low_food:
+		var f := Widgets.chip("", Style.ENEMY_LIGHT, "▼", "food")
+		f.name = "LowFood"
+		f.tooltip_text = "Not enough food for the next day: men may leave."
+		status_chips.add_child(f)
+	if low_silver:
+		var m := Widgets.chip("", Style.ENEMY_LIGHT, "▼", "silver")
+		m.name = "LowSilver"
+		m.tooltip_text = "Not enough silver for the next day's wages: men may leave."
+		status_chips.add_child(m)
+	if captives > 0:
+		var lock := Widgets.stat("lock", str(captives))
+		lock.name = "Captives"
+		status_chips.add_child(lock)
+
+
+## The pinned commitment's chip under the bar: the objective, its title and its clock.
+## Checked once an hour of game time (or when the pin changes), not every frame.
+func _refresh_pinned(h: int) -> void:
+	if pinned_chip == null:
+		return
+	var id: String = GameState.pinned_commitment
+	if h != _pinned_hour or id != _pinned_for:
+		_pinned_hour = h
+		_pinned_for = id
+		var c: Dictionary = _find_commitment(id) if id != "" else {}
+		pinned_chip.set_meta("id", id if not c.is_empty() else "")
+		var sig := "" if c.is_empty() else "%s|%s|%s" % [id, c["title"], _commitment_time(c)]
+		if sig != _pinned_sig:
+			_pinned_sig = sig
+			var row := pinned_chip.get_node("PinnedRow") as HBoxContainer
+			for k in row.get_children():
+				row.remove_child(k)
+				k.queue_free()
+			if not c.is_empty():
+				var pic := Widgets.icon_rect("objective", 30.0)
+				pic.modulate = Color("f3cf7a")
+				row.add_child(pic)
+				var t := Style.label(String(c["title"]), Style.SMALL, Color("f3cf7a"))
+				t.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+				t.custom_minimum_size = Vector2(minf(360.0, get_viewport_rect().size.x - 260.0), 0)
+				row.add_child(t)
+				var time := _commitment_time(c)
+				if time != "":
+					row.add_child(Widgets.icon_value("clock", time, Style.MUTED))
+				pinned_chip.text = String(c["title"])
+				# The words are drawn by the row, so the chip takes the row's width.
+				pinned_chip.custom_minimum_size.x = row.get_combined_minimum_size().x + 32.0
+				pinned_chip.reset_size()
+	var show := String(pinned_chip.get_meta("id", "")) != "" and not sheet_panel.visible and _sheet == ""
+	pinned_chip.visible = show
+
+
+func _open_pinned() -> void:
+	var id := String(pinned_chip.get_meta("id", ""))
+	if id != "" and _sheet == "":
+		_open_commitment(id)
 
 
 
@@ -3158,7 +3466,7 @@ func _wedding_place() -> String:
 
 
 ## A siege ring and the besiegers' tents around every settlement under siege, in the
-## besieging realm's colors.
+## besieging realm's colors, with a storm badge. The one siege mark on the map.
 func _draw_sieges(px: float) -> void:
 	for army in world.campaign_armies:
 		if String(army.get("state", "")) != "besieging":
@@ -3179,6 +3487,15 @@ func _draw_sieges(px: float) -> void:
 			var t := c + Vector2.from_angle(PI * 0.15 + float(i) * TAU / 4.0) * (r + 9.0 * px)
 			draw_colored_polygon(PackedVector2Array([t + Vector2(-5, 3) * px, t + Vector2(0, -5) * px, t + Vector2(5, 3) * px]), color.lightened(0.25))
 			draw_line(t + Vector2(-5, 3) * px, t + Vector2(5, 3) * px, Color(0, 0, 0, 0.6), 1.5 * px)
+		# The storm badge: this place is under siege, readable at any zoom.
+		var at := c + Vector2(-r * 0.8, -r * 0.95)
+		var br := maxf(11.0, 7.0 * px)
+		draw_circle(at, br + 2.0, Color(0, 0, 0, 0.6))
+		draw_circle(at, br, Style.ENEMY_DARK)
+		draw_arc(at, br, 0.0, TAU, 24, color.lightened(0.3), 2.0)
+		var storm := Widgets.icon("storm")
+		if storm != null:
+			draw_texture_rect(storm, Rect2(at - Vector2(br, br) * 0.7, Vector2(br, br) * 1.4), false, Color.WHITE)
 
 
 ## A few days' aftermath beside the places it touched: crossed blades where a battle was
@@ -3238,27 +3555,6 @@ func _draw_settlement(id: String, px: float) -> void:
 		var holder := String(world.owner_of(id))
 		Heraldry.realm_banner(self, holder if Heraldry.REALM_SIZES.has(holder) else "bandits",
 			Rect2(c + Vector2(w * 0.22, -tall - 10.0 * px), Vector2(9.0, 13.0) * px))
-
-	# Siege camps drawn around besieged settlements
-	if world.is_sieged(id):
-		var siege_r: float = w * 0.72
-		draw_arc(c, siege_r, 0.1, TAU - 0.1, 32, Color("7a5c3b"), 2.0)
-		for t_i in 4:
-			var ang := 0.45 + t_i * 1.57
-			var t_pos := c + Vector2(cos(ang), sin(ang)) * siege_r
-			var pts := PackedVector2Array([
-				t_pos + Vector2(0, -6.0 * px),
-				t_pos + Vector2(4.5 * px, 4.0 * px),
-				t_pos + Vector2(-4.5 * px, 4.0 * px)
-			])
-			draw_colored_polygon(pts, Color("8a7356"))
-			draw_polyline(pts, Color("483928"), 1.2)
-		for f_i in 2:
-			var f_ang := 1.25 + f_i * 3.1
-			var f_pos := c + Vector2(cos(f_ang), sin(f_ang)) * (siege_r + 5.0 * px)
-			var f_pulse := 0.7 + 0.3 * sin(_clock * 8.0 + f_i * 3.0)
-			draw_circle(f_pos, 2.5 * px * f_pulse, Color(0.95, 0.45, 0.1, 0.85))
-			draw_circle(f_pos, 1.2 * px * f_pulse, Color(1.0, 0.85, 0.3, 0.95))
 
 
 ## A party on the road: your rider under your banner, or a bandit band. Walks while it
@@ -3414,36 +3710,49 @@ func _party_realm(p) -> String:
 	return realm if Heraldry.REALM_SIZES.has(realm) else Heraldry.realm_of_culture(Data.culture_of(realm))
 
 
-## How a party's men compare with yours, as the chip under its name: ▲ stronger,
-## ◆ about even, ▼ weaker.
-func _strength_mark(men: int) -> Array:
+## How a party's men compare with yours, in the kit's marks: [shape, colour, word]. ▲ they
+## are weaker (good for you), ◆ about even, ▼ stronger. The plates over parties and the
+## men chips on sheets share it, so the marks mean one thing everywhere.
+func _odds_mark(men: int) -> Array:
 	var mine := maxf(1.0, float(GameState.total_men()))
 	var ratio := float(men) / mine
 	if ratio > 1.25:
-		return ["▲", Color("ffb3a0")]
+		return ["▼", Style.MORALE_LOW, "Stronger than you"]
 	if ratio < 0.8:
-		return ["▼", Color("b8f5b0")]
-	return ["◆", Color("ffd27a")]
+		return ["▲", Style.MORALE_HIGH, "Weaker than you"]
+	return ["◆", Style.MORALE_MID, "Evenly matched"]
+
+
+## The plate chip's fill for a mark: a lighter tint of its colour, under dark ink.
+func _strength_mark(men: int) -> Array:
+	var mark := _odds_mark(men)
+	return [mark[0], Color(mark[1]).lightened(0.45)]
 
 
 func _draw_army_badge(at: Vector2, state: String, px: float) -> void:
+	_paint_army_badge(self, at, state, px)
+
+
+## What a marshal's army is about, as a pictogram: marching on, going home, sitting before
+## walls, or gathering. Drawn on the map over the marshal, and on the army's sheet.
+func _paint_army_badge(ci: CanvasItem, at: Vector2, state: String, px: float) -> void:
 	var r := 7.0 * px
-	draw_circle(at, r + 1.5 * px, Color(0, 0, 0, 0.6))
-	draw_circle(at, r, Style.NIGHT)
-	draw_arc(at, r, 0.0, TAU, 20, Style.BRASS, 1.5 * px)
+	ci.draw_circle(at, r + 1.5 * px, Color(0, 0, 0, 0.6))
+	ci.draw_circle(at, r, Style.NIGHT)
+	ci.draw_arc(at, r, 0.0, TAU, 20, Style.BRASS, 1.5 * px)
 	var c := Style.BRASS
 	match state:
 		"marching":
-			draw_polyline(PackedVector2Array([at + Vector2(-3, -4) * px, at + Vector2(2, 0) * px, at + Vector2(-3, 4) * px]), c, 1.8 * px)
+			ci.draw_polyline(PackedVector2Array([at + Vector2(-3, -4) * px, at + Vector2(2, 0) * px, at + Vector2(-3, 4) * px]), c, 1.8 * px)
 		"returning":
-			draw_polyline(PackedVector2Array([at + Vector2(3, -4) * px, at + Vector2(-2, 0) * px, at + Vector2(3, 4) * px]), c, 1.8 * px)
+			ci.draw_polyline(PackedVector2Array([at + Vector2(3, -4) * px, at + Vector2(-2, 0) * px, at + Vector2(3, 4) * px]), c, 1.8 * px)
 		"besieging":
 			# a little tower: the walls they sit before
-			draw_rect(Rect2(at + Vector2(-3.5, -1.5) * px, Vector2(7, 5) * px), c)
+			ci.draw_rect(Rect2(at + Vector2(-3.5, -1.5) * px, Vector2(7, 5) * px), c)
 			for x in [-3.5, -0.5, 2.5]:
-				draw_rect(Rect2(at + Vector2(x, -4) * px, Vector2(1.5, 2) * px), c)
+				ci.draw_rect(Rect2(at + Vector2(x, -4) * px, Vector2(1.5, 2) * px), c)
 		_:
-			draw_circle(at, 2.0 * px, c)
+			ci.draw_circle(at, 2.0 * px, c)
 
 
 func _draw_pennant(base: Vector2, pole_x: float, px: float, strength_scale: float, color: Color, party_alpha: float, facing: float, p) -> void:
@@ -3489,19 +3798,26 @@ func _draw_labels() -> void:
 	_taken.clear()
 	for id in Data.SETTLEMENTS:
 		var s := Data.settlement(id)
-		var size := Style.SMALL if s["type"] != Data.VILLAGE else 19
+		var size := Style.SMALL + 2 if s["type"] != Data.VILLAGE else Style.SMALL
 		_name_plate(_to_screen(s["pos"]) + Vector2(0, 8.0 + px * 2.0), String(s["name"]), size,
 			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
 	var wp := _wedding_place()
 	if wp != "":
 		var ready := String(GameState.wedding()["state"]) == "ready"
-		_name_plate(_to_screen(Data.pos(wp)) + Vector2(0, -34.0 * px - 18.0), "Wedding · %s" % ("ready" if ready else GameState._when_text(float(GameState.wedding()["ready_hour"]))),
-			Style.SMALL - 2, Color("f3d27a"))
+		var over := _to_screen(Data.pos(wp)) + Vector2(0, -34.0 * px - 18.0)
+		if ready:
+			# Ready: a pulsing badge with the rings, nothing to read.
+			_rings_badge(over + Vector2(0, 14.0))
+		else:
+			_icon_plate(over, [{"icon": "rings"}, {"icon": "clock"}, {"text": GameState._when_text(float(GameState.wedding()["ready_hour"]))}],
+				Color("f3d27a"), Color("8a6a2a"))
 	for g in world.gatherings:
-		var lift := 34.0 * px + 18.0 + (34.0 if String(g["place"]) == wp else 0.0)
-		var barred: bool = GameState.gathering_barred(g)
-		_name_plate(_to_screen(Data.pos(String(g["place"]))) + Vector2(0, -lift), _gathering_plate(g), Style.SMALL - 2,
-			Style.ENEMY_LIGHT if barred else Color("f3d891"), Style.ENEMY_LIGHT if barred else Style.BRASS)
+		var lift := 34.0 * px + 18.0 + (40.0 if String(g["place"]) == wp else 0.0)
+		var at := _to_screen(Data.pos(String(g["place"]))) + Vector2(0, -lift)
+		if GameState.gathering_barred(g):
+			_icon_plate(at, [{"icon": "lock"}, {"text": _gathering_plate(g)}], Style.ENEMY_LIGHT, Style.ENEMY_LIGHT)
+		else:
+			_icon_plate(at, _gathering_parts(g), Color("f3d891"), Style.BRASS)
 	# Parties' plates step up out of the way of any name already placed.
 	for b in world.bands():
 		if px >= 2.0:
@@ -3518,10 +3834,7 @@ func _draw_labels() -> void:
 			var ink := Cultures.color(Data.culture_of(lp.faction)).lightened(0.6)
 			if not army.is_empty() and army["state"] != "gathering":
 				if lp.id != int(army["leader"]):
-					if px < 2.8:
-						continue
-					_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -21.0 * px - 6.0), "%s's cohort" % short_lord_name(lp.name), PARTY_PLATE - 2,
-						ink, Color(0, 0, 0, 0), -1, true)
+					# The brass ring groups a host's lords; only the marshal carries a plate.
 					continue
 				var total_men := 0
 				for m in world.MarshalArmies.members(world, army):
@@ -3538,16 +3851,16 @@ func _draw_labels() -> void:
 				if lp.moving() and String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) > 0 and not _taken.is_empty():
 					var placed: Rect2 = _taken[_taken.size() - 1]
 					var feast: Dictionary = world.gathering_by_id(int(l["gather_id"]))
-					_name_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), "riding to the %s" % String(feast.get("name", "feast")),
-						PARTY_PLATE - 4, Color("f3d891"), Color("8a6a2a"))
+					_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), [{"icon": "ride"}, {"icon": _gathering_icon(feast)}],
+						Color("f3d891"), Color("8a6a2a"), false)
 				elif lp.moving() and String(l.get("job", "")) == "muster" and not _taken.is_empty():
 					var placed: Rect2 = _taken[_taken.size() - 1]
-					_name_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), "riding to the muster",
-						PARTY_PLATE - 4, Color("f3b0a0"), Style.ENEMY)
+					_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), [{"icon": "ride"}, {"icon": "crown"}],
+						Color("f3b0a0"), Style.ENEMY, false)
 
 
 ## Text size of a party's name plate: the same as a village's name.
-const PARTY_PLATE := 19
+const PARTY_PLATE := Style.SMALL
 ## Words that come before a lord's own name, dropped on the map's plates.
 const LORD_TITLES := ["Lord", "Lady", "Ser", "Sir", "Dame", "Emir", "Emira", "Bey", "Amir", "Sheikh", "Daimyo", "Lady-Daimyo", "Tono", "Hime"]
 ## Plates already placed this frame, so later ones can step out of their way.
@@ -3568,15 +3881,17 @@ static func short_lord_name(full: String) -> String:
 ## A name on a dark plate, centered on `at` (the plate's top edge).
 ## `edge` rings the plate (red for enemies, brass for friends); `men` >= 0 adds a chip
 ## with how they compare with you.
-func _name_plate(at: Vector2, text: String, size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1, dodge: bool = false) -> void:
+func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1, dodge: bool = false) -> void:
+	var size := Style.text_size(maxi(base_size, Style.SMALL))
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var chip_text := ""
 	var chip_w := 0.0
 	var mark: Array = []
+	var chip_size := Style.text_size(Style.SMALL)
 	if men >= 0:
 		mark = _strength_mark(men)
 		chip_text = "%s %d" % [mark[0], men]
-		chip_w = font.get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, size - 3).x + 14.0
+		chip_w = font.get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size).x + 14.0
 	var rect := Rect2(at + Vector2(-(w + chip_w) * 0.5 - 8.0, 0.0), Vector2(w + chip_w + 16.0 + (6.0 if chip_w > 0.0 else 0.0), size + 8.0))
 	if dodge:
 		for attempt in 4:
@@ -3600,7 +3915,102 @@ func _name_plate(at: Vector2, text: String, size: int, color: Color, edge: Color
 	if chip_w > 0.0:
 		var chip := Rect2(Vector2(rect.end.x - chip_w - 4.0, rect.position.y + 3.0), Vector2(chip_w, rect.size.y - 6.0))
 		labels.draw_style_box(Style.box(mark[1], Color(0, 0, 0, 0), 0, int(chip.size.y * 0.5)), chip)
-		labels.draw_string(font, chip.position + Vector2(7.0, chip.size.y * 0.5 + (size - 3) * 0.36), chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, size - 3, Color("14161f"))
+		labels.draw_string(font, chip.position + Vector2(7.0, chip.size.y * 0.5 + chip_size * 0.36), chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size, Color("14161f"))
+
+
+## A plate of icons and words, centred on `at` (its top edge): `parts` are {"icon": key},
+## {"text": words} or {"pips": [lit, of]}. Steps out of the way of plates already placed.
+func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bool = true) -> void:
+	var size := Style.text_size(Style.SMALL)
+	var icon_w := float(size) + 2.0
+	var gap := 6.0
+	var w := 0.0
+	for part in parts:
+		if part.has("icon"):
+			w += icon_w
+		elif part.has("text"):
+			w += font.get_string_size(String(part["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		elif part.has("pips"):
+			w += float(int(part["pips"][1])) * 12.0
+		w += gap
+	w -= gap
+	var rect := Rect2(at + Vector2(-w * 0.5 - 8.0, 0.0), Vector2(w + 16.0, size + 8.0))
+	for attempt in (4 if dodge else 0):
+		var hit := false
+		for other in _taken:
+			if other.grow(2.0).intersects(rect):
+				hit = true
+				break
+		if not hit:
+			break
+		rect.position.y -= rect.size.y + 4.0
+	_taken.append(rect)
+	Style.box(Color(0.06, 0.07, 0.1, 0.8), edge, 2, 8).draw(labels.get_canvas_item(), rect)
+	var x := rect.position.x + 8.0
+	var mid := rect.position.y + rect.size.y * 0.5
+	for part in parts:
+		if part.has("icon"):
+			var tex := Widgets.icon(String(part["icon"]))
+			if tex != null:
+				labels.draw_texture_rect(tex, Rect2(Vector2(x, mid - icon_w * 0.5), Vector2(icon_w, icon_w)), false, color)
+			x += icon_w
+		elif part.has("text"):
+			var t := String(part["text"])
+			labels.draw_string(font, Vector2(x, mid + size * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+			x += font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		elif part.has("pips"):
+			for i in int(part["pips"][1]):
+				var lit: bool = i < int(part["pips"][0])
+				var pc := Vector2(x + 6.0 + i * 12.0, mid)
+				if lit:
+					labels.draw_circle(pc, 4.5, color)
+				else:
+					labels.draw_arc(pc, 4.0, 0.0, TAU, 12, Color(color, 0.6), 1.5)
+			x += float(int(part["pips"][1])) * 12.0
+		x += gap
+
+
+## A gathering over its hall, as marks: its kind, then the nights as pips while it's on
+## (or a clock and when it starts), then the lords there.
+func _gathering_parts(g: Dictionary) -> Array:
+	var parts: Array = [{"icon": _gathering_icon(g)}]
+	var night: int = world.gathering_night(g)
+	if night > 0:
+		parts.append({"pips": [night, 3]})
+	else:
+		var day := int(float(g["starts_hour"]) / 24.0)
+		var today := int(world.hour / 24.0)
+		parts.append({"icon": "clock"})
+		parts.append({"text": "dusk" if day == today else ("tomorrow" if day == today + 1 else "day %d" % (day + 1))})
+	var n: int = GameState.gathering_lords(g).size() if world.gathering_on(g) else world.gathering_guests(g).size()
+	if n > 0:
+		parts.append({"icon": "men"})
+		parts.append({"text": str(n)})
+	return parts
+
+
+## The icon for a kind of gathering: a cup for a feast, the dance, crossed blades for the
+## lists.
+func _gathering_icon(g: Dictionary) -> String:
+	match String(g.get("kind", "")):
+		Gatherings.DANCE:
+			return "dance"
+		Gatherings.TOURNEY:
+			return "fight"
+	return "cup"
+
+
+## A wedding ready to begin: the rings in a gold badge that pulses.
+func _rings_badge(c: Vector2) -> void:
+	var pulse := 0.0 if Style.motion_reduced() else 0.5 + 0.5 * sin(Time.get_ticks_msec() / 400.0)
+	var r := 18.0 + pulse * 2.0
+	labels.draw_circle(c, r + 3.0, Color(0, 0, 0, 0.55))
+	labels.draw_circle(c, r, Color("33290f"))
+	labels.draw_arc(c, r, 0.0, TAU, 32, Color("f3d27a"), 2.5)
+	labels.draw_arc(c, r + 4.0 + pulse * 4.0, 0.0, TAU, 32, Color(Style.BRASS, 0.6 - pulse * 0.4), 2.0)
+	var tex := Widgets.icon("rings")
+	if tex != null:
+		labels.draw_texture_rect(tex, Rect2(c - Vector2(r, r) * 0.68, Vector2(r, r) * 1.36), false, Color("f3d27a"))
 
 
 ## Where you're riding: a gold line through the settlements still ahead.

@@ -89,7 +89,8 @@ func _init() -> void:
 	var hour: float = w.hour
 	var moving: bool = w.player().moving()
 	map._open_journal()
-	check(map.sheet_title.text.begins_with("Journal") and map.sheet_body.text.contains("Relief"), "the journal lists the commitments")
+	check(map.sheet_title.text.begins_with("Journal") and map.sheet_extra.find_child("Commitment_" + String(relief["id"]).validate_node_name(), true, false) != null,
+		"the journal lists the commitments")
 	map._open_commitment(String(relief["id"]))
 	check(map.sheet_title.text == relief["title"] and map.sheet_body.text.contains("Reward"), "a commitment shows its objective and reward")
 	map._focus_place("thornwall")
@@ -98,8 +99,9 @@ func _init() -> void:
 		"Show on map focuses the place without starting travel or time")
 	map._on_pin(String(relief["id"]))
 	map._open_journal()
-	var lines: PackedStringArray = map.sheet_body.text.split("\n")
-	check(lines[0].contains(String(relief["title"])) and lines[0].contains("pinned"), "a pinned commitment leads the journal")
+	var rows: Node = map.sheet_extra.find_child("JournalRows", true, false)
+	var first: Node = rows.get_child(0) if rows != null and rows.get_child_count() > 0 else null
+	check(first != null and first.text == String(relief["title"]) and bool(first.get_meta("pinned", false)), "a pinned commitment leads the journal")
 
 	print("\nJournal tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
