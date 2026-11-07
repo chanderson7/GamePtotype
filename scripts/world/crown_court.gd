@@ -445,6 +445,32 @@ static func host_status(gs) -> String:
 	return "%s · led by %s · %s · %s" % [String(b.get("label", "")), LordTalk.short_name(marshal) if not marshal.is_empty() else "a lord", state, left]
 
 
+## The same as fields, for screens that draw it as chips: {label, led ("you" or "lord"),
+## lords, marshal (the lord's record, or {}), state, hours_left}. {} with no host out.
+static func host_status_fields(gs) -> Dictionary:
+	var w = gs.world
+	var b: Dictionary = gs.banners
+	if b.is_empty() or w == null:
+		return {}
+	var out := {"label": String(b.get("label", "")), "led": String(b["led"]), "lords": host_lords(gs).size(),
+		"marshal": {}, "state": "", "hours_left": maxf(0.0, float(b["until"]) - w.hour)}
+	if String(b["led"]) != "you":
+		out["state"] = String(host_army(gs).get("state", "marching"))
+		out["marshal"] = w.lord_by_id(int(b.get("marshal", -1)))
+	return out
+
+
+## The muster as fields: {place, day, here, all, upkeep, council_ok, why}. {} with none.
+static func muster_fields(gs) -> Dictionary:
+	var w = gs.world
+	if gs.muster.is_empty() or w == null:
+		return {}
+	var c := council_check(gs)
+	return {"place": String(gs.muster["place"]), "day": int((w.hour - float(gs.muster["called_hour"])) / 24.0) + 1,
+		"here": arrived(gs).size(), "all": muster_lords(gs).size(), "upkeep": muster_upkeep(gs),
+		"council_ok": bool(c["ok"]), "why": String(c.get("reason", ""))}
+
+
 static func _release_host(gs, why: String) -> void:
 	var w = gs.world
 	var b: Dictionary = gs.banners
@@ -544,6 +570,25 @@ static func commitments(gs) -> Array:
 	return out
 
 
+## The same entries as fields, for screens that draw them as chips: {id, kind, place,
+## hours_left} plus the muster's {here, all, upkeep, council_ok, why} or the host's
+## {label, led, lords, marshal, state}.
+static func commitment_fields(gs) -> Array:
+	var out := []
+	var m := muster_fields(gs)
+	if not m.is_empty():
+		var e := m.duplicate()
+		e.merge({"id": "muster", "kind": "muster", "hours_left": -1.0})
+		out.append(e)
+	var h := host_status_fields(gs)
+	if not h.is_empty():
+		var e := h.duplicate()
+		var target := String(gs.banners.get("target", ""))
+		e.merge({"id": "banners", "kind": "banners", "place": target if Data.SETTLEMENTS.has(target) else ""})
+		out.append(e)
+	return out
+
+
 static func load_muster(raw) -> Dictionary:
 	if typeof(raw) != TYPE_DICTIONARY or (raw as Dictionary).is_empty():
 		return {}
@@ -588,16 +633,16 @@ static func petitions(gs) -> Array:
 			var want: String = free_fiefs.pop_front()
 			out.append({"lord": l, "kind": "fief", "fief": want,
 				"text": "%s asks for %s." % [name, Data.settlement(want)["name"]], "ask": "Asks for %s" % Data.settlement(want)["name"],
-				"settle": "Grant it", "table": "a grant before everyone: +%d" % Gatherings.PUBLIC_GRANT_REGARD, "refuse": true})
+				"settle": "Grant it", "verb": "Grant", "cost": 0, "table": "a grant before everyone: +%d" % Gatherings.PUBLIC_GRANT_REGARD, "refuse": true})
 			continue
 		if fief != "" and w.is_burned(fief):
 			out.append({"lord": l, "kind": "rebuild", "fief": fief,
 				"text": "%s asks for silver to rebuild %s." % [name, Data.settlement(fief)["name"]], "ask": "Silver to rebuild %s" % Data.settlement(fief)["name"],
-				"settle": "Pay 100 silver", "table": "", "refuse": true})
+				"settle": "Pay 100 silver", "verb": "Pay", "cost": 100, "table": "", "refuse": true})
 			continue
 		if LordTalk.regard(gs, l) < 0:
 			out.append({"lord": l, "kind": "heard", "text": "%s wishes to be heard." % name, "ask": "Wishes to be heard",
-				"settle": "Hear them out", "table": "an hour at table", "refuse": false})
+				"settle": "Hear them out", "verb": "Hear them", "cost": 0, "table": "an hour at table", "refuse": false})
 			continue
 		var tr := LordTalk.trouble(gs, l)
 		# A band that preys on several lords' lands is one petition, from the first to ask.
@@ -605,7 +650,7 @@ static func petitions(gs) -> Array:
 			bands[int(tr["band"])] = true
 			out.append({"lord": l, "kind": "bandits", "text": "%s: %s prey on their lands." % [name, String(tr["name"])],
 				"ask": "%s prey on their lands" % String(tr["name"]),
-				"settle": "Take up the hunt", "table": "", "refuse": true})
+				"settle": "Take up the hunt", "verb": "Take the hunt", "cost": 0, "table": "", "refuse": true})
 	return out
 
 

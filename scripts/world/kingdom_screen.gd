@@ -17,6 +17,7 @@ const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const CourtUI = preload("res://scripts/ui/court_ui.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 
 signal closed
 ## Asked of the map: look at a place.
@@ -177,16 +178,12 @@ func _head() -> void:
 	words.add_child(title)
 	if gs.is_crowned():
 		var seat: String = world.capital_of(Data.CROWN)
-		words.add_child(Style.label("Seat: %s%s" % [Data.settlement(seat)["name"] if seat != "" else "none", " · Victorious" if gs.crown_won else ""], Style.SMALL, Style.MUTED))
+		var chips: Array = [Widgets.chip(_place_name(seat) if seat != "" else "No seat", Style.TEXT, "", "keep")]
+		if gs.crown_won:
+			chips.append(Widgets.chip("Victorious", Style.BRASS, "", "crown", true))
+		words.add_child(Widgets.chip_row(chips))
 	row.add_child(words)
-	var x := Button.new()
-	x.name = "Close"
-	x.icon = Widgets.icon("cancel")
-	x.expand_icon = true
-	x.custom_minimum_size = Vector2(64, 64)
-	x.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	x.pressed.connect(close)
-	row.add_child(x)
+	row.add_child(Widgets.icon_button("cancel", close, "Close", "Close"))
 	_col.add_child(row)
 
 
@@ -214,7 +211,7 @@ func _button(text: String, act: Callable, id: String, enabled: bool = true, prim
 	b.name = id
 	b.text = text
 	b.disabled = not enabled
-	b.custom_minimum_size = Vector2(0, 64)
+	b.custom_minimum_size = Vector2(0, Style.TOUCH)
 	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	if primary and enabled:
 		Style.make_primary(b)
@@ -222,6 +219,69 @@ func _button(text: String, act: Callable, id: String, enabled: bool = true, prim
 		Sound.play("click", 0.0, 0.05)
 		act.call())
 	return b
+
+
+## A verb with an icon beside it.
+func _icon_button(text: String, key: String, act: Callable, id: String, enabled: bool = true, primary: bool = false) -> Button:
+	var b := _button(text, act, id, enabled, primary)
+	b.icon = Widgets.icon(key)
+	b.add_theme_constant_override("icon_max_width", 30)
+	b.add_theme_constant_override("h_separation", 10)
+	var tint := Style.BRASS_INK if primary and enabled else Style.TEXT
+	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+		b.add_theme_color_override(c, tint)
+	return b
+
+
+## A muted line under a row of buttons: why one is greyed.
+func _why(text: String) -> Label:
+	var l := _note(text, Style.MUTED)
+	l.name = "WhyNot"
+	return l
+
+
+## A ride time, said one way: "here", or the short span.
+static func _ride(hours: float) -> String:
+	return "here" if hours < 1.0 else Style.time_short(hours)
+
+
+## A Regard chip: the bond icon and the signed number, ▲◆▼ by how warm.
+static func _regard_chip(v: int) -> PanelContainer:
+	var tone := Style.MORALE_HIGH if v >= 10 else (Style.MORALE_MID if v >= 0 else Style.MORALE_LOW)
+	var c := Widgets.chip("%s%d" % ["+" if v > 0 else ("−" if v < 0 else ""), absi(v)], tone, "▲" if v >= 10 else ("◆" if v >= 0 else "▼"), "bond")
+	c.name = "Regard"
+	return c
+
+
+## Where a realm stands with your crown, as chips: the state of things, its war-weariness,
+## its places, what it thinks of you and any tribute. Static so the map's realm rows can
+## show the same row.
+static func realm_chips(game, w, r: String) -> Array:
+	var out: Array = []
+	if w.at_war(Data.CROWN, r):
+		var since := float(w.wars[w.war_key(Data.CROWN, r)].get("since", w.hour))
+		out.append(Widgets.chip("At war", Style.ENEMY_LIGHT, "", "fight"))
+		out.append(Widgets.chip(Style.time_short(w.hour - since), Style.TEXT, "", "clock"))
+	elif w.allied_with_crown(r):
+		out.append(Widgets.chip("Ally", Style.MORALE_HIGH))
+	elif w.has_truce(Data.CROWN, r):
+		out.append(Widgets.chip("Truce", Style.MORALE_MID, "", "peace"))
+		out.append(Widgets.chip(Style.time_short(w.truce_until(Data.CROWN, r) - w.hour), Style.TEXT, "", "clock"))
+	else:
+		out.append(Widgets.chip("Peace", Style.MORALE_HIGH, "", "peace"))
+	out.append(Widgets.stat("keep", str(w.holdings_of(r).size())))
+	var opinion := int(game.relation_with_realm(r))
+	var bond := Widgets.effect("bond", opinion)
+	bond.tooltip_text = "What they think of you"
+	out.append(bond)
+	for t in w.tributes:
+		if String(t.get("from", "")) == r and String(t.get("to", "")) == Data.CROWN:
+			out.append(Widgets.effect("silver", int(t["daily"]), "/day"))
+			out.append(Widgets.chip(Style.time_short(float(t["days_left"]) * 24.0), Style.TEXT, "", "clock"))
+		elif String(t.get("from", "")) == Data.CROWN and String(t.get("to", "")) == r:
+			out.append(Widgets.effect("silver", -int(t["daily"]), "/day"))
+			out.append(Widgets.chip(Style.time_short(float(t["days_left"]) * 24.0), Style.TEXT, "", "clock"))
+	return out
 
 
 func _row_panel(tone: Color = Style.RULE) -> VBoxContainer:
@@ -259,29 +319,43 @@ func _realm() -> void:
 	for id in held:
 		men += world.men_of(world.garrison_at(id))
 	_col.add_child(Widgets.tile_grid([
-		Widgets.tile("silver", Widgets.thousands(gs.crown_treasury()), "treasury, +%d/day" % int(income["treasury"])),
+		Widgets.tile("chest", Widgets.thousands(gs.crown_treasury()), "treasury +%d/day" % int(income["treasury"])),
 		Widgets.tile("silver", "+%d" % int(income["purse"]), "purse/day"),
-		Widgets.tile("battle", str(held.size()), "places"),
+		Widgets.tile("keep", str(held.size()), "places"),
 		Widgets.tile("men", Widgets.thousands(men), "men"),
 	]))
 	# The treasury: the garrisons and your lords' men are paid from it.
 	var t := _row_panel()
+	t.get_parent().name = "TreasuryCard"
 	t.add_child(Style.label("Treasury", Style.BODY, Style.TEXT))
-	t.add_child(_note("Pays your lords' men and raises your garrisons. Draw from it and your lords notice (%d Regard each)." % gs.DRAW_REGARD))
-	var f := _flow()
-	f.add_child(_button("Draw %d" % gs.TREASURY_STEP, func(): _act(gs.draw_treasury(gs.TREASURY_STEP), "You drew %d silver." % gs.TREASURY_STEP),
-		"Draw", gs.crown_treasury() >= gs.TREASURY_STEP))
-	f.add_child(_button("Pay in %d" % gs.TREASURY_STEP, func(): _act(gs.fund_treasury(gs.TREASURY_STEP), "You paid %d silver into the treasury." % gs.TREASURY_STEP),
-		"Fund", gs.silver >= gs.TREASURY_STEP))
+	t.add_child(_note("Pays your lords' men and raises your garrisons."))
+	var f := HBoxContainer.new()
+	f.add_theme_constant_override("separation", 12)
+	var step := Widgets.thousands(gs.TREASURY_STEP)
+	var draw := _icon_button("Draw", "chest", func(): _act(gs.draw_treasury(gs.TREASURY_STEP), "You drew %d silver." % gs.TREASURY_STEP),
+		"Draw", gs.crown_treasury() >= gs.TREASURY_STEP)
+	draw.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	f.add_child(Widgets.priced(draw, [["silver", "+" + step], ["bond", "−%d each" % absi(gs.DRAW_REGARD), Style.ENEMY_LIGHT]]))
+	var fund := _icon_button("Pay in", "silver", func(): _act(gs.fund_treasury(gs.TREASURY_STEP), "You paid %d silver into the treasury." % gs.TREASURY_STEP),
+		"Fund", gs.silver >= gs.TREASURY_STEP)
+	fund.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	f.add_child(Widgets.priced(fund, [["silver", "−" + step]]))
 	t.add_child(f)
-	# The goal.
+	# The goal: each capital, lit once it's yours.
 	var g := _row_panel(Data.crown_color if gs.crown_won else Style.RULE)
+	g.get_parent().name = "GoalCard"
 	var caps: Array = gs.crown_capitals()
 	var have: int = caps.filter(func(id): return held.has(id)).size()
-	g.add_child(Style.label("Every capital: %d of %d" % [have, caps.size()], Style.BODY, Style.TEXT))
-	g.add_child(Widgets.meter(float(have) / caps.size(), Data.crown_color, 12.0))
-	g.add_child(_note(", ".join(PackedStringArray(caps.map(func(id): return ("%s (yours)" if held.has(id) else "%s") % Data.settlement(id)["name"])))
-		+ (". You hold them all: the Glass Sea has one crown." if gs.crown_won else ". Hold all three and the Glass Sea is yours. Hold nothing for %d days and your crown falls." % gs.CROWN_FALL_DAYS)))
+	var gh := HBoxContainer.new()
+	var gt := Style.label("Every capital", Style.BODY, Style.TEXT)
+	gt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gh.add_child(gt)
+	gh.add_child(Style.label("%d / %d" % [have, caps.size()], Style.BODY, Data.crown_color))
+	g.add_child(gh)
+	g.add_child(Widgets.meter(float(have) / maxf(1.0, caps.size()), Data.crown_color, 12.0))
+	g.add_child(Widgets.chip_row(caps.map(func(id): return Widgets.chip(_place_name(id), Style.MORALE_HIGH if held.has(id) else Style.MUTED,
+		"▲" if held.has(id) else "◆", "", held.has(id)))))
+	g.add_child(_note("The Glass Sea has one crown." if gs.crown_won else "Hold all three and the Glass Sea is yours. Hold nothing for %d days and your crown falls." % gs.CROWN_FALL_DAYS))
 	# Name and colour.
 	var n := _row_panel()
 	n.add_child(Style.label("Name and colours", Style.BODY, Style.TEXT))
@@ -289,7 +363,8 @@ func _realm() -> void:
 	edit.name = "CrownName"
 	edit.text = gs.crown_title()
 	edit.max_length = 32
-	edit.custom_minimum_size = Vector2(0, 64)
+	edit.custom_minimum_size = Vector2(0, Style.TOUCH)
+	edit.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
 	edit.text_submitted.connect(func(text: String):
 		gs.set_crown_identity(text, gs.crown_color)
 		_build())
@@ -299,7 +374,7 @@ func _realm() -> void:
 		var b := Button.new()
 		b.name = "Color_%d" % i
 		b.text = Data.CROWN_COLOR_NAMES[i]
-		b.custom_minimum_size = Vector2(96, 56)
+		b.custom_minimum_size = Vector2(96, Style.TOUCH)
 		b.add_theme_stylebox_override("normal", Style.box(Color(Data.CROWN_COLORS[i], 0.25), Data.CROWN_COLORS[i], 4 if i == gs.crown_color else 2, 12))
 		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		var idx := i
@@ -324,47 +399,79 @@ func _holdings() -> void:
 		var v := _row_panel(Data.crown_color if id == gs.fief_id() else Style.RULE)
 		v.name = "Holding_%s" % id
 		var top := HBoxContainer.new()
-		var name_l := Style.label("%s · %s" % [info["name"], String(info["type"]).capitalize()], Style.BODY, Style.TEXT)
+		top.add_theme_constant_override("separation", 12)
+		var type_icon := Widgets.icon_rect(String(TYPE_ICONS.get(String(info["type"]), "keep")), 40.0)
+		type_icon.tooltip_text = String(info["type"]).capitalize()
+		top.add_child(type_icon)
+		var name_l := Style.label(String(info["name"]), Style.BODY, Style.TEXT)
 		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		top.add_child(name_l)
-		var pin := Button.new()
-		pin.icon = Widgets.icon("mappin")
-		pin.expand_icon = true
-		pin.custom_minimum_size = Vector2(56, 56)
-		pin.pressed.connect(func():
+		top.add_child(Widgets.icon_button("mappin", func():
 			wants_place.emit(id)
-			close())
-		top.add_child(pin)
+			close(), "Show on the map", "Pin_%s" % id))
 		v.add_child(top)
-		var bits := PackedStringArray()
+		var chips: Array = []
+		var holder: Dictionary = gs.holder_of(id)
 		if id == gs.fief_id():
-			bits.append("your seat")
-		else:
-			var holder: Dictionary = gs.holder_of(id)
-			if not holder.is_empty():
-				bits.append("held by %s" % LordTalk.short_name(holder))
-			elif String(info["type"]) != Data.VILLAGE:
-				bits.append("no lord holds it")
+			chips.append(Widgets.chip("Your seat", Style.BRASS, "", "crown", true))
+		elif not holder.is_empty():
+			chips.append(_holder_chip(holder))
+		elif String(info["type"]) != Data.VILLAGE:
+			chips.append(Widgets.chip("No lord", Style.MORALE_MID))
 		if world.garrison_capacity(id) > 0:
-			bits.append("garrison %d / %d" % [world.men_of(world.garrison_at(id)), world.garrison_capacity(id)])
+			chips.append(Widgets.stat("men", "%d/%d" % [world.men_of(world.garrison_at(id)), world.garrison_capacity(id)]))
 			if not gs.stationed_at(id).is_empty():
-				bits.append("%d of your squads" % gs.stationed_at(id).size())
+				chips.append(Widgets.stat("company", str(gs.stationed_at(id).size())))
 		if world.is_burned(id):
-			bits.append("burned")
+			chips.append(Widgets.chip("Burned", Style.ENEMY_LIGHT, "", "fire"))
 		if world.is_sieged(id):
-			bits.append("under siege")
-		v.add_child(_note(" · ".join(bits), Style.MUTED))
-		# Grant it, right here.
+			chips.append(Widgets.chip("Besieged", Style.ENEMY_LIGHT, "", "storm"))
+		v.add_child(Widgets.chip_row(chips))
+		if world.garrison_capacity(id) > 0:
+			v.add_child(Widgets.meter(float(world.men_of(world.garrison_at(id))) / maxf(1.0, world.garrison_capacity(id)), Style.BRASS, 10.0))
+		# Grant it: one button, the lords to choose from on a sheet.
 		if gs.crown_fiefs().has(id):
-			var f := _flow()
-			for l in gs.crown_lords():
-				if String(l.get("fief", "")) == id:
-					continue
-				var lid := int(l["id"])
-				f.add_child(_button("Grant to %s" % LordTalk.first_name(l), func():
-					_act(gs.grant_fief(id, lid), "%s now holds %s (+%d Regard)." % [LordTalk.short_name(l), info["name"], gs.GRANT_REGARD]), "Grant_%s_%d" % [id, lid]))
-			if f.get_child_count() > 0:
-				v.add_child(f)
+			var lords: Array = gs.crown_lords().filter(func(l): return String(l.get("fief", "")) != id)
+			if not lords.is_empty():
+				var grant := _icon_button("Grant…", "crown", func(): _open_grant_sheet(id), "GrantPick_%s" % id)
+				grant.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				v.add_child(Widgets.priced(grant, [["bond", "+%d" % gs.GRANT_REGARD, Style.MORALE_HIGH]]))
+
+
+## A holding's type, as its icon.
+const TYPE_ICONS := {"castle": "keep", "town": "walls", "village": "home"}
+
+
+## Who holds a place: their face, small, and their name.
+func _holder_chip(l: Dictionary) -> Control:
+	var h := HBoxContainer.new()
+	h.name = "Holder"
+	h.add_theme_constant_override("separation", 8)
+	h.add_child(_face(l, 32))
+	var nm := Style.label(LordTalk.short_name(l), Style.SMALL, Style.TEXT)
+	nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	h.add_child(nm)
+	return h
+
+
+## Grant `id` to a sworn lord: their faces to choose from.
+func _open_grant_sheet(id: String) -> void:
+	var name := _place_name(id)
+	var v := CourtUI.sheet(self, "GrantSheet", _insets, "Grant %s" % name)
+	v.add_child(Widgets.chip_row([Widgets.effect("bond", gs.GRANT_REGARD), Widgets.chip("Becomes their seat", Style.TEXT, "", "keep")]))
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	for l in gs.crown_lords():
+		if String(l.get("fief", "")) == id:
+			continue
+		var lid := int(l["id"])
+		grid.add_child(CourtUI.face_button(CaptainArt.texture(LordVoice.portrait_record(l)), LordTalk.first_name(l), "Grant_%s_%d" % [id, lid], func():
+			Widgets.close_sheet(v)
+			_act(gs.grant_fief(id, lid), "%s now holds %s (+%d Regard)." % [LordTalk.short_name(l), name, gs.GRANT_REGARD]), false, 72.0))
+	v.add_child(grid)
 
 
 # ---------------------------------------------------------------- lords
@@ -380,51 +487,85 @@ func _lords() -> void:
 		var v := _row_panel()
 		v.name = "CrownLord_%d" % lid
 		var top := HBoxContainer.new()
-		top.add_theme_constant_override("separation", 12)
-		var face := TextureRect.new()
-		face.texture = CaptainArt.texture(LordVoice.portrait_record(l))
-		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		face.custom_minimum_size = Vector2(60, 80)
-		top.add_child(face)
+		top.add_theme_constant_override("separation", 14)
+		var captive := String(l.get("state", "")) == "prisoner"
+		top.add_child(_face(l, 64, captive))
 		var words := VBoxContainer.new()
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		words.add_child(Style.label(LordTalk.short_name(l), Style.BODY, Style.TEXT))
+		words.add_theme_constant_override("separation", 8)
+		var name_row := HBoxContainer.new()
+		name_row.add_theme_constant_override("separation", 10)
+		var nm := Style.name_label(LordTalk.short_name(l), Style.BODY)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_row.add_child(nm)
+		var regard := LordTalk.regard(gs, l)
+		name_row.add_child(_regard_chip(regard))
+		words.add_child(name_row)
 		var fief := String(l.get("fief", ""))
 		var p = world.party(int(l.get("party", -1)))
 		var order: Dictionary = l.get("order", {}) if l.get("order") is Dictionary else {}
-		var doing := "regrouping"
-		if String(l.get("state", "")) == "prisoner":
-			doing = "a captive of %s" % (String(Data.FACTIONS[String(l["captive_of"])]["name"]) if Data.FACTIONS.has(String(l["captive_of"])) else "the enemy")
+		var chips: Array = []
+		if fief != "":
+			chips.append(Widgets.chip(_place_name(fief), Style.TEXT, "", "keep"))
+		if captive:
+			var by := String(l.get("captive_of", ""))
+			chips.append(Widgets.chip("Captive", Style.ENEMY_LIGHT, "", "lock"))
+			if Data.FACTIONS.has(by):
+				chips.append(Widgets.banner(by, Vector2(26, 38)))
 		elif p != null:
 			match String(order.get("kind", "")):
 				"follow":
-					doing = "riding with you"
+					chips.append(Widgets.chip("With you", Style.MORALE_HIGH, "", "ride"))
 				"guard":
-					doing = "holding %s" % Data.settlement(String(order["target"]))["name"]
+					chips.append(Widgets.chip(_place_name(String(order["target"])), Style.TEXT, "", "hold"))
 				_:
-					doing = "in your army" if not MarshalArmies.for_party(world, p.id).is_empty() else "about the realm's business"
-		var regard := LordTalk.regard(gs, l)
-		words.add_child(_note("%s · %s%s · %d men" % [
-			"holds %s" % Data.settlement(fief)["name"] if fief != "" else "no fief",
-			doing, " · bought" if int(l.get("bought", 0)) == 1 else "", world.men_of(p.army) if p != null else world.men_of(l.get("army", []))]))
-		words.add_child(_note("%s%d Regard%s" % ["+" if regard > 0 else "", regard, " · may leave if it falls below 0" if int(l.get("bought", 0)) == 1 else ""],
-			Style.MORALE_HIGH if regard >= 10 else (Style.MORALE_MID if regard >= 0 else Style.MORALE_LOW)))
+					if not MarshalArmies.for_party(world, p.id).is_empty():
+						chips.append(Widgets.chip("In your army", Style.TEXT, "", "company"))
+		else:
+			chips.append(Widgets.chip("Regrouping", Style.MORALE_MID))
+		chips.append(Widgets.stat("men", str(world.men_of(p.army) if p != null else world.men_of(l.get("army", [])))))
+		var bought := int(l.get("bought", 0)) == 1
+		if bought:
+			chips.append(Widgets.chip("Bought", Style.MORALE_MID, "", "silver"))
+		words.add_child(Widgets.chip_row(chips))
+		if bought and regard < 10:
+			words.add_child(_note("A bought lord leaves below 0 Regard."))
 		top.add_child(words)
 		v.add_child(top)
 		if p != null:
-			var f := _flow()
 			var kind := String(order.get("kind", ""))
-			f.add_child(_button("Ride with me", func(): _act(gs.order_lord(lid, "follow"), "%s rides with you." % LordTalk.short_name(l)), "Follow_%d" % lid, kind != "follow"))
 			var hold := fief if fief != "" else String(world.capital_of(Data.CROWN))
+			var picks := ["follow"]
+			var labels := ["Follow"]
+			var icons := ["ride"]
 			if hold != "":
-				f.add_child(_button("Hold %s" % Data.settlement(hold)["name"], func(): _act(gs.order_lord(lid, "guard", hold), "%s holds %s." % [LordTalk.short_name(l), Data.settlement(hold)["name"]]),
-					"Guard_%d" % lid, not (kind == "guard" and String(order.get("target", "")) == hold)))
-			f.add_child(_button("Free to choose", func(): _act(gs.order_lord(lid, ""), "%s goes about the realm's business." % LordTalk.short_name(l)), "Free_%d" % lid, kind != ""))
+				picks.append("guard")
+				labels.append("Hold")
+				icons.append("hold")
+			picks.append("")
+			labels.append("Free")
+			icons.append("mappin")
+			var current := picks.find(kind)
+			if kind == "guard" and String(order.get("target", "")) != hold:
+				current = -1
+			var seg := Widgets.segmented(labels, current, func(i: int):
+				if i == current:
+					return
+				Sound.play("click", 0.0, 0.05)
+				match String(picks[i]):
+					"follow":
+						_act(gs.order_lord(lid, "follow"), "%s rides with you." % LordTalk.short_name(l))
+					"guard":
+						_act(gs.order_lord(lid, "guard", hold), "%s holds %s." % [LordTalk.short_name(l), _place_name(hold)])
+					_:
+						_act(gs.order_lord(lid, ""), "%s goes about the realm's business." % LordTalk.short_name(l)), "Order_%d" % lid, icons)
+			v.add_child(seg)
+			if hold != "" and kind != "guard":
+				v.add_child(_note("Hold keeps them at %s." % _place_name(hold)))
 			if fief != "":
-				f.add_child(_button("Take back %s" % Data.settlement(fief)["name"], func(): _act(gs.revoke_fief(lid), "You took %s back." % Data.settlement(fief)["name"]), "Revoke_%d" % lid))
-			v.add_child(f)
+				var back := _flat_button("Take back %s" % _place_name(fief), func(): _act(gs.revoke_fief(lid), "You took %s back." % _place_name(fief)), "Revoke_%d" % lid)
+				back.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+				v.add_child(back)
 
 
 # ---------------------------------------------------------------- diplomacy
@@ -439,45 +580,57 @@ func _diplomacy() -> void:
 		var v := _row_panel(Style.ENEMY if world.at_war(Data.CROWN, r) else Style.RULE)
 		v.name = "Realm_%s" % r
 		var top := HBoxContainer.new()
-		top.add_theme_constant_override("separation", 12)
-		top.add_child(Widgets.banner(r, Vector2(36, 52)))
+		top.add_theme_constant_override("separation", 14)
+		var flag := Widgets.banner(r, Vector2(44, 64))
+		flag.tooltip_text = name
+		top.add_child(flag)
 		var words := VBoxContainer.new()
 		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.add_theme_constant_override("separation", 8)
 		words.add_child(Style.label(name, Style.BODY, Style.TEXT))
-		var status := "at peace"
-		if world.at_war(Data.CROWN, r):
-			var since := float(world.wars[world.war_key(Data.CROWN, r)].get("since", world.hour))
-			status = "at war with you for %d days" % int((world.hour - since) / 24.0)
-		elif world.allied_with_crown(r):
-			status = "your ally"
-		elif world.has_truce(Data.CROWN, r):
-			status = "truce, %d more days" % ceili((world.truce_until(Data.CROWN, r) - world.hour) / 24.0)
-		words.add_child(_note("%s · war-weariness %d · %d places · opinion of you %d" % [status, int(world.weariness_of(r)), world.holdings_of(r).size(), gs.relation_with_realm(r)]))
-		for t in world.tributes:
-			if String(t.get("from", "")) == r and String(t.get("to", "")) == Data.CROWN:
-				words.add_child(_note("Pays you %d silver a day, %d days left." % [int(t["daily"]), int(t["days_left"])], Style.MORALE_HIGH))
-			elif String(t.get("from", "")) == Data.CROWN and String(t.get("to", "")) == r:
-				words.add_child(_note("You pay them %d silver a day, %d days left." % [int(t["daily"]), int(t["days_left"])], Style.MORALE_LOW))
+		words.add_child(Widgets.chip_row(realm_chips(gs, world, r)))
+		# War-weariness: how close they are to wanting peace.
+		var weary := HBoxContainer.new()
+		weary.name = "Weariness"
+		weary.add_theme_constant_override("separation", 10)
+		weary.add_child(Style.label("Weary", Style.SMALL, Style.MUTED))
+		var wv := clampf(world.weariness_of(r) / Politics.WEARINESS_MAX, 0.0, 1.0)
+		weary.add_child(Widgets.meter(wv, Style.MORALE_LOW if wv > 0.66 else (Style.MORALE_MID if wv > 0.33 else Style.MUTED), 12.0))
+		weary.add_child(Style.label(str(int(world.weariness_of(r))), Style.SMALL, Style.TEXT))
+		words.add_child(weary)
 		top.add_child(words)
 		v.add_child(top)
-		var f := _flow()
+		var f := HBoxContainer.new()
+		f.add_theme_constant_override("separation", 12)
+		var why := ""
 		if world.at_war(Data.CROWN, r):
 			var pc: Dictionary = gs.crown_peace_check(r)
 			var terms: Dictionary = world.peace_terms(Data.CROWN, r)
-			var cost := "no tribute"
-			if int(terms["daily"]) > 0:
-				cost = ("they pay %d a day" if terms["to"] == Data.CROWN else "you pay %d a day") % int(terms["daily"])
-			f.add_child(_button("Sue for peace (%s)" % cost, func(): _act(gs.sue_for_peace(r), "Peace with %s." % name), "Peace_%s" % r, bool(pc["ok"])))
+			var peace := _icon_button("Sue for peace", "peace", func(): _act(gs.sue_for_peace(r), "Peace with %s." % name), "Peace_%s" % r, bool(pc["ok"]))
+			peace.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var daily := int(terms["daily"])
+			var costs := []
+			if daily > 0:
+				costs.append(["silver", ("+%d/day" if terms["to"] == Data.CROWN else "−%d/day") % daily, Style.MORALE_HIGH if terms["to"] == Data.CROWN else Style.ENEMY_LIGHT])
+			else:
+				costs.append(["silver", "no tribute", Style.MUTED])
+			f.add_child(Widgets.priced(peace, costs))
 			if not bool(pc["ok"]):
-				v.add_child(_note(String(pc["reason"])))
+				why = String(pc["reason"])
 		else:
 			var wc: Dictionary = gs.war_check(r)
-			f.add_child(_button("Declare war", func(): _act(gs.declare_crown_war(r), "Your crown is at war with %s." % name), "War_%s" % r, bool(wc["ok"])))
+			var war := _icon_button("Declare war", "fight", func(): _act(gs.declare_crown_war(r), "Your crown is at war with %s." % name), "War_%s" % r, bool(wc["ok"]))
+			war.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			f.add_child(war)
 			if world.can_ally_crown(r):
-				f.add_child(_button("Propose alliance", func(): _act(gs.propose_alliance(r), "%s is your ally." % name), "Ally_%s" % r, true, true))
-			if not bool(wc["ok"]) and String(wc["reason"]) != "":
-				v.add_child(_note(String(wc["reason"])))
+				var ally := _icon_button("Ally", "bond", func(): _act(gs.propose_alliance(r), "%s is your ally." % name), "Ally_%s" % r, true, true)
+				ally.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				f.add_child(ally)
+			if not bool(wc["ok"]):
+				why = String(wc["reason"])
 		v.add_child(f)
+		if why != "":
+			v.add_child(_why(Gatherings.upper_first(why)))
 
 
 # ---------------------------------------------------------------- the court
@@ -513,18 +666,17 @@ func _face(l: Dictionary, w: float, dim: bool = false) -> Control:
 	return CourtUI.face(l, w, dim)
 
 
-## A sub-page's head: back, the title with a line under it, and "?" (the rules) or "⋯"
-## (more) on the right.
-func _page_head(title: String, sub: String, back: Callable, right: String = "rules") -> void:
+## A sub-page's head: back, the title with a line or a row of chips under it, and "?" (the
+## rules) or "⋯" (more) on the right.
+func _page_head(title: String, sub: String, back: Callable, right: String = "rules", chips: Array = []) -> void:
 	var row := HBoxContainer.new()
 	row.name = "PageHead"
 	row.add_theme_constant_override("separation", 12)
-	var b := _round_button("‹", back, "Back")
-	b.add_theme_font_size_override("font_size", Style.text_size(44))
-	row.add_child(b)
+	row.add_child(_round_button("‹", back, "Back"))
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	words.add_theme_constant_override("separation", 6)
 	var t := Style.label(title, Style.LARGE, Style.BRASS)
 	var display := Style.display_font()
 	if display != null:
@@ -532,6 +684,8 @@ func _page_head(title: String, sub: String, back: Callable, right: String = "rul
 	words.add_child(t)
 	if sub != "":
 		words.add_child(_note(sub))
+	if not chips.is_empty():
+		words.add_child(Widgets.chip_row(chips))
 	row.add_child(words)
 	if right == "rules":
 		row.add_child(_round_button("?", _open_rules, "Rules"))
@@ -584,8 +738,9 @@ func _title(text: String, aside: String = "") -> RichTextLabel:
 	return _rich("[color=#%s]%s[/color]%s" % [Style.TEXT.to_html(false), text, ("  ·  " + aside) if aside != "" else ""], Style.MUTED, Style.BODY)
 
 
-## A card on the Court tab: title, one line of status, and a chevron; tap to go in.
-func _hub_card(id: String, title: String, status: String, tone: Color, icon: String, go: Callable) -> VBoxContainer:
+## A card on the Court tab: title, its status as chips (or a line), and a chevron; tap to
+## go in.
+func _hub_card(id: String, title: String, status, tone: Color, icon: String, go: Callable) -> VBoxContainer:
 	var v := _row_panel(tone)
 	var card := v.get_parent() as Control
 	card.name = id
@@ -599,13 +754,20 @@ func _hub_card(id: String, title: String, status: String, tone: Color, icon: Str
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	words.add_theme_constant_override("separation", 8)
 	words.add_child(Style.label(title, Style.BODY, Style.TEXT))
-	var s := _note(status)
+	var s: Control = null
+	if status is Array:
+		s = Widgets.chip_row(status)
+	else:
+		s = _note(String(status))
 	s.name = "Status"
+	s.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	words.add_child(s)
 	row.add_child(words)
-	var chev := Style.label("›", 44, Style.MUTED)
-	chev.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var chev := Widgets.icon_rect("back", 36.0)
+	chev.flip_h = true
+	chev.modulate = Style.MUTED
 	row.add_child(chev)
 	v.add_child(row)
 	v.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -617,21 +779,46 @@ func _hub_card(id: String, title: String, status: String, tone: Color, icon: Str
 
 func _gathering_hub() -> void:
 	var mine: Dictionary = gs.my_gathering()
-	var status := "Feast, dance or tourney · nothing called"
+	var status = "Feast, dance or tourney"
 	if not mine.is_empty():
-		var n: int = world.gathering_guests(mine).size()
-		status = "Your %s at %s · %s · %d coming" % [String(mine["name"]), _place_name(String(mine["place"])), gs.gathering_when(mine), n]
-	_hub_card("GatheringCard", "Hold a gathering", status, Style.RULE if mine.is_empty() else Style.BRASS, "food", func(): _go("gathering"))
+		status = _gathering_chips(mine)
+	_hub_card("GatheringCard", "Hold a gathering", status, Style.RULE if mine.is_empty() else Style.BRASS, "cup", func(): _go("gathering"))
+
+
+## Your gathering as chips: its kind and place, when, and how many come.
+func _gathering_chips(g: Dictionary) -> Array:
+	var n: int = world.gathering_guests(g).size()
+	return [Widgets.chip("%s · %s" % [Gatherings.upper_first(String(g["name"])), _place_name(String(g["place"]))], Style.TEXT, "", "mappin"),
+		Widgets.chip(Gatherings.upper_first(gs.gathering_when(g)), Style.TEXT, "", "clock"), Widgets.stat("crown", str(n))]
+
+
+## The host in the field as chips: its aim, who leads, its state and the days it has left.
+func _host_chips() -> Array:
+	var h: Dictionary = CrownCourt.host_status_fields(gs)
+	if h.is_empty():
+		return []
+	var out: Array = [Widgets.chip(String(h["label"]), Style.TEXT, "", "objective")]
+	if String(h["led"]) == "you":
+		out.append(Widgets.chip("With you", Style.MORALE_HIGH, "", "ride"))
+		out.append(Widgets.stat("crown", str(int(h["lords"]))))
+	else:
+		var m: Dictionary = h["marshal"]
+		out.append(Widgets.chip(LordTalk.short_name(m) if not m.is_empty() else "A lord", Style.TEXT, "", "company"))
+		out.append(Widgets.chip(Gatherings.upper_first(String(h["state"])), Style.MORALE_MID))
+	out.append(Widgets.chip(Style.time_short(float(h["hours_left"])), Style.TEXT, "", "food"))
+	return out
 
 
 func _banners_hub() -> void:
-	var status := ""
+	var status = ""
 	var ready := false
 	if not gs.banners.is_empty():
-		status = CrownCourt.host_status(gs)
+		status = _host_chips()
 	elif not gs.muster.is_empty():
-		status = "Gathering at %s · %d of %d in the hall" % [_place_name(String(gs.muster["place"])), CrownCourt.arrived(gs).size(), CrownCourt.muster_lords(gs).size()]
-		ready = bool(CrownCourt.council_check(gs)["ok"])
+		var m: Dictionary = CrownCourt.muster_fields(gs)
+		status = [Widgets.chip(_place_name(String(m["place"])), Style.TEXT, "", "mappin"),
+			Widgets.stat("keep", "%d/%d" % [int(m["here"]), int(m["all"])]), Widgets.chip("%d" % int(m["day"]), Style.TEXT, "", "day")]
+		ready = bool(m["council_ok"])
 	else:
 		var places: Array = gs.host_places()
 		var roll: Array = CrownCourt.roll(gs, places[0]) if not places.is_empty() else []
@@ -639,7 +826,10 @@ func _banners_hub() -> void:
 		var men := 0
 		for e in comes:
 			men += int(e["men"])
-		status = "No lord is sworn to you yet" if roll.is_empty() else "%d of %d lords would ride · %d men" % [comes.size(), roll.size(), men]
+		if roll.is_empty():
+			status = "No lord is sworn to you yet"
+		else:
+			status = [Widgets.stat("crown", "%d/%d" % [comes.size(), roll.size()]), Widgets.stat("men", Widgets.thousands(men))]
 	var v := _hub_card("BannersCard", "Call the banners", status, Style.ENEMY, "battle", func(): _go("banners"))
 	if ready:
 		var b := _button("Sit the war council", func(): _go("council"), "OpenCouncil", true, true)
@@ -673,48 +863,52 @@ func _petitions_card() -> void:
 		words.add_child(Style.label(LordTalk.short_name(p["lord"]), Style.SMALL, Style.TEXT))
 		words.add_child(_note(String(p.get("ask", p["text"]))))
 		var f := HBoxContainer.new()
-		f.add_theme_constant_override("separation", 8)
+		f.add_theme_constant_override("separation", 10)
 		var lid := int(p["lord"]["id"])
-		var settle := _button(String(p["settle"]), func():
+		var fief := String(p["kind"]) == "fief"
+		var settle := _button(String(p.get("verb", p["settle"])), func():
 			var r: Dictionary = CrownCourt.answer(gs, p, true)
 			_flash = String(r.get("text", r.get("reason", "")))
 			_build(), "Settle_%d" % lid, true, true)
-		settle.custom_minimum_size.y = 60
-		f.add_child(settle)
+		settle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var gain: Array = [["bond", "+%d" % (gs.GRANT_REGARD if fief else Gatherings.PETITION_AFAR), Style.MORALE_HIGH]]
+		if int(p.get("cost", 0)) > 0:
+			gain.append(["chest", "−%d" % int(p["cost"]), Style.ENEMY_LIGHT])
+		f.add_child(Widgets.priced(settle, gain))
 		if bool(p["refuse"]):
-			var no := _button("Refuse %d" % Gatherings.PETITION_REFUSED, func():
+			var no := _button("Refuse", func():
 				var r: Dictionary = CrownCourt.answer(gs, p, false)
 				_flash = String(r.get("text", r.get("reason", "")))
 				_build(), "Refuse_%d" % lid)
-			no.custom_minimum_size.y = 60
-			f.add_child(no)
-		var hint := _rich("[right]%s · table %s[/right]" % [_n(Gatherings.PETITION_AFAR),
-			_n(Gatherings.PUBLIC_GRANT_REGARD if String(p["kind"]) == "fief" else Gatherings.PETITION_TABLE)])
-		hint.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		f.add_child(hint)
+			no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			f.add_child(Widgets.priced(no, [["bond", "−%d" % absi(Gatherings.PETITION_REFUSED), Style.ENEMY_LIGHT]]))
 		words.add_child(f)
+		# Heard at your own table instead, it counts for more.
+		var table := Widgets.effect("cup", Gatherings.PUBLIC_GRANT_REGARD if fief else Gatherings.PETITION_TABLE)
+		table.tooltip_text = "Heard at your table"
+		var tl := HBoxContainer.new()
+		tl.add_theme_constant_override("separation", 8)
+		tl.add_child(Style.label("At your table", Style.SMALL, Style.MUTED))
+		tl.add_child(table)
+		words.add_child(tl)
 		row.add_child(words)
 		v.add_child(row)
 
 
-## A place, and when tapped the others to choose from. `prefix` names the nodes:
-## "<prefix>Place" for the row, "<prefix>At_<id>" for each choice.
+## A place, and when tapped a sheet of the others to choose from. `prefix` names the
+## nodes: "<prefix>Place" for the row, "<prefix>At_<id>" for each choice.
 func _place_picker(v: VBoxContainer, places: Array, current: String, prefix: String, pick: Callable, sub: Callable) -> void:
-	var open := _place_open == prefix and places.size() > 1
-	var more := "" if places.size() < 2 else ("▴" if open else "%d more ▾" % (places.size() - 1))
+	var more := "" if places.size() < 2 else "%d more" % (places.size() - 1)
 	v.add_child(_choice_row(prefix + "Place", _place_name(current), String(sub.call(current)), more, func():
-		_place_open = "" if open else prefix
-		_build(), false, true, null, true))
-	if not open:
-		return
-	for id in places:
-		if id == current:
-			continue
-		var pid: String = id
-		v.add_child(_choice_row(prefix + "At_" + id, _place_name(id), String(sub.call(id)), "", func():
-			pick.call(pid)
-			_place_open = ""
-			_build()))
+		if places.size() < 2:
+			return
+		var s := CourtUI.sheet(self, prefix + "PlaceSheet", _insets, "Choose a hall")
+		for id in places:
+			var pid: String = id
+			s.add_child(_choice_row(prefix + "At_" + id, _place_name(id), String(sub.call(id)), "", func():
+				pick.call(pid)
+				_place_open = ""
+				_build(), id == current, true, null, true)), false, true, null, true))
 
 
 ## A row you tap: bold words, quiet words after them, something on the right, and in the
@@ -724,7 +918,7 @@ func _choice_row(id: String, title: String, sub: String, aside: String, act: Cal
 	var b := Button.new()
 	b.name = id
 	b.disabled = not enabled
-	b.custom_minimum_size = Vector2(0, 76)
+	b.custom_minimum_size = Vector2(0, Style.TOUCH)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.clip_contents = true
 	var bg := Style.BRASS if lit else (Style.RAISED if boxed else Color(0, 0, 0, 0))
@@ -779,20 +973,21 @@ func _red_line(text: String) -> Label:
 # ---------------------------------------------------------------- hold a gathering
 
 func _gathering_page() -> void:
-	_page_head("Hold a gathering", "%d silver · %d rations in your purse" % [gs.silver, gs.food], func(): _go("court"))
+	_page_head("Hold a gathering", "", func(): _go("court"), "rules",
+		[Widgets.stat("silver", Widgets.thousands(gs.silver)), Widgets.stat("food", Widgets.thousands(gs.food))])
 	var mine: Dictionary = gs.my_gathering()
 	if not mine.is_empty():
 		var v := _row_panel(Style.BRASS)
 		v.get_parent().name = "GatheringCard"
 		var place := String(mine["place"])
-		var n: int = world.gathering_guests(mine).size()
-		v.add_child(_title("Your %s at %s" % [String(mine["name"]), _place_name(place)]))
-		v.add_child(_note("%s · %d lord%s coming" % [Gatherings.upper_first(gs.gathering_when(mine)), n, "" if n == 1 else "s"], Style.TEXT))
+		v.add_child(_title("Your %s" % String(mine["name"])))
+		v.add_child(Widgets.chip_row(_gathering_chips(mine)))
 		if world.here() == place:
-			v.add_child(_note("You're there."))
+			v.add_child(Widgets.chip_row([Widgets.chip("You're there", Style.MORALE_HIGH)]))
 		else:
-			v.add_child(_note("%s away. Be there the first night." % Gatherings.upper_first(CrownCourt._ride_words(world.hours_to(place)))))
-			v.add_child(_button("Show %s on the map" % _place_name(place), func(): _show_place(place), "ShowGathering"))
+			v.add_child(Widgets.chip_row([Widgets.chip(_ride(world.hours_to(place)), Style.TEXT, "", "ride")]))
+			v.add_child(_note("Be there the first night."))
+			v.add_child(_icon_button("Show on the map", "mappin", func(): _show_place(place), "ShowGathering"))
 		return
 	var places: Array = gs.host_places()
 	if places.is_empty():
@@ -807,7 +1002,7 @@ func _gathering_page() -> void:
 	v.add_theme_constant_override("separation", 12)
 	v.add_child(Widgets.segmented(["Feast", "Dance", "Tourney"], _host_kind, func(i: int):
 		_host_kind = i
-		_build(), "HostKind"))
+		_build(), "HostKind", ["cup", "dance", "fight"]))
 	v.add_child(_note({Gatherings.FEAST: "Three nights at table; dancing on the last.",
 		Gatherings.DANCE: "Three nights of music; a partner each night.",
 		Gatherings.TOURNEY: "A day at the lists, then a feast. The crowd remembers the winner."}[kind]))
@@ -834,22 +1029,22 @@ func _gathering_page() -> void:
 	if not (who["lieges"] as Array).is_empty():
 		g.add_child(_ask_row("lieges", "Their lieges", str((who["lieges"] as Array).size()), bool(_host_ask["lieges"]), true,
 			"" if bool(_host_ask["lieges"]) else "left out %s" % _n(Gatherings.SNUB_REGARD)))
-	var cells := [[str(Gatherings.HOST_SILVER), "silver"], [str(Gatherings.HOST_FOOD), "rations"]]
+	var cells := [[str(Gatherings.HOST_SILVER), "silver", "silver"], [str(Gatherings.HOST_FOOD), "rations", "food"]]
 	if kind == Gatherings.TOURNEY:
-		cells.append([str(Gatherings.TOURNEY_PURSE), "purse"])
-	cells.append(["3", "nights"])
+		cells.append([str(Gatherings.TOURNEY_PURSE), "purse", "chest"])
+	cells.append(["3", "nights", "moon"])
 	_strip(cells)
 	var check: Dictionary = gs.host_check(_host_place, kind)
 	if not bool(check["ok"]):
 		_col.add_child(_red_line(String(check["reason"])))
-	var send := _button("Send the invitations", func():
+	var send := _icon_button("Send invitations", "mail", func():
 		var r: Dictionary = gs.host_gathering(kind, _host_ask, _host_place)
 		if bool(r.get("ok", false)):
 			Sound.play("horn")
 			tab = "court"
 		_act(bool(r.get("ok", false)), "Riders go out with your invitations. %d lord%s will come." % [int(r.get("guests", 0)), "" if int(r.get("guests", 0)) == 1 else "s"]),
 		"SendInvitations", bool(check["ok"]), true)
-	send.custom_minimum_size.y = 84
+	send.custom_minimum_size.y = 92
 	_col.add_child(send)
 	var foot := _note("At your own table you honour a lord, hear petitions and speak.")
 	foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -859,7 +1054,7 @@ func _gathering_page() -> void:
 func _ask_row(key: String, text: String, count: String, on: bool, can_change: bool, warn: String = "") -> Control:
 	var row := HBoxContainer.new()
 	row.name = "Ask_" + key
-	row.custom_minimum_size.y = 76
+	row.custom_minimum_size.y = Style.TOUCH
 	row.add_theme_constant_override("separation", 12)
 	var words := _rich("[color=#%s]%s[/color]  ·  %s%s" % [Style.TEXT.to_html(false), text, count, ("   " + warn) if warn != "" else ""])
 	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -894,10 +1089,10 @@ func _banners_page() -> void:
 		_page_head("Your banners", "", func(): _go("court"))
 		var v := _row_panel(Style.ENEMY)
 		v.get_parent().name = "BannersCard"
-		v.add_child(_title(CrownCourt.host_status(gs)))
+		v.add_child(Widgets.chip_row(_host_chips()))
 		if String(gs.banners["led"]) == "you":
-			v.add_child(_note("They ride with you and fight where you fight."))
-		v.add_child(_button("Dismiss the banners", func():
+			v.add_child(_note("They fight where you fight."))
+		v.add_child(_icon_button("Dismiss", "home", func():
 			CrownCourt.dismiss(gs)
 			tab = "court"
 			_act(true, "You dismiss the banners. Your lords ride home."), "Dismiss"))
@@ -929,21 +1124,35 @@ func _banners_page() -> void:
 	var slowest := 0.0
 	for e in roll:
 		var st := String(e["status"])
-		var word: String = {"comes": "Comes", "refuses": "Refuses %d" % Lords.MUSTER_REFUSED_REGARD, "holds": "Stays", "captive": "Captive", "away": "Away"}[st]
-		var tone: Color = {"comes": Style.MORALE_HIGH, "refuses": Style.ENEMY_LIGHT}.get(st, Style.MUTED)
-		var sub := "%d men · %s" % [int(e["men"]), CrownCourt._ride_short(float(e["hours"]))] if st == "comes" else String(e["why"])
-		r.add_child(_lord_row(e["lord"], sub, word, tone, st != "comes"))
+		var word: Control = null
+		match st:
+			"comes":
+				word = Widgets.chip("Comes", Style.MORALE_HIGH)
+			"refuses":
+				word = Widgets.chip("Refuses", Style.ENEMY_LIGHT)
+			"captive":
+				word = Widgets.chip("Captive", Style.MUTED, "", "lock")
+			"holds":
+				word = Widgets.chip("Stays", Style.MORALE_MID)
+			_:
+				word = Widgets.chip("Away", Style.MORALE_MID)
+		var sub = String(e["why"])
+		if st == "comes":
+			sub = [Widgets.stat("men", str(int(e["men"]))), Widgets.chip(_ride(float(e["hours"])), Style.TEXT, "", "ride")]
+		elif st == "refuses":
+			sub = [Widgets.effect("bond", Lords.MUSTER_REFUSED_REGARD)]
+		r.add_child(_lord_row(e["lord"], sub, word, Style.MUTED, st != "comes"))
 		if st == "comes":
 			men += int(e["men"])
 			slowest = maxf(slowest, float(e["hours"]))
-	_strip([[str(men), "men"], ["Day %d" % (int(slowest / 24.0) + 1), "all in"],
-		[str(int(ceil(men / 10.0)) * Lords.MUSTER_SILVER_PER_10), "silver a day"], [str(gs.crown_treasury()), "treasury"]])
+	_strip([[str(men), "men", "men"], [str(int(slowest / 24.0) + 1), "day all in", "day"],
+		[str(int(ceil(men / 10.0)) * Lords.MUSTER_SILVER_PER_10), "a day", "silver"], [Widgets.thousands(gs.crown_treasury()), "treasury", "chest"]])
 	var check: Dictionary = CrownCourt.call_check(gs, _muster_place)
 	if not bool(check["ok"]):
 		_col.add_child(_red_line(String(check["reason"])))
-	var call := _button("Call the banners to %s" % _place_name(_muster_place), func():
+	var call := _icon_button("Call the banners", "battle", func():
 		_act(CrownCourt.call_banners(gs, _muster_place), "Riders go out with your summons."), "CallBanners", bool(check["ok"]), true)
-	call.custom_minimum_size.y = 84
+	call.custom_minimum_size.y = 92
 	_col.add_child(call)
 	var when := _note("The council sits once %d lords are in the hall." % Lords.ARMY_MIN_MEMBERS)
 	when.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -953,44 +1162,57 @@ func _banners_page() -> void:
 	if not targets.is_empty():
 		var t: String = targets[0]
 		if bool(gs.call_check(t)["ok"]):
-			var quick := _flat_button("Or send two ready lords at %s  ›" % _place_name(t), func():
+			var quick := _flat_button("Or send two lords at %s" % _place_name(t), func():
 				_act(gs.call_to_arms(t), "Your lords gather to march on %s." % _place_name(t)), "Call_%s" % t)
+			quick.icon = Widgets.icon("advance")
+			quick.add_theme_constant_override("icon_max_width", 28)
+			quick.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+			quick.add_theme_color_override("icon_normal_color", Style.MUTED)
 			quick.alignment = HORIZONTAL_ALIGNMENT_CENTER
 			_col.add_child(quick)
 
 
 ## While the banners gather: who's in the hall, who's on the road, and the council.
 func _muster_page() -> void:
-	var place := String(gs.muster["place"])
-	var day := int((world.hour - float(gs.muster["called_hour"])) / 24.0) + 1
-	_page_head("Call the banners", "Gathering at %s · day %d" % [_place_name(place), day], func(): _go("court"), "more")
+	var m: Dictionary = CrownCourt.muster_fields(gs)
+	var place := String(m["place"])
+	_page_head("Call the banners", "", func(): _go("court"), "more",
+		[Widgets.chip(_place_name(place), Style.TEXT, "", "mappin"), Widgets.chip(str(int(m["day"])), Style.TEXT, "", "day")])
 	var here: Array = CrownCourt.arrived(gs)
 	var all: Array = CrownCourt.muster_lords(gs)
 	var r := _row_panel(Style.ENEMY)
 	r.get_parent().name = "BannersCard"
 	r.add_theme_constant_override("separation", 0)
-	r.add_child(_title("In the hall", "%d of %d" % [here.size(), all.size()]))
+	r.add_child(_title("In the hall"))
 	var men := 0
 	for l in all:
 		var p = world.party(int(l.get("party", -1)))
 		var n: int = world.men_of(p.army) if p != null else 0
 		men += n
 		var there: bool = here.has(l)
-		var away := CrownCourt._ride_short(world._hours(p, p.next if p.moving() else p.node, place)) if p != null else "far"
-		r.add_child(_lord_row(l, "%d men" % n, "In the hall" if there else "%s away" % away, Style.MORALE_HIGH if there else Style.MUTED, not there))
-	_strip([[str(men), "men"], ["%d/%d" % [here.size(), all.size()], "in the hall"], [str(CrownCourt.muster_upkeep(gs)), "silver a day"], [str(gs.crown_treasury()), "treasury"]])
-	var c: Dictionary = CrownCourt.council_check(gs)
-	if not bool(c["ok"]):
-		_col.add_child(_red_line(String(c["reason"])))
-	var sit := _button("Sit the war council", func(): _go("council"), "OpenCouncil", bool(c["ok"]), true)
-	sit.custom_minimum_size.y = 84
+		var word: Control = Widgets.chip("Here", Style.MORALE_HIGH, "", "keep")
+		if not there:
+			var away := _ride(world._hours(p, p.next if p.moving() else p.node, place)) if p != null else "far"
+			word = Widgets.chip(away, Style.TEXT, "", "ride")
+		r.add_child(_lord_row(l, [Widgets.stat("men", str(n))], word, Style.MUTED, not there))
+	_strip([[str(men), "men", "men"], ["%d/%d" % [here.size(), all.size()], "in the hall", "keep"],
+		[str(int(m["upkeep"])), "a day", "silver"], [Widgets.thousands(gs.crown_treasury()), "treasury", "chest"]])
+	if not bool(m["council_ok"]):
+		_col.add_child(_red_line(String(m["why"])))
+	var sit := _icon_button("Sit the war council", "crown", func(): _go("council"), "OpenCouncil", bool(m["council_ok"]), true)
+	sit.custom_minimum_size.y = 92
 	_col.add_child(sit)
 	if world.here() != place:
-		_col.add_child(_flat_button("Show %s on the map" % _place_name(place), func(): _show_place(place), "ShowMuster"))
+		var show := _flat_button("Show on the map", func(): _show_place(place), "ShowMuster")
+		show.icon = Widgets.icon("mappin")
+		show.add_theme_constant_override("icon_max_width", 28)
+		show.alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_col.add_child(show)
 
 
-## One lord on a roll: face, name, a quiet line, and a word on the right.
-func _lord_row(l: Dictionary, sub: String, word: String, tone: Color, dim: bool = false) -> Control:
+## One lord on a roll: face, name, a quiet line or a row of chips (`sub`), and on the right
+## a word or any control (`word`).
+func _lord_row(l: Dictionary, sub, word, tone: Color, dim: bool = false) -> Control:
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 0)
 	var rule := ColorRect.new()
@@ -1008,15 +1230,22 @@ func _lord_row(l: Dictionary, sub: String, word: String, tone: Color, dim: bool 
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
-	words.add_theme_constant_override("separation", 0)
+	words.add_theme_constant_override("separation", 4)
 	words.add_child(Style.label(LordTalk.short_name(l), Style.SMALL, Style.MUTED if dim else Style.TEXT))
-	var s := Style.label(sub, Style.SMALL, Style.MUTED)
-	s.clip_text = true
-	words.add_child(s)
+	if sub is Array:
+		words.add_child(Widgets.chip_row(sub))
+	elif String(sub) != "":
+		var s := Style.label(String(sub), Style.SMALL, Style.MUTED)
+		s.clip_text = true
+		words.add_child(s)
 	row.add_child(words)
-	var w := Style.label(word, Style.SMALL, tone)
-	w.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(w)
+	if word is Control:
+		(word as Control).size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(word)
+	elif String(word) != "":
+		var w := Style.label(String(word), Style.SMALL, tone)
+		w.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(w)
 	wrap.add_child(row)
 	return wrap
 
@@ -1029,8 +1258,10 @@ func _council() -> void:
 	var all: Array = CrownCourt.muster_lords(gs)
 	var day := int((world.hour - float(gs.muster["called_hour"])) / 24.0) + 1
 	var road := all.size() - here.size()
-	_page_head("War council", "%s · day %d · %d in the hall%s" % [_place_name(place), day, here.size(), (" · %d on the road" % road) if road > 0 else ""],
-		func(): _go("banners"), "more")
+	var head_chips: Array = [Widgets.chip(_place_name(place), Style.TEXT, "", "mappin"), Widgets.chip(str(day), Style.TEXT, "", "day")]
+	if road > 0:
+		head_chips.append(Widgets.chip(str(road), Style.TEXT, "", "ride"))
+	_page_head("War council", "", func(): _go("banners"), "more", head_chips)
 	# The lords: a face each; the one you've picked says their piece.
 	var speaker: Dictionary = {}
 	for l in here:
@@ -1078,8 +1309,17 @@ func _council() -> void:
 	bubble.name = "Counsel"
 	bubble.add_theme_stylebox_override("panel", Style.box(Style.RAISED, Style.RULE, 2, 14))
 	var bv := VBoxContainer.new()
-	bv.add_theme_constant_override("separation", 4)
-	bv.add_child(_note("%s · %d men · %s" % [LordTalk.short_name(speaker), world.men_of(sp.army) if sp != null else 0, String(speaker.get("bearing", ""))]))
+	bv.add_theme_constant_override("separation", 8)
+	var who := HBoxContainer.new()
+	who.add_theme_constant_override("separation", 10)
+	var sn := Style.label(LordTalk.short_name(speaker), Style.SMALL, Style.TEXT)
+	sn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	who.add_child(sn)
+	who.add_child(Widgets.stat("men", str(world.men_of(sp.army) if sp != null else 0)))
+	if String(speaker.get("bearing", "")) != "":
+		who.add_child(Widgets.chip(String(speaker["bearing"]), Style.MORALE_MID))
+	bv.add_child(who)
 	bv.add_child(_note(String(CrownCourt.counsel(gs, speaker)["says"]), Style.TEXT, Style.BODY))
 	bubble.add_child(bv)
 	lv.add_child(bubble)
@@ -1158,10 +1398,13 @@ func _council() -> void:
 		men += world.men_of(p.army) if p != null else 0
 	var mc: Dictionary = CrownCourt.march_check(gs, chosen, _you_lead) if not chosen.is_empty() else {"ok": false, "reason": "nothing to do"}
 	var days := int((Lords.HOST_PAID_HOURS if bool(prov["paid"]) else Lords.HOST_UNPAID_HOURS) / 24.0)
-	var go := _button("March!", func(): _open_march_sheet(chosen), "March", bool(mc["ok"]), true)
-	go.custom_minimum_size = Vector2(220, 88)
-	_set_footer("%d men · %d days" % [men, days],
-		("%d silver from the treasury" % int(prov["cost"])) if bool(prov["paid"]) else "The treasury can't pay %d: three days out" % int(prov["cost"]), go)
+	var go := _icon_button("March!", "advance", func(): _open_march_sheet(chosen), "March", bool(mc["ok"]), true)
+	var tally: Array = [Widgets.stat("men", Widgets.thousands(men)), Widgets.chip("%d days" % days, Style.TEXT, "", "food")]
+	if bool(prov["paid"]):
+		tally.append(Widgets.effect("chest", -int(prov["cost"])))
+	else:
+		tally.append(Widgets.chip("Unpaid", Style.MORALE_LOW, "", "chest"))
+	_set_footer(tally, "" if bool(prov["paid"]) else "The treasury can't pay %d: three days out." % int(prov["cost"]), go)
 
 
 ## Who rides if the council chooses `aim`: everyone in the hall, but an Honorable lord
@@ -1173,110 +1416,98 @@ func _riders(aim: Dictionary) -> Array:
 	return here
 
 
-## A bar under the page that doesn't scroll: two lines on the left, a button on the right.
-func _set_footer(big: String, small: String, button: Button) -> void:
-	var bar := PanelContainer.new()
-	bar.name = "Footer"
-	var sb := Style.box(Style.PANEL, Style.RULE, 0, 0)
-	sb.border_width_top = 2
-	sb.corner_radius_top_left = 28
-	sb.corner_radius_top_right = 28
-	sb.content_margin_left = 32
-	sb.content_margin_right = 24
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 18 + float(_insets.get("bottom", 0))
-	bar.add_theme_stylebox_override("panel", sb)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 16)
+## A bar under the page that doesn't scroll: the kit's bottom bar, with what it comes to
+## (chips, and a muted line if any) on the left of the button.
+func _set_footer(tally: Array, small: String, button: Button) -> void:
+	var bar := Widgets.bottom_bar([button], _insets, "Footer")
+	var row := bar.get_child(0) as HBoxContainer
 	var words := VBoxContainer.new()
+	words.name = "Tally"
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_stretch_ratio = 1.4
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
-	words.add_child(Style.label(big, Style.LARGE, Style.TEXT))
-	words.add_child(_note(small))
-	h.add_child(words)
-	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(button)
-	bar.add_child(h)
+	words.add_theme_constant_override("separation", 6)
+	words.add_child(Widgets.chip_row(tally))
+	if small != "":
+		words.add_child(_note(small, Style.ENEMY_LIGHT))
+	row.add_child(words)
+	row.move_child(words, 0)
 	_footer = bar
 
 
 # ---------------------------------------------------------------- sheets
 
-func _sheet(sheet_name: String) -> VBoxContainer:
-	return CourtUI.sheet(self, sheet_name, _insets)
-
-
-func _sheet_title(v: VBoxContainer, text: String, close_on: Control) -> void:
-	CourtUI.sheet_title(v, text, close_on)
+func _sheet(sheet_name: String, title: String = "") -> VBoxContainer:
+	return CourtUI.sheet(self, sheet_name, _insets, title)
 
 
 ## Before the host rides: what it costs, and what each lord makes of it.
 func _open_march_sheet(aim: Dictionary) -> void:
 	if aim.is_empty():
 		return
-	var v := _sheet("MarchSheet")
-	var layer := v.get_parent().get_parent() as Control
-	_sheet_title(v, String(aim["label"]), layer)
+	var v := _sheet("MarchSheet", String(aim["label"]))
 	var riders := _riders(aim)
 	var men := 0
 	for l in riders:
 		var p = world.party(int(l.get("party", -1)))
 		men += world.men_of(p.army) if p != null else 0
 	var marshal: Dictionary = CrownCourt.lord_marshal(gs)
-	v.add_child(_note("%d men ride %s · %s" % [men, "with you" if _you_lead else "under %s" % LordTalk.short_name(marshal), String(aim.get("short", aim["sub"]))]))
+	var leads: Control = Widgets.chip("With you", Style.MORALE_HIGH, "", "ride")
+	if not _you_lead:
+		leads = Widgets.chip(LordTalk.short_name(marshal) if not marshal.is_empty() else "A lord", Style.TEXT, "", "company")
+	v.add_child(Widgets.chip_row([Widgets.stat("men", Widgets.thousands(men)), leads]))
+	v.add_child(_note(String(aim.get("short", aim["sub"]))))
 	var list := PanelContainer.new()
 	list.name = "WhoRides"
 	list.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.RULE, 2, 14))
 	var lv := VBoxContainer.new()
 	lv.add_theme_constant_override("separation", 0)
 	list.add_child(lv)
-	var wanted := {CrownCourt.STORM: "wanted a siege", CrownCourt.RELIEVE: "wanted to relieve", CrownCourt.MARCH: "wanted to hold the march", CrownCourt.RAID: "wanted the raid"}
+	var wanted := {CrownCourt.STORM: "wanted a siege", CrownCourt.RELIEVE: "wanted to relieve", CrownCourt.MARCH: "wanted the march", CrownCourt.RAID: "wanted the raid"}
 	for l in CrownCourt.arrived(gs):
 		var c: Dictionary = CrownCourt.counsel(gs, l)
 		var sub := ""
 		var deltas := []
 		if not riders.has(l):
-			sub = "won't burn farms · rides home"
+			sub = "won't burn farms: rides home"
 			deltas = [Lords.RAID_REFUSED_REGARD]
 		elif String(c["aim"]) == String(aim["aim"]):
-			sub = "rides · their counsel"
+			sub = "their counsel"
 			deltas = [Lords.MUSTER_RIDE_REGARD]
 		else:
-			sub = "rides · %s" % wanted.get(String(c["aim"]), "wanted otherwise")
+			sub = String(wanted.get(String(c["aim"]), "wanted otherwise"))
 			deltas = [Lords.MUSTER_RIDE_REGARD, Lords.COUNSEL_IGNORED_REGARD]
-		var row := _lord_row(l, sub, "", Style.MUTED, not riders.has(l))
-		var line := row.get_child(1) as HBoxContainer
-		line.remove_child(line.get_child(line.get_child_count() - 1))
-		var d := _rich("[right]%s[/right]" % "  ".join(deltas.map(func(x): return _n(int(x)))), Style.MUTED, Style.BODY)
-		d.custom_minimum_size.x = 120
-		d.size_flags_horizontal = Control.SIZE_SHRINK_END
-		d.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		line.add_child(d)
+		var marks := HBoxContainer.new()
+		marks.name = "Regard"
+		marks.add_theme_constant_override("separation", 6)
+		for x in deltas:
+			marks.add_child(Widgets.effect("bond", int(x)))
+		var row := _lord_row(l, sub, marks, Style.MUTED, not riders.has(l))
 		if lv.get_child_count() == 0:
 			row.get_child(0).visible = false
 		lv.add_child(row)
 	v.add_child(list)
 	var prov: Dictionary = CrownCourt.provisions(gs)
-	var pr := HBoxContainer.new()
-	var pl := _note("Provisions for %s days" % ("six" if bool(prov["paid"]) else "three"))
-	pl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pr.add_child(pl)
-	pr.add_child(_rich("[right][color=#%s]%d[/color] silver · %d left[/right]" % [Style.TEXT.to_html(false), int(prov["cost"]), int(prov["treasury"]) - int(prov["cost"])]
-		if bool(prov["paid"]) else "[right]the treasury can't pay[/right]"))
-	v.add_child(pr)
+	var pr: Array = [Widgets.chip("%d days" % (6 if bool(prov["paid"]) else 3), Style.TEXT, "", "food")]
+	if bool(prov["paid"]):
+		pr.append(Widgets.effect("chest", -int(prov["cost"])))
+		pr.append(Widgets.chip("%s left" % Widgets.thousands(int(prov["treasury"]) - int(prov["cost"])), Style.TEXT, "", "chest"))
+	else:
+		pr.append(Widgets.chip("The treasury can't pay", Style.MORALE_LOW, "", "chest"))
+	v.add_child(Widgets.chip_row(pr))
 	var target := _place_name(String(aim.get("target", ""))) if String(aim.get("target", "")) != "" else ""
 	var words: String = {CrownCourt.STORM: "March on %s" % target, CrownCourt.RELIEVE: "Ride to %s" % target,
 		CrownCourt.MARCH: "Ride the march", CrownCourt.RAID: "Send the raid"}.get(String(aim["aim"]), "March!")
-	var go := _button(words, func():
-		layer.queue_free()
+	var go := _icon_button(words, "advance", func():
+		Widgets.close_sheet(v)
 		var ok: bool = CrownCourt.march(gs, aim, _you_lead)
 		if ok:
 			Sound.play("horn")
 			tab = "court"
 		_act(ok, "The council rises. Your banners ride."), "MarchConfirm", true, true)
-	go.custom_minimum_size.y = 88
+	go.custom_minimum_size.y = 92
 	v.add_child(go)
-	v.add_child(_flat_button("Back to the council", func(): layer.queue_free(), "NotYet"))
+	v.add_child(Widgets.back_button(func(): Widgets.close_sheet(v), "Back to the council", "NotYet"))
 
 
 ## Everything the cards no longer spell out, read once.

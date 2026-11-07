@@ -28,17 +28,29 @@ static func face(l: Dictionary, w: float, dim: bool = false) -> Control:
 	return f
 
 
-## A round button with a glyph: "?", "⋯", "×", "‹".
+## A round button with a glyph: "?" (the rules), "⋯" (more), "×" (close), "‹" (back).
+## Each glyph is drawn as its icon; the word goes in the tooltip.
+const GLYPH_ICONS := {"?": ["book", "How it works"], "⋯": ["menu", "More"], "×": ["cancel", "Close"], "‹": ["back", "Back"]}
+
+
 static func round_button(text: String, act: Callable, id: String) -> Button:
 	var b := Button.new()
 	b.name = id
-	b.text = text
-	b.custom_minimum_size = Vector2(72, 72)
+	if GLYPH_ICONS.has(text):
+		b.icon = Widgets.icon(String(GLYPH_ICONS[text][0]))
+		b.tooltip_text = String(GLYPH_ICONS[text][1])
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.add_theme_constant_override("icon_max_width", 36)
+		for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+			b.add_theme_color_override(c, Style.MUTED)
+	else:
+		b.text = text
+	b.custom_minimum_size = Vector2(Style.TOUCH, Style.TOUCH)
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	b.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
 	b.add_theme_color_override("font_color", Style.MUTED)
 	for state in ["normal", "hover", "pressed", "focus"]:
-		b.add_theme_stylebox_override(state, Style.box(Color(0, 0, 0, 0), Style.RULE, 2, 36))
+		b.add_theme_stylebox_override(state, Style.box(Color(0, 0, 0, 0), Style.RULE, 2, 40))
 	b.pressed.connect(func():
 		Sound.play("click", 0.0, 0.05)
 		act.call())
@@ -65,106 +77,78 @@ static func rich(bb: String, color: Color = Style.MUTED, size_px: int = Style.SM
 	return r
 
 
-## Numbers side by side: [[value, word], ...].
+## The icon each strip word takes, when a cell doesn't name its own.
+const STRIP_ICONS := {"silver": "silver", "silver a day": "silver", "purse": "silver", "rations": "food", "men": "men",
+	"nights": "moon", "all in": "day", "days": "day", "treasury": "chest", "in the hall": "keep", "lords": "crown"}
+
+
+## Numbers side by side, each with its icon: [[value, word], ...] or [[value, word, icon]].
 static func strip(cells: Array) -> PanelContainer:
 	var p := PanelContainer.new()
 	p.name = "Strip"
 	var sb := Style.box(Style.PANEL, Style.RULE, 2, 14)
-	sb.content_margin_top = 14
-	sb.content_margin_bottom = 14
+	sb.content_margin_top = 12
+	sb.content_margin_bottom = 12
 	p.add_theme_stylebox_override("panel", sb)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 4)
+	var g := GridContainer.new()
+	g.columns = mini(maxi(1, cells.size()), 4)
+	g.add_theme_constant_override("h_separation", 6)
+	g.add_theme_constant_override("v_separation", 10)
 	for c in cells:
+		var word := String(c[1])
+		var key := String(c[2]) if c.size() > 2 else String(STRIP_ICONS.get(word, ""))
 		var v := VBoxContainer.new()
+		v.name = "Cell_%s" % (key if key != "" else word.replace(" ", "_"))
 		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		v.add_theme_constant_override("separation", 0)
+		var top := HBoxContainer.new()
+		top.alignment = BoxContainer.ALIGNMENT_CENTER
+		top.add_theme_constant_override("separation", 6)
+		if key != "":
+			top.add_child(Widgets.icon_rect(key, 30.0))
 		var big := Style.label(String(c[0]), Style.BODY, Style.TEXT)
-		big.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(big)
-		var word := Style.label(String(c[1]), Style.SMALL, Style.MUTED)
-		word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_child(word)
-		h.add_child(v)
-	p.add_child(h)
+		big.name = "Value"
+		top.add_child(big)
+		v.add_child(top)
+		var w := Style.label(word, Style.SMALL, Style.MUTED)
+		w.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		w.clip_text = true
+		v.add_child(w)
+		g.add_child(v)
+	p.add_child(g)
 	return p
 
 
-## A sheet that slides over the page from the bottom; tap above it to close.
-static func sheet(parent: Node, sheet_name: String, insets: Dictionary = {}) -> VBoxContainer:
+## A sheet that slides over the page from the bottom; tap above it or its ✕ to close.
+## Built on Widgets.sheet; `title` heads it (or set it after with sheet_title).
+static func sheet(parent: Node, sheet_name: String, _insets: Dictionary = {}, title: String = "") -> VBoxContainer:
 	var old := parent.get_node_or_null(sheet_name)
 	if old != null:
+		parent.remove_child(old)
 		old.queue_free()
-	var layer := Control.new()
-	layer.name = sheet_name
-	layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	layer.mouse_filter = Control.MOUSE_FILTER_STOP
-	parent.add_child(layer)
-	var dim := ColorRect.new()
-	dim.color = Color(0.02, 0.03, 0.07, 0.78)
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.gui_input.connect(func(e: InputEvent):
-		var mb := e as InputEventMouseButton
-		if mb != null and not mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
-			layer.queue_free())
-	layer.add_child(dim)
-	var panel := PanelContainer.new()
-	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	var sb := Style.box(Style.PANEL, Style.RULE, 2, 0)
-	sb.border_width_bottom = 0
-	sb.corner_radius_top_left = 40
-	sb.corner_radius_top_right = 40
-	sb.content_margin_left = 32
-	sb.content_margin_right = 32
-	sb.content_margin_top = 16
-	sb.content_margin_bottom = 32 + float(insets.get("bottom", 0))
-	panel.add_theme_stylebox_override("panel", sb)
-	layer.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 16)
-	panel.add_child(v)
-	var grip := ColorRect.new()
-	grip.color = Style.RULE
-	grip.custom_minimum_size = Vector2(72, 8)
-	grip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	v.add_child(grip)
-	if not Style.motion_reduced():
-		panel.modulate.a = 0.0
-		panel.create_tween().tween_property(panel, "modulate:a", 1.0, 0.14)
-	return v
+	return Widgets.sheet(parent as Control, title, sheet_name)
 
 
-## A sheet's title, with × to close it.
-static func sheet_title(v: VBoxContainer, text: String, close_on: Control) -> void:
-	var row := HBoxContainer.new()
-	var t := Style.label(text, Style.LARGE, Style.BRASS)
-	var display := Style.display_font()
-	if display != null:
-		t.add_theme_font_override("font", display)
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	row.add_child(t)
-	row.add_child(round_button("×", func(): close_on.queue_free(), "CloseSheet"))
-	v.add_child(row)
+## A sheet's title (the sheet has its own ✕). `_close_on` is kept for older callers.
+static func sheet_title(v: VBoxContainer, text: String, _close_on: Control = null) -> void:
+	var n: Node = v
+	while n != null and n.name != "SheetPanel":
+		n = n.get_parent()
+	var t: Label = n.find_child("SheetTitle", true, false) as Label if n != null else null
+	if t == null:
+		v.add_child(Style.label(text, Style.LARGE, Style.BRASS))
+		return
+	t.text = text
+	if text.length() > 18:
+		t.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE))
 
 
 ## Everything the cards no longer spell out, read once.
 static func open_rules(parent: Control, insets: Dictionary = {}) -> void:
-	var v := sheet(parent, "RulesSheet", insets)
-	var layer := v.get_parent().get_parent() as Control
-	sheet_title(v, "The king's court", layer)
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size.y = parent.get_viewport_rect().size.y * 0.7
-	v.add_child(scroll)
-	var body := VBoxContainer.new()
-	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var body := sheet(parent, "RulesSheet", insets, "The king's court")
 	body.add_theme_constant_override("separation", 14)
-	scroll.add_child(body)
 	var head := func(text: String):
-		var h := Style.label(text, Style.BODY, Style.BRASS)
-		body.add_child(h)
+		body.add_child(Widgets.section(text))
 	var rule := func(term: String, bb: String):
 		body.add_child(rich("[color=#%s]%s[/color]   %s" % [Style.TEXT.to_html(false), term, bb]))
 	head.call("Gatherings")
