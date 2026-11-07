@@ -307,7 +307,7 @@ static func back_button(callback: Callable, label: String = "Back", button_name:
 
 
 ## A number on a tile counting to its new value, so a purchase is felt as well as seen.
-static func tick_to(label: Label, from: int, to: int, fmt: Callable) -> void:
+static func tick_to(label: Label, from: int, to: int, fmt: Callable, key: String = "") -> void:
 	if label == null or from == to or Style.motion_reduced():
 		if label != null:
 			label.text = fmt.call(to)
@@ -319,6 +319,107 @@ static func tick_to(label: Label, from: int, to: int, fmt: Callable) -> void:
 	var flash := label.get_theme_color("font_color")
 	label.add_theme_color_override("font_color", Style.BRASS)
 	t.tween_callback(func(): label.add_theme_color_override("font_color", flash))
+	# What it cost or brought rises off the number, the way a purse gives or takes.
+	if key != "":
+		float_up(label, effect(key, to - from))
+
+
+## How long a floating number rises, and how far.
+const FLOAT_TIME := 1.0
+const FLOAT_RISE := 70.0
+
+
+## A number rises off `anchor` and fades: what a tap cost or brought, or a lord's Regard
+## by his face. It floats on the top layer, so the page can rebuild under it. Nothing
+## floats under Reduced motion (the number is on the page already).
+static func float_up(anchor: Control, chip: Control, delay: float = 0.0) -> void:
+	if anchor == null or not is_instance_valid(anchor) or not anchor.is_inside_tree() or Style.motion_reduced():
+		chip.free()
+		return
+	var top: Node = anchor.get_tree().root.get_node_or_null("Scenes")
+	if top == null:
+		chip.free()
+		return
+	chip.name = "Float_%s" % chip.name
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.top_level = true
+	chip.theme = Style.make_theme()
+	chip.modulate.a = 0.0
+	top.add_child(chip)
+	chip.reset_size()
+	var r := anchor.get_global_rect()
+	chip.position = Vector2(r.position.x + (r.size.x - chip.size.x) * 0.5, r.position.y - chip.size.y * 0.35)
+	chip.pivot_offset = chip.size * 0.5
+	chip.scale = Vector2(0.6, 0.6)
+	var t := chip.create_tween().set_parallel()
+	t.tween_interval(delay)
+	var at := delay
+	t.tween_property(chip, "modulate:a", 1.0, 0.1).set_delay(at)
+	t.tween_property(chip, "scale", Vector2.ONE, 0.25).set_delay(at).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(chip, "position:y", chip.position.y - FLOAT_RISE, FLOAT_TIME).set_delay(at).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(chip, "modulate:a", 0.0, 0.35).set_delay(at + FLOAT_TIME - 0.35)
+	t.chain().tween_callback(chip.queue_free)
+
+
+## Regard that changed in the last moment rises as "+5" by each lord's face on `page`
+## (any face drawn with CourtUI.lord_face carries its lord's id). Call it once the page
+## is built; changes for lords with no face on the page are let go.
+static func show_regard(page: Node) -> void:
+	if page == null or not page.is_inside_tree():
+		return
+	var gs: Node = page.get_tree().root.get_node_or_null("GameState")
+	if gs == null or not ("regard_events" in gs):
+		return
+	var events: Array = gs.regard_events
+	if events.is_empty():
+		return
+	gs.regard_events = []
+	var now := Time.get_ticks_msec()
+	var faces := {}
+	for n in page.find_children("*", "Control", true, false):
+		if n.has_meta("lord_id") and (n as Control).is_visible_in_tree() and live(n):
+			var id := int(n.get_meta("lord_id"))
+			if not faces.has(id):
+				faces[id] = n
+	var by_lord := {}
+	for e in events:
+		if now - int(e.get("at", 0)) > REGARD_FLOAT_WINDOW:
+			continue
+		var id := int(e["id"])
+		by_lord[id] = int(by_lord.get(id, 0)) + int(e["amount"])
+	var k := 0
+	for id in by_lord:
+		if faces.has(id) and int(by_lord[id]) != 0:
+			float_up(faces[id], effect("bond", int(by_lord[id])), 0.06 * k)
+			k += 1
+
+
+## What a tap just made or changed shows itself: it glows brass and settles in with a
+## small pop. Nothing under Reduced motion.
+static func flash(node: Control) -> void:
+	if node == null or not is_instance_valid(node) or not node.is_inside_tree() or Style.motion_reduced():
+		return
+	node.pivot_offset = node.size * 0.5
+	node.modulate = Color(1.45, 1.25, 0.7)
+	node.scale = Vector2(0.96, 0.96)
+	var t := node.create_tween().set_parallel()
+	t.tween_property(node, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(node, "modulate", Color.WHITE, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+## Whether `n` is on the page to stay: neither it nor anything above it is about to be
+## freed (a page rebuilt this frame still holds its old copy until the frame ends).
+static func live(n: Node) -> bool:
+	var up := n
+	while up != null:
+		if up.is_queued_for_deletion():
+			return false
+		up = up.get_parent()
+	return true
+
+
+## How old a Regard change may be and still rise on the page that shows it.
+const REGARD_FLOAT_WINDOW := 2500
 
 
 ## A realm's banner on its pole, sized to fit `size`.

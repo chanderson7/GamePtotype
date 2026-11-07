@@ -45,6 +45,7 @@ func _init() -> void:
 	await _buttons()
 	await _sheets()
 	await _tabs()
+	await _changes()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -186,3 +187,84 @@ func _tabs() -> void:
 	after = bar.get_parent().get_child(bar.get_index() + 1) as CanvasItem
 	check(is_equal_approx(after.modulate.a, 1.0), "under Reduced motion the page turns at once")
 	sound.reduced_motion = false
+
+
+# ---- 3. what changed shows itself
+func _floats() -> Array:
+	return scenes.get_children().filter(func(c): return String(c.name).begins_with("Float_") and not c.is_queued_for_deletion())
+
+
+func _changes() -> void:
+	var Widgets = load("res://scripts/ui/widgets.gd")
+	var CourtUI = load("res://scripts/ui/court_ui.gd")
+	# The town: buying food floats what it cost off the silver tile.
+	scenes.settlement_arrival_pending = false
+	change_scene_to_file("res://scenes/settlement.tscn")
+	await _arrive("settlement.tscn")
+	var page = current_scene
+	gs.silver = 2000
+	page._build()
+	await _wait(0.6)
+	for f in _floats():
+		f.free()
+	page._on_buy_food(gs.total_men() * 3)
+	await _frames(3)
+	var floats := _floats()
+	check(floats.any(func(f): return String(f.name).contains("silver")), "buying food, what it cost rises off the silver")
+	check(floats.any(func(f): return String(f.name).contains("food")), "and what it brought rises off the food")
+	var f0: Control = floats[0]
+	var y0: float = f0.position.y
+	await _wait(0.4)
+	check(is_instance_valid(f0) and f0.position.y < y0 - 20.0, "the number rises")
+	await _wait(1.0)
+	check(_floats().is_empty(), "and is gone in a moment")
+	# Hiring: the new company glows on the page.
+	var offers: Array = gs.world.offers_at(page.place)
+	page._on_tab("buy")
+	await _frames(2)
+	if not offers.is_empty() and page.find_child("Offer_0", true, false) != null:
+		page._on_hire(0)
+		await _frames(3)
+		var squads_tab := page.find_child("Tab_squads", true, false) as Control
+		check(squads_tab != null and squads_tab.modulate.r > 1.05, "hiring, the Squads tab glows: that's where the company went")
+		await _wait(1.0)
+		check(is_instance_valid(squads_tab) and squads_tab.modulate.is_equal_approx(Color.WHITE), "then settles")
+	# Training: the company itself glows.
+	page._on_tab("squads")
+	await _frames(2)
+	var sq: Dictionary = gs.army[0]
+	page._paid(true, "coins", "Squad_%d" % int(sq["id"]))
+	await _frames(3)
+	var row := page.find_child("Squad_%d" % int(sq["id"]), true, false) as Control
+	check(row != null and row.modulate.r > 1.05, "a company a tap changed glows as the page comes back")
+	# Regard rises by the lord's face.
+	var l: Dictionary = gs.world.lords[0]
+	var host := VBoxContainer.new()
+	host.size = Vector2(400, 400)
+	root.add_child(host)
+	var face: Control = CourtUI.face(l, 80.0)
+	host.add_child(face)
+	await _frames(2)
+	gs.regard_events = [{"id": int(l["id"]) , "amount": 2, "at": Time.get_ticks_msec() - 10000}]
+	gs.add_lord_relation(int(l["id"]), 5)
+	Widgets.show_regard(host)
+	await _frames(2)
+	var rf := _floats().filter(func(f): return String(f.name).contains("bond"))
+	check(rf.size() == 1, "a lord's new Regard rises by his face, once")
+	var txt := ""
+	for lab in rf[0].find_children("*", "Label", true, false):
+		txt += (lab as Label).text
+	check(txt.contains("+5"), "showing what changed just now, not before (%s)" % txt)
+	check(gs.regard_events.is_empty(), "and it's told only once")
+	# Reduced motion: nothing floats, the numbers on the page say it.
+	sound.reduced_motion = true
+	gs.add_lord_relation(int(l["id"]), 3)
+	for f in _floats():
+		f.free()
+	Widgets.show_regard(host)
+	page._on_buy_food(10)
+	await _frames(3)
+	check(_floats().is_empty(), "under Reduced motion nothing floats")
+	sound.reduced_motion = false
+	host.queue_free()
+	await _wait(1.2)

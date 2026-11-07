@@ -68,6 +68,7 @@ func _ready() -> void:
 
 
 func _build() -> void:
+	Widgets.show_regard.call_deferred(self)
 	# A rebuild of the same page keeps its place: a switch flipped halfway down stays in view.
 	var keep := -1
 	if _scroll != null and is_instance_valid(_scroll) and _built_tab == tab:
@@ -470,7 +471,7 @@ func _open_grant_sheet(id: String) -> void:
 		var lid := int(l["id"])
 		grid.add_child(CourtUI.face_button(CaptainArt.texture(LordVoice.portrait_record(l)), LordTalk.first_name(l), "Grant_%s_%d" % [id, lid], func():
 			Widgets.close_sheet(v)
-			_act(gs.grant_fief(id, lid), "%s now holds %s (+%d Regard)." % [LordTalk.short_name(l), name, gs.GRANT_REGARD]), false, 72.0))
+			_act(gs.grant_fief(id, lid), "%s now holds %s (+%d Regard)." % [LordTalk.short_name(l), name, gs.GRANT_REGARD]), false, 72.0, lid))
 	v.add_child(grid)
 
 

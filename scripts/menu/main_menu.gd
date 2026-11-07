@@ -240,7 +240,7 @@ func _tiles() -> Control:
 	], 2)
 	grid.name = "WarbandTiles"
 	if _shown_silver >= 0 and _shown_silver != GameState.silver:
-		Widgets.tick_to(grid.get_child(0).find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v))
+		Widgets.tick_to(grid.get_child(0).find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v), "silver")
 	_shown_silver = GameState.silver
 	return grid
 

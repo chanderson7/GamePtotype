@@ -18,6 +18,7 @@ static func lord_face(l: Dictionary) -> TextureRect:
 	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	face.custom_minimum_size = Vector2(60, 80)
+	face.set_meta("lord_id", int(l.get("id", -1)))
 	return face
 
 
@@ -185,9 +186,11 @@ static func portrait(tex: Texture2D, w: float, dim: bool = false) -> Control:
 
 
 ## A face you tap: a portrait over a first name, lit in brass when chosen.
-static func face_button(tex: Texture2D, label: String, id: String, act: Callable, lit: bool = false, w: float = 64.0) -> Button:
+static func face_button(tex: Texture2D, label: String, id: String, act: Callable, lit: bool = false, w: float = 64.0, lord_id: int = -1) -> Button:
 	var b := Button.new()
 	b.name = id
+	if lord_id >= 0:
+		b.set_meta("lord_id", lord_id)
 	b.focus_mode = Control.FOCUS_NONE
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.custom_minimum_size = Vector2(0, roundf(w * 1.25) + 52.0)

@@ -42,6 +42,9 @@ const CONTRACT_LORD_BONUS := 100
 var realm_relations: Dictionary = {"vardmark": 0, "kharzan": 0, "ryumon": 0}
 ## Relations with individual lords (-100 to 100): lord_id -> int
 var lord_relations: Dictionary = {}
+## Regard changes of the last moments, for the screens to show by the lord's face (not
+## saved): [{id, amount, at (msec)}].
+var regard_events: Array = []
 ## Active mercenary contract: {realm, daily_pay, days_left, bonus_per_lord}
 var contract: Dictionary = {}
 
@@ -3035,6 +3038,10 @@ func relation_with_lord(lord_id: int) -> int:
 func add_lord_relation(lord_id: int, amount: int) -> void:
 	var cur: int = int(lord_relations.get(lord_id, 0))
 	lord_relations[lord_id] = clampi(cur + amount, -100, 100)
+	if amount != 0:
+		regard_events.append({"id": lord_id, "amount": amount, "at": Time.get_ticks_msec()})
+		if regard_events.size() > 40:
+			regard_events = regard_events.slice(-40)
 
 
 func has_contract() -> bool:

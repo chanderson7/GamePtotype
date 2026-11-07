@@ -86,6 +86,8 @@ func _exit_tree() -> void:
 
 
 func _build() -> void:
+	# Regard a tap just changed rises by the lord's face once the page is back.
+	Widgets.show_regard.call_deferred(self)
 	var keep := _scroll.scroll_vertical if _scroll != null else (Scenes.settlement_scroll if Scenes.settlement_place == place else 0)
 	for child in get_children():
 		if child != _arrival_overlay:
@@ -312,9 +314,9 @@ func _add_wallet(col: VBoxContainer) -> void:
 	row.add_child(food_tile)
 	# After a purchase the numbers count to their new values, and flash.
 	if _shown_silver >= 0 and _shown_silver != GameState.silver:
-		Widgets.tick_to(silver_tile.find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v))
+		Widgets.tick_to(silver_tile.find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v), "silver")
 	if _shown_food >= 0 and _shown_food != days:
-		Widgets.tick_to(food_tile.find_child("Value", true, false), _shown_food, days, func(v): return str(v))
+		Widgets.tick_to(food_tile.find_child("Value", true, false), _shown_food, days, func(v): return str(v), "food")
 	_shown_silver = GameState.silver
 	_shown_food = days
 
@@ -1568,7 +1570,7 @@ func _add_kings_table(v: VBoxContainer, g: Dictionary) -> void:
 				var r: Dictionary = CrownCourt.honour(GameState, lid)
 				if bool(r.get("ok", false)):
 					_court_note = String(r["text"])
-				_build(), true, 56.0))
+				_build(), true, 56.0, lid))
 		box.add_child(strip)
 	var asks: Array = CrownCourt.petitions(GameState).filter(func(p): return lords.has(p["lord"]))
 	if not asks.is_empty():
@@ -2363,11 +2365,12 @@ func _on_buy_food(rations: int) -> void:
 
 
 func _on_hire(index: int) -> void:
-	_paid(GameState.hire(place, index))
+	# The new company joins the Squads tab, so that's what glows: where it went.
+	_paid(GameState.hire(place, index), "coins", "Tab_squads")
 
 
 func _on_reinforce(id: int) -> void:
-	_paid(GameState.reinforce_squad(id))
+	_paid(GameState.reinforce_squad(id), "coins", "Squad_%d" % id)
 
 
 func _on_reinforce_all() -> void:
@@ -2385,7 +2388,7 @@ func _on_train(id: int) -> void:
 	if (int(s.get("level", 1)) == 1 or s.get("pending_branch", false)) and not branches.is_empty():
 		_show_branch_choice(id, branches)
 	else:
-		_paid(GameState.train_squad(id), "promotion")
+		_paid(GameState.train_squad(id), "promotion", "Squad_%d" % id)
 
 
 func _show_branch_choice(id: int, branches: Array) -> void:
@@ -2462,10 +2465,21 @@ func _unit_chips(unit_id: String) -> Array:
 
 
 ## Silver changed hands, or didn't: the coins chink, and the screen shows the new state.
-func _paid(done: bool, effect: String = "coins") -> void:
+func _paid(done: bool, effect: String = "coins", changed: String = "") -> void:
 	if done:
 		Sound.play(effect, 0.0, 0.08)
 	_build()
+	# The company the tap made or changed glows as the page comes back.
+	if done and changed != "":
+		_flash_named.call_deferred(changed)
+
+
+func _flash_named(node_name: String) -> void:
+	# The old page is freed at the end of the frame, so its copy may still be found first.
+	for n in find_children(node_name, "Control", true, false):
+		if Widgets.live(n):
+			Widgets.flash(n as Control)
+			return
 
 
 func _remember_scroll() -> void:
