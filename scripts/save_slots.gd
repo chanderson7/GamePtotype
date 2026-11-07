@@ -221,7 +221,9 @@ static func _entry_from_file(id: String) -> Dictionary:
 		return kept
 	var kind: String = id if id in [BATTLE, ARRIVAL] else OWN
 	var s := raw_summary(data)
-	var named := "Day %d · %s" % [int(s["day"]), String(s["place_name"])]
+	var day := int(s["day"])
+	var place := String(s["place_name"])
+	var named := "Day %d · %s" % [day, place]
 	return {"id": id, "kind": kind, "saved": float(FileAccess.get_modified_time(_file(id))), "summary": s,
 		"version": int(data.get("version", 0)), "name": named}
 
