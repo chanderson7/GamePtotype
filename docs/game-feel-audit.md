@@ -2,7 +2,10 @@
 
 **Status: proposal.** A pass over every screen for what moves, what doesn't, and what
 the genre's best do at the same moments. Nothing here changes rules; it's all
-presentation, and all of it respects *Reduced motion*.
+presentation, and all of it respects *Reduced motion*. The battle's own feel is
+`combat-feel-plan.md` (built); the road, places and faces are
+`game-feel-and-immersion-roadmap.md`. This is the menus: buttons, sheets, tabs,
+tallies and the moments between screens, which neither of those covers.
 
 ## What already moves
 
