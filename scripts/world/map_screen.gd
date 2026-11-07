@@ -310,8 +310,13 @@ func _process(delta: float) -> void:
 				], "Siege Victory")
 			"chased":
 				Sound.play("alarm", 0.0, 0.05)
+				# Seen as well as heard: a ribbon says who is riding after you.
+				var chaser = world.party(int(e.get("party", -1)))
+				Scenes.ribbon("%s is riding after you" % (String(chaser.name) if chaser != null else "Someone"),
+					"Ride on, or turn and fight.", "ride", "")
 			"war":
 				Sound.play_war_horn()
+				Scenes.ribbon("War", _war_line(e), "battle", "")
 			"captured":
 				Sound.play_place_fallen()
 	world.events.clear()
@@ -457,10 +462,60 @@ func _unhandled_input(event: InputEvent) -> void:
 					_tap(mb.position)
 		return
 	var mm := event as InputEventMouseMotion
+	if mm != null and mm.button_mask == 0:
+		_hover_at(mm.position)
 	if mm != null and _pressing and not _pinching and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		if mm.position.distance_to(_press_at) >= DRAG_SLOP:
 			cam_center = _press_center - (mm.position - _press_at) / cam_scale
 			_clamp_camera()
+
+
+## The settlement under the mouse (a computer's pointer, no button held), ringed faintly
+## so a click's target shows before the click.
+var _hover := ""
+
+
+func _hover_at(at: Vector2) -> void:
+	var over := ""
+	if _view.has_point(at) and _sheet not in ["encounter", "notice", "warning", "menu"]:
+		var nearest := TAP_RADIUS
+		for id in Data.SETTLEMENTS:
+			var d := at.distance_to(_to_screen(Data.pos(id)))
+			if d < nearest:
+				nearest = d
+				over = id
+	if over != _hover:
+		_hover = over
+		queue_redraw()
+
+
+## A war declared, in a line: "Vardmark and Kharzan are at war."
+func _war_line(e: Dictionary) -> String:
+	var names := PackedStringArray()
+	var realms = e.get("realms", [])
+	if typeof(realms) == TYPE_ARRAY:
+		for r in realms:
+			names.append(String(Data.FACTIONS[r]["name"]) if Data.FACTIONS.has(r) else String(r).capitalize())
+	return "%s are at war." % " and ".join(names) if names.size() == 2 else "The realms are at war."
+
+
+## Escape, or a phone's back (Scenes turns it into Escape): the sheet on top closes the way
+## its ✕ would, the campaign menu closes, and on the bare map the menu opens. A sheet that
+## wants an answer (an encounter, a warning) waits for one; the Crown's pages and a talk
+## answer Escape themselves.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not event.is_action_pressed("ui_cancel") or world == null or top_panel == null:
+		return
+	if (_kingdom != null and is_instance_valid(_kingdom)) or _sheet == "talk":
+		return
+	get_viewport().set_input_as_handled()
+	if _sheet_open():
+		if _sheet == "menu":
+			_close_sheet()
+		elif _sheet_close_cb.is_valid():
+			_sheet_close_cb.call()
+		return
+	_on_menu()
 
 
 func _tap(at: Vector2) -> void:
@@ -550,7 +605,8 @@ func _build_hud() -> void:
 	warband_button.expand_icon = true
 	warband_button.add_theme_constant_override("icon_max_width", 30)
 	warband_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	warband_button.custom_minimum_size = Vector2(64, 64)
+	# A full touch target in height; the row of pills stays as wide as it was.
+	warband_button.custom_minimum_size = Vector2(64, Style.TOUCH)
 	resource_row.add_child(warband_button)
 	# Unread letters, counted on the menu button.
 	unread_badge = Widgets.count_badge(0, "UnreadBadge")
@@ -3697,6 +3753,8 @@ func _draw_settlement(id: String, px: float) -> void:
 	draw_circle(Vector2.ZERO, w * 0.5, Color(0, 0, 0, 0.22))
 	if id == _selected:
 		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Style.BRASS, 3.0 / 0.32)
+	elif id == _hover:
+		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Color(Style.BRASS, 0.5), 2.0 / 0.32)
 	draw_set_transform(c, 0.0, Vector2(px, px))
 	var presentation := TravelPresentation.settlement_state(world, id)
 	var condition := String(presentation.get("condition", "healthy"))

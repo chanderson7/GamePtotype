@@ -1,7 +1,10 @@
-## Saving your own, the saves the game keeps for you, going back, and Ironman.
+## Saving your own, the saves the game keeps for you, going back, and Ironman; an index
+## rebuilt from the files, saves from a newer version left alone, and an autosave that
+## won't load never costing the other saves.
 extends SceneTree
 
 const SaveSlots = preload("res://scripts/save_slots.gd")
+const GameStateScript = preload("res://scripts/game_state.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 
 var gs
@@ -124,6 +127,7 @@ func _init() -> void:
 	check(load_button != null and load_button.text.ends_with("· %d" % SaveSlots.list().size()), "Home offers Load a save")
 	var saves = await _open("res://scenes/saves.tscn")
 	check(_find(saves, "RightNow") != null, "the saves screen shows where you are now")
+	check(_find(saves, "WhereSavesLive") != null, "and says where the saves live")
 	var target: Dictionary = SaveSlots.own()[0]
 	var row := _find(saves, "Save_" + String(target["id"])) as Button
 	check(row != null, "and each save as a row")
@@ -131,6 +135,8 @@ func _init() -> void:
 	row.pressed.emit()
 	await process_frame
 	check(_find(saves, "GoBack") != null and _find(saves, "Compare") != null, "tapping one asks first, showing what changes")
+	var then_silver := _find(saves, "Then_Silver") as Label
+	check(then_silver != null and then_silver.text.begins_with("▼ "), "less silver then is marked ▼, not by colour alone")
 	(_find(saves, "GoBack") as Button).pressed.emit()
 	await process_frame
 	check(gs.silver == int(target["summary"]["silver"]), "Go back loads it")
@@ -155,6 +161,97 @@ func _init() -> void:
 	var nc = await _open("res://scenes/new_campaign.tscn")
 	check(_find(nc, "IronmanSwitch") != null, "a new campaign can be Ironman")
 	gs.ironman = false
+
+	# ---- a damaged or missing index is rebuilt from the save files
+	var slot_count := SaveSlots.list().size()
+	var slot_names: Array = SaveSlots.list().map(func(x): return String(x["name"]))
+	var index_file := FileAccess.open(SaveSlots.dir + "/index.json", FileAccess.WRITE)
+	index_file.store_string("[{\"id\": \"own_")
+	index_file.close()
+	var rebuilt := SaveSlots.list()
+	check(rebuilt.size() == slot_count and rebuilt.map(func(x): return String(x["name"])) == slot_names,
+		"a damaged index is rebuilt from the save files, names and all")
+	check(not FileAccess.file_exists(SaveSlots.dir + "/index.json.tmp") and typeof(JSON.parse_string(FileAccess.get_file_as_string(SaveSlots.dir + "/index.json"))) == TYPE_ARRAY,
+		"and written back whole")
+	DirAccess.remove_absolute(SaveSlots.dir + "/index.json")
+	check(SaveSlots.list().size() == slot_count, "a missing index is rebuilt too")
+	var legacy_file := FileAccess.open(SaveSlots.dir + "/own_legacy.json", FileAccess.WRITE)
+	legacy_file.store_string(JSON.stringify(gs.to_dict()))
+	legacy_file.close()
+	DirAccess.remove_absolute(SaveSlots.dir + "/index.json")
+	var old_one := SaveSlots.entry("own_legacy")
+	check(not old_one.is_empty() and String(old_one["kind"]) == SaveSlots.OWN and int(old_one["summary"]["men"]) == gs.total_men()
+		and int(old_one["summary"]["silver"]) == gs.silver, "a save file from before files carried their entry is listed from its campaign")
+	SaveSlots.delete("own_legacy")
+
+	# ---- a save from a newer version is shown, never loaded, and left as it is
+	gs.ironman = false
+	if SaveSlots.spaces_left() == 0:
+		SaveSlots.delete(String(SaveSlots.own()[0]["id"]))
+	var future: Dictionary = SaveSlots.save_own(gs, "From a newer build")
+	var future_path := SaveSlots.dir + "/" + String(future["id"]) + ".json"
+	var future_data: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(future_path))
+	future_data["version"] = GameStateScript.SAVE_VERSION + 1
+	future_data["slot"]["version"] = GameStateScript.SAVE_VERSION + 1
+	var future_text := JSON.stringify(future_data)
+	var future_file := FileAccess.open(future_path, FileAccess.WRITE)
+	future_file.store_string(future_text)
+	future_file.close()
+	DirAccess.remove_absolute(SaveSlots.dir + "/index.json")
+	var silver_now: int = gs.silver + 7
+	gs.silver = silver_now
+	check(not SaveSlots.load_into(gs, String(future["id"])), "a save from a newer version won't load")
+	check(gs.silver == silver_now and FileAccess.get_file_as_string(future_path) == future_text, "and neither the campaign nor the file is touched")
+	saves = await _open("res://scenes/saves.tscn")
+	var future_row := _find(saves, "Save_" + String(future["id"])) as Button
+	check(future_row != null and future_row.disabled and _find(future_row, "NewerVersion") != null, "the list shows it greyed, saying why")
+
+	# ---- saving over one of your own takes a second tap, as Delete does
+	var mine: Dictionary = {}
+	for own_save in SaveSlots.own():
+		if String(own_save["id"]) != String(future["id"]):
+			mine = own_save
+	saves._options(mine)
+	await process_frame
+	var over_button := _find(saves, "Overwrite") as Button
+	gs.silver = 4321
+	over_button.pressed.emit()
+	check(int(SaveSlots.entry(String(mine["id"]))["summary"]["silver"]) != 4321 and over_button.text == "Tap again to save over",
+		"the first tap on Save over it only asks again")
+	over_button.pressed.emit()
+	check(int(SaveSlots.entry(String(mine["id"]))["summary"]["silver"]) == 4321, "the second saves over it")
+	for i in 10:
+		await process_frame
+
+	# ---- the autosave: a damaged one is kept aside, a newer one left alone
+	var keep_world = gs.world
+	gs.save_path = SaveSlots.dir + "_autosave.json"
+	var auto_file := FileAccess.open(gs.save_path, FileAccess.WRITE)
+	auto_file.store_string("{\"version\": 6, \"army\": [")
+	auto_file.close()
+	check(not gs.load_game() and gs.load_problem == "unreadable", "a damaged autosave doesn't load, and says so")
+	check(not FileAccess.file_exists(gs.save_path) and FileAccess.file_exists(gs.save_path + ".bad"), "and is kept aside as .bad, not written over")
+	future_data.erase("slot")
+	auto_file = FileAccess.open(gs.save_path, FileAccess.WRITE)
+	auto_file.store_string(JSON.stringify(future_data))
+	auto_file.close()
+	check(not gs.load_game() and gs.load_problem == "newer" and FileAccess.file_exists(gs.save_path), "an autosave from a newer version is refused and left in place")
+
+	# ---- Home with no campaign but saves left: Load a save, and starting over asks first
+	gs.world = null
+	gs.load_problem = "unreadable"
+	title = await _open("res://scenes/title.tscn")
+	check(_find(title, "StrandedCard") != null and _find(title, "LoadSave") != null and _find(title, "BeginButton") == null,
+		"Home says the autosave couldn't be read and offers Load a save")
+	var slots_before := SaveSlots.list().size()
+	_button(title, "New campaign").pressed.emit()
+	await process_frame
+	check(_find(title, "NewCampaignSheet") != null and SaveSlots.list().size() == slots_before, "New campaign asks first, and nothing is deleted yet")
+	gs.world = keep_world
+	gs.load_problem = ""
+	DirAccess.remove_absolute(gs.save_path)
+	DirAccess.remove_absolute(gs.save_path + ".bad")
+	gs.save_path = GameStateScript.SAVE_PATH
 
 	# ---- a new campaign starts clean
 	gs.new_campaign("kharzani")

@@ -91,6 +91,7 @@ func _build() -> void:
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_theme_constant_override("margin_left", 32)
 	margin.add_theme_constant_override("margin_right", 32)
+	Page.cap_width(margin, 32)
 	margin.add_theme_constant_override("margin_top", 44 + int(insets["top"]))
 	margin.add_theme_constant_override("margin_bottom", 16)
 	scroll.add_child(margin)
@@ -105,14 +106,24 @@ func _build() -> void:
 		var sub := Style.label("The Glass Sea", Style.BODY, Color("d9dcea"))
 		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		col.add_child(sub)
+	# No campaign, but the autosave was there and couldn't load, or other saves remain:
+	# say so and offer those saves, never the first-time screen alone (its next tap would
+	# start over).
+	var saves_left: bool = not SaveSlots.list().is_empty()
+	var stranded: bool = not campaign and (GameState.load_problem != "" or saves_left)
 	if campaign:
 		col.add_child(_campaign_card())
+	elif stranded:
+		col.add_child(_stranded_card(saves_left))
+		if not saves_left:
+			_build_first_time(col)
 	else:
 		_build_first_time(col)
 	# The rest, small, in a row along the bottom.
 	var bar := MarginContainer.new()
 	bar.add_theme_constant_override("margin_left", 32)
 	bar.add_theme_constant_override("margin_right", 32)
+	Page.cap_width(bar, 32)
 	bar.add_theme_constant_override("margin_top", 10)
 	bar.add_theme_constant_override("margin_bottom", 18 + int(insets["bottom"]))
 	frame.add_child(bar)
@@ -120,7 +131,7 @@ func _build() -> void:
 	row.name = "MinorButtons"
 	row.add_theme_constant_override("separation", 12)
 	bar.add_child(row)
-	if campaign:
+	if campaign or (stranded and saves_left):
 		_new_button = _minor("New campaign", "plus", _on_new)
 		_new_button.add_theme_color_override("font_color", Color("c9a9a2"))
 		_new_button.add_theme_color_override("icon_normal_color", Color("c9a9a2"))
@@ -500,6 +511,59 @@ func _wait_row(name: String, icon: String, bg: Color, fg: Color, head: String, s
 	return b
 
 
+# ---------------------------------------------------------------- no campaign loaded
+
+## The autosave didn't load (or is gone) while other saves remain: what happened, and Load
+## a save. With no other saves the first-time screen follows it.
+func _stranded_card(saves_left: bool) -> PanelContainer:
+	var card := PanelContainer.new()
+	card.name = "StrandedCard"
+	var sb := Style.box(Color(Style.PANEL, 0.96), Color("4d4024"), 2, 26)
+	sb.content_margin_left = 26
+	sb.content_margin_right = 26
+	sb.content_margin_top = 22
+	sb.content_margin_bottom = 24
+	card.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	card.add_child(v)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 14)
+	v.add_child(head)
+	var ic := Widgets.icon_rect("saves", 40.0)
+	ic.modulate = Style.BRASS
+	head.add_child(ic)
+	var title := "Your autosave is missing"
+	var body := "Load one of your saves to carry on."
+	if GameState.load_problem == "unreadable":
+		title = "Your autosave couldn't be read"
+		body = "It's kept on this device as campaign.json.bad. " + ("Your other saves are safe: load one to carry on." if saves_left else "Begin a new campaign below.")
+	elif GameState.load_problem == "newer":
+		title = "Your autosave is from a newer version"
+		body = "It was made with a newer version of Bannerfall and is left as it is. Update the game to carry on" + (", or load another save." if saves_left else ".")
+	var t := Style.label(title, Style.LARGE, Style.TEXT)
+	t.name = "StrandedTitle"
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	v.add_child(Page.note(body, Style.SMALL))
+	if saves_left:
+		var load_button := Button.new()
+		load_button.name = "LoadSave"
+		load_button.text = "Load a save · %d" % SaveSlots.list().size()
+		load_button.icon = Widgets.icon("saves")
+		load_button.add_theme_constant_override("icon_max_width", 32)
+		load_button.custom_minimum_size = Vector2(0, 104)
+		load_button.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE))
+		Style.make_primary(load_button)
+		load_button.pressed.connect(func():
+			Scenes.saves_return = "res://scenes/title.tscn"
+			Scenes.go("res://scenes/saves.tscn"))
+		v.add_child(load_button)
+		load_button.grab_focus.call_deferred()
+	return card
+
+
 # ---------------------------------------------------------------- first time
 
 func _build_first_time(col: VBoxContainer) -> void:
@@ -592,16 +656,23 @@ func _on_continue() -> void:
 	Scenes.go("res://scenes/world_map.tscn")
 
 
-## A deliberate confirmation replaces the timed second tap.
+## A deliberate confirmation replaces the timed second tap. Starting over deletes every
+## save, so it asks whenever there's anything to lose: a campaign, saves of your own or
+## kept for you, or an autosave this version can't read but a newer one can.
 func _on_new() -> void:
-	if not GameState.has_campaign():
+	var saves_left: bool = not SaveSlots.list().is_empty()
+	if not GameState.has_campaign() and not saves_left and GameState.load_problem != "newer":
 		Scenes.new_campaign_pick = _picked
 		Scenes.go("res://scenes/new_campaign.tscn")
 		return
 	if has_node("NewCampaignSheet"):
 		return
 	var col := Widgets.sheet(self, "Start again?", "NewCampaignSheet")
-	col.add_child(Page.note("Choosing a people replaces your saved campaign. Its progress will be lost."))
+	var lose := "Choosing a people replaces your saved campaign. Its progress will be lost."
+	if not GameState.has_campaign():
+		lose = "Choosing a people starts a new campaign. Your saves will be deleted." if saves_left \
+			else "Choosing a people starts a new campaign in place of the autosave from a newer version."
+	col.add_child(Page.note(lose))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	col.add_child(row)

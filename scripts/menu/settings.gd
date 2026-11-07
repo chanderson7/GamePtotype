@@ -39,7 +39,11 @@ func _build() -> void:
 		var t := size_bar.find_child("Tab_%d" % i, true, false) as Button
 		if t != null:
 			t.add_theme_font_size_override("font_size", glyphs[i])
+			# Each A keeps the size it stands for, whatever the bar would fit it to.
+			t.set_meta("font_full", glyphs[i])
+			t.set_meta("font_least", glyphs[i])
 			t.tooltip_text = tips[i]
+			t.accessibility_name = "Text size %s" % tips[i]
 	col.add_child(_control_row("Text size", size_bar))
 	col.add_child(_switch_row("Reduced motion", "No opening, menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
 		Sound.set_reduced_motion(on)))
@@ -52,6 +56,10 @@ func _build() -> void:
 		Sound.set_illustrations(on)))
 	col.add_child(_switch_row("Vibration", "", Sound.haptics_enabled, func(on: bool):
 		Sound.set_haptics(on)))
+	# Only a computer has a window to fill.
+	if OS.has_feature("pc"):
+		col.add_child(_switch_row("Full screen", "Also F11 or Alt+Enter", Sound.fullscreen, func(on: bool):
+			Scenes.set_fullscreen(on)))
 	col.add_child(Widgets.section("Story"))
 	col.add_child(_switch_row("Romance invitations", "Friendships and house pacts stay either way", Sound.romance_invitations_enabled(), func(on: bool):
 		Sound.set_romance_invitations(on)))
@@ -109,23 +117,32 @@ func _build() -> void:
 	heading.grab_focus()
 
 
-## A setting with an on/off switch at the right, and a short note under its name.
+## A setting with an on/off switch at the right, and a short note under its name. A tap
+## anywhere on the row flips the switch; a keyboard reaches the switch itself.
 func _switch_row(title: String, note: String, on: bool, setter: Callable, word: String = "") -> Control:
 	var row := HBoxContainer.new()
 	row.name = "Setting_" + title.replace(" ", "")
 	row.add_theme_constant_override("separation", 16)
-	row.custom_minimum_size = Vector2(0, 76)
+	row.custom_minimum_size = Vector2(0, Style.TOUCH)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.alignment = BoxContainer.ALIGNMENT_CENTER
 	words.add_theme_constant_override("separation", 2)
-	words.add_child(Style.label(title, Style.BODY, Style.TEXT))
+	words.mouse_filter = Control.MOUSE_FILTER_PASS
+	var t := Style.label(title, Style.BODY, Style.TEXT)
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(t)
 	if note != "":
 		var n := Style.label(note, Style.SMALL, Style.MUTED)
 		n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		words.add_child(n)
 	row.add_child(words)
-	row.add_child(Widgets.switch(on, setter, "Switch_" + title.replace(" ", ""), word if word != "" else title))
+	var sw := Widgets.switch(on, setter, "Switch_" + title.replace(" ", ""), word if word != "" else title)
+	# The row takes the tap (the switch would take it twice otherwise: it passes taps on).
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(sw)
+	Widgets.on_tap(row, func(): sw.button_pressed = not sw.button_pressed)
+	row.focus_mode = Control.FOCUS_NONE
 	return row
 
 

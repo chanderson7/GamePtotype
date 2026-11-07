@@ -104,6 +104,14 @@ func _company(scenes) -> void:
 		current_scene._on_tab(t)
 		for i in 6: await process_frame
 		_audit("warband/" + t)
+	# Tabs grow with the text where their words fit, and wrap rather than trim.
+	var biggest := 0
+	var trimmed := 0
+	for b in current_scene.find_children("Tab_*", "Button", true, false):
+		biggest = maxi(biggest, (b as Button).get_theme_font_size("font_size"))
+		if (b as Button).text_overrun_behavior != TextServer.OVERRUN_NO_TRIMMING or (b as Button).size.y < 80.0:
+			trimmed += 1
+	check(biggest > roundi(22 * 1.15) and trimmed == 0, "warband tabs take the bigger text at %.2fx and never trim it" % scale)
 	# Map: here sheet
 	change_scene_to_file("res://scenes/world_map.tscn")
 	await _arrive("world_map.tscn")
