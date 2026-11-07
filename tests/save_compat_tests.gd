@@ -65,6 +65,17 @@ func _init() -> void:
 		"and saves and loads back in the new format (to JSON's float precision)")
 	gs2.free()
 
+	# A save from a newer build is refused before anything changes, so it can't be loaded
+	# lossy and saved over.
+	var gs3 = load("res://scripts/game_state.gd").new()
+	gs3.persist = false
+	var newer: Dictionary = JSON.parse_string(once)
+	newer["version"] = int(newer["version"]) + 1
+	check(not gs3.from_dict(newer) and gs3.load_problem == "newer" and gs3.world == null,
+		"a save from a newer version is refused, and nothing is loaded")
+	check(gs3.from_dict(JSON.parse_string(once)) and gs3.load_problem == "" and gs3.world != null, "while one from this version loads")
+	gs3.free()
+
 	print("\nSave compatibility tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 

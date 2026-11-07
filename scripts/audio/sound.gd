@@ -89,6 +89,9 @@ var shake := 1.0
 ## A readout of what each battle frame costs (sim, drawing, the renderer), for judging how
 ## big a battle a device can take.
 var show_performance := false
+## On a computer, the window fills the screen (F11 or Alt+Enter, or Settings). Kept here
+## with the other device preferences; Scenes applies it.
+var fullscreen := false
 ## Pulses sent, for tests (and so a headless run can see them).
 var haptic_count := 0
 ## Until this time, routine contact sounds play quieter, so a critical cue cuts through.
@@ -534,6 +537,7 @@ func _load_settings() -> void:
 		haptics_enabled = bool(cfg.get_value("presentation", "haptics", true))
 		shake = float(cfg.get_value("presentation", "shake", 1.0))
 		show_performance = bool(cfg.get_value("debug", "performance", false))
+		fullscreen = bool(cfg.get_value("presentation", "fullscreen", false))
 		if shake not in [0.0, 0.5, 1.0]:
 			shake = 1.0
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
@@ -553,8 +557,19 @@ func _save_settings() -> void:
 	cfg.set_value("presentation", "illustrations", illustrations_enabled)
 	cfg.set_value("presentation", "haptics", haptics_enabled)
 	cfg.set_value("presentation", "shake", shake)
+	cfg.set_value("presentation", "fullscreen", fullscreen)
 	cfg.set_value("debug", "performance", show_performance)
-	cfg.save(settings_path)
+	_write_settings(cfg)
+
+
+## Settings are written whole to a temporary file and renamed into place, so a crash
+## mid-write never leaves a half-written file that reads as no settings at all.
+func _write_settings(cfg: ConfigFile) -> bool:
+	var temporary := settings_path + ".tmp"
+	if cfg.save(temporary) == OK and DirAccess.rename_absolute(temporary, settings_path) == OK:
+		return true
+	DirAccess.remove_absolute(temporary)
+	return false
 
 
 func romance_invitations_enabled() -> bool:
@@ -577,7 +592,7 @@ func mark_hint_seen(section: String, key: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(settings_path)
 	cfg.set_value(section, key, true)
-	cfg.save(settings_path)
+	_write_settings(cfg)
 
 
 # ---------------------------------------------------------------- buttons
@@ -718,6 +733,10 @@ func set_haptics(enabled: bool) -> void:
 
 func set_shake(level: float) -> void:
 	shake = level if level in [0.0, 0.5, 1.0] else 1.0
+	_save_settings()
+
+func set_fullscreen(enabled: bool) -> void:
+	fullscreen = enabled
 	_save_settings()
 
 

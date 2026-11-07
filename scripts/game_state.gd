@@ -171,7 +171,9 @@ func new_campaign(culture_id: String) -> void:
 	new_warband()
 	world = WorldSim.new()
 	world.setup(rng.randi(), culture)
-	# The last campaign's saves go with it.
+	load_problem = ""
+	# The last campaign's saves go with it. Only ever reached through a choice the player
+	# confirmed: Home asks "Start again?" whenever there's a campaign or a save to lose.
 	if persist or SaveSlots.dir != SaveSlots.DEFAULT_DIR:
 		SaveSlots.clear()
 	save_game()
@@ -4134,6 +4136,20 @@ func release_lord_for_honor(lord_id: int) -> bool:
 	return true
 
 
+## Where the autosave lives; tests point this somewhere of their own.
+var save_path := SAVE_PATH
+## Why the autosave didn't load at startup: "" (it did, or there was none), "unreadable"
+## (it was damaged: kept beside it as campaign.json.bad) or "newer" (made by a newer
+## version of the game: left exactly as it is). Home says so and offers the other saves.
+var load_problem := ""
+
+
+## Whether a save written as `version` comes from a newer build than this one. Such a save
+## is never loaded: this build would drop what it doesn't know and save over it.
+func is_newer_save(version: int) -> bool:
+	return version > SAVE_VERSION
+
+
 ## Saves the campaign. Before one has started there's nothing worth keeping.
 func save_game() -> bool:
 	if not persist:
@@ -4141,7 +4157,7 @@ func save_game() -> bool:
 	if world == null:
 		return false
 	# Replace only a completely written save, preserving the previous campaign on failure.
-	var temporary := SAVE_PATH + ".tmp"
+	var temporary := save_path + ".tmp"
 	var f := FileAccess.open(temporary, FileAccess.WRITE)
 	if f == null:
 		return false
@@ -4152,7 +4168,7 @@ func save_game() -> bool:
 	if not written:
 		DirAccess.remove_absolute(temporary)
 		return false
-	return DirAccess.rename_absolute(temporary, SAVE_PATH) == OK
+	return DirAccess.rename_absolute(temporary, save_path) == OK
 
 
 ## Save, and keep this moment as the before-battle save, so a lost fight can be undone.
@@ -4191,16 +4207,39 @@ func to_dict() -> Dictionary:
 
 
 func load_game() -> bool:
-	if not FileAccess.file_exists(SAVE_PATH):
+	load_problem = ""
+	if not FileAccess.file_exists(save_path):
 		return false
-	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	var data = JSON.parse_string(FileAccess.get_file_as_string(save_path))
 	if typeof(data) != TYPE_DICTIONARY or not data.has("army"):
+		_keep_unreadable()
 		return false
-	return from_dict(data)
+	if not from_dict(data):
+		# From a newer build (load_problem says so): the file stays as it is.
+		world = null
+		return false
+	return true
 
 
-## Restore a campaign saved with to_dict().
+## A damaged autosave is moved aside to campaign.json.bad, never written over, so it can
+## still be sent in or mended by hand.
+func _keep_unreadable() -> void:
+	load_problem = "unreadable"
+	if not persist and save_path == SAVE_PATH:
+		return
+	var bad := save_path + ".bad"
+	if FileAccess.file_exists(bad):
+		DirAccess.remove_absolute(bad)
+	DirAccess.rename_absolute(save_path, bad)
+
+
+## Restore a campaign saved with to_dict(). A save from a newer version of the game is
+## refused before anything changes (load_problem becomes "newer").
 func from_dict(data: Dictionary) -> bool:
+	if is_newer_save(int(data.get("version", 0))):
+		load_problem = "newer"
+		return false
+	load_problem = ""
 	culture = String(data.get("culture", Cultures.VARDISH))
 	world = null
 	if typeof(data.get("world")) == TYPE_DICTIONARY:
