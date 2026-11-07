@@ -793,7 +793,13 @@ func _active_job_row(job: Dictionary) -> Control:
 ## Abandoning a contract can't be undone, so it asks on a sheet.
 func _confirm_abandon(jid: String, title: String) -> void:
 	var col := Widgets.sheet(self, "Abandon contract?", "AbandonSheet")
+	var job_realm: String = ""
+	for j in GameState.active_jobs:
+		if String(j.get("id", "")) == jid:
+			job_realm = GameState.job_realm(j)
 	col.add_child(_note("%s. Nothing is paid, and the board may not post it again." % title, Style.TEXT))
+	if job_realm != "":
+		col.add_child(Widgets.chip_row([Widgets.effect("bond", Jobs.ABANDON_RELATION, " with %s" % String(WorldData.FACTIONS[job_realm]["name"]))]))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	col.add_child(row)
@@ -806,7 +812,7 @@ func _confirm_abandon(jid: String, title: String) -> void:
 	row.add_child(keep)
 	var go := Button.new()
 	go.name = "ConfirmAbandon"
-	go.text = "Abandon"
+	go.text = "Abandon" if job_realm == "" else "Abandon · −%d standing" % absi(Jobs.ABANDON_RELATION)
 	go.custom_minimum_size.y = Style.TOUCH
 	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	go.add_theme_color_override("font_color", Style.ENEMY_LIGHT)
@@ -839,7 +845,7 @@ func _fief_overview_row() -> Control:
 
 	var f := GameState.player_fief
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
-	var garr: int = int(f.get("garrison", []).size())
+	var garr: int = GameState.fief_garrison().filter(func(sq): return GameState.is_company_squad(sq)).size()
 	var built := 0
 	for k in Fiefs.IMPROVEMENT_ORDER:
 		if bool(f.get("improvements", {}).get(k, false)):
@@ -1039,7 +1045,7 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 	btns.add_theme_constant_override("h_separation", 10)
 	btns.add_theme_constant_override("v_separation", 10)
 	col.add_child(btns)
-	var ransom := int(cl.get("ransom_amount", 200))
+	var ransom: int = GameState.ransom_offer(lord_id)
 
 	var talk_btn := _captive_button("TalkToCaptive_%d" % lord_id, "Talk", func():
 		var talk = load("res://scripts/world/lord_conversation.gd").open(self, GameState, lord_id, "captive")
@@ -1065,7 +1071,8 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 		GameState.release_lord_for_honor(lord_id)
 		Sound.play("page")
 		_build())
-	btns.add_child(Widgets.priced(honor_btn, [["bond", "+%d" % GameState.RELEASE_REGARD], ["renown", "+%d" % GameState.RELEASE_RENOWN]]))
+	var freed: Dictionary = GameState.release_reward(lord_id)
+	btns.add_child(Widgets.priced(honor_btn, [["bond", "+%d" % int(freed["regard"])], ["renown", "+%d" % int(freed["renown"])]]))
 
 	if GameState.is_crowned():
 		var check: Dictionary = GameState.swear_check(lord_id)

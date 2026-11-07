@@ -1217,11 +1217,11 @@ func _beat_captive() -> void:
 	else:
 		replies.append({"id": "swear", "text": "Swear to my crown.", "tag": "raise your own banner first", "tone": "locked"})
 	replies.append({"id": "release", "text": "Go home, and remember who freed you.", "icon": "bond",
-		"fx": [["bond", gs.RELEASE_REGARD], {"realm": _banner_realm, "amount": gs.RELEASE_REALM}], "tag": "for honor", "tone": "gold", "act": func():
+		"fx": [["bond", int(gs.release_reward(lid)["regard"])], {"realm": _banner_realm, "amount": int(gs.release_reward(lid)["realm"])}], "tag": "for honor", "tone": "gold", "act": func():
 			gs.release_lord_for_honor(lid)
 			Sound.play("page")
 			_show("\"I won't forget it.\"", [_note("Released.")], [_leave_reply("Go.")])})
-	var ransom := int(lord.get("ransom_amount", Lords.ransom_for(int(lord.get("renown", 0)))))
+	var ransom: int = int(gs.ransom_offer(lid))
 	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "icon": "silver",
 		"fx": [["silver", ransom], ["bond", 5]], "tag": "ransom", "act": func():
 			gs.accept_lord_ransom(lid)
