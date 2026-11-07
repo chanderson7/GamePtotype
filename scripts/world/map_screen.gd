@@ -3078,8 +3078,13 @@ func _gathering_plate(g: Dictionary) -> String:
 		var day := int(float(g["starts_hour"]) / 24.0)
 		var today := int(world.hour / 24.0)
 		when = "from dusk" if day == today else ("from tomorrow" if day == today + 1 else "from day %d" % (day + 1))
+	var title := Gatherings.upper_first(String(g["name"]))
+	if GameState.gathering_barred(g):
+		return "%s · closed to you" % title
 	var n: int = GameState.gathering_lords(g).size() if world.gathering_on(g) else world.gathering_guests(g).size()
-	return "%s · %s · %d lord%s" % [Gatherings.upper_first(String(g["name"])), when, n, "" if n == 1 else "s"]
+	if n == 0:
+		return "%s · %s" % [title, when]
+	return "%s · %s · %d lord%s" % [title, when, n, "" if n == 1 else "s"]
 
 
 ## Where the planned wedding is (while it's being made ready or is ready), or "".
@@ -3435,7 +3440,9 @@ func _draw_labels() -> void:
 			Style.SMALL - 2, Color("f3d27a"))
 	for g in world.gatherings:
 		var lift := 34.0 * px + 18.0 + (34.0 if String(g["place"]) == wp else 0.0)
-		_name_plate(_to_screen(Data.pos(String(g["place"]))) + Vector2(0, -lift), _gathering_plate(g), Style.SMALL - 2, Color("f3d891"), Style.BRASS)
+		var barred: bool = GameState.gathering_barred(g)
+		_name_plate(_to_screen(Data.pos(String(g["place"]))) + Vector2(0, -lift), _gathering_plate(g), Style.SMALL - 2,
+			Style.ENEMY_LIGHT if barred else Color("f3d891"), Style.ENEMY_LIGHT if barred else Style.BRASS)
 	# Parties' plates step up out of the way of any name already placed.
 	for b in world.bands():
 		if px >= 2.0:

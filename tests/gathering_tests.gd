@@ -111,6 +111,25 @@ func _init() -> void:
 
 	# ---- the invitation
 	check(not bool(gs.gathering_invite(g)["invited"]), "a stranger isn't invited")
+
+	# ---- an enemy's feast: the gates are barred, and the map and the town say so
+	gs.realm_relations["vardmark"] = -40
+	check(gs.gathering_barred(g), "a feast in a realm at war with you is barred to you")
+	var barred_inv: Dictionary = gs.gathering_invite(g)
+	check(not bool(barred_inv["invited"]) and String(barred_inv["why"]).contains("at war"), "and no invitation comes from it (%s)" % barred_inv["why"])
+	_go("highcliff")
+	scenes.settlement_arrival_pending = false
+	change_scene_to_file("res://scenes/settlement.tscn")
+	await _arrive("settlement.tscn")
+	var barred_note: Node = _find(current_scene, "FeastBarred")
+	check(barred_note != null and (barred_note as Label).text.contains("no enemy is seated"), "the barred town says why you can't sit at its feast")
+	var map_script = load("res://scripts/world/map_screen.gd")
+	var map_probe = map_script.new()
+	map_probe.world = w
+	check(String(map_probe._gathering_plate(g)).ends_with("closed to you"), "the map's plate says it's closed to you")
+	map_probe.free()
+	gs.realm_relations.erase("vardmark")
+	check(not gs.gathering_barred(g), "at peace again, the hall is open")
 	gs.contract = {"realm": "vardmark", "daily_pay": 10, "days_left": 30, "bonus_per_lord": 100}
 	var inv: Dictionary = gs.gathering_invite(g)
 	check(bool(inv["invited"]) and String(inv["why"]).contains("serve Vardmark"), "serving the realm gets you invited (%s)" % inv["why"])

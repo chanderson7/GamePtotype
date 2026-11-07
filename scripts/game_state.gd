@@ -785,6 +785,8 @@ func gathering_invite(g: Dictionary) -> Dictionary:
 	var realm := String(g.get("realm", ""))
 	if realm == WorldData.CROWN and is_crowned():
 		return {"invited": true, "why": "it is your own"}
+	if gathering_barred(g):
+		return {"invited": false, "why": "you are at war with %s" % realm_word(realm)}
 	if has_contract() and contract_realm() == realm:
 		return {"invited": true, "why": "you serve %s" % realm_word(realm)}
 	if has_fief() and fief_realm() == realm and not bool(player_fief.get("lost", false)):
@@ -795,6 +797,15 @@ func gathering_invite(g: Dictionary) -> Dictionary:
 	if not host.is_empty() and LordTalk.regard(self, host) >= Gatherings.INVITE_REGARD:
 		return {"invited": true, "why": "%s thinks well of you" % LordTalk.short_name(host)}
 	return {"invited": false, "why": ""}
+
+
+## Whether `g`'s hall is shut to you: it's held by a realm you're at war with, so its
+## gates are barred and nobody would seat you at the feast.
+func gathering_barred(g: Dictionary) -> bool:
+	if world == null or g.is_empty():
+		return false
+	var owner := String(world.owner_of(String(g.get("place", ""))))
+	return is_at_war_with(owner) or is_at_war_with(String(g.get("realm", owner)))
 
 
 ## Who hosts `g`: "King Aldwin", or "you".

@@ -580,6 +580,11 @@ func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
 	var card := _card(col, "Gates barred", "at war", Style.ENEMY_LIGHT)
 	var faction_name: String = WorldData.FACTIONS[owner]["name"]
 	card.add_child(_note("The %s is at war with you. Markets, barracks and halls are closed." % faction_name, Style.ENEMY_LIGHT))
+	var g: Dictionary = GameState.world.gathering_at(place)
+	if not g.is_empty():
+		var feast := _note("%s is held behind the walls, but no enemy is seated at it. Make peace, or take the place, to sit at a feast here." % Gatherings.upper_first(GameState.gathering_title(g)), Style.MUTED)
+		feast.name = "FeastBarred"
+		card.add_child(feast)
 
 
 func _add_contract(col: VBoxContainer, owner: String) -> void:
