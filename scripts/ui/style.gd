@@ -20,6 +20,11 @@ const ENEMY_LIGHT := Color("ffb7ae")
 const FIELD_A := Color("4d7a37")
 const FIELD_B := Color("548341")
 
+## Courting, weddings and the heart: one pink, its light and its deep.
+const ROMANCE := Color("e88aa0")
+const ROMANCE_LIGHT := Color("f6cdd9")
+const ROMANCE_DARK := Color("7a3348")
+
 ## Morale, from steady to breaking.
 const MORALE_HIGH := Color("6fcf5a")
 const MORALE_MID := Color("e8c547")
@@ -49,6 +54,24 @@ static func safe_insets(vp: Viewport) -> Dictionary:
 	out["top"] = maxf(0.0, float(safe.position.y)) * scale
 	out["bottom"] = maxf(0.0, win.y - float(safe.end.y)) * scale
 	return out
+
+
+## A span of game hours, said one way everywhere: "under 1 h", "8 h", "1 day", "3 days".
+static func time_short(hours: float) -> String:
+	if hours < 1.0:
+		return "under 1 h"
+	if hours < 24.0:
+		return "%d h" % roundi(hours)
+	var days := maxi(1, roundi(hours / 24.0))
+	return "%d day%s" % [days, "" if days == 1 else "s"]
+
+
+## A person's name, the same size and ink on every screen.
+static func name_label(text: String, size: int = LARGE) -> Label:
+	var l := label(text, size, TEXT)
+	l.name = "Name"
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	return l
 
 
 static func morale_color(morale: float) -> Color:

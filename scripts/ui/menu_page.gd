@@ -2,6 +2,37 @@
 extends RefCounted
 const Style = preload("res://scripts/ui/style.gd")
 
+## The one page shell: the night background, a scroll, margins clear of the notch and the
+## home bar, and the column to fill (separation 18). Every full-screen menu starts here.
+static func frame(root: Control, bottom_room: float = 0.0) -> VBoxContainer:
+	root.theme = Style.make_theme()
+	var bg := ColorRect.new()
+	bg.name = "Background"
+	bg.color = Style.NIGHT
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	root.add_child(bg)
+	var scroll := ScrollContainer.new()
+	scroll.name = "PageScroll"
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_bottom = -bottom_room
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+	var margin := MarginContainer.new()
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var insets := Style.safe_insets(root.get_viewport()) if root.is_inside_tree() else {"top": 0.0, "bottom": 0.0}
+	for side in ["left", "right"]:
+		margin.add_theme_constant_override("margin_" + side, 32)
+	margin.add_theme_constant_override("margin_top", 48 + int(insets["top"]))
+	margin.add_theme_constant_override("margin_bottom", 40 + (0 if bottom_room > 0.0 else int(insets["bottom"])))
+	scroll.add_child(margin)
+	var col := VBoxContainer.new()
+	col.name = "PageColumn"
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 18)
+	margin.add_child(col)
+	return col
+
+
 static func column(root: Control, heading: String, subtitle: String) -> VBoxContainer:
 	root.theme = Style.make_theme()
 	var bg := ColorRect.new()
