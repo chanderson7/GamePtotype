@@ -263,11 +263,13 @@ func _init() -> void:
 	for l in w.lords:
 		if bool(l.get("ruler", false)):
 			continue
-		if honorable.is_empty() and String(l["bearing"]) == Lords.HONORABLE:
+		if honorable.is_empty():
 			honorable = l
-		elif cruel.is_empty() and String(l["bearing"]) == Lords.CRUEL:
+		elif cruel.is_empty():
 			cruel = l
-	check(not honorable.is_empty() and not cruel.is_empty(), "there are Honorable and Cruel lords")
+	honorable["bearing"] = Lords.HONORABLE
+	cruel["bearing"] = Lords.CRUEL
+	check(not honorable.is_empty() and not cruel.is_empty(), "an Honorable lord and a Cruel one")
 	honorable["realm"] = WorldData.CROWN
 	cruel["realm"] = WorldData.CROWN
 	check(gs.crown_lords().has(honorable) and gs.crown_lords().has(cruel), "both sworn to the crown")
