@@ -184,7 +184,7 @@ func _build() -> void:
 		if not rest.disabled:
 			Style.make_primary(rest)
 		rest.pressed.connect(_on_reinforce)
-		var why := "Every squad is at full strength" if total == 0 else ("Need %s more silver" % Widgets.thousands(cheapest - GameState.silver) if cheapest > GameState.silver else "")
+		var why := "Every company is at full strength" if total == 0 else ("Need %s more silver" % Widgets.thousands(cheapest - GameState.silver) if cheapest > GameState.silver else "")
 		roster.add_child(Widgets.priced(rest, [["silver", Widgets.thousands(total)]] if total > 0 else [], why))
 	else:
 		roster.add_child(_note("Ride to a town to reinforce and train."))
@@ -527,7 +527,7 @@ func _pay_line(key: String, out: int, after: int, short: bool) -> HBoxContainer:
 ## How many squads against the cap, and the battles fought, as tiles.
 func _company_summary() -> Control:
 	var grid := Widgets.tile_grid([
-		Widgets.tile("company", "%d/%d" % [GameState.army.size(), GameState.squad_cap()], "squads"),
+		Widgets.tile("company", "%d/%d" % [GameState.army.size(), GameState.squad_cap()], "companies"),
 		Widgets.tile("battle", str(GameState.battles), "%d won" % GameState.wins),
 	], 2)
 	grid.name = "CompanySummary"

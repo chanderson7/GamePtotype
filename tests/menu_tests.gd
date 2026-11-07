@@ -33,12 +33,23 @@ func _run() -> void:
 	gs.world = null
 	await open("title")
 	check(button("Continue") == null and button("Begin as the Vardish") != null, "fresh Home offers the three peoples without a false Continue")
+	var first_learn = current_scene.find_child("FirstLearn", true, false)
+	check(first_learn != null and _button_in(first_learn, "Learn to play") != null
+		and _button_in(current_scene.find_child("MinorButtons", true, false), "Learn to play") == null,
+		"first-time Home puts Learn to play up top, by the peoples, not in the bottom row")
 	current_scene.find_child("People_kharzani", true, false).pressed.emit()
 	check(button("Begin as the Kharzani") != null, "picking a people on Home names it on the big button")
 	button("Begin as the Kharzani").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("new_campaign.tscn") and current_scene.find_child("PickedPeople", true, false) != null,
 		"and the new-campaign screen opens with that people first")
+	check(current_scene._tutorial.button_pressed, "a first campaign on this device starts with the tutorial on")
+	var more_body = current_scene.find_child("MoreOptionsBody", true, false)
+	check(more_body != null and not more_body.visible and more_body.find_child("IronmanSwitch", true, false) != null
+		and more_body.find_child("ModeChoice", true, false) != null,
+		"Mortal or Casual and Ironman wait folded under More options")
+	current_scene._toggle_more()
+	check(more_body.visible and button("Fewer options") != null, "and open with a tap")
 	await open("title")
 	button("Learn to play").pressed.emit()
 	await transition()
@@ -102,7 +113,7 @@ func _run() -> void:
 	await transition()
 	check(current_scene.scene_file_path.ends_with("title.tscn"), "Settings returns to its caller")
 	await open("new_campaign")
-	check(not current_scene._tutorial.button_pressed, "new-campaign tutorial is opt-in")
+	check(not current_scene._tutorial.button_pressed, "once a campaign is under way (or the lessons were opened), the tutorial switch starts off")
 	current_scene._tutorial.button_pressed = true
 	current_scene._on_pick(Cultures.RYUMON)
 	await transition()
@@ -168,6 +179,21 @@ func _run() -> void:
 		"next-step guidance responds to actual low food")
 	gs.food = food_before
 	current_scene._close_sheet()
+	# Before the first fight, the next step is a band, and Show on map opens its sheet.
+	if gs.battles == 0:
+		current_scene._open_recommendation()
+		var show_band = current_scene.sheet_row.find_child("Dock_Showonmap", true, false)
+		check(current_scene.sheet_title.text.begins_with("Hunt the") and show_band != null,
+			"a new company's next step names the nearest band, with Show on map")
+		if show_band != null:
+			show_band.pressed.emit()
+			check(current_scene._sheet == "band", "which opens that band's own sheet")
+		current_scene._close_sheet()
+	# Wait says what it costs.
+	if gs.world.here() != "":
+		current_scene._open_here()
+		check(current_scene.sheet_row.find_child("Dock_Wait8h", true, false) != null, "Wait says it takes 8 hours")
+		current_scene._close_sheet()
 	gs.food = 0
 	gs.silver = 0
 	var previous_men: int = gs.total_men()
@@ -177,6 +203,10 @@ func _run() -> void:
 	await process_frame
 	check(gs.total_men() < previous_men and current_scene._sheet == "warning", "desertion displays an explicit warning")
 	check(current_scene.sheet_body.text.contains("unpaid and hungry") and current_scene.sheet_body.text.contains("Buy food") and current_scene.sheet_body.text.contains("Earn silver"), "warning explains losses, both causes and both remedies")
+	check(current_scene.sheet_body.text.contains("contract"), "and names contracts, the silver that needs no victory")
+	check(_has_text(current_scene.status_chips, "Food short") and _has_text(current_scene.status_chips, "Can't pay"),
+		"the low-supply chips say what's wrong in two words")
+	check(current_scene.resource_buttons["food"].text.ends_with("d"), "the food pill counts in days")
 	hour = gs.world.hour
 	await create_timer(0.2).timeout
 	check(gs.world.hour == hour, "desertion warning pauses ongoing travel or waiting")
