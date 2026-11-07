@@ -578,25 +578,60 @@ func mark_hint_seen(section: String, key: String) -> void:
 
 # ---------------------------------------------------------------- buttons
 
-## Every button in the game clicks, and gives a little under the finger.
+## How far a button sinks under the thumb, and how long it takes to sink and spring back.
+const PRESS_SCALE := 0.95
+const PRESS_IN := 0.06
+const PRESS_OUT := 0.18
+
+
+## Every button in the game clicks, and gives a little under the finger: it sinks when
+## pressed and springs back with a small overshoot when let go. A primary (brass) button
+## also gives a light tick of vibration when it fires. Under Reduced motion the button
+## stays still; the click and the tick remain. A button that animates its own scale opts
+## out with the meta "no_press_feel".
 func _on_node_added(node: Node) -> void:
 	var b := node as BaseButton
 	if b == null:
 		return
 	b.pressed.connect(play.bind("click", 0.0, 0.06))
-	b.button_down.connect(_squash.bind(b, 0.95))
-	b.button_up.connect(_squash.bind(b, 1.0))
+	b.pressed.connect(func():
+		if b.has_meta("primary"):
+			haptic(false))
+	b.button_down.connect(_squash.bind(b, true))
+	b.button_up.connect(_squash.bind(b, false))
 
 
-func _squash(b: BaseButton, to: float) -> void:
-	if not is_instance_valid(b):
+func _squash(b: BaseButton, down: bool) -> void:
+	if not is_instance_valid(b) or not b.is_inside_tree() or b.has_meta("no_press_feel"):
 		return
-	if reduced_motion:
+	if reduced_motion or (down and b.disabled):
 		b.scale = Vector2.ONE
 		return
+	if not down and b.scale == Vector2.ONE:
+		return
 	b.pivot_offset = b.size * 0.5
+	var old = b.get_meta("press_tween", null)
+	if old is Tween and (old as Tween).is_valid():
+		(old as Tween).kill()
 	var t := b.create_tween()
-	t.tween_property(b, "scale", Vector2(to, to), 0.06 if to < 1.0 else 0.12)
+	b.set_meta("press_tween", t)
+	if down:
+		t.tween_property(b, "scale", Vector2.ONE * PRESS_SCALE, PRESS_IN).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		_release_when_free(b)
+	else:
+		t.tween_property(b, "scale", Vector2.ONE, PRESS_OUT).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## A press that a scrolling page takes over never sends button_up: let go of it once the
+## button is no longer held.
+func _release_when_free(b: BaseButton) -> void:
+	get_tree().create_timer(0.3).timeout.connect(func():
+		if not is_instance_valid(b) or not b.is_inside_tree():
+			return
+		if b.get_draw_mode() in [BaseButton.DRAW_PRESSED, BaseButton.DRAW_HOVER_PRESSED] and not b.toggle_mode:
+			_release_when_free(b)
+		else:
+			_squash(b, false))
 
 
 # ---------------------------------------------------------------- plumbing

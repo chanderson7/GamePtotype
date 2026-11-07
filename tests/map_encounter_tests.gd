@@ -49,10 +49,10 @@ func _init() -> void:
 	check(map._sheet == "talk", "so does closing the chronicle opened from it")
 
 	talk.choose("leave")
-	check(w.encounter == -1 and not map.sheet_panel.visible and map._talk == null, "parting ways leaves the map free to go on")
+	check(w.encounter == -1 and not map._sheet_open() and map._talk == null, "parting ways leaves the map free to go on")
 	map._open_wars()
 	map._close_or_back()
-	check(not map.sheet_panel.visible, "with no one waiting, the news just closes")
+	check(not map._sheet_open(), "with no one waiting, the news just closes")
 
 	# A message that isn't about a fight is titled by where you are, not "After the battle".
 	var here: String = w.player().node

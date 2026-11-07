@@ -800,7 +800,7 @@ func _show_sheet(kind: String, title: String, body: String, buttons: Array, sub:
 	for spec in actions:
 		sheet_row.add_child(_dock_button(String(spec[0]), spec[1], spec.size() > 2 and spec[2], danger, n,
 			String(spec[3]) if spec.size() > 3 else "", spec[4] if spec.size() > 4 else []))
-	if not sheet_panel.visible:
+	if not sheet_panel.visible or Style.closing(sheet_panel):
 		sheet_panel.visible = true
 		Style.ease_in(sheet_panel)
 
@@ -928,7 +928,13 @@ func _close_sheet() -> void:
 	_sheet = ""
 	if bottom_bar != null:
 		bottom_bar.visible = true
-	sheet_panel.visible = false
+	if sheet_panel.visible and not Style.closing(sheet_panel):
+		Style.ease_out(sheet_panel, func(): sheet_panel.visible = false)
+
+
+## Whether a sheet is up: shown and not on its way out.
+func _sheet_open() -> bool:
+	return sheet_panel != null and sheet_panel.visible and not Style.closing(sheet_panel)
 
 
 ## Closes a sheet opened from another (the war news, the chronicle). While an encounter
@@ -3094,7 +3100,7 @@ func _refresh_hud() -> void:
 		var ink := Color(0.1, 0.08, 0.12) if on else Color(0.93, 0.89, 0.8)
 		for state in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
 			b.add_theme_color_override(state, ink)
-	bottom_bar.visible = not sheet_panel.visible
+	bottom_bar.visible = not _sheet_open()
 	var modal := _sheet in ["encounter", "notice", "warning"]
 	warband_button.disabled = modal
 	for b in [pause_button, play_button, fast_button]:
@@ -3213,7 +3219,7 @@ func _refresh_pinned(h: int) -> void:
 				# The words are drawn by the row, so the chip takes the row's width.
 				pinned_chip.custom_minimum_size.x = row.get_combined_minimum_size().x + 32.0
 				pinned_chip.reset_size()
-	var show := String(pinned_chip.get_meta("id", "")) != "" and not sheet_panel.visible and _sheet == ""
+	var show := String(pinned_chip.get_meta("id", "")) != "" and not _sheet_open() and _sheet == ""
 	pinned_chip.visible = show
 
 

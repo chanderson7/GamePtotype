@@ -117,6 +117,7 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	bar.add_child(row)
+	var line_color := Style.PLAYER_LIGHT.darkened(0.5)
 	for t in tabs:
 		var b := Button.new()
 		b.name = "Tab_%s" % t["id"]
@@ -142,8 +143,8 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		var gold := bool(t.get("gold", false))
 		var flat := Style.box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 14)
 		var lit := Style.box(Color("33290f") if gold else Style.RAISED, Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
-		lit.border_width_bottom = 4
-		lit.border_color = Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5)
+		if on:
+			line_color = Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5)
 		for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
 			b.add_theme_stylebox_override(state, lit if on else flat)
 		var ink := (Color("f3d891") if gold else Style.TEXT) if on else (Style.BRASS if badge > 0 or gold else Style.MUTED)
@@ -151,11 +152,87 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 			b.add_theme_color_override(c, ink)
 		b.pressed.connect(on_tab.bind(String(t["id"])))
 		row.add_child(b)
-		if on and not Style.motion_reduced():
-			# The lit tab settles in: a quick fade and lift.
-			b.modulate.a = 0.6
-			b.create_tween().tween_property(b, "modulate:a", 1.0, 0.16)
+	_tab_turn(bar, row, tabs, current, bar_name, line_color)
 	return bar
+
+
+## Where each tab bar's underline last sat, and when, keyed by the bar and its tabs, so a
+## bar rebuilt by a tap can slide it on from there: {key: {x, w, id, at}}.
+static var _tab_last := {}
+## A rebuild this soon after the last is the same page turning, not a fresh visit.
+const TAB_TURN_WINDOW := 1500
+const TAB_SLIDE := 0.2
+const TAB_FADE := 0.18
+
+
+## The lit tab's underline slides over from the tab it left, and the page under the bar
+## (everything after it in its column) fades up, when the bar is rebuilt by a tab change.
+## Arriving on a screen, the line is simply there.
+static func _tab_turn(bar: PanelContainer, row: HBoxContainer, tabs: Array, current: String, bar_name: String, line_color: Color) -> void:
+	var ids := PackedStringArray()
+	for t in tabs:
+		ids.append(String(t["id"]))
+	var key := "%s|%s" % [bar_name, ",".join(ids)]
+	var last: Dictionary = _tab_last.get(key, {})
+	var now := Time.get_ticks_msec()
+	var turning: bool = not last.is_empty() and String(last.get("id", "")) != current \
+		and now - int(last.get("at", 0)) < TAB_TURN_WINDOW and not Style.motion_reduced()
+	var line := Control.new()
+	line.name = "TabLine"
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(line)
+	# The line runs from where it was (`from`) to the lit tab (`to`, kept current as the row
+	# lays out) by `k`, 0 to 1.
+	var at := {"from": Vector2(float(last.get("x", -1.0)), float(last.get("w", 0.0))), "to": Vector2(-1.0, 0.0), "k": 0.0 if turning else 1.0}
+	line.draw.connect(func():
+		var to: Vector2 = at["to"]
+		if to.y <= 0.0:
+			return
+		var from: Vector2 = at["from"] if Vector2(at["from"]).y > 0.0 else to
+		var r: Vector2 = from.lerp(to, float(at["k"]))
+		line.draw_rect(Rect2(r.x, line.size.y - 4.0, r.y, 4.0), line_color))
+	row.sort_children.connect(func():
+		var lit := row.get_node_or_null("Tab_%s" % current) as Control
+		if lit == null or not is_instance_valid(line):
+			return
+		at["to"] = Vector2(lit.position.x + 10.0, maxf(0.0, lit.size.x - 20.0))
+		line.queue_redraw()
+		_tab_last[key] = {"x": Vector2(at["to"]).x, "w": Vector2(at["to"]).y, "id": current, "at": Time.get_ticks_msec()})
+	if turning:
+		line.ready.connect(func():
+			var t := line.create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+			t.tween_method(func(v: float):
+				at["k"] = v
+				line.queue_redraw(), 0.0, 1.0, TAB_SLIDE))
+	if not turning:
+		_tab_last[key] = {"x": float(last.get("x", -1.0)), "w": float(last.get("w", 0.0)), "id": current, "at": now}
+		return
+	# The page under the bar turns: what follows the bar in its column fades up in a
+	# quick stagger.
+	bar.ready.connect(func(): _turn_page.call_deferred(bar))
+
+
+## Fade up what follows a tab bar in its column, in a quick stagger: the page turning.
+static func _turn_page(bar: Control) -> void:
+	if not is_instance_valid(bar):
+		return
+	var col := bar.get_parent()
+	if col == null:
+		return
+	var after := false
+	var n := 0
+	for c in col.get_children():
+		if c == bar:
+			after = true
+			continue
+		if not after or not (c is CanvasItem) or not (c as CanvasItem).visible:
+			continue
+		var ci := c as CanvasItem
+		ci.modulate.a = 0.0
+		var t := ci.create_tween()
+		t.tween_interval(0.03 * mini(n, 4))
+		t.tween_property(ci, "modulate:a", 1.0, TAB_FADE).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		n += 1
 
 
 ## A titled card, with an optional note on the right of the title. Returns the column to
@@ -555,8 +632,8 @@ static func sheet(host: Control, title: String, sheet_name: String = "Sheet", on
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	host.add_child(shade)
 	var close := func():
-		if is_instance_valid(shade) and not shade.is_queued_for_deletion():
-			shade.queue_free()
+		if is_instance_valid(shade) and not shade.is_queued_for_deletion() and not shade.has_meta("dismissed"):
+			dismiss_sheet(shade)
 			if on_close.is_valid():
 				on_close.call()
 	shade.set_meta("close", close)
@@ -612,6 +689,36 @@ static func sheet(host: Control, title: String, sheet_name: String = "Sheet", on
 	if host.is_inside_tree():
 		Style.ease_in(panel)
 	return col
+
+
+## Take a sheet's shade off the page at once (so the page, and anything that looks for
+## it by name, sees it gone) and let it fade and sink on the top layer before it's freed.
+static func dismiss_sheet(shade: Control) -> void:
+	shade.set_meta("dismissed", true)
+	var host := shade.get_parent()
+	var top: Node = shade.get_tree().root.get_node_or_null("Scenes") if shade.is_inside_tree() else null
+	if Style.motion_reduced() or top == null or host == null:
+		shade.queue_free()
+		return
+	# The sheet keeps the look it had on the page once it leaves it.
+	var up: Node = host
+	while up != null and not (up is Control and (up as Control).theme != null):
+		up = up.get_parent()
+	if up != null and shade.theme == null:
+		shade.theme = (up as Control).theme
+	shade.name = "%s_closing" % shade.name
+	shade.reparent(top)
+	top.move_child(shade, 0)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for c in shade.find_children("*", "Control", true, false):
+		(c as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var panel := shade.get_node_or_null("SheetPanel") as Control
+	var t := shade.create_tween().set_parallel().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	t.tween_property(shade, "color:a", 0.0, Style.EASE_OUT_TIME + 0.04)
+	if panel != null:
+		t.tween_property(panel, "position:y", panel.position.y + 36.0, Style.EASE_OUT_TIME + 0.04)
+		t.tween_property(panel, "modulate:a", 0.0, Style.EASE_OUT_TIME + 0.04)
+	t.chain().tween_callback(shade.queue_free)
 
 
 ## Close the sheet that holds `node` (any node inside it, or its shade).

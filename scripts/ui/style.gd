@@ -121,6 +121,7 @@ static func make_theme() -> Theme:
 
 ## A primary call-to-action style for one button.
 static func make_primary(button: Button) -> void:
+	button.set_meta("primary", true)
 	button.add_theme_stylebox_override("normal", box(BRASS, Color(0, 0, 0, 0), 0))
 	button.add_theme_stylebox_override("hover", box(BRASS.lightened(0.08), Color(0, 0, 0, 0), 0))
 	button.add_theme_stylebox_override("pressed", box(BRASS.darkened(0.24), TEXT, 3))
@@ -133,6 +134,7 @@ static func make_primary(button: Button) -> void:
 ## Ease a panel into view: it fades in and rises the last little way from `anchor`
 ## (0.5, 1 grows from its bottom middle; 0.5, 0.5 from its center).
 static func ease_in(panel: Control, anchor: Vector2 = Vector2(0.5, 1.0)) -> void:
+	stop_easing(panel)
 	if motion_reduced():
 		panel.modulate.a = 1.0
 		panel.scale = Vector2.ONE
@@ -141,8 +143,74 @@ static func ease_in(panel: Control, anchor: Vector2 = Vector2(0.5, 1.0)) -> void
 	panel.modulate.a = 0.0
 	panel.scale = Vector2(0.96, 0.92) if anchor.y > 0.9 else Vector2(0.9, 0.9)
 	var t := panel.create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	panel.set_meta("ease_tween", t)
 	t.tween_property(panel, "modulate:a", 1.0, 0.14)
 	t.tween_property(panel, "scale", Vector2.ONE, 0.22)
+
+
+## Ease a panel out of view, the mirror of ease_in: it fades and sinks the last little
+## way, then `done` runs (to hide or free it). Under Reduced motion `done` runs at once.
+## While it plays the panel takes no taps, and `closing(panel)` is true; a fresh ease_in
+## on the same panel cancels it.
+static func ease_out(panel: Control, done: Callable = Callable(), anchor: Vector2 = Vector2(0.5, 1.0)) -> void:
+	stop_easing(panel)
+	if motion_reduced() or not panel.is_inside_tree() or not panel.is_visible_in_tree():
+		if done.is_valid():
+			done.call()
+		return
+	panel.set_meta("closing", true)
+	panel.set_meta("closing_filter", panel.mouse_filter)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_quiet_children(panel, true)
+	panel.pivot_offset = panel.size * anchor
+	var t := panel.create_tween().set_parallel().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	panel.set_meta("ease_tween", t)
+	t.tween_property(panel, "modulate:a", 0.0, EASE_OUT_TIME)
+	t.tween_property(panel, "scale", Vector2(0.98, 0.94) if anchor.y > 0.9 else Vector2(0.94, 0.94), EASE_OUT_TIME)
+	t.chain().tween_callback(func():
+		_end_closing(panel)
+		if done.is_valid():
+			done.call())
+
+
+const EASE_OUT_TIME := 0.12
+
+
+## Whether `panel` is easing out (still drawn, but already closed).
+static func closing(panel: Control) -> bool:
+	return panel != null and is_instance_valid(panel) and bool(panel.get_meta("closing", false))
+
+
+static func stop_easing(panel: Control) -> void:
+	var old = panel.get_meta("ease_tween", null)
+	if old is Tween and (old as Tween).is_valid():
+		(old as Tween).kill()
+	if closing(panel):
+		_end_closing(panel)
+
+
+static func _end_closing(panel: Control) -> void:
+	if not is_instance_valid(panel):
+		return
+	if panel.has_meta("closing_filter"):
+		panel.mouse_filter = int(panel.get_meta("closing_filter"))
+		panel.remove_meta("closing_filter")
+	_quiet_children(panel, false)
+	panel.remove_meta("closing")
+	panel.modulate.a = 1.0
+	panel.scale = Vector2.ONE
+
+
+## While a panel eases out its buttons take no taps; afterwards they're as they were.
+static func _quiet_children(panel: Control, quiet: bool) -> void:
+	for c in panel.find_children("*", "Control", true, false):
+		var ctl := c as Control
+		if quiet:
+			ctl.set_meta("quiet_filter", ctl.mouse_filter)
+			ctl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		elif ctl.has_meta("quiet_filter"):
+			ctl.mouse_filter = int(ctl.get_meta("quiet_filter"))
+			ctl.remove_meta("quiet_filter")
 
 
 static func label(text: String, size: int = 22, color: Color = TEXT) -> Label:

@@ -443,6 +443,7 @@ const SERVICE_ICONS := {"provisions": "food", "cheap provisions": "food", "recru
 func _show_info() -> void:
 	if _info_sheet == null or not is_instance_valid(_info_sheet) or _info_sheet.is_queued_for_deletion():
 		_build_info_sheet()
+	Style.stop_easing(_info_sheet)
 	_info_sheet.visible = true
 	_info_sheet.move_to_front()
 	var panel := _info_sheet.get_node_or_null("SheetPanel") as Control
@@ -451,8 +452,9 @@ func _show_info() -> void:
 
 
 func _hide_info() -> void:
-	if _info_sheet != null and is_instance_valid(_info_sheet):
-		_info_sheet.visible = false
+	if _info_sheet != null and is_instance_valid(_info_sheet) and _info_sheet.visible:
+		var sheet := _info_sheet
+		Style.ease_out(sheet, func(): sheet.visible = false)
 
 
 ## Rebuilding after a tap shouldn't throw the player back to the top.
