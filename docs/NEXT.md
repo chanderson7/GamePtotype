@@ -15,6 +15,9 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
 - Deeper slices: crown courts and granting crown fiefs to lords, rebellion inside a realm;
   movement cycles and a mix-group sound system for battles; siege engines; more lord lines.
 - Release: a build on a real phone, a frame-rate check there, and a playtest.
+- Before that playtest: [`playtest-audit.md`](playtest-audit.md), six code-traced passes
+  from different players' seats, with a ranked "fix first" list (stationed squads lost on
+  load, garrisons emptied on fealty and crowning, the lord farm, free Retreat).
 
 ## State (on `main`)
 

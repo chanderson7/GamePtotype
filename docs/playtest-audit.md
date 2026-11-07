@@ -324,8 +324,46 @@ carry screen-reader text; destructive sheets grab focus on the safe button.
 
 ## 7. The QA engineer
 
-*(pending: static pass over preload paths, scene references, autoload calls, save keys and
-assets)*
+A static pass over all 136 scripts, the 17 scenes, `project.godot`, the export preset, the
+shaders and the assets, aimed at the classes of breakage that `e402c56` ("Fix three parse
+errors that stopped the map, towns, battles and the Crown screen loading") showed can slip
+through. **No verified runtime-breaking problem was found.**
+
+What was checked and came back clean:
+
+- Every literal `res://` path in scripts, scenes, config and shaders exists on disk (the one
+  miss, `tests/presentation_tests.gd:114`, is a deliberate missing-art test). The 25
+  format-built paths (portraits by person and mood, locations, music, sound banks and their
+  take counts, UI icons, scenes) were expanded against their ids: all present.
+- Every scene's root type matches its script's `extends` chain; no `[connection]` blocks
+  point at missing methods; the three autoloads and the main scene, icon and splash exist.
+- Zero same-scope redeclarations, duplicate `func` names, `match` inside an inline lambda,
+  use-before-declare, format-string count mismatches, undefined constants, undeclared
+  signals or Godot 3 API names. `await` is only ever on a signal.
+- Every `GameState.`, `Sound.` and `Scenes.` reference across scripts and tests resolves;
+  no autoload touches another during startup.
+- Arity on 3,951 cross-file calls and every signal connect is right; `get_node` targets are
+  assigned by name in their builders or guarded with `get_node_or_null`.
+- Save and load: the 44 keys `to_dict` writes are all read, nothing is read that is not
+  written, and the keys the v4 fixture lacks are all behind `.get()` defaults.
+- Every music, location, portrait, sfx and shader file is referenced; shader parameter
+  names match their uniforms. Two unused icons (`o_bold.svg`, `o_mentor.svg`) are negligible.
+- `python3 tools/check_calls.py` and `python3 tools/check_infer.py` both report 0 problems
+  at `044a9fa`.
+
+Needs an engine run (cannot be settled statically):
+
+- The 36 scripts changed since the UI-kit pass began (`7a67a2f..HEAD`) have not been parsed
+  by Godot since `e402c56`; typed-assignment compatibility and "cannot find member" on
+  hard-typed objects are only caught by the engine. Candidates the inference checker could
+  not fully prove: `battle_sim.gd:631/2030/2256/2309/2623/2841`, `map_screen.gd:1487/3879`,
+  `battle_screen.gd:991/3863/5440`, and the rewritten lambda at `kingdom_screen.gd:552-556`.
+- Icons requested by variable (`_gathering_icon`, `_objective_icon`) were not exhaustively
+  enumerated; a wrong key there is a blank icon, not a crash.
+
+The conclusion for a release is the one `docs/NEXT.md` already draws: the build has never
+run on a phone, and the next step that buys the most is a device build, `-- --autoplay`, and
+a human playing the first hour.
 
 ## 8. Method, and what to do next
 
