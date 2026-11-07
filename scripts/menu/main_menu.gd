@@ -18,6 +18,9 @@ const CampMoments = preload("res://scripts/data/camp_moments.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const Page = preload("res://scripts/ui/menu_page.gd")
+const BondRow = preload("res://scripts/ui/bond_row.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
 
 var _scroll: ScrollContainer
 ## The open tab: camp, companies or deeds.
@@ -25,6 +28,14 @@ var _tab := "camp"
 var _shown_silver := -1
 var _fallen_section: Control
 var _flicker: Tween
+## The fallen card shows the five most recent until "All" is tapped.
+var _all_fallen := false
+const FALLEN_SHOWN := 5
+## Icons for the sort segments, in the order of the sorts.
+const SORT_ICONS := ["company", "shieldwall", "men", "level", "journal"]
+const SORT_TIPS := ["Roster order", "By role", "By strength", "By experience", "By captain"]
+## A contract's kind, as its icon.
+const JOB_ICONS := {"hunt": "skull", "courier": "mail", "relief": "food"}
 
 
 func _ready() -> void:
@@ -43,51 +54,38 @@ func _build() -> void:
 	for child in get_children():
 		child.queue_free()
 
-	var bg := ColorRect.new()
-	bg.color = Style.NIGHT
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
-
 	var insets := Style.safe_insets(get_viewport())
 	var frame := VBoxContainer.new()
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	frame.add_theme_constant_override("separation", 0)
 	add_child(frame)
-	_scroll = ScrollContainer.new()
-	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	frame.add_child(_scroll)
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	margin.add_theme_constant_override("margin_left", 32)
-	margin.add_theme_constant_override("margin_right", 32)
-	margin.add_theme_constant_override("margin_top", 48 + int(insets["top"]))
-	margin.add_theme_constant_override("margin_bottom", 24)
-	_scroll.add_child(margin)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 18)
-	margin.add_child(col)
+	# The page shell fills the room above the bottom bar.
+	var page := Control.new()
+	page.name = "Page"
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	frame.add_child(page)
+	var col := Page.frame(page, 1.0)
+	_scroll = col.get_parent().get_parent() as ScrollContainer
 
-	# Who you are, where, and what you have.
-	var title_row := HFlowContainer.new()
-	title_row.add_theme_constant_override("h_separation", 16)
-	col.add_child(title_row)
-	title_row.add_child(Style.label("Warband", 64, Style.BRASS))
-	var people := String(Cultures.info(GameState.culture)["people"])
+	# Who you are, where, and what you have. The camp's banner says the people.
+	col.add_child(Style.label("Warband", 64, Style.BRASS))
 	var w = GameState.world
-	var where_text := people
 	if w != null:
-		where_text = "%s · day %d · near %s" % [people, int(w.hour) / 24 + 1, String(WorldData.settlement(w.player().node)["name"])]
-	var where := Style.label(where_text, Style.SMALL, Style.MUTED)
-	where.size_flags_vertical = Control.SIZE_SHRINK_END
-	title_row.add_child(where)
+		var pace: float = w.party_pace(w.player())
+		var pace_tone := Style.MORALE_HIGH if pace >= 1.05 else (Style.MORALE_LOW if pace < 0.9 else Style.TEXT)
+		var where_chips := Widgets.chip_row([
+			Widgets.stat("mappin", String(WorldData.settlement(w.player().node)["name"])),
+			Widgets.stat("day", str(int(w.hour) / 24 + 1)),
+			Widgets.stat("speed", str(roundi(w.player_speed())), pace_tone),
+		])
+		where_chips.name = "WhereChips"
+		col.add_child(where_chips)
 	if GameState.company_title != "" and Achievements.DEEDS.has(GameState.company_title):
 		var known := Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], Style.BODY, Style.BRASS)
 		known.name = "CompanyTitle"
 		col.add_child(known)
 	col.add_child(_tiles())
-	col.add_child(_upkeep_forecast())
+	_upkeep_forecast(col)
 
 	var tabs := [
 		{"id": "camp", "label": "Camp", "badge": 1 if CampMoments.pick(GameState).size() > 0 else 0},
@@ -118,62 +116,56 @@ func _build() -> void:
 	# --- Camp: the fire, who's there, the last fight, bonds and the remembered.
 	camp.add_child(_camp_header())
 	camp.add_child(_camp_tableau())
-	var moment := _camp_moment()
-	if moment != null:
-		camp.add_child(moment)
+	_camp_moment(camp)
 	var last: Dictionary = GameState.last_result
 	if not last.is_empty():
 		var won: bool = last["won"]
 		var lc := Widgets.card(camp, "Last battle", "Victory" if won else "Defeat", Style.BRASS if won else Style.ENEMY_LIGHT)
-		lc.add_child(_note("Lost %d men, cut down %d." % [last["lost"], last["killed"]], Style.TEXT))
-	# Bonds have their own tab; the fire only says when a talk is waiting.
-	var waiting: int = GameState.new_bond_talks().size()
-	if waiting > 0:
-		var go := Button.new()
-		go.name = "TalksAtTheFire"
-		go.text = "%d talk%s at the fire · Bonds" % [waiting, "" if waiting == 1 else "s"]
-		go.custom_minimum_size.y = Style.TOUCH
-		Style.make_primary(go)
-		go.pressed.connect(_on_tab.bind("bonds"))
-		camp.add_child(go)
+		lc.get_parent().name = "LastBattleCard"
+		var lost := Widgets.effect("men", -int(last["lost"]))
+		lost.tooltip_text = "Men lost"
+		var cut := Widgets.stat("skull", str(int(last["killed"])))
+		cut.tooltip_text = "Enemies cut down"
+		lc.add_child(Widgets.chip_row([lost, cut]))
+	# Bonds have their own tab, and its badge says when a talk is waiting at the fire.
 	var captives: Array = GameState.captive_lords()
 	if not captives.is_empty():
-		var cc := Widgets.card(camp, "Captive lords")
+		var cc := Widgets.card(camp, "Captive lords", str(captives.size()))
+		cc.get_parent().name = "CaptivesCard"
 		for cl in captives:
 			cc.add_child(_captive_lord_row(cl))
 	if not GameState.fallen.is_empty():
-		var fc := Widgets.card(camp, "The fallen", "%d remembered" % GameState.fallen.size())
+		var fc := Widgets.card(camp, "The fallen", str(GameState.fallen.size()))
 		_fallen_section = fc.get_parent()
+		_fallen_section.name = "FallenCard"
+		var shown := 0
 		for i in range(GameState.fallen.size() - 1, -1, -1):
+			if shown >= FALLEN_SHOWN and not _all_fallen:
+				break
 			fc.add_child(_memorial_row(GameState.fallen[i]))
+			shown += 1
+		if GameState.fallen.size() > FALLEN_SHOWN and not _all_fallen:
+			var all := Button.new()
+			all.name = "AllFallen"
+			all.text = "All %d" % GameState.fallen.size()
+			all.custom_minimum_size.y = Style.TOUCH
+			all.pressed.connect(func():
+				_all_fallen = true
+				_build())
+			fc.add_child(all)
 
 	# --- Companies: the roster, and refilling it.
-	var wounded_total := GameState.total_wounded()
-	var summary := "%d of %d squads your renown allows · %s, %d won" % [GameState.army.size(), GameState.squad_cap(),
-		"1 battle" if GameState.battles == 1 else "%d battles" % GameState.battles, GameState.wins]
-	if wounded_total > 0:
-		summary += " · %d wounded in the baggage" % wounded_total
+	companies.add_child(_company_summary())
 	if GameState.has_contract():
-		summary += "\nContract: %s · +%d silver a day (%d days left)" % [WorldData.FACTIONS[GameState.contract_realm()]["name"],
-			GameState.contract_daily_pay(), int(GameState.contract.get("days_left", 0))]
-	companies.add_child(_note(summary))
+		companies.add_child(_contract_strip())
 	companies.add_child(_sort_control())
 	var sorted := _sorted_roster(GameState.army)
 	var active := sorted.filter(func(s): return s.get("captain") == null or int(s["captain"].get("wounded", 0)) <= 0)
 	var wounded := sorted.filter(func(s): return s.get("captain") != null and int(s["captain"].get("wounded", 0)) > 0)
-	companies.add_child(_section("Active companies"))
-	var roster := VBoxContainer.new()
-	roster.add_theme_constant_override("separation", 8)
-	companies.add_child(roster)
+	var roster := Widgets.card(companies, "Active companies", str(active.size()))
+	roster.get_parent().name = "ActiveCard"
 	for s in active:
 		roster.add_child(_squad_row(s))
-	if not wounded.is_empty():
-		companies.add_child(_section("Wounded captains"))
-		var wounded_roster := VBoxContainer.new()
-		wounded_roster.add_theme_constant_override("separation", 8)
-		companies.add_child(wounded_roster)
-		for s in wounded:
-			wounded_roster.add_child(_squad_row(s))
 	if GameState.army.is_empty():
 		roster.add_child(Style.label("Your warband is gone. Raise a new one.", Style.BODY, Style.ENEMY_LIGHT))
 	if GameState.in_town():
@@ -185,16 +177,25 @@ func _build() -> void:
 			if cost > 0 and (cheapest == 0 or cost < cheapest):
 				cheapest = cost
 		var rest := Button.new()
-		rest.text = "Reinforce all · %d silver" % total if total > 0 else "Every squad is at full strength"
-		rest.custom_minimum_size = Vector2(0, Style.TOUCH)
+		rest.name = "ReinforceAll"
+		rest.text = "Reinforce all"
+		rest.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rest.disabled = total == 0 or cheapest > GameState.silver
+		if not rest.disabled:
+			Style.make_primary(rest)
 		rest.pressed.connect(_on_reinforce)
-		companies.add_child(rest)
+		var why := "Every squad is at full strength" if total == 0 else ("Need %s more silver" % Widgets.thousands(cheapest - GameState.silver) if cheapest > GameState.silver else "")
+		roster.add_child(Widgets.priced(rest, [["silver", Widgets.thousands(total)]] if total > 0 else [], why))
 	else:
-		companies.add_child(_note("Ride to a town to reinforce and train."))
+		roster.add_child(_note("Ride to a town to reinforce and train."))
+	if not wounded.is_empty():
+		var wounded_roster := Widgets.card(companies, "Wounded captains", str(wounded.size()), Style.ENEMY_LIGHT)
+		wounded_roster.get_parent().name = "WoundedCard"
+		for s in wounded:
+			wounded_roster.add_child(_squad_row(s))
 
 	# --- Deeds & work: contracts, your fief, and what the company is known for.
-	var jc := Widgets.card(deeds, "Active contracts", "%d" % GameState.active_jobs.size())
+	var jc := Widgets.card(deeds, "Active contracts", "%d/%d" % [GameState.active_jobs.size(), Jobs.MAX_ACTIVE_JOBS])
 	if GameState.active_jobs.is_empty():
 		jc.add_child(_note("None. Settlements' notice boards post bounties, dispatches and relief work."))
 	else:
@@ -203,17 +204,22 @@ func _build() -> void:
 	if GameState.has_fief():
 		var fcard := Widgets.card(deeds, "Your fiefdom")
 		fcard.add_child(_fief_overview_row())
-	var dcard := Widgets.card(deeds, "Deeds")
+	var earned := 0
+	for id in Achievements.ORDER:
+		if Achievements.done(GameState, id):
+			earned += 1
+	var dcard := Widgets.card(deeds, "Deeds", "%d/%d" % [earned, Achievements.ORDER.size()], Style.BRASS if earned > 0 else Style.MUTED)
 	dcard.add_child(_deeds_panel())
 
 	# Back to the map, always in reach.
-	var back := Button.new()
-	back.name = "BackButton"
-	Style.make_primary(back)
+	var back: Button
 	if w != null:
-		back.text = "Back to the map"
-		back.pressed.connect(func(): Scenes.go("res://scenes/world_map.tscn"))
+		back = Widgets.back_button(func(): Scenes.go("res://scenes/world_map.tscn"), "Map", "BackButton")
+		back.accessibility_name = "Back to the map"
 	else:
+		back = Button.new()
+		back.name = "BackButton"
+		Style.make_primary(back)
 		back.text = "To battle"
 		back.disabled = GameState.total_men() == 0
 		back.pressed.connect(_on_battle)
@@ -226,14 +232,10 @@ func _tiles() -> Control:
 	var days := GameState.food_days()
 	var net := GameState.contract_daily_pay() - GameState.daily_wages()
 	var wounded := GameState.total_wounded()
-	var pace_text := ""
-	if GameState.world != null:
-		var pace: float = GameState.world.party_pace(GameState.world.player())
-		pace_text = " · pace %d%s" % [roundi(GameState.world.player_speed()), " quick" if pace >= 1.05 else (" slow" if pace < 0.9 else "")]
 	var grid := Widgets.tile_grid([
 		Widgets.tile("silver", Widgets.thousands(GameState.silver), "%s%d a day" % ["+" if net > 0 else "−", absi(net)]),
-		Widgets.tile("food", "1 day" if days == 1 else "%d days" % days, "of food", Style.ENEMY_LIGHT if days < 3 else Style.TEXT),
-		Widgets.tile("men", "%d men" % GameState.total_men(), ("+%d wounded" % wounded if wounded > 0 else "all fit") + pace_text),
+		Widgets.tile("food", str(days), "day" if days == 1 else "days", Style.ENEMY_LIGHT if days < 3 else Style.TEXT),
+		Widgets.tile("men", str(GameState.total_men()), "+%d wounded" % wounded if wounded > 0 else "all fit"),
 		Widgets.tile("renown", "%d" % GameState.renown, "renown"),
 	], 2)
 	grid.name = "WarbandTiles"
@@ -321,7 +323,7 @@ func _camp_tableau() -> Control:
 		var token := Button.new()
 		token.name = "CampCaptain_%d" % int(c.get("id", 0))
 		token.text = "%s%s" % [String(c.get("first", c.get("name", "Captain"))), " · resting" if hurt else ""]
-		token.add_theme_font_size_override("font_size", Style.SMALL)
+		token.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		token.custom_minimum_size = Vector2(0, Style.TOUCH)
 		if Style.illustrations_on():
 			token.icon = CaptainArt.texture(c)
@@ -339,18 +341,14 @@ func _camp_tableau() -> Control:
 	return box
 
 
-## One optional moment from what happened to the company, or nothing on a quiet visit.
-func _camp_moment() -> Control:
+## One optional moment from what happened to the company, on a gold card, or nothing on
+## a quiet visit.
+func _camp_moment(parent: Control) -> void:
 	var m: Dictionary = CampMoments.pick(GameState)
 	if m.is_empty():
-		return null
-	var panel := PanelContainer.new()
-	panel.name = "CampMoment"
-	panel.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.BRASS, 2, 14))
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 8)
-	panel.add_child(v)
-	v.add_child(Style.label(String(m["title"]).to_upper(), Style.SMALL, Style.BRASS))
+		return
+	var v := Widgets.card(parent, String(m["title"]), "", Style.MUTED, true)
+	v.get_parent().name = "CampMoment"
 	var text := Style.label(String(m["text"]), Style.BODY, Style.TEXT)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(text)
@@ -371,7 +369,6 @@ func _camp_moment() -> Control:
 	done.custom_minimum_size = Vector2(0, Style.TOUCH)
 	done.pressed.connect(_on_moment_dismiss.bind(String(m["key"])))
 	row.add_child(done)
-	return panel
 
 
 ## The company's deeds: what it has done, how far along the rest are, and the names
@@ -380,14 +377,11 @@ func _deeds_panel() -> Control:
 	var box := VBoxContainer.new()
 	box.name = "DeedsPanel"
 	box.add_theme_constant_override("separation", 10)
-	var earned := 0
 	for id in Achievements.ORDER:
 		var d: Dictionary = Achievements.DEEDS[id]
 		var done := Achievements.done(GameState, id)
 		var need := int(d["need"])
 		var have := need if done else Achievements.progress(GameState, id)
-		if done:
-			earned += 1
 		var row := PanelContainer.new()
 		row.name = "Deed_%s" % id
 		var sb := Style.box(Style.NIGHT, Style.BRASS.darkened(0.35) if done else Style.RULE, 2, 14)
@@ -417,31 +411,39 @@ func _deeds_panel() -> Control:
 		line.add_child(words)
 		var text: Label
 		if done:
-			text = Style.label("%s · Day %d" % [String(d["title"]).capitalize(), int(GameState.deeds[id].get("day", 1))], Style.SMALL, Style.BRASS)
+			text = Style.label(String(d["title"]).capitalize(), Style.SMALL, Style.BRASS)
 		else:
 			text = Style.label(String(d["goal"]).trim_suffix("."), Style.SMALL, Style.TEXT)
 		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		words.add_child(text)
 		var progress := HBoxContainer.new()
 		progress.add_theme_constant_override("separation", 10)
-		progress.add_child(Widgets.meter(float(have) / maxf(1.0, float(need)), Style.BRASS if done else Style.PLAYER_LIGHT.darkened(0.25), 12.0))
-		progress.add_child(Style.label("%d/%d" % [have, need], Style.SMALL, Style.MUTED))
+		if done:
+			progress.add_child(Widgets.stat("day", str(int(GameState.deeds[id].get("day", 1)))))
+		else:
+			progress.add_child(Widgets.meter(float(have) / maxf(1.0, float(need)), Style.PLAYER_LIGHT.darkened(0.25), 12.0))
+			progress.add_child(Style.label("%d/%d" % [have, need], Style.SMALL, Style.MUTED))
 		words.add_child(progress)
 		if done:
 			var carried: bool = GameState.company_title == id
+			# A toggle: lit brass while the company carries this name.
 			var b := Button.new()
 			b.name = "CarryTitle_%s" % id
-			b.text = "Carried" if carried else "Carry name"
-			b.add_theme_font_size_override("font_size", Style.SMALL)
-			b.custom_minimum_size = Vector2(0, Style.TOUCH)
+			b.text = "Carried" if carried else "Carry"
+			b.toggle_mode = true
+			b.button_pressed = carried
+			b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+			b.custom_minimum_size = Vector2(120, Style.TOUCH)
 			b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			if carried:
+				Style.make_primary(b)
 			b.pressed.connect(func():
 				GameState.set_company_title("" if carried else id)
 				GameState.save_game()
 				_build())
 			line.add_child(b)
 		box.add_child(row)
-	box.add_child(_note("%d of %d deeds. They are yours to chase or ignore; the campaign never ends on one." % [earned, Achievements.ORDER.size()]))
+	box.add_child(_note("Yours to chase or ignore; the campaign never ends on one."))
 	return box
 
 
@@ -480,31 +482,91 @@ func _on_moment_dismiss(key: String) -> void:
 	_build()
 
 
-func _upkeep_forecast() -> Label:
+## What the next day costs, as a card: wages and rations going out, and what's left after.
+func _upkeep_forecast(parent: Control) -> void:
 	var wages := GameState.daily_wages()
 	var stipend := GameState.contract_daily_pay()
 	var rations := GameState.total_men()
-	var due := "each campaign day"
+	var due := "daily"
 	if GameState.world != null:
 		var next_day := (floori(GameState.world.hour / 24.0) + 1) * 24
-		var hours := maxi(1, ceili(float(next_day) - GameState.world.hour))
-		due = "in %d %s" % [hours, "hour" if hours == 1 else "hours"]
+		due = Style.time_short(maxf(1.0, float(next_day) - GameState.world.hour))
 	var after_silver := GameState.silver - wages + stipend
 	var after_food := GameState.food - rations
-	var pay_text := "%d silver" % wages if stipend <= 0 else "%d silver (net %d with contract)" % [wages, wages - stipend]
-	var text := "Next payment %s · %s + %d rations · afterward: %d silver, %d rations" % [
-		due, pay_text, rations, maxi(0, after_silver), maxi(0, after_food)]
-	if after_silver < 0 or after_food < 0:
-		text += " · shortfall: men may leave"
-	return _note(text, Style.ENEMY_LIGHT if after_silver < 0 or after_food < 0 else Style.MUTED)
+	var short := after_silver < 0 or after_food < 0
+	var v := Widgets.card(parent, "Next pay", due, Style.ENEMY_LIGHT if short else Style.MUTED)
+	v.get_parent().name = "NextPayCard"
+	var aside := v.find_child("CardAside", true, false) as Control
+	if aside != null:
+		var clock := Widgets.icon_rect("clock", 26.0)
+		aside.get_parent().add_child(clock)
+		aside.get_parent().move_child(clock, aside.get_index())
+	v.add_child(_pay_line("silver", wages - stipend, maxi(0, after_silver), after_silver < 0))
+	v.add_child(_pay_line("food", rations, maxi(0, after_food), after_food < 0))
+	if short:
+		var warn := Widgets.chip("Men may leave", Style.MORALE_LOW, "▼")
+		warn.name = "Shortfall"
+		warn.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		v.add_child(warn)
+
+
+## One line of the pay card: the icon, what goes out, and what's left.
+func _pay_line(key: String, out: int, after: int, short: bool) -> HBoxContainer:
+	var h := HBoxContainer.new()
+	h.name = "Pay_%s" % key
+	h.add_theme_constant_override("separation", 12)
+	h.add_child(Widgets.icon_rect(key, 30.0))
+	var spent := Style.label("%s%s" % ["−" if out > 0 else "+", Widgets.thousands(absi(out))], Style.BODY, Style.ENEMY_LIGHT if out > 0 else Style.MORALE_HIGH)
+	spent.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_child(spent)
+	h.add_child(Style.label("→", Style.BODY, Style.MUTED))
+	h.add_child(Style.label(Widgets.thousands(after), Style.BODY, Style.ENEMY_LIGHT if short else Style.TEXT))
+	return h
+
+
+## How many squads against the cap, and the battles fought, as tiles.
+func _company_summary() -> Control:
+	var grid := Widgets.tile_grid([
+		Widgets.tile("company", "%d/%d" % [GameState.army.size(), GameState.squad_cap()], "squads"),
+		Widgets.tile("battle", str(GameState.battles), "%d won" % GameState.wins),
+	], 2)
+	grid.name = "CompanySummary"
+	return grid
+
+
+## The contract you ride under: the employer's banner, the daily pay and the days left.
+func _contract_strip() -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "ContractStrip"
+	panel.add_theme_stylebox_override("panel", Style.box(Style.PANEL, Style.RULE, 2, 14))
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 12)
+	panel.add_child(h)
+	var realm := GameState.contract_realm()
+	h.add_child(Widgets.banner(realm, Vector2(36, 50)))
+	var name_l := Style.label(String(WorldData.FACTIONS[realm]["name"]), Style.BODY, Style.TEXT)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_l.custom_minimum_size.x = 10
+	h.add_child(name_l)
+	h.add_child(Widgets.effect("silver", GameState.contract_daily_pay(), "/day"))
+	var days := int(GameState.contract.get("days_left", 0))
+	h.add_child(Widgets.stat("clock", "%d day%s" % [days, "" if days == 1 else "s"]))
+	return panel
 
 
 ## How to order the companies, as a row of choices; the picked one is lit.
 func _sort_control() -> Control:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 8)
-	col.add_child(Widgets.section("Sort companies"))
-	col.add_child(Widgets.segmented(["Roster", "Role", "Strength", "Experience", "Captain"], clampi(Scenes.warband_sort, 0, 4), _on_sort, "WarbandSort"))
+	col.add_child(Widgets.section("Sort"))
+	var seg := Widgets.segmented(["", "", "", "", ""], clampi(Scenes.warband_sort, 0, 4), _on_sort, "WarbandSort", SORT_ICONS)
+	for i in SORT_TIPS.size():
+		var tab := seg.find_child("Tab_%d" % i, true, false) as Button
+		if tab != null:
+			tab.tooltip_text = SORT_TIPS[i]
+			tab.accessibility_name = SORT_TIPS[i]
+	col.add_child(seg)
 	return col
 
 
@@ -545,111 +607,130 @@ func _restore_scroll(value: int) -> void:
 		_scroll.scroll_vertical = value
 
 
-func _section(text: String) -> Label:
-	var l := Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
-	l.add_theme_constant_override("line_spacing", 2)
-	return l
-
-
+## One company on the roster, in three lines: the face with the troop on its badge, the
+## name with men and wounded; the captain with their temperament and quirk; the strength
+## meter with level pips and Train when it's ready. The profile holds the rest.
 func _squad_row(s: Dictionary) -> Control:
 	var type: String = s["type"]
 	var unit_id := String(s.get("unit", ""))
 	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(type)
 	var men: int = s["men"]
 	var level := int(s.get("level", 1))
+	var wounded: int = int(s.get("wounded", 0))
 	var panel := PanelContainer.new()
+	panel.name = "Squad_%d" % int(s.get("id", 0))
+	var c = s.get("captain")
+	var hurt: bool = c != null and int(c.get("wounded", 0)) > 0
+	var sb := Style.box(Style.RAISED, Style.ENEMY_LIGHT.darkened(0.3) if hurt else Style.RULE, 2, 14)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 14
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 12
+	panel.add_theme_stylebox_override("panel", sb)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
-	var c = s.get("captain")
-	if c != null and int(c.get("wounded", 0)) > 0:
-		panel.add_theme_stylebox_override("panel", Style.box(Style.PANEL, Style.ENEMY_LIGHT, 2, 14))
 	row.add_child(_squad_art(c, s))
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text.add_theme_constant_override("separation", 2)
+	text.add_theme_constant_override("separation", 6)
+	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(text)
+
+	# The company, with its men (and wounded) on the right.
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text.add_child(head)
 	var title := String(s.get("name", ""))
-	text.add_child(Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY))
-	var who: Label
-	if c == null:
-		who = Style.label("No captain", Style.SMALL, Style.ENEMY_LIGHT)
-	else:
-		var hero_star := "★ " if bool(c.get("is_hero", false)) else ""
-		var spec_tag := " · %s" % c["specialization"] if String(c.get("specialization", "")) != "" else ""
-		if int(c.get("wounded", 0)) > 0:
-			who = Style.label("%s%s · wounded, back in %d%s" % [hero_star, c["name"], c["wounded"], spec_tag], Style.SMALL, Style.ENEMY_LIGHT)
-		else:
-			who = Style.label("%s%s%s · %s" % [hero_star, c["name"], spec_tag, Captains.traits(c)], Style.SMALL, Style.MUTED)
-	who.text = "%s · %s" % [Units.troop_name(s, GameState.culture), who.text]
-	who.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	who.custom_minimum_size = Vector2(10, 0)
-	text.add_child(who)
-	if c != null and Captains.can_specialize(c):
-		var promo := Style.label("★ Promotion ready · tap to choose a role", Style.SMALL, Style.BRASS)
-		promo.name = "PromotionReady_%d" % int(c.get("id", -1))
-		promo.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		promo.custom_minimum_size = Vector2(10, 0)
-		text.add_child(promo)
-	var wounded: int = int(s.get("wounded", 0))
-	var str_label := "Strength · %d/%d" % [men, full]
+	var name_l := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_l.custom_minimum_size.x = 10
+	head.add_child(name_l)
+	head.add_child(Widgets.icon_value("men", "%d/%d" % [men, full], Style.TEXT if men >= full else Style.ENEMY_LIGHT))
 	if wounded > 0:
-		str_label += " (+%d wounded)" % wounded
-	text.add_child(_meter(str_label, men, full,
-		Style.MORALE_HIGH if men >= full * 0.65 else (Style.MORALE_MID if men >= full * 0.35 else Style.MORALE_LOW)))
-	var xp := int(s.get("xp", 0))
-	var xp_target := maxi(Troops.XP_PER_LEVEL, level * Troops.XP_PER_LEVEL)
-	var xp_text := "Experience · %d/%d" % [mini(xp, xp_target), xp_target]
+		head.add_child(Widgets.icon_value("wounded", str(wounded), Style.ENEMY_LIGHT))
+
+	# The captain: their name, and their temperament and quirk as icons.
+	var who := HFlowContainer.new()
+	who.add_theme_constant_override("h_separation", 8)
+	who.add_theme_constant_override("v_separation", 6)
+	who.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text.add_child(who)
+	if c == null:
+		who.add_child(Style.label("No captain", Style.SMALL, Style.ENEMY_LIGHT))
+	else:
+		var star := "★ " if bool(c.get("is_hero", false)) else ""
+		var first := Style.label(star + String(c.get("first", c.get("name", "Captain"))), Style.SMALL, Style.ENEMY_LIGHT if hurt else Style.MUTED)
+		first.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		who.add_child(first)
+		var spec := String(c.get("specialization", ""))
+		if spec != "":
+			var role := Widgets.chip("", Color("f3d891"), "", String(Captains.SPECIALIZATION_ICONS.get(spec, "")), true)
+			role.tooltip_text = spec
+			who.add_child(role)
+		for t in _trait_keys(c):
+			var tc := Widgets.chip("", Style.TEXT, "", t)
+			tc.name = "Trait_%s" % t
+			tc.tooltip_text = t.capitalize()
+			who.add_child(tc)
+		if hurt:
+			var back := Widgets.chip(str(int(c["wounded"])), Style.ENEMY_LIGHT, "", "battle")
+			back.name = "BackIn"
+			back.tooltip_text = "Back after %d battle%s" % [int(c["wounded"]), "" if int(c["wounded"]) == 1 else "s"]
+			who.add_child(back)
+		if Captains.can_specialize(c):
+			var promo := Widgets.chip("Promotion", Style.BRASS, "★", "", true)
+			promo.name = "PromotionReady_%d" % int(c.get("id", -1))
+			who.add_child(promo)
+
+	# Strength, then the level as pips and Train when it's ready.
+	var strength := Widgets.meter(float(men) / maxf(1.0, float(full)),
+		Style.MORALE_HIGH if men >= full * 0.65 else (Style.MORALE_MID if men >= full * 0.35 else Style.MORALE_LOW), 12.0)
+	strength.name = "WarbandMeter"
+	text.add_child(strength)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 10)
+	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	text.add_child(foot)
+	foot.add_child(_level_pips(level))
 	if GameState.can_train(s):
-		xp_text += " · training ready"
-	text.add_child(_meter(xp_text, mini(xp, xp_target), xp_target, Style.BRASS))
-	if c != null:
-		var bond := _best_bond(c)
-		text.add_child(_meter(String(bond["label"]), float(bond["value"]), float(bond["target"]), Style.PLAYER_LIGHT))
-	if GameState.can_train(s):
-		row.add_child(Style.label("Lv%d+" % level, Style.SMALL, Style.BRASS))
-	elif level > 1:
-		row.add_child(Style.label("Lv%d" % level, Style.SMALL, Style.BRASS))
-	var count_text := "%d/%d" % [men, full] if wounded == 0 else "%d(+%d)/%d" % [men, wounded, full]
-	row.add_child(Style.label(count_text, Style.BODY, Style.TEXT if men >= full else Style.ENEMY_LIGHT))
+		var train := Widgets.chip("Train", Style.BRASS, "▲", "", true)
+		train.name = "TrainReady_%d" % int(s.get("id", 0))
+		foot.add_child(train)
 	if c != null:
 		_add_profile_tap(panel, int(c.get("id", -1)), String(c.get("name", "Captain")))
 	return panel
 
 
-func _meter(label_text: String, value: float, maximum: float, color: Color) -> Control:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
-	box.add_child(Style.label(label_text, Style.SMALL, Style.MUTED))
-	var bar := ProgressBar.new()
-	bar.name = "WarbandMeter"
-	bar.show_percentage = false
-	bar.min_value = 0.0
-	bar.max_value = maxf(1.0, maximum)
-	bar.value = clampf(value, 0.0, bar.max_value)
-	bar.custom_minimum_size.y = 12
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.add_theme_stylebox_override("fill", Style.box(color, Color(0, 0, 0, 0), 0, 5))
-	box.add_child(bar)
-	return box
+## The icons for a captain's temperament and quirk, lowercased to their icon keys.
+func _trait_keys(c: Dictionary) -> Array:
+	var out := []
+	for k in [String(c.get("temperament", "")), String(c.get("quirk", ""))]:
+		if k != "":
+			out.append(k.to_lower())
+	return out
 
 
-func _best_bond(captain: Dictionary) -> Dictionary:
-	var points := 0.0
-	var other_name := "No bond yet"
-	for other_id in captain.get("bonds", {}):
-		var candidate := float(captain["bonds"][other_id])
-		if candidate > points:
-			points = candidate
-			var other = GameState.captain_by_id(int(other_id))
-			other_name = String(other["first"]) if other != null else "Bond"
-	var rank_index := Captains.rank_for(points)
-	var target: float = float(Captains.RANK_POINTS[rank_index + 1]) if rank_index + 1 < Captains.RANK_POINTS.size() else float(Captains.RANK_POINTS[-1])
-	var next_rank: String = String(Captains.RANKS[rank_index + 1]) if rank_index + 1 < Captains.RANKS.size() else "A"
-	var label := "Bond · %s · %.0f/%.0f to %s" % [other_name, points, target, next_rank]
-	if rank_index == Captains.RANKS.size() - 1:
-		label = "Bond · %s · rank A" % other_name
-	return {"label": label, "value": points, "target": target}
+## A company's level as three pips, filled to its level.
+func _level_pips(level: int) -> Control:
+	var pips := Control.new()
+	pips.name = "LevelPips"
+	pips.custom_minimum_size = Vector2(Troops.MAX_LEVEL * 26.0, 26.0)
+	pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pips.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pips.tooltip_text = "Level %d of %d" % [level, Troops.MAX_LEVEL]
+	pips.set_meta("level", level)
+	pips.draw.connect(func():
+		for i in Troops.MAX_LEVEL:
+			var at := Vector2(11.0 + i * 26.0, pips.size.y / 2.0)
+			if i < level:
+				pips.draw_circle(at, 9.0, Style.BRASS)
+			else:
+				pips.draw_arc(at, 8.0, 0.0, TAU, 24, Style.RULE.lightened(0.2), 2.0, true))
+	return pips
 
 
 func _note(text: String, color: Color = Style.MUTED) -> Label:
@@ -658,70 +739,103 @@ func _note(text: String, color: Color = Style.MUTED) -> Label:
 	return l
 
 
+## A contract you've taken: its kind as an icon, the title, the brief, then what's left
+## of the time and what it pays as chips. Abandon asks first.
 func _active_job_row(job: Dictionary) -> Control:
 	var panel := PanelContainer.new()
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	panel.add_child(margin)
-
+	panel.name = "Job_%s" % String(job.get("id", ""))
+	var sb := Style.box(Style.RAISED, Style.RULE, 2, 14)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 14
+	sb.content_margin_top = 12
+	sb.content_margin_bottom = 12
+	panel.add_theme_stylebox_override("panel", sb)
 	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	margin.add_child(v)
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
 
 	var h := HBoxContainer.new()
-	h.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	h.add_theme_constant_override("separation", 12)
 	v.add_child(h)
-
-	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.BRASS)
+	h.add_child(Widgets.icon_rect(String(JOB_ICONS.get(String(job.get("type", "")), "book")), 36.0))
+	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.BODY, Style.BRASS)
 	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	h.add_child(title_lbl)
-
 	var jid: String = String(job.get("id", ""))
 	var abandon_btn := Button.new()
+	abandon_btn.name = "Abandon_%s" % jid
 	abandon_btn.text = "Abandon"
-	abandon_btn.custom_minimum_size = Vector2(100, 36)
+	abandon_btn.custom_minimum_size = Vector2(130, Style.TOUCH)
+	abandon_btn.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	abandon_btn.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
-	abandon_btn.pressed.connect(func():
-		GameState.abandon_job(jid)
-		_build()
-	)
+	abandon_btn.pressed.connect(_confirm_abandon.bind(jid, String(job.get("title", "Contract"))))
 	h.add_child(abandon_btn)
 
-	var desc_lbl := Style.label(String(job.get("description", "")), Style.BODY, Style.TEXT)
+	var desc_lbl := Style.label(String(job.get("description", "")), Style.SMALL, Style.TEXT)
 	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(desc_lbl)
 
 	var w = GameState.world
 	var cur_hour: float = w.hour if w != null else 0.0
 	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - cur_hour)
-	var status_text := "Deadline: %.0fh remaining · Reward: %d silver, +%d renown, +%d standing" % [
-		hrs_left,
-		int(job.get("reward_silver", 0)),
-		int(job.get("reward_renown", 0)),
-		int(job.get("reward_relation", 0))
-	]
-	v.add_child(Style.label(status_text, Style.SMALL, Style.MUTED))
+	var chips: Array = [Widgets.stat("clock", Style.time_short(hrs_left), Style.ENEMY_LIGHT if hrs_left < 24.0 else Style.TEXT)]
+	for pair in [["silver", "reward_silver"], ["renown", "reward_renown"], ["bond", "reward_relation"]]:
+		var n := int(job.get(pair[1], 0))
+		if n != 0:
+			chips.append(Widgets.effect(pair[0], n))
+	var terms := Widgets.chip_row(chips)
+	terms.name = "JobTerms"
+	v.add_child(terms)
 	return panel
 
 
-## Your fief as it stands today, in its own picture, with what waits there for you.
+## Abandoning a contract can't be undone, so it asks on a sheet.
+func _confirm_abandon(jid: String, title: String) -> void:
+	var col := Widgets.sheet(self, "Abandon contract?", "AbandonSheet")
+	col.add_child(_note("%s. Nothing is paid, and the board may not post it again." % title, Style.TEXT))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	col.add_child(row)
+	var keep := Button.new()
+	keep.name = "KeepContract"
+	keep.text = "Keep it"
+	keep.custom_minimum_size.y = Style.TOUCH
+	keep.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	keep.pressed.connect(func(): Widgets.close_sheet(col))
+	row.add_child(keep)
+	var go := Button.new()
+	go.name = "ConfirmAbandon"
+	go.text = "Abandon"
+	go.custom_minimum_size.y = Style.TOUCH
+	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	go.add_theme_color_override("font_color", Style.ENEMY_LIGHT)
+	go.pressed.connect(func():
+		Widgets.close_sheet(col)
+		GameState.abandon_job(jid)
+		_build())
+	row.add_child(go)
+
+
+## Your fief as it stands today, in its own picture, under its realm's banner, with what
+## waits there for you as four tiles.
 func _fief_overview_row() -> Control:
 	var v := VBoxContainer.new()
 	v.name = "FiefOverview"
-	v.add_theme_constant_override("separation", 8)
+	v.add_theme_constant_override("separation", 10)
 	var fid := GameState.fief_id()
 	var vista := SettlementVista.make(fid, GameState.world, 120.0)
 	vista.name = "FiefVista"
 	v.add_child(vista)
 
-	var s_name := String(WorldData.settlement(fid)["name"])
-	var r_name := String(WorldData.FACTIONS[GameState.fief_realm()]["name"])
-	var title_lbl := Style.label("%s · %s" % [s_name, r_name], Style.LARGE, Style.BRASS)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	v.add_child(head)
+	head.add_child(Widgets.banner(GameState.fief_realm(), Vector2(34, 48)))
+	var title_lbl := Style.label(String(WorldData.settlement(fid)["name"]), Style.LARGE, Style.BRASS)
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(title_lbl)
+	head.add_child(title_lbl)
 
 	var f := GameState.player_fief
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
@@ -730,16 +844,18 @@ func _fief_overview_row() -> Control:
 	for k in Fiefs.IMPROVEMENT_ORDER:
 		if bool(f.get("improvements", {}).get(k, false)):
 			built += 1
-	var lines := PackedStringArray()
-	lines.append("%d squad%s stationed" % [garr, "" if garr == 1 else "s"] if garr > 0 else "No squads stationed")
-	lines.append("%s silver and %d rations waiting" % [Widgets.thousands(int(f.get("silver", 0))), int(f.get("food", 0))])
-	lines.append("%d of %d built" % [built, Fiefs.IMPROVEMENT_ORDER.size()])
-	var status_lbl := Style.label(" · ".join(lines), Style.SMALL, Style.TEXT)
-	status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(status_lbl)
+	var grid := Widgets.tile_grid([
+		Widgets.tile("company", str(garr), "stationed"),
+		Widgets.tile("keep", "%d/%d" % [built, Fiefs.IMPROVEMENT_ORDER.size()], "built"),
+		Widgets.tile("silver", Widgets.thousands(int(f.get("silver", 0))), "waiting"),
+		Widgets.tile("food", Widgets.thousands(int(f.get("food", 0))), "waiting"),
+	], 2)
+	grid.name = "FiefTiles"
+	v.add_child(grid)
 	if is_b:
-		var raid := Style.label("Raided: it needs rebuilding.", Style.SMALL, Style.ENEMY_LIGHT)
-		raid.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var raid := Widgets.chip("Raided: needs rebuilding", Style.MORALE_LOW, "", "fire")
+		raid.name = "FiefRaided"
+		raid.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		v.add_child(raid)
 	return v
 
@@ -751,15 +867,17 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 	var waiting: Array = GameState.new_bond_talks()
 	tab.add_child(_note("Captains who fight within reach of each other grow close. Each rank steadies them when near each other, and opens a talk at the fire."))
 	if not waiting.is_empty():
-		tab.add_child(_section("Talks at the fire"))
+		var wc := Widgets.card(tab, "Talks at the fire", str(waiting.size()), Style.BRASS, true)
+		wc.get_parent().name = "TalksCard"
 		for b in waiting:
-			tab.add_child(_bond_row(b))
+			wc.add_child(_bond_row(b))
 	var rest: Array = ranked.filter(func(b): return not waiting.has(b))
 	rest.sort_custom(func(x, y): return _to_next_rank(float(x["points"])) < _to_next_rank(float(y["points"])))
 	if not rest.is_empty():
-		tab.add_child(_section("Bonds · closest to a rank first"))
+		var rc := Widgets.card(tab, "Bonds", "closest to a rank first")
+		rc.get_parent().name = "BondsListCard"
 		for b in rest:
-			tab.add_child(_bond_row(b))
+			rc.add_child(_bond_row(b))
 	# Pairs that have fought together but haven't reached rank C.
 	var growing := []
 	for i in GameState.army.size():
@@ -775,9 +893,10 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 				growing.append({"a": a, "b": b, "points": points})
 	growing.sort_custom(func(x, y): return float(x["points"]) > float(y["points"]))
 	if not growing.is_empty():
-		tab.add_child(_section("Growing"))
+		var gc := Widgets.card(tab, "Growing", "toward rank C")
+		gc.get_parent().name = "GrowingCard"
 		for g in growing:
-			tab.add_child(_growing_row(g))
+			gc.add_child(_growing_row(g))
 	var remembered := []
 	for sq in GameState.army:
 		var c = sq.get("captain")
@@ -786,9 +905,9 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 		for name in c.get("history", {}).get("fallen_friends", []):
 			remembered.append("%s remembers %s." % [c["first"], name])
 	if not remembered.is_empty():
-		tab.add_child(_section("Remembered"))
+		var mc := Widgets.card(tab, "Remembered")
 		for line in remembered:
-			tab.add_child(_note(line))
+			mc.add_child(_note(line))
 	if ranked.is_empty() and growing.is_empty():
 		tab.add_child(_note("None yet. Fight with captains side by side and they'll grow close."))
 
@@ -800,56 +919,19 @@ func _to_next_rank(points: float) -> float:
 
 
 func _growing_row(g: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	panel.add_child(row)
-	row.add_child(CaptainArt.portrait(g["a"], Vector2(36, 48)))
-	row.add_child(CaptainArt.portrait(g["b"], Vector2(36, 48)))
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.add_child(Style.label("%s & %s" % [g["a"]["first"], g["b"]["first"]], Style.SMALL, Style.TEXT))
-	var target := float(Captains.RANK_POINTS[1])
-	words.add_child(_meter("%.0f/%.0f toward rank C" % [float(g["points"]), target], float(g["points"]), target, Style.MUTED))
-	row.add_child(words)
-	return panel
+	return BondRow.make([g["a"], g["b"]], "%s & %s" % [g["a"]["first"], g["b"]["first"]], float(g["points"]))
 
 
+## A bond on the shared row: both faces, the rank, what it does, the meter to the next
+## rank, and the talk at the fire behind the talk button, dotted when there's a new one.
 func _bond_row(bond: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 8)
-	panel.add_child(stack)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	stack.add_child(row)
 	var a: Dictionary = bond["a"]
 	var b: Dictionary = bond["b"]
-	var a_face := CaptainArt.portrait(a, Vector2(45, 60))
-	var b_face := CaptainArt.portrait(b, Vector2(45, 60))
-	row.add_child(a_face)
-	row.add_child(b_face)
-	var words := VBoxContainer.new()
-	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	words.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_child(words)
-	words.add_child(Style.label("%s & %s" % [a["first"], b["first"]], Style.BODY, Style.TEXT))
 	var record := GameState.bond_record(int(a["id"]), int(b["id"]))
-	var shared := int(record.get("shared_battles", 0))
-	var history_text: String = "%d shared %s" % [shared, "battle" if shared == 1 else "battles"] if shared > 0 else "earlier battle record unavailable"
-	words.add_child(_note("Bond %s · %.0f shared points · %s" % [bond["rank"], float(bond["points"]), history_text], Style.BRASS))
-	words.add_child(_note(GameState.bond_effect_text(float(bond["points"])), Style.TEXT))
-	var rank_index := Captains.rank_for(float(bond["points"]))
-	var target: float = float(Captains.RANK_POINTS[rank_index + 1]) if rank_index + 1 < Captains.RANK_POINTS.size() else float(Captains.RANK_POINTS[-1])
-	var progress_text: String = "Highest rank reached" if rank_index + 1 >= Captains.RANKS.size() else "%.0f/%.0f points toward rank %s" % [float(bond["points"]), target, Captains.RANKS[rank_index + 1]]
-	stack.add_child(_meter(progress_text, float(bond["points"]), target, Style.BRASS))
-	var talk := Button.new()
-	talk.name = "BondConversation_%d_%d" % [int(a["id"]), int(b["id"])]
-	talk.text = "Spend time at camp" + (" · new" if GameState.bond_conversation_is_new(int(a["id"]), int(b["id"])) else "")
-	talk.custom_minimum_size.y = Style.TOUCH
-	talk.pressed.connect(_open_bond.bind(int(a["id"]), int(b["id"])))
-	stack.add_child(talk)
-	return panel
+	var is_new := GameState.bond_conversation_is_new(int(a["id"]), int(b["id"]))
+	return BondRow.make([a, b], "%s & %s" % [a["first"], b["first"]], float(bond["points"]),
+		int(record.get("shared_battles", 0)), _open_bond.bind(int(a["id"]), int(b["id"])), is_new,
+		Callable(), "BondConversation_%d_%d" % [int(a["id"]), int(b["id"])])
 
 
 func _open_bond(a_id: int, b_id: int) -> void:
@@ -860,127 +942,152 @@ func _open_bond(a_id: int, b_id: int) -> void:
 	Scenes.go("res://scenes/bond_conversation.tscn")
 
 
+## A fallen captain: the dimmed face, their battles and kills as chips, Avenged, and the
+## banner of the host that cut them down. Their last words stay as words.
 func _memorial_row(f: Dictionary) -> Control:
 	var panel := PanelContainer.new()
+	panel.name = "Memorial_%d" % int(f.get("id", 0))
 	panel.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.RULE, 2, 14))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
 	var portrait := _captain_or_unit(f, f)
 	portrait.modulate = Color(0.55, 0.55, 0.6)
 	row.add_child(portrait)
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 6)
+	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(text)
-	text.add_child(Style.label(String(f.get("name", "")), Style.BODY))
-	var deeds := "%s · fell in battle %d · fought %d, felled %d" % [f.get("company", ""), int(f.get("battle", 0)),
-		int(f.get("battles", 0)), int(f.get("kills", 0))]
-	if f.get("killed_by_lord_name", "") != "":
-		deeds += " · slain by the men of %s" % f["killed_by_lord_name"]
+	text.add_child(Style.name_label(String(f.get("name", "")), Style.BODY))
+	if String(f.get("company", "")) != "":
+		text.add_child(_note("Led %s · fell in battle %d" % [f["company"], int(f.get("battle", 0))]))
+	var chips: Array = [Widgets.stat("battle", str(int(f.get("battles", 0)))), Widgets.stat("skull", str(int(f.get("kills", 0))))]
 	if bool(f.get("avenged", false)):
-		deeds += " · [Avenged]"
+		var av := Widgets.chip("Avenged", Style.BRASS, "★", "", true)
+		av.name = "AvengedChip"
+		chips.append(av)
+	var marks := Widgets.chip_row(chips)
+	text.add_child(marks)
+	if String(f.get("killed_by_lord_name", "")) != "":
+		var slayer := HBoxContainer.new()
+		slayer.name = "Slayer"
+		slayer.add_theme_constant_override("separation", 8)
+		slayer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var l: Dictionary = GameState.world.lord_by_id(int(f.get("killed_by_lord_id", -1))) if GameState.world != null else {}
+		if not l.is_empty():
+			slayer.add_child(Widgets.banner(String(l.get("realm", "")), Vector2(24, 34)))
+		slayer.add_child(Widgets.icon_rect("skull", 22.0))
+		var by := Style.label(String(f["killed_by_lord_name"]), Style.SMALL, Style.MUTED)
+		by.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		by.custom_minimum_size.x = 10
+		by.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		slayer.add_child(by)
+		text.add_child(slayer)
 	var bonds: Array = f.get("bonds", [])
 	if not bonds.is_empty():
-		deeds += " · mourned by " + ", ".join(PackedStringArray(bonds))
-	var d := Style.label(deeds, Style.SMALL, Style.MUTED)
-	d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	text.add_child(d)
+		text.add_child(_note("Mourned by " + ", ".join(PackedStringArray(bonds))))
 	if String(f.get("words", "")) != "":
 		var w := Style.label("\"%s\"" % f["words"], Style.SMALL, Style.BRASS)
 		w.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text.add_child(w)
 	if String(f.get("avenged_words", "")) != "":
-		var av := Style.label(f["avenged_words"], Style.SMALL, Style.PLAYER_LIGHT)
-		av.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		text.add_child(av)
+		var av_words := Style.label(f["avenged_words"], Style.SMALL, Style.PLAYER_LIGHT)
+		av_words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		text.add_child(av_words)
 	if int(f.get("id", 0)) > 0:
 		_add_profile_tap(panel, int(f["id"]), String(f.get("name", "Captain")))
 	return panel
 
 
+## A captive lord: their face and banner, and what you can do with them as verbs, each
+## with what it brings under it. A refusal says why on the screen.
 func _captive_lord_row(cl: Dictionary) -> Control:
 	var panel := PanelContainer.new()
+	var lord_id := int(cl["id"])
+	panel.name = "Captive_%d" % lord_id
 	panel.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.RULE, 2, 14))
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 6)
+	col.add_theme_constant_override("separation", 10)
 	panel.add_child(col)
 
-	var title_row := HBoxContainer.new()
-	title_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(title_row)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 12)
+	col.add_child(head)
+	var face := CaptainArt.portrait(LordVoice.portrait_record(cl), Vector2(56, 70))
+	if face.texture != null:
+		head.add_child(Widgets.framed(face, Vector2(56, 70)))
+	var realm := String(cl.get("realm", ""))
+	var who := VBoxContainer.new()
+	who.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	who.alignment = BoxContainer.ALIGNMENT_CENTER
+	who.add_theme_constant_override("separation", 6)
+	head.add_child(who)
+	var name_lbl := Style.name_label(String(cl.get("name", "Captive Lord")), Style.BODY)
+	name_lbl.add_theme_color_override("font_color", Style.BRASS)
+	who.add_child(name_lbl)
+	var marks := HBoxContainer.new()
+	marks.add_theme_constant_override("separation", 8)
+	who.add_child(marks)
+	marks.add_child(Widgets.stat("renown", str(int(cl.get("renown", 0)))))
+	head.add_child(Widgets.banner(realm, Vector2(40, 56)))
 
-	var name_lbl := Style.label(String(cl.get("name", "Captive Lord")), Style.BODY, Style.BRASS)
-	name_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	title_row.add_child(name_lbl)
-
-	var realm_name: String = WorldData.FACTIONS.get(cl.get("realm", ""), {}).get("name", cl.get("realm", ""))
-	var desc := "%s · Renown %d · Held in baggage" % [realm_name, int(cl.get("renown", 0))]
-	col.add_child(_note(desc))
-
-	# A flow, not a row: a crowned company has three or four choices for each captive,
+	# A flow, not a row: a crowned company has four or five choices for each captive,
 	# more than fit across a phone, so they wrap onto a second line.
 	var btns := HFlowContainer.new()
-	btns.add_theme_constant_override("h_separation", 8)
-	btns.add_theme_constant_override("v_separation", 8)
+	btns.add_theme_constant_override("h_separation", 10)
+	btns.add_theme_constant_override("v_separation", 10)
 	col.add_child(btns)
-
-	var lord_id := int(cl["id"])
 	var ransom := int(cl.get("ransom_amount", 200))
 
-	var talk_btn := Button.new()
-	talk_btn.name = "TalkToCaptive_%d" % lord_id
-	talk_btn.text = "Talk"
-	talk_btn.pressed.connect(func():
+	var talk_btn := _captive_button("TalkToCaptive_%d" % lord_id, "Talk", func():
 		var talk = load("res://scripts/world/lord_conversation.gd").open(self, GameState, lord_id, "captive")
-		talk.closed.connect(_build)
-	)
-	btns.add_child(talk_btn)
+		talk.closed.connect(_build))
+	talk_btn.icon = Widgets.icon("talk")
+	btns.add_child(Widgets.priced(talk_btn, []))
 
-	var ransom_btn := Button.new()
-	ransom_btn.text = "Ransom · %d s" % ransom
-	ransom_btn.pressed.connect(func():
+	var ransom_btn := _captive_button("Ransom_%d" % lord_id, "Ransom", func():
 		GameState.accept_lord_ransom(lord_id)
 		Sound.play("coins")
-		_build()
-	)
-	btns.add_child(ransom_btn)
+		_build())
+	btns.add_child(Widgets.priced(ransom_btn, [["silver", "+" + Widgets.thousands(ransom)]]))
 
-	if GameState.has_contract() and GameState.world != null and GameState.world.at_war(GameState.contract_realm(), String(cl.get("realm", ""))):
+	if GameState.has_contract() and GameState.world != null and GameState.world.at_war(GameState.contract_realm(), realm):
 		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
-		var deliver_btn := Button.new()
-		deliver_btn.text = "Deliver · %d s" % bonus
-		deliver_btn.pressed.connect(func():
+		var deliver_btn := _captive_button("Deliver_%d" % lord_id, "Deliver", func():
 			GameState.deliver_lord_to_employer(lord_id)
 			Sound.play("coins")
-			_build()
-		)
-		btns.add_child(deliver_btn)
+			_build())
+		btns.add_child(Widgets.priced(deliver_btn, [["silver", "+" + Widgets.thousands(bonus)]]))
 
-	var honor_btn := Button.new()
-	honor_btn.text = "Release for honor"
-	honor_btn.pressed.connect(func():
+	var honor_btn := _captive_button("Release_%d" % lord_id, "Release", func():
 		GameState.release_lord_for_honor(lord_id)
 		Sound.play("page")
-		_build()
-	)
-	btns.add_child(honor_btn)
+		_build())
+	btns.add_child(Widgets.priced(honor_btn, [["bond", "+%d" % GameState.RELEASE_REGARD], ["renown", "+%d" % GameState.RELEASE_RENOWN]]))
 
 	if GameState.is_crowned():
-		var swear := Button.new()
-		swear.name = "SwearToCrown_%d" % lord_id
 		var check: Dictionary = GameState.swear_check(lord_id)
-		swear.text = "Swear to your crown" if check["ok"] else "Won't swear"
-		swear.disabled = not check["ok"]
-		swear.tooltip_text = String(check["reason"])
-		swear.pressed.connect(func():
+		var swear := _captive_button("SwearToCrown_%d" % lord_id, "Swear", func():
 			GameState.swear_lord_to_crown(lord_id)
 			Sound.play("horn")
-			_build()
-		)
-		btns.add_child(swear)
-
+			_build())
+		swear.icon = Widgets.icon("crown")
+		swear.disabled = not check["ok"]
+		var priced := Widgets.priced(swear, [], String(check["reason"]))
+		btns.add_child(priced)
 	return panel
+
+
+func _captive_button(button_name: String, text: String, act: Callable) -> Button:
+	var b := Button.new()
+	b.name = button_name
+	b.text = text
+	b.custom_minimum_size = Vector2(150, Style.TOUCH)
+	b.add_theme_constant_override("icon_max_width", 30)
+	b.pressed.connect(act)
+	return b
 
 
 ## Captains who have earned a veteran role and not yet chosen one.
@@ -1037,16 +1144,34 @@ func _captain_or_unit(captain, squad: Dictionary) -> TextureRect:
 	return _portrait(_kit(squad), String(squad.get("culture", GameState.culture)))
 
 
+## The captain's face with their troop on a round badge at its foot; the troop alone when
+## there's no face to draw.
 func _squad_art(captain, squad: Dictionary) -> Control:
 	if typeof(captain) != TYPE_DICTIONARY or CaptainArt.texture(captain) == null:
 		return _portrait(_kit(squad), String(squad.get("culture", GameState.culture)))
-	var art := HBoxContainer.new()
+	var art := Control.new()
 	art.name = "CaptainAndTroopArt"
-	art.add_theme_constant_override("separation", 4)
-	art.add_child(CaptainArt.portrait(captain, Vector2(48, 64)))
+	art.custom_minimum_size = Vector2(66, 84)
+	art.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var face := CaptainArt.portrait(captain, Vector2(60, 80))
+	face.position = Vector2.ZERO
+	face.size = Vector2(60, 80)
+	if int(captain.get("wounded", 0)) > 0:
+		face.modulate = Color(0.75, 0.75, 0.82)
+	art.add_child(face)
+	var badge := Panel.new()
+	badge.name = "TroopBadge"
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, Style.BRASS.darkened(0.3), 2, 18))
+	badge.position = Vector2(30, 48)
+	badge.size = Vector2(36, 36)
+	art.add_child(badge)
 	var unit := _portrait(_kit(squad), String(squad.get("culture", GameState.culture)))
-	unit.custom_minimum_size = Vector2(38, 38)
-	art.add_child(unit)
+	unit.custom_minimum_size = Vector2(30, 30)
+	unit.position = Vector2(3, 3)
+	unit.size = Vector2(30, 30)
+	badge.add_child(unit)
 	return art
 
 

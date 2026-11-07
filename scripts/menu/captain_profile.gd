@@ -13,6 +13,7 @@ const Captains = preload("res://scripts/data/captains.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Units = preload("res://scripts/data/units.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
+const BondRow = preload("res://scripts/ui/bond_row.gd")
 
 ## The role selected in the promotion card, waiting for Promote ("" for none).
 var _picked := ""
@@ -35,36 +36,23 @@ func _build() -> void:
 	_options.clear()
 	_promote = null
 	theme = Style.make_theme()
-	var bg := ColorRect.new()
-	bg.color = Style.NIGHT
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
 	var insets := Style.safe_insets(get_viewport())
 	var frame := VBoxContainer.new()
 	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	frame.add_theme_constant_override("separation", 0)
 	add_child(frame)
-	_scroll = ScrollContainer.new()
-	_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	frame.add_child(_scroll)
-	var margin := MarginContainer.new()
-	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	margin.add_theme_constant_override("margin_left", 36)
-	margin.add_theme_constant_override("margin_right", 36)
-	margin.add_theme_constant_override("margin_top", 48 + int(insets["top"]))
-	margin.add_theme_constant_override("margin_bottom", 28)
-	_scroll.add_child(margin)
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 22)
-	margin.add_child(col)
+	var page := Control.new()
+	page.name = "Page"
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	frame.add_child(page)
+	var col := Page.frame(page, 1.0)
+	_scroll = col.get_parent().get_parent() as ScrollContainer
 
 	var found := _find_captain(Scenes.active_captain_id)
 	if found.is_empty():
 		col.add_child(Page.note("Captain unavailable", 52, Style.BRASS))
 		col.add_child(Page.note("This captain is no longer in the company record."))
-		frame.add_child(_bar([_back_button()], insets))
+		frame.add_child(Widgets.bottom_bar([_back_button()], insets))
 		return
 	var captain: Dictionary = found["captain"]
 	var fallen := bool(found.get("fallen", false))
@@ -93,7 +81,7 @@ func _build() -> void:
 		_promote.name = "PromoteButton"
 		buttons.append(_promote)
 		_refresh_options()
-	frame.add_child(_bar(buttons, insets))
+	frame.add_child(Widgets.bottom_bar(buttons, insets))
 
 
 func _find_captain(id: int) -> Dictionary:
@@ -136,18 +124,15 @@ func _add_hero(col: VBoxContainer, captain: Dictionary, found: Dictionary, falle
 	var company := String(found.get("company", ""))
 	if company != "":
 		identity.add_child(Page.note(("Led %s" if fallen else "Captain of %s") % company, Style.BODY, Style.TEXT))
-	var unit := String(found.get("unit_name", "Captain"))
-	if not fallen:
-		var squad: Dictionary = found["squad"]
-		unit += " · Level %d" % int(squad.get("level", Troops.level_for(int(squad.get("xp", 0)))))
-	identity.add_child(Page.note(unit, Style.SMALL, Style.MUTED))
+	identity.add_child(Page.note(String(found.get("unit_name", "Captain")), Style.SMALL, Style.MUTED))
 
 	var chips: Array = []
 	var status: PanelContainer
 	if fallen:
 		status = Widgets.chip("Fallen · remembered", Style.MUTED, "◆")
 	elif int(captain.get("wounded", 0)) > 0:
-		status = Widgets.chip("Wounded · back in %d" % int(captain.get("wounded", 0)), Style.MORALE_LOW, "▼")
+		var out := int(captain.get("wounded", 0))
+		status = Widgets.chip("Back in %d battle%s" % [out, "" if out == 1 else "s"], Style.MORALE_LOW, "", "wounded")
 	else:
 		status = Widgets.chip("Active", Style.MORALE_HIGH, "▲")
 	status.name = "StatusChip"
@@ -158,11 +143,11 @@ func _add_hero(col: VBoxContainer, captain: Dictionary, found: Dictionary, falle
 		chips.append(star)
 	var spec := String(captain.get("specialization", ""))
 	if spec != "":
-		var role := _gold_chip(spec, Widgets.icon(String(Captains.SPECIALIZATION_ICONS.get(spec, ""))))
+		var role := Widgets.chip(spec, Color("f3d891"), "", String(Captains.SPECIALIZATION_ICONS.get(spec, "")), true)
 		role.name = "SpecializationChip"
 		chips.append(role)
 	if promoting:
-		var waiting := _gold_chip("★ Promotion ready")
+		var waiting := Widgets.chip("Promotion ready", Style.BRASS, "★", "", true)
 		waiting.name = "PromotionReadyChip"
 		chips.append(waiting)
 	var row := Widgets.chip_row(chips)
@@ -170,47 +155,11 @@ func _add_hero(col: VBoxContainer, captain: Dictionary, found: Dictionary, falle
 	identity.add_child(row)
 
 
-## A brass chip, for the things worth noticing: a role, a promotion waiting.
-func _gold_chip(text: String, icon: Texture2D = null) -> PanelContainer:
-	var panel := PanelContainer.new()
-	var sb := Style.box(Color("33290f"), Style.BRASS, 2, 40)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 16
-	sb.content_margin_top = 6
-	sb.content_margin_bottom = 6
-	panel.add_theme_stylebox_override("panel", sb)
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
-	panel.add_child(h)
-	if icon != null:
-		var ic := TextureRect.new()
-		ic.texture = icon
-		ic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-		ic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		ic.custom_minimum_size = Vector2(24, 24)
-		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		ic.modulate = Color("f3d891")
-		ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		h.add_child(ic)
-	h.add_child(Style.label(text, Style.SMALL, Color("f3d891")))
-	return panel
-
-
 # ---------------------------------------------------------------- promotion
 
 func _add_promotion(col: VBoxContainer, captain: Dictionary) -> void:
-	var v := Widgets.card(col, "Veteran promotion", "Permanent")
-	var panel := v.get_parent() as PanelContainer
-	panel.name = "PromotionCard"
-	var sb := Style.box(Color("1c1c22"), Style.BRASS, 2, 20)
-	sb.content_margin_left = 22
-	sb.content_margin_right = 22
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 20
-	panel.add_theme_stylebox_override("panel", sb)
-	var title := v.get_child(0).get_child(0) as Label
-	title.add_theme_color_override("font_color", Style.BRASS)
+	var v := Widgets.card(col, "Veteran promotion", "Permanent", Style.MUTED, true)
+	v.get_parent().name = "PromotionCard"
 	v.add_child(Page.note("%s has earned a veteran role. Choose one; it can't be changed later." % _first(captain),
 		Style.SMALL, Style.TEXT))
 	for spec in Captains.SPECIALIZATIONS:
@@ -371,10 +320,15 @@ func _add_record(col: VBoxContainer, captain: Dictionary, found: Dictionary, fal
 		var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(squad.get("type", Troops.INFANTRY)))
 		tiles.append(_tile("men", "%d/%d" % [int(squad.get("men", 0)), full], "Men"))
 	v.add_child(Widgets.tile_grid(tiles, tiles.size()))
-	# The tiles carry the numbers; a living captain's story only adds what they can't.
+	# The tiles carry the numbers; the story only adds what they can't.
 	var story := _record_story(captain, found, fallen) if fallen else _record_extra(captain)
 	if story != "":
-		v.add_child(Page.note(story, Style.SMALL if not fallen else Style.BODY, Style.MUTED if not fallen else Style.TEXT))
+		v.add_child(Page.note(story, Style.SMALL, Style.MUTED))
+	if fallen and bool(captain.get("avenged", false)):
+		var av := Widgets.chip("Avenged", Style.BRASS, "★", "", true)
+		av.name = "AvengedChip"
+		av.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		v.add_child(av)
 
 
 func _tile(icon: String, value: String, sub: String) -> PanelContainer:
@@ -396,23 +350,16 @@ func _record_extra(captain: Dictionary) -> String:
 	return ""
 
 
-func _record_story(captain: Dictionary, found: Dictionary, fallen: bool) -> String:
-	var battles := int(captain.get("battles", 0))
-	var kills := int(captain.get("kills", 0))
-	var story := "%s led %s through %d %s and was credited with %d %s." % [
-		_first(captain), found.get("company", "the company"),
-		battles, "battle" if battles == 1 else "battles", kills, "kill" if kills == 1 else "kills"]
+## What the tiles can't say about a fallen captain: when they fell, and by whose host.
+func _record_story(captain: Dictionary, _found: Dictionary, fallen: bool) -> String:
+	var story := ""
 	if fallen:
-		story += " Their service ended in battle %d." % int(captain.get("battle", 0))
+		story = "Fell in battle %d." % int(captain.get("battle", 0))
 		if String(captain.get("killed_by_lord_name", "")) != "":
 			story += " Slain by the host of %s." % captain["killed_by_lord_name"]
-		if bool(captain.get("avenged", false)):
-			story += " Avenged."
-	elif int(captain.get("wounded", 0)) > 0:
-		story += " They are recovering before returning to command."
 	var wounds := int(captain.get("history", {}).get("wounds", 0))
 	if wounds > 0:
-		story += " They have survived %d serious %s." % [wounds, "wound" if wounds == 1 else "wounds"]
+		story += (" " if story != "" else "") + "Survived %d serious %s." % [wounds, "wound" if wounds == 1 else "wounds"]
 	return story
 
 
@@ -428,9 +375,9 @@ func _add_character(col: VBoxContainer, captain: Dictionary, found: Dictionary, 
 	var temperament := String(captain.get("temperament", ""))
 	var quirk := String(captain.get("quirk", ""))
 	if temperament != "":
-		v.add_child(_detail(temperament, String(Captains.TRAIT_TEXT.get(temperament, "shapes how they lead under pressure"))))
+		v.add_child(_detail(temperament, String(Captains.TRAIT_TEXT.get(temperament, "shapes how they lead under pressure")), temperament.to_lower()))
 	if quirk != "":
-		v.add_child(_detail(quirk, String(Captains.TRAIT_TEXT.get(quirk, "marks their way of command"))))
+		v.add_child(_detail(quirk, String(Captains.TRAIT_TEXT.get(quirk, "marks their way of command")), quirk.to_lower()))
 	var spec := String(captain.get("specialization", ""))
 	if spec != "":
 		var role := VBoxContainer.new()
@@ -444,10 +391,20 @@ func _add_character(col: VBoxContainer, captain: Dictionary, found: Dictionary, 
 		v.add_child(role)
 
 
-func _detail(title: String, body: String) -> Control:
+func _detail(title: String, body: String, icon_key: String = "") -> Control:
 	var row := VBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
-	row.add_child(Page.note(title, Style.BODY, Style.BRASS))
+	if icon_key != "":
+		var head := HBoxContainer.new()
+		head.name = "Trait_%s" % icon_key
+		head.add_theme_constant_override("separation", 10)
+		var ic := Widgets.icon_rect(icon_key, 30.0)
+		ic.modulate = Style.BRASS
+		head.add_child(ic)
+		head.add_child(Page.note(title, Style.BODY, Style.BRASS))
+		row.add_child(head)
+	else:
+		row.add_child(Page.note(title, Style.BODY, Style.BRASS))
 	var sentence := body.left(1).to_upper() + body.substr(1)
 	if not sentence.ends_with("."):
 		sentence += "."
@@ -469,13 +426,16 @@ func _add_progress(col: VBoxContainer, squad: Dictionary) -> void:
 	var at_cap := level >= Troops.MAX_LEVEL
 	var v := Widgets.card(col, "Company progress", "Level %d of %d" % [level, Troops.MAX_LEVEL], Style.BRASS)
 	v.get_parent().name = "ProgressCard"
+	# Experience within this level, toward the next: the meter and the number agree.
 	var into_level := clampi(xp - (level - 1) * Troops.XP_PER_LEVEL, 0, Troops.XP_PER_LEVEL)
-	v.add_child(Widgets.meter(1.0 if at_cap else float(into_level) / Troops.XP_PER_LEVEL, Style.BRASS))
-	var line := "Veteran company, fully trained." if at_cap else \
-		"%d/%d experience toward training" % [xp, level * Troops.XP_PER_LEVEL]
-	v.add_child(Page.note(line, Style.SMALL, Style.MUTED))
+	var meter_row := HBoxContainer.new()
+	meter_row.add_theme_constant_override("separation", 10)
+	v.add_child(meter_row)
+	meter_row.add_child(Widgets.icon_rect("level", 28.0))
+	meter_row.add_child(Widgets.meter(1.0 if at_cap else float(into_level) / Troops.XP_PER_LEVEL, Style.BRASS))
+	meter_row.add_child(Style.label("Fully trained" if at_cap else "%d/%d" % [into_level, Troops.XP_PER_LEVEL], Style.SMALL, Style.MUTED))
 	if GameState.can_train(squad):
-		var train := _gold_chip("★ Ready to train in town")
+		var train := Widgets.chip("Ready to train in town", Style.BRASS, "▲", "", true)
 		train.name = "TrainReadyChip"
 		train.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 		v.add_child(train)
@@ -490,43 +450,14 @@ func _add_bonds(col: VBoxContainer, captain: Dictionary) -> void:
 		if other == null:
 			continue
 		var points := float(captain["bonds"][other_id])
-		var rank := Captains.rank_letter(points)
-		if rank == "":
+		if Captains.rank_letter(points) == "":
 			continue
-		var rank_index := Captains.rank_for(points)
-		var next_text := "Highest rank"
-		var frac := 1.0
-		if rank_index + 1 < Captains.RANK_POINTS.size():
-			var lo: float = Captains.RANK_POINTS[rank_index]
-			var hi: float = Captains.RANK_POINTS[rank_index + 1]
-			next_text = "%.0f/%.0f points to %s" % [points, hi, Captains.RANKS[rank_index + 1]]
-			frac = clampf((points - lo) / maxf(0.01, hi - lo), 0.0, 1.0)
-		var panel := PanelContainer.new()
-		panel.name = "Bond_%d" % int(other_id)
-		panel.add_theme_stylebox_override("panel", Style.box(Style.RAISED, Style.RULE, 2, 14))
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 14)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		panel.add_child(row)
-		row.add_child(CaptainArt.portrait(other, Vector2(54, 72)))
-		var words := VBoxContainer.new()
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		words.add_theme_constant_override("separation", 6)
-		words.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(words)
-		words.add_child(Page.note("%s · Bond %s" % [other["name"], rank], Style.BODY, Style.TEXT))
-		words.add_child(Widgets.meter(frac, Style.PLAYER_LIGHT, 12.0))
-		words.add_child(Page.note(next_text + " · " + GameState.bond_effect_text(points), Style.SMALL, Style.BRASS))
+		var record := GameState.bond_record(int(captain.get("id", -1)), int(other_id))
 		# Tapping a bond opens that captain.
-		var tap := Button.new()
-		tap.name = "BondProfile_%d" % int(other_id)
-		tap.flat = true
-		tap.focus_mode = Control.FOCUS_ALL
-		tap.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		tap.accessibility_name = "View %s's profile" % other["name"]
-		tap.pressed.connect(_open_captain.bind(int(other_id)))
-		panel.add_child(tap)
-		v.add_child(panel)
+		var row := BondRow.make([other], String(other["name"]), points, int(record.get("shared_battles", 0)),
+			Callable(), false, _open_captain.bind(int(other_id)), "BondProfile_%d" % int(other_id))
+		row.name = "Bond_%d" % int(other_id)
+		v.add_child(row)
 		shown += 1
 	if shown == 0:
 		v.add_child(Page.note("No lasting bond yet. Captains grow close by fighting near one another.", Style.SMALL, Style.MUTED))
@@ -562,38 +493,8 @@ func _add_memorial_bonds(col: VBoxContainer, captain: Dictionary) -> void:
 
 # ---------------------------------------------------------------- bottom bar
 
-## Back, and Promote while a promotion waits, pinned in thumb reach.
-func _bar(buttons: Array, insets: Dictionary) -> PanelContainer:
-	var bar := PanelContainer.new()
-	bar.name = "BottomBar"
-	var box := Style.box(Style.NIGHT, Style.RULE, 0, 0)
-	box.border_width_top = 2
-	box.content_margin_left = 28
-	box.content_margin_right = 28
-	box.content_margin_top = 14
-	box.content_margin_bottom = 14 + float(insets.get("bottom", 0))
-	bar.add_theme_stylebox_override("panel", box)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	bar.add_child(row)
-	for i in buttons.size():
-		var b: Button = buttons[i]
-		b.custom_minimum_size.y = 92
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		# The primary action, last, gets the wider share.
-		b.size_flags_stretch_ratio = 1.6 if i > 0 else 1.0
-		row.add_child(b)
-	return bar
-
-
 func _back_button() -> Button:
-	var b := Page.button("Back", _back)
-	b.name = "BackButton"
-	b.autowrap_mode = TextServer.AUTOWRAP_OFF
-	b.clip_text = true
-	b.icon = Widgets.icon("back")
-	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
-		b.add_theme_color_override(c, Style.TEXT)
+	var b := Widgets.back_button(_back, "Back", "BackButton")
 	b.accessibility_name = "Back to Warband"
 	return b
 

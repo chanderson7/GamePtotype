@@ -215,14 +215,16 @@ func _run() -> void:
 		"Warband combines the camp header with stable captain portraits")
 	check(current_scene.find_child("CompanyBanner", true, false) != null and current_scene.find_child("WarbandSort", true, false) != null,
 		"Warband shows the company banner and selectable roster sorting")
-	check(_has_text(current_scene, "Next payment") and _has_text(current_scene, "afterward"),
+	var pay = current_scene.find_child("NextPayCard", true, false)
+	check(pay != null and pay.find_child("Pay_silver", true, false) != null and pay.find_child("Pay_food", true, false) != null,
 		"Warband forecasts the next wage and food payment")
 	check(_has_text(current_scene, "Active companies") and _has_text(current_scene, "Wounded captains"),
 		"active and wounded companies are visually separated")
-	check(current_scene.find_children("WarbandMeter", "ProgressBar", true, false).size() >= gs.army.size() * 3,
-		"each company exposes strength, experience and bond progress")
-	check(current_scene.find_children("CaptainAndTroopArt", "HBoxContainer", true, false).size() == gs.army.size(),
-		"captain portraits keep their tactical troop icons beside them")
+	check(current_scene.find_children("WarbandMeter", "", true, false).size() >= gs.army.size()
+		and current_scene.find_children("LevelPips", "", true, false).size() >= gs.army.size(),
+		"each company shows its strength and its level")
+	check(current_scene.find_children("CaptainAndTroopArt", "", true, false).size() == gs.army.size(),
+		"captain portraits keep their tactical troop icons on a badge")
 	check(button("Music: on") == null, "Warband no longer houses audio settings")
 	var sort = current_scene.find_child("WarbandSort", true, false)
 	sort.find_child("Tab_4", true, false).pressed.emit()
@@ -230,11 +232,14 @@ func _run() -> void:
 	await process_frame
 	check(scenes.warband_sort == 4 and int(current_scene.find_child("WarbandSort", true, false).get_meta("picked", -1)) == 4,
 		"Warband remembers the selected captain-name sort")
-	check(button("1 talk at the fire · Bonds") != null, "the camp says a talk waits at the fire")
+	var bonds_tab_button := current_scene.find_child("Tab_bonds", true, false) as Button
+	check(bonds_tab_button != null and bonds_tab_button.text.ends_with("1"), "the Bonds tab says a talk waits at the fire")
 	current_scene._on_tab("bonds")
 	await process_frame
-	var camp_talk := button("Spend time at camp · new")
-	check(camp_talk != null and _has_text(current_scene, "shared battle") and _has_text(current_scene, "morale each second"),
+	var talks: Array = current_scene.find_children("BondConversation_*", "Button", true, false)
+	var camp_talk: Button = talks[0] if not talks.is_empty() else null
+	check(camp_talk != null and camp_talk.find_child("NewDot", true, false).visible
+		and current_scene.find_child("SharedBattles", true, false) != null and current_scene.find_child("BondMorale", true, false) != null,
 		"bond cards show shared history, exact effects and optional conversation")
 	camp_talk.pressed.emit()
 	await transition()
@@ -244,7 +249,9 @@ func _run() -> void:
 		"bond dialogue uses campaign facts, with no note about game rules")
 	current_scene.choose("back")
 	await transition()
-	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and button("Spend time at camp") != null,
+	talks = current_scene.find_children("BondConversation_*", "Button", true, false)
+	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and not talks.is_empty()
+		and not talks[0].find_child("NewDot", true, false).visible,
 		"returning to Warband clears only the conversation's new marker")
 	var profiled: Dictionary = gs.army[0]["captain"]
 	var profile_button: Button = current_scene.find_child("CaptainProfile_%d" % int(profiled["id"]), true, false)
