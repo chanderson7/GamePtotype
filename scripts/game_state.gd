@@ -331,6 +331,13 @@ func recruit_hero(hero_id: String) -> bool:
 	hired_heroes.append(hero_id)
 	var captain := Heroes.make_hero_captain(h, _next_captain)
 	_next_captain += 1
+	# Two captains don't share a first name: an older captain with the hero's name (from
+	# before names were set aside for heroes) keeps it, and the hero goes by their byname.
+	for s in army:
+		var other = s.get("captain")
+		if other is Dictionary and String(other.get("first", "")) == String(captain["first"]):
+			captain["first"] = String(h.get("byname", captain["first"]))
+			break
 	var unit_id: String = String(h.get("unit", ""))
 	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(h.get("type", Troops.INFANTRY)))
 	var squad := {
@@ -3249,12 +3256,13 @@ func next_bond_talk(a_id: int, b_id: int) -> String:
 
 
 ## A replayable, event-aware camp exchange. It reads campaign facts and changes no combat,
-## bond or relationship values; only the "new" marker is acknowledged.
+## bond or relationship values; only the "new" marker is acknowledged. When one of the two
+## has fallen, the survivor's talk by the empty place ("memorial": true).
 func bond_conversation(a_id: int, b_id: int, at_rank: String = "") -> Dictionary:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
-		return {}
+		return _memorial_talk(a_id, b_id)
 	var points := float(a.get("bonds", {}).get(str(b_id), 0.0))
 	var rank := Captains.rank_letter(points)
 	if rank == "":
@@ -3298,34 +3306,176 @@ func bond_conversation(a_id: int, b_id: int, at_rank: String = "") -> Dictionary
 		"exchange": _bond_exchange(a, b, rank)}
 
 
-## What two captains say to each other at the fire, by rank and by the first one's
-## temper: a short exchange, a line each in turn ({who: "a" or "b", text}).
+## What two captains say to each other at the fire, by rank and by both their tempers
+## ("Vengeful|Steadfast": the first temper in BOND_TEMPER_ORDER speaks first), two ways
+## each; a pair always hears the same one. A line each in turn ({who: "a" or "b", text}).
+const BOND_TEMPER_ORDER := [Captains.VENGEFUL, Captains.STEADFAST, Captains.FRAGILE]
 const BOND_EXCHANGES := {
 	"C": {
-		Captains.VENGEFUL: ["You were slow on the left today.", "I was covering you. You were fast on everything.", "Then stay close. I'll be slow for you next time.", "Deal."],
-		Captains.FRAGILE: ["I couldn't see your banner for a while out there.", "I could see yours. It was shaking.", "...It was the wind.", "It was the wind. I'll stand closer tomorrow."],
-		"": ["Same distance tomorrow?", "Close enough to help, far enough to breathe.", "You've thought about this.", "Since the second charge. Bread?"],
+		"Vengeful|Vengeful": [
+			["You were slow on the left today.", "I was covering you. You were fast on everything.", "Then stay close. I'll be slow for you next time.", "Deal."],
+			["I took three of theirs. You?", "Four. One was running.", "Doesn't count.", "Counts double. Pass the bread."]],
+		"Vengeful|Steadfast": [
+			["They'll come at the ford again tomorrow. I want them to.", "I want them not to. I'll be there either way.", "Good. I'll be in front.", "I know. I'll be where you'll need me."],
+			["You never get angry out there.", "Someone has to watch the line while you're angry.", "...That's fair.", "It usually is. Eat."]],
+		"Vengeful|Fragile": [
+			["You flinched when the horn went.", "Everyone flinched.", "I didn't.", "You were already running at them. That's a different kind of flinch."],
+			["Stay behind my squad tomorrow.", "I'm not hiding behind you.", "Not hiding. Following. There's a difference.", "...Is there?"]],
+		"Steadfast|Steadfast": [
+			["Same distance tomorrow?", "Close enough to help, far enough to breathe.", "You've thought about this.", "Since the second charge. Bread?"],
+			["Your men dressed the line before mine did.", "Mine are older.", "Mine are louder.", "Then we'll call it even."]],
+		"Steadfast|Fragile": [
+			["You held today. When the right went, you held.", "My hands didn't think so.", "Your hands aren't in charge. You are.", "...I'll tell them."],
+			["Stand by me tomorrow.", "Why?", "Because I asked, and because I'd like you to.", "All right. Thank you."]],
+		"Fragile|Fragile": [
+			["I couldn't see your banner for a while out there.", "I could see yours. It was shaking.", "...It was the wind.", "It was the wind. I'll stand closer tomorrow."],
+			["Do your hands shake after, too?", "Every time. Until the bread comes.", "Then let's get the bread.", "First sensible thing anyone's said all day."]],
 	},
 	"B": {
-		Captains.VENGEFUL: ["The one who cut your arm. I found him.", "I know. I saw. Let it be, now.", "I don't know how to let things be.", "Then sit here until you learn. I'll wait."],
-		Captains.FRAGILE: ["Do you ever think we won't come back?", "Every time. Then I look for your squad, and I stop thinking it.", "That's a terrible plan.", "It's worked so far."],
-		"": ["I moved my men before you called for it.", "I noticed. I was about to call for it.", "We should stop telling each other things.", "We should. Pass the whetstone."],
+		"Vengeful|Vengeful": [
+			["The one who cut your arm. I found him.", "I know. I saw. Let it be, now.", "I don't know how to let things be.", "Then sit here until you learn. I'll wait."],
+			["We charge together tomorrow. First into them.", "And first out?", "There's no out.", "Then first to the fire after. Agreed."]],
+		"Vengeful|Steadfast": [
+			["When I lose my head out there, you're the one who finds it.", "I keep it in my pack. It's heavy.", "I'll carry yours one day.", "Mine stays on. That's the arrangement."],
+			["They nearly had you at the bridge.", "Nearly. You were there.", "I'm always there.", "I know. It's why I go first."]],
+		"Vengeful|Fragile": [
+			["You stayed when the line broke. I saw.", "I wanted to run.", "Wanting is allowed. You stayed.", "Because you were shouting. It was very loud."],
+			["If they come for you again, they come through me.", "That's what frightens me.", "Why?", "Because you'd let them."]],
+		"Steadfast|Steadfast": [
+			["I moved my men before you called for it.", "I noticed. I was about to call for it.", "We should stop telling each other things.", "We should. Pass the whetstone."],
+			["My sergeant says we fight like one company now.", "Your sergeant says a lot.", "He's right about this.", "He usually is. Don't tell him."]],
+		"Steadfast|Fragile": [
+			["You're not shaking as much as you were.", "I'm shaking exactly as much. I've just stopped minding.", "That's most of what courage is.", "Then it's very uncomfortable."],
+			["I'll take the left tomorrow. You take my flank.", "Why mine?", "Because I trust it.", "...I'll hold it. I promise."]],
+		"Fragile|Fragile": [
+			["Do you ever think we won't come back?", "Every time. Then I look for your squad, and I stop thinking it.", "That's a terrible plan.", "It's worked so far."],
+			["I dream about the bridge.", "So do I. In mine you're there.", "In mine too.", "Then it's not such a bad dream."]],
 	},
 	"A": {
-		Captains.VENGEFUL: ["If you fall, I finish what reached you.", "Then I'd better stay standing. For their sake.", "You're laughing.", "I'm alive. You're here. It's allowed."],
-		Captains.FRAGILE: ["I'm not afraid when you're on my flank. I wanted you to know that.", "I'm afraid all the time. I just stand next to you anyway.", "That's the bravest thing anyone's said to me.", "Don't tell the others."],
-		"": ["They'll tell stories about this company someday.", "They'll get it wrong.", "They'll put us in the same verse, at least.", "Then let's earn it again tomorrow."],
+		"Vengeful|Vengeful": [
+			["If you fall, I finish what reached you.", "Then I'd better stay standing. For their sake.", "You're laughing.", "I'm alive. You're here. It's allowed."],
+			["When this war ends, what will we hit?", "Each other, probably.", "Good. I'd want it to be someone worth it.", "Likewise. Now sleep."]],
+		"Vengeful|Steadfast": [
+			["I've never had anyone hold me back before.", "I don't hold you back. I hold the line behind you.", "Same thing, from the front.", "Then I'll keep doing it."],
+			["Promise me something.", "Anything sensible.", "If I go mad out there, pull me back.", "I always have. I always will."]],
+		"Vengeful|Fragile": [
+			["You were the bravest one on the field today.", "I was the most frightened.", "Same thing, done properly.", "...Say that again tomorrow. I'll need it."],
+			["I'd burn the world for you.", "Please don't. Just stand where I can see you.", "That's harder.", "I know. That's why I'm asking."]],
+		"Steadfast|Steadfast": [
+			["They'll tell stories about this company someday.", "They'll get it wrong.", "They'll put us in the same verse, at least.", "Then let's earn it again tomorrow."],
+			["Twenty battles, and you've never once been late.", "Twenty-one. You weren't counting the river.", "The river didn't count.", "It counted to me."]],
+		"Steadfast|Fragile": [
+			["I'm not afraid when you're on my flank. I wanted you to know that.", "I'm afraid all the time. I just stand next to you anyway.", "That's the bravest thing anyone's said to me.", "Don't tell the others."],
+			["Whatever happens tomorrow, I'll be beside you.", "I know. It's the only reason I sleep.", "Then sleep now.", "Stay till I do?"]],
+		"Fragile|Fragile": [
+			["We're still here.", "We're still here.", "I didn't think we would be.", "Neither did I. Let's keep doing it."],
+			["Hold my hand when the horns go?", "Both, if I can manage the shield.", "One will do.", "Then one it is. Always."]],
 	},
+}
+
+## By the empty place: what the survivor says to the one who fell, by the survivor's temper.
+const MEMORIAL_EXCHANGES := {
+	Captains.VENGEFUL: ["I found the one who did it. It didn't help.", "I've kept your place. Nobody sits there.", "...I'll win the next one for you. Don't laugh."],
+	Captains.STEADFAST: ["I poured you a cup. Habit.", "The line's thinner on your side now. I stand a little further over.", "Rest. I've got the watch."],
+	Captains.FRAGILE: ["I keep looking for your banner.", "It isn't there. I know. I keep looking.", "Same distance tomorrow. I'll pretend."],
 }
 
 
 func _bond_exchange(a: Dictionary, b: Dictionary, rank: String) -> Array:
-	var by_temper: Dictionary = BOND_EXCHANGES.get(rank, BOND_EXCHANGES["C"])
-	var lines: Array = by_temper.get(String(a.get("temperament", "")), by_temper[""])
 	var out := []
+	# A hero speaks in their own voice, whoever sits with them.
+	for pair in [[a, "a", "b"], [b, "b", "a"]]:
+		var hero: Dictionary = pair[0]
+		var hero_lines: Array = Heroes.HEROES.get(String(hero.get("hero_id", "")), {}).get("bond", {}).get(rank, []) if bool(hero.get("is_hero", false)) else []
+		if not hero_lines.is_empty():
+			for i in hero_lines.size():
+				out.append({"who": String(pair[1]) if i % 2 == 0 else String(pair[2]), "text": String(hero_lines[i])})
+			return out
+	var ia := BOND_TEMPER_ORDER.find(String(a.get("temperament", Captains.STEADFAST)))
+	var ib := BOND_TEMPER_ORDER.find(String(b.get("temperament", Captains.STEADFAST)))
+	if ia < 0:
+		ia = 1
+	if ib < 0:
+		ib = 1
+	var swap := ia > ib
+	var low := String(BOND_TEMPER_ORDER[mini(ia, ib)])
+	var high := String(BOND_TEMPER_ORDER[maxi(ia, ib)])
+	var cell := low + "|" + high
+	var by_pair: Dictionary = BOND_EXCHANGES.get(rank, BOND_EXCHANGES["C"])
+	var variants: Array = by_pair.get(cell, by_pair["Steadfast|Steadfast"])
+	var lines: Array = variants[posmod(int(a.get("id", 0)) + int(b.get("id", 0)), variants.size())]
+	var first := "b" if swap else "a"
+	var second := "a" if swap else "b"
 	for i in lines.size():
-		out.append({"who": "a" if i % 2 == 0 else "b", "text": String(lines[i])})
+		out.append({"who": first if i % 2 == 0 else second, "text": String(lines[i])})
 	return out
+
+
+## Bond points between a fallen captain's memorial and a survivor: kept on the memorial,
+## or (older memorials) read from its "First (rank)" list. 0 when they weren't bonded.
+func _memorial_points(memorial: Dictionary, survivor: Dictionary) -> float:
+	var by: Dictionary = memorial.get("bond_points", {}) if memorial.get("bond_points") is Dictionary else {}
+	var key := str(int(survivor.get("id", -1)))
+	if by.has(key):
+		return float(by[key])
+	for entry in memorial.get("bonds", []):
+		var said := String(entry)
+		if said.get_slice(" (", 0) == String(survivor.get("first", "")):
+			var letter := said.get_slice("(", 1).trim_suffix(")")
+			var r := Captains.RANKS.find(letter)
+			if r > 0:
+				return float(Captains.RANK_POINTS[r])
+	return 0.0
+
+
+## Pairs where one has fallen and the other remembers them, ranked bonds only:
+## [{a (the survivor), b (the memorial), points, rank}].
+func remembered_bonds() -> Array:
+	var out := []
+	for f in fallen:
+		if not (f is Dictionary):
+			continue
+		for s in army:
+			var c = s.get("captain")
+			if not (c is Dictionary):
+				continue
+			var pts := _memorial_points(f, c)
+			if Captains.rank_for(pts) > 0:
+				out.append({"a": c, "b": f, "points": pts, "rank": Captains.rank_letter(pts)})
+	return out
+
+
+## The survivor's talk by a fallen friend's empty place, or {} when they weren't bonded.
+func _memorial_talk(a_id: int, b_id: int) -> Dictionary:
+	var survivor = captain_by_id(a_id)
+	var gone = _captain_or_memorial(b_id)
+	if survivor == null:
+		survivor = captain_by_id(b_id)
+		gone = _captain_or_memorial(a_id)
+	if survivor == null or gone == null or captain_by_id(int(gone.get("id", -1))) != null:
+		return {}
+	var pts := _memorial_points(gone, survivor)
+	var rank := Captains.rank_letter(pts)
+	if rank == "":
+		return {}
+	var record := bond_record(int(survivor["id"]), int(gone["id"]))
+	var shared := int(record.get("shared_battles", 0))
+	var passages := []
+	var who := String(survivor["first"])
+	var lost := String(gone.get("first", gone["name"]))
+	var together: String = (" in %d %s" % [shared, "battle" if shared == 1 else "battles"]) if shared > 0 else ""
+	passages.append("%s sits by the fire beside the place %s kept. They fought side by side%s." % [who, lost, together])
+	var words := String(gone.get("words", ""))
+	if words != "":
+		passages.append("%s remembers the last thing %s said: \"%s\"" % [who, lost, words])
+	passages.append("The company leaves them be. A bond of rank %s does not end at a grave; it is carried." % rank)
+	passages.append("")
+	var lines: Array = MEMORIAL_EXCHANGES.get(String(survivor.get("temperament", "")), MEMORIAL_EXCHANGES[Captains.STEADFAST])
+	var exchange := []
+	for line in lines:
+		exchange.append({"who": "a", "text": String(line)})
+	return {"a": survivor, "b": gone, "rank": rank, "points": pts, "shared_battles": shared, "passages": passages,
+		"exchange": exchange, "memorial": true}
 
 
 func _bond_voice_line(a: Dictionary, b: Dictionary) -> String:
@@ -4050,6 +4200,11 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		var rank := Captains.rank_letter(float(c["bonds"][other_id]))
 		if other != null and rank != "":
 			friends.append("%s (%s)" % [other["first"], rank])
+	# Bond points by survivor id, so the survivor's talk by the empty place can be told.
+	var bond_points := {}
+	for bonded_id in c["bonds"]:
+		if Captains.rank_letter(float(c["bonds"][bonded_id])) != "":
+			bond_points[str(bonded_id)] = float(c["bonds"][bonded_id])
 	return {
 		"id": int(c.get("id", 0)), "appearance_id": Captains.ensure_appearance(c),
 		"name": c["name"], "first": c.get("first", c["name"]), "company": squad.get("name", ""), "type": squad["type"], "unit": squad.get("unit", ""),
@@ -4058,6 +4213,11 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		"words": words,
 		"bonds": friends,
+		"bond_points": bond_points,
+		# A hero is remembered as one.
+		"is_hero": bool(c.get("is_hero", false)), "hero_id": String(c.get("hero_id", "")),
+		# Waits at the fire to be mourned, however many battles pass first (camp_moments.gd).
+		"mourned": false,
 		"killed_by_lord_id": killed_by_lid,
 		"killed_by_lord_name": killed_by_lname,
 		"avenged": false,

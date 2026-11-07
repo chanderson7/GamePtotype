@@ -897,15 +897,27 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 		gc.get_parent().name = "GrowingCard"
 		for g in growing:
 			gc.add_child(_growing_row(g))
+	# Friends who have fallen: each opens the survivor's talk by the empty place.
+	var memorials: Array = GameState.remembered_bonds()
 	var remembered := []
 	for sq in GameState.army:
 		var c = sq.get("captain")
 		if c == null:
 			continue
 		for name in c.get("history", {}).get("fallen_friends", []):
-			remembered.append("%s remembers %s." % [c["first"], name])
-	if not remembered.is_empty():
+			if not memorials.any(func(rb): return rb["a"] == c and String(rb["b"].get("name", "")) == String(name)):
+				remembered.append("%s remembers %s." % [c["first"], name])
+	if not memorials.is_empty() or not remembered.is_empty():
 		var mc := Widgets.card(tab, "Remembered")
+		mc.get_parent().name = "RememberedCard"
+		for rb in memorials:
+			var survivor: Dictionary = rb["a"]
+			var gone: Dictionary = rb["b"]
+			var sid := int(survivor["id"])
+			var gid := int(gone["id"])
+			var title := String(survivor["first"]) + " remembers " + String(gone.get("first", gone.get("name", "")))
+			mc.add_child(BondRow.make([survivor, gone], title, float(rb["points"]), 0, _open_bond.bind(sid, gid), false, Callable(),
+				"BondMemory_%d_%d" % [sid, gid]))
 		for line in remembered:
 			mc.add_child(_note(line))
 	if ranked.is_empty() and growing.is_empty():

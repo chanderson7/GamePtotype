@@ -3291,7 +3291,7 @@ func _captain_falls(sq, victim, rescue: bool = true) -> void:
 	sq.death_roll = roll
 	sq.death_needed = chance + 1
 	sq.captain_fate = "killed" if roll <= chance else "wounded"
-	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
+	var words: Array = Captains.words_for(String((sq.info as Dictionary).get("culture", "")), sq.captain_fate == "killed")
 	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
 	if sq.is_bodyguard or sq.is_chief:
 		_trigger_chief_shock(sq)

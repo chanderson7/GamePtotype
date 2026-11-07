@@ -319,6 +319,6 @@ static func _captain_fate(c: Dictionary, men: int, dead: int, rng: RandomNumberG
 	out["roll"] = roll
 	out["needed"] = chance + 1
 	out["fate"] = "killed" if roll <= chance else "wounded"
-	var words: Array = Captains.LAST_WORDS if out["fate"] == "killed" else Captains.WOUNDED_WORDS
+	var words: Array = Captains.words_for(String(c.get("culture", "")), out["fate"] == "killed")
 	out["words"] = words[rng.randi_range(0, words.size() - 1)]
 	return out

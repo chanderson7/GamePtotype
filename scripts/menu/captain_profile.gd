@@ -14,6 +14,7 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Units = preload("res://scripts/data/units.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const BondRow = preload("res://scripts/ui/bond_row.gd")
+const Heroes = preload("res://scripts/data/heroes.gd")
 
 ## The role selected in the promotion card, waiting for Promote ("" for none).
 var _picked := ""
@@ -369,6 +370,15 @@ func _record_story(captain: Dictionary, _found: Dictionary, fallen: bool) -> Str
 func _add_character(col: VBoxContainer, captain: Dictionary, found: Dictionary, fallen: bool) -> void:
 	var v := Widgets.card(col, "Character")
 	v.get_parent().name = "CharacterCard"
+	# A hero keeps the story they came with.
+	var hero: Dictionary = Heroes.HEROES.get(String(captain.get("hero_id", "")), {}) if bool(captain.get("is_hero", false)) else {}
+	if not hero.is_empty():
+		var bio := _detail("Before the company", String(hero.get("bio", "")), "")
+		bio.name = "HeroBio"
+		v.add_child(bio)
+		var said := Page.note("\"%s\"" % String(hero.get("dialogue", "")), Style.SMALL, Style.MUTED)
+		said.name = "HeroWords"
+		v.add_child(said)
 	if fallen:
 		v.add_child(Page.note(_fallen_story(found), Style.BODY, Style.TEXT))
 		return
@@ -488,7 +498,27 @@ func _add_memorial_bonds(col: VBoxContainer, captain: Dictionary) -> void:
 	if bonds.is_empty():
 		return
 	var v := Widgets.card(col, "Remembered by")
-	v.add_child(Page.note(", ".join(PackedStringArray(bonds)), Style.BODY, Style.BRASS))
+	v.get_parent().name = "RememberedByCard"
+	# Those still with the company: their talk by the empty place, told again.
+	var shown := 0
+	for rb in GameState.remembered_bonds():
+		var gone: Dictionary = rb["b"]
+		if int(gone.get("id", -2)) != int(captain.get("id", -1)):
+			continue
+		var survivor: Dictionary = rb["a"]
+		v.add_child(BondRow.make([survivor, gone], "%s remembers %s" % [String(survivor.get("first", "")), _first(captain)], float(rb["points"]),
+			0, _open_memorial.bind(int(survivor["id"]), int(captain["id"])), false, Callable(), "Remembered_%d" % int(survivor["id"])))
+		shown += 1
+	if shown == 0:
+		v.add_child(Page.note(", ".join(PackedStringArray(bonds)), Style.BODY, Style.BRASS))
+
+
+## The survivor's talk by the fallen captain's empty place.
+func _open_memorial(survivor_id: int, fallen_id: int) -> void:
+	Scenes.active_bond_a_id = survivor_id
+	Scenes.active_bond_b_id = fallen_id
+	Scenes.bond_conversation_return = "res://scenes/captain_profile.tscn"
+	Scenes.go("res://scenes/bond_conversation.tscn")
 
 
 # ---------------------------------------------------------------- bottom bar

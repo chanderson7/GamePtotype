@@ -31,6 +31,24 @@ func _init() -> void:
 	check(voiced, "every bearing has a line for meeting, facing, losing and winning, naming the lord")
 	check(LordVoice.line("face", {"name": "Lord Test", "bearing": Lords.DARING}) != LordVoice.line("face", {"name": "Lord Test", "bearing": Lords.CRUEL}),
 		"different bearings sound different")
+	var two_each := true
+	for kind in LordVoice.LINES:
+		for bearing in Lords.BEARINGS:
+			var options: Array = LordVoice.LINES[kind].get(bearing, [])
+			two_each = two_each and options.size() >= 2 and options.all(func(t): return String(t).contains("%s"))
+	check(two_each and LordVoice.LINES.has("kin") and LordVoice.LINES.has("pact") and LordVoice.LINES.has("known"),
+		"every situation has two lines for each bearing, kin and old acquaintances included")
+	var l0 := {"name": "Lord Test", "bearing": Lords.HONORABLE}
+	check(LordVoice.line("greet", l0, 0) != LordVoice.line("greet", l0, 1), "and meeting again sounds different")
+	# The names of the people you court and the heroes are theirs alone.
+	var free := true
+	for cult in Cultures.ORDER:
+		for n in Cultures.RESERVED:
+			free = free and not (Cultures.info(cult)["first"] as Array).has(n)
+	for s in gs.army:
+		if s.get("captain") is Dictionary:
+			free = free and not Cultures.RESERVED.has(String(s["captain"].get("first", "")))
+	check(free, "no captain, lord or heir is given Edda's, Farah's, Kaede's or a hero's name")
 	check(LordVoice.portrait_record(a)["id"] != LordVoice.portrait_record(b)["id"] and LordVoice.portrait_record(a)["id"] >= LordVoice.PORTRAIT_BASE,
 		"each lord has his own face, apart from the captains'")
 	check(LordVoice.portrait_record(a) == LordVoice.portrait_record(a), "and it is the same each time")
