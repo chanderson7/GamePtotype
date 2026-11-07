@@ -17,6 +17,8 @@ var people_tab := ""
 var people_letter := ""
 ## The map centres on this place when it next opens (then forgets it).
 var map_focus := ""
+## The last hour the map's clock showed, so time that passed out of sight sweeps by.
+var map_clock_seen := -1.0
 ## The map opens the raid sheet for this village when it next opens (the town's Raid).
 var map_raid := ""
 ## The people picked on Home, shown first on the new-campaign screen.
@@ -84,6 +86,94 @@ func _let_scroll_through(node: Node) -> void:
 			c.mouse_filter = Control.MOUSE_FILTER_PASS
 			return
 		up = up.get_parent()
+
+
+# ---------------------------------------------------------------- ribbons
+
+## Moments worth a stamp (a deed, a captain ready for a role) drop in as a ribbon from the
+## top of the screen, hold, and roll back up. They queue, and wait until no battle is on
+## screen and no screen change is under way. Under Reduced motion they're simply there
+## for the hold. Each is {title, sub, icon, sound}.
+const RIBBON_HOLD := 2.2
+const RIBBON_IN := 0.32
+const RIBBON_OUT := 0.25
+var ribbons: Array = []
+var _ribbon: Control = null
+
+
+func ribbon(title: String, sub: String = "", icon_key: String = "renown", sound: String = "promotion") -> void:
+	ribbons.append({"title": title, "sub": sub, "icon": icon_key, "sound": sound})
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	if ribbons.is_empty():
+		set_process(false)
+		return
+	if _ribbon != null or _busy:
+		return
+	var cur := get_tree().current_scene
+	if cur == null or cur.scene_file_path.ends_with("battle.tscn"):
+		return
+	_show_ribbon(ribbons.pop_front())
+
+
+func _show_ribbon(r: Dictionary) -> void:
+	var Style = load("res://scripts/ui/style.gd")
+	var Widgets = load("res://scripts/ui/widgets.gd")
+	var panel := PanelContainer.new()
+	panel.name = "Ribbon"
+	panel.theme = Style.make_theme()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb: StyleBoxFlat = Style.box(Color("2a2210"), Style.BRASS, 3, 16)
+	sb.content_margin_left = 22
+	sb.content_margin_right = 22
+	sb.content_margin_top = 14
+	sb.content_margin_bottom = 14
+	sb.shadow_color = Color(0, 0, 0, 0.55)
+	sb.shadow_size = 14
+	panel.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 16)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(row)
+	var ic: TextureRect = Widgets.icon_rect(String(r.get("icon", "renown")), 48.0)
+	ic.modulate = Style.BRASS
+	row.add_child(ic)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_theme_constant_override("separation", 2)
+	row.add_child(words)
+	var t: Label = Style.label(String(r["title"]), Style.BODY, Color("f3d891"))
+	t.name = "RibbonTitle"
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(t)
+	if String(r.get("sub", "")) != "":
+		var sub: Label = Style.label(String(r["sub"]), Style.SMALL, Style.TEXT)
+		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(sub)
+	add_child(panel)
+	move_child(panel, _veil.get_index())
+	var vw := get_viewport().get_visible_rect().size.x
+	var insets: Dictionary = Style.safe_insets(get_viewport())
+	panel.size = Vector2(minf(vw - 32.0, 640.0), 0)
+	panel.reset_size()
+	var rest_y := float(insets["top"]) + 14.0
+	panel.position = Vector2((vw - panel.size.x) * 0.5, rest_y)
+	_ribbon = panel
+	if String(r.get("sound", "")) != "":
+		Sound.play(String(r["sound"]), 0.0, 0.03)
+	Sound.haptic(false)
+	var tw := panel.create_tween()
+	if not Style.motion_reduced():
+		panel.position.y = -panel.size.y - 20.0
+		tw.tween_property(panel, "position:y", rest_y, RIBBON_IN).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.tween_interval(RIBBON_HOLD)
+	if not Style.motion_reduced():
+		tw.tween_property(panel, "position:y", -panel.size.y - 20.0, RIBBON_OUT).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func():
+		panel.queue_free()
+		_ribbon = null)
 
 
 ## Fade out, change to the scene at `path`, fade back in.

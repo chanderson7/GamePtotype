@@ -1742,11 +1742,19 @@ func _count_deed(id: String) -> void:
 	deed_counts[id] = int(deed_counts.get(id, 0)) + 1
 
 
+## A moment worth a stamp drops in as a ribbon, once no battle is on screen.
+func _ribbon(title: String, sub: String, icon_key: String, sound: String) -> void:
+	var scenes := get_node_or_null("/root/Scenes")
+	if scenes != null and scenes.has_method("ribbon"):
+		scenes.ribbon(title, sub, icon_key, sound)
+
+
 ## Award the deeds newly reached: a note, a chronicle entry, and a name to carry.
 func _award_deeds() -> void:
 	for id in Achievements.check(self):
 		var d: Dictionary = Achievements.DEEDS[id]
 		_note("A deed to remember: the company is now known as %s." % d["title"])
+		_ribbon("A deed to remember", "The company is now known as %s." % d["title"], "renown", "promotion")
 		if world != null:
 			world.emit_event({"type": "achievement", "title": String(d["title"]), "text": String(d["goal"])})
 
@@ -3835,8 +3843,12 @@ func apply_result(result: Dictionary) -> void:
 			if int(c.get("wounded", 0)) > 0:
 				c["wounded"] = int(c["wounded"]) - 1
 			continue
+		var could_promote := Captains.can_specialize(c)
 		c["battles"] = int(c["battles"]) + 1
 		c["kills"] = int(c["kills"]) + int(cr.get("kills", 0))
+		if not could_promote and Captains.can_specialize(c) and (String(cr["fate"]) != "killed" or casual_mode):
+			_ribbon("%s is ready for a role" % String(c.get("first", c.get("name", "A captain"))),
+				"Choose it on the Warband page.", "level", "promotion")
 		match String(cr["fate"]):
 			"wounded":
 				c["wounded"] = Captains.WOUND_BATTLES

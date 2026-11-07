@@ -2762,6 +2762,14 @@ func _play_result_sequence() -> void:
 		t.tween_interval(minf(at, RESULT_MAX))
 		t.tween_property(ci, "modulate:a", 1.0, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 		_result_seq.append(t)
+		if (c.name as String).begins_with("RankUp_"):
+			# A bond's new rank stamps in.
+			var cc := c as Control
+			t.parallel().tween_callback(func():
+				cc.pivot_offset = cc.size * 0.5
+				cc.scale = Vector2(1.18, 1.18)
+				cc.create_tween().tween_property(cc, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+				Sound.play("bond_rank", 0.0, 0.03)).set_delay(0.0)
 		if c.name in ["Tally", "Rewards"]:
 			for v in c.find_children("Value", "Label", true, false):
 				_count_up(v as Label, minf(at, RESULT_MAX))

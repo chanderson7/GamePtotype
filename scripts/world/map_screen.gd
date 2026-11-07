@@ -422,6 +422,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pinching = false
 		return
 	if event is InputEventScreenDrag:
+		if _encounter_cam != null and _encounter_cam.is_valid():
+			_encounter_cam.kill()
 		_touches[event.index] = event.position
 		if _touches.size() == 2:
 			var pts: Array = _touches.values()
@@ -1527,6 +1529,46 @@ func _open_encounter() -> void:
 		sheet_extra.add_child(row)
 	_show_lord_header(foe_lord)
 	Sound.play("alarm")
+	_frame_encounter(b)
+
+
+## The road encounter lands: the camera eases to the two parties and steps in, so they
+## stand in the open map above the sheet, and the lord's face steps up. A drag or pinch
+## takes the camera back at once.
+const ENCOUNTER_FRAME := 0.45
+const ENCOUNTER_ZOOM := 1.3
+var _encounter_cam: Tween = null
+
+
+func _frame_encounter(b) -> void:
+	if Style.motion_reduced() or _view.size.x <= 0.0:
+		return
+	var mine: Vector2 = world.party_pos(world.player())
+	var theirs: Vector2 = world.party_pos(b)
+	var to_scale := clampf(cam_scale * ENCOUNTER_ZOOM, _view.size.x / WIDEST_VIEW, _view.size.x / NARROWEST_VIEW)
+	# The sheet takes the lower part of the view; the parties sit in the open part above it.
+	var to_center := (mine + theirs) * 0.5 + Vector2(0.0, _view.size.y * 0.2 / to_scale)
+	var from_center := cam_center
+	var from_scale := cam_scale
+	if _encounter_cam != null and _encounter_cam.is_valid():
+		_encounter_cam.kill()
+	_encounter_cam = create_tween()
+	_encounter_cam.tween_method(func(k: float):
+		cam_center = from_center.lerp(to_center, k)
+		cam_scale = lerpf(from_scale, to_scale, k)
+		_clamp_camera()
+		_sync_layers(), 0.0, 1.0, ENCOUNTER_FRAME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var header := sheet_panel.find_child("LordHeader", true, false) as Control
+	if header != null and header.visible:
+		header.modulate.a = 0.0
+		var ht := header.create_tween().set_parallel()
+		ht.tween_property(header, "modulate:a", 1.0, 0.2).set_delay(0.12)
+		# His face steps up to the road: a small pop (its container owns its place).
+		var face := header.get_child(0) as Control if header.get_child_count() > 0 else null
+		if face != null:
+			face.pivot_offset = face.size * 0.5
+			face.scale = Vector2(0.8, 0.8)
+			ht.tween_property(face, "scale", Vector2.ONE, 0.32).set_delay(0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 ## The music of the realm you're riding through; at sea, whatever was playing.
@@ -2526,6 +2568,9 @@ func _people_label() -> String:
 
 
 ## The banner a newly arrived letter shows under the top bar.
+var _banner_env: Control = null
+
+
 func _build_letter_banner() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 2
@@ -2565,6 +2610,7 @@ func _build_letter_banner() -> void:
 		env.draw_circle(c, 15, _banner_seal.darkened(0.2))
 		env.draw_circle(c - Vector2(2, 2), 12, _banner_seal))
 	top.add_child(env)
+	_banner_env = env
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.add_theme_constant_override("separation", 2)
@@ -2636,9 +2682,7 @@ func _show_letter_banner(l: Dictionary) -> void:
 	letter_banner.visible = true
 	_banner_left = LETTER_BANNER_SECONDS
 	Sound.play("page", 0.0, 0.05)
-	if not Style.motion_reduced():
-		letter_banner.modulate.a = 0.0
-		letter_banner.create_tween().tween_property(letter_banner, "modulate:a", 1.0, 0.25)
+	_drop_banner()
 
 
 ## An invitation to a gathering, brought like a letter, sealed in brass.
@@ -2653,6 +2697,29 @@ func _show_invite_banner(g: Dictionary) -> void:
 	letter_banner.visible = true
 	_banner_left = LETTER_BANNER_SECONDS
 	Sound.play("page", 0.0, 0.05)
+	_drop_banner()
+
+
+## A letter arrives: the banner drops from behind the top bar with a little overshoot,
+## and a beat after it lands the seal presses down.
+const BANNER_DROP := 0.32
+
+
+func _drop_banner() -> void:
+	if Style.motion_reduced():
+		letter_banner.modulate.a = 1.0
+		return
+	var rest := letter_banner.offset_top
+	letter_banner.offset_top = rest - 90.0
+	letter_banner.modulate.a = 0.0
+	var t := letter_banner.create_tween().set_parallel()
+	t.tween_property(letter_banner, "modulate:a", 1.0, 0.12)
+	t.tween_property(letter_banner, "offset_top", rest, BANNER_DROP).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	if _banner_env != null:
+		_banner_env.pivot_offset = Vector2(55, 42)
+		_banner_env.scale = Vector2.ONE
+		t.chain().tween_property(_banner_env, "scale", Vector2(1.15, 1.15), 0.07)
+		t.chain().tween_property(_banner_env, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _read_banner_letter() -> void:
@@ -3087,11 +3154,7 @@ func _refresh_hud() -> void:
 		var unread: int = world.social.unread_letters_count()
 		unread_badge.visible = unread > 0
 		(unread_badge.get_node("Count") as Label).text = str(unread)
-	day_label.text = str(h / 24 + 1)
-	clock_label.text = "%02d:00" % (h % 24)
-	var night_now := h % 24 < 6 or h % 24 >= 20
-	day_icon.texture = Widgets.icon("moon" if night_now else "sun")
-	day_icon.modulate = Color(0.78, 0.82, 0.95) if night_now else Style.BRASS
+	_sweep_clock(world.hour)
 	var current := pause_button if paused else (fast_button if speed > 1.5 else play_button)
 	for b in [pause_button, play_button, fast_button]:
 		var on: bool = b == current
@@ -3221,6 +3284,45 @@ func _refresh_pinned(h: int) -> void:
 				pinned_chip.reset_size()
 	var show := String(pinned_chip.get_meta("id", "")) != "" and not _sheet_open() and _sheet == ""
 	pinned_chip.visible = show
+
+
+## The clock in the top bar. When hours have passed out of sight (in a town, a talk, a
+## battle, a regroup) it sweeps through them rather than jumping, and the sun or moon
+## pops when the day turns. Scenes remembers the last hour the map showed.
+var _clock_tween: Tween = null
+var _clock_shown := -1.0
+const CLOCK_JUMP := 1.5
+
+
+func _sweep_clock(target: float) -> void:
+	if _clock_tween != null and _clock_tween.is_valid() and _clock_tween.is_running():
+		return
+	if _clock_shown < 0.0:
+		_clock_shown = Scenes.map_clock_seen if Scenes.map_clock_seen >= 0.0 and Scenes.map_clock_seen <= target else target
+	if target - _clock_shown > CLOCK_JUMP and not Style.motion_reduced():
+		var from := _clock_shown
+		_clock_tween = create_tween()
+		_clock_tween.tween_method(_show_clock, from, target, clampf(0.3 + (target - from) / 40.0, 0.4, 1.0)) \
+			.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		return
+	_show_clock(target)
+
+
+func _show_clock(hour: float) -> void:
+	var h := int(hour)
+	var day_before := int(_clock_shown) / 24
+	var night_before := int(_clock_shown) % 24 < 6 or int(_clock_shown) % 24 >= 20
+	_clock_shown = hour
+	Scenes.map_clock_seen = hour
+	day_label.text = str(h / 24 + 1)
+	clock_label.text = "%02d:00" % (h % 24)
+	var night_now := h % 24 < 6 or h % 24 >= 20
+	day_icon.texture = Widgets.icon("moon" if night_now else "sun")
+	day_icon.modulate = Color(0.78, 0.82, 0.95) if night_now else Style.BRASS
+	if (h / 24 != day_before or night_now != night_before) and not Style.motion_reduced():
+		day_icon.pivot_offset = day_icon.size * 0.5
+		day_icon.scale = Vector2(1.35, 1.35)
+		day_icon.create_tween().tween_property(day_icon, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _open_pinned() -> void:

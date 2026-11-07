@@ -47,6 +47,8 @@ func _init() -> void:
 	await _tabs()
 	await _changes()
 	await _result()
+	await _map_moments()
+	await _ribbons()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -325,3 +327,85 @@ func _result() -> void:
 	sound.reduced_motion = false
 	change_scene_to_file("res://scenes/main_menu.tscn")
 	await _frames(4)
+
+
+# ---- 6, 7, 8. the clock sweeps, the encounter lands, letters drop in
+func _map_moments() -> void:
+	gs.new_campaign("vardish")
+	var w = gs.world
+	w.hour = 30.0
+	scenes.map_clock_seen = 20.0
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await _arrive("world_map.tscn")
+	var m = current_scene
+	var shown_early: String = m.clock_label.text
+	await _wait(1.2)
+	check(shown_early != "06:00" and m.clock_label.text == "06:00" and m.day_label.text == "2",
+		"time that passed out of sight sweeps by on the clock (%s, then %s)" % [shown_early, m.clock_label.text])
+	check(is_equal_approx(scenes.map_clock_seen, w.hour), "and the map remembers the hour it showed")
+	# 7. a hostile lord blocks the road: the camera steps in on the two parties.
+	var foe = null
+	for lp in w.lord_parties():
+		if w.relation_to_player(lp.faction) == "hostile":
+			foe = lp
+			break
+	if foe == null:
+		for lp in w.lord_parties():
+			if lp.faction != "vardmark":
+				foe = lp
+				break
+		gs.realm_relations[String(foe.faction)] = -40
+	foe.node = w.player().node
+	foe.next = ""
+	foe.path = []
+	w.encounter = foe.id
+	var s0: float = m.cam_scale
+	m._open_encounter()
+	await _wait(0.6)
+	check(m.cam_scale > s0 * 1.1 or is_equal_approx(m.cam_scale, m._view.size.x / m.NARROWEST_VIEW), "a road encounter steps the camera in on the two parties (%.2f → %.2f)" % [s0, m.cam_scale])
+	w.encounter = -1
+	m._close_sheet()
+	await _wait(0.3)
+	# 8. a letter drops in from behind the top bar.
+	m.letter_banner.offset_top = 200.0
+	m.letter_banner.visible = true
+	m._drop_banner()
+	await _frames(2)
+	var mid: float = m.letter_banner.offset_top
+	await _wait(0.6)
+	check(mid < 190.0 and is_equal_approx(m.letter_banner.offset_top, 200.0), "a letter drops in from behind the top bar and lands (%.0f → %.0f)" % [mid, m.letter_banner.offset_top])
+	m.letter_banner.visible = false
+	# Reduced motion: the clock and the camera just are.
+	sound.reduced_motion = true
+	scenes.map_clock_seen = w.hour - 10.0
+	m._clock_shown = -1.0
+	m._refresh_hud()
+	check(m.clock_label.text == "%02d:00" % (int(w.hour) % 24), "under Reduced motion the clock just shows the hour")
+	sound.reduced_motion = false
+
+
+# ---- 9. deeds and promotions get a ribbon
+func _ribbons() -> void:
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	scenes.ribbons.clear()
+	scenes.ribbon("A deed to remember", "The company is now known as Test.", "renown", "")
+	await _frames(3)
+	var r := scenes.get_node_or_null("Ribbon") as Control
+	check(r != null and (r.find_child("RibbonTitle", true, false) as Label).text == "A deed to remember", "a deed drops in as a ribbon")
+	await _wait(0.5)
+	check(is_instance_valid(r) and r.position.y >= 0.0, "it holds in view")
+	await _wait(2.6)
+	check(not is_instance_valid(r) or r.is_queued_for_deletion(), "and rolls away")
+	# A captain who becomes ready for a role in a battle gets one, after the battle.
+	var Captains = load("res://scripts/data/captains.gd")
+	var sq: Dictionary = gs.army[0]
+	var c: Dictionary = sq["captain"]
+	c["specialization"] = ""
+	c["battles"] = Captains.SPECIALIZATION_BATTLES - 1
+	c["kills"] = 0
+	scenes.ribbons.clear()
+	gs.pending_battle = {}
+	gs.apply_result({"won": true, "lost": 0, "killed": 3, "squads": {int(sq["id"]): {"men": int(sq["men"]), "kills": 3, "captain": {"fate": "standing", "kills": 0}}}, "enemy_squads": {}})
+	check(scenes.ribbons.any(func(x): return String(x["title"]).contains("ready for a role")), "a captain who becomes ready for a role gets a ribbon")
+	scenes.ribbons.clear()
