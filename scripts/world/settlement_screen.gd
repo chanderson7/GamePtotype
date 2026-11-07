@@ -138,24 +138,12 @@ func _build() -> void:
 		_add_tabs(col, owner)
 
 	# Leaving stays in thumb reach, whatever the page scrolls to.
-	var bar := PanelContainer.new()
-	bar.name = "LeaveBar"
-	var bar_box := Style.box(Style.NIGHT, Style.RULE, 0, 0)
-	bar_box.border_width_top = 2
-	bar_box.content_margin_left = 32
-	bar_box.content_margin_right = 32
-	bar_box.content_margin_top = 14
-	bar_box.content_margin_bottom = 14 + insets["bottom"]
-	bar.add_theme_stylebox_override("panel", bar_box)
-	frame.add_child(bar)
 	var back := Button.new()
 	back.name = "LeaveButton"
 	back.text = "Leave %s" % String(WorldData.settlement(place)["name"])
-	back.custom_minimum_size = Vector2(0, 92)
-	back.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE))
 	Style.make_primary(back)
 	back.pressed.connect(_on_leave)
-	bar.add_child(back)
+	frame.add_child(Widgets.bottom_bar(back, insets, "LeaveBar"))
 
 	_build_info_sheet()
 	_just_built = ""
@@ -164,17 +152,19 @@ func _build() -> void:
 	_restore_scroll(keep)
 
 
-## The name, what the place is, and two coloured chips: how well it's held and how safe
-## its roads are. Everything else waits behind the info button.
-## The name and what the place is, set on the scene when there is one (or above the
-## chips when illustrations are off), and two coloured chips: how well it's held and how
+## The name and what kind of place it is, set on the scene beside the holder's banner (or
+## above the chips when illustrations are off), and chips for how well it's held and how
 ## safe its roads are. Everything else waits behind the info button.
 func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 	var w = GameState.world
 	var title := Style.label(String(WorldData.settlement(place)["name"]), 64, Style.BRASS)
 	title.name = "SettlementName"
-	var kind := Style.label(w.brief(place), Style.BODY, Style.TEXT if vista != null else Style.MUTED)
+	# The banner says whose it is, so the line under the name says only what it is.
+	var kind := Style.label(String(w.brief(place)).split(" · ")[0], Style.BODY, Style.TEXT if vista != null else Style.MUTED)
 	kind.name = "SettlementKind"
+	var flag := Widgets.banner(String(w.owner_of(place)), Vector2(46, 62))
+	flag.name = "SettlementBanner"
+	flag.size_flags_vertical = Control.SIZE_SHRINK_END
 	if vista != null:
 		vista.fade = true
 		var pad := MarginContainer.new()
@@ -184,16 +174,12 @@ func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 			pad.add_theme_constant_override("margin_" + side, 24)
 		pad.add_theme_constant_override("margin_bottom", 14)
 		vista.add_child(pad)
-		# The holder's banner beside the name.
 		var line := HBoxContainer.new()
 		line.alignment = BoxContainer.ALIGNMENT_BEGIN
 		line.size_flags_vertical = Control.SIZE_SHRINK_END
 		line.add_theme_constant_override("separation", 16)
 		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		pad.add_child(line)
-		var flag := Widgets.banner(String(w.owner_of(place)), Vector2(46, 62))
-		flag.name = "SettlementBanner"
-		flag.size_flags_vertical = Control.SIZE_SHRINK_END
 		line.add_child(flag)
 		var stack := VBoxContainer.new()
 		stack.alignment = BoxContainer.ALIGNMENT_END
@@ -208,12 +194,17 @@ func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 			label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			stack.add_child(label)
 	else:
-		var title_row := HFlowContainer.new()
-		title_row.add_theme_constant_override("h_separation", 16)
+		var title_row := HBoxContainer.new()
+		title_row.add_theme_constant_override("separation", 16)
 		col.add_child(title_row)
-		title_row.add_child(title)
-		kind.size_flags_vertical = Control.SIZE_SHRINK_END
-		title_row.add_child(kind)
+		title_row.add_child(flag)
+		var stack := VBoxContainer.new()
+		stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stack.add_theme_constant_override("separation", 0)
+		title_row.add_child(stack)
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		stack.add_child(title)
+		stack.add_child(kind)
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -229,39 +220,28 @@ func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 		if GameState.is_player_fief(place):
 			var stationed: int = w.men_of(w.garrison_at(place))
 			var militia: int = w.men_of(w.village_militia(place))
-			chips.add_child(_chip("Garrison %d men · %d militia" % [stationed, militia] if stationed > 0 else "%d militia, no garrison" % militia,
-				Style.MORALE_HIGH if stationed > 0 else Style.MORALE_MID))
+			if stationed > 0:
+				chips.add_child(_status_chip(str(stationed), Style.MORALE_HIGH, "men"))
+			chips.add_child(_status_chip(str(militia), Style.MORALE_HIGH if stationed > 0 else Style.MORALE_MID, "militia"))
 	elif w.garrisons.has(place):
 		var men: int = w.men_of(w.garrison_at(place))
 		var cap: int = w.garrison_capacity(place)
 		var tone := Style.MORALE_LOW if men < cap * 0.4 else (Style.MORALE_HIGH if men >= cap * 0.8 else Style.MORALE_MID)
-		chips.add_child(_chip("Garrison %d/%d" % [men, cap], tone))
-	var danger := String(w.settlement_danger(place))
-	if danger == "":
-		chips.add_child(_chip("Quiet roads", Style.MORALE_HIGH))
-	else:
-		var short := danger.split(";")[0].split(":")[0]
-		chips.add_child(_chip(short.substr(0, 1).to_upper() + short.substr(1), Style.MORALE_LOW))
-	var info := Button.new()
-	info.name = "InfoButton"
-	info.text = "i"
-	info.tooltip_text = "About %s" % String(WorldData.settlement(place)["name"])
-	info.custom_minimum_size = Vector2(64, 64)
-	info.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	info.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
+		chips.add_child(_status_chip("%d/%d" % [men, cap], tone, "men"))
+	chips.add_child(_danger_chip())
+	var info := Widgets.icon_button("book", _show_info, "About %s" % String(WorldData.settlement(place)["name"]), "InfoButton")
 	info.add_theme_stylebox_override("normal", Style.box(Style.NIGHT, Style.RULE, 2, 40))
 	info.add_theme_stylebox_override("hover", Style.box(Style.PANEL, Style.MUTED, 2, 40))
 	info.add_theme_stylebox_override("pressed", Style.box(Style.PANEL, Style.BRASS, 2, 40))
-	info.pressed.connect(_show_info)
 	if vista != null:
 		# In the scene's top corner, out of the way of the title.
 		info.add_theme_stylebox_override("normal", Style.box(Color(Style.NIGHT, 0.8), Style.RULE, 2, 40))
 		info.anchor_left = 1.0
 		info.anchor_right = 1.0
-		info.offset_left = -82
+		info.offset_left = -18 - Style.TOUCH
 		info.offset_right = -18
 		info.offset_top = 18
-		info.offset_bottom = 82
+		info.offset_bottom = 18 + Style.TOUCH
 		vista.add_child(info)
 	else:
 		row.add_child(info)
@@ -273,22 +253,49 @@ func _add_header(col: VBoxContainer, vista: Control = null) -> void:
 		col.add_child(recent_note)
 
 
-func _chip(text: String, tone: Color) -> PanelContainer:
-	var chip := PanelContainer.new()
-	var sb := Style.box(Style.RAISED, Style.RULE, 2, 40)
-	sb.content_margin_left = 16
-	sb.content_margin_right = 18
-	sb.content_margin_top = 8
-	sb.content_margin_bottom = 8
-	chip.add_theme_stylebox_override("panel", sb)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 10)
-	chip.add_child(h)
-	# A shape as well as a colour, so the good, middling and bad read without colour.
-	var shape := "▲" if tone == Style.MORALE_HIGH else ("◆" if tone == Style.MORALE_MID else "▼")
-	h.add_child(Style.label(shape, Style.SMALL, tone))
-	h.add_child(Style.label(text, Style.SMALL, Style.TEXT))
-	return chip
+## A status as a chip: its shape for good, middling or bad, and the icon of what it counts.
+func _status_chip(text: String, tone: Color, key: String) -> PanelContainer:
+	var c := Widgets.chip(text, tone, "▲" if tone == Style.MORALE_HIGH else ("◆" if tone == Style.MORALE_MID else "▼"), key)
+	var ic := c.find_child("Icon", true, false) as Control
+	if ic != null:
+		ic.modulate = Color.WHITE
+	return c
+
+
+## How safe the place is, as one chip: what threatens it, by its icon, and whose banner.
+func _danger_chip() -> PanelContainer:
+	var w = GameState.world
+	var danger := String(w.settlement_danger(place))
+	if danger == "":
+		var quiet := Widgets.chip("Quiet roads", Style.MORALE_HIGH)
+		quiet.name = "DangerChip"
+		return quiet
+	var key := "fight"
+	var word := "Hostile"
+	var realm := ""
+	if danger.begins_with("under siege"):
+		key = "walls"
+		word = "Besieged"
+		realm = String(w.siege_info(place).get("realm", ""))
+	elif danger.begins_with("raid"):
+		key = "fire"
+		word = "Raiders here"
+	elif danger.begins_with("burned"):
+		key = "fire"
+		word = "Burned"
+	elif danger.begins_with("marshal"):
+		key = "advance"
+		word = "Army coming"
+		for army in w.campaign_armies:
+			if String(army.get("target", "")) == place:
+				realm = String(army.get("realm", ""))
+	var c := Widgets.chip(word, Style.MORALE_LOW, "", key)
+	c.name = "DangerChip"
+	c.tooltip_text = danger
+	if realm != "":
+		var flag := Widgets.banner(realm, Vector2(20, 28))
+		(c.get_child(0) as HBoxContainer).add_child(flag)
+	return c
 
 
 ## Silver with what the company costs a day, and food in days, as two tiles.
@@ -299,7 +306,7 @@ func _add_wallet(col: VBoxContainer) -> void:
 	col.add_child(row)
 	var days := GameState.food_days()
 	var silver_tile := Widgets.tile("silver", Widgets.thousands(GameState.silver), "−%d a day" % GameState.daily_wages())
-	var food_tile := Widgets.tile("food", "1 day" if days == 1 else "%d days" % days, "of food",
+	var food_tile := Widgets.tile("food", str(days), "day of food" if days == 1 else "days of food",
 		Style.ENEMY_LIGHT if days < 3 else Style.TEXT)
 	row.add_child(silver_tile)
 	row.add_child(food_tile)
@@ -307,7 +314,7 @@ func _add_wallet(col: VBoxContainer) -> void:
 	if _shown_silver >= 0 and _shown_silver != GameState.silver:
 		Widgets.tick_to(silver_tile.find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v))
 	if _shown_food >= 0 and _shown_food != days:
-		Widgets.tick_to(food_tile.find_child("Value", true, false), _shown_food, days, func(v): return "1 day" if v == 1 else "%d days" % v)
+		Widgets.tick_to(food_tile.find_child("Value", true, false), _shown_food, days, func(v): return str(v))
 	_shown_silver = GameState.silver
 	_shown_food = days
 
@@ -368,99 +375,83 @@ func _on_tab(id: String) -> void:
 	_build()
 
 
-## A card: a titled panel with an optional note on the right of its title.
-func _card(parent: Control, title: String, aside: String = "", aside_color: Color = Style.MUTED) -> VBoxContainer:
-	var panel := PanelContainer.new()
-	var sb := Style.box(Style.PANEL, Style.RULE, 2, 20)
-	sb.content_margin_left = 22
-	sb.content_margin_right = 22
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 20
-	panel.add_theme_stylebox_override("panel", sb)
-	parent.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
-	panel.add_child(v)
-	var head := HBoxContainer.new()
-	v.add_child(head)
-	var t := _section(title)
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(t)
-	if aside != "":
-		head.add_child(Style.label(aside, Style.SMALL, aside_color))
-	return v
-
-
-## Everything about the place that isn't needed to act on it: its look, owner, garrison,
-## danger, services and why it matters, in a sheet that slides up from the bottom.
+## Everything about the place that isn't needed to act on it: whose it is, its garrison,
+## what threatens it, what it offers and why it matters, in a sheet that slides up from
+## the bottom. It's built with the page and kept hidden, so its words are always there.
 func _build_info_sheet() -> void:
 	var w = GameState.world
-	var shade := ColorRect.new()
-	shade.name = "InfoSheet"
-	shade.color = Color(0.012, 0.02, 0.04, 0.6)
-	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	shade.mouse_filter = Control.MOUSE_FILTER_STOP
-	shade.visible = false
-	shade.gui_input.connect(func(e):
-		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed:
-			_hide_info())
-	add_child(shade)
-	_info_sheet = shade
-
-	var panel := PanelContainer.new()
-	panel.name = "InfoPanel"
-	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	var sb := Style.box(Style.PANEL.lightened(0.02), Style.RULE, 2, 28)
-	sb.corner_radius_bottom_left = 0
-	sb.corner_radius_bottom_right = 0
-	sb.content_margin_left = 32
-	sb.content_margin_right = 32
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 36 + Style.safe_insets(get_viewport())["bottom"]
-	panel.add_theme_stylebox_override("panel", sb)
-	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	shade.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 14)
-	panel.add_child(v)
-	var grip := Panel.new()
-	grip.custom_minimum_size = Vector2(80, 8)
-	grip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	grip.add_theme_stylebox_override("panel", Style.box(Style.RULE, Color(0, 0, 0, 0), 0, 4))
-	v.add_child(grip)
-	v.add_child(Style.label("About %s" % String(WorldData.settlement(place)["name"]), Style.LARGE, Style.TEXT))
-	var condition := _note(String(TravelPresentation.settlement_state(w, place).get("sentence", "")), Style.MUTED)
+	var col := Widgets.sheet(self, "About %s" % String(WorldData.settlement(place)["name"]), "InfoSheet", func(): _info_sheet = null)
+	_info_sheet = col.get_parent().get_parent().get_parent().get_parent() as Control
+	_info_sheet.visible = false
+	var condition := _note(String(TravelPresentation.settlement_state(w, place).get("sentence", "")), Style.TEXT)
 	condition.name = "SettlementCondition"
-	v.add_child(condition)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 24)
-	grid.add_theme_constant_override("v_separation", 10)
-	v.add_child(grid)
-	for line in String(w.settlement_intelligence(place)).split("\n"):
-		var parts := String(line).split(": ", true, 1)
-		if parts.size() < 2:
-			continue
-		var key := Style.label(parts[0], Style.SMALL, Style.MUTED)
-		key.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		grid.add_child(key)
-		var value := _note(parts[1].substr(0, 1).to_upper() + parts[1].substr(1), Style.TEXT)
-		value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		grid.add_child(value)
-	var close := _button("Close", _hide_info)
-	v.add_child(close)
+	col.add_child(condition)
+	# Whose it is: their banner and name.
+	var owner := String(w.owner_of(place))
+	var own := HBoxContainer.new()
+	own.name = "InfoOwner"
+	own.add_theme_constant_override("separation", 14)
+	own.add_child(Widgets.banner(owner, Vector2(40, 54)))
+	var own_words := VBoxContainer.new()
+	own_words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	own_words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	own_words.add_child(Style.label("Owner", Style.SMALL, Style.MUTED))
+	own_words.add_child(Style.label(String(WorldData.FACTIONS[owner]["name"]), Style.BODY, Style.TEXT))
+	own.add_child(own_words)
+	col.add_child(own)
+	# The garrison, as men against what the walls hold.
+	if w.garrisons.has(place):
+		var men: int = w.men_of(w.garrison_at(place))
+		var cap: int = w.garrison_capacity(place)
+		col.add_child(Widgets.store_tile("InfoGarrison", "men", men, cap, "Garrison"))
+	# A siege in numbers.
+	var siege: Dictionary = w.siege_info(place)
+	if not siege.is_empty():
+		col.add_child(Style.label("Under siege", Style.SMALL, Style.ENEMY_LIGHT))
+		var tiles := Widgets.tile_grid([
+			Widgets.tile("men", Widgets.thousands(int(siege["attackers"])), "besiegers", Style.ENEMY_LIGHT),
+			Widgets.tile("walls", Widgets.thousands(int(siege["defenders"])), "behind walls ×%.1f" % float(siege["walls"])),
+			Widgets.tile("food", str(int(ceil(float(siege["food_hours"]) / 24.0))), "days of food"),
+			Widgets.tile("clock", Style.time_short(float(siege["assault_hours"])), "to the assault"),
+		], 2)
+		tiles.name = "SiegeTiles"
+		col.add_child(tiles)
+		col.add_child(Widgets.chip_row([Widgets.chip("Relief may come" if int(siege["relief"]) > 0 else "No relief in sight",
+			Style.MORALE_MID if int(siege["relief"]) > 0 else Style.MORALE_LOW)]))
+	else:
+		col.add_child(Widgets.chip_row([_danger_chip()]))
+	# What it offers, as icons.
+	col.add_child(Style.label("Services", Style.SMALL, Style.MUTED))
+	var services := HFlowContainer.new()
+	services.name = "InfoServices"
+	services.add_theme_constant_override("h_separation", 8)
+	services.add_theme_constant_override("v_separation", 8)
+	for svc in WorldData.services(place):
+		services.add_child(Widgets.chip(String(svc).capitalize(), Style.TEXT, "", String(SERVICE_ICONS.get(String(svc), "plus"))))
+	var recruits: int = w.offers_at(place).size()
+	services.add_child(Widgets.stat("men", "%d to hire" % recruits))
+	col.add_child(services)
+	col.add_child(Style.label("Why it matters", Style.SMALL, Style.MUTED))
+	col.add_child(_note(WorldData.importance(place), Style.TEXT))
+
+
+## Each service's icon in the info sheet.
+const SERVICE_ICONS := {"provisions": "food", "cheap provisions": "food", "recruits": "men", "reinforcement": "plus",
+	"training": "level", "court": "crown"}
 
 
 func _show_info() -> void:
-	if _info_sheet == null:
-		return
+	if _info_sheet == null or not is_instance_valid(_info_sheet) or _info_sheet.is_queued_for_deletion():
+		_build_info_sheet()
 	_info_sheet.visible = true
-	Style.ease_in(_info_sheet.get_child(0))
+	_info_sheet.move_to_front()
+	var panel := _info_sheet.get_node_or_null("SheetPanel") as Control
+	if panel != null:
+		Style.ease_in(panel)
 
 
 func _hide_info() -> void:
-	if _info_sheet != null:
+	if _info_sheet != null and is_instance_valid(_info_sheet):
 		_info_sheet.visible = false
 
 
@@ -577,9 +568,9 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
-	var card := _card(col, "Gates barred", "at war", Style.ENEMY_LIGHT)
-	var faction_name: String = WorldData.FACTIONS[owner]["name"]
-	card.add_child(_note("The %s is at war with you. Markets, barracks and halls are closed." % faction_name, Style.ENEMY_LIGHT))
+	var card := Widgets.card(col, "Gates barred", "at war", Style.ENEMY_LIGHT)
+	card.get_parent().name = "HostileCard"
+	card.add_child(_realm_line(owner, String(WorldData.FACTIONS[owner]["name"]), "Markets, barracks and halls are closed to you.", Style.ENEMY_LIGHT))
 	var raid: Dictionary = GameState.raid_check(place)
 	if bool(raid["ok"]):
 		card.add_child(_note("Its people won't trade with you, but their barns are full.", Style.MUTED))
@@ -590,6 +581,7 @@ func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
 			Scenes.map_raid = place
 			Scenes.go("res://scenes/world_map.tscn"))
 		b.name = "Raid"
+		_with_icon(b, "fire")
 		card.add_child(b)
 	var g: Dictionary = GameState.world.gathering_at(place)
 	if not g.is_empty():
@@ -598,6 +590,33 @@ func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
 		card.add_child(feast)
 
 
+## A realm's banner beside two lines: what it is to you, and a word more.
+func _realm_line(realm: String, top: String, bottom: String, tone: Color = Style.MUTED) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	var flag := Widgets.banner(realm, Vector2(36, 48))
+	flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(flag)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	words.add_theme_constant_override("separation", 0)
+	row.add_child(words)
+	var t := Style.label(top, Style.BODY, Style.TEXT)
+	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(t)
+	if bottom != "":
+		words.add_child(_note(bottom, tone))
+	return row
+
+
+## A signed number with a real minus: "+5", "−25".
+func _signed(n: int) -> String:
+	return ("+%d" % n) if n > 0 else (("−%d" % -n) if n < 0 else "0")
+
+
+## Fealty and a mercenary commission, in a town or castle: who you serve and on what
+## terms, as chips, with one verb each.
 func _add_contract(col: VBoxContainer, owner: String) -> void:
 	var kind: String = WorldData.settlement(place)["type"]
 	if not kind in [WorldData.CASTLE, WorldData.TOWN]:
@@ -606,63 +625,92 @@ func _add_contract(col: VBoxContainer, owner: String) -> void:
 	var faction_name: String = WorldData.FACTIONS[owner]["name"]
 
 	if GameState.has_fief():
-		col.add_child(_section("Fealty & Lordship"))
+		var fv := Widgets.card(col, "Fealty")
+		fv.get_parent().name = "FealtyCard"
 		if GameState.fief_realm() == owner:
-			col.add_child(_note("Sworn vassal of %s · Lord of %s" % [WorldData.the_realm(faction_name), WorldData.settlement(GameState.fief_id())["name"]], Style.BRASS))
+			fv.add_child(_realm_line(owner, "Sworn vassal", "Lord of %s" % WorldData.settlement(GameState.fief_id())["name"], Style.BRASS))
 		else:
-			var other_name: String = WorldData.FACTIONS[GameState.fief_realm()]["name"]
-			col.add_child(_note("Your company is already sworn in fealty to %s." % WorldData.the_realm(other_name), Style.MUTED))
+			var other_realm := GameState.fief_realm()
+			fv.add_child(_realm_line(other_realm, "Sworn elsewhere", "Your company holds its fief from %s." % WorldData.the_realm(String(WorldData.FACTIONS[other_realm]["name"]))))
 		return
 
 	if GameState.can_petition_fief(owner):
-		col.add_child(_section("Fealty & Fiefdom"))
-		col.add_child(_note("The crown recognizes your valor and standing (%d renown, %d relation). You may swear fealty as a vassal of %s and receive governance of a fief." % [
-			GameState.renown, GameState.relation_with_realm(owner), WorldData.the_realm(faction_name)
-		], Style.BRASS))
-		var fief_candidates: Array = GameState.available_fiefs_for_grant(owner)
-		for fid in fief_candidates:
-			var fname := String(WorldData.settlement(fid)["name"])
-			var ftype := String(WorldData.settlement(fid)["type"]).capitalize()
-			var btn := _button("Swear Fealty and Claim %s (%s)" % [fname, ftype], func():
-				if GameState.accept_fealty_and_fief(fid, owner):
-					Sound.play("charge")
-					_build()
-			)
-			Style.make_primary(btn)
-			col.add_child(btn)
+		var pv := Widgets.card(col, "Fealty", "", Style.MUTED, true)
+		pv.get_parent().name = "FealtyCard"
+		pv.add_child(_realm_line(owner, faction_name, "Will take you as a vassal and grant you a fief.", Style.TEXT))
+		pv.add_child(Widgets.chip_row([Widgets.stat("renown", Widgets.thousands(GameState.renown)),
+			Widgets.stat("bond", _signed(GameState.relation_with_realm(owner)))]))
+		var swear := _button("Swear fealty…", _show_fealty_sheet.bind(owner))
+		swear.name = "SwearFealty"
+		Style.make_primary(swear)
+		pv.add_child(swear)
 
-	col.add_child(_section("Mercenary commission"))
-
+	var v := Widgets.card(col, "Mercenary commission")
+	v.get_parent().name = "CommissionCard"
 	if GameState.has_contract():
 		if GameState.contract_realm() == owner:
 			var daily: int = GameState.contract_daily_pay()
 			var left: int = int(GameState.contract.get("days_left", 0))
 			var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
-			col.add_child(_note("In service to %s · %d silver daily (%d days remaining) · %d silver bonus per captured enemy lord." % [
-				faction_name, daily, left, bonus
-			], Style.BRASS))
-			var cancel_btn := _button("Resign commission (costs 25 relation)", _on_cancel_contract)
-			col.add_child(cancel_btn)
+			v.add_child(_realm_line(owner, "In service", faction_name, Style.BRASS))
+			v.add_child(Widgets.chip_row([Widgets.effect("silver", daily, "/day"),
+				Widgets.stat("clock", "%d day%s left" % [left, "" if left == 1 else "s"]),
+				Widgets.effect("silver", bonus, " a captive lord")]))
+			var cancel_btn := _button("Resign", _on_cancel_contract)
+			cancel_btn.name = "ResignCommission"
+			v.add_child(Widgets.priced(cancel_btn, [["bond", "−25", Style.ENEMY_LIGHT]]))
 		else:
-			var other_name: String = WorldData.FACTIONS[GameState.contract_realm()]["name"]
-			col.add_child(_note("Your company is already pledged to %s." % other_name, Style.MUTED))
+			var other: String = GameState.contract_realm()
+			v.add_child(_realm_line(other, "Pledged elsewhere", "Your company already serves %s." % String(WorldData.FACTIONS[other]["name"])))
 		return
 
 	if not GameState.world.is_at_war(owner):
-		col.add_child(_note("%s is currently at peace and requires no mercenary companies." % faction_name, Style.MUTED))
+		v.add_child(_realm_line(owner, "At peace", "No sellswords wanted."))
 		return
 
 	var pay := GameState.calculate_contract_pay(owner)
 	if GameState.renown < GameState.CONTRACT_MIN_RENOWN:
-		col.add_child(_note("The realm is at war and seeks sellswords, but marshals only hire captains of renown (%d renown needed)." % GameState.CONTRACT_MIN_RENOWN, Style.MUTED))
+		v.add_child(_realm_line(owner, "At war · hiring", "Its marshals hire only captains of renown."))
+		v.add_child(Widgets.chip_row([Widgets.stat("renown", "%d of %d" % [GameState.renown, GameState.CONTRACT_MIN_RENOWN], Style.ENEMY_LIGHT)]))
 		return
 
-	col.add_child(_note("The %s is at war and seeks sellswords to take the field. A 30-day commission offers %d silver each day." % [
-		faction_name, pay
-	], Style.TEXT))
-	var sign_btn := _button("Offer your sword (%d silver/day)" % pay, _on_sign_contract.bind(owner))
+	v.add_child(_realm_line(owner, "At war · hiring", faction_name, Style.TEXT))
+	v.add_child(Widgets.chip_row([Widgets.effect("silver", pay, "/day"), Widgets.stat("clock", "%d days" % GameState.CONTRACT_DAYS)]))
+	var sign_btn := _button("Offer your sword", _on_sign_contract.bind(owner))
+	sign_btn.name = "OfferSword"
 	Style.make_primary(sign_btn)
-	col.add_child(sign_btn)
+	v.add_child(sign_btn)
+
+
+## The fiefs the realm would grant you, each with its scene, to choose one and swear.
+func _show_fealty_sheet(owner: String) -> void:
+	var col := Widgets.sheet(self, "Swear fealty", "FealtySheet")
+	col.add_child(_realm_line(owner, String(WorldData.FACTIONS[owner]["name"]), "Choose the fief you'll hold as its vassal.", Style.TEXT))
+	for fid in GameState.available_fiefs_for_grant(owner):
+		var f := String(fid)
+		var row := HBoxContainer.new()
+		row.name = "Fief_%s" % f
+		row.add_theme_constant_override("separation", 14)
+		var thumb := SettlementVista.make(f, GameState.world, 96.0)
+		thumb.custom_minimum_size.x = 150
+		row.add_child(thumb)
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(words)
+		words.add_child(Style.label(String(WorldData.settlement(f)["name"]), Style.BODY, Style.TEXT))
+		words.add_child(_note(String(WorldData.settlement(f)["type"]).capitalize()))
+		var claim := _button("Claim", func():
+			Widgets.close_sheet(col)
+			if GameState.accept_fealty_and_fief(f, owner):
+				Sound.play("charge")
+				_build())
+		claim.name = "Claim_%s" % f
+		claim.custom_minimum_size = Vector2(140, Style.TOUCH)
+		claim.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		Style.make_primary(claim)
+		row.add_child(claim)
+		col.add_child(row)
 
 
 func _on_sign_contract(owner: String) -> void:
@@ -677,62 +725,92 @@ func _on_cancel_contract() -> void:
 	_build()
 
 
-## A castle or town of your crown that isn't your seat: who holds it for you, its
-## garrison, and your squads standing with it.
+## A castle or town of your crown that isn't your seat, laid out like your own fief: who
+## holds it for you and what it pays, then its garrison and your squads standing with it.
 func _add_crown_holding(col: VBoxContainer) -> void:
 	var w = GameState.world
-	var s_name := String(WorldData.settlement(place)["name"])
-	col.add_child(_section("%s of %s" % [String(WorldData.settlement(place)["type"]).capitalize(), GameState.crown_title()]))
+	var v := Widgets.card(col, "%s of %s" % [String(WorldData.settlement(place)["type"]).capitalize(), GameState.crown_title()])
+	v.get_parent().name = "HoldingCard"
 	var holder: Dictionary = GameState.holder_of(place)
-	col.add_child(_note("Held for you by %s." % holder["name"] if not holder.is_empty() else "No lord holds it for you. Grant it to one of your sworn lords.", Style.TEXT))
-	var income := int(Lords.INCOME.get(String(WorldData.settlement(place)["type"]), 0))
-	col.add_child(_note("Pays %d silver a day: half to your purse, half to the crown treasury (%d), which raises its garrison." % [income, GameState.crown_treasury()]))
-	# Grant it.
 	var lords: Array = GameState.crown_lords().filter(func(l): return String(l.get("fief", "")) != place)
+	var who := HBoxContainer.new()
+	who.name = "Holder"
+	who.add_theme_constant_override("separation", 14)
+	v.add_child(who)
+	if not holder.is_empty():
+		who.add_child(CourtUI.face(holder, 56))
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	who.add_child(words)
+	if holder.is_empty():
+		words.add_child(Style.label("No one holds it", Style.BODY, Style.MUTED))
+		words.add_child(_note("Grant it to a sworn lord."))
+	else:
+		words.add_child(Style.label(LordTalk.short_name(holder), Style.BODY, Style.TEXT))
+		words.add_child(_note("Holds it for you"))
 	if not lords.is_empty():
-		col.add_child(_section("Grant %s" % s_name))
-		for l in lords:
-			var lid := int(l["id"])
-			var holds := String(l.get("fief", ""))
-			var b := _button("Grant to %s%s" % [l["name"], (" (holds %s)" % WorldData.settlement(holds)["name"]) if holds != "" else ""], func():
-				if GameState.grant_fief(place, lid):
-					Sound.play("horn")
-					_build())
-			b.name = "Grant_%d" % lid
-			col.add_child(b)
+		var grant := _button("Grant…", _show_grant_sheet)
+		grant.name = "GrantHolding"
+		grant.custom_minimum_size = Vector2(140, Style.TOUCH)
+		grant.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		if holder.is_empty():
+			Style.make_primary(grant)
+		who.add_child(grant)
 	if not holder.is_empty():
 		var hid := int(holder["id"])
-		var r := _button("Take it back from %s (%d Regard)" % [holder["name"], GameState.REVOKE_REGARD], func():
+		var r := _button("Take it back", func():
 			if GameState.revoke_fief(hid):
 				_build())
 		r.name = "Revoke"
-		col.add_child(r)
-	# Its garrison, and your squads in it.
-	col.add_child(_section("Garrison"))
-	col.add_child(_note("%d of %d men." % [w.men_of(w.garrison_at(place)), w.garrison_capacity(place)], Style.TEXT))
-	for sq in GameState.stationed_at(place):
+		v.add_child(Widgets.priced(r, [["bond", _signed(GameState.REVOKE_REGARD), Style.ENEMY_LIGHT]]))
+	var income := int(Lords.INCOME.get(String(WorldData.settlement(place)["type"]), 0))
+	v.add_child(Widgets.tile_grid([Widgets.tile("silver", "+%d" % int(income / 2.0), "a day to you"),
+		Widgets.tile("chest", Widgets.thousands(GameState.crown_treasury()), "crown treasury")], 2))
+	v.add_child(_note("The treasury's half raises the garrison."))
+
+	var stationed: Array = GameState.stationed_at(place)
+	var g := Widgets.card(col, "Garrison", "" if stationed.is_empty() else "%d squad%s yours" % [stationed.size(), "" if stationed.size() == 1 else "s"])
+	g.get_parent().name = "CrownGarrisonCard"
+	g.add_child(Widgets.store_tile("CrownGarrisonTile", "men", w.men_of(w.garrison_at(place)), w.garrison_capacity(place), ""))
+	for sq in stationed:
 		var sid := int(sq["id"])
-		var b := _button("Take back %s (%d men)" % [String(sq.get("name", "squad")), int(sq["men"])], func():
+		var take_back := func():
 			if GameState.withdraw_from_holding(sid):
-				_build())
-		b.name = "Withdraw_%d" % sid
-		col.add_child(b)
+				_build()
+		g.add_child(_squad_line(sq, "Take back", true, "Withdraw_%d" % sid, take_back))
 	if GameState.army.size() > 1:
-		col.add_child(_note("Station a squad of yours with the garrison:"))
-		var flow := HFlowContainer.new()
-		flow.add_theme_constant_override("h_separation", 8)
-		flow.add_theme_constant_override("v_separation", 8)
-		for sq in GameState.army:
-			var sid := int(sq["id"])
-			var b := Button.new()
-			b.name = "Station_%d" % sid
-			b.text = "Station %s" % String(sq.get("name", "squad"))
-			b.pressed.connect(func():
-				if GameState.station_in_holding(sid):
-					Sound.play("click")
-					_build())
-			flow.add_child(b)
-		col.add_child(flow)
+		var open := _button("Station a squad here…", _show_station_sheet.bind(true))
+		open.name = "StationSquad"
+		g.add_child(open)
+
+
+## Your sworn lords, by face, to hand this place to.
+func _show_grant_sheet() -> void:
+	var col := Widgets.sheet(self, "Grant %s" % String(WorldData.settlement(place)["name"]), "GrantSheet")
+	for l in GameState.crown_lords().filter(func(x): return String(x.get("fief", "")) != place):
+		var lid := int(l["id"])
+		var holds := String(l.get("fief", ""))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		row.add_child(CourtUI.face(l, 48))
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(words)
+		words.add_child(Style.label(LordTalk.short_name(l), Style.BODY, Style.TEXT))
+		if holds != "":
+			words.add_child(Widgets.chip_row([Widgets.chip(String(WorldData.settlement(holds)["name"]), Style.TEXT, "", "keep")]))
+		var b := _button("Grant", func():
+			Widgets.close_sheet(col)
+			if GameState.grant_fief(place, lid):
+				Sound.play("horn")
+				_build())
+		b.name = "Grant_%d" % lid
+		b.custom_minimum_size = Vector2(140, Style.TOUCH)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(b)
+		col.add_child(row)
 
 
 ## Your own fief: what it stores, the squads you've left there, and what you've built.
@@ -769,7 +847,7 @@ func _add_estate_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 	if GameState.world != null:
 		var days := int((float(GameState.world.hour) - float(fief.get("granted_at", 0.0))) / 24.0) + 1
 		held = "day %d as its %s" % [days, title.to_lower()]
-	var card := _card(col, "Your estate", held)
+	var card := Widgets.card(col, "Your estate", held)
 	card.get_parent().name = "EstateCard"
 	var name_label := Style.label("%s of %s" % [title, s_name], Style.TITLE_SIZE, Style.BRASS)
 	name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -777,75 +855,50 @@ func _add_estate_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 	if GameState.is_crowned() and String(fief.get("realm", "")) == WorldData.CROWN:
 		card.add_child(_note("Seat of your crown · ruler of %s" % GameState.crown_title(), Style.TEXT))
 	else:
-		var r_name := String(WorldData.FACTIONS.get(String(fief.get("realm", "")), {}).get("name", "Realm"))
-		card.add_child(_note("Sworn vassal of %s · seat of your company" % WorldData.the_realm(r_name), Style.TEXT))
+		var realm := String(fief.get("realm", ""))
+		var r_name := String(WorldData.FACTIONS.get(realm, {}).get("name", "Realm"))
+		card.add_child(_realm_line(realm, r_name, "Your liege · the seat of your company"))
 	if is_b:
-		card.add_child(Widgets.chip_row([Widgets.chip("Raided · taxes and grain crippled until rebuilt", Style.MORALE_LOW)]))
+		card.add_child(Widgets.chip_row([Widgets.chip("Raided · until rebuilt", Style.MORALE_LOW, "", "fire")]))
 
 	var silver: int = int(fief.get("silver", 0))
 	var food: int = int(fief.get("food", 0))
 	var tiles := HBoxContainer.new()
 	tiles.add_theme_constant_override("separation", 12)
 	card.add_child(tiles)
-	tiles.add_child(_store_tile("TreasuryTile", silver, Fiefs.MAX_STORAGE_SILVER, "silver",
-		"+%d a day in taxes" % Fiefs.daily_tax(fief, is_b), "Treasury full · taxes are being lost"))
-	tiles.add_child(_store_tile("GranaryTile", food, Fiefs.max_food_capacity(fief), "rations",
-		"+%d a day" % Fiefs.daily_food(fief, is_b), "Granary full · grain is going to waste"))
+	tiles.add_child(Widgets.store_tile("TreasuryTile", "silver", silver, Fiefs.MAX_STORAGE_SILVER,
+		"+%d a day in taxes" % Fiefs.daily_tax(fief, is_b), "Full · taxes are being lost"))
+	tiles.add_child(Widgets.store_tile("GranaryTile", "food", food, Fiefs.max_food_capacity(fief),
+		"+%d a day" % Fiefs.daily_food(fief, is_b), "Full · grain is going to waste"))
 
+	# The tiles above say how much; the buttons only say what to do.
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
 	card.add_child(buttons)
-	var collect := _button("Collect %s silver" % Widgets.thousands(silver) if silver > 0 else "Collect taxes", func():
+	var collect := _button("Collect", func():
 		if GameState.collect_fief_taxes() > 0:
 			Sound.play("coins")
 			_build())
 	collect.name = "CollectTaxes"
+	_with_icon(collect, "silver")
 	collect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	collect.disabled = silver <= 0
 	if silver > 0:
 		Style.make_primary(collect)
 	buttons.add_child(collect)
-	var take := _button("Take %d rations" % food if food > 0 else "Take food", func():
+	var take := _button("Take food", func():
 		if GameState.collect_fief_food() > 0:
 			Sound.play("coins")
 			_build())
 	take.name = "TakeFood"
+	_with_icon(take, "food")
 	take.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	take.disabled = food <= 0
 	buttons.add_child(take)
 
 
-## A store: what's in it against what it holds, what it gains a day, and a meter that
-## turns red when it's full, since the rules waste what won't fit.
-func _store_tile(tile_name: String, have: int, cap: int, unit: String, gain: String, full_text: String) -> PanelContainer:
-	var t := PanelContainer.new()
-	t.name = tile_name
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var sb := Style.box(Style.NIGHT, Style.RULE, 2, 14)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 14
-	sb.content_margin_top = 10
-	sb.content_margin_bottom = 12
-	t.add_theme_stylebox_override("panel", sb)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 4)
-	t.add_child(v)
-	var line := HFlowContainer.new()
-	line.add_theme_constant_override("h_separation", 8)
-	v.add_child(line)
-	var big := Style.label(Widgets.thousands(have), Style.LARGE, Style.TEXT)
-	big.name = "Value"
-	line.add_child(big)
-	var of := Style.label("of %s %s" % [Widgets.thousands(cap), unit], Style.SMALL, Style.MUTED)
-	of.size_flags_vertical = Control.SIZE_SHRINK_END
-	line.add_child(of)
-	var full := have >= cap
-	v.add_child(_note(full_text if full else gain, Style.ENEMY_LIGHT if full else Style.MUTED))
-	v.add_child(Widgets.meter(float(have) / maxf(1.0, float(cap)), Style.MORALE_LOW if full else Style.BRASS, 12.0))
-	return t
-
-
 ## The squads you've left here, how to leave another, and what the place holds out with.
+## The wound rule is said once, at the bottom.
 func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 	var w = GameState.world
 	var garrison: Array = fief.get("garrison", [])
@@ -853,23 +906,21 @@ func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 	for sq in garrison:
 		men += int(sq["men"])
 	var aside := "" if garrison.is_empty() else "%d squad%s · %d men" % [garrison.size(), "" if garrison.size() == 1 else "s", men]
-	var card := _card(col, "Garrison", aside)
+	var card := Widgets.card(col, "Garrison", aside)
 	card.get_parent().name = "GarrisonCard"
 	var village := String(WorldData.settlement(place)["type"]) == WorldData.VILLAGE
 	var militia: int = w.men_of(w.village_militia(place)) if village and w != null else 0
 	var full: bool = GameState.army.size() >= GameState.squad_cap()
 	if garrison.is_empty():
-		card.add_child(_note("No squads stationed. The village has only its %d militia." % militia if village else "No squads of yours are stationed here."))
+		card.add_child(_note("No squads of yours are stationed here."))
 	for i in garrison.size():
 		var index := i
 		var sq: Dictionary = garrison[i]
-		var wounded := int(sq.get("wounded", 0))
 		var take_back := func():
 			if GameState.withdraw_squad_from_fief(index):
 				Sound.play("click")
 				_build()
-		card.add_child(_squad_line(sq, "▼ %d wounded · one heals each day" % wounded if wounded > 0 else "",
-			"Take back", not full, "Withdraw_%d" % int(sq["id"]), take_back))
+		card.add_child(_squad_line(sq, "Take back", not full, "Withdraw_%d" % int(sq["id"]), take_back))
 	if full and not garrison.is_empty():
 		card.add_child(_note("Your warband is full, %d of %d squads. Station one to make room." % [GameState.army.size(), GameState.squad_cap()]))
 	if GameState.army.size() > 1:
@@ -879,21 +930,22 @@ func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 	else:
 		card.add_child(_note("Your only squad can't stay behind."))
 	if village:
-		var parts := PackedStringArray(["%d militia" % militia])
+		# What holds it against raiders, as chips.
+		card.add_child(Style.label("Against raiders", Style.SMALL, Style.MUTED))
+		var holds: Array = [Widgets.stat("militia", str(militia))]
 		if men > 0:
-			parts.append("%d stationed men" % men)
-		var forts := bool(fief.get("improvements", {}).get(Fiefs.IMPROVEMENT_FORTIFICATIONS, false))
-		if forts:
-			parts.append("the palisade's %d" % int(Fiefs.IMPROVEMENTS[Fiefs.IMPROVEMENT_FORTIFICATIONS]["militia_bonus"]))
-		var joined := parts[0] if parts.size() == 1 else ", ".join(parts.slice(0, parts.size() - 1)) + " and " + parts[parts.size() - 1]
-		card.add_child(_note("Holds against raiders with %s%s. Stationed men heal one wound a day." % [joined, ", a third stronger behind the stakes" if forts else ""]))
-	else:
-		card.add_child(_note("Stationed men hold the walls and heal one wound a day."))
+			holds.append(Widgets.stat("men", str(men)))
+		if bool(fief.get("improvements", {}).get(Fiefs.IMPROVEMENT_FORTIFICATIONS, false)):
+			holds.append(Widgets.stat("walls", "+%d · a third stronger" % int(Fiefs.IMPROVEMENTS[Fiefs.IMPROVEMENT_FORTIFICATIONS]["militia_bonus"]), Style.MORALE_HIGH))
+		var chips := Widgets.chip_row(holds)
+		chips.name = "Defenders"
+		card.add_child(chips)
+	card.add_child(_note("Stationed men %sheal one wound a day." % ("" if village else "hold the walls and ")))
 
 
-## A squad as a row: the captain's face with the troop's badge, its name, who leads it and
-## how many, a line about its wounds, and one button.
-func _squad_line(sq: Dictionary, wounds: String, verb: String, can: bool, button_name: String, act: Callable, primary: bool = false) -> Control:
+## A squad as a row: the captain's face with the troop's badge, its name, its men and
+## wounds as chips, and one button.
+func _squad_line(sq: Dictionary, verb: String, can: bool, button_name: String, act: Callable, primary: bool = false, heal_time: bool = false) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	row.add_child(_squad_art(sq))
@@ -905,15 +957,14 @@ func _squad_line(sq: Dictionary, wounds: String, verb: String, can: bool, button
 	text.add_child(name_label)
 	var unit_id := String(sq.get("unit", ""))
 	var full_size: int = Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(sq["type"]))
-	var c = sq.get("captain")
-	var who := String(c.get("name", "")) if c is Dictionary else ""
-	var bits := PackedStringArray()
-	if who != "":
-		bits.append(who)
-	bits.append("%d of %d men" % [int(sq["men"]), full_size])
-	bits.append(Units.troop_name(sq, GameState.culture))
-	text.add_child(_small(" · ".join(bits), Style.TEXT))
-	text.add_child(_small(wounds if wounds != "" else "Whole", Style.ENEMY_LIGHT if wounds != "" else Style.MUTED))
+	var men := int(sq["men"])
+	var wounded := int(sq.get("wounded", 0))
+	var chips: Array = [Widgets.stat("men", "%d/%d" % [men, full_size], Style.TEXT if men >= full_size else Style.ENEMY_LIGHT)]
+	if wounded > 0:
+		chips.append(Widgets.stat("wounded", str(wounded), Style.ENEMY_LIGHT))
+		if heal_time:
+			chips.append(Widgets.stat("clock", Style.time_short(wounded * 24.0)))
+	text.add_child(Widgets.chip_row(chips))
 	var b := _button(verb, act)
 	b.name = button_name
 	b.custom_minimum_size = Vector2(150, Style.TOUCH)
@@ -954,73 +1005,26 @@ func _squad_art(s: Dictionary) -> Control:
 	return art
 
 
-## The warband, wounded first, to choose a squad to leave here. Slides up from the bottom
-## like the place's info sheet, and leaves the page where it was.
-func _show_station_sheet() -> void:
+## The warband, wounded first, to choose a squad to leave here: in your fief, or with the
+## garrison of a crown holding (`holding`). Leaves the page where it was.
+func _show_station_sheet(holding: bool = false) -> void:
 	if _modal != null and is_instance_valid(_modal):
 		_modal.queue_free()
-	var s_name := String(WorldData.settlement(place)["name"])
-	var shade := ColorRect.new()
-	shade.name = "StationSheet"
-	shade.color = Color(0.012, 0.02, 0.04, 0.6)
-	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	shade.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(shade)
-	_modal = shade
-	var close := func():
-		if is_instance_valid(shade):
-			shade.queue_free()
-		_modal = null
-	shade.gui_input.connect(func(e):
-		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed:
-			close.call())
-	var panel := PanelContainer.new()
-	panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	var sb := Style.box(Style.PANEL.lightened(0.02), Style.RULE, 2, 28)
-	sb.corner_radius_bottom_left = 0
-	sb.corner_radius_bottom_right = 0
-	sb.content_margin_left = 32
-	sb.content_margin_right = 32
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 36 + Style.safe_insets(get_viewport())["bottom"]
-	panel.add_theme_stylebox_override("panel", sb)
-	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	shade.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 12)
-	panel.add_child(v)
-	var grip := Panel.new()
-	grip.custom_minimum_size = Vector2(80, 8)
-	grip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	grip.add_theme_stylebox_override("panel", Style.box(Style.RULE, Color(0, 0, 0, 0), 0, 4))
-	v.add_child(grip)
-	v.add_child(Style.label("Station a squad", Style.TITLE_SIZE, Style.BRASS))
-	v.add_child(_note("It stays at %s, heals a wound a day and holds the place. At least one squad must ride with you." % s_name))
+	var col := Widgets.sheet(self, "Station a squad", "StationSheet", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_note("It holds %s with the garrison. One squad must ride with you." % String(WorldData.settlement(place)["name"])))
 	var squads: Array = GameState.army.duplicate()
 	squads.sort_custom(func(a, b): return int(a.get("wounded", 0)) > int(b.get("wounded", 0)))
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.custom_minimum_size = Vector2(0, minf(squads.size() * 100.0, get_viewport_rect().size.y * 0.55))
-	v.add_child(scroll)
-	var list := VBoxContainer.new()
-	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list.add_theme_constant_override("separation", 8)
-	scroll.add_child(list)
 	for sq in squads:
 		var sid := int(sq["id"])
 		var wounded := int(sq.get("wounded", 0))
 		var station := func():
-			close.call()
-			if GameState.station_squad_in_fief(sid):
+			Widgets.close_sheet(col)
+			var ok: bool = GameState.station_in_holding(sid) if holding else GameState.station_squad_in_fief(sid)
+			if ok:
 				Sound.play("click")
 				_build()
-		var wounds := "▼ %d wounded · whole in %d day%s here" % [wounded, wounded, "" if wounded == 1 else "s"] if wounded > 0 else ""
-		list.add_child(_squad_line(sq, wounds, "Station", GameState.army.size() > 1, "Station_%d" % sid, station, wounded > 0))
-	var done := _button("Close", close)
-	done.name = "CloseStationSheet"
-	v.add_child(done)
-	Style.ease_in(panel)
+		col.add_child(_squad_line(sq, "Station", GameState.army.size() > 1, "Station_%d" % sid, station, wounded > 0, not holding))
 
 
 ## What you've built and could build, each with its picture: the building as the scene at
@@ -1031,7 +1035,7 @@ func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 	for k in Fiefs.IMPROVEMENT_ORDER:
 		if bool(imps.get(k, false)):
 			count += 1
-	var card := _card(col, "Manor", "%d of %d built" % [count, Fiefs.IMPROVEMENT_ORDER.size()])
+	var card := Widgets.card(col, "Manor", "%d of %d built" % [count, Fiefs.IMPROVEMENT_ORDER.size()])
 	card.get_parent().name = "ManorCard"
 	if is_b:
 		var rep_row := HBoxContainer.new()
@@ -1040,15 +1044,18 @@ func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 		var rep_text := _note("Raiders burned it. Rebuild the cottages and the peasants' granaries.", Style.ENEMY_LIGHT)
 		rep_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		rep_row.add_child(rep_text)
-		var rep_btn := _button("Rebuild · %d silver" % Fiefs.REPAIR_COST, func():
+		var rep_btn := _button("Rebuild", func():
 			if GameState.repair_fief().get("ok", false):
 				Sound.play("coins")
 				_build())
 		rep_btn.name = "RebuildEstate"
+		rep_btn.custom_minimum_size = Vector2(140, Style.TOUCH)
 		rep_btn.disabled = GameState.silver < Fiefs.REPAIR_COST
 		if not rep_btn.disabled:
 			Style.make_primary(rep_btn)
-		rep_row.add_child(rep_btn)
+		var rep := Widgets.priced(rep_btn, [["silver", Widgets.thousands(Fiefs.REPAIR_COST), Style.ENEMY_LIGHT if rep_btn.disabled else Style.TEXT]])
+		rep.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		rep_row.add_child(rep)
 	for k in Fiefs.IMPROVEMENT_ORDER:
 		card.add_child(_improvement_row(String(k), bool(imps.get(k, false))))
 
@@ -1096,7 +1103,7 @@ func _improvement_row(key: String, built: bool) -> Control:
 	text.add_child(head)
 	head.add_child(Style.label(String(idef["name"]), Style.BODY, Style.TEXT))
 	if built:
-		var chip := Widgets.chip("Built", Style.BRASS, "★")
+		var chip := Widgets.chip("Built", Style.BRASS, "★", "", true)
 		chip.name = "BuiltChip"
 		head.add_child(chip)
 	for effect in idef.get("effects", []):
@@ -1113,13 +1120,8 @@ func _improvement_row(key: String, built: bool) -> Control:
 		text.add_child(_note("Raiders strike villages, not castles."))
 	if built:
 		return panel
+	# The price under the button, red when you're short: it says the cost once.
 	var cost := int(idef["cost"])
-	if GameState.silver < cost:
-		text.add_child(_note("Need %s more silver" % Widgets.thousands(cost - GameState.silver), Style.ENEMY_LIGHT))
-	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 4)
-	stack.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(stack)
 	var b := _button("Build", func():
 		if GameState.build_fief_improvement(key).get("ok", false):
 			Sound.play("coins")
@@ -1130,10 +1132,9 @@ func _improvement_row(key: String, built: bool) -> Control:
 	b.disabled = GameState.silver < cost
 	if not b.disabled:
 		Style.make_primary(b)
-	stack.add_child(b)
-	var price := Style.label("%s silver" % Widgets.thousands(cost), Style.SMALL, Style.MUTED)
-	price.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	stack.add_child(price)
+	var stack := Widgets.priced(b, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if b.disabled else Style.TEXT]])
+	stack.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(stack)
 	return panel
 
 
@@ -1142,40 +1143,27 @@ func _confirm_renounce() -> void:
 	if _modal != null and is_instance_valid(_modal):
 		_modal.queue_free()
 	var s_name := String(WorldData.settlement(place)["name"])
-	var r_name := String(WorldData.FACTIONS.get(GameState.fief_realm(), {}).get("name", "your liege"))
-	var overlay := ColorRect.new()
-	overlay.name = "RenounceConfirm"
-	overlay.color = Color(0, 0, 0, 0.75)
-	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	add_child(overlay)
-	_modal = overlay
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(minf(560.0, get_viewport_rect().size.x - 64.0), 0)
-	center.add_child(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 14)
-	panel.add_child(box)
-	box.add_child(Style.label("Renounce fealty?", Style.LARGE, Style.TEXT))
-	box.add_child(_note("You give %s back to the crown and lose 25 relation with %s. It can't be undone." % [s_name, WorldData.the_realm(r_name)], Style.TEXT))
-	var yes := _button("Renounce %s" % s_name, func():
-		overlay.queue_free()
-		_modal = null
+	var realm := GameState.fief_realm()
+	var col := Widgets.sheet(self, "Renounce fealty?", "RenounceConfirm", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_realm_line(realm, "%s goes back to the crown" % s_name, "It can't be undone.", Style.TEXT))
+	var yes := _button("Renounce", func():
+		Widgets.close_sheet(col)
 		GameState.renounce_fief()
 		Sound.play("alarm")
 		_build())
 	yes.name = "ConfirmRenounce"
 	yes.add_theme_stylebox_override("normal", Style.box(Style.ENEMY_DARK, Style.ENEMY, 2))
 	yes.add_theme_stylebox_override("hover", Style.box(Style.ENEMY_DARK.lightened(0.08), Style.ENEMY_LIGHT, 2))
-	box.add_child(yes)
-	var no := _button("Keep it", func():
-		overlay.queue_free()
-		_modal = null)
+	var no := _button("Keep it", func(): Widgets.close_sheet(col))
 	no.name = "KeepFief"
-	box.add_child(no)
-	Style.ease_in(panel, Vector2(0.5, 0.5))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	yes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(no)
+	row.add_child(Widgets.priced(yes, [["bond", "−25", Style.ENEMY_LIGHT]]))
+	col.add_child(row)
 
 
 ## Whether the place has a hall worth a tab: every town and castle, and anywhere someone
@@ -1210,14 +1198,26 @@ func _add_court(col: VBoxContainer) -> void:
 	var wedding_here: bool = GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == place
 	if wedding_here:
 		var who := String(w.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
-		col.add_child(_note("%s · Wedding day · everything is ready" % who, Style.BRASS))
-		var wb := _button("Begin your wedding", func():
+		var wv := Widgets.card(col, "Wedding day", "everything is ready", Style.BRASS, true)
+		wv.get_parent().name = "WeddingCard"
+		var wl := HBoxContainer.new()
+		wl.add_theme_constant_override("separation", 12)
+		var rings := Widgets.icon_rect("rings", 40)
+		rings.modulate = Style.ROMANCE
+		wl.add_child(rings)
+		var wn := Style.label(who, Style.BODY, Style.ROMANCE_LIGHT)
+		wn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		wn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		wl.add_child(wn)
+		wv.add_child(wl)
+		var wb := _button("Begin the wedding", func():
 			_remember_scroll()
 			Scenes.wedding_replay = ""
 			Scenes.wedding_return = "res://scenes/settlement.tscn"
 			Scenes.go("res://scenes/wedding.tscn"))
 		wb.name = "BeginWedding"
-		col.add_child(wb)
+		Style.make_primary(wb)
+		wv.add_child(wb)
 	if not GameState.muster.is_empty() and String(GameState.muster["place"]) == place:
 		_add_muster_card(col)
 	var g: Dictionary = w.gathering_at(place)
@@ -1229,16 +1229,13 @@ func _add_court(col: VBoxContainer) -> void:
 		n.name = "CourtNote"
 		col.add_child(n)
 	var here: Array = GameState.gathering_lords(g) if on else _hall_lords()
-	var head := HBoxContainer.new()
-	var t := _section("In the hall")
-	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	head.add_child(t)
-	head.add_child(_small(str(here.size() + residents.size())))
-	col.add_child(head)
+	# The tab already counts who's here.
+	var hall := Widgets.card(col, "In the hall")
+	hall.get_parent().name = "HallCard"
 	var list := VBoxContainer.new()
 	list.name = "Hall"
 	list.add_theme_constant_override("separation", 10)
-	col.add_child(list)
+	hall.add_child(list)
 	for l in here:
 		list.add_child(_lord_row(l, g if on else {}))
 	for person in residents:
@@ -1248,8 +1245,8 @@ func _add_court(col: VBoxContainer) -> void:
 	# Who's away: the holder, out on their lands.
 	var holder: Dictionary = w.holder_lord(place)
 	if not holder.is_empty() and not here.has(holder):
-		col.add_child(_section("Away"))
-		col.add_child(_away_row(holder))
+		hall.add_child(Widgets.section("Away"))
+		hall.add_child(_away_row(holder))
 	# The next gathering, if it's somewhere else.
 	if g.is_empty():
 		var next := _next_gathering()
@@ -1282,23 +1279,13 @@ func _next_gathering() -> Dictionary:
 func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 	var w = GameState.world
 	var on: bool = w.gathering_on(g)
-	var panel := PanelContainer.new()
-	panel.name = "Gathering"
-	var sb := Style.box(Color("33290f"), Style.BRASS, 2, 18)
-	sb.content_margin_left = 20
-	sb.content_margin_right = 20
-	sb.content_margin_top = 16
-	sb.content_margin_bottom = 18
-	panel.add_theme_stylebox_override("panel", sb)
-	col.add_child(panel)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
-	panel.add_child(v)
+	var v := Widgets.card(col, "", "", Style.MUTED, true)
+	v.get_parent().name = "Gathering"
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 10)
-	var icon := Widgets.icon_rect("lantern", 34)
-	icon.modulate = Style.BRASS
-	top.add_child(icon)
+	var kind_icon := Widgets.icon_rect(GATHERING_ICONS.get(String(g.get("kind", "")), "lantern"), 34)
+	kind_icon.modulate = Style.BRASS
+	top.add_child(kind_icon)
 	var title := Style.label(GameState.gathering_title(g), Style.BODY, Color("f3d891"))
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1306,17 +1293,26 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 	v.add_child(top)
 	var inv: Dictionary = GameState.gathering_invite(g)
 	var lords_n: int = GameState.gathering_lords(g).size() if on else w.gathering_guests(g).size()
-	var line := "%s · %d lord%s %s · %s" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s",
-		"here" if on else "coming", ("you're invited: %s" % inv["why"]) if bool(inv["invited"]) else "you came uninvited"]
 	var mine: bool = GameState.gathering_is_mine(g)
 	if mine:
 		top.add_child(CourtUI.round_button("?", func(): CourtUI.open_rules(self, Style.safe_insets(get_viewport())), "Rules"))
+	# When, how many, and on what footing you're here, as chips.
+	var chips: Array = [Widgets.chip(Gatherings.upper_first(GameState.gathering_when(g)), Style.TEXT, "", "moon"),
+		Widgets.stat("men", "%d %s" % [lords_n, "here" if on else "coming"])]
 	if mine:
+		chips.append(Widgets.chip("Your own", Style.BRASS, "", "crown", true))
 		var host_l: Dictionary = w.lord_by_id(int(g.get("host_lord", -1))) if int(g.get("host_lord", -1)) >= 0 else {}
-		line = "%s · %d lord%s %s · your own%s" % [Gatherings.upper_first(GameState.gathering_when(g)), lords_n, "" if lords_n == 1 else "s", "here" if on else "coming",
-			(", in %s's hall" % LordTalk.short_name(host_l)) if not host_l.is_empty() else ""]
-	var sub := _note(line, Color("e8d9b0"))
-	v.add_child(sub)
+		if not host_l.is_empty():
+			chips.append(Widgets.chip("%s's hall" % LordTalk.short_name(host_l), Style.TEXT, "", "keep"))
+	elif bool(inv["invited"]):
+		chips.append(Widgets.chip("Invited", Style.MORALE_HIGH))
+	else:
+		chips.append(Widgets.chip("Uninvited", Style.MORALE_MID))
+	var chip_row := Widgets.chip_row(chips)
+	chip_row.name = "GatheringChips"
+	v.add_child(chip_row)
+	if not mine and bool(inv["invited"]) and String(inv.get("why", "")) != "":
+		v.add_child(_note(Gatherings.upper_first(String(inv["why"])), Color("e8d9b0")))
 	if not on:
 		v.add_child(_note("The hall is being made ready. Come back when it begins.", Style.MUTED))
 		return
@@ -1330,7 +1326,7 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 	v.add_child(acts)
 	if mine:
 		var sp: Dictionary = CrownCourt.speech_check(GameState)
-		acts.add_child(_feast_action("Speech", "Speech", "renown %d" % Gatherings.SPEECH_RENOWN if bool(sp["ok"]) else String(sp["reason"]),
+		acts.add_child(_feast_action("Speech", "Speech", "crown", [["renown", "+%d" % Gatherings.SPEECH_RENOWN]], String(sp["reason"]),
 			bool(sp["ok"]), func():
 				var r: Dictionary = CrownCourt.speech(GameState)
 				if bool(r.get("ok", false)):
@@ -1338,7 +1334,7 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 					_court_note = String(r["text"])
 				_build()))
 		var gc: Dictionary = CrownCourt.gifts_check(GameState)
-		acts.add_child(_feast_action("KingGifts", "Gifts", ("%d silver" % int(gc["cost"])) if bool(gc["ok"]) else String(gc["reason"]),
+		acts.add_child(_feast_action("KingGifts", "Gifts", "chest", [["silver", "−%d" % int(gc.get("cost", 0))]], String(gc["reason"]),
 			bool(gc["ok"]), func():
 				var r: Dictionary = CrownCourt.give_gifts(GameState)
 				if bool(r.get("ok", false)):
@@ -1347,7 +1343,7 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 				_build()))
 	else:
 		var toast: Dictionary = GameState.toast_check(g)
-		acts.add_child(_feast_action("Toast", "Raise a toast", "once · renown %d" % Gatherings.TOAST_RENOWN if bool(toast["ok"]) else String(toast["reason"]),
+		acts.add_child(_feast_action("Toast", "Toast", "cup", [["renown", "+%d" % Gatherings.TOAST_RENOWN]], String(toast["reason"]),
 			bool(toast["ok"]), func():
 				var r: Dictionary = GameState.raise_toast(g)
 				if bool(r.get("ok", false)):
@@ -1355,12 +1351,11 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 					_court_note = "%s +%d Regard with %d lord%s." % [String(r["text"]), Gatherings.TOAST_REGARD, int(r["lords"]), "" if int(r["lords"]) == 1 else "s"]
 				_build()))
 	var gift: Dictionary = GameState.gift_check(g)
-	var gift_sub := String(gift["reason"])
-	if bool(gift["ok"]):
-		gift_sub = "%d %s · host +%d" % [Gatherings.GIFT_SILVER if String(gift["what"]) == "silver" else Gatherings.GIFT_FOOD,
-			"silver" if String(gift["what"]) == "silver" else "rations", Gatherings.GIFT_REGARD]
 	if not mine:
-		acts.add_child(_feast_action("Gift", "Bring a gift", gift_sub, bool(gift["ok"]), func():
+		var in_silver := String(gift.get("what", "silver")) == "silver"
+		var gift_cost: Array = [["silver" if in_silver else "food", "−%d" % (Gatherings.GIFT_SILVER if in_silver else Gatherings.GIFT_FOOD)],
+			["bond", "+%d" % Gatherings.GIFT_REGARD]]
+		acts.add_child(_feast_action("Gift", "Gift", "silver" if in_silver else "food", gift_cost, String(gift["reason"]), bool(gift["ok"]), func():
 			var r: Dictionary = GameState.bring_gift(g)
 			if bool(r.get("ok", false)):
 				Sound.play("coins")
@@ -1368,7 +1363,7 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 					GameState.realm_word(String(g["realm"])), Gatherings.GIFT_REALM]
 			_build()))
 	var gossip: Dictionary = GameState.gossip_check(g)
-	acts.add_child(_feast_action("Gossip", "Gossip" if mine else "Hear the gossip", ("an hour" if mine else "an hour · once a night") if bool(gossip["ok"]) else String(gossip["reason"]),
+	acts.add_child(_feast_action("Gossip", "Gossip", "talk", [["clock", "1 h"]], String(gossip["reason"]),
 		bool(gossip["ok"]), func():
 			var r: Dictionary = GameState.hear_gossip(g)
 			if bool(r.get("ok", false)):
@@ -1379,25 +1374,31 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 		_add_kings_table(v, g)
 	var dance: Dictionary = GameState.dance_check(g)
 	if bool(dance["ok"]):
-		var db := _button("Ask someone to dance", func():
+		var db := _button("Dance", func():
 			_remember_scroll()
 			Scenes.dance_return = "res://scenes/settlement.tscn"
 			Scenes.go("res://scenes/dance.tscn"))
 		db.name = "Dance"
+		_with_icon(db, "dance")
 		Style.make_primary(db)
 		v.add_child(db)
 	elif String(dance["reason"]) != "it hasn't begun":
 		v.add_child(_note("Dancing: %s." % String(dance["reason"]), Style.MUTED))
 
 
-## One of the feast's three things to do: a tall button with what it costs or why not.
-func _feast_action(id: String, text: String, sub: String, ok: bool, act: Callable) -> Button:
+## Each kind of gathering's icon.
+const GATHERING_ICONS := {"feast": "cup", "dance": "dance", "tourney": "fight"}
+
+
+## One of the feast's things to do: a tall button with its icon and word, and under them
+## what it costs or brings as icons and numbers, or why not.
+func _feast_action(id: String, text: String, icon_key: String, marks: Array, why_not: String, ok: bool, act: Callable) -> Button:
 	var b := Button.new()
 	b.name = "Feast_" + id
 	b.disabled = not ok
 	b.focus_mode = Control.FOCUS_NONE
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size = Vector2(0, 96)
+	b.custom_minimum_size = Vector2(0, 132)
 	var box := Style.box(Color("2a2010") if ok else Color(Style.NIGHT, 0.5), Color("8a6a2a") if ok else Style.RULE, 2, 14)
 	box.content_margin_left = 8
 	box.content_margin_right = 8
@@ -1405,19 +1406,36 @@ func _feast_action(id: String, text: String, sub: String, ok: bool, act: Callabl
 		b.add_theme_stylebox_override(state, box)
 	var v := VBoxContainer.new()
 	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	v.offset_left = 6
+	v.offset_right = -6
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_theme_constant_override("separation", 2)
+	v.add_theme_constant_override("separation", 4)
+	var ic := Widgets.icon_rect(icon_key, 32)
+	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if not ok:
+		ic.modulate = Color(1, 1, 1, 0.4)
+	v.add_child(ic)
 	var t := Style.label(text, Style.SMALL, Style.TEXT if ok else Style.MUTED)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(t)
-	var st := Style.label(sub, Style.SMALL - 4, Color("cdbf9c") if ok else Style.MUTED)
-	st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	st.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(st)
+	if ok:
+		var row := HFlowContainer.new()
+		row.name = "Marks"
+		row.alignment = FlowContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("h_separation", 10)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for m in marks:
+			row.add_child(Widgets.icon_value(String(m[0]), String(m[1]), Color("cdbf9c")))
+		v.add_child(row)
+	else:
+		var st := Style.label(why_not, Style.SMALL, Style.MUTED)
+		st.name = "WhyNot"
+		st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		v.add_child(st)
 	b.add_child(v)
 	b.pressed.connect(act)
 	return b
@@ -1428,7 +1446,7 @@ func _feast_action(id: String, text: String, sub: String, ok: bool, act: Callabl
 func _add_host_card(col: VBoxContainer) -> void:
 	var w = GameState.world
 	var mine: Dictionary = w.gathering_of_realm(WorldData.CROWN)
-	var v := _card(col, "Hold a gathering here")
+	var v := Widgets.card(col, "Hold a gathering here")
 	v.get_parent().name = "HostCard"
 	if not mine.is_empty():
 		var n: int = w.gathering_guests(mine).size()
@@ -1438,9 +1456,17 @@ func _add_host_card(col: VBoxContainer) -> void:
 	var kinds := [Gatherings.FEAST, Gatherings.DANCE, Gatherings.TOURNEY]
 	var kind: String = kinds[clampi(_host_kind, 0, 2)]
 	var host: Dictionary = GameState.host_lord_at(place)
-	v.add_child(Widgets.segmented(["Feast", "Dance", "Tourney"], _host_kind, func(i: int):
+	var kind_row := HBoxContainer.new()
+	kind_row.add_theme_constant_override("separation", 10)
+	v.add_child(kind_row)
+	var kinds_bar := Widgets.segmented(["Feast", "Dance", "Tourney"], _host_kind, func(i: int):
 		_host_kind = i
-		_build(), "HostKind"))
+		_build(), "HostKind", ["cup", "dance", "fight"])
+	kinds_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	kind_row.add_child(kinds_bar)
+	# What a gathering's worth, behind one icon.
+	var how := Widgets.icon_button("book", func(): CourtUI.open_rules(self, Style.safe_insets(get_viewport())), "How the king's court works", "CourtRules")
+	kind_row.add_child(how)
 	v.add_child(CourtUI.rich("%s, three nights.%s" % [Gatherings.upper_first(GameState.gathering_when({"starts_hour": w.gathering_start_hour()})),
 		(" %s hosts in your name (%s)." % [LordTalk.first_name(host), CourtUI.n(Gatherings.HOST_IN_NAME_REGARD)]) if not host.is_empty() else ""]))
 	var who: Dictionary = GameState.host_invitees(place)
@@ -1451,11 +1477,14 @@ func _add_host_card(col: VBoxContainer) -> void:
 	v.add_child(_host_row("persuade", "Lords to win over · %s" % count.call("persuade"), "", bool(_host_ask["persuade"]), true))
 	if not (who["lieges"] as Array).is_empty():
 		v.add_child(_host_row("lieges", "Their lieges · %d" % (who["lieges"] as Array).size(), "left out: %d" % Gatherings.SNUB_REGARD, bool(_host_ask["lieges"]), true))
-	var cells := [[str(Gatherings.HOST_SILVER), "silver"], [str(Gatherings.HOST_FOOD), "rations"]]
+	var tiles: Array = [Widgets.tile("silver", "−%s" % Widgets.thousands(Gatherings.HOST_SILVER), "the hall"),
+		Widgets.tile("food", "−%s" % Widgets.thousands(Gatherings.HOST_FOOD), "rations")]
 	if kind == Gatherings.TOURNEY:
-		cells.append([str(Gatherings.TOURNEY_PURSE), "purse"])
-	cells.append(["3", "nights"])
-	v.add_child(CourtUI.strip(cells))
+		tiles.append(Widgets.tile("silver", Widgets.thousands(Gatherings.TOURNEY_PURSE), "the purse"))
+	tiles.append(Widgets.tile("moon", "3", "nights"))
+	var cost_grid := Widgets.tile_grid(tiles, 2)
+	cost_grid.name = "HostCosts"
+	v.add_child(cost_grid)
 	var check: Dictionary = GameState.host_check(place, kind)
 	if not bool(check["ok"]):
 		v.add_child(_note(String(check["reason"]), Style.ENEMY_LIGHT))
@@ -1472,19 +1501,16 @@ func _add_host_card(col: VBoxContainer) -> void:
 	v.add_child(send)
 	if bool(check["ok"]) and _court_note != "":
 		v.add_child(_note(_court_note, Style.BRASS))
-	var how := _button("How the king's court works", func(): CourtUI.open_rules(self, Style.safe_insets(get_viewport())))
-	how.name = "CourtRules"
-	how.flat = true
-	v.add_child(how)
 
 
 ## Your banners gathering here: who's in the hall, and the council once it can sit.
 func _add_muster_card(col: VBoxContainer) -> void:
 	var here: Array = CrownCourt.arrived(GameState)
 	var all: Array = CrownCourt.muster_lords(GameState)
-	var v := _card(col, "Your banners gather here")
+	var v := Widgets.card(col, "Your banners gather here")
 	v.get_parent().name = "MusterCard"
-	v.add_child(_note("%d of %d lords in the hall · the treasury feeds them, %d silver a day." % [here.size(), all.size(), CrownCourt.muster_upkeep(GameState)], Style.TEXT))
+	v.add_child(Widgets.chip_row([Widgets.stat("crown", "%d of %d lords here" % [here.size(), all.size()]),
+		Widgets.chip("−%d/day from the treasury" % CrownCourt.muster_upkeep(GameState), Style.TEXT, "", "chest")]))
 	var c: Dictionary = CrownCourt.council_check(GameState)
 	var b := _button("Sit the war council", func(): _open_kingdom("council"))
 	b.name = "OpenCouncil"
@@ -1525,7 +1551,13 @@ func _add_kings_table(v: VBoxContainer, g: Dictionary) -> void:
 		row.add_child(t)
 		box.add_child(row)
 	elif not lords.is_empty():
-		box.add_child(CourtUI.rich("SEAT OF HONOUR   %s" % CourtUI.n(Gatherings.HONOUR_REGARD)))
+		var honour_head := HBoxContainer.new()
+		honour_head.add_theme_constant_override("separation", 10)
+		var hl := Widgets.section("Seat of honour")
+		hl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		honour_head.add_child(hl)
+		honour_head.add_child(Widgets.effect("bond", Gatherings.HONOUR_REGARD))
+		box.add_child(honour_head)
 		var strip := HBoxContainer.new()
 		strip.add_theme_constant_override("separation", 4)
 		for l in lords.slice(0, 5):
@@ -1538,7 +1570,7 @@ func _add_kings_table(v: VBoxContainer, g: Dictionary) -> void:
 		box.add_child(strip)
 	var asks: Array = CrownCourt.petitions(GameState).filter(func(p): return lords.has(p["lord"]))
 	if not asks.is_empty():
-		box.add_child(_section("Petitions · %d" % asks.size()))
+		box.add_child(Widgets.section("Petitions"))
 	for p in asks:
 		var pl: Dictionary = p
 		var row := HBoxContainer.new()
@@ -1552,25 +1584,25 @@ func _add_kings_table(v: VBoxContainer, g: Dictionary) -> void:
 		words.add_child(_note(String(p.get("ask", p["text"])), Color("e8d9b0")))
 		var f := HBoxContainer.new()
 		f.add_theme_constant_override("separation", 8)
-		var ok := _button("%s · +%d" % [String(p["settle"]), Gatherings.PUBLIC_GRANT_REGARD if String(p["kind"]) == "fief" else Gatherings.PETITION_TABLE], func():
+		var ok := _button(String(p["settle"]), func():
 			var r: Dictionary = CrownCourt.answer(GameState, pl, true)
 			_court_note = String(r.get("text", r.get("reason", "")))
 			_build())
 		ok.name = "Hear_%d" % int(p["lord"]["id"])
 		ok.autowrap_mode = TextServer.AUTOWRAP_OFF
-		ok.custom_minimum_size = Vector2(0, 64)
 		ok.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ok.size_flags_stretch_ratio = 2.0
 		Style.make_primary(ok)
-		f.add_child(ok)
+		f.add_child(Widgets.priced(ok, [["bond", "+%d" % (Gatherings.PUBLIC_GRANT_REGARD if String(p["kind"]) == "fief" else Gatherings.PETITION_TABLE), Style.MORALE_HIGH]]))
 		if bool(p["refuse"]):
-			var no := _button("Refuse %d" % Gatherings.PETITION_REFUSED, func():
+			var no := _button("Refuse", func():
 				var r: Dictionary = CrownCourt.answer(GameState, pl, false)
 				_court_note = String(r.get("text", ""))
 				_build())
 			no.name = "RefuseHere_%d" % int(p["lord"]["id"])
 			no.autowrap_mode = TextServer.AUTOWRAP_OFF
-			no.custom_minimum_size = Vector2(0, 64)
-			f.add_child(no)
+			no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			f.add_child(Widgets.priced(no, [["bond", _signed(Gatherings.PETITION_REFUSED), Style.ENEMY_LIGHT]]))
 		words.add_child(f)
 		row.add_child(words)
 		box.add_child(row)
@@ -1582,7 +1614,13 @@ func _add_kings_table(v: VBoxContainer, g: Dictionary) -> void:
 ## with every bout folded away under it.
 func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	var done: Dictionary = GameState.hosted.get("tourney", {})
-	box.add_child(_section("The lists · purse %d" % Gatherings.TOURNEY_PURSE))
+	var lists_head := HBoxContainer.new()
+	lists_head.add_theme_constant_override("separation", 10)
+	var lh := Widgets.section("The lists")
+	lh.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lists_head.add_child(lh)
+	lists_head.add_child(Widgets.stat("silver", "purse %s" % Widgets.thousands(Gatherings.TOURNEY_PURSE)))
+	box.add_child(lists_head)
 	if not done.is_empty():
 		var res := VBoxContainer.new()
 		res.name = "ListsResult"
@@ -1656,9 +1694,10 @@ func _host_row(key: String, text: String, sub: String, on: bool, can_change: boo
 
 
 ## A row for someone in the hall: their face, name, what they're doing, a line in brass
-## when there's something in it for you, and their Regard. Tapping opens the talk.
+## when there's something in it for you, and a chip (their Regard, Sworn, a heart).
+## Tapping opens the talk.
 func _person_row(row_name: String, face: Texture2D, who: String, doing: String, tag: String, tag_tone: Color,
-		chip_text: String, chip_tone: Color, act: Callable, faded: bool = false) -> Button:
+		chip: Control, act: Callable, faded: bool = false) -> Button:
 	var b := Button.new()
 	b.name = row_name
 	b.focus_mode = Control.FOCUS_NONE
@@ -1704,24 +1743,15 @@ func _person_row(row_name: String, face: Texture2D, who: String, doing: String, 
 		tg.name = "Tag"
 		tg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		words.add_child(tg)
-	if chip_text != "":
-		var chip := PanelContainer.new()
-		var cb := Style.box(Style.RAISED, chip_tone, 2, 20)
-		cb.content_margin_left = 12
-		cb.content_margin_right = 12
-		cb.content_margin_top = 4
-		cb.content_margin_bottom = 4
-		chip.add_theme_stylebox_override("panel", cb)
+	if chip != null:
 		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		chip.add_child(Style.label(chip_text, Style.SMALL, chip_tone.lightened(0.2)))
 		h.add_child(chip)
 	b.pressed.connect(act)
 	return b
 
 
 func _lord_row(l: Dictionary, g: Dictionary) -> Button:
-	var w = GameState.world
 	var lid := int(l["id"])
 	var regard := LordTalk.regard(GameState, l)
 	var sworn := String(l.get("realm", "")) == WorldData.CROWN
@@ -1740,8 +1770,11 @@ func _lord_row(l: Dictionary, g: Dictionary) -> Button:
 	var who := LordTalk.short_name(l)
 	if not g.is_empty() and int(g.get("host_lord", -1)) == lid:
 		who += " · host"
+	# The same Regard chip as the talk: the bond mark and a signed number.
+	var chip: Control = Widgets.chip("Sworn", Style.BRASS, "", "crown", true) if sworn else Widgets.stat("bond", _signed(regard), tone)
+	chip.name = "RegardChip"
 	return _person_row("Lord_%d" % lid, CaptainArt.texture(LordVoice.portrait_record(l)), who, _doing_here(l), tag, tag_tone,
-		"Sworn" if sworn else "%s%d" % ["+" if regard > 0 else "", regard], Style.BRASS if sworn else tone, _open_lord_talk.bind(lid))
+		chip, _open_lord_talk.bind(lid))
 
 
 func _household_row(person: Dictionary) -> Button:
@@ -1761,9 +1794,9 @@ func _household_row(person: Dictionary) -> Button:
 	elif letter:
 		tag = "would like a word · a letter unread"
 	var tex := StoryArtHall.texture("res://assets/portraits/%s_neutral.png" % cid)
-	var rose := Color("e58fa8")
-	var b := _person_row("Person_%s" % cid, tex, String(person.get("name", "Noble")), String(person.get("role", "")), tag, Color("f6cdd9"),
-		Relationships.status_label(status), rose, func():
+	var heart := Widgets.chip(Relationships.status_label(status), Style.ROMANCE, "", "rings" if status in ["engaged", "married"] else "heart")
+	var b := _person_row("Person_%s" % cid, tex, String(person.get("name", "Noble")), String(person.get("role", "")), tag, Style.ROMANCE_LIGHT,
+		heart, func():
 			_remember_scroll()
 			Scenes.active_candidate_id = cid
 			Scenes.active_person_id = String(person.get("id", ""))
@@ -1775,12 +1808,15 @@ func _household_row(person: Dictionary) -> Button:
 
 
 func _away_row(l: Dictionary) -> Button:
-	var w = GameState.world
 	var where := _lord_whereabouts(l)
+	var on_map := String(where["place"]) != ""
+	var map_chip: Control = null
+	if on_map:
+		map_chip = Widgets.chip("On the map", Style.TEXT, "", "mappin")
 	var b := _person_row("Away_%d" % int(l["id"]), CaptainArt.texture(LordVoice.portrait_record(l)), LordTalk.short_name(l),
 		"%s · %s" % ["Rules from here" if bool(l.get("ruler", false)) else "Holds %s" % WorldData.settlement(place)["name"], String(where["text"])],
-		"", Style.MUTED, "Show on map" if String(where["place"]) != "" else "", Style.RULE, func():
-			if String(where["place"]) != "":
+		"", Style.MUTED, map_chip, func():
+			if on_map:
 				Scenes.map_focus = String(where["place"])
 				_on_leave(), true)
 	return b
@@ -1870,8 +1906,8 @@ func _add_provisions(col: VBoxContainer) -> void:
 	var men := GameState.total_men()
 	var kind := String(WorldData.settlement(place)["type"])
 	var price := float(Economy.FOOD_PRICE.get(kind, 0.3))
-	var card := _card(col, "Provisions", "%.1f a ration" % price)
-	card.name = "ProvisionsCard"
+	var card := Widgets.card(col, "Provisions", "%.1f a ration" % price)
+	card.get_parent().name = "ProvisionsCard"
 	var hint := "A ration per man a day" + (" · villages sell cheaper" if kind != WorldData.VILLAGE else " · cheapest here")
 	card.add_child(_note(hint))
 	var row := HBoxContainer.new()
@@ -1880,40 +1916,43 @@ func _add_provisions(col: VBoxContainer) -> void:
 	for d in FOOD_DAYS:
 		var rations: int = d * men
 		var cost := GameState.food_cost(rations)
-		var b := _button("+%d days\n%d silver" % [d, cost], _on_buy_food.bind(rations))
+		var b := _button("+%d days" % d, _on_buy_food.bind(rations))
 		b.name = "Food%d" % d
+		_with_icon(b, "food")
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 96)
 		b.add_theme_font_size_override("font_size", Style.text_size(Style.BODY))
 		b.disabled = men == 0 or cost > GameState.silver
-		row.add_child(b)
+		row.add_child(Widgets.priced(b, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if cost > GameState.silver else Style.TEXT]]))
 
 
 func _add_recruits(col: VBoxContainer) -> void:
 	var cap := GameState.squad_cap()
 	var full := GameState.army.size() >= cap
-	var card := _card(col, "Recruits here", "%d/%d squads" % [GameState.army.size(), cap],
+	var card := Widgets.card(col, "Recruits here", "%d/%d squads" % [GameState.army.size(), cap],
 		Style.ENEMY_LIGHT if full else Style.MUTED)
-	card.name = "RecruitsCard"
+	card.get_parent().name = "RecruitsCard"
 	var offers: Array = GameState.world.offers_at(place)
 	for i in offers.size():
 		card.add_child(_offer_row(offers[i], i, full))
 	if offers.is_empty():
 		var back: float = float(GameState.world.offers_back.get(place, GameState.world.hour)) - GameState.world.hour
-		card.add_child(_note("Nobody's looking for work · more in about %d hours" % maxi(1, int(ceil(back)))))
+		card.add_child(Widgets.chip_row([Widgets.chip("No one looking for work · more in %s" % Style.time_short(maxf(1.0, ceil(back))), Style.TEXT, "", "clock")]))
 	elif full:
-		card.add_child(_note("Company full — win renown to lead more", Style.ENEMY_LIGHT))
+		card.add_child(_note("Your company is full. Win renown to lead more squads.", Style.ENEMY_LIGHT))
 
 
 func _add_tavern_heroes(col: VBoxContainer) -> void:
 	var heroes: Array = GameState.available_heroes_at(place)
 	if heroes.is_empty():
 		return
-	col.add_child(_section("Tavern & Wanderers"))
+	var card := Widgets.card(col, "In the tavern", "", Style.MUTED, true)
+	card.get_parent().name = "TavernCard"
 	for hero in heroes:
-		col.add_child(_hero_row(hero))
+		card.add_child(_hero_row(hero))
 
 
+## A wanderer you could take on: their face, name and what they lead, the price under the
+## verb, and their story behind a tap.
 func _hero_row(hero: Dictionary) -> Control:
 	var hid := String(hero.get("id", ""))
 	var name_str := String(hero.get("name", "Hero"))
@@ -1921,42 +1960,82 @@ func _hero_row(hero: Dictionary) -> Control:
 	var type := String(hero.get("type", Troops.INFANTRY))
 	var cult := String(hero.get("culture", Cultures.VARDISH))
 	var spec := String(hero.get("specialization", ""))
-	var panel := PanelContainer.new()
 	var v := VBoxContainer.new()
+	v.name = "Hero_%s" % hid
 	v.add_theme_constant_override("separation", 8)
-	panel.add_child(v)
 
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
-	head.add_child(_portrait(type, cult))
+	var face_tex: Texture2D = CaptainArt.texture(hero)
+	if face_tex != null:
+		var pic := TextureRect.new()
+		pic.texture = face_tex
+		pic.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		head.add_child(Widgets.framed(pic, Vector2(72, 90)))
+	else:
+		head.add_child(_portrait(type, cult))
 
 	var text := VBoxContainer.new()
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	text.add_theme_constant_override("separation", 2)
+	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	text.add_theme_constant_override("separation", 4)
 	head.add_child(text)
-	text.add_child(Style.label(name_str + " ★", Style.BODY, Style.BRASS))
-	var role_line := "%s · %s" % [Units.troop_name({"unit": hero.get("unit", "")}, cult), spec]
-	text.add_child(Style.label(role_line, Style.SMALL, Style.TEXT))
-	var bio := Style.label(String(hero.get("bio", "")), Style.SMALL, Style.MUTED)
-	bio.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	text.add_child(bio)
-
-	var quote := Style.label("\"%s\"" % String(hero.get("dialogue", "")), Style.SMALL, Style.TEXT)
-	quote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(quote)
+	text.add_child(Style.label(name_str, Style.BODY, Style.BRASS))
+	var unit_badge := _portrait(String(hero.get("unit", type)) if String(hero.get("unit", "")) != "" else type, cult)
+	unit_badge.custom_minimum_size = Vector2(30, 30)
+	var role := HBoxContainer.new()
+	role.add_theme_constant_override("separation", 8)
+	role.add_child(unit_badge)
+	var role_words := _small("%s · %s" % [Units.troop_name({"unit": hero.get("unit", "")}, cult), spec.capitalize()], Style.TEXT)
+	role_words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	role.add_child(role_words)
+	text.add_child(role)
 
 	var can_hire: bool = GameState.silver >= cost and GameState.army.size() < GameState.squad_cap()
-	var hire_btn := _button("Recruit %s (%d silver)" % [String(hero.get("first", name_str)), cost], func():
+	var hire_btn := _button("Recruit", func():
 		if GameState.recruit_hero(hid):
 			Sound.play("charge")
 			_build()
 	)
+	hire_btn.name = "Recruit_%s" % hid
+	hire_btn.custom_minimum_size = Vector2(150, Style.TOUCH)
 	hire_btn.disabled = not can_hire
 	if can_hire:
 		Style.make_primary(hire_btn)
-	v.add_child(hire_btn)
-	return panel
+	var priced := Widgets.priced(hire_btn, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if GameState.silver < cost else Style.TEXT]])
+	priced.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	head.add_child(priced)
+
+	# Who they are and what they say, folded away until asked for.
+	var story := VBoxContainer.new()
+	story.name = "Story"
+	story.add_theme_constant_override("separation", 6)
+	story.visible = false
+	var bio := _note(String(hero.get("bio", "")), Style.MUTED)
+	story.add_child(bio)
+	var quote := _note("\"%s\"" % String(hero.get("dialogue", "")), Style.TEXT)
+	story.add_child(quote)
+	var more := Button.new()
+	more.name = "HeroStory"
+	more.text = "Their story"
+	more.flat = true
+	_with_icon(more, "book")
+	more.custom_minimum_size = Vector2(0, Style.TOUCH)
+	more.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	more.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		more.add_theme_color_override(c, Style.MUTED)
+	more.pressed.connect(func():
+		story.visible = not story.visible
+		more.text = "Hide their story" if story.visible else "Their story")
+	v.add_child(more)
+	v.add_child(story)
+	return v
+
+
+## What each kind of job is, as an icon.
+const JOB_ICONS := {Jobs.TYPE_HUNT: "skull", Jobs.TYPE_COURIER: "mail", Jobs.TYPE_RELIEF: "food"}
 
 
 func _add_local_jobs(col: VBoxContainer) -> void:
@@ -1967,103 +2046,100 @@ func _add_local_jobs(col: VBoxContainer) -> void:
 	# Deliveries ready for turn-in
 	var deliverable: Array = GameState.active_jobs_completable_at(place)
 	if not deliverable.is_empty():
-		col.add_child(_section("Contract Deliveries"))
+		var ready := Widgets.card(col, "Ready to claim", "", Style.MUTED, true)
+		ready.get_parent().name = "DeliveriesCard"
 		for job in deliverable:
-			col.add_child(_deliverable_job_card(job))
+			ready.add_child(_deliverable_job_card(job))
 
 	# Notice board offers
-	col.add_child(_section("Notice Board & Local Work"))
 	var active_count: int = GameState.active_jobs.size()
-	var cap_note := Style.label("Active contracts: %d / %d" % [active_count, Jobs.MAX_ACTIVE_JOBS], Style.SMALL, Style.MUTED)
-	col.add_child(cap_note)
-
+	var capped := active_count >= Jobs.MAX_ACTIVE_JOBS
+	var board := Widgets.card(col, "Notice board", "%d of %d taken" % [active_count, Jobs.MAX_ACTIVE_JOBS],
+		Style.ENEMY_LIGHT if capped else Style.MUTED)
+	board.get_parent().name = "NoticeBoard"
 	var offers: Array = GameState.jobs_at(place)
 	if offers.is_empty():
-		col.add_child(_note("No local contracts are currently posted. Notices refresh every few days."))
+		board.add_child(_note("Nothing posted. Notices go up every few days."))
 	else:
 		for i in offers.size():
-			col.add_child(_job_offer_card(offers[i], i, active_count >= Jobs.MAX_ACTIVE_JOBS))
+			board.add_child(_job_offer_card(offers[i], i, capped))
+		if capped:
+			board.add_child(_note("Your journal is full. Finish a contract to take another."))
+
+
+## The rewards a job pays, as chips: silver, renown and standing, and the rations a
+## relief job takes from you.
+func _job_chips(job: Dictionary) -> Array:
+	var chips: Array = []
+	if int(job.get("reward_silver", 0)) != 0:
+		chips.append(Widgets.effect("silver", int(job.get("reward_silver", 0))))
+	if int(job.get("reward_renown", 0)) != 0:
+		chips.append(Widgets.effect("renown", int(job.get("reward_renown", 0))))
+	if int(job.get("reward_relation", 0)) != 0:
+		chips.append(Widgets.effect("bond", int(job.get("reward_relation", 0))))
+	if String(job.get("type", "")) == Jobs.TYPE_RELIEF and int(job.get("food_needed", 0)) > 0:
+		chips.append(Widgets.effect("food", -int(job.get("food_needed", 0))))
+	return chips
+
+
+## A job as a row: its kind as an icon, its title and first line, its terms as chips,
+## and one verb.
+func _job_row(job: Dictionary, chips: Array, button: Button) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	var badge := PanelContainer.new()
+	var bb := Style.box(Color("1a2138"), Style.RULE, 2, 14)
+	bb.set_content_margin_all(10)
+	badge.add_theme_stylebox_override("panel", bb)
+	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	badge.add_child(Widgets.icon_rect(String(JOB_ICONS.get(String(job.get("type", "")), "journal")), 40))
+	row.add_child(badge)
+	var text := VBoxContainer.new()
+	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text.add_theme_constant_override("separation", 4)
+	row.add_child(text)
+	var title := Style.label(String(job.get("title", "Contract")), Style.BODY, Style.TEXT)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	text.add_child(title)
+	var desc := String(job.get("description", ""))
+	var first := desc.split(". ")[0]
+	if first.length() < desc.length() and not first.ends_with("."):
+		first += "."
+	if first != "":
+		text.add_child(_note(first))
+	text.add_child(Widgets.chip_row(chips))
+	button.custom_minimum_size = Vector2(150, Style.TOUCH)
+	button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(button)
+	return row
 
 
 func _deliverable_job_card(job: Dictionary) -> Control:
-	var panel := PanelContainer.new()
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_bottom", 12)
-	panel.add_child(margin)
-
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
-	margin.add_child(v)
-
-	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.BRASS)
-	v.add_child(title_lbl)
-
-	var desc_lbl := Style.label(String(job.get("description", "")), Style.BODY, Style.TEXT)
-	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(desc_lbl)
-
-	var rew_text := "Reward: %d silver · +%d renown · +%d standing" % [
-		int(job.get("reward_silver", 0)),
-		int(job.get("reward_renown", 0)),
-		int(job.get("reward_relation", 0))
-	]
-	if String(job.get("type", "")) == Jobs.TYPE_RELIEF:
-		rew_text += " (Requires %d rations)" % int(job.get("food_needed", 0))
-	v.add_child(Style.label(rew_text, Style.SMALL, Style.MUTED))
-
 	var jid: String = String(job.get("id", ""))
-	var claim_btn := _button("Complete Contract & Claim Reward", func():
+	var claim_btn := _button("Claim", func():
 		var res: Dictionary = GameState.complete_job(jid)
 		if res.get("ok", false):
 			_paid(true)
 	)
+	claim_btn.name = "ClaimJob_%s" % jid
 	Style.make_primary(claim_btn)
-	v.add_child(claim_btn)
-	return panel
+	return _job_row(job, _job_chips(job), claim_btn)
 
 
 func _job_offer_card(job: Dictionary, index: int, is_capped: bool) -> Control:
-	var panel := PanelContainer.new()
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_top", 12)
-	margin.add_theme_constant_override("margin_bottom", 12)
-	panel.add_child(margin)
-
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 6)
-	margin.add_child(v)
-
-	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.TEXT)
-	v.add_child(title_lbl)
-
-	var desc_lbl := Style.label(String(job.get("description", "")), Style.BODY, Style.MUTED)
-	desc_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.add_child(desc_lbl)
-
 	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - (GameState.world.hour if GameState.world != null else 0.0))
-	var terms := "Deadline: %.0fh · Reward: %d silver, +%d renown, +%d standing" % [
-		hrs_left,
-		int(job.get("reward_silver", 0)),
-		int(job.get("reward_renown", 0)),
-		int(job.get("reward_relation", 0))
-	]
-	v.add_child(Style.label(terms, Style.SMALL, Style.MUTED))
-
-	var accept_btn := _button("Accept Contract" if not is_capped else "Contract Limit Reached (%d/%d)" % [Jobs.MAX_ACTIVE_JOBS, Jobs.MAX_ACTIVE_JOBS], func():
+	var chips: Array = [Widgets.stat("clock", Style.time_short(hrs_left))]
+	chips.append_array(_job_chips(job))
+	var accept_btn := _button("Accept", func():
 		if GameState.accept_job(place, index):
 			Sound.play("coins")
 			_build()
 	)
+	accept_btn.name = "AcceptJob_%d" % index
 	accept_btn.disabled = is_capped
 	if not is_capped:
 		Style.make_primary(accept_btn)
-	v.add_child(accept_btn)
-	return panel
+	return _job_row(job, chips, accept_btn)
 
 
 func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
@@ -2073,28 +2149,34 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var cost := Economy.recruit_cost(type, men)
 	var wage := Economy.daily_wage({"type": type, "men": men, "level": 1})
 	var row := HBoxContainer.new()
+	row.name = "Offer_%d" % index
 	row.add_theme_constant_override("separation", 14)
 	row.add_child(_portrait(type, culture))
 	var text := _text_column(row)
+	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	text.add_child(Style.label(Cultures.troop_name(culture, type), Style.BODY))
-	var people := String(Cultures.info(culture)["people"])
-	text.add_child(_small("%d %s · %d a day" % [men, people, int(ceil(wage))]))
-	var b := _button("Hire %d" % cost, _on_hire.bind(index))
+	text.add_child(Widgets.chip_row([Widgets.stat("men", str(men)), Widgets.effect("silver", -int(ceil(wage)), "/day")]))
+	var b := _button("Hire", _on_hire.bind(index))
+	b.name = "Hire_%d" % index
 	b.custom_minimum_size = Vector2(150, Style.TOUCH)
 	b.disabled = full or cost > GameState.silver
 	if not b.disabled:
 		Style.make_primary(b)
-	row.add_child(b)
+	var priced := Widgets.priced(b, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if cost > GameState.silver else Style.TEXT]])
+	priced.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(priced)
 	return row
 
 
 func _add_squads(col: VBoxContainer) -> void:
-	var card := _card(col, "Your squads", "%d men" % GameState.total_men())
+	var card := Widgets.card(col, "Your squads", "%d men" % GameState.total_men())
+	card.get_parent().name = "SquadsCard"
 	if not GameState.in_town():
 		card.add_child(_note("Ride to a town to refill and train your squads."))
+		for s in GameState.army:
+			card.add_child(_squad_row(s, false))
 		return
 	card.add_child(_note("Fresh men water down experience · training raises wages"))
-	col = card
 	var total := 0
 	var cheapest := 0
 	for s in GameState.army:
@@ -2102,14 +2184,20 @@ func _add_squads(col: VBoxContainer) -> void:
 		total += cost
 		if cost > 0 and (cheapest == 0 or cost < cheapest):
 			cheapest = cost
-		col.add_child(_squad_row(s))
+		card.add_child(_squad_row(s, true))
 	if total > 0:
-		var all := _button("Reinforce all · %d silver" % total, _on_reinforce_all)
+		var all := _button("Reinforce all", _on_reinforce_all)
+		all.name = "ReinforceAll"
 		all.disabled = cheapest > GameState.silver
-		col.add_child(all)
+		if not all.disabled:
+			Style.make_primary(all)
+		all.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		card.add_child(Widgets.priced(all, [["silver", Widgets.thousands(total), Style.ENEMY_LIGHT if total > GameState.silver else Style.TEXT]]))
 
 
-func _squad_row(s: Dictionary) -> Control:
+## A squad in town: its face, name, men as a meter, level as pips and drill as a meter,
+## then Refill and Train with their prices under them.
+func _squad_row(s: Dictionary, in_town: bool = true) -> Control:
 	var type := String(s["type"])
 	var unit_id := String(s.get("unit", ""))
 	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(type)
@@ -2117,29 +2205,64 @@ func _squad_row(s: Dictionary) -> Control:
 	var level := int(s.get("level", 1))
 	var xp := int(s["xp"])
 	var panel := PanelContainer.new()
+	panel.name = "Squad_%d" % int(s["id"])
+	var pb := Style.box(Style.NIGHT, Style.RULE, 2, 14)
+	pb.content_margin_left = 12
+	pb.content_margin_right = 12
+	pb.content_margin_top = 10
+	pb.content_margin_bottom = 12
+	panel.add_theme_stylebox_override("panel", pb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 10)
+	panel.add_child(v)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	panel.add_child(row)
+	row.add_theme_constant_override("separation", 12)
+	v.add_child(row)
 	# The captain's face, as in the Warband, with the troop's own icon at its corner.
 	row.add_child(_squad_art(s))
 	var text := _text_column(row)
+	text.add_theme_constant_override("separation", 6)
 	var title := String(s.get("name", ""))
 	var name_label := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)
 	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	name_label.custom_minimum_size = Vector2(10, 0)
 	text.add_child(name_label)
-	var drill := "fully trained"
-	if GameState.can_train(s):
-		drill = "ready to train"
-	elif level < Troops.MAX_LEVEL:
-		drill = "%d/%d xp" % [xp, level * Troops.XP_PER_LEVEL]
-	text.add_child(_small("%s · %d/%d men · level %d · %s" % [Units.troop_name(s, GameState.culture), men, full, level, drill],
-		Style.TEXT if men >= full else Style.ENEMY_LIGHT))
+	# Men: the number and a meter, red when short.
+	var men_line := HBoxContainer.new()
+	men_line.add_theme_constant_override("separation", 10)
+	men_line.add_child(Widgets.icon_value("men", "%d/%d" % [men, full], Style.TEXT if men >= full else Style.ENEMY_LIGHT))
+	var men_bar := Widgets.meter(float(men) / maxf(1.0, float(full)), Style.MORALE_HIGH if men >= full else Style.MORALE_LOW, 12.0)
+	men_bar.name = "MenMeter"
+	men_line.add_child(men_bar)
+	text.add_child(men_line)
+	# Level as pips, and drill toward the next as a meter (or a chip when it's done).
+	var lvl_line := HBoxContainer.new()
+	lvl_line.add_theme_constant_override("separation", 10)
+	lvl_line.add_child(Widgets.icon_rect("level", 26))
+	lvl_line.add_child(_pips(level, Troops.MAX_LEVEL))
+	if level >= Troops.MAX_LEVEL:
+		lvl_line.add_child(_small("Fully trained"))
+	elif GameState.can_train(s):
+		lvl_line.add_child(Widgets.chip("Ready to train", Style.MORALE_HIGH))
+	else:
+		var need := level * Troops.XP_PER_LEVEL
+		var xp_bar := Widgets.meter(float(xp) / maxf(1.0, float(need)), Style.BRASS, 12.0)
+		xp_bar.name = "XpMeter"
+		xp_bar.tooltip_text = "%d/%d xp" % [xp, need]
+		lvl_line.add_child(xp_bar)
+	text.add_child(lvl_line)
+	if not in_town:
+		return panel
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 12)
 	var refill := GameState.reinforce_cost(s)
 	if refill > 0:
-		var b := _button("Refill · %d" % refill, _on_reinforce.bind(int(s["id"])))
+		var b := _button("Refill", _on_reinforce.bind(int(s["id"])))
+		b.name = "Refill_%d" % int(s["id"])
+		_with_icon(b, "men")
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.disabled = refill > GameState.silver
-		row.add_child(b)
+		buttons.add_child(Widgets.priced(b, [["silver", Widgets.thousands(refill), Style.ENEMY_LIGHT if b.disabled else Style.TEXT]]))
 	if GameState.can_train(s):
 		# Training a recruit squad makes it one of two branches, each with its own price.
 		var branches := Units.branches(unit_id)
@@ -2147,20 +2270,39 @@ func _squad_row(s: Dictionary) -> Control:
 		var price: int = 0 if bool(s.get("pending_branch", false)) else Economy.train_cost(s)
 		if choosing and not s.get("pending_branch", false):
 			price = Economy.train_cost(s, branches[0])
-			for b in branches:
-				price = mini(price, Economy.train_cost(s, b))
-		var label: String = "Train · free" if price == 0 else ("Train · from %d" if choosing else "Train · %d") % price
-		var t := _button(label, _on_train.bind(int(s["id"])))
+			for br in branches:
+				price = mini(price, Economy.train_cost(s, br))
+		var t := _button("Choose a path…" if choosing else "Train", _on_train.bind(int(s["id"])))
+		t.name = "Train_%d" % int(s["id"])
+		_with_icon(t, "level")
+		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		t.disabled = price > GameState.silver
-		row.add_child(t)
+		var price_text := "free" if price == 0 else ("from %s" % Widgets.thousands(price) if choosing else Widgets.thousands(price))
+		buttons.add_child(Widgets.priced(t, [["silver", price_text, Style.ENEMY_LIGHT if t.disabled else Style.TEXT]]))
+	if buttons.get_child_count() > 0:
+		v.add_child(buttons)
 	return panel
 
 
+## `n` of `of` pips, lit in brass: a squad's level.
+func _pips(n: int, of: int) -> Control:
+	var c := Control.new()
+	c.name = "LevelPips"
+	c.custom_minimum_size = Vector2(of * 22, 22)
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.tooltip_text = "Level %d of %d" % [n, of]
+	c.draw.connect(func():
+		for i in of:
+			var at := Vector2(11 + i * 22, c.size.y / 2.0)
+			if i < n:
+				c.draw_circle(at, 8.0, Style.BRASS)
+			else:
+				c.draw_arc(at, 7.0, 0.0, TAU, 20, Style.RULE, 2.0, true))
+	return c
+
+
 # ---------------------------------------------------------------- pieces
-
-func _section(text: String) -> Label:
-	return Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
-
 
 func _note(text: String, color: Color = Style.MUTED) -> Label:
 	var l := Style.label(text, Style.SMALL, color)
@@ -2192,6 +2334,13 @@ func _button(text: String, callback: Callable) -> Button:
 	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	b.pressed.connect(callback)
 	return b
+
+
+## Puts an icon beside a button's word, kept to the size of the text.
+func _with_icon(b: Button, key: String) -> void:
+	b.icon = Widgets.icon(key)
+	b.add_theme_constant_override("icon_max_width", 30)
+	b.add_theme_constant_override("h_separation", 10)
 
 
 ## A unit portrait, scaled up with hard pixel edges, dressed as `culture` dresses it.
@@ -2238,118 +2387,76 @@ func _on_train(id: int) -> void:
 
 
 func _show_branch_choice(id: int, branches: Array) -> void:
-	if _modal != null:
+	if _modal != null and is_instance_valid(_modal):
 		_modal.queue_free()
-		_modal = null
-
+	_modal = null
 	var squad := GameState.squad_by_id(id)
 	if squad.is_empty():
 		return
-
-	var overlay := ColorRect.new()
-	overlay.color = Color(0, 0, 0, 0.75)
-	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(overlay)
-	_modal = overlay
-
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	overlay.add_child(center)
-
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(480, 0)
-	center.add_child(panel)
-
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 14)
-	panel.add_child(box)
-
-	var heading := Style.label("Choose Upgrade Path", Style.LARGE)
-	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(heading)
-
-	var sub := Style.label("Select a veteran specialization for this squad:", Style.BODY, Style.MUTED)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(sub)
-
-	var cards_row := HBoxContainer.new()
-	cards_row.add_theme_constant_override("separation", 12)
-	box.add_child(cards_row)
-
+	var col := Widgets.sheet(self, "Choose a path", "BranchSheet", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_note("Your veterans take one of two trades for good."))
+	var is_free: bool = squad.get("pending_branch", false)
 	for b_id in branches:
 		var u_info := Units.get_unit(b_id)
-		var card := PanelContainer.new()
-		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var c_box := VBoxContainer.new()
-		c_box.add_theme_constant_override("separation", 8)
-		card.add_child(c_box)
-
-		var b_portrait := _portrait(b_id, Units.culture(b_id))
-		b_portrait.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-		c_box.add_child(b_portrait)
-
-		var b_title := Style.label(Units.display_name(b_id), Style.BODY)
-		b_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		c_box.add_child(b_title)
-
-		var b_blurb := Style.label(String(u_info.get("blurb", "")), Style.SMALL)
-		b_blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		c_box.add_child(b_blurb)
-
-		var stats_desc := _format_unit_diff(b_id)
-		if stats_desc != "":
-			var diff_label := Style.label(stats_desc, Style.SMALL, Style.TEXT)
-			diff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			c_box.add_child(diff_label)
-
-		var is_free: bool = squad.get("pending_branch", false)
+		var card := Widgets.card(col, "")
+		card.get_parent().name = "Branch_%s" % b_id
+		var head := HBoxContainer.new()
+		head.add_theme_constant_override("separation", 14)
+		card.add_child(head)
+		head.add_child(_portrait(b_id, Units.culture(b_id)))
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(words)
+		words.add_child(Style.label(Units.display_name(b_id), Style.BODY, Style.TEXT))
+		if String(u_info.get("blurb", "")) != "":
+			words.add_child(_note(String(u_info.get("blurb", ""))))
+		var stats := Widgets.chip_row(_unit_chips(b_id))
+		stats.name = "Stats"
+		card.add_child(stats)
 		var price := 0 if is_free else Economy.train_cost(squad, b_id)
-		var btn_text := "Select (Free)" if is_free else "Select · %d silver" % price
-		var btn := _button(btn_text, func():
-			overlay.queue_free()
-			_modal = null
-			_paid(GameState.train_squad(id, b_id), "promotion")
+		var bid := String(b_id)
+		var btn := _button("Choose", func():
+			Widgets.close_sheet(col)
+			_paid(GameState.train_squad(id, bid), "promotion")
 		)
+		btn.name = "Choose_%s" % bid
 		btn.disabled = price > GameState.silver
-		c_box.add_child(btn)
-
-		cards_row.add_child(card)
-
-	var cancel_btn := _button("Cancel", func():
-		overlay.queue_free()
-		_modal = null
-	)
-	box.add_child(cancel_btn)
+		if not btn.disabled:
+			Style.make_primary(btn)
+		card.add_child(Widgets.priced(btn, [["silver", "free" if price == 0 else Widgets.thousands(price), Style.ENEMY_LIGHT if btn.disabled else Style.TEXT]]))
 
 
-func _format_unit_diff(unit_id: String) -> String:
+## A unit's strengths as chips: each number by its icon, each trait as a word with ▲.
+func _unit_chips(unit_id: String) -> Array:
 	var u := Units.get_unit(unit_id)
-	var lines := []
+	var chips: Array = []
+	var st: Dictionary = u.get("stats", {})
 	var mech: Dictionary = u.get("mechanics", {})
 	if mech.has("armor"):
-		lines.append("• Armor: %.0f%%" % [float(mech["armor"]) * 100.0])
-	if mech.has("piercing"):
-		lines.append("• Piercing: %.0f%%" % [float(mech["piercing"]) * 100.0])
-	if mech.has("javelins"):
-		lines.append("• Javelins: %d per man" % int(mech["javelins"]))
-	if mech.get("sweep", false):
-		lines.append("• Sweep: hits 2nd foe for 50%")
-	if mech.get("steady", false):
-		lines.append("• Steady: -20% morale loss")
-	if mech.get("horse_archer", false):
-		lines.append("• Horse Archer: shoots from saddle & kites")
-	if mech.get("ronin", false):
-		lines.append("• Ronin: enters fury if captain falls")
-	var st: Dictionary = u.get("stats", {})
+		chips.append(Widgets.stat("armor", "%.0f%%" % (float(mech["armor"]) * 100.0)))
 	if st.has("damage"):
-		lines.append("• Damage: %.0f" % float(st["damage"]))
+		chips.append(Widgets.stat("damage", "%.0f" % float(st["damage"])))
+	if mech.has("piercing"):
+		chips.append(Widgets.chip("Pierces %.0f%%" % (float(mech["piercing"]) * 100.0), Style.TEXT, "", "damage"))
 	if st.has("range"):
-		lines.append("• Range: %.0f" % float(st["range"]))
+		chips.append(Widgets.stat("bow", "%.0f" % float(st["range"])))
 	if st.has("speed"):
-		lines.append("• Speed: %.0f" % float(st["speed"]))
+		chips.append(Widgets.stat("speed", "%.0f" % float(st["speed"])))
 	if st.has("size"):
-		lines.append("• Squad size: %d men" % int(st["size"]))
-	return "\n".join(lines)
+		chips.append(Widgets.stat("men", str(int(st["size"]))))
+	if mech.has("javelins"):
+		chips.append(Widgets.chip("%d javelins a man" % int(mech["javelins"]), Style.MORALE_HIGH))
+	if mech.get("sweep", false):
+		chips.append(Widgets.chip("Sweep: a second foe for half", Style.MORALE_HIGH))
+	if mech.get("steady", false):
+		chips.append(Widgets.chip("Steady · −20% morale loss", Style.MORALE_HIGH, "", "morale"))
+	if mech.get("horse_archer", false):
+		chips.append(Widgets.chip("Shoots from the saddle", Style.MORALE_HIGH, "", "ride"))
+	if mech.get("ronin", false):
+		chips.append(Widgets.chip("Fury if the captain falls", Style.MORALE_HIGH, "", "fight"))
+	return chips
 
 
 ## Silver changed hands, or didn't: the coins chink, and the screen shows the new state.

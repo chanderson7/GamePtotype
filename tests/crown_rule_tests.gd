@@ -125,6 +125,12 @@ func _init() -> void:
 	change_scene_to_file("res://scenes/settlement.tscn")
 	for i in 4:
 		await process_frame
+	# Granting and stationing each open a sheet from the Crown tab.
+	check(current_scene.find_child("GrantHolding", true, false) != null and current_scene.find_child("StationSquad", true, false) != null,
+		"the castle's Crown tab offers to grant it and station a squad")
+	current_scene._show_grant_sheet()
+	current_scene._show_station_sheet(true)
+	await process_frame
 	check(current_scene.find_child("Grant_%d" % int(a["id"]), true, false) != null and current_scene.find_child("Station_%d" % int(gs.army[0]["id"]), true, false) != null,
 		"the castle's Crown tab grants it and stations squads")
 
