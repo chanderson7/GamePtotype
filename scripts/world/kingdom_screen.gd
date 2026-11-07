@@ -552,13 +552,7 @@ func _lords() -> void:
 				if i == current:
 					return
 				Sound.play("click", 0.0, 0.05)
-				match String(picks[i]):
-					"follow":
-						_act(gs.order_lord(lid, "follow"), "%s rides with you." % LordTalk.short_name(l))
-					"guard":
-						_act(gs.order_lord(lid, "guard", hold), "%s holds %s." % [LordTalk.short_name(l), _place_name(hold)])
-					_:
-						_act(gs.order_lord(lid, ""), "%s goes about the realm's business." % LordTalk.short_name(l)), "Order_%d" % lid, icons)
+				_order_pick(String(picks[i]), l, lid, hold), "Order_%d" % lid, icons)
 			v.add_child(seg)
 			if hold != "" and kind != "guard":
 				v.add_child(_note("Hold keeps them at %s." % _place_name(hold)))
@@ -710,6 +704,18 @@ func _page_head(title: String, sub: String, back: Callable, right: String = "rul
 
 func _round_button(text: String, act: Callable, id: String) -> Button:
 	return CourtUI.round_button(text, act, id)
+
+
+
+## One of a lord's orders picked on his segmented control.
+func _order_pick(pick: String, l: Dictionary, lid: int, hold: String) -> void:
+	match pick:
+		"follow":
+			_act(gs.order_lord(lid, "follow"), "%s rides with you." % LordTalk.short_name(l))
+		"guard":
+			_act(gs.order_lord(lid, "guard", hold), "%s holds %s." % [LordTalk.short_name(l), _place_name(hold)])
+		_:
+			_act(gs.order_lord(lid, ""), "%s goes about the realm's business." % LordTalk.short_name(l))
 
 
 func _flat_button(text: String, act: Callable, id: String) -> Button:

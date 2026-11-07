@@ -242,7 +242,7 @@ func _build_stage() -> void:
 	cap.position = Vector2(20, 20)
 	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# Where, at what gathering, and the hour: a pin, a cup and the sun or the moon.
-	var feast := mode == "hall" and Data.SETTLEMENTS.has(id) and world.gathering_on(world.gathering_at(id))
+	var feast: bool = mode == "hall" and Data.SETTLEMENTS.has(id) and world.gathering_on(world.gathering_at(id))
 	cap.add_child(TalkView.caption_row(caption(), "cup" if feast else ""))
 	_stage.add_child(cap)
 	_stage.add_child(TalkView.close_button(_leave))

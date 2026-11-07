@@ -4032,13 +4032,13 @@ func _draw_chip(i: int) -> void:
 	if battle and sq != null:
 		if sq.is_active():
 			var bar := Rect2(6, size.y - 14.0, size.x - 12.0, 7)
-			var shown := float(_card_morale.get(sq, sq.morale))
-			var m := clampf(shown / 100.0, 0.0, 1.0)
+			var morale_shown := float(_card_morale.get(sq, sq.morale))
+			var m := clampf(morale_shown / 100.0, 0.0, 1.0)
 			b.draw_rect(bar, Style.NIGHT)
-			if shown > sq.morale + 0.5:
+			if morale_shown > sq.morale + 0.5:
 				# What it has just lost, draining away.
 				b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Color(Style.ENEMY_LIGHT, 0.7))
-			b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(minf(shown, sq.morale) / 100.0, 0.0, 1.0), bar.size.y)), Style.morale_color(sq.morale))
+			b.draw_rect(Rect2(bar.position, Vector2(bar.size.x * clampf(minf(morale_shown, sq.morale) / 100.0, 0.0, 1.0), bar.size.y)), Style.morale_color(sq.morale))
 			if sim.ability_ready(sq):
 				var dot := Vector2(size.x - 12.0, size.y - 26.0)
 				var since: float = _clock - float(_ready_at.get(sq, -9.0))
