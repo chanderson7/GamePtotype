@@ -4,6 +4,7 @@ const Style = preload("res://scripts/ui/style.gd")
 
 ## The one page shell: the night background, a scroll, margins clear of the notch and the
 ## home bar, and the column to fill (separation 18). Every full-screen menu starts here.
+## In a window wider than a phone the column stays phone-width, centred (cap_width).
 static func frame(root: Control, bottom_room: float = 0.0) -> VBoxContainer:
 	root.theme = Style.make_theme()
 	var bg := ColorRect.new()
@@ -22,6 +23,7 @@ static func frame(root: Control, bottom_room: float = 0.0) -> VBoxContainer:
 	var insets := Style.safe_insets(root.get_viewport()) if root.is_inside_tree() else {"top": 0.0, "bottom": 0.0}
 	for side in ["left", "right"]:
 		margin.add_theme_constant_override("margin_" + side, 32)
+	cap_width(margin, 32)
 	margin.add_theme_constant_override("margin_top", 48 + int(insets["top"]))
 	margin.add_theme_constant_override("margin_bottom", 40 + (0 if bottom_room > 0.0 else int(insets["bottom"])))
 	scroll.add_child(margin)
@@ -48,6 +50,7 @@ static func column(root: Control, heading: String, subtitle: String) -> VBoxCont
 	var insets := Style.safe_insets(root.get_viewport())
 	for side in ["left", "right"]:
 		margin.add_theme_constant_override("margin_" + side, 36)
+	cap_width(margin, 36)
 	margin.add_theme_constant_override("margin_top", 48 + int(insets["top"]))
 	margin.add_theme_constant_override("margin_bottom", 40 + int(insets["bottom"]))
 	scroll.add_child(margin)
@@ -57,6 +60,16 @@ static func column(root: Control, heading: String, subtitle: String) -> VBoxCont
 	col.add_child(note(heading, 52, Style.BRASS))
 	col.add_child(note(subtitle))
 	return col
+
+## Keep what `margin` holds to Style.COLUMN_MAX wide, centred: its side margins grow from
+## `side` as the window gets wider than a phone (a computer held landscape, a tablet).
+static func cap_width(margin: MarginContainer, side: int) -> void:
+	margin.resized.connect(func():
+		var wide := side + maxi(0, int((margin.size.x - Style.COLUMN_MAX) * 0.5))
+		if margin.get_theme_constant("margin_left") != wide:
+			margin.add_theme_constant_override("margin_left", wide)
+			margin.add_theme_constant_override("margin_right", wide))
+
 
 static func note(text: String, size: int = Style.BODY, color: Color = Style.MUTED) -> Label:
 	var label := Style.label(text, size, color)

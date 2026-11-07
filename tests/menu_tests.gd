@@ -31,6 +31,7 @@ func _run() -> void:
 	sound.set_illustrations(true)
 	_check_bonds()
 	gs.world = null
+	gs.load_problem = ""
 	await open("title")
 	check(button("Continue") == null and button("Begin as the Vardish") != null, "fresh Home offers the three peoples without a false Continue")
 	current_scene.find_child("People_kharzani", true, false).pressed.emit()
@@ -83,7 +84,18 @@ func _run() -> void:
 	var config := ConfigFile.new()
 	config.load(root.get_node("Sound").settings_path)
 	check(not bool(config.get_value("audio", "music", true)), "audio preference is persisted to disk")
+	check(not FileAccess.file_exists(root.get_node("Sound").settings_path + ".tmp"), "and written whole, with no temporary file left behind")
 	music.button_pressed = true
+	# The whole row is the switch's target, and the switch itself is a full touch target.
+	var music_row := current_scene.find_child("Setting_Music", true, false) as Control
+	check(music.custom_minimum_size.y >= 80.0 and music_row != null, "a settings switch is a full touch target")
+	var on_words := music_row.get_global_rect().position + Vector2(40.0, music_row.size.y * 0.5)
+	_tap_at(on_words)
+	check(not root.get_node("Sound").music_on and music.text == "Music: off", "a tap on a setting's words flips its switch")
+	_tap_at(on_words)
+	check(root.get_node("Sound").music_on, "and another flips it back")
+	var motion_title := current_scene.find_child("Setting_Reducedmotion", true, false).find_children("*", "Label", true, false)[0] as Label
+	check(motion_title.autowrap_mode != TextServer.AUTOWRAP_OFF, "a setting's name wraps at large text")
 	button("Open tutorial").pressed.emit()
 	await transition()
 	for step in 5:
@@ -131,6 +143,15 @@ func _run() -> void:
 	current_scene._on_menu()
 	check(button("Next step") != null, "the next step is one tap away in the menu")
 	current_scene._close_sheet()
+	# Escape (and a phone's back, which arrives as Escape) opens the menu on the bare map,
+	# and closes it again.
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	current_scene._unhandled_key_input(esc)
+	check(current_scene._sheet == "menu", "Escape on the bare map opens the campaign menu")
+	current_scene._unhandled_key_input(esc)
+	check(current_scene._sheet == "", "and Escape again closes it")
 	gs.world.wait(6.0)
 	current_scene._on_time(0.0)
 	var held: float = gs.world.hour
@@ -443,3 +464,15 @@ func _check_width(node: Node) -> void:
 			check(false, "horizontal overflow: %s (%s)" % [node.text, rect])
 	for child in node.get_children():
 		_check_width(child)
+
+## A tap at `at` (viewport coordinates), as a finger would make it.
+func _tap_at(at: Vector2) -> void:
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = at
+	down.global_position = at
+	root.push_input(down, true)
+	var up := down.duplicate() as InputEventMouseButton
+	up.pressed = false
+	root.push_input(up, true)

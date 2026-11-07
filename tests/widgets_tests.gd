@@ -1,5 +1,8 @@
 ## The shared kit builds what it says: chips with shapes or icons, the priced button,
-## sheets that close, meters with marks, badges, and nothing it makes is under SMALL.
+## sheets that close, meters with marks, badges, and nothing it makes is under SMALL;
+## touch-sized switches and tabs whose words are never cut short; taps a keyboard can
+## make; and pages, sheets and bottom bars that keep to a phone-width column in a wide
+## window.
 ##   godot --headless --path . -s tests/widgets_tests.gd
 extends SceneTree
 
@@ -108,6 +111,48 @@ func _init() -> void:
 	root.add_child(page_root)
 	var page := Page.frame(page_root)
 	assert_true(page.name == "PageColumn" and page_root.get_node_or_null("Background") != null, "a page frame has its background and column")
+
+	# Touch targets, and tabs that never trim their words.
+	var sw := Widgets.switch(true, func(_on): pass, "Switch_Test", "Test")
+	assert_true(sw.custom_minimum_size.y >= Style.TOUCH, "a switch is a full touch target")
+	var tabs := Widgets.tab_bar([{"id": "a", "label": "Companies"}, {"id": "b", "label": "Could swear"}], "a", func(_id): pass)
+	var unlit := tabs.find_child("Tab_b", true, false) as Button
+	assert_true(unlit.custom_minimum_size.y >= Style.TOUCH and unlit.text_overrun_behavior == TextServer.OVERRUN_NO_TRIMMING
+		and unlit.autowrap_mode != TextServer.AUTOWRAP_OFF, "a tab is a full touch target whose words wrap rather than trim")
+	assert_true(unlit.get_theme_stylebox("hover") != unlit.get_theme_stylebox("normal"), "an unlit tab lights under a mouse")
+	host.add_child(sw)
+	host.add_child(tabs)
+
+	# A card made tappable takes keyboard focus, and Enter taps it.
+	var tapped := [0]
+	var tap_card := PanelContainer.new()
+	Widgets.on_tap(tap_card, func(): tapped[0] += 1)
+	var enter := InputEventAction.new()
+	enter.action = "ui_accept"
+	enter.pressed = true
+	tap_card.gui_input.emit(enter)
+	assert_true(tap_card.focus_mode == Control.FOCUS_ALL and tapped[0] == 1, "a tappable card is focusable and Enter taps it")
+	tap_card.free()
+
+	# In a window wider than a phone, a page's column, a sheet and a bottom bar keep to it.
+	var wide := Control.new()
+	wide.size = Vector2(1600, 900)
+	root.add_child(wide)
+	var wide_col := Page.frame(wide)
+	var wide_sheet := Widgets.sheet(wide, "Wide", "WideSheet")
+	var wide_bar := Widgets.bottom_bar(Widgets.back_button(func(): pass), {}, "WideBar")
+	wide_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	wide.add_child(wide_bar)
+	for i in 4:
+		await process_frame
+	var sheet_panel := wide.get_node("WideSheet/SheetPanel") as Control
+	assert_true(wide_col.size.x <= Style.COLUMN_MAX and absf(wide_col.get_global_rect().get_center().x - 800.0) < 2.0,
+		"a page's column stays phone-width, centred, in a wide window")
+	assert_true(sheet_panel.size.x <= Style.COLUMN_MAX + 1.0 and sheet_panel.offset_left > 0.0 and is_equal_approx(sheet_panel.offset_left, -sheet_panel.offset_right),
+		"and so does a sheet")
+	assert_true(wide_bar.get_child(0).get_global_rect().size.x <= Style.COLUMN_MAX, "and a bottom bar's buttons")
+	assert_true(wide_sheet.name == "SheetBody", "the wide sheet built its body")
+	wide.queue_free()
 
 	for key in ["clock", "day", "sun", "moon", "fire", "bond", "level", "vengeful", "steadfast", "fragile", "lucky", "mentor",
 			"bold", "flank", "rear", "pause", "play", "fast", "menu", "peace", "sail", "militia", "armor", "damage", "chest"]:

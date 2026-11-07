@@ -104,7 +104,10 @@ static func thousands(n: int) -> String:
 
 
 ## A segmented tab bar. `tabs` is [{id, label, badge}]; tapping calls on_tab(id). The lit
-## tab carries a brass underline that slides across when it changes.
+## tab carries a brass underline that slides across when it changes. Each tab is a full
+## touch target; its words grow with the text setting as far as they fit, then wrap onto
+## a second line (the bar grows taller) rather than being cut short. Under a mouse an unlit
+## tab lights faintly, and a keyboard's focus shows as a brass ring.
 static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: String = "Tabs") -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.name = bar_name
@@ -132,12 +135,15 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 			if String(t["label"]) == "":
 				b.tooltip_text = String(t.get("tip", t["id"]))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.custom_minimum_size = Vector2(0, 72)
-		# Tabs share one row, so big text grows them only so far, and a label that still
-		# doesn't fit is cut short rather than pushing the page wider than the screen.
-		b.add_theme_font_size_override("font_size", mini(Style.text_size(Style.SMALL), roundi(Style.SMALL * 1.15)))
-		b.clip_text = true
-		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.custom_minimum_size = Vector2(0, Style.TOUCH)
+		# Tabs share one row: the words take the full text size where they fit, shrink no
+		# further than they used to (_fit_tab_words), and then wrap, a long word breaking
+		# rather than pushing the page wider than the screen. Never "…".
+		b.set_meta("font_full", Style.text_size(Style.SMALL))
+		b.set_meta("font_least", mini(Style.text_size(Style.SMALL), roundi(Style.SMALL * 1.15)))
+		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		b.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
 		var on: bool = t["id"] == current
 		# A gold tab: something on there (a feast), lit in brass.
 		var gold := bool(t.get("gold", false))
@@ -145,15 +151,41 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		var lit := Style.box(Color("33290f") if gold else Style.RAISED, Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
 		if on:
 			line_color = Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5)
-		for state in ["normal", "hover", "pressed", "hover_pressed", "focus"]:
-			b.add_theme_stylebox_override(state, lit if on else flat)
+		var hover := Style.box(Color(Style.RAISED, 0.55), Color(0, 0, 0, 0), 0, 14)
+		for state in ["normal", "hover", "pressed", "hover_pressed"]:
+			b.add_theme_stylebox_override(state, lit if on else (hover if state.begins_with("hover") else flat))
+		b.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Color(Style.BRASS, 0.7), 2, 14))
 		var ink := (Color("f3d891") if gold else Style.TEXT) if on else (Style.BRASS if badge > 0 or gold else Style.MUTED)
-		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		for c in ["font_color", "font_pressed_color", "font_focus_color"]:
 			b.add_theme_color_override(c, ink)
+		b.add_theme_color_override("font_hover_color", ink if on or badge > 0 or gold else Style.TEXT)
 		b.pressed.connect(on_tab.bind(String(t["id"])))
 		row.add_child(b)
+	row.sort_children.connect(func(): _fit_tab_words(row))
 	_tab_turn(bar, row, tabs, current, bar_name, line_color)
 	return bar
+
+
+## Each tab's words at the biggest size (up to its "font_full") at which its longest word
+## fits the tab, but no smaller than its "font_least"; what still doesn't fit wraps.
+static func _fit_tab_words(row: HBoxContainer) -> void:
+	if not is_instance_valid(row):
+		return
+	for c in row.get_children():
+		var b := c as Button
+		if b == null or b.size.x <= 0.0:
+			continue
+		var font := b.get_theme_font("font")
+		var full := int(b.get_meta("font_full", Style.text_size(Style.SMALL)))
+		var least := int(b.get_meta("font_least", full))
+		var room := b.size.x - 28.0 - (38.0 if b.icon != null else 0.0)
+		var fits := full
+		if font != null:
+			for word in b.text.split(" ", false):
+				while fits > least and font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fits).x > room:
+					fits -= 1
+		if b.get_theme_font_size("font_size") != fits:
+			b.add_theme_font_size_override("font_size", fits)
 
 
 ## Where each tab bar's underline last sat, and when, keyed by the bar and its tabs, so a
@@ -276,6 +308,12 @@ static func bottom_bar(buttons, insets: Dictionary, bar_name: String = "BottomBa
 	box.content_margin_top = 14
 	box.content_margin_bottom = 14 + float(insets.get("bottom", 0))
 	bar.add_theme_stylebox_override("panel", box)
+	# In a wide window the bar runs edge to edge, its buttons in the page's centred column.
+	bar.resized.connect(func():
+		var side := 32.0 + maxf(0.0, (bar.size.x - Style.COLUMN_MAX) * 0.5)
+		if not is_equal_approx(box.content_margin_left, side):
+			box.content_margin_left = side
+			box.content_margin_right = side)
 	var list: Array = buttons if buttons is Array else [buttons]
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 16)
@@ -491,14 +529,30 @@ const TAP_SLOP := 16.0
 
 ## Make `control` call `action` when tapped, without stopping the page from scrolling
 ## when a drag starts on it: the touch passes on to the page, and a release counts as a
-## tap only if the finger hardly moved since the press.
+## tap only if the finger hardly moved since the press. A keyboard reaches it too: it
+## takes focus (shown by a brass ring, not drawn when a pointer gave it focus) and Enter
+## or Space taps it.
 static func on_tap(control: Control, action: Callable) -> void:
 	control.mouse_filter = Control.MOUSE_FILTER_PASS
+	control.focus_mode = Control.FOCUS_ALL
+	control.focus_entered.connect(control.queue_redraw)
+	control.focus_exited.connect(func():
+		if control.has_meta("pointer_focus"):
+			control.remove_meta("pointer_focus")
+		control.queue_redraw())
+	control.draw.connect(func():
+		if control.has_focus() and not control.has_meta("pointer_focus"):
+			control.draw_style_box(Style.box(Color(0, 0, 0, 0), Style.BRASS, 2, 16), Rect2(Vector2.ZERO, control.size)))
 	control.gui_input.connect(func(e: InputEvent):
+		if e.is_action_pressed("ui_accept") and not e.is_echo():
+			control.accept_event()
+			action.call()
+			return
 		var mb := e as InputEventMouseButton
 		if mb == null or mb.button_index != MOUSE_BUTTON_LEFT:
 			return
 		if mb.pressed:
+			control.set_meta("pointer_focus", true)
 			control.set_meta("tap_from", mb.global_position)
 		elif control.has_meta("tap_from"):
 			var from: Vector2 = control.get_meta("tap_from")
@@ -769,6 +823,14 @@ static func sheet(host: Control, title: String, sheet_name: String = "Sheet", on
 	panel.add_theme_stylebox_override("panel", sb)
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	shade.add_child(panel)
+	# In a wide window the sheet keeps to the phone-width column, centred.
+	var fit := func():
+		if is_instance_valid(panel):
+			var side := maxf(0.0, (shade.size.x - Style.COLUMN_MAX) * 0.5)
+			panel.offset_left = side
+			panel.offset_right = -side
+	shade.resized.connect(fit)
+	fit.call()
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 10)
 	panel.add_child(outer)
@@ -874,7 +936,8 @@ static func switch(on: bool, on_toggle: Callable, switch_name: String = "Switch"
 		b.add_theme_font_size_override("font_size", 1)
 	b.toggle_mode = true
 	b.button_pressed = on
-	b.custom_minimum_size = Vector2(96, 52)
+	# A full touch target; the switch drawn in it stays its old size.
+	b.custom_minimum_size = Vector2(104, Style.TOUCH)
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	b.focus_mode = Control.FOCUS_ALL
 	var clear := StyleBoxEmpty.new()
@@ -883,7 +946,8 @@ static func switch(on: bool, on_toggle: Callable, switch_name: String = "Switch"
 	b.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Style.BRASS, 2, 28))
 	b.draw.connect(func():
 		var lit := b.button_pressed
-		var track := Rect2(Vector2(4, 6), b.size - Vector2(8, 12))
+		var track_size := Vector2(minf(b.size.x - 8.0, 88.0), minf(b.size.y - 12.0, 40.0))
+		var track := Rect2((b.size - track_size) * 0.5, track_size)
 		b.draw_style_box(Style.box(Color("c9a046") if lit else Color("2a3458"), Color(0, 0, 0, 0), 0, int(track.size.y / 2)), track)
 		var r := track.size.y / 2.0 - 4.0
 		var cx := track.end.x - r - 4.0 if lit else track.position.x + r + 4.0

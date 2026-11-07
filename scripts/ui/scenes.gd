@@ -1,5 +1,10 @@
 ## Changes screens with a quick fade through black (an autoload), so one screen never
-## snaps into the next. Taps are held off while the screen is dark.
+## snaps into the next. Taps are held off while the screen is dark. Under Reduced motion
+## the change is a plain cut.
+##
+## It also holds what every screen shares: a phone's back gesture arrives as Escape, so a
+## screen handles both in one place; Escape that no screen used closes the sheet on top, or
+## presses the page's Back; and on a computer F11 or Alt+Enter toggles full screen.
 extends CanvasLayer
 
 const OUT := 0.15
@@ -62,6 +67,67 @@ func _ready() -> void:
 	_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_veil)
 	get_tree().node_added.connect(_let_scroll_through)
+	_apply_fullscreen(Sound.fullscreen)
+
+
+# ---------------------------------------------------------------- keys and back
+
+## Android's back (with application/config/quit_on_go_back off, so it never quits the
+## game) becomes an Escape press, which every screen already answers as "back".
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		for down in [true, false]:
+			var k := InputEventKey.new()
+			k.keycode = KEY_ESCAPE
+			k.physical_keycode = KEY_ESCAPE
+			k.pressed = down
+			Input.parse_input_event(k)
+
+
+func _input(event: InputEvent) -> void:
+	var k := event as InputEventKey
+	if k == null or not k.pressed or k.echo or not OS.has_feature("pc"):
+		return
+	if k.keycode == KEY_F11 or (k.keycode == KEY_ENTER and k.alt_pressed):
+		set_fullscreen(not Sound.fullscreen)
+		get_viewport().set_input_as_handled()
+
+
+## Escape that the screen itself didn't use (this autoload hears it last): close the sheet
+## on top, or else press the page's Back. Battles keep their own Escape.
+func _unhandled_input(event: InputEvent) -> void:
+	if not event.is_action_pressed("ui_cancel") or _busy:
+		return
+	var cur := get_tree().current_scene
+	if cur == null or cur.scene_file_path.ends_with("battle.tscn"):
+		return
+	var top: Control = null
+	for n in cur.find_children("*", "ColorRect", true, false):
+		if n.has_meta("close") and not n.has_meta("dismissed") and (n as Control).is_visible_in_tree():
+			top = n as Control
+	if top != null:
+		(top.get_meta("close") as Callable).call()
+		get_viewport().set_input_as_handled()
+		return
+	var back := cur.find_child("Back", true, false) as Button
+	if back != null and back.is_visible_in_tree() and not back.disabled:
+		back.pressed.emit()
+		get_viewport().set_input_as_handled()
+
+
+## Full screen on or off (computers only), remembered with the other settings.
+func set_fullscreen(on: bool) -> void:
+	Sound.set_fullscreen(on)
+	_apply_fullscreen(on)
+
+
+func _apply_fullscreen(on: bool) -> void:
+	if not OS.has_feature("pc") or DisplayServer.get_name() == "headless":
+		return
+	var mode := DisplayServer.window_get_mode()
+	var full: bool = mode == DisplayServer.WINDOW_MODE_FULLSCREEN or mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN
+	if full != on:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if on else DisplayServer.WINDOW_MODE_WINDOWED)
 
 
 ## Inside a scrolling page, a finger that lands on a card, a panel or a button must still
@@ -93,7 +159,8 @@ func _let_scroll_through(node: Node) -> void:
 ## Moments worth a stamp (a deed, a captain ready for a role) drop in as a ribbon from the
 ## top of the screen, hold, and roll back up. They queue, and wait until no battle is on
 ## screen and no screen change is under way. Under Reduced motion they're simply there
-## for the hold. Each is {title, sub, icon, sound}.
+## for the hold. The hold grows with the text size (bigger words take longer to read),
+## and a tap puts the ribbon away at once. Each is {title, sub, icon, sound}.
 const RIBBON_HOLD := 2.2
 const RIBBON_IN := 0.32
 const RIBBON_OUT := 0.25
@@ -124,7 +191,10 @@ func _show_ribbon(r: Dictionary) -> void:
 	var panel := PanelContainer.new()
 	panel.name = "Ribbon"
 	panel.theme = Style.make_theme()
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.gui_input.connect(func(e: InputEvent):
+		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.is_pressed():
+			_dismiss_ribbon(panel))
 	var sb: StyleBoxFlat = Style.box(Color("2a2210"), Style.BRASS, 3, 16)
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22
@@ -175,10 +245,11 @@ func _show_ribbon(r: Dictionary) -> void:
 		Sound.play(String(r["sound"]), 0.0, 0.03)
 	Sound.haptic(false)
 	var tw := panel.create_tween()
+	panel.set_meta("tween", tw)
 	if not Style.motion_reduced():
 		panel.position.y = -panel.size.y - 20.0
 		tw.tween_property(panel, "position:y", rest_y, RIBBON_IN).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tw.tween_interval(RIBBON_HOLD)
+	tw.tween_interval(RIBBON_HOLD * maxf(1.0, float(Sound.text_scale)))
 	if not Style.motion_reduced():
 		tw.tween_property(panel, "position:y", -panel.size.y - 20.0, RIBBON_OUT).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_callback(func():
@@ -186,11 +257,29 @@ func _show_ribbon(r: Dictionary) -> void:
 		_ribbon = null)
 
 
-## Fade out, change to the scene at `path`, fade back in.
+## A tapped ribbon goes at once, and the next in the queue may follow.
+func _dismiss_ribbon(panel: Control) -> void:
+	if not is_instance_valid(panel) or panel.is_queued_for_deletion():
+		return
+	var tw = panel.get_meta("tween", null)
+	if tw is Tween and (tw as Tween).is_valid():
+		(tw as Tween).kill()
+	panel.queue_free()
+	if _ribbon == panel:
+		_ribbon = null
+
+
+## Fade out, change to the scene at `path`, fade back in. Under Reduced motion, a cut.
 func go(path: String) -> void:
 	if _busy:
 		return
 	_busy = true
+	if bool(Sound.reduced_motion):
+		get_tree().change_scene_to_file(path)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		_busy = false
+		return
 	_veil.mouse_filter = Control.MOUSE_FILTER_STOP
 	var out := create_tween()
 	out.tween_property(_veil, "color:a", 1.0, OUT)
