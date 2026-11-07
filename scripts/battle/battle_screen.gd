@@ -8,8 +8,9 @@
 ##
 ## Battle: squads hold their ground until ordered. Advance and Hold command the whole
 ## army, or only the selected squad. Select a squad by tapping its card, its standard or
-## its men; then tap an enemy squad to attack it, open ground to march there, or its
-## ability button. The camera follows the fighting.
+## its men; then tap an enemy squad to attack it, open ground twice to march there, or its
+## ability button. A line drawn with no squad selected is for the whole warband and waits
+## for a tap on it. The camera follows the fighting until you pinch, scroll or drag it.
 extends Node2D
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
@@ -35,6 +36,8 @@ const CHIP_H := 84.0
 const SIEGE_CHIP_H := 108.0
 ## The order buttons: an icon over a short word.
 const CMD_H := 104.0
+## The order buttons' words: a step under SMALL, so two lines fit under the icon.
+const ORDER_FONT := 20
 const ABILITY_ICONS := {"infantry": "shieldwall", "spearmen": "schiltron", "archers": "volley", "cavalry": "wheel"}
 ## A company's siege badge: icon, word, and the pill's colours.
 const ROLE_BADGES := {
@@ -75,6 +78,9 @@ const INSPECT_LIFE := 4.0
 ## zooms in up to MAX_ZOOM over the whole-field view.
 const CAMERA_MARGIN := 110.0
 const MAX_ZOOM := 1.8
+## How far a pinch or the mouse wheel can bring the field in, and how much a wheel notch does.
+const MANUAL_ZOOM := 3.2
+const WHEEL_ZOOM := 1.12
 const CAMERA_EASE := 1.6
 ## Standards: pole length, flag size, in screen units.
 const POLE := 46.0
@@ -97,6 +103,8 @@ const PUNCH := 0.03
 const PUNCH_TIME := 0.25
 ## A press on the field that moves this far (screen pixels) draws a line instead of tapping.
 const DRAG_START := 24.0
+## A second tap this close (screen units) to a march ring or a waiting line confirms it.
+const CONFIRM_TAP := 56.0
 ## Seconds the line just ordered stays on the field.
 const LINE_SHOWN := 1.4
 ## The sound of the ground the battle is fought on, under the music.
@@ -177,7 +185,7 @@ const SLOW_TIME := 1.1
 ## How fast the fight runs while a thumb holds the slow handle, whatever the speed button
 ## says, and the handle's size on the field's right edge.
 const HAND_PACE := 0.25
-const SLOW_HANDLE := Vector2(54.0, 112.0)
+const SLOW_HANDLE := Vector2(80.0, 120.0)
 const CRITICAL_BURSTS := ["rout", "fall"]
 ## The hours: dawn, day, dusk, night. Each: the wash over the ground and over the men, the
 ## shadows' offset (field units), how far they stretch and how dark, the vignette.
@@ -205,6 +213,9 @@ const STAMP_TIME := 0.12
 const STAMP_SCALE := 1.3
 ## A squad at or below this morale is wavering: warned before it breaks.
 const WAVER_MORALE := 35.0
+## What bracing is, said once, with the first Hold.
+const BRACED_WORDS := "After two seconds standing still they're braced: they hit a third harder and take a quarter less from the front. Advance gives it up."
+
 var _wavered := {}
 var _prev_order := {}
 var _pre_step_order := {}
@@ -392,6 +403,25 @@ var _slow_taught := false
 var _line_shown := {}
 ## Whether the hint has shown how to command one squad yet this battle.
 var _taught := false
+## Field touches by finger (screen positions), for a pinch; the pinch under way; whether
+## the fingers of a pinch are still down (no tap or line comes of them); a mouse drag
+## panning the view (right or middle button).
+var _touches := {}
+var _pinch := {}
+var _pinch_lock := false
+var _pan_mouse := false
+## Orders that wait for a second tap: a march for the selected squad to a ring on the
+## ground ({squad, at}, `at` on the field), and a line for the whole warband ({a, b}).
+var _pending_march := {}
+var _pending_line := {}
+## Your squads placed by hand before the fight (by roster id): a line over them waits for
+## a tap rather than moving them at once.
+var _hand_placed := {}
+## The map said there was no way out (riders cut off the road, or an ambush): Retreat is
+## a run for it under the enemy's blades rather than a withdrawal at a price.
+var _cut_off := false
+## The one-shot card about the ground or the objective has been looked for (after Fight).
+var _ground_card_checked := false
 var _accumulator := 0.0
 var _result_shown := false
 var _left_battle := false
@@ -520,6 +550,7 @@ func _ready() -> void:
 		if pending.has("chief_name") and pending["chief_name"] != "":
 			sim.chief_name = String(pending["chief_name"])
 		sim.ai[Sim.ENEMY] = Commander.new(Sim.ENEMY, String(pending.get("temperament", "")))
+	_cut_off = _no_way_out(pending)
 	# Bandits fight in their own realm; a battle off the map is fought in yours.
 	_biome = _enemy_culture if not pending.is_empty() else GameState.culture
 	_castle_culture = _enemy_culture
@@ -562,9 +593,26 @@ func _ready() -> void:
 		speed = 1.0 if _test else 4.0
 		_start_battle()
 	else:
+		# The one-shot card about the ground waits for Fight (see _end_title), so it never
+		# lands on the deployment hint.
 		_select_next_card()
-		_maybe_show_terrain_hint()
 	_refresh_hud()
+
+
+## Whether the map said this fight had no way out: an ambush, or a lord whose riders cut
+## off the road. Read from the map's own rule (WorldSim.can_withdraw), which gives the same
+## answer for the same hour.
+func _no_way_out(pending: Dictionary) -> bool:
+	if sim.objective == Sim.OBJECTIVE_AMBUSH:
+		return true
+	if pending.is_empty() or _test:
+		return false
+	if pending.has("can_withdraw"):
+		return not bool(pending["can_withdraw"])
+	var w = GameState.world
+	if int(pending.get("party_id", -1)) < 0 or w == null or int(w.encounter) == -1:
+		return false
+	return not bool(w.can_withdraw())
 
 
 ## Which part of the day `hour` falls in: dawn, day, dusk or night.
@@ -638,9 +686,9 @@ func _layout() -> void:
 func _bottom_height() -> float:
 	if _deploying():
 		# one row of squads, then Auto-place and Fight (hints float above, as a toast)
-		return 14.0 + CHIP_H + 10.0 + CMD_H + 14.0
+		return 14.0 + CHIP_H + 10.0 + _cmd_h() + 14.0
 	var rows := _tray_rows()
-	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + CMD_H + 14.0 + Style.TOUCH + 10.0
+	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + _cmd_h() + 14.0 + Style.TOUCH + 10.0
 
 
 func _chip_h() -> float:
@@ -743,6 +791,11 @@ func _begin_title() -> void:
 func _end_title() -> void:
 	_title = {}
 	_dim_hud(1.0)
+	# The ground's (or the objective's) one-shot card comes up once the fight is on, and
+	# the battle waits for it.
+	if not _ground_card_checked:
+		_ground_card_checked = true
+		_maybe_show_terrain_hint()
 
 
 func _dim_hud(a: float) -> void:
@@ -914,6 +967,98 @@ func _toggle_camera() -> void:
 	_camera_hold = not _camera_hold
 	camera_button.text = "Held" if _camera_hold else "Following"
 	camera_button.icon = Widgets.icon("pin" if _camera_hold else "eye")
+
+
+## The view was moved by hand (a pinch, the wheel, a drag): it stays where it was put, and
+## the camera button says so, until Re-center hands it back to the fight.
+func _hold_camera() -> void:
+	if not _camera_hold:
+		_toggle_camera()
+	_shake = 0.0
+	_shake_offset = Vector2.ZERO
+	_punch = 0.0
+
+
+## Zoom the view by `factor` about a point on the screen, which stays under the finger.
+func _zoom_at(at: Vector2, factor: float) -> void:
+	var spot := _to_field(at)
+	_hold_camera()
+	cam_zoom = clampf(cam_zoom * factor, 1.0, MANUAL_ZOOM)
+	_aim_camera(spot, at)
+
+
+## Slide the view by `by` screen units, the field following the finger.
+func _pan_by(by: Vector2) -> void:
+	_hold_camera()
+	cam_center -= by / maxf(0.01, _fit_scale * cam_zoom)
+	_apply_camera()
+
+
+## Put the field point `spot` at the screen point `at`, at the present zoom.
+func _aim_camera(spot: Vector2, at: Vector2) -> void:
+	var k := maxf(0.01, _fit_scale * cam_zoom)
+	cam_center = spot - (at - _view.get_center()) / k
+	_apply_camera()
+
+
+## The mouse and trackpad move the view: the wheel zooms about the pointer, a right or
+## middle drag pans, a trackpad pinches and swipes. Returns whether it used the event.
+func _camera_input(event: InputEvent) -> bool:
+	var mb := event as InputEventMouseButton
+	if mb != null:
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			if not mb.pressed or not _view.has_point(mb.position):
+				return false
+			var notches: float = mb.factor if mb.factor > 0.0 else 1.0
+			var step: float = pow(WHEEL_ZOOM, notches)
+			_zoom_at(mb.position, step if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / step)
+			return true
+		if mb.button_index == MOUSE_BUTTON_RIGHT or mb.button_index == MOUSE_BUTTON_MIDDLE:
+			if mb.pressed and _view.has_point(mb.position):
+				_pan_mouse = true
+				return true
+			if not mb.pressed and _pan_mouse:
+				_pan_mouse = false
+				return true
+		return false
+	var mm := event as InputEventMouseMotion
+	if mm != null and _pan_mouse:
+		_pan_by(mm.relative)
+		return true
+	var mg := event as InputEventMagnifyGesture
+	if mg != null and _view.has_point(mg.position):
+		_zoom_at(mg.position, mg.factor)
+		return true
+	var pg := event as InputEventPanGesture
+	if pg != null and _view.has_point(pg.position):
+		_pan_by(-pg.delta * 12.0)
+		return true
+	return false
+
+
+## A second finger on the field: whatever the first had begun (a tap, a line, a carried
+## squad) is dropped, and the two pinch and pan the view.
+func _begin_pinch() -> void:
+	_pressing = false
+	_drawing = false
+	_press_squad = null
+	_press_touch = -1
+	_pinch_lock = true
+	var pts: Array = _touches.values()
+	var a: Vector2 = pts[0]
+	var b: Vector2 = pts[1]
+	_hold_camera()
+	_pinch = {"dist": maxf(1.0, a.distance_to(b)), "zoom": cam_zoom, "spot": _to_field((a + b) * 0.5)}
+
+
+func _move_pinch() -> void:
+	var pts: Array = _touches.values()
+	if pts.size() < 2 or _pinch.is_empty():
+		return
+	var a: Vector2 = pts[0]
+	var b: Vector2 = pts[1]
+	cam_zoom = clampf(float(_pinch["zoom"]) * a.distance_to(b) / float(_pinch["dist"]), 1.0, MANUAL_ZOOM)
+	_aim_camera(_pinch["spot"], (a + b) * 0.5)
 
 
 func _recenter_camera() -> void:
@@ -1231,7 +1376,8 @@ func _process(delta: float) -> void:
 		_beat["age"] = float(_beat["age"]) + delta
 	_update_grade(delta)
 	_ease_hud(delta)
-	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty():
+	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty() \
+			and not terrain_hint_panel.visible:
 		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
 		var rate := speed
 		if slow_held():
@@ -1241,7 +1387,9 @@ func _process(delta: float) -> void:
 			pace = minf(pace, HAND_PACE) if not _roll.is_empty() else HAND_PACE
 		if _hitstop > 0.0:
 			_hitstop -= delta
-			pace = 0.0
+			# Under Reduced motion the field never freezes for a blow.
+			if not Style.motion_reduced():
+				pace = 0.0
 		_accumulator += minf(delta, 0.1) * rate * pace
 		# Orders as they stood before the sim steps, so a squad that marches and arrives in
 		# the same frame is still seen to halt.
@@ -1294,6 +1442,13 @@ func _process(delta: float) -> void:
 # ---------------------------------------------------------------- input
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		get_viewport().set_input_as_handled()
+		_on_back()
+		return
+	if _camera_input(event):
+		get_viewport().set_input_as_handled()
+		return
 	var mb := event as InputEventMouseButton
 	if mb == null or not mb.pressed or mb.button_index != MOUSE_BUTTON_LEFT:
 		return
@@ -1305,9 +1460,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_end_title()
 		return
-	if sim.winner != -1 or paused:
+	# Paused, the field still takes orders: select, target, draw a line.
+	if sim.winner != -1 or terrain_hint_panel.visible:
 		return
-	if not _view.has_point(mb.position) or _press_touch != -1:
+	if not _view.has_point(mb.position) or _press_touch != -1 or _pinch_lock:
 		return
 	get_viewport().set_input_as_handled()
 	_begin_press(mb.position)
@@ -1344,13 +1500,23 @@ func _end_press(at: Vector2) -> void:
 	_drawing = false
 	var carried = _press_squad
 	_press_squad = null
-	if sim.winner != -1 or paused:
+	if sim.winner != -1:
 		return
 	if drew and carried != null:
+		_drop_pending()
 		_drop_squad(carried, at)
 		return
 	if drew:
-		_order_line(_press_field, _to_field(at))
+		_line_drawn(_press_field, _to_field(at))
+		return
+	# A line waiting for its tap: a tap on it gives the order, a tap anywhere else drops it.
+	if not _pending_line.is_empty():
+		var waiting: Dictionary = _pending_line
+		_pending_line = {}
+		if _on_pending_line(_press_at, waiting):
+			_order_line(waiting["a"], waiting["b"], null)
+		else:
+			_hint("Line dropped. Drag again to draw another.")
 		return
 	var tapped = _standard_at(_press_at)
 	if sim.phase == Sim.PHASE_DEPLOY:
@@ -1373,6 +1539,23 @@ func _input(event: InputEvent) -> void:
 			_slow_touches.erase(st.index)
 			get_viewport().set_input_as_handled()
 			return
+		# Two fingers on the field pinch and pan the view.
+		if st.pressed and _view.has_point(st.position):
+			_touches[st.index] = st.position
+			if _touches.size() >= 2:
+				_begin_pinch()
+				get_viewport().set_input_as_handled()
+				return
+		elif not st.pressed and _touches.has(st.index):
+			_touches.erase(st.index)
+			if _touches.size() < 2:
+				_pinch = {}
+			var was_pinching := _pinch_lock
+			if _touches.is_empty():
+				_pinch_lock = false
+			if was_pinching:
+				get_viewport().set_input_as_handled()
+				return
 		# Another finger on the field while the thumb holds time back.
 		if st.pressed and slow_held() and not _pressing and _view.has_point(st.position):
 			_press_touch = st.index
@@ -1388,6 +1571,12 @@ func _input(event: InputEvent) -> void:
 		return
 	var sd := event as InputEventScreenDrag
 	if sd != null:
+		if _touches.has(sd.index):
+			_touches[sd.index] = sd.position
+			if not _pinch.is_empty():
+				_move_pinch()
+				get_viewport().set_input_as_handled()
+				return
 		if sd.index == _press_touch and _pressing:
 			_move_press(sd.position)
 			get_viewport().set_input_as_handled()
@@ -1443,10 +1632,15 @@ func _on_slow_held() -> void:
 		_hint("Time slowed. Tap orders with your other hand; let go and the fight runs on.")
 
 
-## Lets go of the handle for every finger: when the battle stops or pauses under it.
+## Lets go of the handle for every finger: when the battle stops or pauses under it. A
+## pinch under way is let go too (its fingers' lifts may never come, if the app lost focus).
 func _release_slow() -> void:
 	_slow_touches.clear()
 	_slow_mouse = false
+	_touches.clear()
+	_pinch = {}
+	_pinch_lock = false
+	_pan_mouse = false
 
 
 # ---------------------------------------------------------------- carrying a squad
@@ -1486,6 +1680,7 @@ func _drop_squad(sq, at: Vector2) -> void:
 		if sim.place(Sim.PLAYER, sq.roster_id, t["ground"]) == null:
 			_hint("No room there. Try a more open spot.")
 			return
+		_hand_placed[sq.roster_id] = true
 		Sound.haptic()
 		_hint("%s stand there. Drag another flag, or press Fight." % _company_or_type(sq), "placed")
 		return
@@ -1505,13 +1700,19 @@ func _order_attack(sq, foe) -> void:
 	_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()], "attack")
 
 
-func _order_move(sq, p: Vector2) -> void:
+## Why `sq` can't march to `p`, or "" if it can.
+func _march_refusal(sq, p: Vector2) -> String:
 	if sim.terrain != null and not sim.terrain.passable(p):
-		var thint := _terrain_hint(p)
-		_hint("Cannot march there: %s" % thint)
-		return
+		return "Cannot march there: %s" % _terrain_hint(p)
 	if Sim.Pathing.find_path(sim.terrain, sq.center, p, sq.type == Troops.CAVALRY, false).is_empty():
-		_hint("Cannot march there: no route to that ground.")
+		return "Cannot march there: no route to that ground."
+	return ""
+
+
+func _order_move(sq, p: Vector2) -> void:
+	var why := _march_refusal(sq, p)
+	if why != "":
+		_hint(why)
 		return
 	sim.order_move(sq, p)
 	_mark_ordered(sq)
@@ -1527,12 +1728,49 @@ func _matchup(type: String, foe_type: String) -> Array:
 	return ["·", "an even fight", Style.MORALE_MID]
 
 
-## Form up along a line drawn from `a` to `b`: the selected squad alone, or the whole
-## army (before the battle, the whole army always: it's placed there at once).
-func _order_line(a: Vector2, b: Vector2) -> void:
+## A line has been drawn from `a` to `b`. For the one squad selected it is an order at
+## once. For the whole warband it waits for a tap on it, so a stray swipe never re-forms
+## the army: in battle always, and before the fight once you have placed a company by hand
+## (a line over an army still unplaced, or placed by Auto-place or a line, goes at once).
+func _line_drawn(a: Vector2, b: Vector2) -> void:
 	if not _storm_plan.is_empty():
 		return
 	var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
+	if only != null or (sim.phase == Sim.PHASE_DEPLOY and _hand_placed.is_empty()):
+		_order_line(a, b, only)
+		return
+	if sim.line_preview(Sim.PLAYER, a, b, null).is_empty():
+		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
+		return
+	_pending_march = {}
+	_pending_line = {"a": a, "b": b}
+	Sound.play("page", -6.0, 0.05)
+	if sim.phase == Sim.PHASE_DEPLOY:
+		_hint("Tap the line to move the whole warband onto it, the companies you placed too. Tap elsewhere to keep them where they are.")
+	else:
+		_hint("Tap the line to form the whole warband on it. Tap elsewhere to drop it.")
+
+
+## Whether a tap at `at` (on screen) lands on the waiting line `line`.
+func _on_pending_line(at: Vector2, line: Dictionary) -> bool:
+	var a := _to_screen(line["a"])
+	var b := _to_screen(line["b"])
+	return Geometry2D.get_closest_point_to_segment(at, a, b).distance_to(at) <= CONFIRM_TAP
+
+
+## Drops any order waiting for its second tap.
+func _drop_pending() -> void:
+	_pending_line = {}
+	_pending_march = {}
+
+
+## Form up along a line drawn from `a` to `b`: the squad `only`, or the whole army (before
+## the battle, the whole army always: it's placed there at once).
+func _order_line(a: Vector2, b: Vector2, only) -> void:
+	if not _storm_plan.is_empty():
+		return
+	if sim.phase != Sim.PHASE_BATTLE:
+		only = null
 	var spots := sim.order_line(Sim.PLAYER, a, b, only)
 	if spots.is_empty():
 		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
@@ -1543,6 +1781,7 @@ func _order_line(a: Vector2, b: Vector2) -> void:
 	Sound.play("page", 0.0, 0.05)
 	if sim.phase == Sim.PHASE_DEPLOY:
 		selected_id = -1
+		_hand_placed.clear()
 		_hint("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.", "line")
 	elif only != null:
 		_hint("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])], "line")
@@ -1598,6 +1837,7 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 	if sim.place(Sim.PLAYER, selected_id, p) == null:
 		_hint("No room there. Try a more open spot.")
 		return
+	_hand_placed[selected_id] = true
 	# The squad lands: a ring closes on the spot and dust kicks up.
 	if not Style.motion_reduced():
 		_burst(p, "land", Style.BRASS, 0.35)
@@ -1642,16 +1882,33 @@ func _tap_battle(p: Vector2, tapped) -> void:
 			if thint != "":
 				_hint(thint)
 			else:
-				_hint("Tap a squad to command it, or drag across the field to give the army a new line.")
+				_hint("Tap a squad to command it, or drag a line across the field and tap it to re-form the army.")
 		return
 	if foe != null and foe.is_active():
+		_pending_march = {}
 		_order_attack(selected_squad, foe)
-	else:
-		_order_move(selected_squad, p)
+		return
+	# Open ground: a ring goes down where the squad would march, and a second tap on it
+	# sends them, so a stray tap only moves the ring. (Dragging the squad's flag marches it
+	# in one go, with the matchup card shown on the way.)
+	var why := _march_refusal(selected_squad, p)
+	if why != "":
+		_pending_march = {}
+		_hint(why)
+		return
+	if not _pending_march.is_empty() and _pending_march["squad"] == selected_squad \
+			and _to_screen(_pending_march["at"]).distance_to(_press_at) <= CONFIRM_TAP:
+		var to: Vector2 = _pending_march["at"]
+		_pending_march = {}
+		_order_move(selected_squad, to)
+		return
+	_pending_march = {"squad": selected_squad, "at": p}
+	_hint("%s: tap the ring again to march there." % _company_or_type(selected_squad))
 
 
 func _select(sq) -> void:
 	selected_squad = sq
+	_drop_pending()
 	if sq == null:
 		_hint("Orders go to the whole army.", "army")
 		return
@@ -1718,8 +1975,9 @@ func _start_battle() -> void:
 	Sound.battle_clash()
 	selected_id = -1
 	selected_squad = null
+	_drop_pending()
 	_layout()
-	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag across the field to give the army a new line.", "start")
+	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag a line across the field and tap it to re-form the army.", "start")
 
 
 ## Storm the walls, first tap: the plan goes up on the field (who takes a ladder, who goes
@@ -1798,6 +2056,7 @@ func _swap_storm(sq) -> void:
 func _on_advance() -> void:
 	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
 		return
+	_drop_pending()
 	if selected_squad != null:
 		sim.order_advance(selected_squad)
 		_mark_ordered(selected_squad)
@@ -1835,21 +2094,26 @@ func _on_post() -> void:
 func _on_hold() -> void:
 	if sim.phase != Sim.PHASE_BATTLE or sim.winner != -1:
 		return
+	_drop_pending()
+	# The first Hold says what bracing is (the README's rule, in a sentence).
 	if selected_squad != null:
 		sim.order_hold(selected_squad)
 		_mark_ordered(selected_squad)
-		_hint("%s hold where they stand, and brace." % _company_or_type(selected_squad), "hold")
+		_hint("%s hold where they stand. %s" % [_company_or_type(selected_squad), BRACED_WORDS], "hold")
 	else:
 		sim.order_all(Sim.PLAYER, "hold")
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
-		_hint("The whole army holds and braces. Squads fight anyone who comes close.", "hold")
+		_hint("The whole army holds and fights anyone who comes close. %s" % BRACED_WORDS, "hold")
 
 
 func _on_ability() -> void:
 	var sq = selected_squad
-	if sq == null or sim.winner != -1:
+	if sim.winner != -1:
+		return
+	if sq == null:
+		_volley_all()
 		return
 	var ab := Troops.ability(sq.type)
 	if sim.use_ability(sq):
@@ -1860,10 +2124,51 @@ func _on_ability() -> void:
 		_hint("No enemy in bow range." if sq.arrows > 0 else "Out of arrows.")
 
 
-## Archers keep their arrows, or loose at will again.
+## With no squad selected: every company of archers that can looses a volley at once.
+func _volley_all() -> void:
+	var fired := 0
+	var soonest := INF
+	for bow in _player_bows(true):
+		if sim.use_ability(bow):
+			fired += 1
+			_mark_ordered(bow)
+		elif bow.ability_cd > 0.0:
+			soonest = minf(soonest, float(bow.ability_cd))
+	if fired > 0:
+		_hint("Volley from %d compan%s of bows." % [fired, "y" if fired == 1 else "ies"])
+	elif soonest < INF:
+		_hint("Volley is ready again in %d seconds." % ceili(soonest))
+	else:
+		_hint("No enemy in bow range.")
+
+
+## Your companies still shooting (arrows left), not your allies'; only archers with
+## `volley_only`, since horse archers' ability is the wheel.
+func _player_bows(volley_only: bool = false) -> Array:
+	var out := []
+	for bow in sim.squads:
+		if bow.team == Sim.PLAYER and bow.is_active() and not bow.is_ally and bow.ranged and (not volley_only or bow.type == Troops.ARCHERS):
+			out.append(bow)
+	return out
+
+
+## Archers keep their arrows, or loose at will again: the selected company, or with none
+## selected every company of bows.
 func _on_hold_fire() -> void:
 	var sq = selected_squad
-	if sq == null or sim.winner != -1 or not sq.ranged:
+	if sim.winner != -1:
+		return
+	if sq == null:
+		var bows := _player_bows()
+		if bows.is_empty():
+			return
+		var hold: bool = not bows.all(func(holder): return holder.hold_fire)
+		for bow in bows:
+			sim.set_hold_fire(bow, hold)
+			_mark_ordered(bow)
+		_hint("Every company of bows holds its fire and keeps its arrows." if hold else "Every company of bows looses at will.")
+		return
+	if not sq.ranged:
 		return
 	sim.set_hold_fire(sq, not sq.hold_fire)
 	_mark_ordered(sq)
@@ -1879,12 +2184,54 @@ func _on_menu() -> void:
 	_set_paused(not paused)
 
 
+## Escape (the Scenes autoload turns the phone's back button into Escape too): shuts what
+## is open over the field (the ground card, the pause card, the title, an order waiting
+## for its second tap, the storm plan), else pauses.
+func _on_back() -> void:
+	if _result_shown or sim.winner != -1:
+		return
+	if terrain_hint_panel.visible:
+		terrain_hint_panel.visible = false
+	elif paused:
+		_set_paused(false)
+	elif not _title.is_empty():
+		_end_title()
+	elif not _pending_line.is_empty() or not _pending_march.is_empty():
+		_drop_pending()
+	elif not _storm_plan.is_empty():
+		_on_storm_cancel()
+	else:
+		_set_paused(true)
+
+
 func _set_paused(on: bool) -> void:
 	paused = on and sim.winner == -1
 	_release_slow()
 	pause_panel.visible = paused
-	retreat_button.text = "Retreat"
 	_retreat_armed = 0.0
+	_retreat_words()
+
+
+## The Retreat button says what pulling out costs, and the note over it why: men left
+## behind as the companies break off, or, with no way out, a run for your edge with the
+## enemy cutting down whoever they catch. `armed`: the first tap is in, waiting for the second.
+func _retreat_words(armed: bool = false) -> void:
+	retreat_button.visible = sim.withdrawing == -1
+	var text := "Tap again to retreat" if armed else "Retreat"
+	var note := ""
+	if _cut_off:
+		text = "Tap again to run for it" if armed else "Retreat: run for it"
+		note = "There is no way out: they hold the road. Retreat and every company breaks and runs for your edge, and they cut down whoever they catch."
+	elif sim.phase != Sim.PHASE_BATTLE:
+		note = "Leave before the fight and you lose no men."
+	else:
+		var cost: int = sim.withdraw_cost(Sim.PLAYER)
+		if cost > 0:
+			text = ("Tap again: leave %d men" if armed else "Retreat: lose %d men") % cost
+			note = "Pulling out costs %d men, cut down as your companies break off: more from those locked in a fight." % cost
+	retreat_button.text = text
+	pause_note.text = note
+	pause_note.visible = note != ""
 
 
 func _on_speed() -> void:
@@ -1892,26 +2239,39 @@ func _on_speed() -> void:
 
 
 func _on_retreat() -> void:
-	if sim.winner != -1:
+	if sim.winner != -1 or sim.withdrawing != -1:
 		return
 	var now := Time.get_ticks_msec() / 1000.0
 	if now < _retreat_armed:
 		_set_paused(false)
-		sim.concede(Sim.PLAYER)
+		if not _cut_off:
+			sim.concede(Sim.PLAYER)
+			return
+		# Cut off: the battle goes on while your men run for it.
+		if sim.phase == Sim.PHASE_DEPLOY:
+			_start_battle()
+		sim.concede(Sim.PLAYER, true)
+		selected_squad = null
+		_drop_pending()
+		_call("retreat", Sim.PLAYER)
+		_moment("Run for it!", "Every company breaks for your edge", Style.ENEMY_LIGHT, "retreat", true)
 		return
 	_retreat_armed = now + 3.0
-	retreat_button.text = "Tap again to retreat"
+	_retreat_words(true)
 
 
 ## A line over the field, above the orders, that fades after a few seconds. Refusals,
 ## answers to a tap and first sights always show. A narration of an order the field
 ## already confirms with a mark (`key`) shows once a battle, and only in a campaign's
 ## first few battles, while the player is learning what the marks mean.
-func _hint(text: String, key: String = "") -> void:
+##
+## A keyed line that isn't a narration (`narration` false: a state the field has just
+## changed, like a company running out of arrows) shows once a battle in every battle.
+func _hint(text: String, key: String = "", narration: bool = true) -> void:
 	if hint_label == null:
 		return
 	if key != "":
-		if not _order_words or _hinted.has(key):
+		if _hinted.has(key) or (narration and not _order_words):
 			return
 		_hinted[key] = true
 	hint_label.text = text
@@ -2051,6 +2411,10 @@ func _inspect(sq) -> void:
 		m.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		m.tooltip_text = "%d%% morale" % maxi(0, int(sq.morale))
 		row.add_child(m)
+		# The number beside it, so the meter reads without its colour.
+		var nerve := Style.label("%d" % maxi(0, int(sq.morale)), Style.SMALL, Style.morale_color(sq.morale))
+		nerve.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(nerve)
 	elif sq.routing:
 		var run := Widgets.icon_rect("retreat", 28.0)
 		run.modulate = Style.MORALE_LOW
@@ -2432,8 +2796,10 @@ func _consume_events() -> void:
 				else:
 					Sound.play("cheer", -2.0, 0.04, 4.0)
 				if mine:
-					# Yours breaking is the moment; theirs is a word over the squad.
-					_moment("%s break" % _company_or_type(sq), "They run for the edge", Style.ENEMY_LIGHT, "retreat")
+					# Yours breaking is the moment; theirs is a word over the squad. Running for
+					# it, the whole warband has one moment (see _on_retreat).
+					if sim.withdrawing != Sim.PLAYER:
+						_moment("%s break" % _company_or_type(sq), "They run for the edge", Style.ENEMY_LIGHT, "retreat")
 					_card_broke[sq] = _clock
 					Sound.haptic(true)
 				else:
@@ -2469,7 +2835,7 @@ func _consume_events() -> void:
 				# No words: the standard and the card carry an empty quiver from now on.
 				Sound.play_at("quiver_empty", _to_screen(sq.average_pos()))
 				if mine:
-					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.", "no_arrows")
+					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.", "no_arrows", false)
 			"captain_down":
 				_captain_down(e)
 			"grief":
@@ -2500,13 +2866,15 @@ func _consume_events() -> void:
 				Sound.play("objective")
 				_moment("The lord's guard breaks", "%s's host quails" % String(e.get("lord_name", "The lord")), Style.BRASS, "crown")
 			"lord_captured":
+				# One roll decides it (see BattleSim._captain_falls): he falls, and the line
+				# under it says what the result will: taken.
 				Sound.play("objective")
 				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
-				_moment("%s is taken" % String(e.get("lord_name", "The lord")), "Captured in the press of shields", Style.BRASS, "crown")
+				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Taken alive in the press of shields", Style.BRASS, "crown")
 			"lord_slain":
 				Sound.play("objective")
 				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
-				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Mortally wounded in the fray", Style.BRASS, "crown")
+				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Slain in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
 				var where := "REAR" if e["rear"] else "FLANK"
@@ -2561,7 +2929,10 @@ func _captain_down(e: Dictionary) -> void:
 		# Their captain falls: time slows and the field darkens round him for a moment.
 		_spotlight(e["pos"], SLOW_TIME + 0.4)
 		_slow = SLOW_TIME
-		_moment("%s cut down" % String(info.get("name", info.get("first", "Their captain"))), "Their %s waver" % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT, "skull")
+		# A lord's fall has its own moment (lord_slain or lord_captured, from the same roll),
+		# so it isn't said twice in two different words.
+		if not sq.is_lord:
+			_moment("%s falls" % String(info.get("name", info.get("first", "Their captain"))), "Their %s waver" % _name(sq.type, Sim.ENEMY).to_lower(), Style.PLAYER_LIGHT, "skull")
 		return
 	_kick(9.0)
 	_hush_until = _clock + 0.6
@@ -2863,6 +3234,11 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 	var tally_grid := Widgets.tile_grid(tally, 3)
 	tally_grid.name = "Tally"
 	result_content.add_child(tally_grid)
+	if wounded > 0:
+		var mend := _result_note("Wounded rejoin over the coming days; they still eat and are paid.", Style.MUTED)
+		mend.name = "WoundedNote"
+		mend.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		result_content.add_child(mend)
 
 	var rewards: Dictionary = report.get("rewards", {})
 	if int(rewards.get("silver", 0)) + int(rewards.get("food", 0)) + int(rewards.get("renown", 0)) > 0:
@@ -3463,7 +3839,7 @@ func _build_hud() -> void:
 	deploy_pips.mouse_filter = Control.MOUSE_FILTER_PASS
 	deploy_pips.draw.connect(_draw_deploy_pips)
 	top_row.add_child(deploy_pips)
-	scout_chip = _button("", Vector2(0, 52), func(): _hint(_scouting()))
+	scout_chip = _button("", Vector2(0, Style.TOUCH), func(): _hint(_scouting()))
 	scout_chip.name = "ScoutChip"
 	scout_chip.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	scout_chip.add_theme_color_override("font_color", Color("f3b0a8"))
@@ -3608,7 +3984,7 @@ func _build_hud() -> void:
 	hint_label = Style.label("", Style.SMALL, Style.TEXT)
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint_label.max_lines_visible = 3
+	hint_label.max_lines_visible = 4
 	hint_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	hint_toast.add_child(hint_label)
 
@@ -3736,13 +4112,22 @@ func _button(text: String, min_size: Vector2, callback: Callable) -> Button:
 ## an icon beside larger words. `primary` makes it brass.
 func _order_button(text: String, icon_key: String, callback: Callable, row: HBoxContainer, primary: bool = false, wide: bool = false) -> Button:
 	var b := _wide_button(text, callback, row)
-	b.custom_minimum_size.y = CMD_H
-	b.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE if wide else Style.SMALL))
+	b.custom_minimum_size.y = _cmd_h()
+	b.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE if wide else ORDER_FONT))
+	if not wide:
+		# Words stay on every button, so a long one ("Hold fire (all bows)") takes two lines.
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	if primary:
 		Style.make_primary(b)
 		b.size_flags_stretch_ratio = 2.4 if wide else 1.6
 	_set_icon(b, icon_key, not wide, Style.BRASS_INK if primary else Style.TEXT)
 	return b
+
+
+## The order bar's height: room for an icon over two lines of words, at the text size the
+## player chose (never less than CMD_H).
+func _cmd_h() -> float:
+	return maxf(CMD_H, 44.0 + 2.0 * float(Style.text_size(ORDER_FONT)) * 1.2 + 12.0)
 
 
 func _view_button(text: String, icon_key: String, callback: Callable) -> Button:
@@ -3780,8 +4165,10 @@ func _refresh_hud() -> void:
 	auto_button.visible = deploying
 	fight_button.visible = deploying
 	var planning := not _storm_plan.is_empty()
-	advance_button.visible = not deploying and not planning
-	hold_button.visible = not deploying and not planning
+	# Running for it, nobody is left to take an order.
+	var running: bool = sim.withdrawing == Sim.PLAYER
+	advance_button.visible = not deploying and not planning and not running
+	hold_button.visible = not deploying and not planning and not running
 	cancel_button.visible = planning
 	storm_go_button.visible = planning
 	var goal := _objective_text()
@@ -3792,10 +4179,8 @@ func _refresh_hud() -> void:
 	menu_button.disabled = sim.winner != -1
 	menu_button.text = ""
 	speed_button.text = "¼×" if slow_held() else ("2×" if speed > 1.5 else "1×")
-	# The scouting is on the title card and behind the scout chip; the pause card doesn't
-	# say it a third time.
-	pause_note.text = ""
-	pause_note.visible = false
+	# The pause card's note is what Retreat costs (see _retreat_words); the scouting is on
+	# the title card and behind the scout chip.
 	if deploying:
 		_refresh_deploy()
 	else:
@@ -3829,8 +4214,11 @@ func _refresh_deploy() -> void:
 func _refresh_battle() -> void:
 	var sq = selected_squad
 	var items: Array = []
-	ability_button.visible = sq != null
-	hold_fire_button.visible = sq != null and sq.ranged
+	# With nothing selected, the bows' two orders go to every company of them at once.
+	var bows: Array = _player_bows() if sq == null and _storm_plan.is_empty() else []
+	var archers: Array = bows.filter(func(bow): return bow.type == Troops.ARCHERS)
+	ability_button.visible = sq != null or not archers.is_empty()
+	hold_fire_button.visible = (sq != null and sq.ranged) or not bows.is_empty()
 	# Storm stays in the bar for an assault, greyed out once the gate is down.
 	storm_button.visible = sq == null and sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.ENEMY \
 		and sim.winner == -1 and _storm_plan.is_empty()
@@ -3915,6 +4303,15 @@ func _refresh_battle() -> void:
 			items = [["storm", "", Style.BRASS], ["ladder", str(up), Color("ffe08a")], ["ram", str(ram), Color("ffd79a")]]
 		_order_label(advance_button, "Sally" if defending else "Advance all")
 		_order_label(hold_button, "Hold all")
+		if not bows.is_empty():
+			var all_holding: bool = bows.all(func(holder): return holder.hold_fire)
+			_order_label(hold_fire_button, "Fire at will (all bows)" if all_holding else "Hold fire (all bows)")
+			hold_fire_button.icon = Widgets.icon("bow" if all_holding else "holdfire")
+		if not archers.is_empty():
+			_order_label(ability_button, "Volley (all)")
+			ability_button.icon = Widgets.icon(String(ABILITY_ICONS[Troops.ARCHERS]))
+			ability_button.modulate = Color(1, 1, 1, 1.0 if archers.any(func(archer): return sim.ability_ready(archer)) else 0.55)
+			ability_button.queue_redraw()
 	advance_button.disabled = sim.winner != -1
 	hold_button.disabled = sim.winner != -1
 	_strip_items = items
@@ -3978,14 +4375,13 @@ func _order_counts() -> Dictionary:
 	return counts
 
 
-## An order button's word: under its icon in a campaign's first few battles, then only in
-## its tooltip, the icon centred alone.
+## An order button's word, under its icon, in every battle (a touch screen has no
+## tooltips); the tooltip says it again for the mouse.
 func _order_label(b: Button, word: String) -> void:
 	b.tooltip_text = word
-	var shown := word if _order_words else ""
-	if b.text != shown:
-		b.text = shown
-	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP if shown != "" else VERTICAL_ALIGNMENT_CENTER
+	if b.text != word:
+		b.text = word
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP if word != "" else VERTICAL_ALIGNMENT_CENTER
 
 
 ## The selection as icons and numbers: [icon, text, colour] each, left to right, as many
@@ -4030,8 +4426,11 @@ func _draw_deploy_pips() -> void:
 			c.draw_arc(at, r - 1.0, 0.0, TAU, 16, Style.MUTED, 2.0)
 
 
-## The tug of war: how much of each army is still fighting. The clock only shows in
-## the last minute.
+## The tug of war: the share of all each side brought that is still fighting or still to
+## come on from its reserve (BattleSim.strength, which the verdict compares when time runs
+## out), so the split is left of the middle notch exactly when you are ahead. Men waiting
+## in a reserve are the lighter, hatched end of their side, with "+N in reserve" beside its
+## share. The clock only shows in the last minute.
 func _draw_power() -> void:
 	var w := power_bar.size.x
 	var h := 26.0
@@ -4053,12 +4452,16 @@ func _draw_power() -> void:
 		power_bar.draw_rect(track, Style.NIGHT)
 		power_bar.draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.91, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
 		power_bar.draw_rect(track, Style.RULE, false, 1.0)
-	var mine := float(sim.men_on_field(Sim.PLAYER))
-	var theirs := float(sim.men_on_field(Sim.ENEMY))
+	var start_mine := maxf(1.0, float(sim.start_men(Sim.PLAYER)))
+	var start_theirs := maxf(1.0, float(sim.start_men(Sim.ENEMY)))
+	var res_mine := float(sim.reserve_men(Sim.PLAYER))
+	var res_theirs := float(sim.reserve_men(Sim.ENEMY))
+	var mine: float = sim.strength(Sim.PLAYER)
+	var theirs: float = sim.strength(Sim.ENEMY)
 	# The bar shows the men just lost as a pale bite at each side's inner end, draining away.
-	var was_mine: float = maxf(mine, _shown_men[Sim.PLAYER])
-	var was_theirs: float = maxf(theirs, _shown_men[Sim.ENEMY])
-	var total := maxf(1.0, was_mine + was_theirs)
+	var was_mine: float = maxf(mine, (_shown_men[Sim.PLAYER] + res_mine) / start_mine)
+	var was_theirs: float = maxf(theirs, (_shown_men[Sim.ENEMY] + res_theirs) / start_theirs)
+	var total := maxf(0.0001, was_mine + was_theirs)
 	var blue := w * mine / total
 	var split := w * was_mine / total
 	var red_start := w - w * theirs / total
@@ -4067,14 +4470,50 @@ func _draw_power() -> void:
 	power_bar.draw_rect(Rect2(blue, y, split - blue, h), Style.PLAYER_LIGHT)
 	power_bar.draw_rect(Rect2(split, y, red_start - split, h), Style.ENEMY_LIGHT)
 	power_bar.draw_rect(Rect2(red_start, y, w - red_start, h), Style.ENEMY)
+	# Each side's reserve, still to come on: the outer end of its share, hatched.
+	_draw_reserve(Rect2(0, y, w * (res_mine / start_mine) / total, h), Style.PLAYER_LIGHT)
+	var res_theirs_w := w * (res_theirs / start_theirs) / total
+	_draw_reserve(Rect2(w - res_theirs_w, y, res_theirs_w, h), Style.ENEMY_LIGHT)
+	# The middle: where the split must be, at the end of time, to win.
+	power_bar.draw_rect(Rect2(w * 0.5 - 1.0, y + h - 7.0, 2.0, 9.0), Color(Style.NIGHT, 0.85))
 	power_bar.draw_rect(Rect2(split - 2.0, y - 5.0, 4.0, h + 10.0), Style.TEXT)
-	power_bar.draw_string(font, Vector2(8, y + h - 5.0), str(int(mine)), HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), Style.TEXT)
-	power_bar.draw_string(font, Vector2(w - 68.0, y + h - 5.0), str(int(theirs)), HORIZONTAL_ALIGNMENT_RIGHT, 60.0, _fs(Style.SMALL), Style.TEXT)
+	var fs := _fs(Style.SMALL)
+	var mine_text := "%d%%" % roundi(mine * 100.0)
+	var theirs_text := "%d%%" % roundi(theirs * 100.0)
+	power_bar.draw_string(font, Vector2(8, y + h - 5.0), mine_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
+	power_bar.draw_string(font, Vector2(w - 98.0, y + h - 5.0), theirs_text, HORIZONTAL_ALIGNMENT_RIGHT, 90.0, fs, Style.TEXT)
+	var room := w * 0.5 - 24.0
+	if res_mine > 0.0:
+		var x := 8.0 + font.get_string_size(mine_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 8.0
+		power_bar.draw_string(font, Vector2(x, y + h - 5.0), _reserve_text(int(res_mine), fs, room - x), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
+	if res_theirs > 0.0:
+		var x2 := w - 8.0 - font.get_string_size(theirs_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x - 8.0
+		var said := _reserve_text(int(res_theirs), fs, room - (w - x2))
+		power_bar.draw_string(font, Vector2(x2 - font.get_string_size(said, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x, y + h - 5.0), said, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
 	var left := Sim.TIME_LIMIT - sim.time
 	if left < 60.0 and sim.winner == -1:
 		var clock := "%d:%02d" % [floori(left / 60.0), int(left) % 60]
 		power_bar.draw_string_outline(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), 5, Style.NIGHT)
 		power_bar.draw_string(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Style.TEXT)
+
+
+## A side's reserve on the strength bar: a lighter stretch, hatched.
+func _draw_reserve(r: Rect2, ink: Color) -> void:
+	if r.size.x < 0.5:
+		return
+	power_bar.draw_rect(r, Color(ink, 0.55))
+	var x := r.position.x + 3.0
+	while x < r.end.x:
+		power_bar.draw_line(Vector2(x, r.end.y), Vector2(minf(x + 8.0, r.end.x), r.position.y), Color(Style.NIGHT, 0.35), 2.0)
+		x += 9.0
+
+
+## "+40 in reserve", or just "+40" where there isn't room for the words.
+func _reserve_text(men: int, fs: int, width: float) -> String:
+	var long := "+%d in reserve" % men
+	if font.get_string_size(long, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= width:
+		return long
+	return "+%d" % men
 
 
 ## A card in the tray: the squad's standard, its captain, its men, and in battle its
@@ -4138,7 +4577,10 @@ func _draw_chip(i: int) -> void:
 			b.draw_texture_rect(wtex, Rect2(nx, 40, 20, 20), false, Color(1, 1, 1, dim))
 	if battle and sq != null:
 		if sq.is_active():
-			var bar := Rect2(6, size.y - 14.0, size.x - 12.0, 7)
+			# The nerve's shape (▲ steady, ◆ shaken, ▼ near breaking) before the bar, so
+			# it reads without its colour.
+			_draw_morale_mark(b, Vector2(11, size.y - 10.5), sq.morale, 5.0)
+			var bar := Rect2(20, size.y - 14.0, size.x - 26.0, 7)
 			var morale_shown := float(_card_morale.get(sq, sq.morale))
 			var m := clampf(morale_shown / 100.0, 0.0, 1.0)
 			b.draw_rect(bar, Style.NIGHT)
@@ -4224,7 +4666,7 @@ func _draw_ability_cooldown() -> void:
 	var sq = selected_squad
 	if sq == null:
 		return
-	var total := float(Troops.ability(sq.type)["cooldown"])
+	var total: float = sim.ability_cooldown(sq)
 	if sq.ability_left > 0.0:
 		var run := float(Troops.ability(sq.type)["seconds"])
 		var f: float = sq.ability_left / maxf(0.01, run)
@@ -5470,8 +5912,8 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 		look["width"] = (0.92 if role == Troops.CAVALRY else 0.86) if (Troops.TYPES.has(type) or Units.has(type)) else 1.0
 		look["px"] = Art.pixel_size(type)
 	var k: float = float(look["px"]) * grow
-	# A pale flash of the hit, light enough that the kit still reads.
-	var flash: float = so.flash * 0.45 if so.flash > 0.05 else 0.0
+	# A pale flash of the hit, light enough that the kit still reads (none under Reduced motion).
+	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not Style.motion_reduced() else 0.0
 	_put_man(look["cells"][clampi(index, 0, 2)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
@@ -5654,6 +6096,7 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		_draw_empty_quiver(_c, q, 9.0)
 	_c.draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
 	_c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
+	_draw_morale_mark(_c, bar.position + Vector2(-9.0, bar.size.y * 0.5), sq.morale, 5.0)
 	var count := str(sq.alive_n)
 	_c.draw_string_outline(font, top + Vector2(38, FLAG.y + 19.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), 4, Color(0, 0, 0, 0.9))
 	_c.draw_string(font, top + Vector2(38, FLAG.y + 19.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), Style.TEXT)
@@ -5661,6 +6104,22 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		_c.draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
 	if not mine and ref_type != "":
 		_draw_counter_hint(top, sq.type, ref_type)
+
+
+## A morale meter's shape, so it reads without its colour: ▲ steady, ◆ shaken, ▼ near
+## breaking (the same bands as Style.morale_color), on a dark outline.
+func _draw_morale_mark(ci: CanvasItem, at: Vector2, morale: float, r: float) -> void:
+	var pts: PackedVector2Array
+	if morale > 60.0:
+		pts = PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, r * 0.8), at + Vector2(-r, r * 0.8)])
+	elif morale > 42.0:
+		pts = PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0)])
+	else:
+		pts = PackedVector2Array([at + Vector2(-r, -r * 0.8), at + Vector2(r, -r * 0.8), at + Vector2(0, r)])
+	var ring := pts.duplicate()
+	ring.append(pts[0])
+	ci.draw_polyline(ring, Color(0.03, 0.03, 0.05, 0.9), 3.0)
+	ci.draw_colored_polygon(pts, Style.morale_color(morale))
 
 
 ## A state badge: a quiver with no arrows in it, on a dark disc.
@@ -5709,6 +6168,7 @@ func _draw_crossed_swords(c: Vector2) -> void:
 ## The line being drawn, with where each squad will stand on it and which way it will
 ## face; then, for a moment, the line just ordered.
 func _draw_line_order() -> void:
+	_draw_pending()
 	if _drawing and _press_squad != null:
 		_draw_carry()
 		return
@@ -5725,6 +6185,31 @@ func _draw_line_order() -> void:
 			_line_shown = {}
 			return
 		_draw_spots(_line_shown["spots"], _line_shown["face"], 1.0 - age / LINE_SHOWN, false)
+
+
+## Orders waiting for their second tap, pulsing (steady under Reduced motion): the whole
+## warband's line with each company's stretch of it, or a march ring with a thread from
+## the squad.
+func _draw_pending() -> void:
+	var k := 1.0 / maxf(0.1, field_scale)
+	var pulse := 1.0 if Style.motion_reduced() else 0.7 + 0.3 * sin(_clock * 6.0)
+	if not _pending_line.is_empty() and not _drawing:
+		var a: Vector2 = _pending_line["a"]
+		var b: Vector2 = _pending_line["b"]
+		_c.draw_line(a, b, Color(0, 0, 0, 0.45), 7.0 * k)
+		_c.draw_dashed_line(a, b, Color(Style.BRASS, pulse), 3.0 * k, 12.0 * k)
+		_draw_spots(sim.line_preview(Sim.PLAYER, a, b, null), sim.line_face(Sim.PLAYER, a, b), 0.75 * pulse, true)
+	if not _pending_march.is_empty():
+		var sq = _pending_march["squad"]
+		if sq == null or not sq.is_active() or sq != selected_squad:
+			_pending_march = {}
+			return
+		var at: Vector2 = _pending_march["at"]
+		_c.draw_line(sq.average_pos(), at, Color(0, 0, 0, 0.3), 5.0 * k)
+		_c.draw_dashed_line(sq.average_pos(), at, Color(Style.BRASS, 0.7 * pulse), 2.5 * k, 10.0 * k)
+		_c.draw_arc(at, 18.0 * k, 0.0, TAU, 32, Color(0, 0, 0, 0.5), 6.0 * k)
+		_c.draw_arc(at, 18.0 * k, 0.0, TAU, 32, Color(Style.BRASS, pulse), 3.0 * k)
+		_c.draw_circle(at, 4.0 * k, Color(Style.BRASS, pulse))
 
 
 ## A squad in the finger's hand: a thread from its men to the finger, and a ring on what
@@ -6145,7 +6630,7 @@ func _draw_gate_marker() -> void:
 	var cell := Terrain.CELL
 	var top: float = sim.wall_row * cell
 	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
-	if _gate_flash > 0.0:
+	if _gate_flash > 0.0 and not Style.motion_reduced():
 		_c.draw_rect(gate.grow(3.0), Color(1.0, 0.95, 0.7, 0.55 * _gate_flash))
 	var k := 1.0 / maxf(0.1, field_scale)
 	var size := Vector2(128.0, 30.0) * k
