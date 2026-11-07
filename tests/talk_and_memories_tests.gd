@@ -137,7 +137,7 @@ func _init() -> void:
 	await _arrive("bond_conversation.tscn")
 	var fire = current_scene
 	check(fire.get_node_or_null("BondConversationPortraits/Face_left") != null and fire.get_node_or_null("BondConversationPortraits/Face_right") != null, "two captains face each other by the fire")
-	check(fire._log.find_children("Them", "", true, false).size() > 0 and fire._log.find_children("You", "", true, false).size() > 0, "and talk in turn")
+	check(fire._log.find_children("Them", "", true, false).size() > 0 and fire._log.find_children("Other", "", true, false).size() > 0, "and talk in turn")
 	# Talks go in order: a pair that reached B without talking hears C first, then B.
 	check(fire._rank == "C" and fire.find_child("RankTabs", true, false) == null, "a rank B bond that hasn't talked starts with its rank C talk, with no tabs to jump about")
 	var c_text: String = fire.log_text()

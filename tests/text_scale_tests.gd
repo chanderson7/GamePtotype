@@ -133,6 +133,11 @@ func _company(scenes) -> void:
 	for sc in ["settings", "people", "saves", "title", "new_campaign", "tutorial"]:
 		change_scene_to_file("res://scenes/%s.tscn" % sc)
 		await _arrive("%s.tscn" % sc)
+		# The title's one-time opening raises a large copy of the wordmark; let it finish.
+		for i in 400:
+			if current_scene == null or current_scene.get_node_or_null("Opening") == null:
+				break
+			await process_frame
 		_audit(sc)
 
 

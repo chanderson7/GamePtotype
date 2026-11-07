@@ -135,10 +135,13 @@ func _init() -> void:
 	var oaths := map.find_child("NoticeSworn", true, false)
 	check(freed != null and oaths != null, "the map tells the releases and the oath as one block each")
 	check(map.sheet_title.text == "Your court", "under a title for your court, not 'After the battle'")
-	check(freed != null and _block_text(freed).contains("+%d renown" % (2 * gs.RELEASE_RENOWN))
+	# Numbers are marks now (an icon and "+40"), not words.
+	check(freed != null and _block_text(freed).contains("+%d" % (2 * gs.RELEASE_RENOWN))
+		and freed.find_child("Effect_renown", true, false) != null
 		and _block_text(freed).contains(String(freed_a["name"])) and _block_text(freed).contains(String(freed_b["name"])),
 		"the releases name both lords and total the renown once")
-	check(oaths != null and _block_text(oaths).contains(String(sworn_one["name"])) and _block_text(oaths).contains("1 lord"),
+	check(oaths != null and _block_text(oaths).contains(String(sworn_one["name"])) and oaths.find_child("Value_crown", true, false) != null
+		and _block_text(oaths).contains("1"),
 		"the oath names the lord who swore")
 	check(not gs.has_notice(), "and once told, it isn't told again")
 

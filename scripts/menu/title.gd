@@ -153,6 +153,9 @@ func _build() -> void:
 func _title(size: int) -> Label:
 	var title := Style.label("Bannerfall", size, Style.BRASS)
 	title.name = "HomeTitle"
+	# The name is the game's mark, not text to read: it keeps its size whatever the text
+	# setting, so the painted wordmark (a little wider than the word) stays on the screen.
+	title.add_theme_font_size_override("font_size", size)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	title.add_theme_constant_override("outline_size", 10)
