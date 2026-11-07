@@ -39,7 +39,9 @@ func _ready() -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 20)
 	margin.add_child(col)
-	col.add_child(Style.label("Choose your people", 52, Style.BRASS))
+	var heading := Style.label("Choose your people", 52, Style.BRASS)
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(heading)
 	var intro := Style.label("Three realms share the shores of the Glass Sea. Your warband is of one of them, "
 		+ "and starts at its capital. You can ride anywhere.", Style.SMALL, Style.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

@@ -110,7 +110,11 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		b.text = String(t["label"]) + ("  %d" % badge if badge > 0 else "")
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size = Vector2(0, 72)
-		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		# Tabs share one row, so big text grows them only so far, and a label that still
+		# doesn't fit is cut short rather than pushing the page wider than the screen.
+		b.add_theme_font_size_override("font_size", mini(Style.text_size(Style.SMALL), roundi(Style.SMALL * 1.15)))
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		var on: bool = t["id"] == current
 		# A gold tab: something on there (a feast), lit in brass.
 		var gold := bool(t.get("gold", false))

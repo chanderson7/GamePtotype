@@ -570,7 +570,10 @@ func _squad_row(s: Dictionary) -> Control:
 	text.add_theme_constant_override("separation", 2)
 	row.add_child(text)
 	var title := String(s.get("name", ""))
-	text.add_child(Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY))
+	var name_label := Style.label(title if title != "" else Units.troop_name(s, GameState.culture), Style.BODY)
+	name_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_label.custom_minimum_size = Vector2(10, 0)
+	text.add_child(name_label)
 	var who: Label
 	if c == null:
 		who = Style.label("No captain", Style.SMALL, Style.ENEMY_LIGHT)
@@ -620,7 +623,10 @@ func _squad_row(s: Dictionary) -> Control:
 func _meter(label_text: String, value: float, maximum: float, color: Color) -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
-	box.add_child(Style.label(label_text, Style.SMALL, Style.MUTED))
+	var caption := Style.label(label_text, Style.SMALL, Style.MUTED)
+	caption.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	caption.custom_minimum_size = Vector2(10, 0)
+	box.add_child(caption)
 	var bar := ProgressBar.new()
 	bar.name = "WarbandMeter"
 	bar.show_percentage = false
@@ -677,6 +683,7 @@ func _active_job_row(job: Dictionary) -> Control:
 
 	var title_lbl := Style.label(String(job.get("title", "Contract")), Style.LARGE, Style.BRASS)
 	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	h.add_child(title_lbl)
 
 	var jid: String = String(job.get("id", ""))
@@ -703,7 +710,9 @@ func _active_job_row(job: Dictionary) -> Control:
 		int(job.get("reward_renown", 0)),
 		int(job.get("reward_relation", 0))
 	]
-	v.add_child(Style.label(status_text, Style.SMALL, Style.MUTED))
+	var status := Style.label(status_text, Style.SMALL, Style.MUTED)
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(status)
 	return panel
 
 
