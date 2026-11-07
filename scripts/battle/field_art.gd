@@ -13,6 +13,7 @@ extends RefCounted
 
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const BattleSite = preload("res://scripts/battle/battle_site.gd")
 
 ## Field units per plate pixel: between the men (2.4) and the grass (3).
 const PLATE_PX := 2.0
@@ -42,6 +43,7 @@ const LOOKS := {
 		"pebble": Color(0.74, 0.70, 0.58), "reed": Color(0.38, 0.54, 0.22), "dirt": Color(0.56, 0.47, 0.30),
 		"roof": Color(0.74, 0.62, 0.34), "roof_light": Color(0.84, 0.74, 0.44), "roof_dark": Color(0.56, 0.45, 0.24),
 		"ridge": Color(0.40, 0.30, 0.16), "wall": Color(0.45, 0.33, 0.20), "stone": Color(0.58, 0.58, 0.56), "dome": false,
+		"top": Color(0.58, 0.60, 0.52), "top_alpha": 0.62,
 	},
 	"kharzani": {
 		"high": Color(0.86, 0.78, 0.60), "floor": Color(0.34, 0.32, 0.17), "litter": Color(0.50, 0.42, 0.22),
@@ -51,6 +53,7 @@ const LOOKS := {
 		"pebble": Color(0.88, 0.82, 0.66), "reed": Color(0.62, 0.58, 0.32), "dirt": Color(0.72, 0.62, 0.42),
 		"roof": Color(0.80, 0.68, 0.48), "roof_light": Color(0.90, 0.80, 0.60), "roof_dark": Color(0.62, 0.50, 0.32),
 		"ridge": Color(0.52, 0.40, 0.26), "wall": Color(0.70, 0.58, 0.40), "stone": Color(0.76, 0.66, 0.50), "dome": true,
+		"top": Color(0.86, 0.78, 0.60), "top_alpha": 0.34,
 	},
 	"ryumon": {
 		"high": Color(0.56, 0.60, 0.46), "floor": Color(0.07, 0.20, 0.11), "litter": Color(0.30, 0.24, 0.14),
@@ -60,6 +63,7 @@ const LOOKS := {
 		"pebble": Color(0.72, 0.72, 0.68), "reed": Color(0.36, 0.56, 0.26), "dirt": Color(0.58, 0.54, 0.42),
 		"roof": Color(0.22, 0.22, 0.28), "roof_light": Color(0.34, 0.34, 0.42), "roof_dark": Color(0.14, 0.14, 0.18),
 		"ridge": Color(0.62, 0.62, 0.64), "wall": Color(0.50, 0.38, 0.24), "stone": Color(0.56, 0.56, 0.52), "dome": false,
+		"top": Color(0.44, 0.46, 0.44), "top_alpha": 0.62,
 	},
 }
 
@@ -323,72 +327,105 @@ static func _river(img: Image, feat: Dictionary, lk: Dictionary, blob: Image, gr
 					_put(img, px, py - 3, Color(0.52, 0.42, 0.20))
 
 
-## A rock outcrop: boulders packed shoulder to shoulder, lit from the upper left and dark
-## in the cracks between, a ragged edge, scree at its foot and a shadow to the lower right;
-## a little growth on top in the land's colour. The outcrop is the site's rock blobs
-## (ellipses [cx, cy, rx, ry]); a feature without them is taken as its rect.
+## How tall a cliff face is, in field units, how wide the lit rim along its brow, and how
+## far in the higher step of a mass begins.
+const FACE := 20.0
+const RIM := 3.0
+const STEP := 52.0
+
+## A rock mass drawn as the ground rising, the way top-down games draw a cliff: the top is
+## the same land, a shade drier and paler, with pebbles and a boulder here and there, and
+## a second step rising from it further in. Round each step runs a cliff face, pale where
+## it meets the light and dark where it turns from it, banded with strata and split by
+## cracks, a bright rim along its brow, scree at its foot and, on its shaded side, a
+## shadow thrown onto the floor. The mass is the site's (BattleSite.rock_reach); a feature
+## without one is taken as its rect, from the nearer side of the field.
 static func _rock(img: Image, feat: Dictionary, lk: Dictionary, blob: Image, grain: Image, seed: int) -> void:
 	var w := img.get_width()
 	var h := img.get_height()
 	var rect: Rect2 = feat.get("rect", Rect2())
-	var blobs: Array = feat.get("blobs", [])
-	if blobs.is_empty():
-		blobs = [[rect.get_center().x, rect.get_center().y, rect.size.x * 0.5 + 6.0, rect.size.y * 0.5 + 6.0]]
-	var cells := _noise(seed + 7, 0.075, w, h, "cells")
-	var edges := _noise(seed + 7, 0.075, w, h, "edges")
+	if not feat.has("reach"):
+		feat = feat.duplicate()
+		feat["side"] = -1.0 if rect.get_center().x < Terrain.ARENA.x * 0.5 else 1.0
+		feat["reach"] = rect.size.x + 6.0
+		feat["half_h"] = rect.size.y * 0.5 + 10.0
+		feat["amp"] = 0.0
+	var sd := float(feat["side"])
+	var edge_x := 0.0 if sd < 0.0 else Terrain.ARENA.x
+	var inward := -sd
+	var half_h := float(feat["half_h"])
+	var cells := _noise(seed + 7, 0.06, w, h, "cells")
+	var cracks := _noise(seed + 9, 0.09, w, h, "edges")
 	var rock: Color = lk["rock"]
 	var light: Color = lk["rock_light"]
 	var dark: Color = lk["rock_dark"]
 	var growth: Color = lk["growth"]
 	var pebble: Color = lk["pebble"]
-	var outer := Rect2()
-	for b in blobs:
-		var r := Rect2(float(b[0]) - float(b[2]), float(b[1]) - float(b[3]), float(b[2]) * 2.0, float(b[3]) * 2.0)
-		outer = r if outer.size == Vector2.ZERO else outer.merge(r)
-	outer = outer.grow(SCREE + 2.0)
-	for py in range(_px(outer.position.y), _px(outer.end.y) + 1):
-		for px in range(_px(outer.position.x), _px(outer.end.x) + 1):
-			if px < 0 or py < 0 or px >= w or py >= h:
+	var top: Color = lk["top"]
+	var top_a: float = float(lk["top_alpha"])
+	var far := rect.size.x + SCREE + 20.0
+	var x_lo := edge_x if inward > 0.0 else edge_x - far
+	for py in range(_px(630.0 - half_h - 4.0), _px(630.0 + half_h + 4.0) + 1):
+		if py < 0 or py >= h:
+			continue
+		var y := (py + 0.5) * PLATE_PX
+		var r := BattleSite.rock_reach(feat, y)
+		var slope := (BattleSite.rock_reach(feat, y + 3.0) - BattleSite.rock_reach(feat, y - 3.0)) / 6.0
+		var ln := sqrt(1.0 + slope * slope)
+		# The face's outward normal, and how squarely it meets the light (1 full on, -1
+		# turned away).
+		var nx := inward / ln
+		var ny := -slope / ln
+		var lit := nx * LIGHT.x + ny * LIGHT.y
+		for px in range(_px(x_lo), _px(x_lo + far) + 1):
+			if px < 0 or px >= w:
 				continue
-			var p := Vector2((px + 0.5) * PLATE_PX, (py + 0.5) * PLATE_PX)
-			# How far inside the rock `p` is (negative outside), and which way the nearest
-			# blob's middle lies, for the light on the mass as a whole.
-			var d_in := -999.0
-			var mx := 0.0
-			var my := 0.0
-			for b in blobs:
-				var dx := (p.x - float(b[0])) / float(b[2])
-				var dy := (p.y - float(b[1])) / float(b[3])
-				var d := (1.0 - sqrt(dx * dx + dy * dy)) * minf(float(b[2]), float(b[3]))
-				if d > d_in:
-					d_in = d
-					mx = dx
-					my = dy
-			var n := blob.get_pixel(px, py).r
+			var p := Vector2((px + 0.5) * PLATE_PX, y)
+			var x_in := (p.x - edge_x) * inward
 			var g := grain.get_pixel(px, py).r
-			# The edge is ragged inward only, so no drawn rock lies where a man may stand.
-			var ragged := d_in - n * 12.0
-			if ragged > 0.0:
+			var d := (r - x_in) / ln
+			# A face turned from the light shows more of itself than one that meets it.
+			var face := FACE * (1.0 + 0.5 * maxf(0.0, -lit))
+			# Which step of the mass this is: the second rises STEP in from the first.
+			var step := 0
+			if d >= STEP + face:
+				d -= STEP
+				step = 1
+				lit = lit * 0.8 + 0.1
+			if d >= face:
+				var c := Color(top, top_a if step == 0 else top_a + 0.2)
 				var v := cells.get_pixel(px, py).r
-				var e := edges.get_pixel(px, py).r
-				var c := dark.lerp(light, 0.25 + v * 0.6)
-				# Each boulder is lit on the side that faces the light, and the outcrop as a
-				# whole on its upper-left flank.
-				var ex := edges.get_pixel(mini(px + 1, w - 1), py).r - edges.get_pixel(maxi(px - 1, 0), py).r
-				var ey := edges.get_pixel(px, mini(py + 1, h - 1)).r - edges.get_pixel(px, maxi(py - 1, 0)).r
-				var s := -(ex * LIGHT.x + ey * LIGHT.y) * 2.2 - (mx * LIGHT.x + my * LIGHT.y) * 0.22
-				c = c.lightened(clampf(s, -0.25, 0.3)) if s > 0.0 else c.darkened(clampf(-s, 0.0, 0.3))
-				if e < 0.13:
-					c = dark.darkened(0.4)
-				if g > 0.90 and v > 0.5:
-					c = growth
+				if d < face + RIM:
+					c = Color(light.lerp(Color.WHITE, 0.35), 0.9)
+				elif v > 0.90 and step == 0:
+					c = Color(rock.lerp(light, (v - 0.90) * 8.0) if cracks.get_pixel(px, py).r > 0.3 else dark, 1.0)
+				elif g > 0.90:
+					c = Color(pebble, 0.9)
+				elif g < 0.04 and step == 0:
+					c = Color(growth, 0.8)
+				_put(img, px, py, c)
+			elif d >= 0.0:
+				var c := rock.lerp(light, lit * 0.6) if lit > 0.0 else rock.lerp(dark, 0.3 - lit * 0.7)
+				# Strata along the face, streaks down it, cracks through it, dark at its foot.
+				var band := int((d + g * 2.0) / 5.0)
+				if band % 2 == 1:
+					c = c.darkened(0.14)
+				if cells.get_pixel(px, py).r > 0.6:
+					c = c.lightened(0.07)
+				if cracks.get_pixel(px, py).r < 0.08:
+					c = dark.darkened(0.35)
+				if d < 3.0:
+					c = c.darkened(0.35)
+				elif d > face - 2.0:
+					c = c.lightened(0.12)
 				_put(img, px, py, Color(c, 1.0))
-			else:
-				var outside := -ragged
-				if outside < SCREE and g > 0.55 + outside / SCREE * 0.4:
-					_put(img, px, py, Color(pebble.lerp(rock, 0.4), 0.9))
-				elif outside < 8.0 and (mx * LIGHT.x + my * LIGHT.y) < -0.3:
-					_put(img, px, py, Color(0.0, 0.0, 0.02, 0.30 * (1.0 - outside / 8.0)))
+			elif step == 0:
+				var outside := -d
+				if lit < -0.1 and outside < 26.0:
+					var k := 1.0 - outside / 26.0
+					_put(img, px, py, Color(0.02, 0.02, 0.05, 0.55 * -lit * k * k))
+				if outside < SCREE and g > 0.6 + outside / SCREE * 0.38:
+					_put(img, px, py, Color(pebble.lerp(rock, 0.45), 0.9))
 
 
 ## The village: a trodden square with a well in it, houses roofed the way the land roofs

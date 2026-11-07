@@ -281,45 +281,44 @@ static func _build_river(t: Terrain, rng: RandomNumberGenerator, fair: bool) -> 
 	t.features = river_features
 
 
-## True if `p` lies in any of the ellipses [cx, cy, rx, ry].
-static func in_blobs(blobs: Array, p: Vector2) -> bool:
-	for b in blobs:
-		var dx := (p.x - float(b[0])) / float(b[2])
-		var dy := (p.y - float(b[1])) / float(b[3])
-		if dx * dx + dy * dy <= 1.0:
-			return true
-	return false
+## How far a pass's rock mass reaches into the field at `y`, in field units, or a
+## negative number where there is none. The mass swells from nothing at either end to its
+## full reach astride the middle, its edge wandering a little, the same above and below
+## the middle so both sides face the same gap.
+static func rock_reach(feat: Dictionary, y: float) -> float:
+	var dy := absf(y - 630.0) / float(feat.get("half_h", 220.0))
+	if dy >= 1.0:
+		return -999.0
+	var bell := pow(1.0 - dy * dy, 0.7)
+	var ay := absf(y - 630.0)
+	var phase := float(feat.get("phase", 0.0))
+	var wobble := sin(ay * 0.021 + phase) + 0.5 * sin(ay * 0.047 + phase * 1.7)
+	return float(feat.get("reach", 240.0)) * bell + float(feat.get("amp", 18.0)) * wobble * sqrt(bell) - 6.0
 
 
-## A pass: a mass of rock comes in from each side of the field, a main outcrop astride
-## the middle with a shoulder above and below it, so the way through winds between two
-## rounded masses rather than two blocks. Each mass is mirrored across the middle of the
-## field, so both sides face the same gap.
+## A pass: a mass of rock comes in from each side of the field, broadest astride the
+## middle and dying away toward either end, so the way through winds between two rounded
+## masses rather than two blocks. Each mass is mirrored across the middle of the field.
 static func _build_pass(t: Terrain, rng: RandomNumberGenerator, _fair: bool) -> void:
 	var pass_features := []
 	for side in [-1.0, 1.0]:
 		var sd := float(side)
 		var edge_x := 0.0 if sd < 0.0 else Terrain.ARENA.x
 		var inward := -sd
-		var reach := rng.randf_range(200.0, 270.0)
-		var blobs := []
-		# Each blob runs from a little past the field's edge to `reach` into the field.
-		blobs.append([edge_x + inward * (reach - 34.0) * 0.5, 630.0, (reach + 34.0) * 0.5, rng.randf_range(70.0, 95.0)])
-		var sh_reach := reach * rng.randf_range(0.5, 0.8)
-		var sh_dy := rng.randf_range(95.0, 135.0)
-		var sh_ry := rng.randf_range(48.0, 68.0)
-		var sh_x := edge_x + inward * (sh_reach - 34.0) * 0.5
-		blobs.append([sh_x, 630.0 - sh_dy, (sh_reach + 34.0) * 0.5, sh_ry])
-		blobs.append([sh_x, 630.0 + sh_dy, (sh_reach + 34.0) * 0.5, sh_ry])
-		var bounds := Rect2()
-		for b in blobs:
-			var r := Rect2(float(b[0]) - float(b[2]), float(b[1]) - float(b[3]), float(b[2]) * 2.0, float(b[3]) * 2.0)
-			bounds = r if bounds.size == Vector2.ZERO else bounds.merge(r)
+		var half_h := rng.randf_range(200.0, 250.0)
+		var feat := {"type": "rock", "side": sd, "reach": rng.randf_range(220.0, 290.0), "half_h": half_h,
+			"phase": rng.randf_range(0.0, TAU), "amp": rng.randf_range(14.0, 26.0)}
+		var far := 0.0
 		for cy in Terrain.ROWS:
 			for cx in Terrain.COLS:
-				if in_blobs(blobs, t.cell_pos(cx, cy)):
+				var p := t.cell_pos(cx, cy)
+				var r := rock_reach(feat, p.y)
+				far = maxf(far, r)
+				if (p.x - edge_x) * inward <= r:
 					t.rock[cy * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
-		pass_features.append({"type": "rock", "rect": bounds.intersection(Rect2(Vector2.ZERO, Terrain.ARENA)), "blobs": blobs})
+		var x0 := 0.0 if sd < 0.0 else Terrain.ARENA.x - far
+		feat["rect"] = Rect2(x0, 630.0 - half_h, far, half_h * 2.0)
+		pass_features.append(feat)
 	t.features = pass_features
 
 
