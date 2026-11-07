@@ -46,6 +46,7 @@ func _init() -> void:
 	await _sheets()
 	await _tabs()
 	await _changes()
+	await _result()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -268,3 +269,59 @@ func _changes() -> void:
 	sound.reduced_motion = false
 	host.queue_free()
 	await _wait(1.2)
+
+
+# ---- 5. the battle result tells itself
+func _battle() -> Node:
+	gs.new_campaign("vardish")
+	var w = gs.world
+	w.encounter = w.bands()[0].id
+	gs.start_encounter_battle()
+	change_scene_to_file("res://scenes/battle.tscn")
+	await _arrive("battle.tscn")
+	return current_scene
+
+
+func _value(n: Node) -> String:
+	var v := n.find_child("Value", true, false) as Label
+	return v.text if v != null else ""
+
+
+func _result() -> void:
+	var sc = await _battle()
+	var Sim = load("res://scripts/battle/battle_sim.gd")
+	sc.sim.winner = Sim.PLAYER
+	sc._show_result()
+	await _frames(2)
+	var tally: Node = sc.result_content.get_node_or_null("Tally")
+	var rewards: Node = sc.result_content.get_node_or_null("Rewards")
+	check(tally != null and (tally as CanvasItem).modulate.a < 0.5, "the tally waits its turn")
+	check(rewards == null or _value(rewards) == "+0", "the spoils start from nothing (%s)" % (_value(rewards) if rewards != null else "none"))
+	await _wait(0.7)
+	check((tally as CanvasItem).modulate.a > 0.5, "then the tally comes up and counts")
+	await _wait(1.6)
+	check(is_equal_approx((tally as CanvasItem).modulate.a, 1.0) and is_equal_approx(sc.result_title.scale.x, 1.0), "in under two seconds it has all told itself")
+	if rewards != null:
+		check(_value(rewards).begins_with("+") and _value(rewards) != "+0", "the spoils land on their number (%s)" % _value(rewards))
+	# A tap finishes it at once.
+	sc._show_result()
+	await _frames(2)
+	sc.finish_result_sequence()
+	await _frames(1)
+	var all_in := true
+	for c in sc.result_content.get_children():
+		if c is CanvasItem and (c as CanvasItem).visible and (c as CanvasItem).modulate.a < 0.99:
+			all_in = false
+	check(all_in and (rewards == null or _value(sc.result_content.get_node("Rewards")) != "+0"), "a tap and everything is there")
+	# Reduced motion: there from the start.
+	sound.reduced_motion = true
+	sc._show_result()
+	await _frames(2)
+	var whole := true
+	for c in sc.result_content.get_children():
+		if c is CanvasItem and (c as CanvasItem).visible and (c as CanvasItem).modulate.a < 0.99:
+			whole = false
+	check(whole, "under Reduced motion the result is all there at once")
+	sound.reduced_motion = false
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _frames(4)

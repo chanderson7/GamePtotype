@@ -2720,14 +2720,106 @@ func _show_result() -> void:
 	result_panel.visible = true
 	result_scrim.visible = true
 	Style.ease_in(result_panel, Vector2(0.5, 0.5))
+	_play_result_sequence()
 	if autoplay:
 		get_tree().create_timer(0.8).timeout.connect(_back_to_camp)
 
 
+## The result tells itself in order, in under two seconds: the title stamps in with the
+## stinger, the picture and why it ended, then the tallies count up from nothing, the
+## spoils roll in with the coins, and the companies follow one by one. A tap on the card
+## finishes it at once. Under Reduced motion it's all there from the start.
+var _result_seq: Array = []
+const RESULT_STEP := 0.12
+const RESULT_COUNT := 0.45
+const RESULT_MAX := 1.9
+
+
+func _play_result_sequence() -> void:
+	for t in _result_seq:
+		if t is Tween and (t as Tween).is_valid():
+			(t as Tween).kill()
+	_result_seq.clear()
+	if Style.motion_reduced():
+		return
+	if not result_panel.gui_input.is_connected(_on_result_tap):
+		result_panel.gui_input.connect(_on_result_tap)
+	result_title.pivot_offset = result_title.size * 0.5
+	# VICTORY has already stamped on the field; the card's title only settles in.
+	result_title.scale = Vector2(1.15, 1.15)
+	result_title.modulate.a = 0.0
+	var stamp := result_title.create_tween().set_parallel()
+	stamp.tween_property(result_title, "modulate:a", 1.0, 0.1)
+	stamp.tween_property(result_title, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_result_seq.append(stamp)
+	var at := 0.22
+	for c in result_content.get_children():
+		var ci := c as CanvasItem
+		if ci == null or not ci.visible:
+			continue
+		ci.modulate.a = 0.0
+		var t := ci.create_tween()
+		t.tween_interval(minf(at, RESULT_MAX))
+		t.tween_property(ci, "modulate:a", 1.0, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		_result_seq.append(t)
+		if c.name in ["Tally", "Rewards"]:
+			for v in c.find_children("Value", "Label", true, false):
+				_count_up(v as Label, minf(at, RESULT_MAX))
+			if c.name == "Rewards":
+				t.tween_callback(Sound.play.bind("coins", 0.0, 0.05))
+			at += RESULT_COUNT
+		else:
+			at += RESULT_STEP if not (c.name as String).begins_with("Company_") else 0.08
+
+
+## A tile's number counts up from nothing to what it shows, after `delay`.
+func _count_up(label: Label, delay: float) -> void:
+	var text := label.text
+	var plus := text.begins_with("+")
+	var digits := ""
+	for ch in text:
+		if ch >= "0" and ch <= "9":
+			digits += ch
+	if digits == "":
+		return
+	var n := int(digits)
+	label.text = ("+" if plus else "") + "0"
+	var t := label.create_tween()
+	t.tween_interval(delay)
+	t.tween_method(func(v: float):
+		if is_instance_valid(label):
+			label.text = ("+" if plus else "") + Widgets.thousands(int(round(v))), 0.0, float(n), RESULT_COUNT) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	t.tween_callback(func():
+		if is_instance_valid(label):
+			label.text = text)
+	_result_seq.append(t)
+
+
+## A tap on the result while it tells itself: everything lands at once.
+func _on_result_tap(e: InputEvent) -> void:
+	if not ((e is InputEventMouseButton or e is InputEventScreenTouch) and e.pressed):
+		return
+	finish_result_sequence()
+
+
+func finish_result_sequence() -> void:
+	for t in _result_seq:
+		if t is Tween and (t as Tween).is_valid() and (t as Tween).is_running():
+			(t as Tween).custom_step(60.0)
+	_result_seq.clear()
+
+
 func _rebuild_result(report: Dictionary, why: String) -> void:
+	for t in _result_seq:
+		if t is Tween and (t as Tween).is_valid():
+			(t as Tween).kill()
+	_result_seq.clear()
 	for child in result_content.get_children():
 		result_content.remove_child(child)
-		child.free()
+		# The line saying why it ended is kept and put back; everything else is new.
+		if child != result_body:
+			child.free()
 	var siege: bool = sim.objective == Sim.OBJECTIVE_SIEGE
 	if siege:
 		result_content.add_child(_siege_vignette())
@@ -2765,10 +2857,6 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		var grid := Widgets.tile_grid(tiles, 3)
 		grid.name = "Rewards"
 		result_content.add_child(grid)
-		# The spoils count up as the panel comes in.
-		for pair in counts:
-			var value := (pair[0] as Control).find_child("Value", true, false) as Label
-			Widgets.tick_to(value, 0, int(pair[1]), func(v: int) -> String: return "+%s" % Widgets.thousands(v))
 
 	if siege:
 		result_content.add_child(Widgets.section("How it went"))
