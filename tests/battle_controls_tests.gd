@@ -38,13 +38,43 @@ func _run() -> void:
 	check(screen.hint_label.text == "The whole army holds." and screen.hint_toast.visible, "and its orders are narrated while they're new")
 	screen._order_words = false
 	screen._refresh_hud()
-	check(screen.advance_button.text == "" and screen.advance_button.tooltip_text == "Advance all" and screen.advance_button.icon != null,
-		"after the first battles the order bar is icons, each word in its tooltip")
+	check(screen.advance_button.text == "Advance all" and screen.advance_button.tooltip_text == "Advance all" and screen.advance_button.icon != null,
+		"after the first battles the order bar keeps its words under the icons (touch has no tooltips)")
 	screen._hint("Out of arrows.")
 	screen._hint("The whole army advances.", "advance_probe")
 	check(screen.hint_label.text == "Out of arrows.", "and only refusals and first sights reach the hint")
+	screen._hint("Your archers are out of arrows.", "state_probe", false)
+	check(screen.hint_label.text == "Your archers are out of arrows.", "but a state the field just changed is still said, in any battle")
 	screen._order_words = true
 	screen._refresh_hud()
+	# With no squad selected, the bows' orders go to every company of them.
+	var bows: Array = screen._player_bows()
+	if not bows.is_empty():
+		check(screen.hold_fire_button.visible and screen.hold_fire_button.text == "Hold fire (all bows)"
+			and screen.ability_button.visible and screen.ability_button.text == "Volley (all)",
+			"with nothing selected the bar offers Hold fire and Volley for all bows")
+		screen._on_hold_fire()
+		check(bows.all(func(bw): return bw.hold_fire), "and Hold fire (all bows) holds every company's arrows")
+		screen._refresh_hud()
+		check(screen.hold_fire_button.text == "Fire at will (all bows)", "then offers Fire at will for them all")
+		screen._on_hold_fire()
+		check(bows.all(func(bw): return not bw.hold_fire), "which looses them all again")
+	# The pause card prints what a retreat costs.
+	screen._set_paused(true)
+	var cost: int = screen.sim.withdraw_cost(Sim.PLAYER)
+	check(screen.retreat_button.text == ("Retreat: lose %d men" % cost if cost > 0 else "Retreat") and screen.retreat_button.visible,
+		"the Retreat button says what pulling out costs (%s)" % screen.retreat_button.text)
+	screen._on_retreat()
+	check(screen.retreat_button.text.begins_with("Tap again") and screen.sim.winner == -1, "the first tap only arms it")
+	screen._set_paused(false)
+	# Escape (and the phone's back button) pause and resume.
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	screen._unhandled_input(esc)
+	check(screen.paused and screen.pause_panel.visible, "Escape pauses the battle")
+	screen._unhandled_input(esc)
+	check(not screen.paused and not screen.pause_panel.visible, "and again closes the pause card")
 	var before: float = screen.sim.time
 	screen.cam_center = Vector2(400, 650)
 	screen.cam_zoom = 1.25
@@ -74,14 +104,20 @@ func _run() -> void:
 	squad.center = Vector2(600, 900)
 	screen._select(squad)
 	var previous: String = squad.order
+	screen._press_at = screen._to_screen(Vector2(60, 620))
 	screen._tap_battle(Vector2(60, 620), null)
 	check(squad.order == previous and screen.hint_label.text.contains("no route"), "unreachable move is explained without replacing the current order")
 	ground.reset()
 	ground.bake()
 	screen.sim.terrain = ground
 	screen._tap_battle(Vector2(60, 620), null)
-	check(squad.order == "move" and screen._ordered_at.has(squad) and not screen.floaters.any(func(f): return f["text"] == "MOVE"),
-		"accepted move receives a destination ring, and no floating word")
+	check(squad.order == previous and not screen._pending_march.is_empty(), "a tap on open ground puts down a march ring and waits for a second")
+	screen._press_at = screen._to_screen(Vector2(780, 640))
+	screen._tap_battle(Vector2(780, 640), null)
+	check(squad.order == previous and screen._pending_march["at"] == Vector2(780, 640), "a tap somewhere else only moves the ring")
+	screen._tap_battle(Vector2(780, 640), null)
+	check(squad.order == "move" and screen._pending_march.is_empty() and screen._ordered_at.has(squad) and not screen.floaters.any(func(f): return f["text"] == "MOVE"),
+		"the second tap on the ring marches them, with a destination ring and no floating word")
 	_check_carry_and_slow(screen)
 	var first: Dictionary = gs.army[0]
 	var second: Dictionary = gs.army[1]
@@ -207,11 +243,23 @@ func _check_carry_and_slow(screen) -> void:
 	screen._select(null)
 	var open_a: Vector2 = screen._to_screen(Vector2(200, 900))
 	var open_b: Vector2 = screen._to_screen(Vector2(600, 900))
+	screen._line_shown = {}
 	_press(screen, "down", open_a)
 	check(screen._press_squad == null, "a press on open ground does not pick a squad up")
 	_press(screen, "move", open_b)
 	_press(screen, "up", open_b)
-	check(not screen._line_shown.is_empty(), "a drag from open ground still draws a line")
+	check(screen._line_shown.is_empty() and not screen._pending_line.is_empty(),
+		"a line drawn with nothing selected waits on the field for a tap, so a stray swipe moves no one")
+	var on_line: Vector2 = (open_a + open_b) * 0.5
+	_press(screen, "down", on_line)
+	_press(screen, "up", on_line)
+	check(not screen._line_shown.is_empty() and screen._pending_line.is_empty(), "a tap on it forms the whole army there")
+	_press(screen, "down", open_a)
+	_press(screen, "move", open_b)
+	_press(screen, "up", open_b)
+	_press(screen, "down", screen._to_screen(Vector2(420, 640)))
+	_press(screen, "up", screen._to_screen(Vector2(420, 640)))
+	check(screen._pending_line.is_empty() and screen.hint_label.text.begins_with("Line dropped"), "a tap anywhere else drops it")
 	# Slow time: the handle on the field's edge.
 	var handle: Rect2 = screen._slow_handle()
 	check(handle.size.x > 40.0 and screen._view.encloses(handle), "the slow handle sits on the field's edge in battle")
@@ -241,6 +289,42 @@ func _check_carry_and_slow(screen) -> void:
 	screen._set_paused(true)
 	screen._set_paused(false)
 	check(not screen.slow_held(), "pausing lets go of the handle")
+	# Paused, the field still takes orders.
+	screen._std_tops = {mine: flag - screen.FLAG * 0.5, foe: foe_flag - screen.FLAG * 0.5}
+	sim.order_hold(mine)
+	screen._set_paused(true)
+	screen._select(mine)
+	_press(screen, "down", foe_flag)
+	_press(screen, "up", foe_flag)
+	check(screen.paused and mine.order == "attack" and mine.order_target == foe, "paused, a tap on an enemy still orders the attack")
+	screen._set_paused(false)
+	# Two fingers pinch the view; the wheel zooms it; either holds the camera until Re-center.
+	screen._select(null)
+	screen._recenter_camera()
+	var z0: float = screen.cam_zoom
+	var mid: Vector2 = screen._view.get_center()
+	_touch(screen, 0, true, mid - Vector2(60, 0))
+	_touch(screen, 1, true, mid + Vector2(60, 0))
+	check(not screen._pinch.is_empty() and not screen._pressing, "a second finger on the field starts a pinch, not an order")
+	var spread := InputEventScreenDrag.new()
+	spread.index = 1
+	spread.position = mid + Vector2(180, 0)
+	screen._input(spread)
+	check(screen.cam_zoom > z0 and screen._camera_hold and screen.camera_button.text == "Held", "spreading the fingers zooms in and holds the camera")
+	_touch(screen, 1, false, mid + Vector2(180, 0))
+	_touch(screen, 0, false, mid - Vector2(60, 0))
+	check(screen._touches.is_empty() and screen._pinch.is_empty() and not screen._pinch_lock, "lifting both fingers ends the pinch")
+	screen._recenter_camera()
+	check(not screen._camera_hold and screen.camera_button.text == "Following", "Re-center hands the camera back to the fight")
+	var z1: float = screen.cam_zoom
+	var wheel := InputEventMouseButton.new()
+	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+	wheel.pressed = true
+	wheel.factor = 1.0
+	wheel.position = mid
+	screen._unhandled_input(wheel)
+	check(screen.cam_zoom > z1 and screen._camera_hold, "the mouse wheel zooms the field too")
+	screen._recenter_camera()
 	screen.speed = 1.0
 	screen._camera_hold = false
 

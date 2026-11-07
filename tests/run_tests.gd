@@ -71,6 +71,12 @@ func _init() -> void:
 
 	print("Orders:")
 	_check_orders()
+	_check_march_fights_back()
+	_check_retreat()
+	_check_reserve_strength()
+	_check_march_pace()
+	_check_quiverless_bows()
+	_check_kite_budget()
 	_check_arrows()
 	_check_lines()
 	_check_hold_fire()
@@ -263,6 +269,162 @@ func _check_orders() -> void:
 		sim.step()
 	_expect(mine.order == "hold" and mine.center.distance_to(Vector2(150, 700)) < 8.0, "a march order ends holding the new ground")
 	sim.dispose()
+
+
+## A squad on a march order struck hand to hand stops and fights back, rather than walking
+## on with its men dropping their targets.
+func _check_march_fights_back() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 3)
+	var mine = sim.place(Sim.PLAYER, 1, Vector2(420, 720))
+	var theirs = sim.place(Sim.ENEMY, 2, Vector2(420, 545))
+	sim.start_battle()
+	sim.order_attack(theirs, mine)
+	sim.order_move(mine, Vector2(800, 720))
+	while mine.struck_at < 0.0 and sim.time < 20.0:
+		sim.step()
+	for i in 30:
+		sim.step()
+	_expect(mine.struck_at >= 0.0 and mine.order == "hold" and mine.focus == theirs and mine.engaged,
+		"a squad struck on the march stops and fights back (order %s)" % mine.order)
+	_expect(mine.center.x < 700.0, "and stays to fight rather than marching on")
+	# Struck by a company standing further off than the usual holding range (the far end of
+	# a long line), it still turns on that one.
+	sim.order_move(mine, Vector2(800, 1000))
+	mine.struck_at = sim.time
+	mine.struck_by = theirs
+	sim.step()
+	_expect(mine.order == "hold" and mine.focus == theirs, "a march order struck on the way turns to hold and fights who struck it")
+	sim.dispose()
+
+
+## Retreat: free before the fight; in it, a share of each company's men is left behind;
+## cut off, the warband runs for its edge and the battle goes on while the enemy rides it down.
+func _check_retreat() -> void:
+	var early := Sim.new()
+	early.setup(_army(5), _army(6), 11)
+	early.auto_deploy(Sim.PLAYER)
+	early.auto_deploy(Sim.ENEMY, 26.0)
+	_expect(early.withdraw_cost(Sim.PLAYER) == 0, "leaving before the fight costs no men")
+	early.concede(Sim.PLAYER)
+	_expect(early.winner == Sim.ENEMY and int(early.result_for(Sim.PLAYER)["lost"]) == 0, "and none are lost")
+	early.dispose()
+
+	var free := Sim.new()
+	free.setup(_army(5), _army(6), 11)
+	free.start_battle()
+	for i in 30:
+		free.step()
+	var cost := free.withdraw_cost(Sim.PLAYER)
+	var before := free.men_on_field(Sim.PLAYER)
+	free.concede(Sim.PLAYER)
+	_expect(cost > 0 and cost < before and before - free.men_on_field(Sim.PLAYER) == cost and free.end_reason == "retreat",
+		"a retreat in the fight leaves the men the button says behind (%d of %d)" % [cost, before])
+	free.dispose()
+
+	var cut := Sim.new()
+	cut.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}, {"id": 2, "type": Troops.ARCHERS, "men": 20}],
+		[{"id": 3, "type": Troops.CAVALRY, "men": 16}, {"id": 4, "type": Troops.CAVALRY, "men": 16}], 7)
+	cut.place(Sim.PLAYER, 1, Vector2(420, 760))
+	cut.place(Sim.PLAYER, 2, Vector2(420, 900))
+	cut.place(Sim.ENEMY, 3, Vector2(300, 500))
+	cut.place(Sim.ENEMY, 4, Vector2(540, 500))
+	cut.start_battle()
+	cut.order_all(Sim.ENEMY, "advance")
+	for i in 60:
+		cut.step()
+	cut.concede(Sim.PLAYER, true)
+	_expect(cut.winner == -1 and cut.withdrawing == Sim.PLAYER and not cut.has_active(Sim.PLAYER),
+		"cut off, every company breaks and runs and the battle goes on")
+	while cut.winner == -1 and cut.time < Sim.TIME_LIMIT:
+		cut.step()
+	var res := cut.result_for(Sim.PLAYER)
+	var escaped := 0
+	for sq in cut.squads:
+		if sq.team == Sim.PLAYER:
+			escaped += sq.escaped
+	var cut_down: int = int(res["lost"])
+	_expect(cut.winner == Sim.ENEMY and cut.end_reason == "retreat" and cut_down > 0 and escaped > 0,
+		"the enemy's horse ride down some of the men running for it (%d lost, %d got away)" % [cut_down, escaped])
+	cut.dispose()
+
+
+## The strength the verdict compares counts a reserve still to come; the bar draws the same.
+func _check_reserve_strength() -> void:
+	var big := []
+	for i in 14:
+		big.append({"id": 100 + i, "type": Troops.INFANTRY, "men": 10})
+	var sim := Sim.new()
+	sim.setup(big, [{"id": 1, "type": Troops.INFANTRY, "men": 10}], 4)
+	sim.start_battle()
+	_expect(sim.reserve_men(Sim.PLAYER) == 20 and sim.start_men(Sim.PLAYER) == 140 and is_equal_approx(sim.strength(Sim.PLAYER), 1.0),
+		"a host bigger than the field counts its queued reserve in its strength (%.2f)" % sim.strength(Sim.PLAYER))
+	sim.dispose()
+
+
+## Horse sent at a target ride at marching pace while it's far off, as under Advance, and
+## their charge still lands at the end of the run.
+func _check_march_pace() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.CAVALRY, "men": 16}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 5)
+	var horse = sim.place(Sim.PLAYER, 1, Vector2(420, 1150))
+	var foot = sim.place(Sim.ENEMY, 2, Vector2(420, 150))
+	sim.start_battle()
+	sim.order_attack(horse, foot)
+	var y0: float = horse.center.y
+	for i in 30:
+		sim.step()
+	_expect(y0 - horse.center.y <= Sim.MARCH_SPEED + 2.0, "horse sent at a far target ride at marching pace (%.0f in a second)" % (y0 - horse.center.y))
+	while not horse.engaged and sim.time < 60.0:
+		sim.step()
+	for i in 60:
+		sim.step()
+	_expect(sim.events.any(func(e): return e["type"] == "charge" and e["squad"] == horse), "and their charge lands at the end of the run")
+	sim.dispose()
+
+
+## Bows with nothing to loose sent to advance wait behind their own foot.
+func _check_quiverless_bows() -> void:
+	var sim := Sim.new()
+	sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}, {"id": 2, "type": Troops.ARCHERS, "men": 20}, {"id": 3, "type": Troops.ARCHERS, "men": 20}],
+		[{"id": 4, "type": Troops.INFANTRY, "men": 20}], 6)
+	var foot = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+	var empty = sim.place(Sim.PLAYER, 2, Vector2(200, 900))
+	var holding = sim.place(Sim.PLAYER, 3, Vector2(650, 900))
+	var foe = sim.place(Sim.ENEMY, 4, Vector2(420, 250))
+	sim.start_battle()
+	sim._draw_blades(empty)
+	sim.set_hold_fire(holding, true)
+	sim.order_advance(empty)
+	sim.order_advance(holding)
+	for i in 300:
+		sim.step()
+	_expect(empty.center.y > foot.center.y and empty.center.distance_to(sim._park_spot(empty)) < 30.0 and empty.center.distance_to(foe.avg) > 400.0,
+		"archers out of arrows sent to advance wait behind their own foot")
+	_expect(holding.center.y > foot.center.y and holding.arrows == 8 * 20, "and so do bows holding their fire, every arrow kept")
+	sim.dispose()
+
+
+## Skirmishers ride clear of foot for only so long: with the budget spent, horse archers
+## no longer wheel away when the foot closes.
+func _check_kite_budget() -> void:
+	var wheeled := []
+	for budget in [Sim.KITE_SECONDS, 0.0]:
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.CAVALRY, "unit": "kharzani_horse_archers", "men": 16, "level": 2}],
+			[{"id": 2, "type": Troops.INFANTRY, "men": 20}], 2)
+		var ha = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
+		sim.place(Sim.ENEMY, 2, Vector2(420, 540))
+		sim.start_battle()
+		ha.kite_left = budget
+		sim.order_all(Sim.ENEMY, "advance")
+		var rode := false
+		while sim.time < 20.0 and sim.winner == -1:
+			sim.step()
+			rode = rode or ha.wheeling
+		wheeled.append(rode)
+		sim.dispose()
+	_expect(wheeled[0] and not wheeled[1], "horse archers ride clear of closing foot while their budget lasts, and not after")
 
 
 func _check_lines() -> void:
@@ -847,7 +1009,10 @@ func _check_volley() -> void:
 		var morale: float = foot.morale
 		var men: int = foot.alive_count()
 		if v == 1:
+			bows.mechanics = {"volley_cooldown_mult": 0.7}
 			_expect(sim.use_ability(bows) and not sim.ability_ready(bows), "a volley goes off, then has to wait for its cooldown")
+			_expect(is_equal_approx(bows.ability_cd, sim.ability_cooldown(bows)) and is_equal_approx(sim.ability_cooldown(bows), 20.0 * 0.7),
+				"the wait is the branch's own (ability_cooldown, which the button's fill reads too)")
 		for i in 15:
 			sim.step()
 		if v == 1:
@@ -1873,6 +2038,24 @@ func _check_death_roll() -> void:
 		if not setup[0]:
 			_expect(first.get("leaderless", false) and float(first.get("shock", 0.0)) >= Captains.FALL_SHOCK,
 				"the squad reels and fights on leaderless")
+	# An enemy lord's fall is one roll against one threshold: the moment and the result agree.
+	var agree := true
+	var felled := 0
+	for s in range(1, 41):
+		var sim := Sim.new()
+		var lord := _captained(Troops.INFANTRY, 9)
+		lord.merge({"is_lord": true, "lord_id": 5, "lord_name": "Emir Tahir"})
+		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}], [lord], s)
+		var mine = sim.place(Sim.PLAYER, 1, Vector2(300, 900))
+		var guard = sim.place(Sim.ENEMY, 9, Vector2(300, 300))
+		sim.start_battle()
+		if guard.captain != null:
+			felled += 1
+			sim._damage(guard.captain, 99999.0, mine)
+			agree = agree and (guard.captain_fate == "killed") == sim.lord_killed and sim.lord_killed != sim.lord_captured \
+				and guard.death_needed == Lords.DEATH_CHANCE_PERCENT + 1
+		sim.dispose()
+	_expect(felled > 0 and agree, "an enemy lord's fall is one roll: slain or taken, as the captain's fate says (%d falls)" % felled)
 
 
 func _check_bonds_and_grief() -> void:
