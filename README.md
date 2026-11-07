@@ -136,11 +136,17 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 You need a Mac with Xcode and an Apple ID (a free one works for your own phone).
 
 1. In Godot: **Editor → Manage Export Templates → Download and Install**.
-2. **Project → Export → Add… → iOS.** Fill in **App Store Team ID** (your team ID from Xcode or developer.apple.com) and **Bundle Identifier** (for example `com.yourname.bannerfall`).
+2. **Project → Export → iOS** (the preset is already there). Fill in **App Store Team ID** (your team ID from Xcode or developer.apple.com; it is left empty in the repository) and, if it isn't yours, change the **Bundle Identifier** (for example `com.yourname.bannerfall`).
 3. **Export Project** to a folder. Godot writes an Xcode project.
 4. Open the `.xcodeproj` in Xcode, plug in your iPhone, pick it as the run destination, and press **Run**.
 
 The project uses the Compatibility renderer, which also runs in the iOS Simulator. Godot's guide: [Exporting for iOS](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_ios.html).
+
+## Other platforms
+
+`export_presets.cfg` also has **Android** (arm64, portrait, the vibrate permission for haptics), **Windows Desktop**, **macOS** and **Linux** presets, all at version 0.1.0. The Android package name `com.bannerfall.game` is a placeholder: confirm it before the first Play Console upload, since a published package name can never change (a Play Store upload also wants a Gradle build exported as an AAB). The app icons are `assets/icon_1024.png` (opaque, on the splash colour), `icon_512`, `icon_192`, `icon_180`, `icon.ico` and the Android adaptive layers, all rendered from `icon.svg`. On a computer F11 or Alt+Enter toggles full screen, and menus keep to a phone-width column in a wide window.
+
+**Moving a campaign.** Everything lives in Godot's user folder: `campaign.json` (the autosave), `saves/` (your own and the kept saves, with `saves/index.json`) and `settings.cfg`. On iPhone and iPad the folder shows in the Files app (On My iPhone › Bannerfall); on a computer the Saves screen says where it is. Copy those to the same place on the other device. For Steam, Steam Cloud needs no code: in Steamworks (Cloud › Auto-Cloud) add the user folder's `campaign.json` and `saves/*.json` for each OS.
 
 ## How it's built
 
