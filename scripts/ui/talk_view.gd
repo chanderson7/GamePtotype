@@ -157,7 +157,29 @@ static func room(id: String, when: String) -> TextureRect:
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	art.modulate = {"night": Color(0.5, 0.54, 0.78), "dusk": Color(1.0, 0.82, 0.68), "morning": Color(1.0, 0.96, 0.92)}.get(when, Color.WHITE)
+	if when in ["dusk", "night"]:
+		art.add_child(_firelight())
 	return art
+
+
+## Warm light over a room after dark that breathes the way a hearth and candles do. Still
+## (a steady glow) under Reduced motion.
+static func _firelight() -> ColorRect:
+	var glow := ColorRect.new()
+	glow.name = "Firelight"
+	glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	glow.color = Color(1.0, 0.62, 0.28, 0.07)
+	var add := CanvasItemMaterial.new()
+	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	glow.material = add
+	if Style.motion_reduced():
+		return glow
+	glow.ready.connect(func():
+		var t := glow.create_tween().set_loops()
+		for step in [[0.11, 0.18], [0.06, 0.25], [0.09, 0.12], [0.05, 0.3], [0.1, 0.2], [0.07, 0.16]]:
+			t.tween_property(glow, "color:a", float(step[0]), float(step[1])).set_trans(Tween.TRANS_SINE))
+	return glow
 
 
 ## Where and when as marks: a pin and the place, an icon and the gathering, the sun or
@@ -241,11 +263,30 @@ func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float =
 		stage.add_child(face)
 		# Under the fade and the nameplate, over the backdrop.
 		stage.move_child(face, 1 if _backdrop != null else 0)
+	var arriving := not _faces.has(side) or face.texture == null
 	face.texture = tex
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if pixel else CanvasItem.TEXTURE_FILTER_LINEAR
 	face.modulate = Color(0.5, 0.5, 0.58) if dim else Color.WHITE
 	_faces[side] = {"node": face, "height": height}
 	_place_face(side)
+	if arriving:
+		_enter_face(side)
+
+
+## Someone comes into the scene: their face slides in from their own side (from below
+## for the one in the middle) and fades up.
+func _enter_face(side: String) -> void:
+	if Style.motion_reduced():
+		return
+	var face: TextureRect = _faces[side]["node"]
+	var rest := face.position
+	var from: Vector2 = rest + ({"left": Vector2(-50, 0), "right": Vector2(50, 0)} as Dictionary).get(side, Vector2(0, 30))
+	var tint := face.modulate
+	face.position = from
+	face.modulate = Color(tint, 0.0)
+	var t := face.create_tween().set_parallel()
+	t.tween_property(face, "position", rest, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(face, "modulate", tint, 0.25)
 
 
 ## Change a face's picture with a short crossfade (none with reduced motion).
@@ -470,6 +511,9 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(l)
 	bubble.add_child(v)
+	if who != "you":
+		_reveal(l)
+		_nudge_speaker()
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gap.size_flags_stretch_ratio = 1.0
@@ -481,6 +525,62 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 		holder.add_child(gap)
 	_log.add_child(holder)
 	return holder
+
+
+## Their words are written out, about WRITE_SPEED characters a second (never longer than
+## WRITE_MAX), so a line feels spoken; a tap on the conversation finishes every line
+## being written. Whole at once under Reduced motion or "Text appears at once".
+const WRITE_SPEED := 45.0
+const WRITE_MAX := 1.5
+var _writing: Array = []
+
+
+func _reveal(l: Label) -> void:
+	if Style.motion_reduced() or bool(Sound.instant_text):
+		return
+	var n := l.text.length()
+	if n == 0:
+		return
+	l.visible_characters = 0
+	var t := l.create_tween()
+	t.tween_property(l, "visible_characters", n, minf(float(n) / WRITE_SPEED, WRITE_MAX))
+	t.tween_callback(func(): l.visible_characters = -1)
+	_writing.append(t)
+
+
+## Whether any line is still being written out.
+func writing() -> bool:
+	_writing = _writing.filter(func(t): return t is Tween and (t as Tween).is_valid() and (t as Tween).is_running())
+	return not _writing.is_empty()
+
+
+## Every line being written lands whole.
+func finish_writing() -> void:
+	for t in _writing:
+		if t is Tween and (t as Tween).is_valid():
+			(t as Tween).custom_step(60.0)
+	_writing.clear()
+
+
+## The one speaking leans in: their face rises a few pixels and settles.
+func _nudge_speaker() -> void:
+	if Style.motion_reduced():
+		return
+	for side in ["center", "right", "left"]:
+		if _faces.has(side):
+			var face: TextureRect = _faces[side]["node"]
+			if face == null or not is_instance_valid(face):
+				return
+			var old = face.get_meta("nudge", null)
+			if old is Tween and (old as Tween).is_valid():
+				(old as Tween).kill()
+			_place_face(side)
+			var rest := face.position.y
+			var t := face.create_tween()
+			face.set_meta("nudge", t)
+			t.tween_property(face, "position:y", rest - 6.0, 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			t.tween_property(face, "position:y", rest, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+			return
 
 
 func add_to_log(ctrl: Control) -> void:
@@ -564,6 +664,13 @@ var _tap_from := Vector2.INF
 
 
 func _tap(event: InputEvent) -> void:
+	# A tap while words are being written finishes them, and goes no further.
+	var up_now: bool = (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT) \
+		or (event is InputEventScreenTouch and not event.pressed)
+	if up_now and writing():
+		finish_writing()
+		_tap_from = Vector2.INF
+		return
 	if not _continue.is_valid():
 		return
 	var pointer := event is InputEventMouseButton or event is InputEventScreenTouch

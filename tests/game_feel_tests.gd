@@ -49,6 +49,8 @@ func _init() -> void:
 	await _result()
 	await _map_moments()
 	await _ribbons()
+	await _talk_and_scenes()
+	await _battle_beats()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -409,3 +411,67 @@ func _ribbons() -> void:
 	gs.apply_result({"won": true, "lost": 0, "killed": 3, "squads": {int(sq["id"]): {"men": int(sq["men"]), "kills": 3, "captain": {"fate": "standing", "kills": 0}}}, "enemy_squads": {}})
 	check(scenes.ribbons.any(func(x): return String(x["title"]).contains("ready for a role")), "a captain who becomes ready for a role gets a ribbon")
 	scenes.ribbons.clear()
+
+
+# ---- 10, 11. talk has a pulse; the dance, the wedding and the hall move
+func _talk_and_scenes() -> void:
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("common_room", "night"), "Test")
+	tv.set_face("center", load("res://icon.svg") if ResourceLoader.exists("res://icon.svg") else ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8)))
+	await _frames(2)
+	var face: Control = tv.find_child("Face_center", true, false)
+	check(face != null and face.modulate.a < 0.99, "someone coming into the scene fades and slides in")
+	await _wait(0.5)
+	check(is_equal_approx(face.modulate.a, 1.0), "and is there a moment later")
+	check(tv.find_child("Firelight", true, false) != null, "a room after dark has firelight")
+	var line: Control = tv.say("them", "Sit, and tell me what brings you to my hall at this hour.", "Lord")
+	await _frames(2)
+	var words := line.find_child("Words", true, false) as Label
+	check(words.visible_characters >= 0 and words.visible_characters < words.text.length() and tv.writing(), "their words are written out (%d of %d)" % [words.visible_characters, words.text.length()])
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = false
+	tv._tap(ev)
+	check(words.visible_characters == -1 and not tv.writing(), "a tap finishes the line, and goes no further")
+	var mine: Control = tv.say("you", "I came to talk.")
+	check((mine.find_child("Words", true, false) as Label).visible_characters == -1, "your own words are there at once")
+	sound.instant_text = true
+	var quick: Control = tv.say("them", "Then talk.")
+	check((quick.find_child("Words", true, false) as Label).visible_characters == -1, "with Text appears at once, theirs are too")
+	sound.instant_text = false
+	sound.reduced_motion = true
+	var still: Control = tv.say("them", "As you wish.")
+	check((still.find_child("Words", true, false) as Label).visible_characters == -1, "and under Reduced motion")
+	sound.reduced_motion = false
+	tv.queue_free()
+	# The wedding's bunting sways.
+	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
+	var d = Dressing.new()
+	d.size = Vector2(400, 300)
+	root.add_child(d)
+	await _wait(0.2)
+	check(d._clock > 0.1, "the wedding's bunting and lanterns move with the breeze")
+	sound.reduced_motion = true
+	var c0: float = d._clock
+	await _wait(0.2)
+	check(is_equal_approx(d._clock, c0), "and hold still under Reduced motion")
+	sound.reduced_motion = false
+	d.queue_free()
+
+
+# ---- 12. the battle's beats
+func _battle_beats() -> void:
+	var sc = await _battle()
+	var Sim = load("res://scripts/battle/battle_sim.gd")
+	var foe = null
+	for sq in sc.sim.squads:
+		if sq.team == Sim.ENEMY:
+			foe = sq
+			break
+	sc._hitstop = 0.0
+	sc._captain_down({"squad": foe, "pos": foe.average_pos()})
+	check(sc._hitstop >= sc.CAPTAIN_HITSTOP - 0.001, "a captain's fall stops the field for a beat")
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _frames(4)

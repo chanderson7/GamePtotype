@@ -986,6 +986,26 @@ func _choice_row(id: String, title: String, sub: String, aside: String, act: Cal
 	return b
 
 
+## The lord you tapped in the council leans in (his face steps up a little) while his
+## counsel rises in its bubble.
+func _lean_in(lid: int) -> void:
+	if Style.motion_reduced():
+		return
+	for n in find_children("Speaker_%d" % lid, "Control", true, false):
+		if Widgets.live(n):
+			var c := n as Control
+			c.pivot_offset = c.size * 0.5
+			c.scale = Vector2(1.08, 1.08)
+			c.create_tween().tween_property(c, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			break
+	for n in find_children("Counsel", "Control", true, false):
+		if Widgets.live(n):
+			var bub := n as Control
+			bub.modulate.a = 0.0
+			bub.create_tween().tween_property(bub, "modulate:a", 1.0, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			break
+
+
 ## A muted heading in small capitals over a card's rows.
 func _caps(text: String) -> Label:
 	return Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
@@ -1315,7 +1335,8 @@ func _council() -> void:
 		b.pressed.connect(func():
 			Sound.play("click", 0.0, 0.05)
 			_council_lord = lid
-			_build())
+			_build()
+			_lean_in.call_deferred(lid))
 		var col := VBoxContainer.new()
 		col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		col.alignment = BoxContainer.ALIGNMENT_CENTER

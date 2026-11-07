@@ -89,6 +89,8 @@ const ROLL_LANDS := 1.5
 ## men it strikes, once for charges landing together.
 const HITSTOP_MIN := 0.05
 const HITSTOP_MAX := 0.12
+## A captain's fall stops the field for this long before the slow time or the death roll.
+const CAPTAIN_HITSTOP := 0.08
 ## And the view punches in toward it, easing back.
 const PUNCH := 0.03
 const PUNCH_TIME := 0.25
@@ -1709,6 +1711,9 @@ func _on_fight() -> void:
 func _start_battle() -> void:
 	sim.start_battle()
 	_call("start", Sim.PLAYER)
+	# The horn sounds the advance as the title goes up, and the music answers.
+	Sound.play("horn", 0.0, 0.03)
+	Sound.haptic(true)
 	Sound.battle_clash()
 	selected_id = -1
 	selected_squad = null
@@ -2485,6 +2490,7 @@ func _consume_events() -> void:
 					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT)
 			"chief_broken":
 				Sound.play("objective")
+				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
 				_moment("The chief falls back", "His guard is broken", Style.BRASS, "crown")
 			"chief_slain":
 				Sound.play("objective")
@@ -2494,9 +2500,11 @@ func _consume_events() -> void:
 				_moment("The lord's guard breaks", "%s's host quails" % String(e.get("lord_name", "The lord")), Style.BRASS, "crown")
 			"lord_captured":
 				Sound.play("objective")
+				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
 				_moment("%s is taken" % String(e.get("lord_name", "The lord")), "Captured in the press of shields", Style.BRASS, "crown")
 			"lord_slain":
 				Sound.play("objective")
+				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
 				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Mortally wounded in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
@@ -2543,6 +2551,8 @@ func _shove(victim, at: Vector2, charger) -> void:
 
 func _captain_down(e: Dictionary) -> void:
 	var sq = e["squad"]
+	# The field holds its breath for a beat before the fall plays out.
+	_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
 	Sound.play_at("captain_down", _to_screen(e["pos"]), 0.0 if sq.team == Sim.PLAYER else -4.0)
 	_burst(e["pos"], "fall", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.1)
 	var info: Dictionary = sq.info

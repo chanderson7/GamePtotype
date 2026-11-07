@@ -43,6 +43,8 @@ func _build() -> void:
 	col.add_child(_control_row("Text size", size_bar))
 	col.add_child(_switch_row("Reduced motion", "No opening, menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
 		Sound.set_reduced_motion(on)))
+	col.add_child(_switch_row("Text appears at once", "In conversations, instead of being written out", Sound.instant_text, func(on: bool):
+		Sound.set_instant_text(on)))
 	var shakes := [0.0, 0.5, 1.0]
 	col.add_child(_control_row("Screen shake", Widgets.segmented(["Off", "Light", "Full"], maxi(0, shakes.find(Sound.shake)), func(i: int):
 		Sound.set_shake(shakes[i]), "ScreenShake")))

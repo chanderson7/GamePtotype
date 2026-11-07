@@ -78,6 +78,8 @@ var sounds_on := true
 var romance_invitations := true
 var text_scale := 1.0
 var reduced_motion := false
+## Words in a conversation appear whole rather than being written out.
+var instant_text := false
 var illustrations_enabled := true
 ## Vibration on supported devices: a light tap for an accepted order, a stronger one for a
 ## decisive moment. Separate from reduced motion.
@@ -527,6 +529,7 @@ func _load_settings() -> void:
 		if text_scale not in [1.0, 1.25, 1.5]:
 			text_scale = 1.0
 		reduced_motion = bool(cfg.get_value("presentation", "reduced_motion", false))
+		instant_text = bool(cfg.get_value("presentation", "instant_text", false))
 		illustrations_enabled = bool(cfg.get_value("presentation", "illustrations", true))
 		haptics_enabled = bool(cfg.get_value("presentation", "haptics", true))
 		shake = float(cfg.get_value("presentation", "shake", 1.0))
@@ -546,6 +549,7 @@ func _save_settings() -> void:
 	cfg.set_value("gameplay", "romance_invitations", romance_invitations)
 	cfg.set_value("presentation", "text_scale", text_scale)
 	cfg.set_value("presentation", "reduced_motion", reduced_motion)
+	cfg.set_value("presentation", "instant_text", instant_text)
 	cfg.set_value("presentation", "illustrations", illustrations_enabled)
 	cfg.set_value("presentation", "haptics", haptics_enabled)
 	cfg.set_value("presentation", "shake", shake)
@@ -697,6 +701,11 @@ func set_show_performance(enabled: bool) -> void:
 
 func set_reduced_motion(enabled: bool) -> void:
 	reduced_motion = enabled
+	_save_settings()
+
+
+func set_instant_text(enabled: bool) -> void:
+	instant_text = enabled
 	_save_settings()
 
 func set_illustrations(enabled: bool) -> void:
