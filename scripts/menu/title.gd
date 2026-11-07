@@ -125,9 +125,9 @@ func _build() -> void:
 		_new_button.add_theme_color_override("font_color", Color("c9a9a2"))
 		_new_button.add_theme_color_override("icon_normal_color", Color("c9a9a2"))
 		row.add_child(_new_button)
-	row.add_child(_minor("Learn to play", "book", func():
-		Scenes.tutorial_return = "res://scenes/title.tscn"
-		Scenes.go("res://scenes/tutorial.tscn")))
+	# The first time, Learn to play stands up top by the peoples, not down here.
+	if find_child("FirstLearn", true, false) == null:
+		row.add_child(_minor("Learn to play", "book", _on_learn))
 	row.add_child(_minor("Settings", "gear", func():
 		Scenes.settings_return = "res://scenes/title.tscn"
 		Scenes.go("res://scenes/settings.tscn")))
@@ -506,10 +506,27 @@ func _build_first_time(col: VBoxContainer) -> void:
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 40
 	col.add_child(gap)
-	var lead := Style.label("Build a company. Lead the battle.\nMake your name.", Style.BODY, Color("d9dcea"))
+	var lead := Style.label("Build a warband. Lead the battle.\nMake your name.", Style.BODY, Color("d9dcea"))
 	lead.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(lead)
-	var hd := Widgets.section("Begin your company")
+	# New here: the lessons first, where they can't be missed.
+	var learn := PanelContainer.new()
+	learn.name = "FirstLearn"
+	var lb := Style.box(Style.PANEL, Style.BRASS, 2, 20)
+	lb.set_content_margin_all(16)
+	learn.add_theme_stylebox_override("panel", lb)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 10)
+	learn.add_child(lv)
+	var new_here := Style.label("New to Bannerfall? Six short lessons show how to ride, pay your men and fight.", Style.SMALL, Style.TEXT)
+	new_here.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lv.add_child(new_here)
+	var learn_button := Page.button("Learn to play", _on_learn)
+	learn_button.name = "LearnToPlay"
+	learn_button.icon = Widgets.icon("book")
+	lv.add_child(learn_button)
+	col.add_child(learn)
+	var hd := Widgets.section("Begin your warband")
 	hd.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(hd)
 	# The same card New campaign shows, tappable as a whole to pick it.
@@ -535,6 +552,12 @@ func _build_first_time(col: VBoxContainer) -> void:
 	col.add_child(_new_button)
 	_pick_people(_picked)
 	_new_button.grab_focus.call_deferred()
+
+
+## The lessons, back to Home after.
+func _on_learn() -> void:
+	Scenes.tutorial_return = "res://scenes/title.tscn"
+	Scenes.go("res://scenes/tutorial.tscn")
 
 
 ## Picks a people on the first screen: its card lights up and the big button names it.

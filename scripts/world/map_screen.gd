@@ -105,6 +105,10 @@ var _talks_waiting := -1
 var _badge_hour := -1
 ## Why the last friendly lord stopped you ("first", "news", "army").
 var _stop_reason := ""
+## The scouts' word for the open encounter ("Easy" … "Deadly"), and whether Send in has
+## been tapped once already when that word asked for a second tap.
+var _odds_word := ""
+var _send_in_armed := false
 ## The free-floating HUD layer: the toast sits on it, outside any layout.
 var _hud: Control
 ## How close a friendly lord must be, in encounter radii, for his sheet to offer Talk.
@@ -353,7 +357,7 @@ func _autoplay() -> void:
 			_on_fight()
 		else:
 			GameState.autoplay_battles += 1
-			_on_send_in()
+			_send_in_now()
 		return
 	if _sheet == "here" and GameState.autoplay_battles >= 2:
 		_on_enter()
@@ -1012,7 +1016,7 @@ func _open_here() -> void:
 		_close_sheet()
 		return
 	_selected = id
-	var buttons := [["Enter", _on_enter, true, "inside"], ["Wait", _on_wait, false, "revert"], ["Warband", _on_warband, false, "company"], ["Close", _close_sheet]]
+	var buttons := [["Enter", _on_enter, true, "inside"], ["Wait %dh" % WAIT_HOURS, _on_wait, false, "revert"], ["Warband", _on_warband, false, "company"], ["Close", _close_sheet]]
 	var wedding_here := GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == id
 	if wedding_here:
 		buttons[0][2] = false
@@ -1509,6 +1513,7 @@ func _open_encounter() -> void:
 	if not foe_lord.is_empty():
 		var met := int(foe_lord.get("met_player", 0))
 		encounter_body = LordVoice.line("again" if met > 0 else "face", foe_lord) + ("\n\n" + grudge_text if grudge_text != "" else "")
+	_send_in_armed = false
 	_show_sheet("encounter", title, encounter_body, buttons)
 	_show_odds(b, fighters, odds, men, is_ambush or not can_withdraw)
 	# The ground and the way out, as chips.
@@ -1517,11 +1522,15 @@ func _open_encounter() -> void:
 		chips.append(Widgets.chip("Ford · %s" % site["river"], Style.MORALE_MID, "◆"))
 	elif not bool(site.get("fair", true)):
 		chips.append(Widgets.chip("Their ground: %s" % ("ridge" if site["type"] == "hills" else "wood's edge"), Style.MORALE_LOW, "▼"))
+	# The same test world_sim's can_withdraw rolls against: only a lord who is quicker and
+	# far stronger can ride you down. Bandits always let you go.
+	var outpaced: bool = b.kind == WorldSim.LORD and world.party_speed(b) > world.player_speed()
+	var outmanned: bool = float(world.men_of(b.army)) > float(world.men_of(world.player().army)) * 1.3
 	if is_ambush:
 		chips.append(Widgets.chip("Ambush · no way out", Style.MORALE_LOW, "", "retreat"))
 	elif not can_withdraw:
 		chips.append(Widgets.chip("Can't withdraw", Style.MORALE_LOW, "", "retreat"))
-	elif world.party_speed(b) > world.player_speed():
+	elif outpaced and outmanned:
 		chips.append(Widgets.chip("Withdrawing may fail", Style.MORALE_MID, "", "retreat"))
 	if not chips.is_empty():
 		var row := Widgets.chip_row(chips)
@@ -1606,6 +1615,7 @@ func _show_odds(b, fighters: Array, odds: Dictionary, their_men: int, trapped: b
 		danger = ["Hard", Style.MORALE_LOW, "▼"] if r >= 0.5 else ["Deadly", Style.ENEMY, "✖"]
 		if r >= 0.85:
 			danger = ["Even", Style.MORALE_MID, "◆"]
+	_odds_word = String(danger[0])
 	var head := HBoxContainer.new()
 	head.name = "OddsHead"
 	head.add_theme_constant_override("separation", 12)
@@ -1725,7 +1735,7 @@ func _open_resource(key: String) -> void:
 			tiles = [Widgets.tile("silver", Widgets.thousands(GameState.silver), "in the purse", Style.ENEMY_LIGHT if short else Style.TEXT),
 				Widgets.tile("men", "−%s" % Widgets.thousands(wages), "wages a day"),
 				Widgets.tile("clock", str(GameState.silver / maxi(1, wages)), "days of wages")]
-			tip = "Win battles for bounties and spoils." if not short else "You can't cover the next day's wages. Unpaid men may leave."
+			tip = "Win battles for bounties and spoils, or take a contract from a town's notice board." if not short else "You can't cover the next day's wages. Unpaid men may leave: take a contract from a town's notice board."
 		"food":
 			short = GameState.food < GameState.total_men()
 			tiles = [Widgets.tile("food", Widgets.thousands(GameState.food), "rations", Style.ENEMY_LIGHT if short else Style.TEXT),
@@ -1734,15 +1744,15 @@ func _open_resource(key: String) -> void:
 			tip = "Each man eats one ration a day. Villages sell rations cheapest." if not short else "Not enough rations for the next day. Hungry men may leave."
 		"renown":
 			tiles = [Widgets.tile("renown", Widgets.thousands(GameState.renown), "renown"),
-				Widgets.tile("company", "%d / %d" % [GameState.army.size(), GameState.squad_cap()], "squads you can lead")]
-			tip = "Winning battles builds your name, and a greater name leads more squads."
+				Widgets.tile("company", "%d / %d" % [GameState.army.size(), GameState.squad_cap()], "companies you can lead")]
+			tip = "Winning battles builds your name, and a greater name leads more companies."
 		"men":
 			var wounded := 0
 			for sq in GameState.army:
 				wounded += int(sq.get("wounded", 0))
 			tiles = [Widgets.tile("men", Widgets.thousands(GameState.total_men()), "fit to fight"),
 				Widgets.tile("wounded", str(wounded), "wounded in the baggage", Style.ENEMY_LIGHT if wounded > 0 else Style.TEXT),
-				Widgets.tile("company", "%d / %d" % [GameState.army.size(), GameState.squad_cap()], "squads"),
+				Widgets.tile("company", "%d / %d" % [GameState.army.size(), GameState.squad_cap()], "companies"),
 				Widgets.tile("speed", str(roundi(world.player_speed())), "pace on the road")]
 			tip = "Every fight on the map weighs these men against theirs."
 	_show_sheet("menu", key.capitalize(), tip, [["Close", _close_sheet]], "", key)
@@ -1883,8 +1893,12 @@ func _on_travel(id: String) -> void:
 		GameState.save_game()
 
 
+## Hours one Wait passes where you stand; the button says so.
+const WAIT_HOURS := 8
+
+
 func _on_wait() -> void:
-	if world.wait(8.0):
+	if world.wait(float(WAIT_HOURS)):
 		_close_sheet()
 
 
@@ -2547,6 +2561,9 @@ func _open_recommendation() -> void:
 			var place := String(rec.get("place", ""))
 			if Data.SETTLEMENTS.has(place):
 				buttons.append(["Show on map", _focus_place.bind(place), true, "mappin"])
+		"band":
+			if world.party(int(rec.get("party", -1))) != null:
+				buttons.append(["Show on map", _focus_party.bind(int(rec.get("party", -1))), true, "mappin"])
 		"warband":
 			buttons.append(["Warband", _on_warband, true, "company"])
 	buttons.append(["Close", _close_sheet])
@@ -2559,6 +2576,21 @@ func _focus_place(id: String) -> void:
 	_clamp_camera()
 	_sync_layers()
 	_open_preview(id)
+
+
+## Show a party where it is now, with its own sheet (a band's offers Ride at them).
+func _focus_party(party_id: int) -> void:
+	var p = world.party(party_id)
+	if p == null:
+		_close_sheet()
+		return
+	cam_center = world.party_pos(p)
+	_clamp_camera()
+	_sync_layers()
+	if p.kind == WorldSim.BAND:
+		_open_band(p)
+	else:
+		_close_sheet()
 
 
 ## People & Letters, by name only: the unread count is the red badge on its card and on
@@ -3043,8 +3075,22 @@ func _on_fight() -> void:
 	Scenes.go("res://scenes/battle.tscn")
 
 
-## Settle the fight at once, without the battle screen.
+## Settle the fight at once, without the battle screen. When the scouts call it Hard or
+## Deadly, the first tap only asks: the button says "Send in anyway" and a second tap on
+## the same sheet sends them.
 func _on_send_in() -> void:
+	if _odds_word in ["Hard", "Deadly"] and not _send_in_armed:
+		_send_in_armed = true
+		var send := sheet_row.find_child("Dock_Sendin", true, false) as Button
+		if send != null:
+			send.text = "Send in anyway"
+		_toast("The scouts call this %s. Tap again to send your men in without you." % _odds_word.to_lower())
+		return
+	_send_in_now()
+
+
+func _send_in_now() -> void:
+	_send_in_armed = false
 	var won: bool = GameState.auto_resolve_encounter().get("won", false)
 	Sound.play("charge")
 	get_tree().create_timer(1.1).timeout.connect(Sound.play.bind("coins" if won else "bell"))
@@ -3078,6 +3124,9 @@ func _on_time(rate: float) -> void:
 	paused = rate <= 0.0
 	if rate > 0.0:
 		speed = rate
+		# Standing still, the clock has nothing to run: say why nothing moves.
+		if not world.busy() and world.encounter == -1:
+			_toast("Time passes while you ride or wait. Tap a settlement to ride there.")
 	Sound.play("click", -4.0)
 	_refresh_hud()
 
@@ -3173,12 +3222,13 @@ func _refresh_hud() -> void:
 	var days: int = GameState.food_days()
 	resource_buttons["men"].text = _short_amount(GameState.total_men())
 	resource_buttons["silver"].text = _short_amount(GameState.silver)
-	resource_buttons["food"].text = _short_amount(days)
+	# Food is counted in days, and says so: "5d".
+	resource_buttons["food"].text = "%sd" % _short_amount(days)
 	resource_buttons["renown"].text = _short_amount(GameState.renown)
-	resource_buttons["men"].tooltip_text = "%d men in %d squads" % [GameState.total_men(), GameState.army.size()]
+	resource_buttons["men"].tooltip_text = "%d men in %d companies" % [GameState.total_men(), GameState.army.size()]
 	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_wages()]
 	resource_buttons["food"].tooltip_text = "%d rations · %d days of food" % [GameState.food, days]
-	resource_buttons["renown"].tooltip_text = "%d renown · capacity %d squads" % [GameState.renown, GameState.squad_cap()]
+	resource_buttons["renown"].tooltip_text = "%d renown · you can lead %d companies" % [GameState.renown, GameState.squad_cap()]
 	resource_buttons["silver"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if GameState.silver < GameState.daily_wages() else Style.TEXT)
 	resource_buttons["food"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if days < 2 else Style.TEXT)
 	var p = world.player()
@@ -3217,8 +3267,9 @@ func _refresh_hud() -> void:
 
 
 ## The chips after the status line, rebuilt only when what they say changes: the lord
-## riding after you (▼ when he can catch you, ▲ when you're quicker), red food and silver
-## when they won't last the day, and the lock with your captives.
+## riding after you (▼ when he can catch you, ▲ when you're quicker), "Food short" and
+## "Can't pay" in red when food or silver won't last the day, and the lock with your
+## captives.
 func _refresh_status_chips(chaser, low_food: bool, low_silver: bool, captives: int) -> void:
 	var catches: bool = chaser != null and world.can_catch_player(chaser)
 	var sig := "%s|%s|%s|%s|%d" % [short_lord_name(chaser.name) if chaser != null else "", catches, low_food, low_silver, captives]
@@ -3233,13 +3284,15 @@ func _refresh_status_chips(chaser, low_food: bool, low_silver: bool, captives: i
 		hunt.name = "ChaserChip"
 		hunt.tooltip_text = "%s is riding after you%s" % [chaser.name, " and is faster" if catches else ", but you're quicker"]
 		status_chips.add_child(hunt)
+	# Two words on each, so the warning reads without a tooltip (there are none on touch);
+	# the words and the red icon say it, so no ▼ takes room beside them.
 	if low_food:
-		var f := Widgets.chip("", Style.ENEMY_LIGHT, "▼", "food")
+		var f := Widgets.chip("Food short", Style.ENEMY_LIGHT, "", "food")
 		f.name = "LowFood"
 		f.tooltip_text = "Not enough food for the next day: men may leave."
 		status_chips.add_child(f)
 	if low_silver:
-		var m := Widgets.chip("", Style.ENEMY_LIGHT, "▼", "silver")
+		var m := Widgets.chip("Can't pay", Style.ENEMY_LIGHT, "", "silver")
 		m.name = "LowSilver"
 		m.tooltip_text = "Not enough silver for the next day's wages: men may leave."
 		status_chips.add_child(m)

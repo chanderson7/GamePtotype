@@ -114,15 +114,19 @@ func _ride() -> void:
 
 func _supplies() -> void:
 	draw_rect(Rect2(0, 0, size.x, 70), Color(Style.NIGHT, 0.95))
-	var tiles := [["silver", "400"], ["food", "5d"], ["renown", "0"]]
+	# The map's own pills, in its order: men, silver, food in days, renown.
+	var tiles := [["men", "96"], ["silver", "400"], ["food", "5d"], ["renown", "0"]]
+	var step_x := minf(124.0, (size.x - 24.0) / tiles.size())
+	var left := size.x - step_x * tiles.size() - 8.0
 	for i in tiles.size():
-		var r := Rect2(Vector2(size.x - 420 + i * 136, 12), Vector2(124, 46))
+		var r := Rect2(Vector2(left + i * step_x, 12), Vector2(step_x - 10.0, 46))
 		draw_style_box(Style.box(Style.RAISED, Style.RULE, 2, 12), r)
 		var tex := Widgets.icon(String(tiles[i][0]))
 		if tex != null:
 			draw_texture_rect(tex, Rect2(r.position + Vector2(10, 9), Vector2(28, 28)), false)
-		draw_string(get_theme_default_font(), r.position + Vector2(48, 32), String(tiles[i][1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Style.TEXT)
-	_ring(Vector2(size.x - 420 + 136 + 62, 35), 44.0)
+		draw_string(get_theme_default_font(), r.position + Vector2(44, 32), String(tiles[i][1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Style.TEXT)
+	# The ring goes round food, counted in days.
+	_ring(Vector2(left + step_x * 2.0 + (step_x - 10.0) * 0.5, 35), 44.0)
 	_sprite("vardish/village", Vector2(size.x * 0.32, 200), 3.2)
 	_plate(Vector2(size.x * 0.32, 212), "Ashby · food is cheap")
 	_caption("Watch silver and food; buy rations in villages")
@@ -155,7 +159,7 @@ func _command() -> void:
 	draw_style_box(Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 12), fight)
 	draw_string(get_theme_default_font(), fight.position + Vector2(44, 34), "Fight", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color("1a1420"))
 	_ring(fight.get_center(), 62.0)
-	_caption("Place squads or drag a line, then press Fight")
+	_caption("Place companies or drag a line, then press Fight")
 
 
 func _ground() -> void:

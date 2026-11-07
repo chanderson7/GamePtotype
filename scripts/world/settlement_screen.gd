@@ -332,8 +332,13 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 		tabs.append({"id": "crown", "label": "Crown", "badge": 0})
 	var offers: int = 0 if GameState.army.size() >= GameState.squad_cap() else w.offers_at(place).size()
 	tabs.append({"id": "buy", "label": "Buy", "badge": offers + GameState.available_heroes_at(place).size()})
-	tabs.append({"id": "squads", "label": "Squads", "badge": 0})
-	tabs.append({"id": "work", "label": "Work", "badge": GameState.active_jobs_completable_at(place).size()})
+	tabs.append({"id": "squads", "label": "Companies", "badge": 0})
+	# Work counts what's ready to claim; with the purse too thin for tomorrow, the new
+	# notices too, since paid work is what the company needs.
+	var work_badge: int = GameState.active_jobs_completable_at(place).size()
+	if GameState.short_of_silver() and GameState.active_jobs.size() < Jobs.MAX_ACTIVE_JOBS:
+		work_badge += GameState.jobs_at(place).size()
+	tabs.append({"id": "work", "label": "Work", "badge": work_badge})
 	if _has_court():
 		tabs.append(_court_tab())
 	var ids: Array = tabs.map(func(t): return t["id"])
@@ -1932,7 +1937,7 @@ func _add_provisions(col: VBoxContainer) -> void:
 func _add_recruits(col: VBoxContainer) -> void:
 	var cap := GameState.squad_cap()
 	var full := GameState.army.size() >= cap
-	var card := Widgets.card(col, "Recruits here", "%d/%d squads" % [GameState.army.size(), cap],
+	var card := Widgets.card(col, "Recruits here", "%d/%d companies" % [GameState.army.size(), cap],
 		Style.ENEMY_LIGHT if full else Style.MUTED)
 	card.get_parent().name = "RecruitsCard"
 	var offers: Array = GameState.world.offers_at(place)
@@ -1942,7 +1947,7 @@ func _add_recruits(col: VBoxContainer) -> void:
 		var back: float = float(GameState.world.offers_back.get(place, GameState.world.hour)) - GameState.world.hour
 		card.add_child(Widgets.chip_row([Widgets.chip("No one looking for work · more in %s" % Style.time_short(maxf(1.0, ceil(back))), Style.TEXT, "", "clock")]))
 	elif full:
-		card.add_child(_note("Your company is full. Win renown to lead more squads.", Style.ENEMY_LIGHT))
+		card.add_child(_note("Your warband is full. Win renown to lead more companies.", Style.ENEMY_LIGHT))
 
 
 func _add_tavern_heroes(col: VBoxContainer) -> void:
@@ -2159,12 +2164,23 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var text := _text_column(row)
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	text.add_child(Style.label(Cultures.troop_name(culture, type), Style.BODY))
-	text.add_child(Widgets.chip_row([Widgets.stat("men", str(men)), Widgets.effect("silver", -int(ceil(wage)), "/day")]))
+	# What it adds to the wages, and how many days of pay the purse holds after the hire.
+	var offer_chips: Array = [Widgets.stat("men", str(men)), Widgets.effect("silver", -int(ceil(wage)), "/day")]
+	var tight := _hire_is_tight(cost)
+	if cost <= GameState.silver:
+		var days_after := _pay_days_after_hire(cost, wage)
+		# Short enough for the row's narrow column at the largest text.
+		var pay_left := Widgets.stat("clock", "%d %s pay after" % [days_after, "day's" if days_after == 1 else "days'"],
+			Style.ENEMY_LIGHT if tight else Style.TEXT)
+		pay_left.name = "PayLeft"
+		offer_chips.append(pay_left)
+	text.add_child(Widgets.chip_row(offer_chips))
 	var b := _button("Hire", _on_hire.bind(index))
 	b.name = "Hire_%d" % index
 	b.custom_minimum_size = Vector2(150, Style.TOUCH)
 	b.disabled = full or cost > GameState.silver
-	if not b.disabled:
+	# A hire that leaves under two days of wages still works, but asks first and isn't lit.
+	if not b.disabled and not tight:
 		Style.make_primary(b)
 	var priced := Widgets.priced(b, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if cost > GameState.silver else Style.TEXT]])
 	priced.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2173,10 +2189,10 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 
 
 func _add_squads(col: VBoxContainer) -> void:
-	var card := Widgets.card(col, "Your squads", "%d men" % GameState.total_men())
+	var card := Widgets.card(col, "Your companies", "%d men" % GameState.total_men())
 	card.get_parent().name = "SquadsCard"
 	if not GameState.in_town():
-		card.add_child(_note("Ride to a town to refill and train your squads."))
+		card.add_child(_note("Ride to a town to refill and train your companies."))
 		for s in GameState.army:
 			card.add_child(_squad_row(s, false))
 		return
@@ -2364,9 +2380,56 @@ func _on_buy_food(rations: int) -> void:
 	_paid(GameState.buy_food(rations))
 
 
+## Whether paying `cost` leaves less than two days of the warband's wages in the purse.
+func _hire_is_tight(cost: int) -> bool:
+	return GameState.silver - cost < 2 * GameState.daily_wages()
+
+
+## Whole days of wages the purse holds after a hire, counting the new company's pay.
+func _pay_days_after_hire(cost: int, wage: float) -> int:
+	var wages_after: int = GameState.daily_wages() + int(ceil(wage))
+	return maxi(0, GameState.silver - cost) / maxi(1, wages_after)
+
+
 func _on_hire(index: int) -> void:
-	# The new company joins the Squads tab, so that's what glows: where it went.
+	var offers: Array = GameState.world.offers_at(place)
+	if index >= 0 and index < offers.size():
+		var offer: Dictionary = offers[index]
+		var type := String(offer["type"])
+		var cost := Economy.recruit_cost(type, Troops.full_size(type))
+		if cost <= GameState.silver and _hire_is_tight(cost):
+			_confirm_hire(index, cost, _pay_days_after_hire(cost, Economy.daily_wage({"type": type, "men": Troops.full_size(type), "level": 1})))
+			return
+	_hire_now(index)
+
+
+func _hire_now(index: int) -> void:
+	# The new company joins the Companies tab, so that's what glows: where it went.
 	_paid(GameState.hire(place, index), "coins", "Tab_squads")
+
+
+## A hire that would leave under two days of wages: say so, and let the player choose.
+func _confirm_hire(index: int, cost: int, days_after: int) -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	var col := Widgets.sheet(self, "Hire with a thin purse?", "HireConfirm", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_note("After paying %s silver, the purse holds %d %s of wages. Unpaid men leave the warband." % [
+		Widgets.thousands(cost), days_after, "day" if days_after == 1 else "days"], Style.TEXT))
+	var yes := _button("Hire anyway", func():
+		Widgets.close_sheet(col)
+		_hire_now(index))
+	yes.name = "ConfirmHire"
+	var no := _button("Keep the silver", func(): Widgets.close_sheet(col))
+	no.name = "KeepSilver"
+	Style.make_primary(no)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	yes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(no)
+	row.add_child(Widgets.priced(yes, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT]]))
+	col.add_child(row)
 
 
 func _on_reinforce(id: int) -> void:
