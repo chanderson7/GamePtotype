@@ -381,7 +381,7 @@ func jobs_at(settlement_id: String) -> Array:
 
 
 func accept_job(settlement_id: String, index: int) -> bool:
-	if world == null or active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS:
+	if world == null or contract_count() >= Jobs.MAX_ACTIVE_JOBS:
 		return false
 	var list := jobs_at(settlement_id)
 	if index < 0 or index >= list.size():
@@ -413,9 +413,20 @@ func abandon_job(job_id: String) -> bool:
 	return false
 
 
-## The realm whose board posted `job`, or "" when none can be named.
+## Contracts that count against Jobs.MAX_ACTIVE_JOBS: everything in the journal except
+## errands taken for a companion's story, which are hers to give and never fill the board.
+func contract_count() -> int:
+	var n := 0
+	for j in active_jobs:
+		if String(j.get("story_candidate", "")) == "":
+			n += 1
+	return n
+
+
+## The realm whose board posted `job`, or "" when none can be named (a story errand has
+## no board, so dropping it costs no standing).
 func job_realm(job: Dictionary) -> String:
-	if world == null:
+	if world == null or String(job.get("story_candidate", "")) != "":
 		return ""
 	var at := String(job.get("origin_settlement", job.get("destination_settlement", "")))
 	if at == "" or not WorldData.SETTLEMENTS.has(at):

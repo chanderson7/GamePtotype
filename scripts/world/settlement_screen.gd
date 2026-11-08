@@ -336,7 +336,7 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 	# Work counts what's ready to claim; with the purse too thin for tomorrow, the new
 	# notices too, since paid work is what the company needs.
 	var work_badge: int = GameState.active_jobs_completable_at(place).size()
-	if GameState.short_of_silver() and GameState.active_jobs.size() < Jobs.MAX_ACTIVE_JOBS:
+	if GameState.short_of_silver() and GameState.contract_count() < Jobs.MAX_ACTIVE_JOBS:
 		work_badge += GameState.jobs_at(place).size()
 	tabs.append({"id": "work", "label": "Work", "badge": work_badge})
 	if _has_court():
@@ -2158,7 +2158,7 @@ func _add_local_jobs(col: VBoxContainer) -> void:
 			ready.add_child(_deliverable_job_card(job))
 
 	# Notice board offers
-	var active_count: int = GameState.active_jobs.size()
+	var active_count: int = GameState.contract_count()
 	var capped := active_count >= Jobs.MAX_ACTIVE_JOBS
 	var board := Widgets.card(col, "Notice board", "%d of %d taken" % [active_count, Jobs.MAX_ACTIVE_JOBS],
 		Style.ENEMY_LIGHT if capped else Style.MUTED)

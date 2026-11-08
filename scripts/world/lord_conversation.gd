@@ -826,7 +826,7 @@ func _beat_trouble() -> void:
 	var tr := LordTalk.trouble(gs, lord)
 	var replies := []
 	if String(tr["kind"]) == "bandits":
-		var full: bool = gs.active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS
+		var full: bool = gs.contract_count() >= Jobs.MAX_ACTIVE_JOBS
 		replies.append({"id": "take", "text": "I'll clear %s." % String(tr["name"]), "icon": "journal",
 			"fx": [] if full else [["bond", LordTalk.JOB_REGARD]],
 			"tag": "your journal is full" if full else "new job · when done%s" % (" · counts toward crowns" if gs.is_crowned() else ""),

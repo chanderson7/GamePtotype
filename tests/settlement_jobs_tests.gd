@@ -136,6 +136,14 @@ func test_job_acceptance_and_cap() -> void:
 	assert_true(not ok4, "4th job rejected (exceeds cap)")
 	assert_eq(gs.active_jobs.size(), 3, "Active jobs remains capped at 3")
 
+	# A companion's story errand sits beside the board's three, and dropping it costs no standing.
+	gs.active_jobs.append({"id": "story_edda_1", "type": Jobs.TYPE_COURIER, "title": "Her letters", "origin_settlement": "highcliff",
+		"destination_settlement": "ravensford", "deadline": 100.0, "story_candidate": "edda"})
+	assert_eq(gs.contract_count(), 3, "A story errand doesn't count against the board's cap")
+	var story_rel: int = gs.relation_with_realm("vardmark")
+	assert_true(gs.abandon_job("story_edda_1"), "A story errand can be set down")
+	assert_eq(gs.relation_with_realm("vardmark"), story_rel, "Setting down a story errand costs no standing")
+
 	# Abandon one job
 	var init_silver: int = int(gs.silver)
 	var init_renown: int = int(gs.renown)

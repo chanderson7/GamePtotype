@@ -351,7 +351,7 @@ static func haggle(gs, l: Dictionary) -> int:
 ## haggled) when it's scattered. Returns the job, or {} if you can't take it.
 static func take_trouble(gs, l: Dictionary, silver: int = 0) -> Dictionary:
 	var tr := trouble(gs, l)
-	if String(tr.get("kind", "")) != "bandits" or gs.active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS:
+	if String(tr.get("kind", "")) != "bandits" or gs.contract_count() >= Jobs.MAX_ACTIVE_JOBS:
 		return {}
 	var w = gs.world
 	var band = w.party(int(tr["band"]))

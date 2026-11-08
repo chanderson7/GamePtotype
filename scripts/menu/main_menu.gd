@@ -195,7 +195,7 @@ func _build() -> void:
 			wounded_roster.add_child(_squad_row(s))
 
 	# --- Deeds & work: contracts, your fief, and what the company is known for.
-	var jc := Widgets.card(deeds, "Active contracts", "%d/%d" % [GameState.active_jobs.size(), Jobs.MAX_ACTIVE_JOBS])
+	var jc := Widgets.card(deeds, "Active contracts", "%d/%d" % [GameState.contract_count(), Jobs.MAX_ACTIVE_JOBS])
 	if GameState.active_jobs.is_empty():
 		jc.add_child(_note("None. Settlements' notice boards post bounties, dispatches and relief work."))
 	else:
