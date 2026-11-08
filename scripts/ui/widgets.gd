@@ -334,6 +334,8 @@ static func back_button(callback: Callable, label: String = "Back", button_name:
 	b.name = button_name
 	b.text = label
 	b.icon = icon("back")
+	# Escape and the phone's back button press it when the screen doesn't use them itself.
+	b.set_meta("back", true)
 	b.custom_minimum_size = Vector2(0, Style.TOUCH)
 	b.add_theme_constant_override("icon_max_width", 34)
 	b.add_theme_constant_override("h_separation", 10)

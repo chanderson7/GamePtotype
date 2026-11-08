@@ -142,6 +142,7 @@ func _build() -> void:
 	# Leaving stays in thumb reach, whatever the page scrolls to.
 	var back := Button.new()
 	back.name = "LeaveButton"
+	back.set_meta("back", true)
 	back.text = "Leave %s" % String(WorldData.settlement(place)["name"])
 	Style.make_primary(back)
 	back.pressed.connect(_on_leave)
@@ -307,7 +308,7 @@ func _add_wallet(col: VBoxContainer) -> void:
 	row.add_theme_constant_override("separation", 14)
 	col.add_child(row)
 	var days := GameState.food_days()
-	var silver_tile := Widgets.tile("silver", Widgets.thousands(GameState.silver), "−%d a day" % GameState.daily_wages())
+	var silver_tile := Widgets.tile("silver", Widgets.thousands(GameState.silver), "−%d a day" % GameState.daily_outgoings())
 	var food_tile := Widgets.tile("food", str(days), "day of food" if days == 1 else "days of food",
 		Style.ENEMY_LIGHT if days < 3 else Style.TEXT)
 	row.add_child(silver_tile)
@@ -812,7 +813,7 @@ func _add_crown_holding(col: VBoxContainer) -> void:
 	v.add_child(_note("The treasury's half raises the garrison."))
 
 	var stationed: Array = GameState.stationed_at(place)
-	var g := Widgets.card(col, "Garrison", "" if stationed.is_empty() else "%d squad%s yours" % [stationed.size(), "" if stationed.size() == 1 else "s"])
+	var g := Widgets.card(col, "Garrison", "" if stationed.is_empty() else "%d compan%s yours" % [stationed.size(), "y" if stationed.size() == 1 else "ies"])
 	g.get_parent().name = "CrownGarrisonCard"
 	g.add_child(Widgets.store_tile("CrownGarrisonTile", "men", w.men_of(w.garrison_at(place)), w.garrison_capacity(place), ""))
 	for sq in stationed:
@@ -822,9 +823,9 @@ func _add_crown_holding(col: VBoxContainer) -> void:
 				_build()
 		g.add_child(_squad_line(sq, "Take back", true, "Withdraw_%d" % sid, take_back))
 	if not stationed.is_empty():
-		g.add_child(_note("Squads you leave in a garrison draw half wages, from your seat's silver before your purse."))
+		g.add_child(_note("Companies you leave in a garrison draw half wages, from your seat's silver before your purse."))
 	if GameState.army.size() > 1:
-		var open := _button("Station a squad here…", _show_station_sheet.bind(true))
+		var open := _button("Station a company here…", _show_station_sheet.bind(true))
 		open.name = "StationSquad"
 		g.add_child(open)
 
@@ -897,7 +898,7 @@ func _add_exchange_card(col: VBoxContainer) -> void:
 	if castles.is_empty():
 		card.add_child(_note("No castle of %s is free to grant. When one loses its lord, ask for it here: a crown needs walls." % WorldData.the_realm(String(WorldData.FACTIONS[realm]["name"]))))
 		return
-	card.add_child(_note("Your liege will take this village back and grant you a castle. Your squads here move with you; the village's buildings stay."))
+	card.add_child(_note("Your liege will take this village back and grant you a castle. Your companies here move with you; the village's buildings stay."))
 	for cid in castles:
 		var c := String(cid)
 		var check: Dictionary = GameState.exchange_check(c)
@@ -999,14 +1000,14 @@ func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 		men += int(sq["men"])
 		if GameState.is_company_squad(sq):
 			yours += 1
-	var aside := "" if garrison.is_empty() else "%d squad%s · %d men" % [garrison.size(), "" if garrison.size() == 1 else "s", men]
+	var aside := "" if garrison.is_empty() else "%d compan%s · %d men" % [garrison.size(), "y" if garrison.size() == 1 else "ies", men]
 	var card := Widgets.card(col, "Garrison", aside)
 	card.get_parent().name = "GarrisonCard"
 	var village := String(WorldData.settlement(place)["type"]) == WorldData.VILLAGE
 	var militia: int = w.men_of(w.village_militia(place)) if village and w != null else 0
 	var full: bool = GameState.army.size() >= GameState.squad_cap()
 	if yours == 0:
-		card.add_child(_note("No squads of yours are stationed here."))
+		card.add_child(_note("No companies of yours are stationed here."))
 	var guards := 0
 	for i in garrison.size():
 		var index := i
@@ -1020,21 +1021,21 @@ func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 				_build()
 		card.add_child(_squad_line(sq, "Take back", not full, "Withdraw_%d" % int(sq["id"]), take_back))
 	if guards > 0:
-		var keep := _note("%d guards of the realm hold the walls with your squads. They stay when you ride out." % guards)
+		var keep := _note("%d guards of the realm hold the walls with your companies. They stay when you ride out." % guards)
 		keep.name = "RealmGuards"
 		card.add_child(keep)
 	if full and yours > 0:
 		card.add_child(_note("Your warband is full, %d of %d squads. Station one to make room." % [GameState.army.size(), GameState.squad_cap()]))
 	if yours > 0:
-		var pay := _note("Your squads here draw half wages: %d silver a day, from the estate's silver before your purse." % GameState.stationed_wages())
+		var pay := _note("Your companies here draw half wages: %d silver a day, from the estate's silver before your purse." % GameState.stationed_wages())
 		pay.name = "StationedWages"
 		card.add_child(pay)
 	if GameState.army.size() > 1:
-		var open := _button("Station a squad here…", _show_station_sheet)
+		var open := _button("Station a company here…", _show_station_sheet)
 		open.name = "StationSquad"
 		card.add_child(open)
 	else:
-		card.add_child(_note("Your only squad can't stay behind."))
+		card.add_child(_note("Your only company can't stay behind."))
 	if village:
 		# What holds it against raiders, as chips.
 		card.add_child(Style.label("Against raiders", Style.SMALL, Style.MUTED))
@@ -1116,7 +1117,7 @@ func _squad_art(s: Dictionary) -> Control:
 func _show_station_sheet(holding: bool = false) -> void:
 	if _modal != null and is_instance_valid(_modal):
 		_modal.queue_free()
-	var col := Widgets.sheet(self, "Station a squad", "StationSheet", func(): _modal = null)
+	var col := Widgets.sheet(self, "Station a company", "StationSheet", func(): _modal = null)
 	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
 	col.add_child(_note("It holds %s with the garrison. One squad must ride with you." % String(WorldData.settlement(place)["name"])))
 	var squads: Array = GameState.army.duplicate()
@@ -2479,12 +2480,12 @@ func _on_buy_food(rations: int) -> void:
 
 ## Whether paying `cost` leaves less than two days of the warband's wages in the purse.
 func _hire_is_tight(cost: int) -> bool:
-	return GameState.silver - cost < 2 * GameState.daily_wages()
+	return GameState.silver - cost < 2 * GameState.daily_outgoings()
 
 
 ## Whole days of wages the purse holds after a hire, counting the new company's pay.
 func _pay_days_after_hire(cost: int, wage: float) -> int:
-	var wages_after: int = GameState.daily_wages() + int(ceil(wage))
+	var wages_after: int = GameState.daily_outgoings() + int(ceil(wage))
 	return maxi(0, GameState.silver - cost) / maxi(1, wages_after)
 
 

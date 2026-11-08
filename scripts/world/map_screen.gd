@@ -1580,16 +1580,13 @@ func _open_encounter() -> void:
 		chips.append(Widgets.chip("Ford · %s" % site["river"], Style.MORALE_MID, "◆"))
 	elif not bool(site.get("fair", true)):
 		chips.append(Widgets.chip("Their ground: %s" % ("ridge" if site["type"] == "hills" else "wood's edge"), Style.MORALE_LOW, "▼"))
-	# The same test world_sim's can_withdraw rolls against: only a lord who is quicker and
-	# far stronger can ride you down. Bandits always let you go.
-	var outpaced: bool = b.kind == WorldSim.LORD and world.party_speed(b) > world.player_speed()
-	var outmanned: bool = float(world.men_of(b.army)) > float(world.men_of(world.player().army)) * 1.3
+	# Whether you can get away is already settled for this hour (world_sim's can_withdraw:
+	# only a lord who is quicker and far stronger can ride you down), so the sheet states it
+	# rather than warning of a chance: with a way out, Withdraw simply works.
 	if is_ambush:
 		chips.append(Widgets.chip("Ambush · no way out", Style.MORALE_LOW, "", "retreat"))
 	elif not can_withdraw:
 		chips.append(Widgets.chip("Can't withdraw", Style.MORALE_LOW, "", "retreat"))
-	elif outpaced and outmanned:
-		chips.append(Widgets.chip("Withdrawing may fail", Style.MORALE_MID, "", "retreat"))
 	if not chips.is_empty():
 		var row := Widgets.chip_row(chips)
 		row.name = "EncounterChips"
@@ -1788,7 +1785,7 @@ func _open_resource(key: String) -> void:
 	var short := false
 	match key:
 		"silver":
-			var wages: int = GameState.daily_wages()
+			var wages: int = GameState.daily_outgoings()
 			short = GameState.silver < wages
 			tiles = [Widgets.tile("silver", Widgets.thousands(GameState.silver), "in the purse", Style.ENEMY_LIGHT if short else Style.TEXT),
 				Widgets.tile("men", "−%s" % Widgets.thousands(wages), "wages a day"),
@@ -3299,10 +3296,10 @@ func _refresh_hud() -> void:
 	resource_buttons["food"].text = "%sd" % _short_amount(days)
 	resource_buttons["renown"].text = _short_amount(GameState.renown)
 	resource_buttons["men"].tooltip_text = "%d men in %d companies" % [GameState.total_men(), GameState.army.size()]
-	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_wages()]
+	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_outgoings()]
 	resource_buttons["food"].tooltip_text = "%d rations · %d days of food" % [GameState.food, days]
 	resource_buttons["renown"].tooltip_text = "%d renown · you can lead %d companies" % [GameState.renown, GameState.squad_cap()]
-	resource_buttons["silver"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if GameState.silver < GameState.daily_wages() else Style.TEXT)
+	resource_buttons["silver"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if GameState.silver < GameState.daily_outgoings() else Style.TEXT)
 	resource_buttons["food"].add_theme_color_override("font_color", Style.ENEMY_LIGHT if days < 2 else Style.TEXT)
 	var p = world.player()
 	var activity := "home"
@@ -3330,7 +3327,7 @@ func _refresh_hud() -> void:
 		status_label.text = String(Data.settlement(p.node)["name"])
 	status_icon.texture = Widgets.icon(activity)
 	var low_food: bool = GameState.food < GameState.total_men()
-	var low_silver: bool = GameState.silver < GameState.daily_wages()
+	var low_silver: bool = GameState.silver < GameState.daily_outgoings()
 	var chaser = _chaser()
 	var captives: int = GameState.captive_lords().size()
 	status_label.add_theme_color_override("font_color", Style.ENEMY_LIGHT if low_food or low_silver or chaser != null else Style.TEXT)

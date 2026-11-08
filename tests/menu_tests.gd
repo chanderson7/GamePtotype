@@ -3,6 +3,7 @@
 extends SceneTree
 const State = preload("res://scripts/game_state.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const SaveSlots = preload("res://scripts/save_slots.gd")
 var failures := 0
 var gs
 var scenes
@@ -26,6 +27,8 @@ func _run() -> void:
 		scratch = "/tmp"
 	var sound = root.get_node("Sound")
 	sound.settings_path = scratch.path_join("bannerfall-menu-test-%d.cfg" % OS.get_process_id())
+	# Saves of the machine's own campaigns must not change what a fresh Home shows.
+	SaveSlots.dir = "user://menu_test_saves_%d" % OS.get_process_id()
 	sound.set_music_on(true)
 	sound.set_sounds_on(true)
 	sound.set_illustrations(true)
@@ -263,6 +266,8 @@ func _run() -> void:
 	button("View my warband").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and gs.bond_intro_seen, "viewing bonds acknowledges the introduction and opens Warband")
+	var way_back = scenes._back_button(current_scene)
+	check(way_back != null and way_back.name == "BackButton", "Escape and a phone's back find the Warband's way to the map")
 	check(current_scene.find_child("WarbandCampIllustration", true, false) != null and current_scene.find_children("CaptainPortrait", "TextureRect", true, false).size() >= gs.army.size(),
 		"Warband combines the camp header with stable captain portraits")
 	check(current_scene.find_child("CompanyBanner", true, false) != null and current_scene.find_child("WarbandSort", true, false) != null,
@@ -326,6 +331,8 @@ func _run() -> void:
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and current_scene._scroll.scroll_vertical == remembered_scroll,
 		"captain profile returns to the remembered Warband position")
 	DirAccess.remove_absolute(sound.settings_path)
+	SaveSlots.clear()
+	DirAccess.remove_absolute(SaveSlots.dir)
 	print("Menu failures: %d" % failures)
 	quit(1 if failures else 0)
 

@@ -2797,6 +2797,16 @@ func daily_wages() -> int:
 	return int(ceil(total))
 
 
+## Silver the purse pays out tomorrow: the warband's wages, plus whatever of the half wages
+## of companies left in garrisons the fief's own silver won't cover. What every forecast
+## of the purse uses.
+func daily_outgoings() -> int:
+	var standing := stationed_wages()
+	if standing > 0 and has_fief() and not bool(player_fief.get("lost", false)):
+		standing = maxi(0, standing - maxi(0, int(player_fief.get("silver", 0))))
+	return daily_wages() + standing
+
+
 ## Days the food lasts at one ration per man.
 func food_days() -> int:
 	var head := total_headcount()
@@ -2822,7 +2832,7 @@ func day_of_food_cost() -> int:
 ## Whether the purse can't cover tomorrow: not a day of the cheapest food, or not a day's
 ## wages. Paid work is what the company needs then, not a shop.
 func short_of_silver() -> bool:
-	return silver < day_of_food_cost() or silver < daily_wages()
+	return silver < day_of_food_cost() or silver < daily_outgoings()
 
 
 ## One honest next step from the current campaign state. This points at existing
@@ -2836,8 +2846,8 @@ func recommendation() -> Dictionary:
 		return {"title": "Buy provisions", "body": "Only %d days of food remain. Villages sell the cheapest supplies." % food_days(),
 			"action": "place", "place": village}
 	# A purse that can't cover tomorrow needs paid work before anything it would buy.
-	if short_of_silver() and active_jobs.is_empty():
-		var short_of: String = "wages" if silver < daily_wages() else "food"
+	if short_of_silver() and contract_count() == 0:
+		var short_of: String = "wages" if silver < daily_outgoings() else "food"
 		var work := _nearest_work_place()
 		if work != "":
 			return {"title": "Take a contract at %s" % WorldData.settlement(work)["name"],
@@ -2853,6 +2863,9 @@ func recommendation() -> Dictionary:
 		return {"title": "Training is ready", "body": "%d %s earned a new level. Town drillmasters can promote them." % [ready.size(),
 			"company has" if ready.size() == 1 else "companies have"], "action": "place", "place": town}
 	for job in active_jobs:
+		# A companion's errand is advised from her own hub, in her words.
+		if String(job.get("story_candidate", "")) != "":
+			continue
 		match String(job.get("type", "")):
 			Jobs.TYPE_COURIER:
 				var dest_id: String = String(job.get("destination_settlement", ""))
@@ -2969,7 +2982,7 @@ func _hire_leaves_pay_at(place: String) -> bool:
 		var full := Units.full_size(unit_id)
 		var cost := Economy.recruit_cost(unit_id, full)
 		var wage := int(ceil(Economy.daily_wage({"unit": unit_id, "type": String(offer["type"]), "men": full, "level": 1})))
-		if silver - cost >= 3 * (daily_wages() + wage):
+		if silver - cost >= 3 * (daily_outgoings() + wage):
 			return true
 	return false
 

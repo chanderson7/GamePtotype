@@ -388,6 +388,10 @@ func test_stationed_wages() -> void:
 	var owed: int = gs.stationed_wages()
 	assert_eq(owed, int(ceil(full_wage * gs.STATIONED_WAGE_SHARE)), "A stationed squad costs half its wages")
 	gs.player_fief["silver"] = 500
+	assert_eq(gs.daily_outgoings(), gs.daily_wages(), "Forecasts leave out garrison wages the estate covers")
+	gs.player_fief["silver"] = 0
+	assert_eq(gs.daily_outgoings(), gs.daily_wages() + owed, "And count them when the purse must pay")
+	gs.player_fief["silver"] = 500
 	var purse: int = gs.silver
 	var field_wages: int = gs.daily_wages()
 	gs._upkeep()

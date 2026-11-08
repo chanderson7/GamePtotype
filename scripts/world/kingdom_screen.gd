@@ -394,7 +394,7 @@ func _realm() -> void:
 func _holdings() -> void:
 	var held: Array = gs.crown_holdings()
 	held.sort_custom(func(a, b): return ["town", "castle", "village"].find(String(Data.settlement(a)["type"])) < ["town", "castle", "village"].find(String(Data.settlement(b)["type"])))
-	_col.add_child(_note("Castles and towns raise garrisons from the treasury. Grant one to a sworn lord and it becomes their seat; visit one to station your own squads there."))
+	_col.add_child(_note("Castles and towns raise garrisons from the treasury. Grant one to a sworn lord and it becomes their seat; visit one to station your own companies there."))
 	for id in held:
 		var info: Dictionary = Data.settlement(id)
 		var v := _row_panel(Data.crown_color if id == gs.fief_id() else Style.RULE)

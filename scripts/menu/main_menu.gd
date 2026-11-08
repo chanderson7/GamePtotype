@@ -230,7 +230,7 @@ func _build() -> void:
 ## Silver (and what a day costs), food, renown, and men (with the wounded), as tiles.
 func _tiles() -> Control:
 	var days := GameState.food_days()
-	var net := GameState.contract_daily_pay() - GameState.daily_wages()
+	var net := GameState.contract_daily_pay() - GameState.daily_outgoings()
 	var wounded := GameState.total_wounded()
 	var grid := Widgets.tile_grid([
 		Widgets.tile("silver", Widgets.thousands(GameState.silver), "%s%d a day" % ["+" if net > 0 else "−", absi(net)]),
@@ -484,7 +484,7 @@ func _on_moment_dismiss(key: String) -> void:
 
 ## What the next day costs, as a card: wages and rations going out, and what's left after.
 func _upkeep_forecast(parent: Control) -> void:
-	var wages := GameState.daily_wages()
+	var wages := GameState.daily_outgoings()
 	var stipend := GameState.contract_daily_pay()
 	var rations := GameState.total_men()
 	var due := "daily"
@@ -792,12 +792,16 @@ func _active_job_row(job: Dictionary) -> Control:
 
 ## Abandoning a contract can't be undone, so it asks on a sheet.
 func _confirm_abandon(jid: String, title: String) -> void:
-	var col := Widgets.sheet(self, "Abandon contract?", "AbandonSheet")
+	var story := false
+	for j in GameState.active_jobs:
+		if String(j.get("id", "")) == jid:
+			story = String(j.get("story_candidate", "")) != ""
+	var col := Widgets.sheet(self, "Set it down?" if story else "Abandon contract?", "AbandonSheet")
 	var job_realm: String = ""
 	for j in GameState.active_jobs:
 		if String(j.get("id", "")) == jid:
 			job_realm = GameState.job_realm(j)
-	col.add_child(_note("%s. Nothing is paid, and the board may not post it again." % title, Style.TEXT))
+	col.add_child(_note(("%s. You can take it up again when you next see her." if story else "%s. Nothing is paid, and the board may not post it again.") % title, Style.TEXT))
 	if job_realm != "":
 		col.add_child(Widgets.chip_row([Widgets.effect("bond", Jobs.ABANDON_RELATION, " with %s" % String(WorldData.FACTIONS[job_realm]["name"]))]))
 	var row := HBoxContainer.new()

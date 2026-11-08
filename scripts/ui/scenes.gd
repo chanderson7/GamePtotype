@@ -85,6 +85,8 @@ func _notification(what: int) -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _ribbon != null and (event is InputEventMouseButton or event is InputEventScreenTouch) and event.is_pressed():
+		_dismiss_ribbon(_ribbon)
 	var k := event as InputEventKey
 	if k == null or not k.pressed or k.echo or not OS.has_feature("pc"):
 		return
@@ -109,10 +111,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		(top.get_meta("close") as Callable).call()
 		get_viewport().set_input_as_handled()
 		return
-	var back := cur.find_child("Back", true, false) as Button
-	if back != null and back.is_visible_in_tree() and not back.disabled:
+	var back := _back_button(cur)
+	if back != null:
 		back.pressed.emit()
 		get_viewport().set_input_as_handled()
+
+
+## The page's way back: a visible, enabled button marked as one (Widgets.back_button marks
+## its own; screens that build theirs set the "back" meta), or one simply named Back.
+func _back_button(cur: Node) -> Button:
+	for n in cur.find_children("*", "Button", true, false):
+		var b := n as Button
+		if (b.has_meta("back") or b.name == "Back") and b.is_visible_in_tree() and not b.disabled:
+			return b
+	return null
 
 
 ## Full screen on or off (computers only), remembered with the other settings.
@@ -191,10 +203,9 @@ func _show_ribbon(r: Dictionary) -> void:
 	var panel := PanelContainer.new()
 	panel.name = "Ribbon"
 	panel.theme = Style.make_theme()
-	panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	panel.gui_input.connect(func(e: InputEvent):
-		if (e is InputEventMouseButton or e is InputEventScreenTouch) and e.is_pressed():
-			_dismiss_ribbon(panel))
+	# Taps go through to whatever is under it (the map's top bar sits there); any tap, on it
+	# or anywhere else, sends it on its way (see _input).
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb: StyleBoxFlat = Style.box(Color("2a2210"), Style.BRASS, 3, 16)
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22

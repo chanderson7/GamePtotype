@@ -1035,7 +1035,9 @@ func task(candidate_id: String) -> Dictionary:
 ## nearest her (or, with no band about, bring rations to her village) to hold her roads;
 ## carry her letters to the nearest house of her realm. Records the job's id on the task.
 ## {} when there's no task or no job can be made.
-func story_job(candidate_id: String, world_ref) -> Dictionary:
+## `closed` lists the realms whose gates are barred to the company: no errand is sent to a
+## place it couldn't enter to finish it.
+func story_job(candidate_id: String, world_ref, closed: Array = []) -> Dictionary:
 	var t := task(candidate_id)
 	if t.is_empty() or world_ref == null:
 		return {}
@@ -1068,6 +1070,8 @@ func story_job(candidate_id: String, world_ref) -> Dictionary:
 		else:
 			# No raiders about: hold the villages through the season with bread instead.
 			var village := _village_of(home)
+			if closed.has(String(world_ref.owner_of(village))):
+				return {}
 			job["type"] = Jobs.TYPE_RELIEF
 			job["origin_settlement"] = village
 			job["food_needed"] = 15
@@ -1080,7 +1084,7 @@ func story_job(candidate_id: String, world_ref) -> Dictionary:
 		var dest_d := INF
 		for id in WorldData.SETTLEMENTS:
 			var kind := String(WorldData.settlement(id).get("type", ""))
-			if id == home or kind == WorldData.VILLAGE:
+			if id == home or kind == WorldData.VILLAGE or closed.has(String(world_ref.owner_of(id))):
 				continue
 			var d2: float = WorldData.pos(id).distance_to(home_pos)
 			# Her realm's houses first; any town or castle when none are left to it.

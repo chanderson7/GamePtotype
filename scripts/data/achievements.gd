@@ -51,7 +51,8 @@ static func progress(gs, id: String) -> int:
 	var have := 0
 	match id:
 		"jobs":
-			have = gs.completed_jobs.size()
+			# Board and lord work; a companion's errand is her story, not a contract.
+			have = gs.completed_jobs.filter(func(j): return String(j.get("story_candidate", "")) == "").size()
 		"veteran":
 			for s in gs.army:
 				if s.get("captain") is Dictionary:

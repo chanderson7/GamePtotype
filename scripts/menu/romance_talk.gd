@@ -434,7 +434,11 @@ func _task_waiting(choice: String) -> void:
 
 ## Put chapter 3's task in the journal as a job, bound to her seat and villages.
 func _take_task(spoken: bool = false) -> void:
-	var job: Dictionary = _social().story_job(cand, GameState.world)
+	var closed: Array = []
+	for realm in Data.FACTIONS:
+		if GameState.is_at_war_with(String(realm)):
+			closed.append(String(realm))
+	var job: Dictionary = _social().story_job(cand, GameState.world, closed)
 	if spoken:
 		clear_log()
 		say("you", "I gave you my word. I'll see it done.")
