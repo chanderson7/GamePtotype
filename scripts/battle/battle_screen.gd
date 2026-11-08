@@ -3807,6 +3807,8 @@ func _back_to_camp() -> void:
 	if _pending_result.is_empty():
 		_pending_result = _result()
 	var campaign: bool = GameState.has_campaign() and not GameState.pending_battle.is_empty()
+	# Its result card has been on screen: the map doesn't tell the same numbers again.
+	_pending_result["shown"] = true
 	GameState.apply_result(_pending_result)
 	if autoplay:
 		GameState.autoplay_battles += 1

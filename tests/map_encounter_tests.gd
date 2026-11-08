@@ -77,6 +77,24 @@ func _init() -> void:
 	check(gs.map_notice_title == "After the battle", "a battle's result is titled After the battle")
 	gs.take_map_notice()
 
+	# Fought on the battle screen, a plain win has said everything on its result card (the
+	# men lost and cut down, the spoils, the bonds): the map has no card to add. Settled
+	# without leading the men, the map's card is the only report, so it tells it all.
+	var bands: Array = w.bands()
+	w.encounter = bands[0].id
+	gs.start_encounter_battle()
+	gs.pending_battle["objective"] = "rout"
+	gs.apply_result({"won": true, "reason": "rout", "lost": 2, "killed": 9, "squads": {}, "shown": true})
+	check(gs.map_notice == "" and gs.map_notice_title == "", "a fight shown on the battle screen leaves no After the battle card")
+	gs.take_map_notice()
+	w.encounter = bands[1].id if bands.size() > 1 else bands[0].id
+	gs.start_encounter_battle()
+	gs.pending_battle["objective"] = "rout"
+	gs.apply_result({"won": true, "reason": "rout", "lost": 2, "killed": 9, "squads": {}})
+	check(gs.map_notice.contains("You lost 2 men and cut down 9") and gs.map_notice_title == "After the battle",
+		"one settled without the battle screen still tells its losses and spoils on the map")
+	gs.take_map_notice()
+
 	# Pulling out before the lines meet is riding away: no battle counted, no defeat, no ride home.
 	var fought: int = gs.battles
 	var at_node: String = w.player().node

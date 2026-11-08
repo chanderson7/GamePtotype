@@ -4547,8 +4547,14 @@ func apply_result(result: Dictionary) -> void:
 	if bool(result.get("before_fight", false)) and String(pending_battle.get("objective", "rout")) != "siege":
 		_ride_away_before_fight()
 		return
+	# A battle fought on the battle screen has had its result card there (losses, spoils,
+	# each captain's fate, new bonds), so the map says none of that again: only what the
+	# card didn't (a lord taken or slain, a contract's bounty, a castle won, where the
+	# survivors regroup), and with nothing left to say, no card at all. A fight settled
+	# without leading the men has no other report, so the map tells all of it.
+	var shown := bool(result.get("shown", false))
 	# What became of each captain, in words, while the roster still names them.
-	var fates := describe_result(result)
+	var fates: Array = [] if shown else describe_result(result)
 	var rank_events := _bond_rank_events(result)
 	var report := battle_report(result)
 	battles += 1
@@ -4617,9 +4623,10 @@ func apply_result(result: Dictionary) -> void:
 					if not history["scars"].has(scar_desc):
 						history["scars"].append(scar_desc)
 					c["history"] = history
-					_note("%s suffered a grievous wound in battle %d, but survived (sits out %d battles)." % [
-						c["name"], battles, Captains.CASUAL_WOUND_BATTLES
-					])
+					if not shown:
+						_note("%s suffered a grievous wound in battle %d, but survived (sits out %d battles)." % [
+							c["name"], battles, Captains.CASUAL_WOUND_BATTLES
+						])
 				else:
 					dead_ids.append(int(c["id"]))
 					fallen_captains.append(c)
@@ -4651,7 +4658,7 @@ func apply_result(result: Dictionary) -> void:
 		world.return_allied_losses(by_id)
 	if world != null and not pending_battle.is_empty():
 		var band := String(pending_battle.get("name", "The bandits"))
-		var how := "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
+		var how := "" if shown else "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
 		var obj: String = String(pending_battle.get("objective", "rout"))
 		var c_name: String = String(pending_battle.get("chief_name", ""))
 		var r_village: String = String(pending_battle.get("raid_village", ""))
@@ -4686,7 +4693,8 @@ func apply_result(result: Dictionary) -> void:
 					add_realm_relation(enemy_faction, -30)
 					_note("You attacked a lord of %s while at peace! They count your company an enemy now and bar their gates to you (standing %d)." % [
 						WorldData.FACTIONS[enemy_faction]["name"], relation_with_realm(enemy_faction)])
-				_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
+				if not shown:
+					_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
 
 				# Vengeance & Lord Fate
 				if enemy_lid >= 0 and world != null:
@@ -4734,7 +4742,7 @@ func apply_result(result: Dictionary) -> void:
 			silver += int(got["silver"])
 			food += int(got["food"])
 			renown += int(got["renown"])
-			if not is_lord:
+			if not is_lord and not shown:
 				_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
 					band, how, got["silver"], got["food"], got["renown"]])
 			var b_party_id: int = int(pending_battle.get("party_id", -1))
@@ -4781,8 +4789,10 @@ func apply_result(result: Dictionary) -> void:
 	pending_battle = {}
 	last_result = report
 	save_game()
-	# Whatever it left to say comes under the battle's own title.
+	# Whatever it left to say comes under the battle's own title (with the result card's
+	# numbers taken out, a sentence may have kept the space they stood in).
 	if map_notice != "":
+		map_notice = map_notice.replace("  ", " ")
 		map_notice_title = "After the battle"
 
 
