@@ -3015,17 +3015,18 @@ func _next_tier() -> Dictionary:
 	var fame: String = "" if renown >= CROWN_RENOWN else "A crown needs %d renown; you have %d. " % [CROWN_RENOWN, renown]
 	if walled:
 		return {"title": "Toward a crown", "body": "%s%s has the walls a crown's seat needs." % [fame, seat_name], "action": "map", "place": ""}
-	var court := String(WorldData.FACTIONS[liege].get("capital", ""))
-	var free_castle := ""
-	for s_id in available_fiefs_for_grant(liege):
-		if String(WorldData.settlement(s_id)["type"]) == WorldData.CASTLE:
-			free_castle = String(s_id)
-			break
-	var castle_line: String = "No castle of %s stands free yet; when one does, ask at your liege's court." % String(WorldData.FACTIONS[liege]["name"])
-	if free_castle != "":
-		castle_line = "%s stands without a lord: ask at your liege's court to hold it instead." % WorldData.settlement(free_castle)["name"]
+	# A free castle is asked for from the village's own Fief tab ("Walls of your own").
+	var castles: Array = exchange_castles()
+	var castle_line: String = "No castle of %s stands free yet; when one does, ask for it from %s's Fief tab." % [
+		String(WorldData.FACTIONS[liege]["name"]), seat_name]
+	if not castles.is_empty():
+		var free_castle := String(castles[0])
+		var ask: Dictionary = exchange_check(free_castle)
+		castle_line = "%s stands without a lord: ask your liege for it from %s's Fief tab." % [WorldData.settlement(free_castle)["name"], seat_name]
+		if not bool(ask.get("ok", false)):
+			castle_line += " " + String(ask.get("reason", ""))
 	return {"title": "Toward a crown", "body": "%sA crown's seat needs walls, and %s is a village. %s" % [fame, seat_name, castle_line],
-		"action": "place" if WorldData.SETTLEMENTS.has(court) else "map", "place": court}
+		"action": "place", "place": seat}
 
 
 func _nearest_settlement(kinds: Array) -> String:
@@ -4436,6 +4437,11 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 
 ## Apply a battle result from BattleSim.result_for(PLAYER).
 func apply_result(result: Dictionary) -> void:
+	# Pulling out before the lines met is riding away, as Withdraw on the map is: no battle
+	# fought, no defeat, nobody hurt. A siege's own business is settled the usual way.
+	if bool(result.get("before_fight", false)) and String(pending_battle.get("objective", "rout")) != "siege":
+		_ride_away_before_fight()
+		return
 	# What became of each captain, in words, while the roster still names them.
 	var fates := describe_result(result)
 	var rank_events := _bond_rank_events(result)
@@ -4673,6 +4679,18 @@ func apply_result(result: Dictionary) -> void:
 	# Whatever it left to say comes under the battle's own title.
 	if map_notice != "":
 		map_notice_title = "After the battle"
+
+
+## The warband left the field before the fight: back the way it came with a little
+## grace, as the map's Withdraw does, paying for any day that ended on the way.
+func _ride_away_before_fight() -> void:
+	var foe := String(pending_battle.get("name", "the enemy"))
+	if world != null and not pending_battle.is_empty():
+		world.withdraw()
+		settle()
+		_note("You rode away from %s before the lines met." % foe)
+	pending_battle = {}
+	save_game()
 
 
 ## Attacking a lord of a realm the player is at peace with starts a war.

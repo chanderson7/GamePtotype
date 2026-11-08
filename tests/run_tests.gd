@@ -308,6 +308,7 @@ func _check_retreat() -> void:
 	_expect(early.withdraw_cost(Sim.PLAYER) == 0, "leaving before the fight costs no men")
 	early.concede(Sim.PLAYER)
 	_expect(early.winner == Sim.ENEMY and int(early.result_for(Sim.PLAYER)["lost"]) == 0, "and none are lost")
+	_expect(bool(early.result_for(Sim.PLAYER)["before_fight"]), "and the result says you rode away before the fight")
 	early.dispose()
 
 	var free := Sim.new()
@@ -320,6 +321,7 @@ func _check_retreat() -> void:
 	free.concede(Sim.PLAYER)
 	_expect(cost > 0 and cost < before and before - free.men_on_field(Sim.PLAYER) == cost and free.end_reason == "retreat",
 		"a retreat in the fight leaves the men the button says behind (%d of %d)" % [cost, before])
+	_expect(not bool(free.result_for(Sim.PLAYER)["before_fight"]), "a retreat once the fight began is a lost battle")
 	free.dispose()
 
 	var cut := Sim.new()

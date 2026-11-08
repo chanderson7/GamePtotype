@@ -77,5 +77,15 @@ func _init() -> void:
 	check(gs.map_notice_title == "After the battle", "a battle's result is titled After the battle")
 	gs.take_map_notice()
 
+	# Pulling out before the lines meet is riding away: no battle counted, no defeat, no ride home.
+	var fought: int = gs.battles
+	var at_node: String = w.player().node
+	var hour_was: float = w.hour
+	gs.pending_battle = {"name": "The Ashen Hands", "objective": "rout"}
+	gs.apply_result({"won": false, "reason": "retreat", "before_fight": true, "lost": 0, "killed": 0, "squads": {}})
+	check(gs.battles == fought and gs.pending_battle.is_empty(), "leaving before the fight isn't a battle fought")
+	check(w.player().node == at_node and w.hour - hour_was < 12.0, "and doesn't send you home beaten")
+	gs.take_map_notice()
+
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)

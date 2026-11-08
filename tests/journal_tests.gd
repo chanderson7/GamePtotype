@@ -163,8 +163,8 @@ func _check_advice() -> void:
 		st.player_fief["silver"] = 0
 		rec = st.recommendation()
 		check(String(rec.get("title", "")) == "Toward a crown" and String(rec.get("body", "")).contains("200 renown")
-			and String(rec.get("body", "")).contains("liege's court"),
-			"a vassal is told the renown a crown needs and to ask at the liege's court for walls")
+			and String(rec.get("body", "")).contains("Fief tab") and String(rec.get("place", "")) == "kettlebrook",
+			"a vassal is told the renown a crown needs and to ask for walls from the village's Fief tab")
 	# A crown: how many seats fly its banner.
 	st.player_fief = {}
 	var seats := 0

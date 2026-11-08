@@ -448,6 +448,9 @@ var ai: Array = [null, null]
 var allied_ai: RefCounted = null
 var winner := -1
 var end_reason := ""
+## True when the player pulled out before the lines met: on the map that is riding away,
+## not a lost battle.
+var left_before_fight := false
 ## The side running for its own edge after a withdrawal it was cut off from making
 ## (see concede), or -1; and when it began.
 var withdrawing := -1
@@ -3850,6 +3853,8 @@ func concede(team: int, cut_off: bool = false) -> void:
 		return
 	if phase == PHASE_BATTLE:
 		_pay_withdrawal(team)
+	else:
+		left_before_fight = true
 	_finish(1 - team, "retreat")
 
 
@@ -3992,7 +3997,7 @@ func result_for(team: int) -> Dictionary:
 			if sq.team == team and not sq.info.is_empty() and String(key).split("|").has(str(sq.info["id"])):
 				bonds[key] = bond_time[key]
 				break
-	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
+	return {"won": winner == team, "reason": end_reason, "before_fight": left_before_fight and team == PLAYER, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
 		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped,
 		"gate_breached": objective == OBJECTIVE_SIEGE and gate_hp <= 0.0,
 		"is_lord": is_lord, "lord_captured": lord_captured, "lord_killed": lord_killed, "lord_escaped": lord_escaped,
