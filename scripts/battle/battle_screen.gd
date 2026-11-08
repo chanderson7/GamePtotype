@@ -288,6 +288,14 @@ var _shadow_col := Color.BLACK
 ## Each side's shadow, faintly in its own color, so in a melee the two hosts stay apart.
 var _shadow_cols := [Color.BLACK, Color.BLACK]
 const BATCH_FLOATS := 16
+## The bodies' batches grow this many at a time.
+const CORPSE_STEP := 64
+## The white disc behind _dot, made once for every battle.
+static var _disc_cache: Texture2D = null
+var _disc_tex: Texture2D = null
+## Whether this frame's men are drawn without the flash of a blow (Reduced motion), read
+## once a frame rather than once a man.
+var _still_men := false
 const TROOP_SHADER := """
 shader_type canvas_item;
 varying float flash;
@@ -502,8 +510,8 @@ var result_content: VBoxContainer
 var terrain_hint_panel: PanelContainer
 var terrain_hint_title: Label
 var terrain_hint_body: Label
-var _height_tex: ImageTexture = null
-## The field's features (woods floor, river, rocks, houses) baked once (FieldArt.plate).
+## The field's slopes and features (woods floor, river, rocks, houses), baked once into one
+## texture (FieldArt.overlay).
 var _plate_tex: ImageTexture = null
 var _trees: Array = []
 ## Woods on the battlefield: the shade of the forest floor, in rings, and how solid the
@@ -1230,7 +1238,7 @@ func _draw_puffs() -> void:
 	for e in _puffs:
 		var t := float(e["age"]) / float(e["life"])
 		var r: float = lerpf(e["r0"], e["r1"], t)
-		_c.draw_circle(e["p"], r, Color(Color(e["c"]).lightened(0.18), float(e["a"]) * (1.0 - t) * minf(1.0, t * 6.0 + 0.2)))
+		_dot(e["p"], r, Color(Color(e["c"]).lightened(0.18), float(e["a"]) * (1.0 - t) * minf(1.0, t * 6.0 + 0.2)))
 
 
 ## Where the lines meet: a warm glow along the front, under the men.
@@ -1247,8 +1255,8 @@ func _draw_front() -> void:
 			if i % 2 == 1 or not so.alive or so.target == null or not so.target.alive or so.target.squad == null or so.target.squad.team == sq.team:
 				continue
 			var mid: Vector2 = so.pos.lerp(so.target.pos, 0.5)
-			_c.draw_circle(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
-			_c.draw_circle(mid, 5.0, Color(1.0, 0.82, 0.45, 0.11 + pulse))
+			_dot(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
+			_dot(mid, 5.0, Color(1.0, 0.82, 0.45, 0.11 + pulse))
 
 
 ## Where a volley will land: a shadow on the ground, darker as the arrows come down.
@@ -1293,32 +1301,54 @@ func _draw_falling() -> void:
 		_sprite(type, int(c["team"]), 2 if t < 0.25 else 1, p + Vector2(0, 2.0 * fall), lerp_angle(end - 1.4, end, fall), tint, 1.0 - 0.1 * fall, culture)
 
 
-## What a fallen man leaves beside him: a dark patch, his shield, his weapon.
-func _draw_gear(c: Dictionary) -> void:
-	var p: Vector2 = c["pos"]
-	var a := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
-	_c.draw_set_transform(field_origin + (p + Vector2(1.5, 1.5)) * field_scale, 0.0, Vector2(field_scale, field_scale * 0.6))
-	_c.draw_circle(Vector2.ZERO, 8.0, Color(0.33, 0.06, 0.05, 0.26))
-	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	var d := Vector2.from_angle(a + 1.2)
-	_c.draw_line(p + d * 6.0, p + d * 14.0, Color(0.5, 0.37, 0.22, 0.9), 1.3)
-	_c.draw_line(p + d * 12.5, p + d * 15.0, Color(0.82, 0.82, 0.8, 0.9), 1.6)
-	var team_col := Style.PLAYER if int(c["team"]) == Sim.PLAYER else Style.ENEMY
-	var at := p - d.rotated(0.6) * 7.5
-	_c.draw_circle(at, 3.0, team_col.darkened(0.35))
-	_c.draw_arc(at, 3.0, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
+## What the fallen leave beside them: a dark patch, a weapon, a shield. Drawn kind by kind
+## (every patch, then every weapon, then every shield), so each kind goes as one batch.
+func _draw_gear() -> void:
+	var n: int = sim.corpses.size()
+	if n == 0:
+		return
+	var pool := Color(0.33, 0.06, 0.05, 0.26)
+	var shaft := Color(0.5, 0.37, 0.22, 0.9)
+	var head := Color(0.82, 0.82, 0.8, 0.9)
+	var rim := Color(0.12, 0.08, 0.04, 0.7)
+	var faces := [Style.PLAYER.darkened(0.35), Style.ENEMY.darkened(0.35)]
+	var dirs := PackedVector2Array()
+	dirs.resize(n)
+	var i := 0
+	for c in sim.corpses:
+		var p: Vector2 = c["pos"]
+		_dot(p + Vector2(1.5, 1.5), 8.0, pool, 0.6)
+		dirs[i] = Vector2.from_angle(fposmod(p.x * 12.9898 + p.y * 78.233, TAU) + 1.2)
+		i += 1
+	i = 0
+	for c in sim.corpses:
+		var p: Vector2 = c["pos"]
+		var d: Vector2 = dirs[i]
+		_c.draw_line(p + d * 6.0, p + d * 14.0, shaft, 1.3)
+		_c.draw_line(p + d * 12.5, p + d * 15.0, head, 1.6)
+		i += 1
+	i = 0
+	for c in sim.corpses:
+		var at: Vector2 = Vector2(c["pos"]) - dirs[i].rotated(0.6) * 7.5
+		_dot(at, 3.4, rim)
+		_dot(at, 2.6, faces[0 if int(c["team"]) == Sim.PLAYER else 1])
+		i += 1
 
 
 ## Shields and spears dropped by men who ran.
 func _draw_litter() -> void:
+	# Every spear, then every shield, so each kind goes as one batch.
 	for e in _litter:
-		var p: Vector2 = e["p"]
-		if bool(e["shield"]):
-			_c.draw_circle(p, 2.8, (Style.PLAYER if int(e["team"]) == Sim.PLAYER else Style.ENEMY).darkened(0.4))
-			_c.draw_arc(p, 2.8, 0.0, TAU, 12, Color(0.12, 0.08, 0.04, 0.7), 0.8)
-		else:
+		if not bool(e["shield"]):
+			var p: Vector2 = e["p"]
 			var d := Vector2.from_angle(float(e["a"]))
 			_c.draw_line(p - d * 7.0, p + d * 7.0, Color(0.5, 0.37, 0.22, 0.9), 1.2)
+	var rim := Color(0.12, 0.08, 0.04, 0.7)
+	var faces := [Style.PLAYER.darkened(0.4), Style.ENEMY.darkened(0.4)]
+	for e in _litter:
+		if bool(e["shield"]):
+			_dot(e["p"], 3.2, rim)
+			_dot(e["p"], 2.4, faces[0 if int(e["team"]) == Sim.PLAYER else 1])
 
 
 ## Standards lying where their squads broke (screen space).
@@ -4817,6 +4847,31 @@ func _redraw() -> void:
 		_top_layer.queue_redraw()
 
 
+## A disc of radius `r` at `at` on the canvas being drawn, `squash` times as tall as it is
+## wide: the field's discs by the hundred (blood on the ground, dropped shields, dust, the
+## glow along the front, arrowheads). It is one white disc texture drawn as a rect, and
+## rects with the same texture go to the GPU together, where every draw_circle is a
+## polygon of its own, built and drawn alone, each frame: thousands late in a big fight.
+func _dot(at: Vector2, r: float, col: Color, squash: float = 1.0) -> void:
+	if _disc_tex == null:
+		_disc_tex = disc_texture()
+	_c.draw_texture_rect(_disc_tex, Rect2(at.x - r, at.y - r * squash, r * 2.0, r * 2.0 * squash), false, col)
+
+
+## The white disc _dot draws, edge softened over one texel.
+static func disc_texture() -> Texture2D:
+	if _disc_cache == null:
+		var n := 64
+		var img := Image.create_empty(n, n, false, Image.FORMAT_RGBA8)
+		var mid := n * 0.5
+		for y in n:
+			for x in n:
+				var d := Vector2(x + 0.5 - mid, y + 0.5 - mid).length()
+				img.set_pixel(x, y, Color(1, 1, 1, clampf(mid - d, 0.0, 1.0)))
+		_disc_cache = ImageTexture.create_from_image(img)
+	return _disc_cache
+
+
 func _make_layers() -> void:
 	_troop_layer = Node2D.new()
 	_troop_layer.name = "TroopLayer"
@@ -4963,8 +5018,7 @@ func _draw_battle() -> void:
 	var going_down := {}
 	for e in _falling:
 		going_down[e["corpse"]] = true
-	for c in sim.corpses:
-		_draw_gear(c)
+	_draw_gear()
 	_draw_corpses(going_down)
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_litter()
@@ -4984,6 +5038,7 @@ func _draw_battle() -> void:
 ## then every man in one draw: the squads out of the fight in turn, then the men of the
 ## melee back to front across squads.
 func _draw_troops() -> void:
+	_still_men = Style.motion_reduced()
 	_men_n = 0
 	_shadow_n = 0
 	_rings.clear()
@@ -5060,9 +5115,7 @@ func _draw_field() -> void:
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_ground_marks()
 
-	# The slopes, lit and shaded, then the features baked on the plate.
-	if _height_tex != null:
-		_c.draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
+	# The slopes, lit and shaded, and the features over them, baked as one texture.
 	if _plate_tex != null:
 		_c.draw_texture_rect(_plate_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
 	if sim != null and _terrain_site_type == "river":
@@ -5113,7 +5166,7 @@ func _draw_hour_ground() -> void:
 			lights.append(sim.gate_center)
 		for at in lights:
 			for k in 6:
-				_c.draw_circle(at, 110.0 - k * 16.0, Color(1.0, 0.72, 0.4, 0.035))
+				_dot(at, 110.0 - k * 16.0, Color(1.0, 0.72, 0.4, 0.035))
 
 
 ## The hour over the men: a lighter wash, so they keep their colours.
@@ -5206,7 +5259,7 @@ func _setup_terrain_visuals() -> void:
 	_trees.clear()
 	_terrain_site_type = "open"
 
-	_height_tex = FieldArt.hillshade(t, _biome)
+	var shade := FieldArt.hillshade_image(t, _biome)
 
 	# Populate woods trees
 	var tree_name := "tree"
@@ -5237,7 +5290,7 @@ func _setup_terrain_visuals() -> void:
 						"flip": 1.0 if rng.randf() < 0.5 else -1.0,
 					})
 	_trees.sort_custom(func(a, b): return a["pos"].y < b["pos"].y)
-	_plate_tex = FieldArt.plate(t, _biome, _trees, 999)
+	_plate_tex = FieldArt.overlay(shade, FieldArt.plate_image(t, _biome, _trees, 999))
 
 	for feat in t.features:
 		var ft: String = feat.get("type", "")
@@ -5432,8 +5485,8 @@ func _culture_of(sq) -> String:
 func _draw_scars() -> void:
 	for c in sim.corpses:
 		var p: Vector2 = c["pos"]
-		_c.draw_circle(p + Vector2(2, 3), 11.0, Color(0.27, 0.19, 0.09, 0.16))
-		_c.draw_circle(p, 5.0, Color(0.36, 0.08, 0.06, 0.18))
+		_dot(p + Vector2(2, 3), 11.0, Color(0.27, 0.19, 0.09, 0.16))
+		_dot(p, 5.0, Color(0.36, 0.08, 0.06, 0.18))
 
 
 func _draw_zones() -> void:
@@ -5497,11 +5550,13 @@ func _draw_objectives() -> void:
 
 
 func _draw_stuck_arrows() -> void:
+	# Every shaft, then every fletching, so each goes as one batch.
 	for a in sim.stuck_arrows:
 		var p: Vector2 = a["pos"]
 		var d := Vector2.from_angle(float(a["angle"]))
 		_c.draw_line(p - d * 5.0, p + d * 1.5, Color(0.29, 0.2, 0.12, 0.85), 1.4)
-		_c.draw_circle(p - d * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
+	for a in sim.stuck_arrows:
+		_dot(Vector2(a["pos"]) - Vector2.from_angle(float(a["angle"])) * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
 
 
 ## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing
@@ -5604,20 +5659,20 @@ func _draw_bursts() -> void:
 			"dust":
 				for i in 5:
 					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
-					_c.draw_circle(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
+					_dot(pos + d * (8.0 + 16.0 * t), 6.0 + 5.0 * t, Color(color, color.a * 0.55))
 			"stone":
 				var from: Vector2 = burst.get("from", pos)
 				if t < 0.7:
 					var k := t / 0.7
 					var at := from.lerp(pos, k * k)
-					_c.draw_circle(at + Vector2(2, 2), 4.0, Color(0, 0, 0, 0.35))
-					_c.draw_circle(at, 4.0, Color(burst["color"], 1.0))
-					_c.draw_circle(at + Vector2(-1, -1), 1.6, Color(1, 1, 1, 0.5))
+					_dot(at + Vector2(2, 2), 4.0, Color(0, 0, 0, 0.35))
+					_dot(at, 4.0, Color(burst["color"], 1.0))
+					_dot(at + Vector2(-1, -1), 1.6, Color(1, 1, 1, 0.5))
 				else:
 					var k2 := (t - 0.7) / 0.3
 					for i in 4:
 						var d := Vector2.from_angle(float(i) / 4.0 * TAU + 0.4)
-						_c.draw_circle(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
+						_dot(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
 			"fall":
 				_c.draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
 				_c.draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
@@ -5692,27 +5747,28 @@ func _put_man(cell: Rect2, at: Vector2, angle: float, sx: float, sy: float, piv:
 ## The dead, one draw for each kind of body: man or horse, by side. Bodies of a kind lie in
 ## the order they fell.
 func _draw_corpses(going_down: Dictionary) -> void:
-	var groups := {}
+	# Four kinds of body: a man or a horse, yours or theirs.
+	var groups := [[], [], [], []]
 	for c in sim.corpses:
 		# A man still falling isn't a body yet.
 		if going_down.has(c):
 			continue
-		var name := "corpse_horse" if c.get("type", "") == Troops.CAVALRY else "corpse"
-		var key := "%s/%d" % [name, int(c["team"])]
-		if not groups.has(key):
-			groups[key] = [name, int(c["team"]), []]
-		groups[key][2].append(c)
+		groups[(2 if c.get("type", "") == Troops.CAVALRY else 0) + (0 if int(c["team"]) == Sim.PLAYER else 1)].append(c)
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	for key in groups:
-		var name: String = groups[key][0]
-		var tex := Art.frame(name, int(groups[key][1]), 0)
-		var list: Array = groups[key][2]
+	for g in 4:
+		var list: Array = groups[g]
+		if list.is_empty():
+			continue
+		var name := "corpse_horse" if g >= 2 else "corpse"
+		var tex := Art.frame(name, Sim.PLAYER if g % 2 == 0 else Sim.ENEMY, 0)
 		var k := Art.pixel_size(name)
 		var piv := Art.pivot(name)
 		var w := tex.get_width() * k
 		var h := tex.get_height() * k
+		# Room for the bodies in steps of CORPSE_STEP, so the MultiMesh is only remade as
+		# the field fills, not every time a man falls.
 		var buf := PackedFloat32Array()
-		buf.resize(list.size() * 12)
+		buf.resize(ceili(list.size() / float(CORPSE_STEP)) * CORPSE_STEP * 12)
 		var j := 0
 		for c in list:
 			var p: Vector2 = c["pos"]
@@ -5731,12 +5787,9 @@ func _draw_corpses(going_down: Dictionary) -> void:
 			buf[j + 10] = 1.0
 			buf[j + 11] = 0.8
 			j += 12
-		if not _corpse_mm.has(key):
-			_corpse_mm[key] = _batch(false)
-		var mm: MultiMesh = _corpse_mm[key]
-		mm.instance_count = list.size()
-		mm.buffer = buf
-		_c.draw_multimesh(mm, tex)
+		if not _corpse_mm.has(g):
+			_corpse_mm[g] = _batch(false)
+		_flush(_corpse_mm[g], buf, list.size(), tex, 12)
 
 
 ## How a squad's men are drawn this frame: kit, tint and what the squad as a whole is doing.
@@ -5913,11 +5966,16 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 		look["px"] = Art.pixel_size(type)
 	var k: float = float(look["px"]) * grow
 	# A pale flash of the hit, light enough that the kit still reads (none under Reduced motion).
-	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not Style.motion_reduced() else 0.0
+	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not _still_men else 0.0
 	_put_man(look["cells"][clampi(index, 0, 2)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
 func _draw_arrows() -> void:
+	# Every shadow and streak, then every arrow, so the lines go as one batch and the
+	# arrows as another, not three draws an arrow.
+	var at := PackedVector2Array()
+	var turn := PackedFloat32Array()
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	for p in sim.projectiles:
 		var to: Vector2 = p.aim - p.pos
 		if to.length() < 0.01:
@@ -5928,14 +5986,16 @@ func _draw_arrows() -> void:
 		var rise := minf(70.0, total * 0.2)
 		var height := 4.0 * rise * t * (1.0 - t)
 		var dir := to.normalized()
-		_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 		_c.draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
 		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
 		var screen_dir := (dir - Vector2(0, slope)).normalized()
 		# A streak behind it, so a volley reads as a flight of arrows.
 		var lifted: Vector2 = p.pos - Vector2(0, height)
 		_c.draw_line(lifted - screen_dir * 16.0, lifted - screen_dir * 3.0, Color(1, 1, 1, 0.3), 1.0)
-		_sprite("arrow", 0, 0, p.pos - Vector2(0, height), screen_dir.angle() + PI * 0.5)
+		at.append(lifted)
+		turn.append(screen_dir.angle() + PI * 0.5)
+	for i in at.size():
+		_sprite("arrow", 0, 0, at[i], turn[i])
 
 
 ## Every squad carries a standard over it: its type, a morale bar and a head count. A
@@ -6062,13 +6122,13 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	_c.draw_line(base + Vector2(1, 1), top + Vector2(1, 1), Color(0, 0, 0, 0.5), 4.0)
 	_c.draw_line(base, top, Color("6b4a2a"), 3.0)
 	var ready: bool = mine and sim.ability_ready(sq)
-	_c.draw_circle(top, 5.0 if ready else 3.5, Style.BRASS if ready or not sq.routing else Color(0.5, 0.5, 0.5))
+	_dot(top, 5.0 if ready else 3.5, Style.BRASS if ready or not sq.routing else Color(0.5, 0.5, 0.5))
 	if not sq.routing:
 		_std_tops[sq] = top
 	var edge := Style.BRASS if selected or sq.braced() else (Color("5bc0be") if sq.is_ally else Color(0.06, 0.05, 0.08))
 	if sim.winner != -1 and sq.team == sim.winner and sq.is_active():
 		# The winners' standards glow, held high.
-		_c.draw_circle(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
+		_dot(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
 	var wave: float = -1.0 if Sound.reduced_motion else _clock * 5.0 + sq.id * 1.3
 	_draw_flag(_c, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge, wave)
 	if sq.is_bodyguard or sq.is_chief:
@@ -6088,7 +6148,7 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		# A warning mark beside the flag, steady with reduced motion, pulsing otherwise.
 		var pulse := 1.0 if Sound.reduced_motion else 0.6 + 0.4 * sin(_clock * 9.0)
 		var mark := top + Vector2(FLAG.x + 12.0, 8.0)
-		_c.draw_circle(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
+		_dot(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
 		_c.draw_string(font, mark + Vector2(-3.5, 6.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.05, 0.03, 0.03))
 	if sq.arrows == 0:
 		# Out of arrows: an empty quiver beside the flag, for as long as it lasts.
@@ -6108,18 +6168,31 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 
 ## A morale meter's shape, so it reads without its colour: ▲ steady, ◆ shaken, ▼ near
 ## breaking (the same bands as Style.morale_color), on a dark outline.
+## Drawn as two primitives (the dark outline a size up, the shape over it), which batch
+## with the rest of the frame where a polygon or polyline would each be drawn alone.
 func _draw_morale_mark(ci: CanvasItem, at: Vector2, morale: float, r: float) -> void:
-	var pts: PackedVector2Array
+	var dark := Color(0.03, 0.03, 0.05, 0.9)
+	var fill := Style.morale_color(morale)
+	var outline := _morale_shape(at, morale, r + 1.5)
+	var shape := _morale_shape(at, morale, r - 0.3)
+	ci.draw_primitive(outline, _ink(dark, outline.size()), PackedVector2Array())
+	ci.draw_primitive(shape, _ink(fill, shape.size()), PackedVector2Array())
+
+
+## A morale mark's corners: ▲ steady, ◆ shaken, ▼ near breaking.
+static func _morale_shape(at: Vector2, morale: float, r: float) -> PackedVector2Array:
 	if morale > 60.0:
-		pts = PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, r * 0.8), at + Vector2(-r, r * 0.8)])
-	elif morale > 42.0:
-		pts = PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0)])
-	else:
-		pts = PackedVector2Array([at + Vector2(-r, -r * 0.8), at + Vector2(r, -r * 0.8), at + Vector2(0, r)])
-	var ring := pts.duplicate()
-	ring.append(pts[0])
-	ci.draw_polyline(ring, Color(0.03, 0.03, 0.05, 0.9), 3.0)
-	ci.draw_colored_polygon(pts, Style.morale_color(morale))
+		return PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, r * 0.8), at + Vector2(-r, r * 0.8)])
+	if morale > 42.0:
+		return PackedVector2Array([at + Vector2(0, -r), at + Vector2(r, 0), at + Vector2(0, r), at + Vector2(-r, 0)])
+	return PackedVector2Array([at + Vector2(-r, -r * 0.8), at + Vector2(r, -r * 0.8), at + Vector2(0, r)])
+
+
+static func _ink(c: Color, n: int) -> PackedColorArray:
+	var out := PackedColorArray()
+	out.resize(n)
+	out.fill(c)
+	return out
 
 
 ## A state badge: a quiver with no arrows in it, on a dark disc.
