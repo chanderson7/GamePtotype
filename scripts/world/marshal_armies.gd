@@ -269,9 +269,15 @@ static func create(w, realm: String, target: String = "") -> bool:
 	var marshal: Dictionary = eligible[0]
 	var p = w.party(int(marshal["party"]))
 	var best := target
+	# A realm's home capital in an enemy's hands is the first thing its army goes for,
+	# whatever else is nearer or weaker held.
+	if best == "":
+		var lost: String = w.lost_capital(realm)
+		if lost != "" and w.at_war(realm, w.owner_of(lost)) and not is_inf(w._hours(p, muster, lost)):
+			best = lost
 	var score := INF
 	for id in Data.SETTLEMENTS:
-		if target != "": break
+		if best != "": break
 		if Data.is_village(id) or not w.at_war(realm, w.owner_of(id)): continue
 		var h: float = w._hours(p, muster, id)
 		if is_inf(h): continue

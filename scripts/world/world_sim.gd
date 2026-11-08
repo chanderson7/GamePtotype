@@ -322,6 +322,21 @@ func capital_of(realm: String) -> String:
 	return String(realms.get(realm, {}).get("capital", ""))
 
 
+## Where a realm's rule began (Data.FACTIONS), whoever holds it now; "" for the crown and
+## the bandits, who have no home seat.
+func home_capital(realm: String) -> String:
+	return String(Data.FACTIONS.get(realm, {}).get("capital", ""))
+
+
+## A realm's home capital while another realm holds it (the place it wants back), or "".
+func lost_capital(realm: String) -> String:
+	var home := home_capital(realm)
+	if home == "" or not realms.has(realm):
+		return ""
+	var holder := owner_of(home)
+	return home if holder != realm and realms.has(holder) else ""
+
+
 static func war_key(a: String, b: String) -> String:
 	return "%s|%s" % [a, b] if a < b else "%s|%s" % [b, a]
 
@@ -757,6 +772,9 @@ func _activity_text(event: Dictionary) -> String:
 					var reason: String = event.get("reason", "")
 					if reason == "balance of power":
 						return "%s declared war on %s to preserve the balance of power." % [r0, r1]
+					if reason == "reconquest":
+						var home := home_capital(String(pair[0]))
+						return "%s declared war on %s to win back %s." % [r0, r1, Data.settlement(home)["name"] if Data.SETTLEMENTS.has(home) else "its capital"]
 					return "%s and %s are now at war." % [r0, r1]
 				else:
 					var tf: String = String(event.get("tribute_from", ""))
@@ -780,6 +798,9 @@ func _activity_text(event: Dictionary) -> String:
 			return "%s defeated %s%s." % [event.get("winner", "A warband"), event.get("loser", "its foe"),
 				" near %s" % Data.settlement(where)["name"] if Data.SETTLEMENTS.has(where) else ""]
 		"army_formed":
+			if String(event["target"]) == home_capital(String(event["realm"])):
+				return "%s called a marshal army under %s to win back %s, its capital." % [Data.FACTIONS[String(event["realm"])]["name"],
+					event.get("marshal", "its marshal"), Data.settlement(String(event["target"]))["name"]]
 			return "%s called a marshal army under %s, bound for %s." % [Data.FACTIONS[String(event["realm"])]["name"],
 				event.get("marshal", "its marshal"), Data.settlement(String(event["target"]))["name"]]
 		"army_departed":
@@ -2600,6 +2621,7 @@ func _evaluate_balance_of_power() -> void:
 
 func _evaluate_war_declarations() -> void:
 	_rivals_of_the_crown()
+	_reconquests()
 	var pairs := [["vardmark", "kharzan"]]
 	for pair in pairs:
 		var a: String = pair[0]
@@ -2616,6 +2638,21 @@ func _evaluate_war_declarations() -> void:
 				var aggressor := a if str_a >= str_b else b
 				var defender := b if aggressor == a else a
 				declare_war(aggressor, defender)
+
+
+## A realm whose home capital another realm holds (yours included) comes back for it: at
+## peace with the holder, no truce standing, and not too weary, it declares war to win it
+## back. A realm with no seat left to muster at can't.
+func _reconquests() -> void:
+	for r in realms:
+		var lost := lost_capital(r)
+		if lost == "" or capital_of(r) == "":
+			continue
+		var holder := owner_of(lost)
+		if at_war(r, holder) or has_truce(r, holder) or weariness_of(r) > Politics.RECONQUEST_WEARINESS:
+			continue
+		if rng.randf() < Politics.RECONQUEST_CHANCE:
+			declare_war(r, holder, false, "reconquest")
 
 
 ## A crown that has grown worth fearing draws rivals: a rested realm stronger than it, not
