@@ -248,12 +248,12 @@ func _init() -> void:
 	check(not bool(gs.dance_check(g)["ok"]), "one partner a night")
 	# The round: the same night again, for the test's sake.
 	(gs.gathering_record(g)["danced_nights"] as Array).clear()
-	var before := {}
+	var regard_before := {}
 	for l in gs.gathering_lords(g):
-		before[int(l["id"])] = LordTalk.regard(gs, l)
+		regard_before[int(l["id"])] = LordTalk.regard(gs, l)
 	var rr: Dictionary = gs.dance(g, "round", "")
-	check(bool(rr["ok"]) and int(rr["lords"]) == before.size() and gs.gathering_lords(g).all(func(l): return LordTalk.regard(gs, l) == int(before[int(l["id"])]) + Gatherings.DANCE_ROUND_REGARD),
-		"the round is +%d Regard with every lord in the hall (%d)" % [Gatherings.DANCE_ROUND_REGARD, before.size()])
+	check(bool(rr["ok"]) and int(rr["lords"]) == regard_before.size() and gs.gathering_lords(g).all(func(l): return LordTalk.regard(gs, l) == int(regard_before[int(l["id"])]) + Gatherings.DANCE_ROUND_REGARD),
+		"the round is +%d Regard with every lord in the hall (%d)" % [Gatherings.DANCE_ROUND_REGARD, regard_before.size()])
 	# A woman you've never met, across the hall: when Ravensford's lord is a guest, so is
 	# Edda, and a dance is a first meeting that asks the story's first question.
 	(gs.gathering_record(g)["danced_nights"] as Array).clear()
@@ -266,10 +266,10 @@ func _init() -> void:
 	# He rides to the feast (a lord at home has no party on the map).
 	if int(rav.get("party", -1)) < 0 or w.party(int(rav["party"])) == null:
 		w._lord_takes_field(rav, "highcliff")
-	var rp = w.party(int(rav["party"]))
-	rp.node = "highcliff"
-	rp.next = ""
-	rp.path = []
+	var rav_party = w.party(int(rav["party"]))
+	rav_party.node = "highcliff"
+	rav_party.next = ""
+	rav_party.path = []
 	rav["state"] = "field"
 	rav["job"] = ""
 	rav["raiding"] = ""
@@ -293,7 +293,7 @@ func _init() -> void:
 	soc0.quests["quest_edda"]["chapter"] = 1
 	soc0.quests["quest_edda"]["consumed_rewards"] = []
 	soc0.quests["quest_edda"].erase("opens_hour")
-	rp.node = "ravensford"
+	rav_party.node = "ravensford"
 	# Succession: the dead lord's daughter is the heir's sister; a wife or sister leaves with him.
 	var kin_before: Dictionary = soc0.house_kin(dl).duplicate()
 	var hid := "house_%s_%d" % [String(dl["realm"]), int(dl["id"])]
