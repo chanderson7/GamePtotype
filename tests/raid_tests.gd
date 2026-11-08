@@ -103,6 +103,19 @@ func _init() -> void:
 	var own := _village_of("vardmark")
 	_go(own)
 	check(not gs.raid_check(own)["ok"], "your own realm's villages can't be raided")
+	# However far your standing with the side you serve falls, its villages aren't yours to burn.
+	gs.realm_relations["vardmark"] = -60
+	check(not gs.is_at_war_with("vardmark") and gs.barred_by("vardmark") == "", "an employer you've angered is still your side")
+	c = gs.raid_check(own)
+	check(not c["ok"] and String(c["reason"]).contains("contract"), "and its villages can't be raided under contract (%s)" % c["reason"])
+	gs.contract = {}
+	gs.player_fief = {"settlement_id": own, "realm": "vardmark", "silver": 0, "food": 0, "improvements": {}, "garrison": [], "granted_at": 0.0, "lost": false}
+	c = gs.raid_check(own)
+	check(not c["ok"] and String(c["reason"]).contains("sworn"), "nor by a vassal, until the oath is renounced or a crown raised (%s)" % c["reason"])
+	gs.player_fief = {}
+	check(gs.is_at_war_with("vardmark"), "a free company that far out of favour is their enemy again")
+	gs.realm_relations["vardmark"] = 0
+	gs.contract = {"realm": "vardmark", "daily_pay": 10, "days_left": 30, "bonus_per_lord": 100}
 
 	# ---- when the militia stand
 	_go(v)

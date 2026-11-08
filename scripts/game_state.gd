@@ -2152,6 +2152,13 @@ func raid_check(id: String) -> Dictionary:
 		out["reason"] = "Only villages can be raided; walls have to be stormed."
 		return out
 	var owner: String = world.owner_of(id)
+	if owner != "" and owner == sworn_realm() and owner != WorldData.CROWN:
+		var lord_of := WorldData.the_realm(String(WorldData.FACTIONS[owner]["name"]))
+		if has_fief() and fief_realm() == owner:
+			out["reason"] = "You are sworn to %s. Renounce your oath, or raise your own crown, before you burn its villages." % lord_of
+		else:
+			out["reason"] = "You are under contract to %s. Its villages are yours to guard, not burn." % lord_of
+		return out
 	if owner == WorldData.BANDITS or not is_at_war_with(owner):
 		out["reason"] = "You are not at war with its realm."
 		return out
@@ -2399,6 +2406,18 @@ func is_player_fief(settlement_id: String) -> bool:
 
 func fief_realm() -> String:
 	return String(player_fief.get("realm", ""))
+
+
+## The realm the company answers to: the crown it raised, the liege who granted its fief,
+## or the realm paying its contract. "" for a free company.
+func sworn_realm() -> String:
+	if is_crowned():
+		return WorldData.CROWN
+	if has_fief() and fief_realm() != "":
+		return fief_realm()
+	if has_contract():
+		return contract_realm()
+	return ""
 
 
 func can_petition_fief(realm: String) -> bool:
@@ -3508,6 +3527,11 @@ func is_allied_with(realm: String) -> bool:
 func is_at_war_with(realm: String) -> bool:
 	if realm == WorldData.BANDITS:
 		return true
+	# The side you serve is never your enemy: standing below the line with a liege or an
+	# employer strains the bond, but only renouncing the oath, letting the contract end or
+	# raising your own crown makes its villages fair game.
+	if realm != "" and realm == sworn_realm():
+		return false
 	if is_crowned() and realm != WorldData.CROWN and world.at_war(WorldData.CROWN, realm):
 		return true
 	if relation_with_realm(realm) <= HOSTILE_RELATION:
@@ -3533,7 +3557,7 @@ const REPARATIONS_DAYS := 7
 ## (the realm you serve is), "standing" (your standing is at or below HOSTILE_RELATION),
 ## or "" when it doesn't.
 func barred_by(realm: String) -> String:
-	if world == null or realm == WorldData.BANDITS:
+	if world == null or realm == WorldData.BANDITS or (realm != "" and realm == sworn_realm()):
 		return ""
 	if is_crowned() and realm != WorldData.CROWN and world.at_war(WorldData.CROWN, realm):
 		return "crown"
