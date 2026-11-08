@@ -204,6 +204,7 @@ func _build() -> void:
 	if GameState.has_fief():
 		var fcard := Widgets.card(deeds, "Your fiefdom")
 		fcard.add_child(_fief_overview_row())
+	_add_crown_path(deeds)
 	var earned := 0
 	for id in Achievements.ORDER:
 		if Achievements.done(GameState, id):
@@ -829,6 +830,20 @@ func _confirm_abandon(jid: String, title: String) -> void:
 
 ## Your fief as it stands today, in its own picture, under its realm's banner, with what
 ## waits there for you as four tiles.
+## The road to a crown of your own, every requirement ticked or open with what it needs.
+## Gone once the crown is raised.
+func _add_crown_path(parent: Control) -> void:
+	var steps: Array = GameState.crown_path()
+	if steps.is_empty():
+		return
+	var met := steps.filter(func(s): return bool(s["done"])).size()
+	var ready: bool = met == steps.size()
+	var card := Widgets.card(parent, "Toward a crown", "%d of %d" % [met, steps.size()], Style.BRASS if ready else Style.MUTED, ready)
+	card.get_parent().name = "CrownPathCard"
+	card.add_child(_note("Serve a realm, win a fief with walls and a name to match, then raise your own banner there. Your liege will call it war."))
+	card.add_child(Widgets.checklist(steps, "CrownPath"))
+
+
 func _fief_overview_row() -> Control:
 	var v := VBoxContainer.new()
 	v.name = "FiefOverview"

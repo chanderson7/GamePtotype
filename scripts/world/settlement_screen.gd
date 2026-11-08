@@ -866,6 +866,7 @@ func _add_fief_management(col: VBoxContainer) -> void:
 	_add_garrison_card(col, fief)
 	_add_manor_card(col, fief, is_b)
 	_add_exchange_card(col)
+	_add_crown_card(col)
 	# A vassal can give up their fief; a ruler has no one to give it to.
 	if not GameState.is_crowned():
 		var ren := Button.new()
@@ -879,6 +880,51 @@ func _add_fief_management(col: VBoxContainer) -> void:
 			ren.add_theme_color_override(c, Style.MUTED)
 		ren.pressed.connect(_confirm_renounce)
 		col.add_child(ren)
+
+
+## At your own seat: what a crown of your own still needs, and the way to raise it once
+## nothing does.
+func _add_crown_card(col: VBoxContainer) -> void:
+	var steps: Array = GameState.crown_path()
+	if steps.is_empty():
+		return
+	var met := steps.filter(func(s): return bool(s["done"])).size()
+	var ready: bool = bool(GameState.crown_check()["ok"])
+	var card := Widgets.card(col, "Toward a crown", "%d of %d" % [met, steps.size()], Style.BRASS if ready else Style.MUTED, ready)
+	card.get_parent().name = "CrownPathCard"
+	card.add_child(Widgets.checklist(steps, "CrownPath"))
+	if ready:
+		var raise := _button("Raise your crown…", _confirm_crown)
+		raise.name = "RaiseCrown"
+		Style.make_primary(raise)
+		card.add_child(raise)
+
+
+func _confirm_crown() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	var liege := GameState.fief_realm()
+	var s_name := String(WorldData.settlement(place)["name"])
+	var col := Widgets.sheet(self, "Raise your banner?", "CrownConfirm", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_realm_line(liege, "%s goes to war with you" % WorldData.the_realm(String(WorldData.FACTIONS[liege]["name"])),
+		"%s becomes the seat of your own crown. Every castle or town you storm after this is yours. There is no going back." % s_name, Style.TEXT))
+	var yes := _button("Raise crown", func():
+		Widgets.close_sheet(col)
+		if GameState.declare_crown():
+			Sound.play("horn")
+		_build())
+	yes.name = "ConfirmCrown"
+	Style.make_primary(yes)
+	var no := _button("Not yet", func(): Widgets.close_sheet(col))
+	no.name = "NotYetCrown"
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	yes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(no)
+	row.add_child(yes)
+	col.add_child(row)
 
 
 func _fief_culture() -> String:

@@ -1387,6 +1387,74 @@ func crown_check() -> Dictionary:
 	return {"ok": true, "reason": ""}
 
 
+## The road to a crown as a checklist, in the order a company walks it: each step is
+## {id, title, done, detail, place}, where `place` is a settlement the step points at (or
+## ""). Every step met is exactly when crown_check() says yes. Empty once crowned.
+func crown_path() -> Array:
+	if world == null or is_crowned():
+		return []
+	var steps: Array = []
+	var held: bool = has_fief() and not bool(player_fief.get("lost", false))
+	var seat: String = fief_id() if has_fief() else ""
+	var seat_name: String = String(WorldData.settlement(seat)["name"]) if WorldData.SETTLEMENTS.has(seat) else ""
+	var liege: String = fief_realm()
+	var liege_name: String = WorldData.the_realm(String(WorldData.FACTIONS[liege]["name"])) if WorldData.FACTIONS.has(liege) else "your liege"
+	# A fief of your own, granted for fealty.
+	var fief_detail := ""
+	if held:
+		fief_detail = "Sworn to %s; your seat is %s." % [liege_name, seat_name]
+	elif has_fief():
+		fief_detail = "%s has fallen. Win it back to have a seat again." % seat_name
+	else:
+		var best := ""
+		for r in WorldData.FACTIONS:
+			if r == WorldData.BANDITS or r == WorldData.CROWN:
+				continue
+			if best == "" or relation_with_realm(String(r)) > relation_with_realm(best):
+				best = String(r)
+		fief_detail = "Swear fealty at a realm's castle or town. It takes %d renown (you have %d) and %d standing with that realm" % [
+			Fiefs.MIN_RENOWN, renown, Fiefs.MIN_RELATION]
+		if best != "":
+			fief_detail += " (your best: %s, %d)" % [WorldData.the_realm(String(WorldData.FACTIONS[best]["name"])), relation_with_realm(best)]
+		fief_detail += ". Serving its contracts raises it."
+	steps.append({"id": "fief", "title": "Hold a fief of your own", "done": held, "detail": fief_detail, "place": seat if has_fief() else ""})
+	# Walls: a crown's seat is a castle or a town.
+	var walled: bool = held and String(WorldData.settlement(seat)["type"]) != WorldData.VILLAGE
+	var walls_detail := "A castle or a town. A first fief is usually a village; trade it up later."
+	if walled:
+		walls_detail = "%s has walls." % seat_name
+	elif held:
+		var castles: Array = exchange_castles()
+		if castles.is_empty():
+			walls_detail = "%s is a village. When a castle of %s loses its lord, ask for it from %s's Fief tab." % [seat_name, liege_name, seat_name]
+		else:
+			var free_castle := String(castles[0])
+			walls_detail = "%s stands without a lord: ask for it from %s's Fief tab." % [WorldData.settlement(free_castle)["name"], seat_name]
+			var ask: Dictionary = exchange_check(free_castle)
+			if not bool(ask.get("ok", false)):
+				walls_detail += " " + String(ask.get("reason", ""))
+	steps.append({"id": "walls", "title": "A seat with walls", "done": walled, "detail": walls_detail, "place": seat if held and not walled else ""})
+	# Fame.
+	var famous: bool = renown >= CROWN_RENOWN
+	steps.append({"id": "renown", "title": "%d renown" % CROWN_RENOWN, "done": famous,
+		"detail": "Your name is known." if famous else "You have %d. Beating lords and storming walls bring the most." % renown, "place": ""})
+	# No one else's pay.
+	var bound: bool = has_contract()
+	var employer: String = contract_realm() if bound else ""
+	steps.append({"id": "contract", "title": "Free of contracts", "done": not bound,
+		"detail": "Serve out or break your contract with %s." % WorldData.the_realm(String(WorldData.FACTIONS[employer]["name"])) if bound and WorldData.FACTIONS.has(employer) else "No contract binds you.",
+		"place": ""})
+	# Where it is done.
+	var there: bool = held and world.here() == seat
+	var seat_detail := "At your seat, once it has walls: Raise crown is on its sheet on the map and on its Fief tab."
+	if there:
+		seat_detail = "You are at %s." % seat_name
+	elif held:
+		seat_detail = "Ride to %s. Raise crown is on its sheet on the map and on its Fief tab." % seat_name
+	steps.append({"id": "seat", "title": "Raise it at your seat", "done": there, "detail": seat_detail, "place": seat if held and not there else ""})
+	return steps
+
+
 ## Cast off the liege and raise the company's own crown at its fief.
 func declare_crown() -> bool:
 	if not crown_check()["ok"]:

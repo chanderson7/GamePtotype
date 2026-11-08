@@ -266,6 +266,10 @@ func _run() -> void:
 	button("View my warband").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and gs.bond_intro_seen, "viewing bonds acknowledges the introduction and opens Warband")
+	var crown_card: Node = current_scene.find_child("CrownPathCard", true, false)
+	check(crown_card != null and crown_card.find_child("CrownPath", true, false) != null
+		and crown_card.find_child("CrownPath", true, false).get_child_count() == 5,
+		"Deeds shows the road to a crown, every step ticked or open")
 	var way_back = scenes._back_button(current_scene)
 	check(way_back != null and way_back.name == "BackButton", "Escape and a phone's back find the Warband's way to the map")
 	check(current_scene.find_child("WarbandCampIllustration", true, false) != null and current_scene.find_children("CaptainPortrait", "TextureRect", true, false).size() >= gs.army.size(),

@@ -921,6 +921,52 @@ static func chip_row(chips: Array) -> HFlowContainer:
 
 
 ## A small grey heading in capitals, for sections within a card or sheet.
+## Requirements, each met or still to do. The mark reads without colour or a special
+## glyph: a filled disc with a tick drawn in it when met, an open ring when not. Each
+## step is {id, title, done, detail}.
+static func checklist(steps: Array, list_name: String = "Checklist") -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.name = list_name
+	box.add_theme_constant_override("separation", 14)
+	for s in steps:
+		var done: bool = bool(s.get("done", false))
+		var row := HBoxContainer.new()
+		row.name = "Step_%s" % String(s.get("id", ""))
+		row.add_theme_constant_override("separation", 14)
+		row.set_meta("done", done)
+		var mark := Control.new()
+		mark.name = "Met" if done else "Open"
+		mark.custom_minimum_size = Vector2(30, 30)
+		mark.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		mark.draw.connect(func():
+			var c := mark.size * 0.5
+			var r := minf(mark.size.x, mark.size.y) * 0.5 - 2.0
+			if done:
+				mark.draw_circle(c, r, Style.MORALE_HIGH)
+				mark.draw_polyline(PackedVector2Array([c + Vector2(-r * 0.5, 0.0), c + Vector2(-r * 0.12, r * 0.42), c + Vector2(r * 0.55, -r * 0.4)]),
+					Style.NIGHT, 3.0, true)
+			else:
+				mark.draw_arc(c, r, 0.0, TAU, 32, Style.MUTED, 2.5, true))
+		row.add_child(mark)
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.add_theme_constant_override("separation", 2)
+		var title := Style.label(String(s.get("title", "")), Style.BODY, Style.MUTED if done else Style.TEXT)
+		title.name = "StepTitle"
+		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(title)
+		var detail := String(s.get("detail", ""))
+		if detail != "":
+			var d := Style.label(detail, Style.SMALL, Style.MUTED)
+			d.name = "StepDetail"
+			d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			words.add_child(d)
+		row.add_child(words)
+		box.add_child(row)
+	return box
+
+
 static func section(text: String) -> Label:
 	var l := Style.label(text.to_upper(), Style.SMALL, Style.MUTED)
 	return l

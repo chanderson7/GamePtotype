@@ -19,6 +19,17 @@ func _grant(seat: String) -> void:
 		"improvements": {}, "garrison": [], "granted_at": 0.0, "lost": false}
 
 
+func _step(path: Array, id: String) -> Dictionary:
+	for s in path:
+		if String(s["id"]) == id:
+			return s
+	return {}
+
+
+func _met(path: Array, id: String) -> bool:
+	return bool(_step(path, id).get("done", false))
+
+
 func _go(id: String) -> void:
 	var p = gs.world.player()
 	p.node = id
@@ -35,20 +46,31 @@ func _init() -> void:
 	var seat := "ravensford"
 	var liege: String = w.owner_of(seat)
 	check(not gs.crown_check()["ok"] and String(gs.crown_check()["reason"]).contains("fief"), "no crown without a fief")
+	var path: Array = gs.crown_path()
+	check(path.size() == 5 and not _met(path, "fief") and String(_step(path, "fief")["detail"]).contains("fealty"),
+		"the road to a crown starts with fealty for a fief, and says what that takes")
 	_grant(seat)
 	_go(seat)
 	gs.renown = 50
 	check(String(gs.crown_check()["reason"]).contains("renown"), "nor without renown")
+	path = gs.crown_path()
+	check(_met(path, "fief") and _met(path, "walls") and _met(path, "seat") and not _met(path, "renown")
+		and String(_step(path, "renown")["detail"]).contains("50"), "the checklist ticks the seat and its walls, and counts the renown still to win")
 	gs.renown = 250
 	gs.contract = {"realm": liege, "daily_pay": 10, "days_left": 5, "bonus_per_lord": 100}
 	check(String(gs.crown_check()["reason"]).contains("contract"), "nor while under contract")
+	check(not _met(gs.crown_path(), "contract"), "and the checklist says so")
 	gs.contract = {}
 	_go("highcliff")
 	check(String(gs.crown_check()["reason"]).contains("seat"), "and only at your own seat")
+	check(not _met(gs.crown_path(), "seat") and String(_step(gs.crown_path(), "seat")["place"]) == seat,
+		"the checklist points you back to your seat")
 	_go(seat)
 	check(gs.crown_check()["ok"], "a famous landed company at its seat can raise a crown")
+	check(gs.crown_path().all(func(s): return bool(s["done"])), "and exactly then every step is ticked")
 
 	check(gs.declare_crown(), "the crown is raised")
+	check(gs.crown_path().is_empty(), "and the road to it is no longer shown")
 	check(gs.is_crowned() and w.owner_of(seat) == WorldData.CROWN and not bool(gs.player_fief.get("lost", true)),
 		"the fief becomes the crown's seat, and is not lost")
 	check(w.at_war(liege, WorldData.CROWN) and gs.is_at_war_with(liege), "the old liege goes to war with the crown")
