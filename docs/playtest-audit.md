@@ -1,6 +1,8 @@
 # Playtest audit: six players, one build
 
-**Status: findings, not fixes.** Six passes over the game as built at `044a9fa`, each from a
+**Status: built (every item), not yet run.** Every finding below has been implemented; what was
+built, where it differs from the suggestion, and what an engine run must confirm are under
+"As built" at the end. Six passes over the game as built at `044a9fa`, each from a
 different player's seat: a first-time player, a tactician in battle, a long-game strategist,
 a story-and-character player, an accessibility and desktop player, and a QA engineer looking
 for what breaks. Each pass walked the screens and rules the way that player would meet them
@@ -376,3 +378,80 @@ a human playing the first hour.
   card when the map said you could not withdraw (4).
 - After each fix: `godot --headless --script res://tests/run_tests.gd`, the focused suite
   the fix touches, and the game with `-- --autoplay`.
+
+## As built
+
+Every item in sections 1 to 6 was implemented by five owners working from the same base
+(battle, campaign rules, the first hour, story and characters, platform and saves) and then
+merged. **None of it has run in Godot**: there was no engine in the environment. The static
+checks pass (`tools/check_calls.py`: 0 problems; `tools/check_infer.py`: 0 findings), each
+rules change has checks in its focused suite, and two independent reviews read the merged
+diff for parse errors and for seams between the five areas. The first job is still the one
+section 8 names: run the suites, the `--balance` gates and `-- --autoplay`, then play the
+first hour on a phone.
+
+### Choices and departures from the suggestions
+
+- **2.2** The hire gate counts the new company's own wage too; without it, the opening 400
+  silver passed the three-days rule.
+- **2.4** The worded supply chips ("Food short", "Can't pay") drop the ▼ to fit 720 px at
+  150% text; the red icon and the words carry it.
+- **2.7** Hire takes the confirm route ("Hire with a thin purse?") rather than disabling;
+  Send in at Hard or Deadly becomes "Send in anyway" on a second tap.
+- **3.2** Preview and confirm: a line drawn with nothing selected waits on the field until
+  tapped; a ground tap puts down a ring that a second tap on it marches to. Dragging a flag
+  still orders in one go. In deployment a line waits for the tap once you have placed a
+  company by hand.
+- **3.3** Retreat when the map would let you go leaves a share of each company behind
+  (nothing before the fight, 10% if clear, 30% if fighting). When the map would not (an
+  ambush, or `can_withdraw()` says no), every company routs, enemies chase the runners, and
+  the battle runs until they are gone or 45 s pass. The pause card prints which.
+- **3.5** Words stay on every order button for good; ordinary narration still stops after
+  three battles, but state hints such as an empty quiver never do.
+- **3.13** Kiting has a budget: 12 s of riding clear per quiver, 3 s per automatic wheel.
+- **4.4** Ransom comes from the realm's treasury, then the lord's own purse; a short payment
+  says so. Freeing a lord for honour pays in full once, then half Regard and standing and no
+  renown. A captured lord's host is halved.
+- **4.7** Reparations: 100 silver plus 10 per point below −20 sets standing to −15, once a
+  week per realm. "They declare war upon you" now says what really happens (they count you
+  an enemy and bar their gates), with the number.
+- **4.13** The post-crown goal is a deed, *Keepers of the Glass Sea*: every castle and town
+  under the crown at once.
+- **5.1** "We'll speak another time" now leaves you acquainted, and the hub offers the
+  unspoken intent at the top of every later chapter until one is chosen.
+- **5.2** Thresholds are unchanged; a repeatable source was added instead: from chapter 4,
+  a 100-silver muster for her house gives +5 standing every three days, up to +25.
+- **5.6** Edda's signature now comes from the house that really holds Ravensford, so it
+  cannot drift; a slain head's household is renamed for the heir.
+- **5.13** Edda, Kaede and Tariq leave the captain name pools; Farah was never in one, so
+  "Farid" stays.
+- **5.14** Chapter 3's promise is a real journal errand (a hunt or relief by her seat, or a
+  courier run). Story errands sit beside the board's three contracts and cost no standing
+  to set down.
+- **6.1** Android, Windows, macOS and Linux presets exist; the Android package name
+  (`com.bannerfall.game`) is a placeholder, Android exports an APK (a Play upload needs a
+  Gradle build), and the iOS team id is empty for the owner to fill. Opaque icons were
+  rendered from `icon.svg` at 1024, 512, 192 and 180, with an `.ico` and Android adaptive
+  layers.
+- **6.6** Android back becomes an Escape press for every screen (`quit_on_go_back` off);
+  the battle answers Escape only, so back never toggles pause twice.
+
+### What an engine run must confirm
+
+- **Parse and load** every changed script (all of them were written without a parser).
+- **Balance gates** in `tests/run_tests.gd -- --balance`: horse now marches at pace under
+  attack orders, empty or holding archers park behind foot, a struck march fights back, and
+  horse archers have a kite budget. *Advance all* winning more than about half, or the
+  tactician dropping under 70%, are the likely failures; the tuning constants are in
+  `battle_sim.gd`.
+- **Campaign pace**: lords now regroup weaker, a stormed castle keeps a share of your men
+  as garrison, stationed companies draw half wages, contract pay follows the men in the
+  field daily, and old saves treat any captained garrison company as yours.
+- **Layout at 720 px and 150% text**: the five-button order bar, the hatched reserve on the
+  strength bar, the romance hub (up to about nine replies), the Gates barred and Walls of
+  your own cards, the Companies tab among five, tabs that now wrap rather than trim, and the
+  taller map menu button.
+- **Touch**: pinch and two-finger pan in battle, the two-tap march, the settings row tap.
+- **Saves**: the index rebuild, a newer save refused and left alone, an unreadable autosave
+  kept as `campaign.json.bad` with Home offering the saves.
+- **Exports**: the preset option names for 4.7 (Godot fills defaults for anything unknown).
