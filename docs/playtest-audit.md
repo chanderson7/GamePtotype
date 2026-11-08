@@ -436,6 +436,26 @@ first hour on a phone.
 - **6.6** Android back becomes an Escape press for every screen (`quit_on_go_back` off);
   the battle answers Escape only, so back never toggles pause twice.
 
+### Seams found after merging
+
+The two reviews found nothing Godot would refuse to parse. Where the five areas met,
+they found these, all fixed:
+
+- The vassal's advice pointed at the liege's court; the castle exchange lives on the
+  village's own Fief tab, and the advice now says so and names what it still needs.
+- A retreat before the lines met was booked as a lost battle (a battle counted, a ride
+  home); it is now the map's Withdraw. A retreat once they have met is a defeat.
+- Escape and a phone's back found only a button named Back; they now press any button
+  marked as the way back, so the Warband, a settlement and a captain's page answer too.
+- Purse forecasts left out the half wages of companies in garrisons; one helper,
+  `daily_outgoings()`, now feeds every forecast.
+- A companion's errand counted against the board's three contracts, hid the
+  take-a-contract advice, could be sent to a realm that bars you, cost standing to drop and
+  counted toward the contracts deed; it does none of these now.
+- The encounter sheet warned that withdrawing "may fail" when that was already settled for
+  the hour; it now says *Can't withdraw* or offers Withdraw.
+- Ribbons caught taps meant for the map's top bar; they now let taps through and go on any tap.
+
 ### What an engine run must confirm
 
 - **Parse and load** every changed script (all of them were written without a parser).
