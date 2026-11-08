@@ -71,9 +71,12 @@ static func cap_width(margin: MarginContainer, side: int) -> void:
 			margin.add_theme_constant_override("margin_right", wide))
 
 
+## Words that wrap. In a row they take the room left beside the rest (a wrapping label with
+## no width of its own breaks after every letter); in a column this changes nothing.
 static func note(text: String, size: int = Style.BODY, color: Color = Style.MUTED) -> Label:
 	var label := Style.label(text, size, color)
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return label
 
 static func button(text: String, action: Callable, primary: bool = false) -> Button:

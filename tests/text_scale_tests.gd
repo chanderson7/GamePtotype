@@ -48,6 +48,20 @@ func _audit(tag: String, scope: Node = null) -> void:
 		if not child_over:
 			hits.append("%s \"%s\"" % [ctl.name, String(ctl.get("text")).substr(0, 40) if "text" in ctl else ""])
 	check(hits.is_empty(), "%s fits at text %.2fx%s" % [tag, scale, "" if hits.is_empty() else ": " + ", ".join(hits.slice(0, 4))])
+	# Wrapping words given no room break after every letter, a column of single characters:
+	# a wrapping label or button narrower than a short word is squeezed by its row.
+	var squeezed := []
+	for c in scope.find_children("*", "Control", true, false):
+		var ctl := c as Control
+		if not ctl.is_visible_in_tree() or not (ctl is Label or ctl is Button):
+			continue
+		var words: String = String(ctl.get("text")).strip_edges()
+		var wrap_mode: int = int(ctl.get("autowrap_mode"))
+		if wrap_mode == TextServer.AUTOWRAP_OFF or words.length() < 4:
+			continue
+		if ctl.size.x < 48.0:
+			squeezed.append("%s \"%s\" (%dpx)" % [ctl.name, words.substr(0, 24), int(ctl.size.x)])
+	check(squeezed.is_empty(), "%s keeps its words across at text %.2fx%s" % [tag, scale, "" if squeezed.is_empty() else ": " + ", ".join(squeezed.slice(0, 4))])
 
 
 func _frames(n := 8) -> void:

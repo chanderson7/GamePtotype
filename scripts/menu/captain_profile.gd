@@ -411,7 +411,12 @@ func _detail(title: String, body: String, icon_key: String = "") -> Control:
 		var ic := Widgets.icon_rect(icon_key, 30.0)
 		ic.modulate = Style.BRASS
 		head.add_child(ic)
-		head.add_child(Page.note(title, Style.BODY, Style.BRASS))
+		# The words take the rest of the row: a wrapping label given no width of its own
+		# would break after every letter.
+		var heading := Page.note(title, Style.BODY, Style.BRASS)
+		heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		heading.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(heading)
 		row.add_child(head)
 	else:
 		row.add_child(Page.note(title, Style.BODY, Style.BRASS))
