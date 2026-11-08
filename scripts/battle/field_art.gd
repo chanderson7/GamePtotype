@@ -208,16 +208,19 @@ static func plate_image(t: Terrain, biome: String, trees: Array, seed: int) -> I
 ## frame). The hillshade is doubled pixel for pixel, as it was drawn, and the plate laid
 ## over it the way the GPU would. Null when there is neither.
 static func overlay(shade: Image, features: Image) -> ImageTexture:
-	if shade == null and features == null:
-		return null
+	var img := overlay_image(shade, features)
+	return ImageTexture.create_from_image(img) if img != null else null
+
+
+static func overlay_image(shade: Image, features: Image) -> Image:
 	if features == null:
-		return ImageTexture.create_from_image(shade)
+		return shade
 	if shade == null:
-		return ImageTexture.create_from_image(features)
+		return features
 	var out := shade.duplicate() as Image
 	out.resize(features.get_width(), features.get_height(), Image.INTERPOLATE_NEAREST)
 	out.blend_rect(features, Rect2i(Vector2i.ZERO, features.get_size()), Vector2i.ZERO)
-	return ImageTexture.create_from_image(out)
+	return out
 
 
 static func _px(v: float) -> int:
