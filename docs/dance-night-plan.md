@@ -1,5 +1,12 @@
 # Dance night: who is on the floor
 
+**As built.** Everything below is in: the kinswomen stand in for the lords, a first meeting can
+happen on the floor (and the first audience at her seat still asks its question if you put it
+off there), and kin are women, as every lord is a man and everyone with a story a woman; the
+relation list in `Gatherings.KIN_RELATIONS` is where a brother or a son would go. The three
+open questions were answered: stand-in yes; meeting at a dance yes, as one road of two;
+kinswomen for now.
+
 ## What's wrong now
 
 `GameState.dance_partners()` offers three kinds of partner:

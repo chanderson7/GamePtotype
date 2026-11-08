@@ -103,6 +103,11 @@ static func features(captain: Dictionary) -> Dictionary:
 		f["beard"] = ["stubble", "short", "full", "moustache", "goatee"][rng.randi_range(0, 4)]
 	f["scar_seed"] = rng.randi()
 	f["outfit"] = rng.randi_range(0, 3)
+	# A lord's kinswoman (LordVoice.kin_record): a soft face, no beard, her hair worn long.
+	if bool(captain.get("kin", false)):
+		f["soft"] = true
+		f["beard"] = "none"
+		f["hair"] = {"kharzani": "long", "ryumon": "tied"}.get(culture, "braid")
 	# New draws come after the old ones, so nothing above changes.
 	f["eye_set"] = rng.randi_range(0, 1)   # wide-set or close-set eyes
 	f["lip"] = rng.randi_range(0, 1)       # full or thin lips

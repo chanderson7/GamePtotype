@@ -389,6 +389,57 @@ func residents_at(settlement_id: String) -> Array:
 	return list
 
 
+## The people with a story who are at a gathering at `place`, among `lords_here` (the lords
+## in its hall), in a realm `realm`'s hall: whoever lives there; whoever's house's head is
+## in the hall (she comes with her household); and an envoy (Farah) at any gathering of
+## her own realm. Not the displaced, and not someone you have parted from.
+func attending(place: String, lords_here: Array, realm: String) -> Array:
+	var lord_ids := {}
+	for l in lords_here:
+		lord_ids[int(l.get("id", -1))] = true
+	var out := []
+	for pid in people:
+		var p: Dictionary = people[pid]
+		var cand := String(p.get("content_id", ""))
+		if cand == "" or String(p.get("status", "normal")) == "displaced":
+			continue
+		if String(relationships.get(cand, {}).get("status", "")) == Relationships.ENDED:
+			continue
+		var house: Dictionary = houses.get(String(p.get("house_id", "")), {})
+		var head: Dictionary = people.get(String(house.get("head_person_id", "")), {})
+		var here: bool = String(p.get("residence", "")) == place
+		if not here and lord_ids.has(int(head.get("lord_id", -2))):
+			here = true
+		if not here and cand == RomanceStories.FARID and realm != "" and String(house.get("realm", "")) == realm:
+			here = true
+		if here:
+			out.append(p)
+	return out
+
+
+## The kinswoman a lord brings to a gathering: his wife, sister or daughter, made once
+## from his id and kept on his house, so she is the same woman every time. {} for a lord
+## with no one (about one in six).
+func house_kin(lord: Dictionary) -> Dictionary:
+	var lid := int(lord.get("id", -1))
+	var head: Dictionary = people.get("person_lord_%d" % lid, {})
+	var house: Dictionary = houses.get(String(head.get("house_id", "")), {})
+	if house.is_empty():
+		return {}
+	if not house.has("kin"):
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash([lid, String(house.get("id", "")), String(lord.get("name", ""))])
+		if rng.randf() < Gatherings.KIN_NONE_CHANCE:
+			house["kin"] = {}
+		else:
+			var cult := String(lord.get("culture", Cultures.VARDISH))
+			var names: Array = Gatherings.KIN_NAMES.get(cult, Gatherings.KIN_NAMES[Cultures.VARDISH])
+			var name := String(names[rng.randi_range(0, names.size() - 1)])
+			var relations: Array = Gatherings.KIN_RELATIONS
+			house["kin"] = {"name": name, "relation": String(relations[rng.randi_range(0, relations.size() - 1)])}
+	return house["kin"]
+
+
 func get_person(person_id: String) -> Dictionary:
 	return people.get(person_id, {})
 
@@ -593,6 +644,13 @@ func on_lord_succeeded(lord_id: int, prev_name: String, heir_name: String) -> vo
 		var house: Dictionary = houses[hid]
 		house["name"] = "Household of %s" % heir_name
 		house["late_head"] = prev_name
+		# The late lord's daughter is the heir's sister; his wife and sister leave the hall
+		# with him, and the heir's own kin are made when next they're wanted.
+		var kin: Dictionary = house.get("kin", {})
+		if String(kin.get("relation", "")) == "daughter":
+			kin["relation"] = "sister"
+		else:
+			house.erase("kin")
 		for mid in house.get("member_ids", []):
 			var member: Dictionary = people.get(String(mid), {})
 			if String(member.get("content_id", "")) != "" and _writes_to_you(member):

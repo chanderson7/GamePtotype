@@ -136,6 +136,15 @@ static func portrait_record(lord: Dictionary) -> Dictionary:
 		"battles": 20 if int(lord.get("renown", 0)) >= 300 else 0}
 
 
+## A lord's kinswoman's face (SocialSim.house_kin): her own record, in her lord's house
+## colours, drawn as a woman of his household. `kin` is {name, relation}.
+static func kin_record(lord: Dictionary, kin: Dictionary) -> Dictionary:
+	var colors := house_colors(lord)
+	return {"id": PORTRAIT_BASE + 20000 + int(lord.get("id", 0)), "culture": String(lord.get("culture", Cultures.VARDISH)),
+		"name": String(kin.get("name", "")), "first": String(kin.get("name", "")), "noble": "lady", "kin": true,
+		"house": (colors[0] as Color).to_html(false), "house_dark": (colors[1] as Color).to_html(false)}
+
+
 ## The colors of their house: the realm's own, turned by the house's name so houses differ.
 static func house_colors(lord: Dictionary) -> Array:
 	var base: Color = Cultures.color(String(lord.get("culture", Cultures.VARDISH)))

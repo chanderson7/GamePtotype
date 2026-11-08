@@ -8,6 +8,7 @@ extends Node
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
@@ -1051,49 +1052,120 @@ func dance_check(g: Dictionary) -> Dictionary:
 	return {"ok": true, "reason": ""}
 
 
-## Who you could ask: someone you court who's here, the lords in the hall, or no one (the
-## wall). [{kind ("romance", "lord", "wall"), id, name, tag}]
+## Who is on the floor tonight: [{kind, id, name, tag, ...}], in the order the dance
+## screen offers them.
+##   "romance": someone you've met (acquainted, courting or further, or a friend) who is at
+##              the gathering: time together, kept as a memory, +1 trust up to a cap;
+##   "meet":    someone with a story you've never met, seen across the hall ("seen" is how
+##              she's pointed out): a first word, and then what you mean to be to each other;
+##   "kin":     a lord's kinswoman (his wife, sister or daughter; "relation" says which, and
+##              "lord_name" whose), for his Regard: the host's first, then up to KIN_OFFERED;
+##   "round":   the round everyone joins, +1 Regard with every lord in the hall;
+##   "wall":    keep to the wall and hear the gossip;
+##   "absent":  someone you court who isn't here, and where she would be (a note, not a choice).
+## The lords themselves are never on it: a warlord is asked for a word at the table, not a
+## dance.
 func dance_partners(g: Dictionary) -> Array:
 	var out := []
 	var social = world.social
+	var place := String(g["place"])
+	var lords_here: Array = gathering_lords(g)
+	var there := {}
 	if social != null:
-		for person in social.residents_at(String(g["place"])):
+		for person in social.attending(place, lords_here, String(g.get("realm", world.owner_of(place)))):
 			var cid := String(person.get("content_id", ""))
 			var rel: Dictionary = social.get_relationship(cid)
-			if String(rel.get("status", "")) in [Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED]:
-				var more := int(rel.get("dances", 0)) < Gatherings.DANCE_TRUST_CAP
-				out.append({"kind": "romance", "id": cid, "name": String(person.get("name", "")),
-					"tag": "time together · %skept as a memory" % ("+%d trust · " % Gatherings.DANCE_TRUST if more else "")})
-	for l in gathering_lords(g):
+			var status := String(rel.get("status", Relationships.UNKNOWN))
+			there[cid] = true
+			if status == Relationships.UNKNOWN:
+				out.append({"kind": "meet", "id": cid, "name": "", "seen": String(Gatherings.DANCE_SEEN.get(cid, "Ask the woman across the hall to dance.")),
+					"tag": "you haven't met · a first word"})
+				continue
+			var more := int(rel.get("dances", 0)) < Gatherings.DANCE_TRUST_CAP
+			var what := "a dance" if status == Relationships.ACQUAINTED else "time together"
+			out.append({"kind": "romance", "id": cid, "name": String(person.get("name", "")),
+				"tag": "%s · %skept as a memory" % [what, ("+%d trust · " % Gatherings.DANCE_TRUST) if more else ""]})
+	var offered := 0
+	for l in lords_here:
+		if offered >= Gatherings.KIN_OFFERED:
+			break
+		var kin: Dictionary = social.house_kin(l) if social != null else {}
+		if kin.is_empty():
+			continue
+		offered += 1
 		var daring := String(l.get("bearing", "")) == Lords.DARING
-		out.append({"kind": "lord", "id": str(int(l["id"])), "name": LordTalk.short_name(l),
-			"tag": "+%d Regard%s" % [Gatherings.DANCE_DARING if daring else Gatherings.DANCE_LORD, " · Daring: they like a bold ask" if daring else ""]})
+		out.append({"kind": "kin", "id": str(int(l["id"])), "name": String(kin["name"]), "relation": String(kin["relation"]),
+			"lord_name": LordTalk.short_name(l),
+			"tag": "+%d Regard with %s%s" % [Gatherings.DANCE_DARING if daring else Gatherings.DANCE_LORD, LordTalk.short_name(l),
+				" · Daring: he likes a bold ask" if daring else ""]})
+	if not lords_here.is_empty():
+		out.append({"kind": "round", "id": "", "name": "", "tag": "+%d Regard with every lord here (%d)" % [Gatherings.DANCE_ROUND_REGARD, lords_here.size()]})
 	out.append({"kind": "wall", "id": "", "name": "", "tag": "hear the gossip" if gossip_check(g)["ok"] else "just listen"})
+	if social != null:
+		for cid in [RomanceStories.EDDA, RomanceStories.FARID, RomanceStories.KAEDE]:
+			if there.has(cid):
+				continue
+			var status := String(social.get_relationship(cid).get("status", Relationships.UNKNOWN))
+			if status in [Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED]:
+				out.append({"kind": "absent", "id": cid, "name": String(social.get_candidate_person(cid).get("name", "")),
+					"tag": String(Gatherings.DANCE_ABSENT.get(cid, ""))})
 	return out
 
 
-## Dance with a partner from dance_partners(). {ok, kind, text, regard, trust, gossip}
+## Dance with a partner from dance_partners(). {ok, kind, text, regard, trust, gossip,
+## lord_name, lords, intent}: `intent` is true after a first meeting, when she asks what
+## you mean to be to each other (the dance screen offers the story's first choices).
 func dance(g: Dictionary, kind: String, id: String) -> Dictionary:
 	if not dance_check(g)["ok"]:
 		return {"ok": false}
 	var night: int = world.gathering_night(g)
 	var cult := String(g.get("culture", Cultures.VARDISH))
-	var out := {"ok": true, "kind": kind, "text": "", "regard": 0, "trust": 0, "gossip": {}}
+	var out := {"ok": true, "kind": kind, "text": "", "regard": 0, "trust": 0, "gossip": {}, "lord_name": "", "lords": 0, "intent": false}
+	var social = world.social
 	match kind:
-		"romance":
-			var person: Dictionary = world.social.get_candidate_person(id)
-			if person.is_empty():
+		"romance", "meet":
+			var person: Dictionary = social.get_candidate_person(id)
+			if person.is_empty() or not social.attending(String(g["place"]), gathering_lords(g), String(g.get("realm", world.owner_of(String(g["place"]))))).has(person):
 				return {"ok": false}
-			out["text"] = String(Gatherings.DANCE_ROMANCE.get(id, "%s takes your hand." % String(person.get("name", ""))))
-			out["trust"] = world.social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEMORY.get(id, "You danced together.")), String(g["place"]), world.hour)
-		"lord":
+			var rel: Dictionary = social.get_relationship(id)
+			var status := String(rel.get("status", Relationships.UNKNOWN))
+			if kind == "meet":
+				if status != Relationships.UNKNOWN:
+					return {"ok": false}
+				# Met, on the floor: she is someone you know now. What you mean to be to each
+				# other is the story's own first question, asked next.
+				rel["status"] = Relationships.ACQUAINTED
+				out["text"] = String(Gatherings.DANCE_MEET.get(id, "%s takes your hand, and tells you her name." % String(person.get("name", ""))))
+				out["trust"] = social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEET_MEMORY.get(id, "The night you met %s, at a dance." % String(person.get("name", "")))), String(g["place"]), world.hour)
+				out["intent"] = true
+			else:
+				if status == Relationships.UNKNOWN:
+					return {"ok": false}
+				var lines: Dictionary = Gatherings.DANCE_ACQUAINTED if status == Relationships.ACQUAINTED else Gatherings.DANCE_ROMANCE
+				out["text"] = String(lines.get(id, "%s takes your hand." % String(person.get("name", ""))))
+				out["trust"] = social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEMORY.get(id, "You danced together.")), String(g["place"]), world.hour)
+		"kin":
 			var l: Dictionary = world.lord_by_id(int(id))
 			if l.is_empty() or not gathering_lords(g).has(l):
+				return {"ok": false}
+			var kin: Dictionary = social.house_kin(l) if social != null else {}
+			if kin.is_empty():
 				return {"ok": false}
 			var gain := Gatherings.DANCE_DARING if String(l.get("bearing", "")) == Lords.DARING else Gatherings.DANCE_LORD
 			LordTalk.change_regard(self, l, gain)
 			out["regard"] = gain
-			out["text"] = String(Gatherings.DANCE_LORD_LINES.get(String(l.get("bearing", "")), "They dance well."))
+			out["lord_name"] = LordTalk.short_name(l)
+			out["text"] = String(Gatherings.DANCE_KIN_LINES.get(String(l.get("bearing", "")), "{name} dances well, and {lord} sees it.")) \
+				.replace("{name}", String(kin["name"])).replace("{lord}", LordTalk.short_name(l)).replace("{relation}", String(kin["relation"]))
+		"round":
+			var lords_here: Array = gathering_lords(g)
+			if lords_here.is_empty():
+				return {"ok": false}
+			for l in lords_here:
+				LordTalk.change_regard(self, l, Gatherings.DANCE_ROUND_REGARD)
+			out["regard"] = Gatherings.DANCE_ROUND_REGARD
+			out["lords"] = lords_here.size()
+			out["text"] = String(Gatherings.DANCE_ROUND.get(cult, Gatherings.DANCE_ROUND[Cultures.VARDISH]))
 		"wall":
 			out["text"] = Gatherings.DANCE_WALL
 			if gossip_check(g)["ok"]:
