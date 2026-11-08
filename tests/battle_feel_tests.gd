@@ -343,8 +343,8 @@ func _init() -> void:
 
 	# ---- 12. a field full of the fallen still draws, in batches
 	for i in Sim.MAX_CORPSES:
-		var at := Vector2(40.0 + (i % 25) * 30.0, 300.0 + floorf(i / 25.0) * 30.0)
-		sim.corpses.append({"pos": at, "team": i % 2, "type": Troops.CAVALRY if i % 7 == 0 else Troops.INFANTRY})
+		var body_at := Vector2(40.0 + (i % 25) * 30.0, 300.0 + floorf(i / 25.0) * 30.0)
+		sim.corpses.append({"pos": body_at, "team": i % 2, "type": Troops.CAVALRY if i % 7 == 0 else Troops.INFANTRY})
 	for i in Sim.MAX_STUCK_ARROWS:
 		sim.stuck_arrows.append({"pos": Vector2(60.0 + (i % 20) * 35.0, 200.0 + floorf(i / 20.0) * 20.0), "angle": i * 0.3})
 	for i in sc.MAX_LITTER:
