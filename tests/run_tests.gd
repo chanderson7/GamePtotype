@@ -596,8 +596,10 @@ func _check_flanks() -> void:
 	sim.dispose()
 
 	# Hammer and anvil: the same horse, sent into the back of a squad already pinned by
-	# foot, breaks it sooner after it strikes and loses fewer riders than when it rides
-	# in from the front alongside the foot.
+	# foot, breaks it sooner after it strikes, and loses no more riders, than when it
+	# rides in from the front alongside the foot. (Since every order to attack runs up at
+	# marching pace and charges the last stretch, a head-on charge alongside the foot
+	# costs no riders either: what the rear buys is time.)
 	var head_on := [0.0, 0]
 	var in_rear := [0.0, 0]
 	for s in range(1, 7):
@@ -607,8 +609,8 @@ func _check_flanks() -> void:
 		head_on[1] += a[1]
 		in_rear[0] += b[0]
 		in_rear[1] += b[1]
-	_expect(in_rear[0] < head_on[0] * 0.9 and in_rear[1] < head_on[1],
-		"horse in the rear of a pinned squad breaks it sooner (%.0fs after striking, against %.0fs head-on) and loses fewer riders (%d against %d)" % [
+	_expect(in_rear[0] < head_on[0] * 0.9 and in_rear[1] <= head_on[1],
+		"horse in the rear of a pinned squad breaks it sooner (%.0fs after striking, against %.0fs head-on) and loses no more riders (%d against %d)" % [
 			in_rear[0] / 6.0, head_on[0] / 6.0, in_rear[1], head_on[1]])
 
 
