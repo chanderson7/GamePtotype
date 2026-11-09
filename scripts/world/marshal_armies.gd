@@ -275,9 +275,12 @@ static func create(w, realm: String, target: String = "") -> bool:
 		var lost: String = w.lost_capital(realm)
 		if lost != "" and w.at_war(realm, w.owner_of(lost)) and not is_inf(w._hours(p, muster, lost)):
 			best = lost
+	# Otherwise the best of the enemy's holdings: decided before the search, since the
+	# search itself sets `best` as it goes and must look at every holding.
+	var chosen := best != ""
 	var score := INF
 	for id in Data.SETTLEMENTS:
-		if best != "": break
+		if chosen: break
 		if Data.is_village(id) or not w.at_war(realm, w.owner_of(id)): continue
 		var h: float = w._hours(p, muster, id)
 		if is_inf(h): continue
