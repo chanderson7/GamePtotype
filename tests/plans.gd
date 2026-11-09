@@ -325,6 +325,13 @@ static func _horse_near(sim, sq, dist: float) -> bool:
 
 # ---------------------------------------------------------------- campaigns
 
+## Whether the scouts' report calls a fight worth taking, as the encounter sheet words it
+## (map_screen._show_odds): you'd win, and it isn't "Even" (a strength ratio of 0.85 or
+## more, which can go either way).
+static func _favourable(odds: Dictionary) -> bool:
+	return bool(odds["player_wins"]) and float(odds["ratio"]) < 0.85
+
+
 ## A scripted campaign of `days` days, settling every fight with auto-resolve: ride at
 ## the nearest bandit band; in towns, reinforce, train, and hire while under the squad
 ## cap with silver to spare; buy food anywhere when it runs low. Returns how it went:
@@ -351,13 +358,14 @@ static func campaign(seed_value: int, days: int) -> Dictionary:
 			# A friendly lord stopping to talk: say farewell, as the "Leave" button does.
 			w.encounter = -1
 		elif w.encounter != -1:
-			# Like a player reading the scouts' report: withdraw from a fight the odds say
-			# you'd lose, unless it's an ambush and there's no getting away.
+			# Like a player reading the scouts' report: withdraw from a fight it doesn't call
+			# favourable (one you'd lose, or "Even", a coin toss), unless it's an ambush and
+			# there's no getting away.
 			var band = w.party(w.encounter)
 			var plan: Dictionary = gs.encounter_plan(band)
 			var fighters: Array = gs.army.filter(func(s): return int(s["men"]) > 0)
 			var odds: Dictionary = AutoResolve.odds(fighters, band.army, plan["site"], plan["objective"])
-			if not odds["player_wins"] and plan["objective"] != "ambush":
+			if not _favourable(odds) and plan["objective"] != "ambush":
 				w.withdraw()
 				avoided += 1
 			else:
@@ -375,7 +383,7 @@ static func campaign(seed_value: int, days: int) -> Dictionary:
 				var at: String = b.next if b.moving() else b.node
 				var h: float = w.hours_to(at)
 				# Ride for bands you can beat; leave the rest be.
-				if not AutoResolve.odds(strong, b.army)["player_wins"]:
+				if not _favourable(AutoResolve.odds(strong, b.army)):
 					continue
 				if at != here and h < best:
 					best = h
