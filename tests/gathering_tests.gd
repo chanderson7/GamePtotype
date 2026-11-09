@@ -263,7 +263,9 @@ func _init() -> void:
 	check(soc0.attending("qasr_hamra", [], "kharzan").any(func(p): return String(p["content_id"]) == "farid")
 		and soc0.attending("khalun", [], "kharzan").any(func(p): return String(p["content_id"]) == "farid")
 		and not soc0.attending("highcliff", [], "vardmark").any(func(p): return String(p["content_id"]) == "farid"), "Farah, an envoy, is at every gathering of her realm")
-	# He rides to the feast (a lord at home has no party on the map).
+	# He rides to the feast (a lord at home has no party on the map). What he was doing is
+	# put back after, so the gathering keeps the guests it had.
+	var rav_was := {"state": rav.get("state"), "job": rav.get("job"), "raiding": rav.get("raiding"), "party": rav.get("party", -1)}
 	if int(rav.get("party", -1)) < 0 or w.party(int(rav["party"])) == null:
 		w._lord_takes_field(rav, "highcliff")
 	var rav_party = w.party(int(rav["party"]))
@@ -294,6 +296,8 @@ func _init() -> void:
 	soc0.quests["quest_edda"]["consumed_rewards"] = []
 	soc0.quests["quest_edda"].erase("opens_hour")
 	rav_party.node = "ravensford"
+	for k in rav_was:
+		rav[k] = rav_was[k]
 	# Succession: the dead lord's daughter is the heir's sister; a wife or sister leaves with him.
 	var kin_before: Dictionary = soc0.house_kin(dl).duplicate()
 	var hid := "house_%s_%d" % [String(dl["realm"]), int(dl["id"])]
@@ -385,7 +389,7 @@ func _init() -> void:
 	gs.dance(rg, "romance", "edda")
 	var trust_cap: int = int(soc.relationships["edda"]["trust"])
 	check(trust_cap == 20 + Gatherings.DANCE_TRUST_CAP, "dances add trust up to a cap (%d)" % trust_cap)
-	var danced: Array = soc.memory_book(String(soc.get_candidate_person("edda")["id"])).filter(func(m): return String(m["kind"]) == "dance")
+	var danced: Array = soc.memory_book(String(soc.get_candidate_person("edda")["id"])).filter(func(m): return String(m["kind"]) == "dance" and not bool(m.get("met", false)))
 	var dance_texts := {}
 	for m in danced:
 		dance_texts[String(m["text"])] = true

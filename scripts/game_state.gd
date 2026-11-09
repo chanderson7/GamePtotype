@@ -1136,7 +1136,7 @@ func dance(g: Dictionary, kind: String, id: String) -> Dictionary:
 				# other is the story's own first question, asked next.
 				rel["status"] = Relationships.ACQUAINTED
 				out["text"] = String(Gatherings.DANCE_MEET.get(id, "%s takes your hand, and tells you her name." % String(person.get("name", ""))))
-				out["trust"] = social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEET_MEMORY.get(id, "The night you met %s, at a dance." % String(person.get("name", "")))), String(g["place"]), world.hour)
+				out["trust"] = social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEET_MEMORY.get(id, "The night you met %s, at a dance." % String(person.get("name", "")))), String(g["place"]), world.hour, true)
 				out["intent"] = true
 			else:
 				if status == Relationships.UNKNOWN:
