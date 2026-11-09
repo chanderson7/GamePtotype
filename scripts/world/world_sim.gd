@@ -11,6 +11,7 @@
 ## hands, and wars begin and end.
 extends RefCounted
 
+const SaveNumbers = preload("res://scripts/save_numbers.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
@@ -3260,6 +3261,7 @@ func home() -> String:
 # ---------------------------------------------------------------- saving
 
 func to_dict() -> Dictionary:
+	_settle_numbers()
 	var ps := []
 	for p in parties:
 		ps.append({"id": p.id, "kind": p.kind, "name": p.name, "faction": p.faction, "node": p.node,
@@ -3287,6 +3289,25 @@ func to_dict() -> Dictionary:
 		"victory_feasts": victory_feasts.duplicate(), "peace_feasts": peace_feasts.duplicate(), "next_gathering_id": _next_gathering_id,
 		"gather_seed": str(gather_rng.seed), "gather_state": str(gather_rng.state),
 	}
+
+
+## Saving settles every fractional number in the world on the value its saved form reads
+## back as (SaveNumbers), so a loaded world carries on exactly as this one does.
+func _settle_numbers() -> void:
+	hour = SaveNumbers.keep(hour)
+	news_heard_at = SaveNumbers.keep(news_heard_at)
+	friendly_quiet_until = SaveNumbers.keep(friendly_quiet_until)
+	for p in parties:
+		p.along = SaveNumbers.keep(p.along)
+		p.wait = SaveNumbers.keep(p.wait)
+		p.grace_until = SaveNumbers.keep(p.grace_until)
+		SaveNumbers.settle(p.army)
+	for v in [pending_assault, respawns, offers, offers_back, settlement_jobs, settlement_jobs_back, escaped_chiefs,
+			saved_villages, activity_log, owners, wars, realms, truces, tributes, alliances, garrisons, campaign_armies,
+			army_ready_at, lords, burned, player_raid, gatherings, gathering_ended, victory_feasts, peace_feasts]:
+		SaveNumbers.settle(v)
+	if social != null:
+		SaveNumbers.settle(social.to_dict())
 
 
 ## A lord as saved: his squads only while he regroups (on the map they ride with his party).
