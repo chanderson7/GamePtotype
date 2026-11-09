@@ -171,6 +171,11 @@ func _init() -> void:
 			mem = m
 	check(String(mem.get("vow", "")).begins_with("I'll come home") and String(mem.get("toast", "")).contains("Rowan"), "the memory keeps your vow and toast")
 	check(gs.world.activity_log.any(func(e): return String(e.get("text", e.get("line", ""))).contains("married at Ravensford")), "the news tells of it")
+	# ---- married life: the head of her house is kin, and a sixth chapter waits a day on
+	var head_e: Dictionary = soc.get_person(String(soc.get_house(person_e["house_id"])["head_person_id"]))
+	check(String(soc.pact_for_lord(int(head_e["lord_id"])).get("origin", "")) == "marriage", "the head of her house is kin by marriage")
+	check(not bool(soc.post_state("edda", gs.world.hour)["ok"]) and bool(soc.post_state("edda", gs.world.hour + 25.0)["ok"]),
+		"and a day after the wedding, one more matter waits (chapter 6)")
 
 	# ---- told again from her page
 	change_scene_to_file("res://scenes/people.tscn")

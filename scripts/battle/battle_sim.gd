@@ -195,6 +195,22 @@ const LINE_TURN := 0.5
 const CLOSE_PACE := 0.6
 ## How much further out a squad already fighting stays engaged, so contact doesn't flicker.
 const ENGAGE_GRACE := 30.0
+## A company on the march that took a blow hand to hand this recently stops and fights.
+const STRUCK_MEMORY := 0.5
+## Seconds a company of skirmishers (horse archers, kiting bowmen) can spend riding or
+## running clear of foot that comes at it, over its whole quiver; then it stands and
+## shoots, and fights whoever reaches it. A wheel away from a melee costs KITE_WHEEL.
+const KITE_SECONDS := 12.0
+const KITE_WHEEL := 3.0
+## Pulling off a field you are free to leave: the share of each company's men left behind
+## as it breaks off, more for one locked in a fight than for one standing clear.
+const WITHDRAW_COST := 0.1
+const WITHDRAW_COST_ENGAGED := 0.3
+## Cut off, a side that withdraws runs for its own edge under the enemy's blades; past
+## this many seconds the battle ends anyway and whoever is still running gets away.
+const WITHDRAW_LIMIT := 45.0
+## A man running for it then has his back to the enemy: blows and arrows land this much harder.
+const RUNNER_EXPOSED := 4.0
 ## Crowding and nearby-enemy lookups use a grid of CELL-sized squares over the field.
 ## A cell must be wider than the closest two men can stand, so neighbors are always in
 ## the same or an adjacent cell.
@@ -341,6 +357,11 @@ class Squad:
 	## Seconds since an arrow last hit one of its men, counting down from 2.
 	var under_fire := 0.0
 	var flanked_at := -99.0
+	## When one of its men last took a blow hand to hand, and from which enemy squad.
+	var struck_at := -99.0
+	var struck_by = null
+	## Seconds of riding or running clear of foot left to a company of skirmishers.
+	var kite_left := KITE_SECONDS
 	# The squad's ability: seconds until it can be used again and seconds it still runs.
 	var ability_cd := 0.0
 	var ability_left := 0.0
@@ -438,6 +459,13 @@ var ai: Array = [null, null]
 var allied_ai: RefCounted = null
 var winner := -1
 var end_reason := ""
+## True when the player pulled out before the lines met: on the map that is riding away,
+## not a lost battle.
+var left_before_fight := false
+## The side running for its own edge after a withdrawal it was cut off from making
+## (see concede), or -1; and when it began.
+var withdrawing := -1
+var withdraw_started := 0.0
 ## Objective of this battle: "rout", "chief", "ambush", or "village".
 var objective := OBJECTIVE_ROUT
 var chief_name := ""
@@ -519,6 +547,8 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 	else:
 		rng.randomize()
 	objective = obj
+	withdrawing = -1
+	withdraw_started = 0.0
 	chief_killed = false
 	chief_escaped = false
 	chief_broken = false
@@ -1754,6 +1784,48 @@ func _fighting_reach(sq) -> float:
 	return sq.reach
 
 
+## Bows with nothing to loose (out of arrows, or told to hold their fire) sent to advance
+## don't walk into the melee with their knives: they stand behind the nearest company of
+## their own foot and fight only whoever reaches them. Not at a siege, where the storm
+## plan says where everyone goes; not horse archers, who ride in with their swords; and
+## not bowmen who fight as well as foot once their arrows are gone.
+func _parks(sq) -> bool:
+	if sq.order != "advance" or objective == OBJECTIVE_SIEGE or sq.type == Troops.CAVALRY:
+		return false
+	if not bool(sq.stats.get("ranged", false)) or (sq.ranged and not sq.hold_fire):
+		return false
+	return sq.ranged or not sq.mechanics.get("samurai_sidearm", false)
+
+
+## Where bows that park (see _parks) stand: just behind the nearest company of their own
+## foot, on its far side from the enemy nearest it, side by side with any others parked
+## (each takes the next place out, alternately right and left); where they are, if there
+## is no foot.
+func _park_spot(sq) -> Vector2:
+	var best = null
+	var best_d := INF
+	for f in squads:
+		if f == sq or f.team != sq.team or not f.is_active() or f.type == Troops.CAVALRY or bool(f.stats.get("ranged", false)):
+			continue
+		var d: float = sq.avg.distance_squared_to(f.avg)
+		if d < best_d:
+			best_d = d
+			best = f
+	if best == null:
+		return sq.center
+	var back: Vector2 = Vector2.DOWN if sq.team == PLAYER else Vector2.UP
+	var foe = nearest_enemy_squad(sq.team, best.avg, INF)
+	if foe != null and foe.avg.distance_to(best.avg) > 1.0:
+		back = (best.avg - foe.avg).normalized()
+	var k := 0
+	for o in squads:
+		if o.id < sq.id and o.team == sq.team and o.is_active() and _parks(o):
+			k += 1
+	var out := floorf(float(k + 1) * 0.5) * (1.0 if k % 2 == 1 else -1.0)
+	var right := Vector2(-back.y, back.x)
+	return _clamp_to_arena(best.avg + back * (best.extent + sq.extent + SQUAD_GAP * 3.0) + right * out * (sq.extent * 2.0 + SQUAD_GAP * 2.0))
+
+
 ## Stand where you are and fight anyone who comes close. A schiltron keeps its ring.
 func order_hold(sq) -> void:
 	if sq == null or not sq.is_active():
@@ -2008,14 +2080,21 @@ func use_ability(sq, target = null) -> bool:
 				order_hold(sq)
 		_:
 			sq.ability_left = float(ab["seconds"])
-	var cd: float = float(ab["cooldown"])
+	sq.ability_cd = ability_cooldown(sq)
+	events.append({"type": "ability", "squad": sq, "name": String(ab["name"])})
+	return true
+
+
+## The wait after a squad uses its ability before it can use it again: its type's
+## cooldown, shortened or lengthened by the branch it was trained into. The screen's
+## cooldown fill reads the same number.
+func ability_cooldown(sq) -> float:
+	var cd: float = float(Troops.ability(sq.type)["cooldown"])
 	if sq.type == Troops.CAVALRY and sq.mechanics.has("wheel_cooldown_mult"):
 		cd *= float(sq.mechanics["wheel_cooldown_mult"])
 	elif sq.type == Troops.ARCHERS and sq.mechanics.has("volley_cooldown_mult"):
 		cd *= float(sq.mechanics["volley_cooldown_mult"])
-	sq.ability_cd = cd
-	events.append({"type": "ability", "squad": sq, "name": String(ab["name"])})
-	return true
+	return cd
 
 
 func _volley_target(sq, wanted):
@@ -2198,9 +2277,14 @@ func _update_squad(sq, dt: float) -> void:
 		return
 	if sq.order == "attack" and (sq.order_target == null or not sq.order_target.is_active()):
 		order_advance(sq)
+	# A company on the march goes round the enemy rather than into it; but one that is
+	# struck hand to hand stops where it is and turns on whoever came at it.
+	if sq.order == "move" and not sq.wheeling and time - sq.struck_at < STRUCK_MEMORY:
+		order_hold(sq)
 
 	var reach := _fighting_reach(sq)
 	var foe = null
+	var parked := false
 	if sq.wheeling:
 		foe = null # riding clear, not fighting
 	elif sq.volley_left > 0.0 and sq.volley_target != null and sq.volley_target.is_active():
@@ -2210,7 +2294,13 @@ func _update_squad(sq, dt: float) -> void:
 			"attack":
 				foe = sq.order_target
 			"advance":
-				foe = _advance_focus(sq, avg)
+				if _parks(sq):
+					# Bows with nothing to loose wait behind their own foot, and fight only
+					# whoever comes to them.
+					parked = true
+					foe = nearest_enemy_squad(sq.team, avg, reach + ENGAGE_RANGE + 50.0)
+				else:
+					foe = _advance_focus(sq, avg)
 			"hold":
 				# Once it's fighting, a holding squad keeps its foe a little further out, so
 				# the contact doesn't flicker on and off as the ranks settle.
@@ -2219,8 +2309,18 @@ func _update_squad(sq, dt: float) -> void:
 					foe = _foe_this_side(sq, avg, hold_range)
 				else:
 					foe = nearest_enemy_squad(sq.team, avg, hold_range)
+				# Struck by a company standing further off than that (at the far end of a
+				# long line): it fights that one.
+				if foe == null and time - sq.struck_at < STRUCK_MEMORY and sq.struck_by != null and sq.struck_by.is_active():
+					foe = sq.struck_by
 			_:
 				foe = null # marching to a point ignores enemies until it arrives
+	# An enemy running for its edge after a withdrawal it was cut off from making is fair
+	# game: anyone with nobody else to fight goes after the nearest of them.
+	var pursuing := false
+	if foe == null and not sq.wheeling and withdrawing == 1 - sq.team and not _walled(sq):
+		foe = _nearest_runner(sq, avg)
+		pursuing = foe != null
 	sq.focus = foe
 	sq.range_mult = 1.0
 	if sq.ranged and not sq.hold_fire and foe != null and _rough:
@@ -2232,6 +2332,11 @@ func _update_squad(sq, dt: float) -> void:
 		sq.goal = sq.wheel_point
 		if sq.center.distance_to(sq.wheel_point) < 10.0:
 			_end_wheel(sq)
+	elif pursuing:
+		sq.goal = foe.avg
+		chasing = true
+	elif parked:
+		sq.goal = _park_spot(sq)
 	elif sq.order == "move":
 		sq.goal = sq.order_point
 		if sq.center.distance_to(sq.order_point) < 6.0:
@@ -2252,7 +2357,9 @@ func _update_squad(sq, dt: float) -> void:
 		sq.goal = ladder_goal(sq.center)
 
 	# Skirmishing: horse archers and kiting desert archers keep distance from approaching foot
-	var is_skirmisher: bool = sq.ranged and sq.arrows > 0 and (sq.mechanics.get("horse_archer", false) or sq.mechanics.get("kite", false))
+	# Their riding clear has a budget (KITE_SECONDS): once it's spent they stand and shoot.
+	var is_skirmisher: bool = sq.ranged and sq.arrows > 0 and sq.kite_left > 0.0 \
+		and (sq.mechanics.get("horse_archer", false) or sq.mechanics.get("kite", false))
 	if is_skirmisher and not sq.wheeling:
 		var threat = _nearest_enemy_foot(sq, 130.0)
 		if threat != null and not sq.engaged:
@@ -2260,6 +2367,7 @@ func _update_squad(sq, dt: float) -> void:
 			if away == Vector2.ZERO:
 				away = Vector2.DOWN if sq.team == PLAYER else Vector2.UP
 			sq.goal = sq.center + away * 90.0
+			sq.kite_left -= dt
 			chasing = false
 
 	# Engaged squads break formation and fight man to man. A braced line that the enemy
@@ -2278,6 +2386,7 @@ func _update_squad(sq, dt: float) -> void:
 				and _in_range(sq, foe, HORSE_ARCHER_CLOSE):
 			# Horse archers ride clear when the enemy closes to melee while arrows remain,
 			# not merely when it comes within bowshot
+			sq.kite_left -= KITE_WHEEL
 			_start_wheel(sq)
 			return
 		if not was_engaged:
@@ -2335,7 +2444,10 @@ func _update_squad(sq, dt: float) -> void:
 	if dist > stop + 2.0:
 		var dir := _steer(sq, to / dist, dist, foe)
 		var pace := _pace(sq)
-		if sq.order == "advance" and not sq.wheeling and dist - stop > CHARGE_DISTANCE:
+		# Every order to go somewhere goes at marching pace until the last stretch, so a
+		# charge's run-up is the same whether it was sent by Advance, a target or a march.
+		var marching: bool = sq.order == "advance" or sq.order == "attack" or sq.order == "move"
+		if marching and not sq.wheeling and not pursuing and dist - stop > CHARGE_DISTANCE:
 			pace = minf(pace, MARCH_SPEED)
 		var s_factor := 1.0
 		if _rough:
@@ -3068,7 +3180,7 @@ func _target_ok(so, sq) -> bool:
 	var t = so.target
 	if t == null or not t.alive:
 		return false
-	if t.squad.team == sq.team or t.squad.routing:
+	if t.squad.team == sq.team or (t.squad.routing and t.squad.team != withdrawing):
 		return false
 	if _walled(sq) and across_wall(so.pos, t.pos):
 		return false
@@ -3088,7 +3200,7 @@ func _pick_target(so, sq):
 					best_d = d
 					best = e
 	for e in _nearby(so.pos, 60.0):
-		if e.squad.team != sq.team and not e.squad.routing and not (walled and across_wall(so.pos, e.pos)):
+		if e.squad.team != sq.team and (not e.squad.routing or e.squad.team == withdrawing) and not (walled and across_wall(so.pos, e.pos)):
 			var d2: float = so.pos.distance_squared_to(e.pos)
 			if d2 < best_d * 0.6:
 				best_d = d2
@@ -3113,6 +3225,7 @@ func _strike(so, sq, target, gap: float) -> void:
 			if sq.mechanics.get("samurai_sidearm", false):
 				# Ryumon yumi samurai fight like infantry when caught in melee
 				dmg = SAMURAI_SIDEARM * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
+				_struck(target, sq)
 				_damage(target, dmg, sq, false, so, _side_of(target, so.pos, sq))
 				return
 			dmg *= Troops.POINT_BLANK
@@ -3173,6 +3286,7 @@ func _strike(so, sq, target, gap: float) -> void:
 		if sq.team == siege_defender and on_ladder(target.pos):
 			dmg *= THROWN_DOWN
 			off_ladder = true
+	_struck(target, sq)
 	_damage(target, dmg, sq, charge, so, side)
 	if off_ladder and not target.alive:
 		thrown_down += 1
@@ -3186,12 +3300,18 @@ func _strike(so, sq, target, gap: float) -> void:
 			_damage(second, dmg * 0.5, sq, false, so, _side_of(second, so.pos, sq))
 
 
+## A blow by `sq` lands hand to hand on `victim`: his company remembers when, and who.
+func _struck(victim, sq) -> void:
+	victim.squad.struck_at = time
+	victim.squad.struck_by = sq
+
+
 ## Which side of his squad a blow from `from` lands on. A squad that isn't pinned in a
 ## fight turns to meet whoever comes, so only a squad already fighting another can be
 ## caught in the flank or rear, and only by someone else. A schiltron has neither.
 func _side_of(victim, from: Vector2, attacker) -> int:
 	var vs = victim.squad
-	if vs.schiltron() or not vs.engaged or attacker == vs.focus:
+	if vs.schiltron() or vs.routing or not vs.engaged or attacker == vs.focus:
 		return FRONT
 	var to: Vector2 = from - victim.pos
 	if to.length_squared() < 0.01:
@@ -3313,6 +3433,10 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 	# A braced line fighting in formation takes the blows to its front on locked shields.
 	if side == FRONT and vs.brace > 0.0 and in_line(vs):
 		dmg *= BRACE_GUARD
+	# A man running for it after a withdrawal he was cut off from making has his back to
+	# the enemy: what reaches him lands RUNNER_EXPOSED times as hard.
+	if vs.routing and vs.team == withdrawing:
+		dmg *= RUNNER_EXPOSED
 	victim.hp -= dmg
 	victim.flash = 1.0
 	if charge:
@@ -3354,11 +3478,15 @@ func _captain_falls(sq, victim, rescue: bool = true) -> void:
 		if rescue and other != sq and other.team == sq.team and other.is_active() and other.avg.distance_to(victim.pos) < Captains.RESCUE_RANGE:
 			friends = true
 	var chance := Captains.death_chance(sq.info, holding, friends)
+	# A lord's fall is the lord's own roll: the same threshold says whether the company's
+	# captain is slain and whether the lord is slain or taken, so the two never disagree.
+	if sq.is_lord:
+		chance = Lords.DEATH_CHANCE_PERCENT
 	var roll := rng.randi_range(1, 100)
 	sq.death_roll = roll
 	sq.death_needed = chance + 1
 	sq.captain_fate = "killed" if roll <= chance else "wounded"
-	var words: Array = Captains.LAST_WORDS if sq.captain_fate == "killed" else Captains.WOUNDED_WORDS
+	var words: Array = Captains.words_for(String((sq.info as Dictionary).get("culture", "")), sq.captain_fate == "killed")
 	sq.last_words = words[rng.randi_range(0, words.size() - 1)]
 	if sq.is_bodyguard or sq.is_chief:
 		_trigger_chief_shock(sq)
@@ -3368,7 +3496,7 @@ func _captain_falls(sq, victim, rescue: bool = true) -> void:
 			events.append({"type": "chief_slain", "squad": sq, "chief_name": sq.chief_name})
 	if sq.is_lord:
 		_trigger_lord_shock(sq)
-		if roll <= Lords.DEATH_CHANCE_PERCENT:
+		if sq.captain_fate == "killed":
 			lord_killed = true
 			lord_captured = false
 			events.append({"type": "lord_slain", "squad": sq, "lord_name": sq.lord_name, "lord_id": sq.lord_id})
@@ -3705,12 +3833,27 @@ func men_on_field(team: int) -> int:
 	return n
 
 
-## The share of a side's army that is still fighting, from 0 to 1.
-func strength(team: int) -> float:
-	var start := 0
+## Men waiting in a side's reserve queue to march on when a place on the field opens.
+func reserve_men(team: int) -> int:
+	var n := 0
+	for e in reserve_queue[team]:
+		n += int(e["men"])
+	return n
+
+
+## Men a side brought to the battle, its queued reserve included.
+func start_men(team: int) -> int:
+	var n := 0
 	for e in armies[team]:
-		start += int(e["men"])
-	return float(men_on_field(team)) / maxf(1.0, float(start))
+		n += int(e["men"])
+	return n
+
+
+## The share of a side's army that is still fighting or still to come on, from 0 to 1:
+## men on the field and men waiting in its reserve queue, over all it brought. The
+## strength bar draws this, and the verdict when time runs out compares it.
+func strength(team: int) -> float:
+	return float(men_on_field(team) + reserve_men(team)) / maxf(1.0, float(start_men(team)))
 
 
 ## Men of each side standing in the village square: [yours, theirs].
@@ -3736,6 +3879,13 @@ func _burn_village(dt: float) -> void:
 
 
 func _check_end() -> void:
+	# A side cut off as it withdrew: the battle runs on while its men run for their edge,
+	# and ends once none are left on the field (or the enemy has no one to chase them).
+	if withdrawing != -1:
+		if _runners_left(withdrawing) and has_active(1 - withdrawing) and time - withdraw_started < WITHDRAW_LIMIT:
+			return
+		_finish(1 - withdrawing, "retreat")
+		return
 	# A gate still standing when time runs out: the walls held.
 	if objective == OBJECTIVE_SIEGE and time >= TIME_LIMIT and gate_hp > 0.0 and has_active(siege_defender):
 		_finish(siege_defender, "walls_held")
@@ -3776,10 +3926,96 @@ func _more(player_count: int, enemy_count: int) -> int:
 	return rng.randi_range(PLAYER, ENEMY)
 
 
-## Pull a side off the field. Its men on the field survive; the other side wins.
-func concede(team: int) -> void:
-	if winner == -1:
-		_finish(1 - team, "retreat")
+## Pull a side off the field; the other side wins. Free to go (`cut_off` false), it gets
+## clear at a price: each company still fighting leaves a share of its men behind as it
+## breaks off (see withdraw_cost), and the rest survive. Cut off (the enemy's riders are
+## between it and the road, or it was ambushed), every company breaks and runs for its own
+## edge while the battle goes on, and the enemy cuts down whoever it catches; it ends once
+## the last of them is clear or down.
+func concede(team: int, cut_off: bool = false) -> void:
+	if winner != -1 or withdrawing != -1:
+		return
+	if cut_off:
+		if phase == PHASE_DEPLOY:
+			start_battle()
+		_run_for_it(team)
+		return
+	if phase == PHASE_BATTLE:
+		_pay_withdrawal(team)
+	else:
+		left_before_fight = true
+	_finish(1 - team, "retreat")
+
+
+## How many of a side's men a withdrawal it is free to make would leave behind now
+## (none before the fight: that is the same as riding away on the map).
+func withdraw_cost(team: int) -> int:
+	if phase != PHASE_BATTLE:
+		return 0
+	var n := 0
+	for sq in squads:
+		if sq.team == team and sq.is_active():
+			n += _withdraw_share(sq)
+	return n
+
+
+func _withdraw_share(sq) -> int:
+	var share: float = WITHDRAW_COST_ENGAGED if sq.engaged else WITHDRAW_COST
+	return int(floor(float(sq.alive_n) * share + 0.5))
+
+
+## The men a free withdrawal leaves behind: the rearmost of each company, never its captain.
+func _pay_withdrawal(team: int) -> void:
+	for sq in squads:
+		if sq.team != team or not sq.is_active():
+			continue
+		var left := _withdraw_share(sq)
+		for i in range(sq.soldiers.size() - 1, -1, -1):
+			if left <= 0:
+				break
+			var so = sq.soldiers[i]
+			if not so.alive or so.captain:
+				continue
+			_remove(so)
+			corpses.append({"pos": so.pos, "team": sq.team, "type": sq.type})
+			left -= 1
+
+
+## Cut off: every company of `team` breaks and runs; its reserve stays off the field.
+func _run_for_it(team: int) -> void:
+	withdrawing = team
+	withdraw_started = time
+	reserve_queue[team].clear()
+	for r in scheduled_reinforcements:
+		if int(r.get("team", -1)) == team:
+			r["spawned"] = true
+	for sq in squads:
+		if sq.team == team and sq.is_active():
+			rout(sq)
+			sq.engaged = false
+	events.append({"type": "withdraw", "team": team})
+
+
+## Whether a side still has men on the field (running or not).
+func _runners_left(team: int) -> bool:
+	for sq in squads:
+		if sq.team == team and sq.alive_n > 0:
+			return true
+	return false
+
+
+## The nearest company of the withdrawing side still running with men on the field.
+func _nearest_runner(sq, from: Vector2):
+	var best = null
+	var best_d := INF
+	for o in squads:
+		if o.team != withdrawing or o.team == sq.team or o.alive_n == 0:
+			continue
+		var d: float = from.distance_to(o.avg)
+		if d < best_d:
+			best_d = d
+			best = o
+	return best
 
 
 func _finish(team: int, reason: String) -> void:
@@ -3808,6 +4044,7 @@ func dispose() -> void:
 		sq.order_target = null
 		sq.volley_target = null
 		sq.wheel_target = null
+		sq.struck_by = null
 		sq.captain = null
 	squads.clear()
 	projectiles.clear()
@@ -3850,7 +4087,7 @@ func result_for(team: int) -> Dictionary:
 			if sq.team == team and not sq.info.is_empty() and String(key).split("|").has(str(sq.info["id"])):
 				bonds[key] = bond_time[key]
 				break
-	return {"won": winner == team, "reason": end_reason, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
+	return {"won": winner == team, "reason": end_reason, "before_fight": left_before_fight and team == PLAYER, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
 		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped,
 		"gate_breached": objective == OBJECTIVE_SIEGE and gate_hp <= 0.0,
 		"is_lord": is_lord, "lord_captured": lord_captured, "lord_killed": lord_killed, "lord_escaped": lord_escaped,

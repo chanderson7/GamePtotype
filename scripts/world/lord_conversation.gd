@@ -556,13 +556,24 @@ func _leave() -> void:
 func _beat_greet() -> void:
 	_beat = "greet"
 	# The greeting is told in the third person on the map; here they say it to your face.
-	var said := LordVoice.line("greet", lord)
+	# Kin by your marriage, or sworn to you by a pact, they greet you as such; someone you've
+	# talked with before greets you as someone they know.
+	var talked_before := LordTalk.note_talk(lord)
+	var pact: Dictionary = world.social.pact_for_lord(int(lord.get("id", -1))) if world.social != null else {}
+	var kind := "greet"
+	if String(pact.get("origin", "")) == "marriage":
+		kind = "kin"
+	elif not pact.is_empty():
+		kind = "pact"
+	elif talked_before > 0:
+		kind = "known"
+	var said := LordVoice.line(kind, lord, talked_before)
 	var a := said.find("\"")
 	var b := said.rfind("\"")
 	var words := said.substr(a + 1, b - a - 1) if a >= 0 and b > a else "Well met, captain."
 	if String(lord.get("realm", "")) == Data.CROWN:
 		words = "My liege. %s is held, and my riders are ready." % (Data.settlement(String(lord["fief"]))["name"] if String(lord.get("fief", "")) != "" else "All")
-	elif reason == "first":
+	elif reason == "first" and kind == "greet":
 		words = "So you're the captain everyone's talking about. %s. %s" % [_house_line(), words]
 	var extras := []
 	if mode == "hall":
@@ -815,7 +826,7 @@ func _beat_trouble() -> void:
 	var tr := LordTalk.trouble(gs, lord)
 	var replies := []
 	if String(tr["kind"]) == "bandits":
-		var full: bool = gs.active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS
+		var full: bool = gs.contract_count() >= Jobs.MAX_ACTIVE_JOBS
 		replies.append({"id": "take", "text": "I'll clear %s." % String(tr["name"]), "icon": "journal",
 			"fx": [] if full else [["bond", LordTalk.JOB_REGARD]],
 			"tag": "your journal is full" if full else "new job · when done%s" % (" · counts toward crowns" if gs.is_crowned() else ""),
@@ -1217,11 +1228,11 @@ func _beat_captive() -> void:
 	else:
 		replies.append({"id": "swear", "text": "Swear to my crown.", "tag": "raise your own banner first", "tone": "locked"})
 	replies.append({"id": "release", "text": "Go home, and remember who freed you.", "icon": "bond",
-		"fx": [["bond", gs.RELEASE_REGARD], {"realm": _banner_realm, "amount": gs.RELEASE_REALM}], "tag": "for honor", "tone": "gold", "act": func():
+		"fx": [["bond", int(gs.release_reward(lid)["regard"])], {"realm": _banner_realm, "amount": int(gs.release_reward(lid)["realm"])}], "tag": "for honor", "tone": "gold", "act": func():
 			gs.release_lord_for_honor(lid)
 			Sound.play("page")
 			_show("\"I won't forget it.\"", [_note("Released.")], [_leave_reply("Go.")])})
-	var ransom := int(lord.get("ransom_amount", Lords.ransom_for(int(lord.get("renown", 0)))))
+	var ransom: int = int(gs.ransom_offer(lid))
 	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "icon": "silver",
 		"fx": [["silver", ransom], ["bond", 5]], "tag": "ransom", "act": func():
 			gs.accept_lord_ransom(lid)

@@ -17,9 +17,12 @@ const UNDONE_ICONS := {"time": "ride", "battle": "battle", "captain": "men", "ri
 const ROW_ICONS := {"Day": "day", "Men": "men", "Silver": "silver", "Renown": "renown", "Food": "food"}
 ## Room for the bottom bar under the page, above the safe area.
 const BAR_ROOM := 124.0
+## Said of a save made by a newer version of the game, which this one won't load.
+const NEWER := "Made with a newer version of Bannerfall. Update the game to load it."
 
 var _overlay: Control
 var _delete_armed := false
+var _over_armed := false
 
 
 func _ready() -> void:
@@ -48,6 +51,7 @@ func _build() -> void:
 		add_child(bar)
 		return
 	col.add_child(Page.note("The game also keeps a save from just before each battle, and one from when you last entered a settlement.", Style.SMALL))
+	col.add_child(_where_note())
 	if GameState.has_campaign():
 		col.add_child(_now_card())
 	var mine := SaveSlots.own()
@@ -68,6 +72,23 @@ func _build() -> void:
 		for e in kept:
 			col.add_child(_row(e))
 	add_child(bar)
+
+
+## Where the saves are on this device, and how to carry a campaign to another.
+func _where_note() -> Label:
+	var text := "Your saves stay on this device."
+	if OS.has_feature("ios"):
+		text = "Your saves are in the Files app, under On My iPhone › Bannerfall. To move a campaign, copy campaign.json and the saves folder to the same place on the other device."
+	elif OS.has_feature("pc"):
+		text = "Your saves are in %s. To move a campaign, copy campaign.json and the saves folder to the same place on the other computer." % OS.get_user_data_dir()
+	var l := Page.note(text, Style.SMALL)
+	l.name = "WhereSavesLive"
+	return l
+
+
+## Whether `e` was saved by a newer version of the game (it's shown, but won't load).
+func _newer(e: Dictionary) -> bool:
+	return GameState.is_newer_save(int(e.get("version", 0)))
 
 
 # ---------------------------------------------------------------- right now
@@ -150,6 +171,7 @@ func _row(e: Dictionary) -> Control:
 			box.border_color = Style.BRASS
 		b.add_theme_stylebox_override(k, box)
 	b.pressed.connect(_confirm.bind(e))
+	b.disabled = _newer(e)
 	var row := HBoxContainer.new()
 	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	row.offset_left = 14
@@ -193,6 +215,11 @@ func _row(e: Dictionary) -> Control:
 	wl.clip_text = true
 	wl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	words.add_child(wl)
+	if b.disabled:
+		var newer := Style.label(NEWER, Style.SMALL, Style.ENEMY_LIGHT)
+		newer.name = "NewerVersion"
+		newer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(newer)
 	var meta := HFlowContainer.new()
 	meta.add_theme_constant_override("h_separation", 14)
 	meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -233,6 +260,7 @@ func _sheet(sheet_name: String, title: String) -> VBoxContainer:
 	_close_sheet()
 	var v := Widgets.sheet(self, title, sheet_name, func():
 		_delete_armed = false
+		_over_armed = false
 		_overlay = null)
 	_overlay = get_node(sheet_name)
 	return v
@@ -240,6 +268,7 @@ func _sheet(sheet_name: String, title: String) -> VBoxContainer:
 
 func _close_sheet() -> void:
 	_delete_armed = false
+	_over_armed = false
 	if _overlay != null and is_instance_valid(_overlay):
 		var o := _overlay
 		_overlay = null
@@ -287,13 +316,16 @@ func _confirm(e: Dictionary) -> void:
 	var go := Page.button("Go back", _load.bind(String(e["id"])), true)
 	go.name = "GoBack"
 	go.icon = Widgets.icon("revert")
+	if _newer(e):
+		go.disabled = true
+		v.add_child(Page.note(NEWER, Style.SMALL, Style.ENEMY_LIGHT))
 	v.add_child(go)
 	var pair := HBoxContainer.new()
 	pair.add_theme_constant_override("separation", 14)
 	v.add_child(pair)
 	var first := Page.button("Save now first", _save_then_load.bind(String(e["id"])))
 	first.name = "SaveFirst"
-	if SaveSlots.spaces_left() == 0 or not GameState.has_campaign():
+	if SaveSlots.spaces_left() == 0 or not GameState.has_campaign() or _newer(e):
 		first.disabled = true
 	first.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pair.add_child(first)
@@ -334,7 +366,11 @@ func _compare(rows: Array) -> Control:
 		grid.add_child(Style.label("→", Style.SMALL, Style.MUTED))
 		var differs := String(r[1]) != String(r[2])
 		var lower := String(r[2]).is_valid_int() and String(r[1]).is_valid_int() and int(r[2]) < int(r[1])
-		var then := Style.label(String(r[2]), Style.SMALL, (Style.ENEMY_LIGHT if lower else Color("a8dc9a")) if differs and r[0] != "Day" else Style.TEXT)
+		# Better or worse reads by its shape as well as its colour: ▲ more then, ▼ less.
+		var marked: bool = differs and String(r[0]) != "Day"
+		var then_text: String = ("▼ " if lower else "▲ ") + String(r[2]) if marked else String(r[2])
+		var then := Style.label(then_text, Style.SMALL, (Style.ENEMY_LIGHT if lower else Color("a8dc9a")) if marked else Style.TEXT)
+		then.name = "Then_%s" % String(r[0])
 		then.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		grid.add_child(then)
 	return panel
@@ -375,10 +411,16 @@ func _options(e: Dictionary) -> void:
 	rename.custom_minimum_size = Vector2(170, Style.TOUCH)
 	row.add_child(rename)
 	field.text_submitted.connect(func(_t: String): rename.pressed.emit())
-	var over := Page.button("Save over it", func():
+	# Saving over loses what was there, so it asks for a second tap, as Delete does.
+	var over := Page.button("Save over it", func(): pass)
+	over.name = "Overwrite"
+	over.pressed.connect(func():
+		if not _over_armed:
+			_over_armed = true
+			over.text = "Tap again to save over"
+			return
 		SaveSlots.overwrite(GameState, id)
 		_build())
-	over.name = "Overwrite"
 	over.icon = Widgets.icon("save")
 	over.disabled = not GameState.has_campaign()
 	v.add_child(over)
@@ -401,6 +443,15 @@ func _options(e: Dictionary) -> void:
 func _load(id: String) -> void:
 	if SaveSlots.load_into(GameState, id):
 		Scenes.go("res://scenes/world_map.tscn")
+		return
+	# Nothing was changed: say so rather than leave the tap unanswered.
+	var e := SaveSlots.entry(id)
+	var v := _sheet("CantLoadSheet", "Can't load this save")
+	v.add_child(Page.note(NEWER if _newer(e) else "This save couldn't be read. Your campaign is as it was.", Style.SMALL))
+	var ok := Page.button("Keep playing", _close_sheet)
+	ok.name = "KeepPlaying"
+	v.add_child(ok)
+	ok.grab_focus.call_deferred()
 
 
 func _save_then_load(id: String) -> void:

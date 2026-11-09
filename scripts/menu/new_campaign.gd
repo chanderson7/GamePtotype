@@ -18,13 +18,28 @@ const STRENGTHS := {
 }
 ## Room for the bottom bar under the page, above the safe area.
 const BAR_ROOM := 124.0
+## What this device remembers about a new player, kept with the settings (Sound's file):
+## whether a campaign was ever started here, and whether the lessons were opened.
+const DEVICE := "device"
+const STARTED_KEY := "started_campaign"
+const TUTORIAL_KEY := "tutorial_seen"
 
 var _tutorial: Button
 var _ironman: Button
 var _casual := false
 var _mode_holder: Control
 var _mode_note: Label
+var _more: Control
+var _more_button: Button
 var _starting := false
+
+
+## Whether this is the first campaign anyone has started on this device, with the lessons
+## not yet opened: then the tutorial switch starts on.
+func first_time_here() -> bool:
+	if GameState.has_campaign():
+		return false
+	return not Sound.has_seen_hint(DEVICE, STARTED_KEY) and not Sound.has_seen_hint(DEVICE, TUTORIAL_KEY)
 
 
 ## A people as a card: their capital's gate, their banner and name, a line about them and
@@ -98,19 +113,39 @@ func _ready() -> void:
 	var intro := Style.label("Three realms share the shores of the Glass Sea. You start at your people's capital and can ride anywhere.", Style.SMALL, Style.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(intro)
-	# How the campaign runs: the tutorial, whether captains can die, and Ironman, together.
+	# How the campaign runs: the tutorial first (on for a first campaign on this device),
+	# then whether captains can die and Ironman, folded away until asked for.
 	var how := Widgets.card(col, "How you'll play")
-	how.add_child(_option_row("Tutorial", "Six short lessons before you ride out.", false, "TutorialSwitch"))
+	how.add_child(_option_row("Tutorial", "Six short lessons before you ride out.", first_time_here(), "TutorialSwitch"))
 	_tutorial = how.find_child("TutorialSwitch", true, false) as Button
+	_more_button = Button.new()
+	_more_button.name = "MoreOptions"
+	_more_button.flat = true
+	_more_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_more_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_more_button.custom_minimum_size = Vector2(0, Style.TOUCH)
+	_more_button.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	_more_button.icon = Widgets.icon("advance")
+	for ink_key in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+		_more_button.add_theme_color_override(ink_key, Style.MUTED)
+	_more_button.pressed.connect(_toggle_more)
+	how.add_child(_more_button)
+	var more := VBoxContainer.new()
+	more.name = "MoreOptionsBody"
+	more.add_theme_constant_override("separation", 12)
+	more.visible = false
+	how.add_child(more)
+	_more = more
 	_mode_holder = MarginContainer.new()
-	how.add_child(_mode_holder)
+	more.add_child(_mode_holder)
 	_mode_note = Style.label("", Style.SMALL, Style.MUTED)
 	_mode_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	how.add_child(_mode_note)
+	more.add_child(_mode_note)
 	_show_mode()
 	# Ironman: one save, kept as you go, and no going back.
-	how.add_child(_option_row("Ironman", "One save, kept as you go. No saves of your own, no going back.", false, "IronmanSwitch"))
-	_ironman = how.find_child("IronmanSwitch", true, false) as Button
+	more.add_child(_option_row("Ironman", "One save, kept as you go. No saves of your own, no going back.", false, "IronmanSwitch"))
+	_ironman = more.find_child("IronmanSwitch", true, false) as Button
+	_show_more_label()
 	# The people picked on Home comes first, lit.
 	var pick := Scenes.new_campaign_pick
 	Scenes.new_campaign_pick = ""
@@ -156,6 +191,22 @@ func _option_row(title: String, note: String, on: bool, switch_name: String) -> 
 	return row
 
 
+## Open or fold the captain-death and Ironman choices.
+func _toggle_more() -> void:
+	_more.visible = not _more.visible
+	_show_more_label()
+
+
+## The fold's own line says what's chosen inside it while it's shut.
+func _show_more_label() -> void:
+	if _more_button == null:
+		return
+	if _more.visible:
+		_more_button.text = "Fewer options"
+	else:
+		_more_button.text = "More options · %s%s" % ["Casual" if _casual else "Mortal", " · Ironman" if _ironman != null and _ironman.button_pressed else ""]
+
+
 ## Mortal or Casual, the picked one lit, with what it means underneath.
 func _show_mode() -> void:
 	for c in _mode_holder.get_children():
@@ -175,6 +226,8 @@ func _on_pick(culture: String) -> void:
 	GameState.casual_mode = _casual
 	GameState.ironman = _ironman.button_pressed
 	GameState.save_game()
+	# From now on this device has seen a campaign begin: the tutorial switch starts off.
+	Sound.mark_hint_seen(DEVICE, STARTED_KEY)
 	if _tutorial.button_pressed:
 		Scenes.tutorial_return = "res://scenes/world_map.tscn"
 		Scenes.go("res://scenes/tutorial.tscn")

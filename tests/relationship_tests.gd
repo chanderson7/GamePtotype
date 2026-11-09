@@ -29,6 +29,8 @@ func _init() -> void:
 	_check_relocation_on_capture()
 	_check_save_load_and_migration()
 	_check_pacing()
+	_check_task_and_house()
+	_check_married_life()
 	print("--- Completed: %d failures ---" % _failures)
 	quit(_failures)
 
@@ -90,10 +92,13 @@ func _check_edda_story_progression() -> void:
 	# Chapter 3: Shared obligation
 	ctx["current_hour"] += 25.0
 	var res3 := soc.apply_choice(RomanceStories.EDDA, "correspondence", ctx)
-	_expect(res3.get("ok", false), "ch3 shared choice succeeds")
-	_expect(rel["trust"] == 40, "ch3 awards 15 trust (trust: %d)" % rel["trust"])
+	_expect(res3.get("ok", false) and bool(res3.get("task", false)), "ch3 shared choice succeeds, as a promise to keep")
 	var edda_person: Dictionary = soc.get_candidate_person(RomanceStories.EDDA)
 	var house: Dictionary = soc.get_house(edda_person["house_id"])
+	_expect(rel["trust"] == 25 and house["standing"] == 0 and soc.get_quest("quest_edda")["chapter"] == 3,
+		"nothing is given, and the chapter doesn't end, until it's done")
+	_expect(soc.complete_task(RomanceStories.EDDA, ctx["current_hour"])["ok"], "the promise is kept")
+	_expect(rel["trust"] == 40, "ch3 awards 15 trust (trust: %d)" % rel["trust"])
 	_expect(house["standing"] == 15, "ch3 awards 15 house standing (standing: %d)" % house["standing"])
 
 	# Chapter 4: Honest resolution (negotiate)
@@ -128,6 +133,8 @@ func _check_other_story_progression() -> void:
 			ctx["current_hour"] += 25.0
 			_expect(soc.apply_choice(candidate_id, choice_id, ctx).get("ok", false),
 				"%s advances through %s" % [expected_name, choice_id])
+			if choice_id == "correspondence":
+				soc.complete_task(candidate_id, ctx["current_hour"])
 		ctx["current_hour"] += 25.0
 		var final := soc.apply_choice(candidate_id, "marry_public", ctx)
 		_expect(final.get("ok", false) and soc.get_relationship(candidate_id).get("status") == Relationships.ENGAGED,
@@ -146,6 +153,7 @@ func _check_repair_branch() -> void:
 	soc.apply_choice(RomanceStories.EDDA, "villager", ctx)
 	ctx["current_hour"] += 25.0
 	soc.apply_choice(RomanceStories.EDDA, "defend_district", ctx)
+	soc.complete_task(RomanceStories.EDDA, ctx["current_hour"])
 	var rel: Dictionary = soc.get_relationship(RomanceStories.EDDA)
 	_expect(rel["trust"] == 40, "trust is 40 before chapter 4")
 
@@ -188,6 +196,7 @@ func _check_friendship_route() -> void:
 	soc.apply_choice(RomanceStories.EDDA, "news", ctx)
 	ctx["current_hour"] += 25.0
 	soc.apply_choice(RomanceStories.EDDA, "correspondence", ctx)
+	soc.complete_task(RomanceStories.EDDA, ctx["current_hour"])
 	ctx["current_hour"] += 25.0
 	soc.apply_choice(RomanceStories.EDDA, "negotiate", ctx)
 
@@ -309,6 +318,108 @@ func _check_separation() -> void:
 	_expect(soc.limits["current_partner_id"] == "", "current partner cleared")
 
 
+## Chapter 3's task is a journal job bound to her seat; her house's standing can be raised
+## by paying for musters; her house is the one that holds her castle, and a dead lord's
+## heir heads it.
+func _check_task_and_house() -> void:
+	var w := WorldSim.new()
+	w.setup(4242, Cultures.VARDISH)
+	var soc: SocialSim = w.social
+	var ctx := {"player_silver": 500, "player_food": 500, "current_hour": w.hour, "invitations_enabled": true}
+	soc.apply_choice(RomanceStories.EDDA, "offer_help", ctx)
+	ctx["current_hour"] += 25.0
+	soc.apply_choice(RomanceStories.EDDA, "news", ctx)
+	ctx["current_hour"] += 25.0
+	soc.apply_choice(RomanceStories.EDDA, "correspondence", ctx)
+	_expect(not soc.task(RomanceStories.EDDA).is_empty() and not soc.preview_choice(RomanceStories.EDDA, "fund_muster", ctx)["ok"],
+		"a promise given waits to be kept, and isn't made twice")
+	w.hour = ctx["current_hour"]
+	var job: Dictionary = soc.story_job(RomanceStories.EDDA, w)
+	_expect(String(job.get("type", "")) == "courier" and String(job.get("origin_settlement", "")) == "ravensford"
+		and String(job.get("destination_settlement", "")) != "ravensford" and String(job.get("story_candidate", "")) == RomanceStories.EDDA,
+		"carrying her letters is a courier job from her seat (%s)" % String(job.get("title", "")))
+	_expect(String(soc.task(RomanceStories.EDDA)["job_id"]) == String(job["id"]), "and the promise knows its job")
+	_expect(soc.complete_task(RomanceStories.EDDA, ctx["current_hour"])["ok"] and soc.get_quest("quest_edda")["chapter"] == 4
+		and soc.task(RomanceStories.EDDA).is_empty(), "done, the chapter ends and the next one opens")
+	_expect(soc.take_untold(RomanceStories.EDDA).contains("Three houses") and soc.take_untold(RomanceStories.EDDA) == "",
+		"her account of it waits for your next visit, once")
+	# Standing: chapter 3 brought 15; standing by her in council costs 10.
+	ctx["current_hour"] += 25.0
+	soc.apply_choice(RomanceStories.EDDA, "support_edda", ctx)
+	var house: Dictionary = soc.get_house(soc.get_candidate_person(RomanceStories.EDDA)["house_id"])
+	_expect(int(house["standing"]) == 5, "standing by her in council leaves her house cool (%d)" % int(house["standing"]))
+	soc.get_relationship(RomanceStories.EDDA)["trust"] = 60
+	ctx["current_hour"] += 25.0
+	var locked := soc.preview_choice(RomanceStories.EDDA, "friendship", ctx)
+	_expect(not locked["ok"] and String(locked["reason"]).contains("muster"), "the pact's lock says how to raise standing (%s)" % locked["reason"])
+	var hour: float = ctx["current_hour"]
+	var gained := 0
+	for i in 8:
+		var f := soc.house_favour(RomanceStories.EDDA, hour)
+		gained += int(f.get("standing_change", 0))
+		_expect(not soc.favour_check(RomanceStories.EDDA, hour)["ok"], "a muster for her house, then a wait")
+		hour += Relationships.FAVOUR_COOLDOWN_HOURS
+	_expect(gained == Relationships.STANDING_FAVOUR_CAP and int(house["standing"]) == 5 + Relationships.STANDING_FAVOUR_CAP,
+		"musters raise her house's standing up to a cap (%d)" % int(house["standing"]))
+	ctx["current_hour"] = hour + 25.0
+	_expect(soc.preview_choice(RomanceStories.EDDA, "friendship", ctx)["ok"], "and the pact is within reach again")
+	# Her house is the one holding her castle, by its own name.
+	var head: Dictionary = soc.get_person(house["head_person_id"])
+	var lord: Dictionary = w.lord_by_id(int(head["lord_id"]))
+	_expect(soc.house_family(String(house["id"])) == String(lord.get("house", "")), "her house is known by its lord's family name")
+	var signed: Dictionary = soc.add_letter(soc.get_candidate_person(RomanceStories.EDDA)["id"], "ch4_invitation", "", 10.0, "ravensford")
+	_expect(String(signed["letter"]["sign_title"]) == "of House %s" % String(lord.get("house", "")) or String(signed["letter"]["sign_title"]) == "Steward of the household",
+		"and she signs with it (%s)" % String(signed["letter"]["sign_title"]))
+	var old_name := String(lord["name"])
+	w.kill_lord(int(lord["id"]), "player")
+	_expect(String(head["name"]) == String(lord["name"]) and String(house["name"]).contains(String(lord["name"])) and String(house.get("late_head", "")) == old_name,
+		"a dead lord's heir heads the house, by name (%s)" % String(house["name"]))
+
+
+## Married or sworn, she writes when you win near her, when a captain falls and when
+## you're long away; and she only writes once you've met.
+func _check_married_life() -> void:
+	var w := WorldSim.new()
+	w.setup(5150, Cultures.VARDISH)
+	var soc: SocialSim = w.social
+	var rel: Dictionary = soc.get_relationship(RomanceStories.EDDA)
+	rel["status"] = Relationships.MARRIED
+	soc.married_life_check(3, {}, [], 100.0)
+	_expect(soc.pending_letters.is_empty(), "nothing is written for what came before")
+	soc.married_life_check(4, {"won": true, "place": "thornwall"}, [], 110.0)
+	_expect(soc.pending_letters.size() == 1 and String(soc.pending_letters[0]["template_key"]) == "life_victory"
+		and String(soc.pending_letters[0]["letter"]["body"][0]).contains("Thornwall"), "a battle won near her brings a letter")
+	soc.married_life_check(5, {"won": true}, [{"first": "Wynn", "battle": 5}], 120.0)
+	_expect(soc.pending_letters.size() == 1, "she doesn't write twice in two days")
+	soc.married_life_check(6, {"won": false}, [{"first": "Wynn", "battle": 6}], 200.0)
+	_expect(soc.pending_letters.size() == 2 and String(soc.pending_letters[1]["letter"]["subject"]).contains("Wynn"), "a fallen captain is named in hers")
+	soc.married_life_check(6, {}, [], 200.0 + 21.0 * 24.0)
+	_expect(soc.pending_letters.size() == 3 and String(soc.pending_letters[2]["template_key"]) == "life_away", "and a long absence brings one")
+	soc.married_life_check(6, {}, [], 200.0 + 30.0 * 24.0)
+	_expect(soc.pending_letters.size() == 3, "once per absence")
+	for key in ["life_victory", "life_away", "life_fallen", "taken_by_you"]:
+		_expect(Letters.replies(key).size() >= 2, "%s can be answered" % key)
+	# The matter after the vows: a sixth chapter, once.
+	var q: Dictionary = soc.get_quest("quest_edda")
+	q["post_opens_hour"] = 300.0
+	_expect(not soc.post_state(RomanceStories.EDDA, 290.0)["ok"] and soc.post_state(RomanceStories.EDDA, 310.0)["ok"], "chapter 6 opens a day after the vows")
+	var hid: String = soc.get_candidate_person(RomanceStories.EDDA)["house_id"]
+	var before := int(soc.get_house(hid)["standing"])
+	_expect(soc.apply_post(RomanceStories.EDDA, "mediate", 310.0)["ok"] and int(soc.get_house(hid)["standing"]) == before + 5
+		and bool(soc.post_state(RomanceStories.EDDA, 320.0)["done"]), "and its answer raises her house's standing once")
+	# Strangers don't write; and when it was you who took her home, she doesn't console you.
+	var w2 := WorldSim.new()
+	w2.setup(222, Cultures.VARDISH)
+	w2.set_owner("ravensford", "kharzan")
+	_expect(w2.social.letters.is_empty(), "nobody you haven't met writes when their home falls")
+	var w3 := WorldSim.new()
+	w3.setup(222, Cultures.VARDISH)
+	w3.social.get_relationship(RomanceStories.EDDA)["status"] = Relationships.ACQUAINTED
+	w3.social.on_settlement_captured("ravensford", WorldData.CROWN, "vardmark", w3)
+	var mine: Array = w3.social.letters.filter(func(l): return String(l["template_key"]) == "taken_by_you")
+	_expect(mine.size() == 1 and w3.social.letters.size() == 1, "when your company took her home, she writes as one whose home you took")
+
+
 func _check_relocation_on_capture() -> void:
 	var w := WorldSim.new()
 	w.setup(222, Cultures.VARDISH)
@@ -394,6 +505,11 @@ func _check_pacing() -> void:
 				var v: Dictionary = Letters.render(key, cand, courting, {"place": "Ravensford", "hour": 10.0})
 				_expect(v["subject"] != "A letter" and v["body"].size() == 2, "%s has a %s letter %s" % [cand, key, "courting" if courting else "as a friend"])
 		_expect(Letters.replies(key).size() == 3, "%s can be answered" % key)
+		var own := true
+		for cand in [RomanceStories.EDDA, RomanceStories.FARAH, RomanceStories.KAEDE]:
+			own = own and Letters.replies(key, cand).size() == 3 and String(Letters.replies(key, cand)[2]["id"]) == "plain"
+		_expect(own and String(Letters.reply(key, "coming", RomanceStories.FARAH)["courting"][1]) != String(Letters.reply(key, "coming", RomanceStories.EDDA)["courting"][1]),
+			"%s is answered in words of its own for each of them" % key)
 	# The last chapter waits for trust.
 	var q: Dictionary = soc.get_quest("quest_edda")
 	q["chapter"] = 5

@@ -193,6 +193,16 @@ func _lord_row(l: Dictionary) -> Control:
 			chips.append(Widgets.chip("Won't swear", Style.MORALE_LOW))
 	elif w.relation_to_player(realm) == "hostile" and not crown:
 		chips.append(Widgets.chip("At war", Style.ENEMY_LIGHT, "", "fight"))
+	# The head of a house you married into, or swore a pact with.
+	var pact: Dictionary = _social().pact_for_lord(int(l["id"]))
+	if String(pact.get("origin", "")) == "marriage":
+		var kin := Widgets.chip("Kin by marriage", Style.ROMANCE, "", "rings")
+		kin.name = "KinChip"
+		chips.append(kin)
+	elif not pact.is_empty():
+		var sworn := Widgets.chip("Sworn pact", Style.BRASS, "", "keep")
+		sworn.name = "PactChip"
+		chips.append(sworn)
 	var fief := String(l.get("fief", ""))
 	if fief != "" and not ruler:
 		chips.append(Widgets.chip(String(WorldData.settlement(fief)["name"]), Style.TEXT, "", "keep"))
@@ -340,10 +350,17 @@ func _next_step(cand: String, with_place: bool = true) -> String:
 		return "%s has invited you%s." % [name, (" to %s" % place) if with_place else ""]
 	if not unread.is_empty():
 		return "%s has written to you." % name
+	var post: Dictionary = _social().post_state(cand, GameState.world.hour)
+	if bool(post.get("ok", false)):
+		return "%s has one more matter to ask of you%s." % [name, at]
 	if _chapter(cand) > CHAPTERS or _status(cand) == Relationships.MARRIED:
-		return "Your story together is told. Spend time with %s whenever you like." % name
+		return "Your story together is told. Spend an evening with %s whenever you like%s." % [name, at]
 	if not _met(cand):
 		return "Seek an audience%s." % at
+	if not _social().task(cand).is_empty():
+		return "Keep your promise to %s: it's in your journal." % name
+	if _social().intent_open(cand):
+		return "You never said what you mean to be to %s. Tell her%s." % [name, at]
 	var open: Dictionary = _social().chapter_open(cand, GameState.world.hour)
 	if not bool(open["ok"]):
 		return "Not yet: %s. Time together is always welcome%s." % [String(open["reason"]), at]
@@ -1300,7 +1317,7 @@ func _build_reader(col: VBoxContainer) -> void:
 		col.add_child(_heading("Your reply"))
 		col.add_child(_parchment(l["reply"].get("letter", {}), true))
 	else:
-		var options: Array = Letters.replies(String(l.get("template_key", "")))
+		var options: Array = Letters.replies(String(l.get("template_key", "")), social.letter_candidate(l))
 		if not options.is_empty():
 			col.add_child(_heading("Write back"))
 			for r in options:

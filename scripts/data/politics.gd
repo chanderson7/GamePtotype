@@ -51,3 +51,10 @@ const WAR_READY_WEARINESS := 25.0
 const MAINLAND_TOTAL_SEATS := 6
 const HEGEMONY_SEATS_THRESHOLD := 4
 const MAINLAND_SEATS := ["highcliff", "ravensford", "marchgate", "khalun", "zeyra", "qasr_hamra"]
+
+## A realm whose home capital another realm holds wants it back. At war with the holder,
+## its marshal army goes for the capital before anything else. At peace (once any truce
+## has run out), it declares war for it while its weariness is no higher than this, with
+## this chance a day: a wearier bar than any other war, since a capital is worth the risk.
+const RECONQUEST_WEARINESS := 45.0
+const RECONQUEST_CHANCE := 0.35

@@ -103,5 +103,81 @@ func _init() -> void:
 	var first: Node = rows.get_child(0) if rows != null and rows.get_child_count() > 0 else null
 	check(first != null and first.text == String(relief["title"]) and bool(first.get_meta("pinned", false)), "a pinned commitment leads the journal")
 
+	_check_advice()
+
 	print("\nJournal tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
+
+
+## The next step a new or a broke company is given, the gate on hiring, and the step up
+## for a vassal and for a crown. A campaign of its own, so the journal's is untouched.
+func _check_advice() -> void:
+	var st = load("res://scripts/game_state.gd").new()
+	st.persist = false
+	st.new_campaign(Cultures.VARDISH)
+	var sw = st.world
+	# Before the first fight: the nearest band, by name, with its id to show it.
+	var rec: Dictionary = st.recommendation()
+	var first_band = sw.party(int(rec.get("party", -1)))
+	check(st.battles == 0 and String(rec.get("action", "")) == "band" and first_band != null
+		and String(rec.get("title", "")).contains(String(first_band.name)),
+		"a new company's first step names the nearest bandit band")
+	# Broke: a contract at the nearest town or castle, not a shop.
+	st.silver = 5
+	rec = st.recommendation()
+	var work_place := String(rec.get("place", ""))
+	check(String(rec.get("title", "")).begins_with("Take a contract at") and WorldData.SETTLEMENTS.has(work_place)
+		and String(WorldData.settlement(work_place)["type"]) != WorldData.VILLAGE,
+		"a company that can't pay tomorrow is sent to a notice board")
+	st.food = 0
+	rec = st.recommendation()
+	check(String(rec.get("title", "")).begins_with("Take a contract at"), "even when hungry, if it can't buy a day of food")
+	st.silver = 400
+	rec = st.recommendation()
+	check(String(rec.get("title", "")) == "Buy provisions", "with silver for food, hunger sends it to buy some")
+	st.food = 500
+	# Every board bare: the weakest band near instead.
+	st.silver = 5
+	for board in WorldData.SETTLEMENTS:
+		if String(WorldData.settlement(board)["type"]) != WorldData.VILLAGE:
+			sw.settlement_jobs[board] = []
+			sw.settlement_jobs_back[board] = sw.hour + 500.0
+	rec = st.recommendation()
+	check(String(rec.get("action", "")) == "band" and String(rec.get("body", "")).contains("weakest"),
+		"with every notice board bare, the weakest band near")
+	# The hire line waits for a purse that can pay the new company for three days.
+	st.battles = 1
+	st.silver = 400
+	rec = st.recommendation()
+	check(String(rec.get("title", "")) != "Room for another company", "400 silver isn't told to hire a company it then can't pay")
+	st.silver = 5000
+	rec = st.recommendation()
+	check(String(rec.get("title", "")) == "Room for another company", "a full purse is told there's room for another company")
+	# A vassal seated in a village: what the crown needs, and where to ask for walls.
+	st.silver = 300
+	st.renown = 60
+	st.add_realm_relation("vardmark", 30)
+	var sworn: bool = st.accept_fealty_and_fief("kettlebrook", "vardmark")
+	check(sworn, "(a vassal of Vardmark, seated at Kettlebrook)")
+	if sworn:
+		st.player_fief["silver"] = 0
+		rec = st.recommendation()
+		check(String(rec.get("title", "")) == "Toward a crown" and String(rec.get("body", "")).contains("200 renown")
+			and String(rec.get("body", "")).contains("Fief tab") and String(rec.get("place", "")) == "kettlebrook",
+			"a vassal is told the renown a crown needs and to ask for walls from the village's Fief tab")
+	# A crown: how many seats fly its banner.
+	st.player_fief = {}
+	var seats := 0
+	var castle_seat := ""
+	for sid in WorldData.SETTLEMENTS:
+		var kind := String(WorldData.settlement(sid)["type"])
+		if kind != WorldData.VILLAGE:
+			seats += 1
+		if kind == WorldData.CASTLE and castle_seat == "":
+			castle_seat = String(sid)
+	sw.declare_crown(castle_seat)
+	rec = st.recommendation()
+	check(st.is_crowned() and String(rec.get("title", "")) == "Bring every seat under the crown"
+		and String(rec.get("body", "")).begins_with("1 of %d held" % seats),
+		"a crown is told how many seats it holds of all of them")
+	st.free()

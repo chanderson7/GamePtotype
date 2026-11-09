@@ -8,15 +8,18 @@ const Widgets = preload("res://scripts/ui/widgets.gd")
 const BAR_ROOM := 124.0
 const LESSONS := [
 	["Ride the Glass Sea", "Tap a settlement, then Ride there. Drag to look around; pinch or scroll to zoom. Double-tap to find your warband.", "Time passes only while you travel or wait. The campaign menu and encounters pause time so you can decide."],
-	["Keep your company supplied", "Watch silver and days of food on the map. Each day your men need wages and a ration each. Shortfalls cause desertion.", "Enter a settlement to buy food and hire recruits. Villages sell cheaper food; towns let you refill and train squads."],
-	["Choose your fights", "Scouts estimate the danger when bandits block your road. Lead the battle, send your men in, or withdraw when allowed.", "Sending men in is quick but costs more lives. Victories pay silver, food and renown; renown increases your squad cap."],
-	["Command the battle", "Before fighting, use Auto-place or tap a squad card and the field. Press Fight when ready. Hold braces your line; Advance moves it toward the enemy.", "Select a squad to target an enemy or move to open ground. Drag to form a line. Spears stop horse, horse catch bows, bows beat foot, and foot beat spears. Pause to give orders."],
-	["Use ground and abilities", "Select a squad to use its ability: Shield wall protects infantry, Schiltron guards spears from every side, Volley shakes enemies, and Wheel lets cavalry charge again.", "Heights help archers and downhill attacks. Woods shelter troops from arrows but slow movement. Fords leave men vulnerable. Use the ground and save your abilities for the right moment."],
-	["Know your captains", "Every squad has a captain. Captains fighting side by side build bonds: C restores morale nearby; B and A also improve damage.", "Fallen captains may be wounded or killed. Open Warband from the map menu to see squads, bonds and the fallen. When your first bond forms, a short introduction explains how to use it."],
+	["Keep your warband supplied", "Watch silver and days of food on the map. Each day your men need wages and a ration each. Shortfalls cause desertion.", "Enter a settlement to buy food and hire recruits. Villages sell cheaper food; towns let you refill and train companies. Short of silver? Take a contract from the notice board under Work: a courier run pays without a battle."],
+	["Choose your fights", "Scouts estimate the danger when bandits block your road. Lead the battle, send your men in, or withdraw: Withdraw pulls you back to the last settlement you passed, though a quicker, far stronger lord can ride you down.", "Sending men in is quick but costs more lives. Victories pay silver, food and renown; renown raises how many companies you can lead. Half the men who fall come back wounded: they rejoin as they heal, and still eat and draw pay. A defeat costs half a day and sends you back to your people's capital."],
+	["Command the battle", "Before fighting, use Auto-place or tap a company's card and then the field. Press Fight when ready. A company that holds for two seconds is braced: it hits harder and takes less from the front. Advance moves it toward the enemy and gives that up.", "Select a company, then tap an enemy to attack it, or tap open ground and tap the ring again to march there. Drag a line to form up along it. Spears stop horse, horse catch bows, bows beat foot, and foot beat spears. Pause or hold the hourglass to think; orders still work."],
+	["Use ground and abilities", "Select a company to use its ability: Shield wall protects infantry, Schiltron guards spears from every side, Volley shakes enemies, and Wheel lets cavalry charge again.", "Heights help archers and downhill attacks. Woods shelter troops from arrows but slow movement. Fords leave men vulnerable. Use the ground and save your abilities for the right moment."],
+	["Know your captains", "Every company has a captain. Captains fighting side by side build bonds: C restores morale nearby; B and A also improve damage.", "Fallen captains may be wounded or killed. Open Warband from the map menu to see companies, bonds and the fallen. When your first bond forms, a short introduction explains how to use it. In the long run you can serve a realm, win a fief with walls and raise your own crown: Warband, then Deeds, shows each step under Toward a crown."],
 ]
 var step := 0
 
 func _ready() -> void:
+	# Opened once, the lessons needn't switch themselves on for a first campaign (see
+	# new_campaign.gd, which reads this mark from the settings file).
+	Sound.mark_hint_seen("device", "tutorial_seen")
 	_build()
 
 func _build() -> void:

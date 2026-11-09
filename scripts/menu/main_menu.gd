@@ -184,7 +184,7 @@ func _build() -> void:
 		if not rest.disabled:
 			Style.make_primary(rest)
 		rest.pressed.connect(_on_reinforce)
-		var why := "Every squad is at full strength" if total == 0 else ("Need %s more silver" % Widgets.thousands(cheapest - GameState.silver) if cheapest > GameState.silver else "")
+		var why := "Every company is at full strength" if total == 0 else ("Need %s more silver" % Widgets.thousands(cheapest - GameState.silver) if cheapest > GameState.silver else "")
 		roster.add_child(Widgets.priced(rest, [["silver", Widgets.thousands(total)]] if total > 0 else [], why))
 	else:
 		roster.add_child(_note("Ride to a town to reinforce and train."))
@@ -195,7 +195,7 @@ func _build() -> void:
 			wounded_roster.add_child(_squad_row(s))
 
 	# --- Deeds & work: contracts, your fief, and what the company is known for.
-	var jc := Widgets.card(deeds, "Active contracts", "%d/%d" % [GameState.active_jobs.size(), Jobs.MAX_ACTIVE_JOBS])
+	var jc := Widgets.card(deeds, "Active contracts", "%d/%d" % [GameState.contract_count(), Jobs.MAX_ACTIVE_JOBS])
 	if GameState.active_jobs.is_empty():
 		jc.add_child(_note("None. Settlements' notice boards post bounties, dispatches and relief work."))
 	else:
@@ -204,6 +204,7 @@ func _build() -> void:
 	if GameState.has_fief():
 		var fcard := Widgets.card(deeds, "Your fiefdom")
 		fcard.add_child(_fief_overview_row())
+	_add_crown_path(deeds)
 	var earned := 0
 	for id in Achievements.ORDER:
 		if Achievements.done(GameState, id):
@@ -230,7 +231,7 @@ func _build() -> void:
 ## Silver (and what a day costs), food, renown, and men (with the wounded), as tiles.
 func _tiles() -> Control:
 	var days := GameState.food_days()
-	var net := GameState.contract_daily_pay() - GameState.daily_wages()
+	var net := GameState.contract_daily_pay() - GameState.daily_outgoings()
 	var wounded := GameState.total_wounded()
 	var grid := Widgets.tile_grid([
 		Widgets.tile("silver", Widgets.thousands(GameState.silver), "%s%d a day" % ["+" if net > 0 else "−", absi(net)]),
@@ -484,7 +485,7 @@ func _on_moment_dismiss(key: String) -> void:
 
 ## What the next day costs, as a card: wages and rations going out, and what's left after.
 func _upkeep_forecast(parent: Control) -> void:
-	var wages := GameState.daily_wages()
+	var wages := GameState.daily_outgoings()
 	var stipend := GameState.contract_daily_pay()
 	var rations := GameState.total_men()
 	var due := "daily"
@@ -527,7 +528,7 @@ func _pay_line(key: String, out: int, after: int, short: bool) -> HBoxContainer:
 ## How many squads against the cap, and the battles fought, as tiles.
 func _company_summary() -> Control:
 	var grid := Widgets.tile_grid([
-		Widgets.tile("company", "%d/%d" % [GameState.army.size(), GameState.squad_cap()], "squads"),
+		Widgets.tile("company", "%d/%d" % [GameState.army.size(), GameState.squad_cap()], "companies"),
 		Widgets.tile("battle", str(GameState.battles), "%d won" % GameState.wins),
 	], 2)
 	grid.name = "CompanySummary"
@@ -792,8 +793,18 @@ func _active_job_row(job: Dictionary) -> Control:
 
 ## Abandoning a contract can't be undone, so it asks on a sheet.
 func _confirm_abandon(jid: String, title: String) -> void:
-	var col := Widgets.sheet(self, "Abandon contract?", "AbandonSheet")
-	col.add_child(_note("%s. Nothing is paid, and the board may not post it again." % title, Style.TEXT))
+	var story := false
+	for j in GameState.active_jobs:
+		if String(j.get("id", "")) == jid:
+			story = String(j.get("story_candidate", "")) != ""
+	var col := Widgets.sheet(self, "Set it down?" if story else "Abandon contract?", "AbandonSheet")
+	var job_realm: String = ""
+	for j in GameState.active_jobs:
+		if String(j.get("id", "")) == jid:
+			job_realm = GameState.job_realm(j)
+	col.add_child(_note(("%s. You can take it up again when you next see her." if story else "%s. Nothing is paid, and the board may not post it again.") % title, Style.TEXT))
+	if job_realm != "":
+		col.add_child(Widgets.chip_row([Widgets.effect("bond", Jobs.ABANDON_RELATION, " with %s" % String(WorldData.FACTIONS[job_realm]["name"]))]))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	col.add_child(row)
@@ -806,7 +817,7 @@ func _confirm_abandon(jid: String, title: String) -> void:
 	row.add_child(keep)
 	var go := Button.new()
 	go.name = "ConfirmAbandon"
-	go.text = "Abandon"
+	go.text = "Abandon" if job_realm == "" else "Abandon · −%d standing" % absi(Jobs.ABANDON_RELATION)
 	go.custom_minimum_size.y = Style.TOUCH
 	go.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	go.add_theme_color_override("font_color", Style.ENEMY_LIGHT)
@@ -819,6 +830,20 @@ func _confirm_abandon(jid: String, title: String) -> void:
 
 ## Your fief as it stands today, in its own picture, under its realm's banner, with what
 ## waits there for you as four tiles.
+## The road to a crown of your own, every requirement ticked or open with what it needs.
+## Gone once the crown is raised.
+func _add_crown_path(parent: Control) -> void:
+	var steps: Array = GameState.crown_path()
+	if steps.is_empty():
+		return
+	var met := steps.filter(func(s): return bool(s["done"])).size()
+	var ready: bool = met == steps.size()
+	var card := Widgets.card(parent, "Toward a crown", "%d of %d" % [met, steps.size()], Style.BRASS if ready else Style.MUTED, ready)
+	card.get_parent().name = "CrownPathCard"
+	card.add_child(_note("Serve a realm, win a fief with walls and a name to match, then raise your own banner there. Your liege will call it war."))
+	card.add_child(Widgets.checklist(steps, "CrownPath"))
+
+
 func _fief_overview_row() -> Control:
 	var v := VBoxContainer.new()
 	v.name = "FiefOverview"
@@ -839,7 +864,7 @@ func _fief_overview_row() -> Control:
 
 	var f := GameState.player_fief
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
-	var garr: int = int(f.get("garrison", []).size())
+	var garr: int = GameState.fief_garrison().filter(func(sq): return GameState.is_company_squad(sq)).size()
 	var built := 0
 	for k in Fiefs.IMPROVEMENT_ORDER:
 		if bool(f.get("improvements", {}).get(k, false)):
@@ -897,15 +922,27 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 		gc.get_parent().name = "GrowingCard"
 		for g in growing:
 			gc.add_child(_growing_row(g))
+	# Friends who have fallen: each opens the survivor's talk by the empty place.
+	var memorials: Array = GameState.remembered_bonds()
 	var remembered := []
 	for sq in GameState.army:
 		var c = sq.get("captain")
 		if c == null:
 			continue
 		for name in c.get("history", {}).get("fallen_friends", []):
-			remembered.append("%s remembers %s." % [c["first"], name])
-	if not remembered.is_empty():
+			if not memorials.any(func(rb): return rb["a"] == c and String(rb["b"].get("name", "")) == String(name)):
+				remembered.append("%s remembers %s." % [c["first"], name])
+	if not memorials.is_empty() or not remembered.is_empty():
 		var mc := Widgets.card(tab, "Remembered")
+		mc.get_parent().name = "RememberedCard"
+		for rb in memorials:
+			var survivor: Dictionary = rb["a"]
+			var gone: Dictionary = rb["b"]
+			var sid := int(survivor["id"])
+			var gid := int(gone["id"])
+			var title := String(survivor["first"]) + " remembers " + String(gone.get("first", gone.get("name", "")))
+			mc.add_child(BondRow.make([survivor, gone], title, float(rb["points"]), 0, _open_bond.bind(sid, gid), false, Callable(),
+				"BondMemory_%d_%d" % [sid, gid]))
 		for line in remembered:
 			mc.add_child(_note(line))
 	if ranked.is_empty() and growing.is_empty():
@@ -1039,7 +1076,7 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 	btns.add_theme_constant_override("h_separation", 10)
 	btns.add_theme_constant_override("v_separation", 10)
 	col.add_child(btns)
-	var ransom := int(cl.get("ransom_amount", 200))
+	var ransom: int = GameState.ransom_offer(lord_id)
 
 	var talk_btn := _captive_button("TalkToCaptive_%d" % lord_id, "Talk", func():
 		var talk = load("res://scripts/world/lord_conversation.gd").open(self, GameState, lord_id, "captive")
@@ -1065,7 +1102,8 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 		GameState.release_lord_for_honor(lord_id)
 		Sound.play("page")
 		_build())
-	btns.add_child(Widgets.priced(honor_btn, [["bond", "+%d" % GameState.RELEASE_REGARD], ["renown", "+%d" % GameState.RELEASE_RENOWN]]))
+	var freed: Dictionary = GameState.release_reward(lord_id)
+	btns.add_child(Widgets.priced(honor_btn, [["bond", "+%d" % int(freed["regard"])], ["renown", "+%d" % int(freed["renown"])]]))
 
 	if GameState.is_crowned():
 		var check: Dictionary = GameState.swear_check(lord_id)

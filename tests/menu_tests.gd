@@ -3,6 +3,7 @@
 extends SceneTree
 const State = preload("res://scripts/game_state.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const SaveSlots = preload("res://scripts/save_slots.gd")
 var failures := 0
 var gs
 var scenes
@@ -26,19 +27,33 @@ func _run() -> void:
 		scratch = "/tmp"
 	var sound = root.get_node("Sound")
 	sound.settings_path = scratch.path_join("bannerfall-menu-test-%d.cfg" % OS.get_process_id())
+	# Saves of the machine's own campaigns must not change what a fresh Home shows.
+	SaveSlots.dir = "user://menu_test_saves_%d" % OS.get_process_id()
 	sound.set_music_on(true)
 	sound.set_sounds_on(true)
 	sound.set_illustrations(true)
 	_check_bonds()
 	gs.world = null
+	gs.load_problem = ""
 	await open("title")
 	check(button("Continue") == null and button("Begin as the Vardish") != null, "fresh Home offers the three peoples without a false Continue")
+	var first_learn = current_scene.find_child("FirstLearn", true, false)
+	check(first_learn != null and _button_in(first_learn, "Learn to play") != null
+		and _button_in(current_scene.find_child("MinorButtons", true, false), "Learn to play") == null,
+		"first-time Home puts Learn to play up top, by the peoples, not in the bottom row")
 	current_scene.find_child("People_kharzani", true, false).pressed.emit()
 	check(button("Begin as the Kharzani") != null, "picking a people on Home names it on the big button")
 	button("Begin as the Kharzani").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("new_campaign.tscn") and current_scene.find_child("PickedPeople", true, false) != null,
 		"and the new-campaign screen opens with that people first")
+	check(current_scene._tutorial.button_pressed, "a first campaign on this device starts with the tutorial on")
+	var more_body = current_scene.find_child("MoreOptionsBody", true, false)
+	check(more_body != null and not more_body.visible and more_body.find_child("IronmanSwitch", true, false) != null
+		and more_body.find_child("ModeChoice", true, false) != null,
+		"Mortal or Casual and Ironman wait folded under More options")
+	current_scene._toggle_more()
+	check(more_body.visible and button("Fewer options") != null, "and open with a tap")
 	await open("title")
 	button("Learn to play").pressed.emit()
 	await transition()
@@ -83,7 +98,18 @@ func _run() -> void:
 	var config := ConfigFile.new()
 	config.load(root.get_node("Sound").settings_path)
 	check(not bool(config.get_value("audio", "music", true)), "audio preference is persisted to disk")
+	check(not FileAccess.file_exists(root.get_node("Sound").settings_path + ".tmp"), "and written whole, with no temporary file left behind")
 	music.button_pressed = true
+	# The whole row is the switch's target, and the switch itself is a full touch target.
+	var music_row := current_scene.find_child("Setting_Music", true, false) as Control
+	check(music.custom_minimum_size.y >= 80.0 and music_row != null, "a settings switch is a full touch target")
+	var on_words := music_row.get_global_rect().position + Vector2(40.0, music_row.size.y * 0.5)
+	_tap_at(on_words)
+	check(not root.get_node("Sound").music_on and music.text == "Music: off", "a tap on a setting's words flips its switch")
+	_tap_at(on_words)
+	check(root.get_node("Sound").music_on, "and another flips it back")
+	var motion_title := current_scene.find_child("Setting_Reducedmotion", true, false).find_children("*", "Label", true, false)[0] as Label
+	check(motion_title.autowrap_mode != TextServer.AUTOWRAP_OFF, "a setting's name wraps at large text")
 	button("Open tutorial").pressed.emit()
 	await transition()
 	for step in 5:
@@ -102,7 +128,7 @@ func _run() -> void:
 	await transition()
 	check(current_scene.scene_file_path.ends_with("title.tscn"), "Settings returns to its caller")
 	await open("new_campaign")
-	check(not current_scene._tutorial.button_pressed, "new-campaign tutorial is opt-in")
+	check(not current_scene._tutorial.button_pressed, "once a campaign is under way (or the lessons were opened), the tutorial switch starts off")
 	current_scene._tutorial.button_pressed = true
 	current_scene._on_pick(Cultures.RYUMON)
 	await transition()
@@ -131,6 +157,15 @@ func _run() -> void:
 	current_scene._on_menu()
 	check(button("Next step") != null, "the next step is one tap away in the menu")
 	current_scene._close_sheet()
+	# Escape (and a phone's back, which arrives as Escape) opens the menu on the bare map,
+	# and closes it again.
+	var esc := InputEventAction.new()
+	esc.action = "ui_cancel"
+	esc.pressed = true
+	current_scene._unhandled_key_input(esc)
+	check(current_scene._sheet == "menu", "Escape on the bare map opens the campaign menu")
+	current_scene._unhandled_key_input(esc)
+	check(current_scene._sheet == "", "and Escape again closes it")
 	gs.world.wait(6.0)
 	current_scene._on_time(0.0)
 	var held: float = gs.world.hour
@@ -168,6 +203,21 @@ func _run() -> void:
 		"next-step guidance responds to actual low food")
 	gs.food = food_before
 	current_scene._close_sheet()
+	# Before the first fight, the next step is a band, and Show on map opens its sheet.
+	if gs.battles == 0:
+		current_scene._open_recommendation()
+		var show_band = current_scene.sheet_row.find_child("Dock_Showonmap", true, false)
+		check(current_scene.sheet_title.text.begins_with("Hunt the") and show_band != null,
+			"a new company's next step names the nearest band, with Show on map")
+		if show_band != null:
+			show_band.pressed.emit()
+			check(current_scene._sheet == "band", "which opens that band's own sheet")
+		current_scene._close_sheet()
+	# Wait says what it costs.
+	if gs.world.here() != "":
+		current_scene._open_here()
+		check(current_scene.sheet_row.find_child("Dock_Wait8h", true, false) != null, "Wait says it takes 8 hours")
+		current_scene._close_sheet()
 	gs.food = 0
 	gs.silver = 0
 	var previous_men: int = gs.total_men()
@@ -177,6 +227,10 @@ func _run() -> void:
 	await process_frame
 	check(gs.total_men() < previous_men and current_scene._sheet == "warning", "desertion displays an explicit warning")
 	check(current_scene.sheet_body.text.contains("unpaid and hungry") and current_scene.sheet_body.text.contains("Buy food") and current_scene.sheet_body.text.contains("Earn silver"), "warning explains losses, both causes and both remedies")
+	check(current_scene.sheet_body.text.contains("contract"), "and names contracts, the silver that needs no victory")
+	check(_has_text(current_scene.status_chips, "Food short") and _has_text(current_scene.status_chips, "Can't pay"),
+		"the low-supply chips say what's wrong in two words")
+	check(current_scene.resource_buttons["food"].text.ends_with("d"), "the food pill counts in days")
 	hour = gs.world.hour
 	await create_timer(0.2).timeout
 	check(gs.world.hour == hour, "desertion warning pauses ongoing travel or waiting")
@@ -212,6 +266,12 @@ func _run() -> void:
 	button("View my warband").pressed.emit()
 	await transition()
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and gs.bond_intro_seen, "viewing bonds acknowledges the introduction and opens Warband")
+	var crown_card: Node = current_scene.find_child("CrownPathCard", true, false)
+	check(crown_card != null and crown_card.find_child("CrownPath", true, false) != null
+		and crown_card.find_child("CrownPath", true, false).get_child_count() == 5,
+		"Deeds shows the road to a crown, every step ticked or open")
+	var way_back = scenes._back_button(current_scene)
+	check(way_back != null and way_back.name == "BackButton", "Escape and a phone's back find the Warband's way to the map")
 	check(current_scene.find_child("WarbandCampIllustration", true, false) != null and current_scene.find_children("CaptainPortrait", "TextureRect", true, false).size() >= gs.army.size(),
 		"Warband combines the camp header with stable captain portraits")
 	check(current_scene.find_child("CompanyBanner", true, false) != null and current_scene.find_child("WarbandSort", true, false) != null,
@@ -275,6 +335,8 @@ func _run() -> void:
 	check(current_scene.scene_file_path.ends_with("main_menu.tscn") and current_scene._scroll.scroll_vertical == remembered_scroll,
 		"captain profile returns to the remembered Warband position")
 	DirAccess.remove_absolute(sound.settings_path)
+	SaveSlots.clear()
+	DirAccess.remove_absolute(SaveSlots.dir)
 	print("Menu failures: %d" % failures)
 	quit(1 if failures else 0)
 
@@ -443,3 +505,15 @@ func _check_width(node: Node) -> void:
 			check(false, "horizontal overflow: %s (%s)" % [node.text, rect])
 	for child in node.get_children():
 		_check_width(child)
+
+## A tap at `at` (viewport coordinates), as a finger would make it.
+func _tap_at(at: Vector2) -> void:
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = at
+	down.global_position = at
+	root.push_input(down, true)
+	var up := down.duplicate() as InputEventMouseButton
+	up.pressed = false
+	root.push_input(up, true)

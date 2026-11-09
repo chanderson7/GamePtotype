@@ -6,6 +6,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const Troops = preload("res://scripts/data/troops.gd")
+const Economy = preload("res://scripts/data/economy.gd")
 const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 
 var passed := 0
@@ -39,6 +40,10 @@ func _init() -> void:
 	test_fief_save_load_roundtrip()
 	test_fief_renunciation()
 	test_improvements_painted()
+	test_castle_fealty_keeps_guards()
+	test_stationed_wages()
+	test_stationed_squads_survive_load()
+	test_fief_exchange()
 
 	print("\nFiefdom & Vassalage Tests finished: %d passed, %d failed" % [passed, failed])
 	if failed > 0:
@@ -319,6 +324,9 @@ func test_fief_renunciation() -> void:
 	gs.renown = 60
 	gs.add_realm_relation("vardmark", 30)
 	gs.accept_fealty_and_fief("kettlebrook", "vardmark")
+	var squads: int = gs.army.size()
+	var left_id: int = int(gs.army[0]["id"])
+	gs.station_squad_in_fief(left_id)
 
 	var prev_rel: int = gs.relation_with_realm("vardmark")
 	gs.renounce_fief()
@@ -326,6 +334,124 @@ func test_fief_renunciation() -> void:
 	assert_true(not gs.has_fief(), "Player no longer holds a fief")
 	assert_eq(gs.relation_with_realm("vardmark"), prev_rel - 25, "Suffered -25 relation penalty upon renouncing")
 	assert_eq(gs.world.player().faction, "", "Player party faction cleared to neutral")
+	assert_true(gs.army.size() == squads and not gs.squad_by_id(left_id).is_empty(), "Your stationed squads ride out with you when you renounce")
+
+
+## Free a castle of `realm` from the lord who holds it, so it can be granted.
+func _free_castle(gs: GameStateScript, castle: String) -> void:
+	for l in gs.world.lords:
+		if String(l.get("fief", "")) == castle:
+			l["fief"] = ""
+
+
+## A castle granted in fealty keeps its guards; only your own squads can be taken back.
+func test_castle_fealty_keeps_guards() -> void:
+	print("\n--- Fealty keeps the castle's guards ---")
+	var gs := _create_game_state()
+	var w: WorldSim = gs.world
+	gs.renown = 60
+	gs.add_realm_relation("vardmark", 30)
+	_free_castle(gs, "ravensford")
+	var guards: int = w.men_of(w.garrison_at("ravensford"))
+	assert_true(guards > 0 and gs.available_fiefs_for_grant("vardmark").has("ravensford"), "A castle with guards and no lord can be granted")
+	assert_true(gs.accept_fealty_and_fief("ravensford", "vardmark"), "Swore fealty for Ravensford")
+	assert_eq(w.men_of(w.garrison_at("ravensford")), guards, "The castle's guards stay on its walls")
+	assert_true(is_same(gs.player_fief["garrison"], w.garrisons["ravensford"]), "The fief and the world hold one garrison list")
+	var sid: int = int(gs.army[0]["id"])
+	assert_true(gs.station_squad_in_fief(sid), "A squad of yours joins them")
+	var g: Array = gs.fief_garrison()
+	var mine := -1
+	var theirs := -1
+	for i in g.size():
+		if int(g[i]["id"]) == sid:
+			mine = i
+		elif theirs < 0:
+			theirs = i
+	assert_true(mine >= 0 and theirs >= 0 and gs.is_company_squad(g[mine]) and not gs.is_company_squad(g[theirs]), "Your squad is marked yours; the guards are not")
+	var squads: int = gs.army.size()
+	assert_true(not gs.withdraw_squad_from_fief(theirs) and gs.army.size() == squads, "Take back won't hand you the liege's guards")
+	assert_true(gs.withdraw_squad_from_fief(mine) and gs.army.size() == squads + 1, "But your own squad comes back")
+	assert_eq(w.men_of(w.garrison_at("ravensford")), guards, "And the guards are still there")
+
+
+## Squads left in a garrison draw half wages, from the fief's silver before the purse.
+func test_stationed_wages() -> void:
+	print("\n--- Stationed squads draw half wages ---")
+	var gs := _create_game_state()
+	gs.renown = 60
+	gs.add_realm_relation("vardmark", 30)
+	gs.accept_fealty_and_fief("kettlebrook", "vardmark")
+	assert_eq(gs.stationed_wages(), 0, "Nothing stationed, nothing owed")
+	var sq: Dictionary = gs.army[0]
+	var full_wage: float = Economy.daily_wage(sq)
+	gs.station_squad_in_fief(int(sq["id"]))
+	var owed: int = gs.stationed_wages()
+	assert_eq(owed, int(ceil(full_wage * gs.STATIONED_WAGE_SHARE)), "A stationed squad costs half its wages")
+	gs.player_fief["silver"] = 500
+	assert_eq(gs.daily_outgoings(), gs.daily_wages(), "Forecasts leave out garrison wages the estate covers")
+	gs.player_fief["silver"] = 0
+	assert_eq(gs.daily_outgoings(), gs.daily_wages() + owed, "And count them when the purse must pay")
+	gs.player_fief["silver"] = 500
+	var purse: int = gs.silver
+	var field_wages: int = gs.daily_wages()
+	gs._upkeep()
+	assert_eq(int(gs.player_fief["silver"]), 500 - owed, "Paid from the estate's silver first")
+	assert_eq(gs.silver, purse - field_wages, "The purse pays only the warband in the field")
+	gs.player_fief["silver"] = 0
+	purse = gs.silver
+	gs._upkeep()
+	assert_eq(gs.silver, purse - field_wages - owed, "With the estate empty, the purse pays them too")
+
+
+## Your squads in a fief and their wounds survive a save and a load, and stay yours.
+func test_stationed_squads_survive_load() -> void:
+	print("\n--- Stationed squads survive a load ---")
+	var gs := _create_game_state()
+	gs.renown = 60
+	gs.add_realm_relation("vardmark", 30)
+	gs.accept_fealty_and_fief("kettlebrook", "vardmark")
+	var sq: Dictionary = gs.army[0]
+	sq["wounded"] = 4
+	var sid: int = int(sq["id"])
+	gs.station_squad_in_fief(sid)
+	var gs2 = GameStateScript.new()
+	gs2.persist = false
+	gs2.from_dict(JSON.parse_string(JSON.stringify(gs.to_dict())))
+	var g: Array = gs2.fief_garrison()
+	assert_true(g.size() == 1 and int(g[0]["id"]) == sid and int(g[0]["wounded"]) == 4 and gs2.is_company_squad(g[0]),
+		"The stationed squad loads back as yours, with its wounded")
+	assert_true(is_same(gs2.player_fief["garrison"], gs2.world.garrisons["kettlebrook"]), "And as one list with the world's garrison")
+	assert_true(gs2.withdraw_squad_from_fief(0) and not gs2.squad_by_id(sid).is_empty(), "And can be taken back")
+	gs2.free()
+
+
+## A vassal in good standing can trade their village for a castle that has lost its lord.
+func test_fief_exchange() -> void:
+	print("\n--- Exchanging a village for a castle ---")
+	var gs := _create_game_state()
+	var w: WorldSim = gs.world
+	gs.renown = 60
+	gs.add_realm_relation("vardmark", 30)
+	gs.accept_fealty_and_fief("kettlebrook", "vardmark")
+	assert_true(not gs.exchange_castles().has("ravensford"), "A castle with a lord can't be asked for")
+	_free_castle(gs, "ravensford")
+	assert_true(gs.exchange_castles().has("ravensford"), "Once its lord is gone, it can")
+	var rel: int = gs.relation_with_realm("vardmark")
+	gs.add_realm_relation("vardmark", -rel)
+	assert_true(not gs.exchange_check("ravensford")["ok"] and String(gs.exchange_check("ravensford")["reason"]).contains("standing"),
+		"Your liege must think well enough of you, as for fealty")
+	gs.add_realm_relation("vardmark", rel)
+	var sid: int = int(gs.army[0]["id"])
+	gs.station_squad_in_fief(sid)
+	var guards: int = w.men_of(w.garrison_at("ravensford"))
+	assert_true(gs.exchange_check("ravensford")["ok"] and gs.exchange_fief("ravensford"), "The village is exchanged for the castle")
+	assert_eq(gs.fief_id(), "ravensford", "The castle is your fief now")
+	assert_eq(gs.relation_with_realm("vardmark"), rel, "Your standing is kept")
+	assert_true(gs.fief_garrison().any(func(x): return int(x["id"]) == sid) and w.men_of(w.garrison_at("ravensford")) > guards,
+		"Your squad moved with you, beside the castle's guards")
+	assert_true(not w.garrisons.has("kettlebrook"), "The village keeps no garrison of yours")
+	assert_true(not gs.exchange_castles().has("ravensford") and String(gs.exchange_check("marchgate")["reason"]).contains("walls"),
+		"A castle's lord has walls already, and doesn't trade again")
 
 
 ## Built improvements stand in the settlement's picture, in every culture and at castles

@@ -7,6 +7,10 @@ const VARDISH := "vardish"
 const KHARZANI := "kharzani"
 const RYUMON := "ryumon"
 const ORDER := [VARDISH, KHARZANI, RYUMON]
+## Given names that belong to someone already: the people you court or befriend and the
+## wandering heroes. Kept out of the name pools below (so no captain, lord or heir is given
+## one), and skipped if an older pool still offers one.
+const RESERVED := ["Edda", "Farah", "Kaede", "Katherine", "Tariq", "Mori"]
 
 const DATA := {
 	VARDISH: {
@@ -16,7 +20,7 @@ const DATA := {
 		"troops": {"infantry": "Footmen", "spearmen": "Spearmen", "archers": "Bowmen", "cavalry": "Horsemen"},
 		"company": {"infantry": "Shields", "spearmen": "Pikes", "archers": "Bows", "cavalry": "Lances"},
 		"first": [
-			"Brann", "Mira", "Aldric", "Tamsin", "Corwin", "Edda", "Rhys", "Isolde", "Garrick", "Wenna",
+			"Brann", "Mira", "Aldric", "Tamsin", "Corwin", "Rhys", "Isolde", "Garrick", "Wenna",
 			"Osric", "Liane", "Hale", "Briony", "Torvald", "Ysolde", "Cade", "Maren", "Doran", "Elspeth",
 			"Fenwick", "Gwen", "Ivo", "Jessa", "Kell", "Lorne", "Nell", "Piers", "Rowan", "Sabine",
 			"Tobin", "Una", "Varo", "Wyn", "Ansel", "Brisa", "Cato", "Dagny", "Emrys", "Freya",
@@ -33,7 +37,7 @@ const DATA := {
 		"troops": {"infantry": "Askari", "spearmen": "Spearmen", "archers": "Bowmen", "cavalry": "Faris"},
 		"company": {"infantry": "Blades", "spearmen": "Spears", "archers": "Bows", "cavalry": "Riders"},
 		"first": [
-			"Tariq", "Layla", "Rustam", "Nasrin", "Kamal", "Selim", "Yasmin", "Farid", "Leyla", "Orhan",
+			"Layla", "Rustam", "Nasrin", "Kamal", "Selim", "Yasmin", "Farid", "Leyla", "Orhan",
 			"Zafer", "Dilara", "Karim", "Soraya", "Idris", "Mina", "Bahram", "Ayla", "Jalal", "Parisa",
 		],
 		"origins": [
@@ -49,7 +53,7 @@ const DATA := {
 		"company": {"infantry": "Swords", "spearmen": "Yari", "archers": "Yumi", "cavalry": "Riders"},
 		"first": [
 			"Hideo", "Aiko", "Kenji", "Sayo", "Takeshi", "Haru", "Masaru", "Emi", "Ryota", "Chiyo",
-			"Daisuke", "Kaede", "Isamu", "Natsu", "Yoshiro", "Mitsu", "Goro", "Rin", "Tadashi", "Ume",
+			"Daisuke", "Isamu", "Natsu", "Yoshiro", "Mitsu", "Goro", "Rin", "Tadashi", "Ume",
 		],
 		"origins": [
 			"Kurogane", "Hamazaki", "Shiraumi", "Takamine", "Kiri Valley", "Mizunaka", "Tsuyu Pass",

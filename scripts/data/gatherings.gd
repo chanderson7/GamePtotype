@@ -168,12 +168,80 @@ const DANCE_MEMORY := {
 	"kaede": "You danced with Kaede on the tatami. The book was wrong about the third step.",
 }
 
-## A lord you ask, by bearing.
-const DANCE_LORD_LINES := {
-	Lords.CAUTIOUS: "\"I don't usually. But I suppose one can't hurt.\" They dance carefully, and well.",
-	Lords.DARING: "\"Ha! I was hoping someone would ask.\" They spin you twice more than the music calls for.",
-	Lords.HONORABLE: "\"It would be my honour.\" They lead correctly and thank you after.",
-	Lords.CRUEL: "\"You've a nerve.\" They dance anyway, and seem to enjoy being watched doing it.",
+## Each dance kept as itself: the first, the second, the third (then round again).
+const DANCE_MEMORIES := {
+	"edda": ["You danced the midsummer reel with Edda. Nobody's feet were harmed. Mostly.",
+		"A second reel with Edda. You had learned the turn; she pretended not to notice.",
+		"You danced with Edda until the fiddlers stopped, and the hall went quiet around you."],
+	"farid": ["You danced with Farah under the lanterns, and she stopped pretending.",
+		"Farah led the slow one under the arches, and you let her.",
+		"The musicians played the slow one twice for you and Farah. Someone had paid them."],
+	"kaede": ["You danced with Kaede on the tatami. The book was wrong about the third step.",
+		"A second dance with Kaede. You bowed correctly; she laughed anyway.",
+		"You danced with Kaede, and for once she didn't write it down."],
+}
+
+# ---------------------------------------------------------------- the dance floor
+
+## The lords stay at the table (the toast, the gift and the first word are theirs); the
+## floor holds their households. A lord's kinswoman, his wife, sister or daughter, is
+## made once and kept on his house (SocialSim.house_kin), so she is the same woman at the
+## next gathering. About one lord in six has no one with him.
+const KIN_RELATIONS := ["wife", "wife", "sister", "daughter", "daughter"]
+const KIN_NONE_CHANCE := 0.16
+## Women's names of each land, for a lord's kin.
+const KIN_NAMES := {
+	Cultures.VARDISH: ["Mira", "Tamsin", "Isolde", "Wenna", "Liane", "Briony", "Ysolde", "Maren", "Elspeth", "Gwen",
+		"Jessa", "Nell", "Sabine", "Una", "Brisa", "Dagny", "Freya", "Aldith", "Rosalind", "Hild"],
+	Cultures.KHARZANI: ["Layla", "Nasrin", "Yasmin", "Leyla", "Dilara", "Soraya", "Mina", "Ayla", "Parisa", "Zahra",
+		"Shirin", "Roshan", "Gulnar", "Samira"],
+	Cultures.RYUMON: ["Aiko", "Sayo", "Haru", "Emi", "Chiyo", "Natsu", "Mitsu", "Rin", "Ume", "Hana", "Tomoe", "Fuyu", "Kiku"],
+}
+## How many lords' kin are offered a night: the host's, then the guests'.
+const KIN_OFFERED := 3
+## A lord's kinswoman, when you ask, by his bearing. {name} is hers, {lord} his short
+## name, {relation} what she is to him.
+const DANCE_KIN_LINES := {
+	Lords.CAUTIOUS: "{name} glances at {lord} before she takes your hand, and gets the smallest of nods. She dances carefully, and well, and {lord} watches every turn.",
+	Lords.DARING: "\"At last, someone who isn't a cousin.\" {name} is on the floor before you finish asking. {lord} laughs out loud from the table and bangs his cup for the fiddlers to go faster.",
+	Lords.HONORABLE: "{name} accepts with a curtsey a shade more formal than the room, and leads you through the figure without a fault. At the table {lord} inclines his head to you: his {relation} has been honoured, and so has he.",
+	Lords.CRUEL: "{name} takes your hand as if she expected it. \"Everyone is watching. They always are.\" {lord} smiles thinly from the table, and seems to count it as his own doing.",
+}
+## The round everyone joins, by culture: Regard with every lord in the hall.
+const DANCE_ROUND_REGARD := 1
+const DANCE_ROUND := {
+	Cultures.VARDISH: "You join the reel where the line breaks, and are passed hand to hand down the whole length of the hall. By the end of it the lords have seen you make a fool of yourself with the rest of them, and like you the better for it.",
+	Cultures.KHARZANI: "You step into the lantern circle and are given a place between an old emir and a girl of nine. The circle turns, and turns, and when the drums stop every face in it is smiling at every other.",
+	Cultures.RYUMON: "You take your place in the second line, a fan pressed into your hand, and follow the figure a half-beat behind everyone else. Nobody says so. Several lords bow to you after, which is the same thing as saying so.",
+}
+## Someone you haven't met, across the hall: how she is pointed out, and what passes when
+## you ask her to dance. Her first word; the story's first audience follows from it.
+const DANCE_SEEN := {
+	"edda": "Ask the woman in Ravensford grey to dance.",
+	"farid": "Ask the envoy with the ink-stained fingers to dance.",
+	"kaede": "Ask the woman reading by the screens to dance.",
+}
+const DANCE_MEET := {
+	"edda": "She has been arguing quietly with an older man about field horses, and loses the thread when you ask. \"I'm Edda. I keep Ravensford's tallies, which is to say I keep Ravensford.\" She dances as if she has counted the steps. \"You lead a company. I've seen what companies cost a village. Come to Ravensford some day, and I'll show you the ledger.\"",
+	"farid": "She looks up from the letter she was pretending not to read under the table. \"Farah. I carry Qasr Hamra's words where they need to go.\" Under the lanterns she dances better than she lets on. \"A captain who asks instead of orders. That's rare enough to be worth a second conversation. Find me at Qasr Hamra.\"",
+	"kaede": "She marks her place in the scroll with a finger before she closes it. \"Kaede, of the Kitayama archive. I know the steps from a book, so forgive what follows.\" She is wrong about the third step and laughs at it. \"You'd be surprised what the old records say about captains like you. Come to Kitayama, and I'll show you.\"",
+}
+const DANCE_MEET_MEMORY := {
+	"edda": "The night you met Edda, over a reel at someone else's feast.",
+	"farid": "The night you met Farah, under another house's lanterns.",
+	"kaede": "The night you met Kaede, a half-step behind the music.",
+}
+## Someone you've met and no more, when you ask.
+const DANCE_ACQUAINTED := {
+	"edda": "Edda considers it a moment longer than is polite. \"One. And you'll hear about it if you tread on me.\" She dances well, and talks of grain prices the whole way through.",
+	"farid": "Farah raises an eyebrow. \"The captain remembers me. Good.\" She lets you lead, and corrects you twice, kindly.",
+	"kaede": "Kaede bows. \"I have been practising, since. From a better book.\" It shows, a little.",
+}
+## Someone you court who isn't in the hall: where she would be.
+const DANCE_ABSENT := {
+	"edda": "Edda isn't here. She comes when Ravensford's household does, and is at Ravensford otherwise.",
+	"farid": "Farah isn't here. She comes to Kharzan's gatherings and with Qasr Hamra's household, and is at Qasr Hamra otherwise.",
+	"kaede": "Kaede isn't here. She comes when Kitayama's household does, and is at Kitayama otherwise.",
 }
 
 ## Watching from the wall.

@@ -82,7 +82,7 @@ func test_job_generation() -> void:
 	assert_eq(relief_job["food_needed"], 15, "Relief job requires 15 food rations")
 	assert_eq(relief_job["reward_silver"], 80, "Relief job reward silver is 80")
 	assert_eq(relief_job["reward_renown"], 5, "Relief job reward renown is 5")
-	assert_eq(relief_job["reward_relation"], 10, "Relief job reward relation is 10")
+	assert_eq(relief_job["reward_relation"], 5, "Relief job reward relation is 5, as for any other job")
 	assert_true(float(relief_job["deadline"]) > w.hour, "Relief job has future deadline")
 
 	var courier_job := Jobs.make_courier_job("highcliff", w, w.rng)
@@ -136,14 +136,24 @@ func test_job_acceptance_and_cap() -> void:
 	assert_true(not ok4, "4th job rejected (exceeds cap)")
 	assert_eq(gs.active_jobs.size(), 3, "Active jobs remains capped at 3")
 
+	# A companion's story errand sits beside the board's three, and dropping it costs no standing.
+	gs.active_jobs.append({"id": "story_edda_1", "type": Jobs.TYPE_COURIER, "title": "Her letters", "origin_settlement": "highcliff",
+		"destination_settlement": "ravensford", "deadline": 100.0, "story_candidate": "edda"})
+	assert_eq(gs.contract_count(), 3, "A story errand doesn't count against the board's cap")
+	var story_rel: int = gs.relation_with_realm("vardmark")
+	assert_true(gs.abandon_job("story_edda_1"), "A story errand can be set down")
+	assert_eq(gs.relation_with_realm("vardmark"), story_rel, "Setting down a story errand costs no standing")
+
 	# Abandon one job
 	var init_silver: int = int(gs.silver)
 	var init_renown: int = int(gs.renown)
+	var init_rel: int = gs.relation_with_realm("vardmark")
 	var abandoned: bool = gs.abandon_job("job_1")
 	assert_true(abandoned, "Successfully abandoned job_1")
 	assert_eq(gs.active_jobs.size(), 2, "Active jobs count reduced to 2")
 	assert_eq(gs.silver, init_silver, "Abandoning does not award silver")
 	assert_eq(gs.renown, init_renown, "Abandoning does not award renown")
+	assert_eq(gs.relation_with_realm("vardmark"), init_rel + Jobs.ABANDON_RELATION, "Abandoning costs a little standing with the job's realm")
 
 	# Now 4th job can be accepted
 	var ok5: bool = gs.accept_job("highcliff", 0)
@@ -216,7 +226,7 @@ func test_relief_job_completion() -> void:
 		"deadline": 100.0,
 		"reward_silver": 80,
 		"reward_renown": 5,
-		"reward_relation": 10,
+		"reward_relation": 5,
 	}
 	gs.active_jobs.append(relief_job)
 
@@ -237,7 +247,7 @@ func test_relief_job_completion() -> void:
 	assert_eq(gs.food, 10, "Consumed 15 rations (25 - 15 = 10)")
 	assert_eq(gs.silver, initial_silver + 80, "Awarded 80 silver")
 	assert_eq(gs.renown, initial_renown + 5, "Awarded 5 renown")
-	assert_eq(gs.relation_with_realm("vardmark"), prev_rel + 10, "Awarded +10 standing with Vardmark")
+	assert_eq(gs.relation_with_realm("vardmark"), prev_rel + 5, "Awarded +5 standing with Vardmark")
 
 
 func test_hunt_bounty_auto_completion() -> void:
@@ -320,8 +330,10 @@ func test_fair_cancellation_and_deadlines() -> void:
 	}
 	gs.active_jobs.append(courier_job)
 	w.hour = 12.0
+	var rel_before: int = gs.relation_with_realm("vardmark")
 	gs._check_job_deadlines()
 	assert_eq(gs.active_jobs.size(), 0, "Expired job removed after deadline passes")
+	assert_eq(gs.relation_with_realm("vardmark"), rel_before + Jobs.ABANDON_RELATION, "A job let run out costs a little standing, as abandoning does")
 
 
 func test_recommendation_guidance() -> void:

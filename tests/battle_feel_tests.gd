@@ -8,6 +8,7 @@ const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const FieldArt = preload("res://scripts/battle/field_art.gd")
 
 var failures := 0
 
@@ -346,6 +347,38 @@ func _init() -> void:
 				men += 1
 	var per_frame_ms := float(Time.get_ticks_usec() - t) / 1000.0 / 20.0
 	check(per_frame_ms < 4.0, "posing every man on the field costs %.2f ms a frame (%d men)" % [per_frame_ms, men / 20])
+
+	# ---- 12. a field full of the fallen still draws, in batches
+	for i in Sim.MAX_CORPSES:
+		var body_at := Vector2(40.0 + (i % 25) * 30.0, 300.0 + floorf(i / 25.0) * 30.0)
+		sim.corpses.append({"pos": body_at, "team": i % 2, "type": Troops.CAVALRY if i % 7 == 0 else Troops.INFANTRY})
+	for i in Sim.MAX_STUCK_ARROWS:
+		sim.stuck_arrows.append({"pos": Vector2(60.0 + (i % 20) * 35.0, 200.0 + floorf(i / 20.0) * 20.0), "angle": i * 0.3})
+	for i in sc.MAX_LITTER:
+		sc._litter.append({"p": Vector2(50.0 + (i % 16) * 45.0, 900.0 + floorf(i / 16.0) * 25.0), "a": i * 0.5, "shield": i % 2 == 0, "team": i % 2})
+	sc._redraw()
+	await process_frame
+	await process_frame
+	check(sc._disc_tex != null and sc._disc_tex.get_width() == 64, "the field's discs are one texture, drawn as rects")
+	var grown := true
+	for g in [0, 1, 2, 3]:
+		grown = grown and sc._corpse_mm.has(g) and (sc._corpse_mm[g] as MultiMesh).instance_count % sc.CORPSE_STEP == 0
+	check(grown, "five hundred dead go in four batches, each with room to grow")
+
+	# ---- 13. the slopes and the feature plate are one layer, laid as the GPU laid them
+	var shade_img := Image.create_empty(2, 2, false, Image.FORMAT_RGBA8)
+	shade_img.fill(Color(0.0, 0.0, 1.0, 0.5))
+	var plate_img := Image.create_empty(4, 4, false, Image.FORMAT_RGBA8)
+	plate_img.set_pixel(1, 1, Color(1.0, 0.0, 0.0, 1.0))
+	plate_img.set_pixel(2, 2, Color(1.0, 0.0, 0.0, 0.5))
+	var ov := FieldArt.overlay_image(shade_img, plate_img)
+	var bare := ov.get_pixel(0, 0)
+	var half := ov.get_pixel(2, 2)
+	check(ov.get_size() == Vector2i(4, 4) and absf(bare.a - 0.5) < 0.01 and bare.b > 0.99 and ov.get_pixel(1, 1).is_equal_approx(Color(1, 0, 0, 1))
+		and absf(half.a - 0.75) < 0.01 and absf(half.r - 2.0 / 3.0) < 0.01,
+		"the merged ground layer is the slopes doubled with the features over them")
+	check(FieldArt.overlay_image(null, plate_img) == plate_img and FieldArt.overlay_image(shade_img, null) == shade_img
+		and FieldArt.overlay_image(null, null) == null, "with only one of the two, the layer is that one")
 
 	# ---- the test battle from Settings: a big fight that leaves the campaign alone
 	gs.pending_battle = {}

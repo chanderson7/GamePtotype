@@ -34,6 +34,13 @@ func _init() -> void:
 	check(gs.deeds.is_empty() and gs.company_title == "" and gs.camp_seen.is_empty() and gs.pinned_commitment == "",
 		"new features start empty")
 	check(not gs.is_crowned() and w.alliances.is_empty() and w.pending_assault.is_empty(), "and no crown, alliances or assault calls appear")
+	check(gs.honour_releases.is_empty() and gs.reparations_at.is_empty(), "no lords freed for honour and no envoys sent")
+	var marked_right := true
+	for gid in w.garrisons:
+		for sq in w.garrisons[gid]:
+			if bool(sq.get("stationed_by_company", false)) and not sq.get("captain") is Dictionary:
+				marked_right = false
+	check(marked_right, "only squads with captains are marked yours in the garrisons")
 	check(gs.commitments().size() == gs.active_jobs.size() + (1 if gs.has_contract() else 0) + gs.captive_lords().size(),
 		"the journal lists what the save was committed to")
 
@@ -64,6 +71,17 @@ func _init() -> void:
 	check(_same(JSON.parse_string(once), JSON.parse_string(JSON.stringify(gs2.to_dict()))),
 		"and saves and loads back in the new format (to JSON's float precision)")
 	gs2.free()
+
+	# A save from a newer build is refused before anything changes, so it can't be loaded
+	# lossy and saved over.
+	var gs3 = load("res://scripts/game_state.gd").new()
+	gs3.persist = false
+	var newer: Dictionary = JSON.parse_string(once)
+	newer["version"] = int(newer["version"]) + 1
+	check(not gs3.from_dict(newer) and gs3.load_problem == "newer" and gs3.world == null,
+		"a save from a newer version is refused, and nothing is loaded")
+	check(gs3.from_dict(JSON.parse_string(once)) and gs3.load_problem == "" and gs3.world != null, "while one from this version loads")
+	gs3.free()
 
 	print("\nSave compatibility tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)

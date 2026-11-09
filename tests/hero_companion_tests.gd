@@ -33,6 +33,7 @@ func _init() -> void:
 	test_hero_uniqueness_enforcement()
 	test_save_load_hero_persistence()
 	test_bond_reflection_vignettes()
+	test_heroes_keep_their_voice()
 
 	print("\nHero Companion & Bond Polish Tests finished: %d passed, %d failed" % [passed, failed])
 	if failed > 0:
@@ -106,6 +107,32 @@ func test_hero_recruitment() -> void:
 	assert_eq(String(cap.get("hero_id", "")), Heroes.KATHERINE, "Captain hero_id set to katherine")
 	assert_eq(String(cap.get("specialization", "")), Captains.DRILLMASTER, "Katherine carries Drillmaster specialization")
 	assert_true(gs.has_specialization(Captains.DRILLMASTER), "Company now benefits from Katherine's Drillmaster specialization")
+
+
+## Hired, a hero is still themselves: their words at the fire and with a bonded friend,
+## remembered as a hero when they fall, and never sharing a name with another captain.
+func test_heroes_keep_their_voice() -> void:
+	print("\n--- Heroes Keep Their Voice ---")
+	var gs = GameStateScript.new()
+	gs.persist = false
+	gs.new_warband()
+	gs.silver = 1000
+	# An older captain already called Tariq: the hero goes by his byname.
+	gs.army[0]["captain"]["first"] = "Tariq"
+	assert_true(gs.recruit_hero(Heroes.TARIQ), "Tariq can be hired")
+	var squad: Dictionary = gs.army[gs.army.size() - 1]
+	var hero: Dictionary = squad["captain"]
+	assert_eq(String(hero["first"]), String(Heroes.HEROES[Heroes.TARIQ]["byname"]), "two captains don't share a first name")
+	for id in Heroes.HEROES:
+		var camp: Dictionary = Heroes.HEROES[id].get("camp", {})
+		assert_true(camp.size() >= 3 and Heroes.HEROES[id].get("bond", {}).size() == 3, "%s has words at the fire and a talk for each rank" % id)
+	var other: Dictionary = gs.army[1]["captain"]
+	var ex: Array = gs._bond_exchange(other, hero, "C")
+	assert_eq(String(ex[0]["text"]), String(Heroes.HEROES[Heroes.TARIQ]["bond"]["C"][0]), "a hero speaks first, in their own words, at the fire")
+	assert_eq(String(ex[0]["who"]), "b", "whichever side of the pair they sit")
+	var memorial: Dictionary = gs._memorial(squad, hero, "Take my bow. It shoots true.")
+	assert_true(bool(memorial.get("is_hero", false)) and String(memorial.get("hero_id", "")) == Heroes.TARIQ and not bool(memorial["mourned"]),
+		"a fallen hero is remembered as one, and waits to be mourned")
 
 
 func test_hero_uniqueness_enforcement() -> void:

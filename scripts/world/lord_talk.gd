@@ -123,6 +123,17 @@ static func change_regard(gs, l: Dictionary, amount: int) -> void:
 		gs.add_lord_relation(int(l["id"]), amount)
 
 
+## How many times you've spoken with this lord before now (as the lord they are: an heir
+## starts again), and count this talk. 0 the first time.
+static func note_talk(l: Dictionary) -> int:
+	var t := record(l)
+	var name := String(l.get("name", ""))
+	var before := int(t.get("talks", 0)) if String(t.get("talked_as", name)) == name else 0
+	t["talks"] = before + 1
+	t["talked_as"] = name
+	return before
+
+
 ## The lord's first name and house without their title: "Cato Eastbrook".
 static func short_name(l: Dictionary) -> String:
 	var parts := String(l.get("name", "")).split(" ")
@@ -340,7 +351,7 @@ static func haggle(gs, l: Dictionary) -> int:
 ## haggled) when it's scattered. Returns the job, or {} if you can't take it.
 static func take_trouble(gs, l: Dictionary, silver: int = 0) -> Dictionary:
 	var tr := trouble(gs, l)
-	if String(tr.get("kind", "")) != "bandits" or gs.active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS:
+	if String(tr.get("kind", "")) != "bandits" or gs.contract_count() >= Jobs.MAX_ACTIVE_JOBS:
 		return {}
 	var w = gs.world
 	var band = w.party(int(tr["band"]))
@@ -367,8 +378,17 @@ static func take_trouble(gs, l: Dictionary, silver: int = 0) -> Dictionary:
 	return job
 
 
-## A job done for a lord: called when it completes.
+## A job done for a lord: called when it completes. A promise to someone you court or
+## befriend (chapter 3's task) completes that chapter instead.
 static func job_done(gs, job: Dictionary) -> String:
+	var story_cand := String(job.get("story_candidate", ""))
+	if story_cand != "":
+		if gs.world == null or gs.world.social == null:
+			return ""
+		var done: Dictionary = gs.world.social.complete_task(story_cand, float(gs.world.hour))
+		if not bool(done.get("ok", false)):
+			return ""
+		return "Word reaches %s: your promise is kept. Go and see her." % String(done.get("name", "her"))
 	var lid := int(job.get("for_lord", -1))
 	if lid < 0 or gs.world == null:
 		return ""

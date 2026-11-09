@@ -2,6 +2,7 @@ extends SceneTree
 const World = preload("res://scripts/world/world_sim.gd")
 const Armies = preload("res://scripts/world/marshal_armies.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
+const Politics = preload("res://scripts/data/politics.gd")
 var failures := 0
 func check(ok: bool, message: String) -> void:
 	print(("ok " if ok else "FAIL ") + message)
@@ -48,6 +49,48 @@ func _init() -> void:
 			unique = unique and not ids.has(id)
 			ids.append(id)
 	check(unique, "a lord belongs to only one army")
+	# ---- a realm wants its capital back
+	var rw = fixture()
+	check(rw.lost_capital("kharzan") == "" and rw.home_capital("kharzan") == "khalun", "a realm holding its home capital has nothing to win back")
+	rw.set_owner("khalun", "vardmark")
+	check(rw.lost_capital("kharzan") == "khalun" and rw.capital_of("kharzan") != "khalun" and rw.capital_of("kharzan") != "",
+		"Khalun taken, Kharzan rules from elsewhere and remembers what it lost")
+	for a in rw.campaign_armies.duplicate():
+		Armies.disband(rw, a, "test")
+	rw.army_ready_at = {}
+	Armies.tick(rw, 0.0)
+	var back: Array = rw.campaign_armies.filter(func(a): return a["realm"] == "kharzan")
+	check(not back.is_empty() and String(back[0]["target"]) == "khalun", "at war with the holder, Kharzan's army musters for Khalun before any other target")
+	check(rw.activity_log.any(func(e): return String(e.get("text", "")).contains("to win back Khalun, its capital")), "and the news says what it rides for")
+	# At peace, once the truce is out, it comes back for it; not while a truce holds or it is too weary.
+	rw.make_peace("vardmark", "kharzan", 1)
+	rw.realms["kharzan"]["weariness"] = 0.0
+	rw.realms["vardmark"]["weariness"] = 50.0
+	for i in 40:
+		rw._evaluate_war_declarations()
+	check(not rw.at_war("vardmark", "kharzan"), "under a truce it waits")
+	rw.truces = {}
+	rw.realms["kharzan"]["weariness"] = Politics.RECONQUEST_WEARINESS + 10.0
+	for i in 40:
+		rw._evaluate_war_declarations()
+	check(not rw.at_war("vardmark", "kharzan"), "too weary, it waits")
+	rw.realms["kharzan"]["weariness"] = Politics.RECONQUEST_WEARINESS - 5.0
+	for i in 60:
+		if rw.at_war("vardmark", "kharzan"):
+			break
+		rw._evaluate_war_declarations()
+	check(rw.at_war("vardmark", "kharzan"), "then it declares war to win Khalun back")
+	check(rw.activity_log.any(func(e): return String(e.get("text", "")).contains("to win back Khalun")), "and says so (%s)" % String(rw.activity_log[rw.activity_log.size() - 1].get("text", "")))
+	# A realm with no seat left can't muster, so it doesn't declare a war it can't fight.
+	for id in rw.holdings_of("kharzan").duplicate():
+		rw.set_owner(id, "vardmark")
+	rw.make_peace("vardmark", "kharzan", 0)
+	rw.truces = {}
+	rw.realms["kharzan"]["weariness"] = 0.0
+	for i in 60:
+		rw._evaluate_war_declarations()
+	check(not rw.at_war("vardmark", "kharzan"), "a realm with no seat to muster at declares no war for its capital")
+
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(w.to_dict()))
 	var restored := World.new()
 	restored.from_dict(saved)

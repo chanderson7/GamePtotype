@@ -142,6 +142,7 @@ func _build() -> void:
 	# Leaving stays in thumb reach, whatever the page scrolls to.
 	var back := Button.new()
 	back.name = "LeaveButton"
+	back.set_meta("back", true)
 	back.text = "Leave %s" % String(WorldData.settlement(place)["name"])
 	Style.make_primary(back)
 	back.pressed.connect(_on_leave)
@@ -307,7 +308,7 @@ func _add_wallet(col: VBoxContainer) -> void:
 	row.add_theme_constant_override("separation", 14)
 	col.add_child(row)
 	var days := GameState.food_days()
-	var silver_tile := Widgets.tile("silver", Widgets.thousands(GameState.silver), "−%d a day" % GameState.daily_wages())
+	var silver_tile := Widgets.tile("silver", Widgets.thousands(GameState.silver), "−%d a day" % GameState.daily_outgoings())
 	var food_tile := Widgets.tile("food", str(days), "day of food" if days == 1 else "days of food",
 		Style.ENEMY_LIGHT if days < 3 else Style.TEXT)
 	row.add_child(silver_tile)
@@ -332,8 +333,13 @@ func _add_tabs(col: VBoxContainer, owner: String) -> void:
 		tabs.append({"id": "crown", "label": "Crown", "badge": 0})
 	var offers: int = 0 if GameState.army.size() >= GameState.squad_cap() else w.offers_at(place).size()
 	tabs.append({"id": "buy", "label": "Buy", "badge": offers + GameState.available_heroes_at(place).size()})
-	tabs.append({"id": "squads", "label": "Squads", "badge": 0})
-	tabs.append({"id": "work", "label": "Work", "badge": GameState.active_jobs_completable_at(place).size()})
+	tabs.append({"id": "squads", "label": "Companies", "badge": 0})
+	# Work counts what's ready to claim; with the purse too thin for tomorrow, the new
+	# notices too, since paid work is what the company needs.
+	var work_badge: int = GameState.active_jobs_completable_at(place).size()
+	if GameState.short_of_silver() and GameState.contract_count() < Jobs.MAX_ACTIVE_JOBS:
+		work_badge += GameState.jobs_at(place).size()
+	tabs.append({"id": "work", "label": "Work", "badge": work_badge})
 	if _has_court():
 		tabs.append(_court_tab())
 	var ids: Array = tabs.map(func(t): return t["id"])
@@ -572,9 +578,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 
 func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
-	var card := Widgets.card(col, "Gates barred", "at war", Style.ENEMY_LIGHT)
+	var why: String = GameState.barred_by(owner)
+	var card := Widgets.card(col, "Gates barred", "your standing" if why == "standing" else "at war", Style.ENEMY_LIGHT)
 	card.get_parent().name = "HostileCard"
 	card.add_child(_realm_line(owner, String(WorldData.FACTIONS[owner]["name"]), "Markets, barracks and halls are closed to you.", Style.ENEMY_LIGHT))
+	_add_reparations(card, owner, why)
 	var raid: Dictionary = GameState.raid_check(place)
 	if bool(raid["ok"]):
 		card.add_child(_note("Its people won't trade with you, but their barns are full.", Style.MUTED))
@@ -592,6 +600,37 @@ func _add_hostile_notice(col: VBoxContainer, owner: String) -> void:
 		var feast := _note("%s is held behind the walls, but no enemy is seated at it. Make peace, or take the place, to sit at a feast here." % Gatherings.upper_first(GameState.gathering_title(g)), Style.MUTED)
 		feast.name = "FeastBarred"
 		card.add_child(feast)
+
+
+## Why the gates are barred, in numbers: your standing against the line they bar you at,
+## and, when your standing alone shuts them, an envoy with reparations.
+func _add_reparations(card: VBoxContainer, owner: String, why: String) -> void:
+	var rel: int = GameState.relation_with_realm(owner)
+	var standing := Widgets.chip_row([Widgets.stat("bond", _signed(rel), Style.ENEMY_LIGHT if rel <= GameState.HOSTILE_RELATION else Style.TEXT),
+		Widgets.stat("lock", "barred at %s or below" % _signed(GameState.HOSTILE_RELATION), Style.MUTED)])
+	standing.name = "Standing"
+	card.add_child(standing)
+	if why == "crown":
+		card.add_child(_note("Your crown is at war with them. Make peace from your court to open these gates."))
+		return
+	if why == "employer":
+		card.add_child(_note("Your employer is at war with them. These gates open when your contract ends."))
+		return
+	if why != "standing":
+		return
+	var check: Dictionary = GameState.reparations_check(owner)
+	var envoy := _button("Send an envoy", func():
+		if GameState.pay_reparations(owner):
+			Sound.play("coins")
+			_build())
+	envoy.name = "SendEnvoy"
+	_with_icon(envoy, "silver")
+	envoy.disabled = not bool(check["ok"])
+	if bool(check["ok"]):
+		Style.make_primary(envoy)
+	card.add_child(Widgets.priced(envoy, [["silver", "−%s" % Widgets.thousands(int(check["cost"])), Style.ENEMY_LIGHT],
+		["bond", "to %s" % _signed(GameState.REPARATIONS_RELATION), Style.MORALE_HIGH]], String(check["reason"])))
+	card.add_child(_note("Reparations buy your standing back to just above the line. One envoy a week."))
 
 
 ## A realm's banner beside two lines: what it is to you, and a word more.
@@ -774,7 +813,7 @@ func _add_crown_holding(col: VBoxContainer) -> void:
 	v.add_child(_note("The treasury's half raises the garrison."))
 
 	var stationed: Array = GameState.stationed_at(place)
-	var g := Widgets.card(col, "Garrison", "" if stationed.is_empty() else "%d squad%s yours" % [stationed.size(), "" if stationed.size() == 1 else "s"])
+	var g := Widgets.card(col, "Garrison", "" if stationed.is_empty() else "%d compan%s yours" % [stationed.size(), "y" if stationed.size() == 1 else "ies"])
 	g.get_parent().name = "CrownGarrisonCard"
 	g.add_child(Widgets.store_tile("CrownGarrisonTile", "men", w.men_of(w.garrison_at(place)), w.garrison_capacity(place), ""))
 	for sq in stationed:
@@ -783,8 +822,10 @@ func _add_crown_holding(col: VBoxContainer) -> void:
 			if GameState.withdraw_from_holding(sid):
 				_build()
 		g.add_child(_squad_line(sq, "Take back", true, "Withdraw_%d" % sid, take_back))
+	if not stationed.is_empty():
+		g.add_child(_note("Companies you leave in a garrison draw half wages, from your seat's silver before your purse."))
 	if GameState.army.size() > 1:
-		var open := _button("Station a squad here…", _show_station_sheet.bind(true))
+		var open := _button("Station a company here…", _show_station_sheet.bind(true))
 		open.name = "StationSquad"
 		g.add_child(open)
 
@@ -824,6 +865,8 @@ func _add_fief_management(col: VBoxContainer) -> void:
 	_add_estate_card(col, fief, is_b)
 	_add_garrison_card(col, fief)
 	_add_manor_card(col, fief, is_b)
+	_add_exchange_card(col)
+	_add_crown_card(col)
 	# A vassal can give up their fief; a ruler has no one to give it to.
 	if not GameState.is_crowned():
 		var ren := Button.new()
@@ -839,8 +882,98 @@ func _add_fief_management(col: VBoxContainer) -> void:
 		col.add_child(ren)
 
 
+## At your own seat: what a crown of your own still needs, and the way to raise it once
+## nothing does.
+func _add_crown_card(col: VBoxContainer) -> void:
+	var steps: Array = GameState.crown_path()
+	if steps.is_empty():
+		return
+	var met := steps.filter(func(s): return bool(s["done"])).size()
+	var ready: bool = bool(GameState.crown_check()["ok"])
+	var card := Widgets.card(col, "Toward a crown", "%d of %d" % [met, steps.size()], Style.BRASS if ready else Style.MUTED, ready)
+	card.get_parent().name = "CrownPathCard"
+	card.add_child(Widgets.checklist(steps, "CrownPath"))
+	if ready:
+		var raise := _button("Raise your crown…", _confirm_crown)
+		raise.name = "RaiseCrown"
+		Style.make_primary(raise)
+		card.add_child(raise)
+
+
+func _confirm_crown() -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	var liege := GameState.fief_realm()
+	var s_name := String(WorldData.settlement(place)["name"])
+	var col := Widgets.sheet(self, "Raise your banner?", "CrownConfirm", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_realm_line(liege, "%s goes to war with you" % WorldData.the_realm(String(WorldData.FACTIONS[liege]["name"])),
+		"%s becomes the seat of your own crown. Every castle or town you storm after this is yours. There is no going back." % s_name, Style.TEXT))
+	var yes := _button("Raise crown", func():
+		Widgets.close_sheet(col)
+		if GameState.declare_crown():
+			Sound.play("horn")
+		_build())
+	yes.name = "ConfirmCrown"
+	Style.make_primary(yes)
+	var no := _button("Not yet", func(): Widgets.close_sheet(col))
+	no.name = "NotYetCrown"
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	yes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(no)
+	row.add_child(yes)
+	col.add_child(row)
+
+
 func _fief_culture() -> String:
 	return WorldData.culture_of(String(WorldData.settlement(place)["faction"]))
+
+
+## A vassal holding a village can ask their liege for a castle that has lost its lord: the
+## village goes back, the castle is theirs. Standing is kept; the asking needs as much as
+## fealty did.
+func _add_exchange_card(col: VBoxContainer) -> void:
+	if GameState.is_crowned() or String(WorldData.settlement(place)["type"]) != WorldData.VILLAGE:
+		return
+	var realm := GameState.fief_realm()
+	var castles: Array = GameState.exchange_castles()
+	var card := Widgets.card(col, "Walls of your own", "%d free" % castles.size() if not castles.is_empty() else "")
+	card.get_parent().name = "ExchangeCard"
+	if castles.is_empty():
+		card.add_child(_note("No castle of %s is free to grant. When one loses its lord, ask for it here: a crown needs walls." % WorldData.the_realm(String(WorldData.FACTIONS[realm]["name"]))))
+		return
+	card.add_child(_note("Your liege will take this village back and grant you a castle. Your companies here move with you; the village's buildings stay."))
+	for cid in castles:
+		var c := String(cid)
+		var check: Dictionary = GameState.exchange_check(c)
+		var row := HBoxContainer.new()
+		row.name = "Exchange_%s" % c
+		row.add_theme_constant_override("separation", 14)
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(words)
+		var nm := Style.label(String(WorldData.settlement(c)["name"]), Style.BODY, Style.TEXT)
+		nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		nm.custom_minimum_size = Vector2(10, 0)
+		words.add_child(nm)
+		words.add_child(_note("Castle · %d silver a day in taxes" % int(Fiefs.BASE_TAX[WorldData.CASTLE])))
+		var ask := _button("Ask for it", func():
+			if GameState.exchange_fief(c):
+				Sound.play("horn")
+				_build())
+		ask.name = "AskExchange_%s" % c
+		ask.custom_minimum_size = Vector2(150, Style.TOUCH)
+		ask.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		ask.disabled = not bool(check["ok"])
+		if bool(check["ok"]):
+			Style.make_primary(ask)
+		row.add_child(ask)
+		card.add_child(row)
+		if not bool(check["ok"]):
+			card.add_child(_note(String(check["reason"])))
 
 
 ## The lord's title, how long they've held it, and the two stores the place fills each day.
@@ -902,37 +1035,53 @@ func _add_estate_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 
 
 ## The squads you've left here, how to leave another, and what the place holds out with.
+## Only your own squads can be taken back; the liege's guards are counted, not listed.
 ## The wound rule is said once, at the bottom.
 func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 	var w = GameState.world
-	var garrison: Array = fief.get("garrison", [])
+	var garrison: Array = GameState.fief_garrison()
 	var men := 0
+	var yours := 0
 	for sq in garrison:
 		men += int(sq["men"])
-	var aside := "" if garrison.is_empty() else "%d squad%s · %d men" % [garrison.size(), "" if garrison.size() == 1 else "s", men]
+		if GameState.is_company_squad(sq):
+			yours += 1
+	var aside := "" if garrison.is_empty() else "%d compan%s · %d men" % [garrison.size(), "y" if garrison.size() == 1 else "ies", men]
 	var card := Widgets.card(col, "Garrison", aside)
 	card.get_parent().name = "GarrisonCard"
 	var village := String(WorldData.settlement(place)["type"]) == WorldData.VILLAGE
 	var militia: int = w.men_of(w.village_militia(place)) if village and w != null else 0
 	var full: bool = GameState.army.size() >= GameState.squad_cap()
-	if garrison.is_empty():
-		card.add_child(_note("No squads of yours are stationed here."))
+	if yours == 0:
+		card.add_child(_note("No companies of yours are stationed here."))
+	var guards := 0
 	for i in garrison.size():
 		var index := i
 		var sq: Dictionary = garrison[i]
+		if not GameState.is_company_squad(sq):
+			guards += int(sq["men"])
+			continue
 		var take_back := func():
 			if GameState.withdraw_squad_from_fief(index):
 				Sound.play("click")
 				_build()
 		card.add_child(_squad_line(sq, "Take back", not full, "Withdraw_%d" % int(sq["id"]), take_back))
-	if full and not garrison.is_empty():
+	if guards > 0:
+		var keep := _note("%d guards of the realm hold the walls with your companies. They stay when you ride out." % guards)
+		keep.name = "RealmGuards"
+		card.add_child(keep)
+	if full and yours > 0:
 		card.add_child(_note("Your warband is full, %d of %d squads. Station one to make room." % [GameState.army.size(), GameState.squad_cap()]))
+	if yours > 0:
+		var pay := _note("Your companies here draw half wages: %d silver a day, from the estate's silver before your purse." % GameState.stationed_wages())
+		pay.name = "StationedWages"
+		card.add_child(pay)
 	if GameState.army.size() > 1:
-		var open := _button("Station a squad here…", _show_station_sheet)
+		var open := _button("Station a company here…", _show_station_sheet)
 		open.name = "StationSquad"
 		card.add_child(open)
 	else:
-		card.add_child(_note("Your only squad can't stay behind."))
+		card.add_child(_note("Your only company can't stay behind."))
 	if village:
 		# What holds it against raiders, as chips.
 		card.add_child(Style.label("Against raiders", Style.SMALL, Style.MUTED))
@@ -1014,7 +1163,7 @@ func _squad_art(s: Dictionary) -> Control:
 func _show_station_sheet(holding: bool = false) -> void:
 	if _modal != null and is_instance_valid(_modal):
 		_modal.queue_free()
-	var col := Widgets.sheet(self, "Station a squad", "StationSheet", func(): _modal = null)
+	var col := Widgets.sheet(self, "Station a company", "StationSheet", func(): _modal = null)
 	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
 	col.add_child(_note("It holds %s with the garrison. One squad must ride with you." % String(WorldData.settlement(place)["name"])))
 	var squads: Array = GameState.army.duplicate()
@@ -1932,7 +2081,7 @@ func _add_provisions(col: VBoxContainer) -> void:
 func _add_recruits(col: VBoxContainer) -> void:
 	var cap := GameState.squad_cap()
 	var full := GameState.army.size() >= cap
-	var card := Widgets.card(col, "Recruits here", "%d/%d squads" % [GameState.army.size(), cap],
+	var card := Widgets.card(col, "Recruits here", "%d/%d companies" % [GameState.army.size(), cap],
 		Style.ENEMY_LIGHT if full else Style.MUTED)
 	card.get_parent().name = "RecruitsCard"
 	var offers: Array = GameState.world.offers_at(place)
@@ -1942,7 +2091,7 @@ func _add_recruits(col: VBoxContainer) -> void:
 		var back: float = float(GameState.world.offers_back.get(place, GameState.world.hour)) - GameState.world.hour
 		card.add_child(Widgets.chip_row([Widgets.chip("No one looking for work · more in %s" % Style.time_short(maxf(1.0, ceil(back))), Style.TEXT, "", "clock")]))
 	elif full:
-		card.add_child(_note("Your company is full. Win renown to lead more squads.", Style.ENEMY_LIGHT))
+		card.add_child(_note("Your warband is full. Win renown to lead more companies.", Style.ENEMY_LIGHT))
 
 
 func _add_tavern_heroes(col: VBoxContainer) -> void:
@@ -2056,7 +2205,7 @@ func _add_local_jobs(col: VBoxContainer) -> void:
 			ready.add_child(_deliverable_job_card(job))
 
 	# Notice board offers
-	var active_count: int = GameState.active_jobs.size()
+	var active_count: int = GameState.contract_count()
 	var capped := active_count >= Jobs.MAX_ACTIVE_JOBS
 	var board := Widgets.card(col, "Notice board", "%d of %d taken" % [active_count, Jobs.MAX_ACTIVE_JOBS],
 		Style.ENEMY_LIGHT if capped else Style.MUTED)
@@ -2159,12 +2308,23 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var text := _text_column(row)
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	text.add_child(Style.label(Cultures.troop_name(culture, type), Style.BODY))
-	text.add_child(Widgets.chip_row([Widgets.stat("men", str(men)), Widgets.effect("silver", -int(ceil(wage)), "/day")]))
+	# What it adds to the wages, and how many days of pay the purse holds after the hire.
+	var offer_chips: Array = [Widgets.stat("men", str(men)), Widgets.effect("silver", -int(ceil(wage)), "/day")]
+	var tight := _hire_is_tight(cost)
+	if cost <= GameState.silver:
+		var days_after := _pay_days_after_hire(cost, wage)
+		# Short enough for the row's narrow column at the largest text.
+		var pay_left := Widgets.stat("clock", "%d %s pay after" % [days_after, "day's" if days_after == 1 else "days'"],
+			Style.ENEMY_LIGHT if tight else Style.TEXT)
+		pay_left.name = "PayLeft"
+		offer_chips.append(pay_left)
+	text.add_child(Widgets.chip_row(offer_chips))
 	var b := _button("Hire", _on_hire.bind(index))
 	b.name = "Hire_%d" % index
 	b.custom_minimum_size = Vector2(150, Style.TOUCH)
 	b.disabled = full or cost > GameState.silver
-	if not b.disabled:
+	# A hire that leaves under two days of wages still works, but asks first and isn't lit.
+	if not b.disabled and not tight:
 		Style.make_primary(b)
 	var priced := Widgets.priced(b, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if cost > GameState.silver else Style.TEXT]])
 	priced.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2173,10 +2333,10 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 
 
 func _add_squads(col: VBoxContainer) -> void:
-	var card := Widgets.card(col, "Your squads", "%d men" % GameState.total_men())
+	var card := Widgets.card(col, "Your companies", "%d men" % GameState.total_men())
 	card.get_parent().name = "SquadsCard"
 	if not GameState.in_town():
-		card.add_child(_note("Ride to a town to refill and train your squads."))
+		card.add_child(_note("Ride to a town to refill and train your companies."))
 		for s in GameState.army:
 			card.add_child(_squad_row(s, false))
 		return
@@ -2364,9 +2524,56 @@ func _on_buy_food(rations: int) -> void:
 	_paid(GameState.buy_food(rations))
 
 
+## Whether paying `cost` leaves less than two days of the warband's wages in the purse.
+func _hire_is_tight(cost: int) -> bool:
+	return GameState.silver - cost < 2 * GameState.daily_outgoings()
+
+
+## Whole days of wages the purse holds after a hire, counting the new company's pay.
+func _pay_days_after_hire(cost: int, wage: float) -> int:
+	var wages_after: int = GameState.daily_outgoings() + int(ceil(wage))
+	return maxi(0, GameState.silver - cost) / maxi(1, wages_after)
+
+
 func _on_hire(index: int) -> void:
-	# The new company joins the Squads tab, so that's what glows: where it went.
+	var offers: Array = GameState.world.offers_at(place)
+	if index >= 0 and index < offers.size():
+		var offer: Dictionary = offers[index]
+		var type := String(offer["type"])
+		var cost := Economy.recruit_cost(type, Troops.full_size(type))
+		if cost <= GameState.silver and _hire_is_tight(cost):
+			_confirm_hire(index, cost, _pay_days_after_hire(cost, Economy.daily_wage({"type": type, "men": Troops.full_size(type), "level": 1})))
+			return
+	_hire_now(index)
+
+
+func _hire_now(index: int) -> void:
+	# The new company joins the Companies tab, so that's what glows: where it went.
 	_paid(GameState.hire(place, index), "coins", "Tab_squads")
+
+
+## A hire that would leave under two days of wages: say so, and let the player choose.
+func _confirm_hire(index: int, cost: int, days_after: int) -> void:
+	if _modal != null and is_instance_valid(_modal):
+		_modal.queue_free()
+	var col := Widgets.sheet(self, "Hire with a thin purse?", "HireConfirm", func(): _modal = null)
+	_modal = col.get_parent().get_parent().get_parent().get_parent() as Control
+	col.add_child(_note("After paying %s silver, the purse holds %d %s of wages. Unpaid men leave the warband." % [
+		Widgets.thousands(cost), days_after, "day" if days_after == 1 else "days"], Style.TEXT))
+	var yes := _button("Hire anyway", func():
+		Widgets.close_sheet(col)
+		_hire_now(index))
+	yes.name = "ConfirmHire"
+	var no := _button("Keep the silver", func(): Widgets.close_sheet(col))
+	no.name = "KeepSilver"
+	Style.make_primary(no)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	no.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	yes.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(no)
+	row.add_child(Widgets.priced(yes, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT]]))
+	col.add_child(row)
 
 
 func _on_reinforce(id: int) -> void:

@@ -8,6 +8,7 @@ extends Node
 
 const Troops = preload("res://scripts/data/troops.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
@@ -142,6 +143,10 @@ var muster: Dictionary = {}
 var banners: Dictionary = {}
 ## Gatherings you've already been told about.
 var invites_seen: Array = []
+## Captive lords you have freed for honour, by name: how many times each.
+var honour_releases: Dictionary = {}
+## When an envoy last took reparations to each realm (world hours).
+var reparations_at: Dictionary = {}
 ## Progress toward healing wounded soldiers (12h road / 6h rest per man).
 var _heal_clock := 0.0
 ## Set false in tests so nothing touches the save file.
@@ -171,7 +176,9 @@ func new_campaign(culture_id: String) -> void:
 	new_warband()
 	world = WorldSim.new()
 	world.setup(rng.randi(), culture)
-	# The last campaign's saves go with it.
+	load_problem = ""
+	# The last campaign's saves go with it. Only ever reached through a choice the player
+	# confirmed: Home asks "Start again?" whenever there's a campaign or a save to lose.
 	if persist or SaveSlots.dir != SaveSlots.DEFAULT_DIR:
 		SaveSlots.clear()
 	save_game()
@@ -209,6 +216,8 @@ func new_warband() -> void:
 	deeds = {}
 	deed_counts = {}
 	company_title = ""
+	honour_releases = {}
+	reparations_at = {}
 	crown_name = ""
 	crown_color = 0
 	crown_won = false
@@ -331,6 +340,13 @@ func recruit_hero(hero_id: String) -> bool:
 	hired_heroes.append(hero_id)
 	var captain := Heroes.make_hero_captain(h, _next_captain)
 	_next_captain += 1
+	# Two captains don't share a first name: an older captain with the hero's name (from
+	# before names were set aside for heroes) keeps it, and the hero goes by their byname.
+	for s in army:
+		var other = s.get("captain")
+		if other is Dictionary and String(other.get("first", "")) == String(captain["first"]):
+			captain["first"] = String(h.get("byname", captain["first"]))
+			break
 	var unit_id: String = String(h.get("unit", ""))
 	var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(h.get("type", Troops.INFANTRY)))
 	var squad := {
@@ -366,7 +382,7 @@ func jobs_at(settlement_id: String) -> Array:
 
 
 func accept_job(settlement_id: String, index: int) -> bool:
-	if world == null or active_jobs.size() >= Jobs.MAX_ACTIVE_JOBS:
+	if world == null or contract_count() >= Jobs.MAX_ACTIVE_JOBS:
 		return false
 	var list := jobs_at(settlement_id)
 	if index < 0 or index >= list.size():
@@ -390,11 +406,43 @@ func abandon_job(job_id: String) -> bool:
 	for i in active_jobs.size():
 		if String(active_jobs[i].get("id", "")) == job_id:
 			var title := String(active_jobs[i].get("title", "Contract"))
+			var realm := job_realm(active_jobs[i])
 			active_jobs.remove_at(i)
-			_note("Abandoned contract: '%s'." % title)
+			_note("Abandoned contract: '%s'.%s" % [title, _job_standing_cost(realm)])
 			save_game()
 			return true
 	return false
+
+
+## Contracts that count against Jobs.MAX_ACTIVE_JOBS: everything in the journal except
+## errands taken for a companion's story, which are hers to give and never fill the board.
+func contract_count() -> int:
+	var n := 0
+	for j in active_jobs:
+		if String(j.get("story_candidate", "")) == "":
+			n += 1
+	return n
+
+
+## The realm whose board posted `job`, or "" when none can be named (a story errand has
+## no board, so dropping it costs no standing).
+func job_realm(job: Dictionary) -> String:
+	if world == null or String(job.get("story_candidate", "")) != "":
+		return ""
+	var at := String(job.get("origin_settlement", job.get("destination_settlement", "")))
+	if at == "" or not WorldData.SETTLEMENTS.has(at):
+		return ""
+	var r: String = world.owner_of(at)
+	return "" if r == WorldData.BANDITS or not WorldData.FACTIONS.has(r) else r
+
+
+## A job dropped costs a little standing with whoever posted it. Returns the words for it.
+func _job_standing_cost(realm: String) -> String:
+	if realm == "":
+		return ""
+	add_realm_relation(realm, Jobs.ABANDON_RELATION)
+	var who := String(WorldData.FACTIONS[realm]["name"])
+	return " %s thinks the less of you for it (%d standing)." % [who, Jobs.ABANDON_RELATION]
 
 
 func active_jobs_completable_at(settlement_id: String) -> Array:
@@ -486,7 +534,7 @@ func _check_job_deadlines() -> void:
 		if world.hour > float(job.get("deadline", INF)):
 			active_jobs.remove_at(i)
 			_end_commitment(String(job.get("id", "")), jtitle, "Expired: the deadline passed before it was done.")
-			_note("Contract expired: The deadline for '%s' has passed." % jtitle)
+			_note("Contract expired: The deadline for '%s' has passed.%s" % [jtitle, _job_standing_cost(job_realm(job))])
 			continue
 		if String(job.get("type", "")) == Jobs.TYPE_HUNT:
 			var party_id := int(job.get("target_party_id", -1))
@@ -1004,49 +1052,120 @@ func dance_check(g: Dictionary) -> Dictionary:
 	return {"ok": true, "reason": ""}
 
 
-## Who you could ask: someone you court who's here, the lords in the hall, or no one (the
-## wall). [{kind ("romance", "lord", "wall"), id, name, tag}]
+## Who is on the floor tonight: [{kind, id, name, tag, ...}], in the order the dance
+## screen offers them.
+##   "romance": someone you've met (acquainted, courting or further, or a friend) who is at
+##              the gathering: time together, kept as a memory, +1 trust up to a cap;
+##   "meet":    someone with a story you've never met, seen across the hall ("seen" is how
+##              she's pointed out): a first word, and then what you mean to be to each other;
+##   "kin":     a lord's kinswoman (his wife, sister or daughter; "relation" says which, and
+##              "lord_name" whose), for his Regard: the host's first, then up to KIN_OFFERED;
+##   "round":   the round everyone joins, +1 Regard with every lord in the hall;
+##   "wall":    keep to the wall and hear the gossip;
+##   "absent":  someone you court who isn't here, and where she would be (a note, not a choice).
+## The lords themselves are never on it: a warlord is asked for a word at the table, not a
+## dance.
 func dance_partners(g: Dictionary) -> Array:
 	var out := []
 	var social = world.social
+	var place := String(g["place"])
+	var lords_here: Array = gathering_lords(g)
+	var there := {}
 	if social != null:
-		for person in social.residents_at(String(g["place"])):
+		for person in social.attending(place, lords_here, String(g.get("realm", world.owner_of(place)))):
 			var cid := String(person.get("content_id", ""))
 			var rel: Dictionary = social.get_relationship(cid)
-			if String(rel.get("status", "")) in [Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED]:
-				var more := int(rel.get("dances", 0)) < Gatherings.DANCE_TRUST_CAP
-				out.append({"kind": "romance", "id": cid, "name": String(person.get("name", "")),
-					"tag": "time together · %skept as a memory" % ("+%d trust · " % Gatherings.DANCE_TRUST if more else "")})
-	for l in gathering_lords(g):
+			var status := String(rel.get("status", Relationships.UNKNOWN))
+			there[cid] = true
+			if status == Relationships.UNKNOWN:
+				out.append({"kind": "meet", "id": cid, "name": "", "seen": String(Gatherings.DANCE_SEEN.get(cid, "Ask the woman across the hall to dance.")),
+					"tag": "you haven't met · a first word"})
+				continue
+			var more := int(rel.get("dances", 0)) < Gatherings.DANCE_TRUST_CAP
+			var what := "a dance" if status == Relationships.ACQUAINTED else "time together"
+			out.append({"kind": "romance", "id": cid, "name": String(person.get("name", "")),
+				"tag": "%s · %skept as a memory" % [what, ("+%d trust · " % Gatherings.DANCE_TRUST) if more else ""]})
+	var offered := 0
+	for l in lords_here:
+		if offered >= Gatherings.KIN_OFFERED:
+			break
+		var kin: Dictionary = social.house_kin(l) if social != null else {}
+		if kin.is_empty():
+			continue
+		offered += 1
 		var daring := String(l.get("bearing", "")) == Lords.DARING
-		out.append({"kind": "lord", "id": str(int(l["id"])), "name": LordTalk.short_name(l),
-			"tag": "+%d Regard%s" % [Gatherings.DANCE_DARING if daring else Gatherings.DANCE_LORD, " · Daring: they like a bold ask" if daring else ""]})
+		out.append({"kind": "kin", "id": str(int(l["id"])), "name": String(kin["name"]), "relation": String(kin["relation"]),
+			"lord_name": LordTalk.short_name(l),
+			"tag": "+%d Regard with %s%s" % [Gatherings.DANCE_DARING if daring else Gatherings.DANCE_LORD, LordTalk.short_name(l),
+				" · Daring: he likes a bold ask" if daring else ""]})
+	if not lords_here.is_empty():
+		out.append({"kind": "round", "id": "", "name": "", "tag": "+%d Regard with every lord here (%d)" % [Gatherings.DANCE_ROUND_REGARD, lords_here.size()]})
 	out.append({"kind": "wall", "id": "", "name": "", "tag": "hear the gossip" if gossip_check(g)["ok"] else "just listen"})
+	if social != null:
+		for cid in [RomanceStories.EDDA, RomanceStories.FARID, RomanceStories.KAEDE]:
+			if there.has(cid):
+				continue
+			var status := String(social.get_relationship(cid).get("status", Relationships.UNKNOWN))
+			if status in [Relationships.COURTING, Relationships.COMMITTED, Relationships.ENGAGED, Relationships.MARRIED]:
+				out.append({"kind": "absent", "id": cid, "name": String(social.get_candidate_person(cid).get("name", "")),
+					"tag": String(Gatherings.DANCE_ABSENT.get(cid, ""))})
 	return out
 
 
-## Dance with a partner from dance_partners(). {ok, kind, text, regard, trust, gossip}
+## Dance with a partner from dance_partners(). {ok, kind, text, regard, trust, gossip,
+## lord_name, lords, intent}: `intent` is true after a first meeting, when she asks what
+## you mean to be to each other (the dance screen offers the story's first choices).
 func dance(g: Dictionary, kind: String, id: String) -> Dictionary:
 	if not dance_check(g)["ok"]:
 		return {"ok": false}
 	var night: int = world.gathering_night(g)
 	var cult := String(g.get("culture", Cultures.VARDISH))
-	var out := {"ok": true, "kind": kind, "text": "", "regard": 0, "trust": 0, "gossip": {}}
+	var out := {"ok": true, "kind": kind, "text": "", "regard": 0, "trust": 0, "gossip": {}, "lord_name": "", "lords": 0, "intent": false}
+	var social = world.social
 	match kind:
-		"romance":
-			var person: Dictionary = world.social.get_candidate_person(id)
-			if person.is_empty():
+		"romance", "meet":
+			var person: Dictionary = social.get_candidate_person(id)
+			if person.is_empty() or not social.attending(String(g["place"]), gathering_lords(g), String(g.get("realm", world.owner_of(String(g["place"]))))).has(person):
 				return {"ok": false}
-			out["text"] = String(Gatherings.DANCE_ROMANCE.get(id, "%s takes your hand." % String(person.get("name", ""))))
-			out["trust"] = world.social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEMORY.get(id, "You danced together.")), String(g["place"]), world.hour)
-		"lord":
+			var rel: Dictionary = social.get_relationship(id)
+			var status := String(rel.get("status", Relationships.UNKNOWN))
+			if kind == "meet":
+				if status != Relationships.UNKNOWN:
+					return {"ok": false}
+				# Met, on the floor: she is someone you know now. What you mean to be to each
+				# other is the story's own first question, asked next.
+				rel["status"] = Relationships.ACQUAINTED
+				out["text"] = String(Gatherings.DANCE_MEET.get(id, "%s takes your hand, and tells you her name." % String(person.get("name", ""))))
+				out["trust"] = social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEET_MEMORY.get(id, "The night you met %s, at a dance." % String(person.get("name", "")))), String(g["place"]), world.hour)
+				out["intent"] = true
+			else:
+				if status == Relationships.UNKNOWN:
+					return {"ok": false}
+				var lines: Dictionary = Gatherings.DANCE_ACQUAINTED if status == Relationships.ACQUAINTED else Gatherings.DANCE_ROMANCE
+				out["text"] = String(lines.get(id, "%s takes your hand." % String(person.get("name", ""))))
+				out["trust"] = social.dance_with(id, "dance_" + cult, String(Gatherings.DANCE_MEMORY.get(id, "You danced together.")), String(g["place"]), world.hour)
+		"kin":
 			var l: Dictionary = world.lord_by_id(int(id))
 			if l.is_empty() or not gathering_lords(g).has(l):
+				return {"ok": false}
+			var kin: Dictionary = social.house_kin(l) if social != null else {}
+			if kin.is_empty():
 				return {"ok": false}
 			var gain := Gatherings.DANCE_DARING if String(l.get("bearing", "")) == Lords.DARING else Gatherings.DANCE_LORD
 			LordTalk.change_regard(self, l, gain)
 			out["regard"] = gain
-			out["text"] = String(Gatherings.DANCE_LORD_LINES.get(String(l.get("bearing", "")), "They dance well."))
+			out["lord_name"] = LordTalk.short_name(l)
+			out["text"] = String(Gatherings.DANCE_KIN_LINES.get(String(l.get("bearing", "")), "{name} dances well, and {lord} sees it.")) \
+				.replace("{name}", String(kin["name"])).replace("{lord}", LordTalk.short_name(l)).replace("{relation}", String(kin["relation"]))
+		"round":
+			var lords_here: Array = gathering_lords(g)
+			if lords_here.is_empty():
+				return {"ok": false}
+			for l in lords_here:
+				LordTalk.change_regard(self, l, Gatherings.DANCE_ROUND_REGARD)
+			out["regard"] = Gatherings.DANCE_ROUND_REGARD
+			out["lords"] = lords_here.size()
+			out["text"] = String(Gatherings.DANCE_ROUND.get(cult, Gatherings.DANCE_ROUND[Cultures.VARDISH]))
 		"wall":
 			out["text"] = Gatherings.DANCE_WALL
 			if gossip_check(g)["ok"]:
@@ -1340,6 +1459,74 @@ func crown_check() -> Dictionary:
 	return {"ok": true, "reason": ""}
 
 
+## The road to a crown as a checklist, in the order a company walks it: each step is
+## {id, title, done, detail, place}, where `place` is a settlement the step points at (or
+## ""). Every step met is exactly when crown_check() says yes. Empty once crowned.
+func crown_path() -> Array:
+	if world == null or is_crowned():
+		return []
+	var steps: Array = []
+	var held: bool = has_fief() and not bool(player_fief.get("lost", false))
+	var seat: String = fief_id() if has_fief() else ""
+	var seat_name: String = String(WorldData.settlement(seat)["name"]) if WorldData.SETTLEMENTS.has(seat) else ""
+	var liege: String = fief_realm()
+	var liege_name: String = WorldData.the_realm(String(WorldData.FACTIONS[liege]["name"])) if WorldData.FACTIONS.has(liege) else "your liege"
+	# A fief of your own, granted for fealty.
+	var fief_detail := ""
+	if held:
+		fief_detail = "Sworn to %s; your seat is %s." % [liege_name, seat_name]
+	elif has_fief():
+		fief_detail = "%s has fallen. Win it back to have a seat again." % seat_name
+	else:
+		var best := ""
+		for r in WorldData.FACTIONS:
+			if r == WorldData.BANDITS or r == WorldData.CROWN:
+				continue
+			if best == "" or relation_with_realm(String(r)) > relation_with_realm(best):
+				best = String(r)
+		fief_detail = "Swear fealty at a realm's castle or town. It takes %d renown (you have %d) and %d standing with that realm" % [
+			Fiefs.MIN_RENOWN, renown, Fiefs.MIN_RELATION]
+		if best != "":
+			fief_detail += " (your best: %s, %d)" % [WorldData.the_realm(String(WorldData.FACTIONS[best]["name"])), relation_with_realm(best)]
+		fief_detail += ". Serving its contracts raises it."
+	steps.append({"id": "fief", "title": "Hold a fief of your own", "done": held, "detail": fief_detail, "place": seat if has_fief() else ""})
+	# Walls: a crown's seat is a castle or a town.
+	var walled: bool = held and String(WorldData.settlement(seat)["type"]) != WorldData.VILLAGE
+	var walls_detail := "A castle or a town. A first fief is usually a village; trade it up later."
+	if walled:
+		walls_detail = "%s has walls." % seat_name
+	elif held:
+		var castles: Array = exchange_castles()
+		if castles.is_empty():
+			walls_detail = "%s is a village. When a castle of %s loses its lord, ask for it from %s's Fief tab." % [seat_name, liege_name, seat_name]
+		else:
+			var free_castle := String(castles[0])
+			walls_detail = "%s stands without a lord: ask for it from %s's Fief tab." % [WorldData.settlement(free_castle)["name"], seat_name]
+			var ask: Dictionary = exchange_check(free_castle)
+			if not bool(ask.get("ok", false)):
+				walls_detail += " " + String(ask.get("reason", ""))
+	steps.append({"id": "walls", "title": "A seat with walls", "done": walled, "detail": walls_detail, "place": seat if held and not walled else ""})
+	# Fame.
+	var famous: bool = renown >= CROWN_RENOWN
+	steps.append({"id": "renown", "title": "%d renown" % CROWN_RENOWN, "done": famous,
+		"detail": "Your name is known." if famous else "You have %d. Beating lords and storming walls bring the most." % renown, "place": ""})
+	# No one else's pay.
+	var bound: bool = has_contract()
+	var employer: String = contract_realm() if bound else ""
+	steps.append({"id": "contract", "title": "Free of contracts", "done": not bound,
+		"detail": "Serve out or break your contract with %s." % WorldData.the_realm(String(WorldData.FACTIONS[employer]["name"])) if bound and WorldData.FACTIONS.has(employer) else "No contract binds you.",
+		"place": ""})
+	# Where it is done.
+	var there: bool = held and world.here() == seat
+	var seat_detail := "At your seat, once it has walls: Raise crown is on its sheet on the map and on its Fief tab."
+	if there:
+		seat_detail = "You are at %s." % seat_name
+	elif held:
+		seat_detail = "Ride to %s. Raise crown is on its sheet on the map and on its Fief tab." % seat_name
+	steps.append({"id": "seat", "title": "Raise it at your seat", "done": there, "detail": seat_detail, "place": seat if held and not there else ""})
+	return steps
+
+
 ## Cast off the liege and raise the company's own crown at its fief.
 func declare_crown() -> bool:
 	if not crown_check()["ok"]:
@@ -1347,8 +1534,13 @@ func declare_crown() -> bool:
 	var seat := fief_id()
 	var liege := fief_realm()
 	WorldData.crown_culture = culture
+	# The seat's guards and your squads stand with you: the change of owner would clear its
+	# walls, so the garrison is put back as it was.
+	var kept := fief_garrison()
 	player_fief["realm"] = WorldData.CROWN
 	world.declare_crown(seat)
+	world.garrisons[seat] = kept
+	player_fief["garrison"] = kept
 	world.player().faction = WorldData.CROWN
 	add_realm_relation(liege, -60)
 	_note("You raise your own banner over %s. %s will not forgive it: it is war." % [
@@ -1524,7 +1716,7 @@ func _crown_fate() -> bool:
 		renown += 100
 		world.emit_event({"type": "crown_victory"})
 		map_notice_title = "One crown"
-		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Glass Sea has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like." % WorldData.title_case(crown_title())
+		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Glass Sea has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like. Hold every castle and town on the map at once, and the company is remembered as Keepers of the Glass Sea." % WorldData.title_case(crown_title())
 	return false
 
 
@@ -1663,7 +1855,7 @@ func withdraw_from_holding(squad_id: int) -> bool:
 	for sq in stationed_at(id):
 		if int(sq["id"]) == squad_id:
 			world.garrisons[id].erase(sq)
-			sq.erase("stationed_by_company")
+			_unstation(sq)
 			army.append(sq)
 			save_game()
 			return true
@@ -1726,12 +1918,23 @@ func war_check(realm: String) -> Dictionary:
 	return {"ok": true, "reason": ""}
 
 
+## Your Honorable lords count a war you start as a breach of the peace.
+const DECLARE_HONOR_REGARD := -5
+
+
 func declare_crown_war(realm: String) -> bool:
 	if not war_check(realm)["ok"]:
 		return false
 	world.declare_war(WorldData.CROWN, realm, false, "your crown's declaration")
 	add_realm_relation(realm, DECLARE_RELATION)
-	_note("Your crown declares war on %s." % WorldData.FACTIONS[realm]["name"])
+	var honorable := 0
+	for l in crown_lords():
+		if String(l.get("bearing", "")) == Lords.HONORABLE:
+			add_lord_relation(int(l["id"]), DECLARE_HONOR_REGARD)
+			honorable += 1
+	var foe := String(WorldData.FACTIONS[realm]["name"])
+	var breach := (" Your Honorable lords call it a breach of the peace (%d Regard each)." % DECLARE_HONOR_REGARD) if honorable > 0 else ""
+	_note("Your crown declares war on %s.%s" % [foe, breach])
 	save_game()
 	return true
 
@@ -1814,6 +2017,50 @@ func siege_check(id: String) -> Dictionary:
 	return out
 
 
+## The victors of a storm leave some of their men on the walls they took, as a marshal
+## army does (MarshalArmies.capture_settlement): the lords beside you first, then your
+## company, every squad keeping a man. Returns how many of yours stayed.
+func _hold_taken_walls(id: String, beside: Array) -> int:
+	var spare := 0
+	var everyone := 0
+	for lp in beside:
+		for sq in lp.army:
+			spare += maxi(0, int(sq["men"]) - 1)
+			everyone += int(sq["men"])
+	for sq in army:
+		spare += maxi(0, int(sq["men"]) - 1)
+		everyone += int(sq["men"])
+	var desired := mini(int(world.garrison_capacity(id) * Lords.GARRISON_START_SHARE), int(everyone * 0.4))
+	desired = mini(desired, maxi(0, everyone - 10))
+	desired = mini(desired, spare)
+	if desired <= 0:
+		return 0
+	var tpl: Array = world._garrison_template(id)
+	var placed := 0
+	for sq in tpl:
+		if placed >= desired:
+			break
+		var to_add := mini(Units.full_size(String(sq["unit"])), desired - placed)
+		sq["men"] = to_add
+		placed += to_add
+	world.garrisons[id] = tpl.filter(func(x): return int(x["men"]) > 0)
+	var owed := placed
+	for lp in beside:
+		for sq in lp.army:
+			var give := mini(owed, int(sq["men"]) - 1)
+			if give > 0:
+				sq["men"] = int(sq["men"]) - give
+				owed -= give
+	var yours := 0
+	for sq in army:
+		var give_own := mini(owed, int(sq["men"]) - 1)
+		if give_own > 0:
+			sq["men"] = int(sq["men"]) - give_own
+			owed -= give_own
+			yours += give_own
+	return yours
+
+
 ## Set up the assault on `id` for the battle screen.
 func start_siege_battle(id: String) -> void:
 	var check := siege_check(id)
@@ -1891,6 +2138,9 @@ func answer_assault(fight: bool) -> void:
 		return
 	var role := String(world.pending_assault["role"])
 	var target := String(world.pending_assault["target"])
+	# The walls' real defenders: your fief's garrison is the world's.
+	if is_player_fief(target):
+		fief_garrison()
 	var lords_squads: Array = []
 	for member in MarshalArmies.members(world, army):
 		for sq in member.army:
@@ -1987,10 +2237,18 @@ func _siege_outcome(result: Dictionary, how: String) -> void:
 	var place: String = WorldData.settlement(id)["name"]
 	var was: String = world.owner_of(id)
 	if result.get("won", false):
+		var beside: Array = []
+		for lp in world.lord_parties():
+			if lp.node == id and not lp.moving() and world.relation_to_player(lp.faction) == "friendly" and world.at_war(lp.faction, was):
+				beside.append(lp)
 		world.garrisons[id] = []
+		var stay := 0
 		if realm != "" and world.at_war(realm, was):
 			world.set_owner(id, realm)
 			world.emit_event({"type": "captured", "realm": realm, "settlement": id, "from": was})
+			stay = _hold_taken_walls(id, beside)
+		if stay > 0:
+			how += " %d of your men stay to hold its walls." % stay
 		var got := Economy.spoils(int(result.get("killed", 0)))
 		got["silver"] = int(got["silver"]) + 200
 		got["renown"] = int(got["renown"]) + 30
@@ -2034,6 +2292,13 @@ func raid_check(id: String) -> Dictionary:
 		out["reason"] = "Only villages can be raided; walls have to be stormed."
 		return out
 	var owner: String = world.owner_of(id)
+	if owner != "" and owner == sworn_realm() and owner != WorldData.CROWN:
+		var lord_of := WorldData.the_realm(String(WorldData.FACTIONS[owner]["name"]))
+		if has_fief() and fief_realm() == owner:
+			out["reason"] = "You are sworn to %s. Renounce your oath, or raise your own crown, before you burn its villages." % lord_of
+		else:
+			out["reason"] = "You are under contract to %s. Its villages are yours to guard, not burn." % lord_of
+		return out
 	if owner == WorldData.BANDITS or not is_at_war_with(owner):
 		out["reason"] = "You are not at war with its realm."
 		return out
@@ -2283,6 +2548,18 @@ func fief_realm() -> String:
 	return String(player_fief.get("realm", ""))
 
 
+## The realm the company answers to: the crown it raised, the liege who granted its fief,
+## or the realm paying its contract. "" for a free company.
+func sworn_realm() -> String:
+	if is_crowned():
+		return WorldData.CROWN
+	if has_fief() and fief_realm() != "":
+		return fief_realm()
+	if has_contract():
+		return contract_realm()
+	return ""
+
+
 func can_petition_fief(realm: String) -> bool:
 	if has_fief() or world == null:
 		return false
@@ -2339,7 +2616,10 @@ func accept_fealty_and_fief(settlement_id: String, realm: String) -> bool:
 	if world != null:
 		if world.player() != null:
 			world.player().faction = realm
-		world.garrisons[settlement_id] = []
+		# The liege's guards stay on the walls: the fief's garrison is theirs and yours as one.
+		var kept: Array = world.garrisons.get(settlement_id, [])
+		world.garrisons[settlement_id] = kept
+		player_fief["garrison"] = kept
 		add_realm_relation(realm, 20)
 		var s_name := String(WorldData.settlement(settlement_id)["name"])
 		var r_name := String(WorldData.FACTIONS[realm]["name"])
@@ -2364,6 +2644,12 @@ func renounce_fief() -> void:
 		return
 	var s_name := String(WorldData.settlement(fief_id())["name"])
 	var r := fief_realm()
+	# Your own squads ride out with you; the liege's guards stay.
+	var g := fief_garrison()
+	for sq in g.filter(func(x): return is_company_squad(x)):
+		g.erase(sq)
+		_unstation(sq)
+		army.append(sq)
 	player_fief = {}
 	if world != null and world.player() != null:
 		world.player().faction = ""
@@ -2385,7 +2671,7 @@ func _fief_day() -> void:
 	player_fief["silver"] = mini(Fiefs.MAX_STORAGE_SILVER, int(player_fief.get("silver", 0)) + tax)
 	player_fief["food"] = mini(Fiefs.max_food_capacity(player_fief), int(player_fief.get("food", 0)) + prov)
 
-	var g: Array = player_fief.get("garrison", [])
+	var g := fief_garrison()
 	for sq in g:
 		var w: int = int(sq.get("wounded", 0))
 		if w > 0:
@@ -2416,6 +2702,69 @@ func collect_fief_food(amount: int = -1) -> int:
 	return take
 
 
+## The fief's garrison: the one list the world defends the walls with. Whatever re-made
+## the world's list (a siege, a change of owner) is the list the fief keeps, so the two
+## never drift apart.
+func fief_garrison() -> Array:
+	if not has_fief():
+		return []
+	if world == null:
+		return player_fief.get("garrison", [])
+	var id := fief_id()
+	if world.garrisons.has(id):
+		player_fief["garrison"] = world.garrisons[id]
+	else:
+		var g: Array = player_fief.get("garrison", [])
+		world.garrisons[id] = g
+		player_fief["garrison"] = g
+	return player_fief["garrison"]
+
+
+## A squad you left in a garrison, and still yours: only these can be taken back.
+static func is_company_squad(sq: Dictionary) -> bool:
+	return bool(sq.get("stationed_by_company", false))
+
+
+## The squads of yours standing in garrisons anywhere: your fief and your crown's holdings.
+func company_stationed() -> Array:
+	var out: Array = []
+	if world == null:
+		return out
+	for id in world.garrisons:
+		for sq in world.garrisons[id]:
+			if is_company_squad(sq):
+				out.append(sq)
+	return out
+
+
+## Squads left in a garrison draw this share of their wages.
+const STATIONED_WAGE_SHARE := 0.5
+
+
+## Silver a day for your stationed squads, at half wages; paid from the fief's silver
+## first, then your purse.
+func stationed_wages() -> int:
+	var total := 0.0
+	for sq in company_stationed():
+		total += Economy.daily_wage(sq)
+	return int(ceil(total * STATIONED_WAGE_SHARE))
+
+
+## A squad comes back to the warband: no longer the garrison's, and its captain read
+## back in full.
+func _unstation(sq: Dictionary) -> void:
+	sq.erase("stationed_by_company")
+	if not sq.has("wounded"):
+		sq["wounded"] = 0
+	if sq.get("captain") is Dictionary:
+		var was: Dictionary = sq["captain"]
+		var clean := _clean_captain(was, String(sq["type"]))
+		for k in was:
+			if not clean.has(k):
+				clean[k] = was[k]
+		sq["captain"] = clean
+
+
 func station_squad_in_fief(squad_id: int) -> bool:
 	if not has_fief() or world == null:
 		return false
@@ -2428,28 +2777,95 @@ func station_squad_in_fief(squad_id: int) -> bool:
 		return false
 	var squad: Dictionary = army[s_idx]
 	army.remove_at(s_idx)
-	if not player_fief.has("garrison"):
-		player_fief["garrison"] = []
-	player_fief["garrison"].append(squad)
-	world.garrisons[fief_id()] = player_fief["garrison"]
+	squad["stationed_by_company"] = true
+	fief_garrison().append(squad)
 	_note("Stationed %s in the garrison of %s." % [String(squad.get("name", "Squad")), WorldData.settlement(fief_id())["name"]])
 	save_game()
 	return true
 
 
+## Take back the squad at `garrison_index` in the fief's garrison: only one of your own,
+## never the liege's guards.
 func withdraw_squad_from_fief(garrison_index: int) -> bool:
 	if not has_fief() or world == null:
 		return false
-	var g: Array = player_fief.get("garrison", [])
+	var g := fief_garrison()
 	if garrison_index < 0 or garrison_index >= g.size():
 		return false
 	if army.size() >= squad_cap():
 		return false
 	var squad: Dictionary = g[garrison_index]
+	if not is_company_squad(squad):
+		return false
 	g.remove_at(garrison_index)
+	_unstation(squad)
 	army.append(squad)
-	world.garrisons[fief_id()] = g
 	_note("Withdrew %s from the garrison into the active warband." % String(squad.get("name", "Squad")))
+	save_game()
+	return true
+
+
+## The free castles of your liege you could ask for in exchange for your village.
+func exchange_castles() -> Array:
+	if not has_fief() or is_crowned() or world == null:
+		return []
+	var own := fief_id()
+	return available_fiefs_for_grant(fief_realm()).filter(func(id): return id != own and String(WorldData.settlement(id)["type"]) == WorldData.CASTLE)
+
+
+## Whether your liege would grant you `castle_id` for the village you hold: a vassal in
+## good standing (as for fealty) whose seat is a village, asking for a castle that has
+## no lord. {ok, reason}.
+func exchange_check(castle_id: String) -> Dictionary:
+	if world == null or not has_fief() or is_crowned():
+		return {"ok": false, "reason": "Only a sworn vassal can ask their liege for another fief."}
+	if bool(player_fief.get("lost", false)):
+		return {"ok": false, "reason": "Your fief has fallen. Win it back first."}
+	if String(WorldData.settlement(fief_id())["type"]) != WorldData.VILLAGE:
+		return {"ok": false, "reason": "You already hold walls of your own."}
+	var realm := fief_realm()
+	if is_at_war_with(realm):
+		return {"ok": false, "reason": "Your liege counts you an enemy."}
+	if renown < Fiefs.MIN_RENOWN:
+		return {"ok": false, "reason": "Walls go to a company of renown (%d of %d)." % [renown, Fiefs.MIN_RENOWN]}
+	if relation_with_realm(realm) < Fiefs.MIN_RELATION:
+		return {"ok": false, "reason": "Your liege must think better of you first (standing %d of %d)." % [relation_with_realm(realm), Fiefs.MIN_RELATION]}
+	if not exchange_castles().has(castle_id):
+		return {"ok": false, "reason": "That castle is not free to grant."}
+	return {"ok": true, "reason": ""}
+
+
+## Give your village back to your liege for a free castle. Your squads there move with you;
+## the castle's guards stay on its walls; the estate's stores come along (the granary
+## only holds what it can), its buildings stay with the village. Your standing is kept.
+func exchange_fief(castle_id: String) -> bool:
+	if not exchange_check(castle_id)["ok"]:
+		return false
+	var old := fief_id()
+	var old_g := fief_garrison()
+	var mine: Array = old_g.filter(func(x): return is_company_squad(x))
+	var left: Array = old_g.filter(func(x): return not is_company_squad(x))
+	if left.is_empty():
+		world.garrisons.erase(old)
+	else:
+		world.garrisons[old] = left
+	var kept: Array = world.garrisons.get(castle_id, [])
+	kept.append_array(mine)
+	world.garrisons[castle_id] = kept
+	player_fief["settlement_id"] = castle_id
+	player_fief["garrison"] = kept
+	player_fief["improvements"] = {
+		Fiefs.IMPROVEMENT_GRANARY: false,
+		Fiefs.IMPROVEMENT_FORTIFICATIONS: false,
+		Fiefs.IMPROVEMENT_MILL: false,
+	}
+	player_fief["food"] = mini(int(player_fief.get("food", 0)), Fiefs.max_food_capacity(player_fief))
+	player_fief["granted_at"] = world.hour
+	var realm := fief_realm()
+	var title := Fiefs.title_for(String(WorldData.FACTIONS[realm]["culture"]))
+	_note("%s grants you %s for %s. You are its %s now; the village and its buildings go back to the realm." % [
+		WorldData.FACTIONS[realm]["name"], WorldData.settlement(castle_id)["name"], WorldData.settlement(old)["name"], title.to_lower()])
+	world.emit_event({"type": "fief_granted", "company": "Your warband", "settlement": castle_id, "realm": realm})
 	save_game()
 	return true
 
@@ -2491,7 +2907,11 @@ func _on_fief_transferred(id: String, realm: String, was: String) -> void:
 	if realm != fief_realm():
 		var captor_name := String(WorldData.FACTIONS.get(realm, {}).get("name", "the enemy"))
 		player_fief["lost"] = true
-		_note("Catastrophe! Your fief of %s has fallen to the %s!" % [s_name, captor_name])
+		# The squads you left there fell with the walls.
+		var gone: int = (player_fief.get("garrison", []) as Array).filter(func(x): return is_company_squad(x) and int(x.get("men", 0)) > 0).size()
+		fief_garrison()
+		_note("Catastrophe! Your fief of %s has fallen to the %s!%s" % [s_name, captor_name,
+			(" The %d squad%s you stationed there are lost with it." % [gone, "" if gone == 1 else "s"]) if gone > 0 else ""])
 		world.emit_event({"type": "fief_lost", "company": "Your warband", "settlement": id, "by": captor_name})
 	elif bool(player_fief.get("lost", false)):
 		player_fief["lost"] = false
@@ -2536,6 +2956,16 @@ func daily_wages() -> int:
 	return int(ceil(total))
 
 
+## Silver the purse pays out tomorrow: the warband's wages, plus whatever of the half wages
+## of companies left in garrisons the fief's own silver won't cover. What every forecast
+## of the purse uses.
+func daily_outgoings() -> int:
+	var standing := stationed_wages()
+	if standing > 0 and has_fief() and not bool(player_fief.get("lost", false)):
+		standing = maxi(0, standing - maxi(0, int(player_fief.get("silver", 0))))
+	return daily_wages() + standing
+
+
 ## Days the food lasts at one ration per man.
 func food_days() -> int:
 	var head := total_headcount()
@@ -2549,21 +2979,52 @@ func food_days() -> int:
 
 # ---------------------------------------------------------------- guidance
 
+## Silver for one day of food at village prices, the cheapest there is.
+func day_of_food_cost() -> int:
+	var head := total_headcount()
+	var daily_food := head
+	if has_specialization(Captains.QUARTERMASTER):
+		daily_food = maxi(1, int(ceil(head * 0.8)))
+	return int(ceil(daily_food * float(Economy.FOOD_PRICE.get(WorldData.VILLAGE, 0.2))))
+
+
+## Whether the purse can't cover tomorrow: not a day of the cheapest food, or not a day's
+## wages. Paid work is what the company needs then, not a shop.
+func short_of_silver() -> bool:
+	return silver < day_of_food_cost() or silver < daily_outgoings()
+
+
 ## One honest next step from the current campaign state. This points at existing
 ## systems and places; it does not create a quest or promise an unavailable siege.
+## A step aimed at a bandit band has the action "band" and the band's id as "party".
 func recommendation() -> Dictionary:
 	if world == null:
-		return {"title": "Form your company", "body": "Choose a people and begin a campaign.", "action": "home", "place": ""}
-	if food_days() < 2:
+		return {"title": "Form your warband", "body": "Choose a people and begin a campaign.", "action": "home", "place": ""}
+	if food_days() < 2 and silver >= day_of_food_cost():
 		var village := _nearest_settlement([WorldData.VILLAGE])
 		return {"title": "Buy provisions", "body": "Only %d days of food remain. Villages sell the cheapest supplies." % food_days(),
 			"action": "place", "place": village}
+	# A purse that can't cover tomorrow needs paid work before anything it would buy.
+	if short_of_silver() and contract_count() == 0:
+		var short_of: String = "wages" if silver < daily_outgoings() else "food"
+		var work := _nearest_work_place()
+		if work != "":
+			return {"title": "Take a contract at %s" % WorldData.settlement(work)["name"],
+				"body": "Your silver won't cover tomorrow's %s. Its notice board, under Work, posts paid contracts; a courier run pays without a battle." % short_of,
+				"action": "place", "place": work}
+		var weak_band = _band_to_hunt(true)
+		if weak_band != null:
+			return _band_advice(weak_band, "Your silver won't cover tomorrow's %s. These are the weakest bandits near you, %d men; a win pays a bounty and spoils." % [
+				short_of, int(world.men_of(weak_band.army))])
 	var ready := army.filter(func(s): return can_train(s))
 	if not ready.is_empty():
 		var town := _nearest_settlement([WorldData.TOWN])
 		return {"title": "Training is ready", "body": "%d %s earned a new level. Town drillmasters can promote them." % [ready.size(),
 			"company has" if ready.size() == 1 else "companies have"], "action": "place", "place": town}
 	for job in active_jobs:
+		# A companion's errand is advised from her own hub, in her words.
+		if String(job.get("story_candidate", "")) != "":
+			continue
 		match String(job.get("type", "")):
 			Jobs.TYPE_COURIER:
 				var dest_id: String = String(job.get("destination_settlement", ""))
@@ -2599,15 +3060,24 @@ func recommendation() -> Dictionary:
 	if not close_bond.is_empty():
 		return {"title": "A bond is taking shape", "body": "%s are %.1f points from rank %s. Fighting beside one another strengthens it." % [
 			close_bond["pair"], close_bond["remaining"], close_bond["rank"]], "action": "warband", "place": ""}
+	# Before the first fight, the first fight: the nearest band, by name.
+	if battles == 0:
+		var first_band = _band_to_hunt(false)
+		if first_band != null:
+			return _band_advice(first_band, "A win pays a bounty, spoils, food and renown.")
 	if army.size() < squad_cap():
 		var recruits := _nearest_settlement_with_recruits()
-		if recruits != "":
+		# Only when the hire leaves three days of wages in the purse.
+		if recruits != "" and _hire_leaves_pay_at(recruits):
 			return {"title": "Room for another company", "body": "Your renown supports %d more %s, and recruits are waiting nearby." % [
 				squad_cap() - army.size(), "company" if squad_cap() - army.size() == 1 else "companies"], "action": "place", "place": recruits}
 	if is_wounded():
 		var town := _nearest_settlement([WorldData.TOWN])
 		return {"title": "Rebuild the ranks", "body": "Some companies are below full strength. A town can reinforce them.",
 			"action": "place", "place": town}
+	var tier := _next_tier()
+	if not tier.is_empty():
+		return tier
 	if not world.activity_log.is_empty():
 		var latest: Dictionary = world.activity_log[0]
 		var place := String(latest.get("place", ""))
@@ -2615,6 +3085,120 @@ func recommendation() -> Dictionary:
 			return {"title": "News from the road", "body": String(latest["text"]), "action": "place", "place": place}
 	return {"title": "Build your name", "body": "Patrol the roads, protect villages and seek battles to earn silver and renown.",
 		"action": "map", "place": ""}
+
+
+## The nearest town or castle whose notice board can take the company on: not burned,
+## not at war with you, and not known to have nothing posted.
+func _nearest_work_place() -> String:
+	var best := ""
+	var best_hours := INF
+	for id in WorldData.SETTLEMENTS:
+		var kind := String(WorldData.settlement(id)["type"])
+		if kind == WorldData.VILLAGE or world.is_burned(id) or is_at_war_with(String(world.owner_of(id))):
+			continue
+		var posted_back: float = float(world.settlement_jobs_back.get(id, INF))
+		if world.settlement_jobs.has(id) and (world.settlement_jobs[id] as Array).is_empty() and world.hour < posted_back:
+			continue
+		var hours: float = world.hours_to(id)
+		if hours < best_hours:
+			best_hours = hours
+			best = id
+	return best
+
+
+## The bandit band to ride at: the one reached soonest, or with `weakest` the smallest of
+## those within two days' ride (the nearest when none are). Null when none roam.
+func _band_to_hunt(weakest: bool):
+	var best = null
+	var best_score := INF
+	for b in world.bands():
+		var hours: float = world.hours_to(String(b.node))
+		var score: float = hours
+		if weakest:
+			score = float(world.men_of(b.army)) if hours <= 48.0 else 100000.0 + hours
+		if score < best_score:
+			best_score = score
+			best = b
+	return best
+
+
+## A next step that points at a bandit band: its name, where it was last seen and how far.
+func _band_advice(band, lead: String) -> Dictionary:
+	var seen := String(band.node)
+	var away: float = world.hours_to(seen)
+	var ride: String = ("%d hours" % int(ceil(away))) if away < 24.0 else ("%d days" % int(ceil(away / 24.0)))
+	var seen_name := String(WorldData.settlement(seen)["name"])
+	return {"title": "Hunt the %s" % String(band.name),
+		"body": "%s Last seen near %s, %s away. Tap them on the map, then Ride at them." % [lead, seen_name, ride],
+		"action": "band", "party": int(band.id), "place": seen}
+
+
+## Whether some company on offer at `place` can be hired with three days of wages (the
+## new company's pay counted in) still in the purse after its price.
+func _hire_leaves_pay_at(place: String) -> bool:
+	for offer in world.offers_at(place):
+		var unit_id := Units.recruit(String(offer["culture"]), String(offer["type"]))
+		var full := Units.full_size(unit_id)
+		var cost := Economy.recruit_cost(unit_id, full)
+		var wage := int(ceil(Economy.daily_wage({"unit": unit_id, "type": String(offer["type"]), "men": full, "level": 1})))
+		if silver - cost >= 3 * (daily_outgoings() + wage):
+			return true
+	return false
+
+
+## The step up from where the company stands: a vassal toward a crown of its own, a crown
+## toward every seat. Empty for a free company.
+func _next_tier() -> Dictionary:
+	if is_crowned():
+		var seats := 0
+		var held := 0
+		var outside := ""
+		var outside_hours := INF
+		for id in WorldData.SETTLEMENTS:
+			if String(WorldData.settlement(id)["type"]) == WorldData.VILLAGE:
+				continue
+			seats += 1
+			if String(world.owner_of(id)) == WorldData.CROWN:
+				held += 1
+				continue
+			var hours: float = world.hours_to(id)
+			if hours < outside_hours:
+				outside_hours = hours
+				outside = id
+		if outside == "":
+			return {"title": "Every seat is yours", "body": "All %d castles and towns answer to your crown. Hold them." % seats,
+				"action": "map", "place": ""}
+		return {"title": "Bring every seat under the crown", "body": "%d of %d held. The nearest still outside it is %s." % [
+			held, seats, WorldData.settlement(outside)["name"]], "action": "place", "place": outside}
+	if not has_fief() or bool(player_fief.get("lost", false)):
+		return {}
+	var liege := fief_realm()
+	if liege == "" or liege == WorldData.CROWN or not WorldData.FACTIONS.has(liege):
+		return {}
+	var seat := fief_id()
+	var seat_name := String(WorldData.settlement(seat)["name"])
+	var walled: bool = String(WorldData.settlement(seat)["type"]) != WorldData.VILLAGE
+	if walled and renown >= CROWN_RENOWN:
+		var crown: Dictionary = crown_check()
+		if bool(crown.get("ok", false)) or String(crown.get("reason", "")) == "Raise it at your own seat.":
+			return {"title": "Raise your crown", "body": "%s has walls and your name is known. At %s you can raise your own banner; your liege will call it war." % [
+				seat_name, seat_name], "action": "place", "place": seat}
+		return {"title": "Toward a crown", "body": String(crown.get("reason", "")), "action": "place", "place": seat}
+	var fame: String = "" if renown >= CROWN_RENOWN else "A crown needs %d renown; you have %d. " % [CROWN_RENOWN, renown]
+	if walled:
+		return {"title": "Toward a crown", "body": "%s%s has the walls a crown's seat needs." % [fame, seat_name], "action": "map", "place": ""}
+	# A free castle is asked for from the village's own Fief tab ("Walls of your own").
+	var castles: Array = exchange_castles()
+	var castle_line: String = "No castle of %s stands free yet; when one does, ask for it from %s's Fief tab." % [
+		String(WorldData.FACTIONS[liege]["name"]), seat_name]
+	if not castles.is_empty():
+		var free_castle := String(castles[0])
+		var ask: Dictionary = exchange_check(free_castle)
+		castle_line = "%s stands without a lord: ask your liege for it from %s's Fief tab." % [WorldData.settlement(free_castle)["name"], seat_name]
+		if not bool(ask.get("ok", false)):
+			castle_line += " " + String(ask.get("reason", ""))
+	return {"title": "Toward a crown", "body": "%sA crown's seat needs walls, and %s is a village. %s" % [fame, seat_name, castle_line],
+		"action": "place", "place": seat}
 
 
 func _nearest_settlement(kinds: Array) -> String:
@@ -2949,9 +3533,11 @@ func _upkeep() -> void:
 	if head == 0:
 		return
 	if has_contract():
+		var realm := String(contract.get("realm", ""))
+		# Pay follows the men you bring to the field today, not the day you signed.
+		contract["daily_pay"] = calculate_contract_pay(realm)
 		var pay := contract_daily_pay()
 		silver += pay
-		var realm := String(contract.get("realm", ""))
 		contract["days_left"] = int(contract["days_left"]) - 1
 		if int(contract["days_left"]) <= 0:
 			_count_deed("contract")
@@ -2970,7 +3556,13 @@ func _upkeep() -> void:
 		food_needed = maxi(1, int(ceil(head * 0.8)))
 	var eaten := mini(food, food_needed)
 	food -= eaten
-	var wages := daily_wages()
+	# Squads left in garrisons draw half wages, from the fief's silver before your purse.
+	var standing := stationed_wages()
+	if standing > 0 and has_fief() and not bool(player_fief.get("lost", false)):
+		var from_fief := mini(standing, maxi(0, int(player_fief.get("silver", 0))))
+		player_fief["silver"] = int(player_fief.get("silver", 0)) - from_fief
+		standing -= from_fief
+	var wages := daily_wages() + standing
 	var paid := mini(silver, wages)
 	silver -= paid
 	var hungry := 1.0 - float(eaten) / maxf(1.0, float(food_needed))
@@ -2995,7 +3587,7 @@ func _upkeep() -> void:
 	if hungry > 0.0:
 		fix += "Buy food in any settlement. "
 	if unpaid > 0.0:
-		fix += "Earn silver from bounties and spoils to pay the rest."
+		fix += "Earn silver to pay the rest: take a contract from a town's notice board (Work), or win bounties and spoils."
 	var message := "End of day %d: %d men left the warband, %s. %s" % [_paid_day, left, why, fix.strip_edges()]
 	desertion_warning = message if desertion_warning == "" else desertion_warning + "\n" + message
 	_note(message)
@@ -3075,15 +3667,98 @@ func is_allied_with(realm: String) -> bool:
 func is_at_war_with(realm: String) -> bool:
 	if realm == WorldData.BANDITS:
 		return true
+	# The side you serve is never your enemy: standing below the line with a liege or an
+	# employer strains the bond, but only renouncing the oath, letting the contract end or
+	# raising your own crown makes its villages fair game.
+	if realm != "" and realm == sworn_realm():
+		return false
 	if is_crowned() and realm != WorldData.CROWN and world.at_war(WorldData.CROWN, realm):
 		return true
-	if relation_with_realm(realm) <= -20:
+	if relation_with_realm(realm) <= HOSTILE_RELATION:
 		return true
 	if has_contract() and world != null:
 		var emp := contract_realm()
 		if emp != "" and world.at_war(emp, realm):
 			return true
 	return false
+
+
+## At or below this standing a realm counts your company an enemy: its gates are barred.
+const HOSTILE_RELATION := -20
+## An envoy with reparations: a base sum and more for every point below the line, buying
+## standing back to just above it; one envoy to a realm a week.
+const REPARATIONS_BASE := 100
+const REPARATIONS_PER_POINT := 10
+const REPARATIONS_RELATION := -15
+const REPARATIONS_DAYS := 7
+
+
+## Why `realm` bars its gates to you: "crown" (your crown is at war with it), "employer"
+## (the realm you serve is), "standing" (your standing is at or below HOSTILE_RELATION),
+## or "" when it doesn't.
+func barred_by(realm: String) -> String:
+	if world == null or realm == WorldData.BANDITS or (realm != "" and realm == sworn_realm()):
+		return ""
+	if is_crowned() and realm != WorldData.CROWN and world.at_war(WorldData.CROWN, realm):
+		return "crown"
+	if has_contract() and world.at_war(contract_realm(), realm):
+		return "employer"
+	if relation_with_realm(realm) <= HOSTILE_RELATION:
+		return "standing"
+	return ""
+
+
+## What reparations to `realm` would cost now.
+func reparations_cost(realm: String) -> int:
+	return REPARATIONS_BASE + REPARATIONS_PER_POINT * maxi(0, HOSTILE_RELATION - relation_with_realm(realm))
+
+
+## Whether an envoy can carry reparations to `realm`: it bars you for your standing alone,
+## not a war, no envoy went this week, and you can pay. {ok, reason, cost}.
+func reparations_check(realm: String) -> Dictionary:
+	var out := {"ok": false, "reason": "", "cost": reparations_cost(realm)}
+	if world == null or not WorldData.FACTIONS.has(realm) or realm == WorldData.BANDITS or realm == WorldData.CROWN:
+		return out
+	var why := barred_by(realm)
+	if why == "crown":
+		out["reason"] = "Your crown is at war with them: only peace opens these gates."
+		return out
+	if why == "employer":
+		out["reason"] = "Your employer is at war with them: only the contract's end opens these gates."
+		return out
+	if why != "standing":
+		out["reason"] = "They don't bar you for your standing."
+		return out
+	var last := float(reparations_at.get(realm, -1000000.0))
+	var ready := last + REPARATIONS_DAYS * 24.0
+	if world.hour < ready:
+		var days := ceili((ready - world.hour) / 24.0)
+		out["reason"] = "Your last envoy was sent home. Another can go in %d day%s." % [days, "" if days == 1 else "s"]
+		return out
+	if silver < int(out["cost"]):
+		var asked := int(out["cost"])
+		out["reason"] = "Reparations cost %d silver; you have %d." % [asked, silver]
+		return out
+	out["ok"] = true
+	return out
+
+
+## Send an envoy with reparations: the silver goes to their treasury and your standing
+## rises to just above the line, so their gates open again.
+func pay_reparations(realm: String) -> bool:
+	var check := reparations_check(realm)
+	if not bool(check["ok"]):
+		return false
+	var cost := int(check["cost"])
+	silver -= cost
+	if world.realms.has(realm):
+		world.realms[realm]["treasury"] = int(world.realms[realm].get("treasury", 0)) + cost
+	realm_relations[realm] = REPARATIONS_RELATION
+	reparations_at[realm] = world.hour
+	_note("Your envoy pays %s %d silver in reparations. Their gates open to you again (standing %d)." % [
+		WorldData.FACTIONS[realm]["name"], cost, REPARATIONS_RELATION])
+	save_game()
+	return true
 
 
 func calculate_contract_pay(realm: String) -> int:
@@ -3249,12 +3924,13 @@ func next_bond_talk(a_id: int, b_id: int) -> String:
 
 
 ## A replayable, event-aware camp exchange. It reads campaign facts and changes no combat,
-## bond or relationship values; only the "new" marker is acknowledged.
+## bond or relationship values; only the "new" marker is acknowledged. When one of the two
+## has fallen, the survivor's talk by the empty place ("memorial": true).
 func bond_conversation(a_id: int, b_id: int, at_rank: String = "") -> Dictionary:
 	var a = captain_by_id(a_id)
 	var b = captain_by_id(b_id)
 	if a == null or b == null:
-		return {}
+		return _memorial_talk(a_id, b_id)
 	var points := float(a.get("bonds", {}).get(str(b_id), 0.0))
 	var rank := Captains.rank_letter(points)
 	if rank == "":
@@ -3298,34 +3974,176 @@ func bond_conversation(a_id: int, b_id: int, at_rank: String = "") -> Dictionary
 		"exchange": _bond_exchange(a, b, rank)}
 
 
-## What two captains say to each other at the fire, by rank and by the first one's
-## temper: a short exchange, a line each in turn ({who: "a" or "b", text}).
+## What two captains say to each other at the fire, by rank and by both their tempers
+## ("Vengeful|Steadfast": the first temper in BOND_TEMPER_ORDER speaks first), two ways
+## each; a pair always hears the same one. A line each in turn ({who: "a" or "b", text}).
+const BOND_TEMPER_ORDER := [Captains.VENGEFUL, Captains.STEADFAST, Captains.FRAGILE]
 const BOND_EXCHANGES := {
 	"C": {
-		Captains.VENGEFUL: ["You were slow on the left today.", "I was covering you. You were fast on everything.", "Then stay close. I'll be slow for you next time.", "Deal."],
-		Captains.FRAGILE: ["I couldn't see your banner for a while out there.", "I could see yours. It was shaking.", "...It was the wind.", "It was the wind. I'll stand closer tomorrow."],
-		"": ["Same distance tomorrow?", "Close enough to help, far enough to breathe.", "You've thought about this.", "Since the second charge. Bread?"],
+		"Vengeful|Vengeful": [
+			["You were slow on the left today.", "I was covering you. You were fast on everything.", "Then stay close. I'll be slow for you next time.", "Deal."],
+			["I took three of theirs. You?", "Four. One was running.", "Doesn't count.", "Counts double. Pass the bread."]],
+		"Vengeful|Steadfast": [
+			["They'll come at the ford again tomorrow. I want them to.", "I want them not to. I'll be there either way.", "Good. I'll be in front.", "I know. I'll be where you'll need me."],
+			["You never get angry out there.", "Someone has to watch the line while you're angry.", "...That's fair.", "It usually is. Eat."]],
+		"Vengeful|Fragile": [
+			["You flinched when the horn went.", "Everyone flinched.", "I didn't.", "You were already running at them. That's a different kind of flinch."],
+			["Stay behind my squad tomorrow.", "I'm not hiding behind you.", "Not hiding. Following. There's a difference.", "...Is there?"]],
+		"Steadfast|Steadfast": [
+			["Same distance tomorrow?", "Close enough to help, far enough to breathe.", "You've thought about this.", "Since the second charge. Bread?"],
+			["Your men dressed the line before mine did.", "Mine are older.", "Mine are louder.", "Then we'll call it even."]],
+		"Steadfast|Fragile": [
+			["You held today. When the right went, you held.", "My hands didn't think so.", "Your hands aren't in charge. You are.", "...I'll tell them."],
+			["Stand by me tomorrow.", "Why?", "Because I asked, and because I'd like you to.", "All right. Thank you."]],
+		"Fragile|Fragile": [
+			["I couldn't see your banner for a while out there.", "I could see yours. It was shaking.", "...It was the wind.", "It was the wind. I'll stand closer tomorrow."],
+			["Do your hands shake after, too?", "Every time. Until the bread comes.", "Then let's get the bread.", "First sensible thing anyone's said all day."]],
 	},
 	"B": {
-		Captains.VENGEFUL: ["The one who cut your arm. I found him.", "I know. I saw. Let it be, now.", "I don't know how to let things be.", "Then sit here until you learn. I'll wait."],
-		Captains.FRAGILE: ["Do you ever think we won't come back?", "Every time. Then I look for your squad, and I stop thinking it.", "That's a terrible plan.", "It's worked so far."],
-		"": ["I moved my men before you called for it.", "I noticed. I was about to call for it.", "We should stop telling each other things.", "We should. Pass the whetstone."],
+		"Vengeful|Vengeful": [
+			["The one who cut your arm. I found him.", "I know. I saw. Let it be, now.", "I don't know how to let things be.", "Then sit here until you learn. I'll wait."],
+			["We charge together tomorrow. First into them.", "And first out?", "There's no out.", "Then first to the fire after. Agreed."]],
+		"Vengeful|Steadfast": [
+			["When I lose my head out there, you're the one who finds it.", "I keep it in my pack. It's heavy.", "I'll carry yours one day.", "Mine stays on. That's the arrangement."],
+			["They nearly had you at the bridge.", "Nearly. You were there.", "I'm always there.", "I know. It's why I go first."]],
+		"Vengeful|Fragile": [
+			["You stayed when the line broke. I saw.", "I wanted to run.", "Wanting is allowed. You stayed.", "Because you were shouting. It was very loud."],
+			["If they come for you again, they come through me.", "That's what frightens me.", "Why?", "Because you'd let them."]],
+		"Steadfast|Steadfast": [
+			["I moved my men before you called for it.", "I noticed. I was about to call for it.", "We should stop telling each other things.", "We should. Pass the whetstone."],
+			["My sergeant says we fight like one company now.", "Your sergeant says a lot.", "He's right about this.", "He usually is. Don't tell him."]],
+		"Steadfast|Fragile": [
+			["You're not shaking as much as you were.", "I'm shaking exactly as much. I've just stopped minding.", "That's most of what courage is.", "Then it's very uncomfortable."],
+			["I'll take the left tomorrow. You take my flank.", "Why mine?", "Because I trust it.", "...I'll hold it. I promise."]],
+		"Fragile|Fragile": [
+			["Do you ever think we won't come back?", "Every time. Then I look for your squad, and I stop thinking it.", "That's a terrible plan.", "It's worked so far."],
+			["I dream about the bridge.", "So do I. In mine you're there.", "In mine too.", "Then it's not such a bad dream."]],
 	},
 	"A": {
-		Captains.VENGEFUL: ["If you fall, I finish what reached you.", "Then I'd better stay standing. For their sake.", "You're laughing.", "I'm alive. You're here. It's allowed."],
-		Captains.FRAGILE: ["I'm not afraid when you're on my flank. I wanted you to know that.", "I'm afraid all the time. I just stand next to you anyway.", "That's the bravest thing anyone's said to me.", "Don't tell the others."],
-		"": ["They'll tell stories about this company someday.", "They'll get it wrong.", "They'll put us in the same verse, at least.", "Then let's earn it again tomorrow."],
+		"Vengeful|Vengeful": [
+			["If you fall, I finish what reached you.", "Then I'd better stay standing. For their sake.", "You're laughing.", "I'm alive. You're here. It's allowed."],
+			["When this war ends, what will we hit?", "Each other, probably.", "Good. I'd want it to be someone worth it.", "Likewise. Now sleep."]],
+		"Vengeful|Steadfast": [
+			["I've never had anyone hold me back before.", "I don't hold you back. I hold the line behind you.", "Same thing, from the front.", "Then I'll keep doing it."],
+			["Promise me something.", "Anything sensible.", "If I go mad out there, pull me back.", "I always have. I always will."]],
+		"Vengeful|Fragile": [
+			["You were the bravest one on the field today.", "I was the most frightened.", "Same thing, done properly.", "...Say that again tomorrow. I'll need it."],
+			["I'd burn the world for you.", "Please don't. Just stand where I can see you.", "That's harder.", "I know. That's why I'm asking."]],
+		"Steadfast|Steadfast": [
+			["They'll tell stories about this company someday.", "They'll get it wrong.", "They'll put us in the same verse, at least.", "Then let's earn it again tomorrow."],
+			["Twenty battles, and you've never once been late.", "Twenty-one. You weren't counting the river.", "The river didn't count.", "It counted to me."]],
+		"Steadfast|Fragile": [
+			["I'm not afraid when you're on my flank. I wanted you to know that.", "I'm afraid all the time. I just stand next to you anyway.", "That's the bravest thing anyone's said to me.", "Don't tell the others."],
+			["Whatever happens tomorrow, I'll be beside you.", "I know. It's the only reason I sleep.", "Then sleep now.", "Stay till I do?"]],
+		"Fragile|Fragile": [
+			["We're still here.", "We're still here.", "I didn't think we would be.", "Neither did I. Let's keep doing it."],
+			["Hold my hand when the horns go?", "Both, if I can manage the shield.", "One will do.", "Then one it is. Always."]],
 	},
+}
+
+## By the empty place: what the survivor says to the one who fell, by the survivor's temper.
+const MEMORIAL_EXCHANGES := {
+	Captains.VENGEFUL: ["I found the one who did it. It didn't help.", "I've kept your place. Nobody sits there.", "...I'll win the next one for you. Don't laugh."],
+	Captains.STEADFAST: ["I poured you a cup. Habit.", "The line's thinner on your side now. I stand a little further over.", "Rest. I've got the watch."],
+	Captains.FRAGILE: ["I keep looking for your banner.", "It isn't there. I know. I keep looking.", "Same distance tomorrow. I'll pretend."],
 }
 
 
 func _bond_exchange(a: Dictionary, b: Dictionary, rank: String) -> Array:
-	var by_temper: Dictionary = BOND_EXCHANGES.get(rank, BOND_EXCHANGES["C"])
-	var lines: Array = by_temper.get(String(a.get("temperament", "")), by_temper[""])
 	var out := []
+	# A hero speaks in their own voice, whoever sits with them.
+	for pair in [[a, "a", "b"], [b, "b", "a"]]:
+		var hero: Dictionary = pair[0]
+		var hero_lines: Array = Heroes.HEROES.get(String(hero.get("hero_id", "")), {}).get("bond", {}).get(rank, []) if bool(hero.get("is_hero", false)) else []
+		if not hero_lines.is_empty():
+			for i in hero_lines.size():
+				out.append({"who": String(pair[1]) if i % 2 == 0 else String(pair[2]), "text": String(hero_lines[i])})
+			return out
+	var ia := BOND_TEMPER_ORDER.find(String(a.get("temperament", Captains.STEADFAST)))
+	var ib := BOND_TEMPER_ORDER.find(String(b.get("temperament", Captains.STEADFAST)))
+	if ia < 0:
+		ia = 1
+	if ib < 0:
+		ib = 1
+	var swap := ia > ib
+	var low := String(BOND_TEMPER_ORDER[mini(ia, ib)])
+	var high := String(BOND_TEMPER_ORDER[maxi(ia, ib)])
+	var cell := low + "|" + high
+	var by_pair: Dictionary = BOND_EXCHANGES.get(rank, BOND_EXCHANGES["C"])
+	var variants: Array = by_pair.get(cell, by_pair["Steadfast|Steadfast"])
+	var lines: Array = variants[posmod(int(a.get("id", 0)) + int(b.get("id", 0)), variants.size())]
+	var first := "b" if swap else "a"
+	var second := "a" if swap else "b"
 	for i in lines.size():
-		out.append({"who": "a" if i % 2 == 0 else "b", "text": String(lines[i])})
+		out.append({"who": first if i % 2 == 0 else second, "text": String(lines[i])})
 	return out
+
+
+## Bond points between a fallen captain's memorial and a survivor: kept on the memorial,
+## or (older memorials) read from its "First (rank)" list. 0 when they weren't bonded.
+func _memorial_points(memorial: Dictionary, survivor: Dictionary) -> float:
+	var by: Dictionary = memorial.get("bond_points", {}) if memorial.get("bond_points") is Dictionary else {}
+	var key := str(int(survivor.get("id", -1)))
+	if by.has(key):
+		return float(by[key])
+	for entry in memorial.get("bonds", []):
+		var said := String(entry)
+		if said.get_slice(" (", 0) == String(survivor.get("first", "")):
+			var letter := said.get_slice("(", 1).trim_suffix(")")
+			var r := Captains.RANKS.find(letter)
+			if r > 0:
+				return float(Captains.RANK_POINTS[r])
+	return 0.0
+
+
+## Pairs where one has fallen and the other remembers them, ranked bonds only:
+## [{a (the survivor), b (the memorial), points, rank}].
+func remembered_bonds() -> Array:
+	var out := []
+	for f in fallen:
+		if not (f is Dictionary):
+			continue
+		for s in army:
+			var c = s.get("captain")
+			if not (c is Dictionary):
+				continue
+			var pts := _memorial_points(f, c)
+			if Captains.rank_for(pts) > 0:
+				out.append({"a": c, "b": f, "points": pts, "rank": Captains.rank_letter(pts)})
+	return out
+
+
+## The survivor's talk by a fallen friend's empty place, or {} when they weren't bonded.
+func _memorial_talk(a_id: int, b_id: int) -> Dictionary:
+	var survivor = captain_by_id(a_id)
+	var gone = _captain_or_memorial(b_id)
+	if survivor == null:
+		survivor = captain_by_id(b_id)
+		gone = _captain_or_memorial(a_id)
+	if survivor == null or gone == null or captain_by_id(int(gone.get("id", -1))) != null:
+		return {}
+	var pts := _memorial_points(gone, survivor)
+	var rank := Captains.rank_letter(pts)
+	if rank == "":
+		return {}
+	var record := bond_record(int(survivor["id"]), int(gone["id"]))
+	var shared := int(record.get("shared_battles", 0))
+	var passages := []
+	var who := String(survivor["first"])
+	var lost := String(gone.get("first", gone["name"]))
+	var together: String = (" in %d %s" % [shared, "battle" if shared == 1 else "battles"]) if shared > 0 else ""
+	passages.append("%s sits by the fire beside the place %s kept. They fought side by side%s." % [who, lost, together])
+	var words := String(gone.get("words", ""))
+	if words != "":
+		passages.append("%s remembers the last thing %s said: \"%s\"" % [who, lost, words])
+	passages.append("The company leaves them be. A bond of rank %s does not end at a grave; it is carried." % rank)
+	passages.append("")
+	var lines: Array = MEMORIAL_EXCHANGES.get(String(survivor.get("temperament", "")), MEMORIAL_EXCHANGES[Captains.STEADFAST])
+	var exchange := []
+	for line in lines:
+		exchange.append({"who": "a", "text": String(line)})
+	return {"a": survivor, "b": gone, "rank": rank, "points": pts, "shared_battles": shared, "passages": passages,
+		"exchange": exchange, "memorial": true}
 
 
 func _bond_voice_line(a: Dictionary, b: Dictionary) -> String:
@@ -3796,8 +4614,19 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 
 ## Apply a battle result from BattleSim.result_for(PLAYER).
 func apply_result(result: Dictionary) -> void:
+	# Pulling out before the lines met is riding away, as Withdraw on the map is: no battle
+	# fought, no defeat, nobody hurt. A siege's own business is settled the usual way.
+	if bool(result.get("before_fight", false)) and String(pending_battle.get("objective", "rout")) != "siege":
+		_ride_away_before_fight()
+		return
+	# A battle fought on the battle screen has had its result card there (losses, spoils,
+	# each captain's fate, new bonds), so the map says none of that again: only what the
+	# card didn't (a lord taken or slain, a contract's bounty, a castle won, where the
+	# survivors regroup), and with nothing left to say, no card at all. A fight settled
+	# without leading the men has no other report, so the map tells all of it.
+	var shown := bool(result.get("shown", false))
 	# What became of each captain, in words, while the roster still names them.
-	var fates := describe_result(result)
+	var fates: Array = [] if shown else describe_result(result)
 	var rank_events := _bond_rank_events(result)
 	var report := battle_report(result)
 	battles += 1
@@ -3866,9 +4695,10 @@ func apply_result(result: Dictionary) -> void:
 					if not history["scars"].has(scar_desc):
 						history["scars"].append(scar_desc)
 					c["history"] = history
-					_note("%s suffered a grievous wound in battle %d, but survived (sits out %d battles)." % [
-						c["name"], battles, Captains.CASUAL_WOUND_BATTLES
-					])
+					if not shown:
+						_note("%s suffered a grievous wound in battle %d, but survived (sits out %d battles)." % [
+							c["name"], battles, Captains.CASUAL_WOUND_BATTLES
+						])
 				else:
 					dead_ids.append(int(c["id"]))
 					fallen_captains.append(c)
@@ -3900,19 +4730,23 @@ func apply_result(result: Dictionary) -> void:
 		world.return_allied_losses(by_id)
 	if world != null and not pending_battle.is_empty():
 		var band := String(pending_battle.get("name", "The bandits"))
-		var how := "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
+		var how := "" if shown else "You lost %d men and cut down %d." % [int(result.get("lost", 0)), int(result.get("killed", 0))]
 		var obj: String = String(pending_battle.get("objective", "rout"))
 		var c_name: String = String(pending_battle.get("chief_name", ""))
 		var r_village: String = String(pending_battle.get("raid_village", ""))
 		var is_lord: bool = bool(pending_battle.get("is_lord", false))
 		var enemy_faction: String = String(pending_battle.get("enemy_faction", ""))
 		var enemy_lid: int = int(pending_battle.get("enemy_lord_id", -1))
+		# Your crown feels every man of yours who falls in its wars.
+		if is_crowned() and enemy_faction != "" and world.at_war(WorldData.CROWN, enemy_faction) and int(result.get("lost", 0)) > 0:
+			world.add_weariness(WorldData.CROWN, float(int(result.get("lost", 0))) * Politics.WEARINESS_CASUALTY)
 		if obj == "siege":
 			_siege_outcome(result, how)
 		elif obj == "raid":
 			_raid_outcome(result, how)
 		elif result.get("won", false):
-			world.win_encounter()
+			# A beaten lord rides home with only the men who got away.
+			world.win_encounter(result.get("enemy_squads", {}))
 			var got := Economy.spoils(int(result.get("killed", 0)))
 			if has_specialization(Captains.QUARTERMASTER):
 				got["silver"] = int(round(got["silver"] * 1.15))
@@ -3927,10 +4761,12 @@ func apply_result(result: Dictionary) -> void:
 					got["silver"] = int(got["silver"]) + bonus
 					add_realm_relation(contract_realm(), 5)
 					_note("Contract bounty: +%d silver from %s." % [bonus, WorldData.FACTIONS[contract_realm()]["name"]])
-				if not is_at_war_with(enemy_faction) and relation_with_realm(enemy_faction) > -20:
+				if not is_at_war_with(enemy_faction) and relation_with_realm(enemy_faction) > HOSTILE_RELATION:
 					add_realm_relation(enemy_faction, -30)
-					_note("You attacked a lord of %s while at peace! They declare war upon you." % WorldData.FACTIONS[enemy_faction]["name"])
-				_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
+					_note("You attacked a lord of %s while at peace! They count your company an enemy now and bar their gates to you (standing %d)." % [
+						WorldData.FACTIONS[enemy_faction]["name"], relation_with_realm(enemy_faction)])
+				if not shown:
+					_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
 
 				# Vengeance & Lord Fate
 				if enemy_lid >= 0 and world != null:
@@ -3978,7 +4814,7 @@ func apply_result(result: Dictionary) -> void:
 			silver += int(got["silver"])
 			food += int(got["food"])
 			renown += int(got["renown"])
-			if not is_lord:
+			if not is_lord and not shown:
 				_note("%s are scattered. %s Spoils: %d silver, %d rations, %d renown." % [
 					band, how, got["silver"], got["food"], got["renown"]])
 			var b_party_id: int = int(pending_battle.get("party_id", -1))
@@ -4025,9 +4861,23 @@ func apply_result(result: Dictionary) -> void:
 	pending_battle = {}
 	last_result = report
 	save_game()
-	# Whatever it left to say comes under the battle's own title.
+	# Whatever it left to say comes under the battle's own title (with the result card's
+	# numbers taken out, a sentence may have kept the space they stood in).
 	if map_notice != "":
+		map_notice = map_notice.replace("  ", " ")
 		map_notice_title = "After the battle"
+
+
+## The warband left the field before the fight: back the way it came with a little
+## grace, as the map's Withdraw does, paying for any day that ended on the way.
+func _ride_away_before_fight() -> void:
+	var foe := String(pending_battle.get("name", "the enemy"))
+	if world != null and not pending_battle.is_empty():
+		world.withdraw()
+		settle()
+		_note("You rode away from %s before the lines met." % foe)
+	pending_battle = {}
+	save_game()
 
 
 ## Attacking a lord of a realm the player is at peace with starts a war.
@@ -4050,6 +4900,11 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		var rank := Captains.rank_letter(float(c["bonds"][other_id]))
 		if other != null and rank != "":
 			friends.append("%s (%s)" % [other["first"], rank])
+	# Bond points by survivor id, so the survivor's talk by the empty place can be told.
+	var bond_points := {}
+	for bonded_id in c["bonds"]:
+		if Captains.rank_letter(float(c["bonds"][bonded_id])) != "":
+			bond_points[str(bonded_id)] = float(c["bonds"][bonded_id])
 	return {
 		"id": int(c.get("id", 0)), "appearance_id": Captains.ensure_appearance(c),
 		"name": c["name"], "first": c.get("first", c["name"]), "company": squad.get("name", ""), "type": squad["type"], "unit": squad.get("unit", ""),
@@ -4058,6 +4913,11 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		"words": words,
 		"bonds": friends,
+		"bond_points": bond_points,
+		# A hero is remembered as one.
+		"is_hero": bool(c.get("is_hero", false)), "hero_id": String(c.get("hero_id", "")),
+		# Waits at the fire to be mourned, however many battles pass first (camp_moments.gd).
+		"mourned": false,
 		"killed_by_lord_id": killed_by_lid,
 		"killed_by_lord_name": killed_by_lname,
 		"avenged": false,
@@ -4072,7 +4932,19 @@ func captive_lords() -> Array:
 	return world.captive_lords_of("player")
 
 
-## Accept ransom offer for a captive lord
+## What a captive's ransom would bring now: what his realm's treasury and his own purse
+## can raise of the sum asked.
+func ransom_offer(lord_id: int) -> int:
+	if world == null:
+		return 0
+	var l: Dictionary = world.lord_by_id(lord_id)
+	if l.is_empty():
+		return 0
+	return world.ransom_payable(l, int(l.get("ransom_amount", 200)))
+
+
+## Accept ransom offer for a captive lord. His house pays what it has: if that falls
+## short of the sum asked, you take what there is, and the notice says so.
 func accept_lord_ransom(lord_id: int) -> bool:
 	if world == null:
 		return false
@@ -4081,15 +4953,17 @@ func accept_lord_ransom(lord_id: int) -> bool:
 		return false
 	var amount: int = int(l.get("ransom_amount", 200))
 	var realm: String = String(l.get("realm", ""))
-	if world.realms.has(realm):
-		world.realms[realm]["treasury"] = maxi(0, int(world.realms[realm].get("treasury", 0)) - amount)
-	silver += amount
+	var paid: int = world.pay_ransom(l, amount)
+	silver += paid
 	add_lord_relation(lord_id, 5)
 	world.release_lord(lord_id)
-	_note("%s was ransomed back to %s for %d silver." % [
-		l["name"], WorldData.FACTIONS.get(realm, {}).get("name", realm), amount
-	])
-	world.emit_event({"type": "ransom_paid", "lord": l["name"], "from": "Your warband", "amount": amount})
+	var realm_name: String = String(WorldData.FACTIONS.get(realm, {}).get("name", realm))
+	var lname := String(l["name"])
+	if paid < amount:
+		_note("%s was ransomed back to %s, whose treasury could raise only %d of the %d silver asked." % [lname, realm_name, paid, amount])
+	else:
+		_note("%s was ransomed back to %s for %d silver." % [lname, realm_name, paid])
+	world.emit_event({"type": "ransom_paid", "lord": l["name"], "from": "Your warband", "amount": paid})
 	save_game()
 	return true
 
@@ -4118,6 +4992,15 @@ func deliver_lord_to_employer(lord_id: int) -> bool:
 const RELEASE_REGARD := 25
 const RELEASE_REALM := 10
 const RELEASE_RENOWN := 10
+## What freeing `lord_id` for honour earns: in full the first time you free that lord, and
+## after that half the Regard and standing and no renown. {regard, realm, renown}.
+func release_reward(lord_id: int) -> Dictionary:
+	var l: Dictionary = world.lord_by_id(lord_id) if world != null else {}
+	if int(honour_releases.get(String(l.get("name", "")), 0)) == 0:
+		return {"regard": RELEASE_REGARD, "realm": RELEASE_REALM, "renown": RELEASE_RENOWN}
+	return {"regard": RELEASE_REGARD / 2, "realm": RELEASE_REALM / 2, "renown": 0}
+
+
 func release_lord_for_honor(lord_id: int) -> bool:
 	if world == null:
 		return false
@@ -4125,13 +5008,31 @@ func release_lord_for_honor(lord_id: int) -> bool:
 	if l.is_empty() or l.get("state") != "prisoner" or l.get("captive_of") != "player":
 		return false
 	var realm: String = String(l.get("realm", ""))
-	add_lord_relation(lord_id, RELEASE_REGARD)
-	add_realm_relation(realm, RELEASE_REALM)
-	renown += RELEASE_RENOWN
+	var reward := release_reward(lord_id)
+	add_lord_relation(lord_id, int(reward["regard"]))
+	add_realm_relation(realm, int(reward["realm"]))
+	renown += int(reward["renown"])
+	var lname := String(l["name"])
+	honour_releases[lname] = int(honour_releases.get(lname, 0)) + 1
 	world.release_lord(lord_id)
-	_note_item({"kind": "released", "name": String(l["name"]), "realm": realm})
+	_note_item({"kind": "released", "name": lname, "realm": realm,
+		"regard": int(reward["regard"]), "standing": int(reward["realm"]), "renown": int(reward["renown"])})
 	save_game()
 	return true
+
+
+## Where the autosave lives; tests point this somewhere of their own.
+var save_path := SAVE_PATH
+## Why the autosave didn't load at startup: "" (it did, or there was none), "unreadable"
+## (it was damaged: kept beside it as campaign.json.bad) or "newer" (made by a newer
+## version of the game: left exactly as it is). Home says so and offers the other saves.
+var load_problem := ""
+
+
+## Whether a save written as `version` comes from a newer build than this one. Such a save
+## is never loaded: this build would drop what it doesn't know and save over it.
+func is_newer_save(version: int) -> bool:
+	return version > SAVE_VERSION
 
 
 ## Saves the campaign. Before one has started there's nothing worth keeping.
@@ -4141,7 +5042,7 @@ func save_game() -> bool:
 	if world == null:
 		return false
 	# Replace only a completely written save, preserving the previous campaign on failure.
-	var temporary := SAVE_PATH + ".tmp"
+	var temporary := save_path + ".tmp"
 	var f := FileAccess.open(temporary, FileAccess.WRITE)
 	if f == null:
 		return false
@@ -4152,7 +5053,7 @@ func save_game() -> bool:
 	if not written:
 		DirAccess.remove_absolute(temporary)
 		return false
-	return DirAccess.rename_absolute(temporary, SAVE_PATH) == OK
+	return DirAccess.rename_absolute(temporary, save_path) == OK
 
 
 ## Save, and keep this moment as the before-battle save, so a lost fight can be undone.
@@ -4187,20 +5088,44 @@ func to_dict() -> Dictionary:
 		"gathering_log": gathering_log.duplicate(true), "hosted": hosted.duplicate(true), "host_ready_at": host_ready_at,
 		"muster": muster.duplicate(true), "banners": banners.duplicate(true),
 		"invites_seen": invites_seen.duplicate(),
+		"honour_releases": honour_releases.duplicate(), "reparations_at": reparations_at.duplicate(),
 		"world": world.to_dict() if world != null else null}
 
 
 func load_game() -> bool:
-	if not FileAccess.file_exists(SAVE_PATH):
+	load_problem = ""
+	if not FileAccess.file_exists(save_path):
 		return false
-	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	var data = JSON.parse_string(FileAccess.get_file_as_string(save_path))
 	if typeof(data) != TYPE_DICTIONARY or not data.has("army"):
+		_keep_unreadable()
 		return false
-	return from_dict(data)
+	if not from_dict(data):
+		# From a newer build (load_problem says so): the file stays as it is.
+		world = null
+		return false
+	return true
 
 
-## Restore a campaign saved with to_dict().
+## A damaged autosave is moved aside to campaign.json.bad, never written over, so it can
+## still be sent in or mended by hand.
+func _keep_unreadable() -> void:
+	load_problem = "unreadable"
+	if not persist and save_path == SAVE_PATH:
+		return
+	var bad := save_path + ".bad"
+	if FileAccess.file_exists(bad):
+		DirAccess.remove_absolute(bad)
+	DirAccess.rename_absolute(save_path, bad)
+
+
+## Restore a campaign saved with to_dict(). A save from a newer version of the game is
+## refused before anything changes (load_problem becomes "newer").
 func from_dict(data: Dictionary) -> bool:
+	if is_newer_save(int(data.get("version", 0))):
+		load_problem = "newer"
+		return false
+	load_problem = ""
 	culture = String(data.get("culture", Cultures.VARDISH))
 	world = null
 	if typeof(data.get("world")) == TYPE_DICTIONARY:
@@ -4232,8 +5157,20 @@ func from_dict(data: Dictionary) -> bool:
 	for k in deed_counts:
 		deed_counts[k] = int(deed_counts[k])
 	company_title = String(data.get("company_title", ""))
+	honour_releases = {}
+	var raw_hr = data.get("honour_releases", {})
+	if typeof(raw_hr) == TYPE_DICTIONARY:
+		for k in raw_hr:
+			honour_releases[String(k)] = int(raw_hr[k])
+	reparations_at = {}
+	var raw_ra = data.get("reparations_at", {})
+	if typeof(raw_ra) == TYPE_DICTIONARY:
+		for k in raw_ra:
+			reparations_at[String(k)] = float(raw_ra[k])
+	if world != null:
+		_mark_company_squads()
 	if has_fief() and world != null:
-		world.garrisons[fief_id()] = player_fief.get("garrison", [])
+		_load_fief_garrison()
 	_heal_clock = float(data.get("heal_clock", 0.0))
 	silver = int(data.get("silver", Economy.START_SILVER))
 	food = int(data.get("food", -1))
@@ -4312,6 +5249,33 @@ func from_dict(data: Dictionary) -> bool:
 	if food < 0:
 		food = Economy.START_FOOD_DAYS * total_men()
 	return true
+
+
+## Saves from before squads in garrisons were marked as yours: a squad with a captain is
+## yours (a realm's guards have none).
+func _mark_company_squads() -> void:
+	for id in world.garrisons:
+		for sq in world.garrisons[id]:
+			if sq.get("captain") is Dictionary and not sq.has("stationed_by_company"):
+				sq["stationed_by_company"] = true
+
+
+## The fief's garrison read back as one list with the world's. A save whose two lists had
+## drifted apart gets back the squads only the fief still held.
+func _load_fief_garrison() -> void:
+	var own: Array = WorldSim.clean_army(player_fief.get("garrison", []) if typeof(player_fief.get("garrison")) == TYPE_ARRAY else [])
+	var id := fief_id()
+	var g: Array = world.garrisons.get(id, own)
+	if world.garrisons.has(id) and not bool(player_fief.get("lost", false)):
+		for sq in own:
+			if sq.get("captain") is Dictionary and not g.any(func(x): return int(x["id"]) == int(sq["id"])):
+				sq["stationed_by_company"] = true
+				g.append(sq)
+	for sq in g:
+		if sq.get("captain") is Dictionary and not sq.has("stationed_by_company"):
+			sq["stationed_by_company"] = true
+	world.garrisons[id] = g
+	player_fief["garrison"] = g
 
 
 ## What you've done at gatherings, read back from JSON (none in saves from before them).

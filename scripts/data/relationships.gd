@@ -43,6 +43,15 @@ const STANDING_WEDDING_THRESHOLD := 25
 const STANDING_PACT_BONUS := 10
 const STANDING_PRIVATE_VOWS_PENALTY := -10
 const STANDING_BREACH_PENALTY := -25
+## Paying for a muster at her house's seat, once the story has reached its council
+## (chapter 4): standing each time, at most once every few days, and only so much in all.
+const STANDING_FAVOUR := 5
+const STANDING_FAVOUR_CAP := 25
+const FAVOUR_SILVER := 100
+const FAVOUR_COOLDOWN_HOURS := 72.0
+const FAVOUR_FROM_CHAPTER := 4
+## How to raise standing, said wherever too little of it locks something.
+const STANDING_HOW := "Pay for a muster at her house's seat (ask her, in person) to raise it."
 
 ## Ceremonies.
 const CEREMONY_HOURS := 6.0
@@ -135,7 +144,7 @@ static func can_marry_public(rel: Dictionary, house: Dictionary) -> Dictionary:
 	if trust < TRUST_PUBLIC_WEDDING:
 		return {"ok": false, "reason": "Requires at least %d trust (currently %d)." % [TRUST_PUBLIC_WEDDING, trust]}
 	if standing < STANDING_WEDDING_THRESHOLD:
-		return {"ok": false, "reason": "Requires at least %d house standing (currently %d)." % [STANDING_WEDDING_THRESHOLD, standing]}
+		return {"ok": false, "reason": "Requires at least %d house standing (currently %d). %s" % [STANDING_WEDDING_THRESHOLD, standing, STANDING_HOW]}
 	if bool(rel.get("strained", false)):
 		return {"ok": false, "reason": "Unresolved breach between you; resolve it first."}
 	return {"ok": true, "reason": ""}
@@ -158,7 +167,7 @@ static func can_marry_private(rel: Dictionary) -> Dictionary:
 static func can_swear_friendship(rel: Dictionary, house: Dictionary) -> Dictionary:
 	var standing: int = int(house.get("standing", 0))
 	if standing < STANDING_PACT_THRESHOLD:
-		return {"ok": false, "reason": "Requires at least %d house standing (currently %d)." % [STANDING_PACT_THRESHOLD, standing]}
+		return {"ok": false, "reason": "Requires at least %d house standing (currently %d). %s" % [STANDING_PACT_THRESHOLD, standing, STANDING_HOW]}
 	if bool(rel.get("strained", false)):
 		return {"ok": false, "reason": "Unresolved breach with household; resolve it first."}
 	return {"ok": true, "reason": ""}

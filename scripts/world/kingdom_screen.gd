@@ -394,7 +394,7 @@ func _realm() -> void:
 func _holdings() -> void:
 	var held: Array = gs.crown_holdings()
 	held.sort_custom(func(a, b): return ["town", "castle", "village"].find(String(Data.settlement(a)["type"])) < ["town", "castle", "village"].find(String(Data.settlement(b)["type"])))
-	_col.add_child(_note("Castles and towns raise garrisons from the treasury. Grant one to a sworn lord and it becomes their seat; visit one to station your own squads there."))
+	_col.add_child(_note("Castles and towns raise garrisons from the treasury. Grant one to a sworn lord and it becomes their seat; visit one to station your own companies there."))
 	for id in held:
 		var info: Dictionary = Data.settlement(id)
 		var v := _row_panel(Data.crown_color if id == gs.fief_id() else Style.RULE)
@@ -612,11 +612,20 @@ func _diplomacy() -> void:
 			f.add_child(Widgets.priced(peace, costs))
 			if not bool(pc["ok"]):
 				why = String(pc["reason"])
+			else:
+				# They won't end it themselves: the crown's wars are yours to end.
+				var ready := _note("They would accept peace now.", Style.MORALE_HIGH)
+				ready.name = "PeaceReady"
+				words.add_child(ready)
 		else:
 			var wc: Dictionary = gs.war_check(r)
 			var war := _icon_button("Declare war", "fight", func(): _act(gs.declare_crown_war(r), "Your crown is at war with %s." % name), "War_%s" % r, bool(wc["ok"]))
 			war.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			f.add_child(war)
+			var honorable: int = gs.crown_lords().filter(func(l): return String(l.get("bearing", "")) == Lords.HONORABLE).size()
+			if honorable > 0:
+				f.add_child(Widgets.priced(war, [["bond", "−%d · %d Honorable lord%s" % [absi(gs.DECLARE_HONOR_REGARD), honorable, "" if honorable == 1 else "s"], Style.ENEMY_LIGHT]]))
+			else:
+				f.add_child(war)
 			if world.can_ally_crown(r):
 				var ally := _icon_button("Ally", "bond", func(): _act(gs.propose_alliance(r), "%s is your ally." % name), "Ally_%s" % r, true, true)
 				ally.size_flags_horizontal = Control.SIZE_EXPAND_FILL

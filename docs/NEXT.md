@@ -15,6 +15,10 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
 - Deeper slices: crown courts and granting crown fiefs to lords, rebellion inside a realm;
   movement cycles and a mix-group sound system for battles; siege engines; more lord lines.
 - Release: a build on a real phone, a frame-rate check there, and a playtest.
+- Before that playtest: [`playtest-audit.md`](playtest-audit.md), six code-traced passes
+  from different players' seats. **Every item is built but none has run in Godot**; its
+  "As built" section lists the choices made and what the first engine run must confirm
+  (parse, the `--balance` gates, campaign pace, layout at 150% text, touch, saves, exports).
 
 ## State (on `main`)
 

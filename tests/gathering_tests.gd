@@ -226,17 +226,82 @@ func _init() -> void:
 	change_scene_to_file("res://scenes/dance.tscn")
 	await _arrive("dance.tscn")
 	var dance = current_scene
-	var partner := ""
-	for id in dance.reply_ids():
-		if String(id).begins_with("partner_lord_"):
-			partner = String(id)
-	check(partner != "" and dance.has_reply("wall"), "the dance offers lords and the wall")
-	var dl: Dictionary = w.lord_by_id(int(partner.trim_prefix("partner_lord_")))
+	var ids: Array = dance.reply_ids()
+	check(not ids.any(func(id): return String(id).begins_with("partner_lord_")), "no lord is asked to dance: a warlord is for the table")
+	var kin_ids: Array = ids.filter(func(id): return String(id).begins_with("partner_kin_"))
+	check(dance.has_reply("wall") and dance.has_reply("round"), "the dance offers the round and the wall")
+	check(kin_ids.size() >= 1 and kin_ids.size() <= Gatherings.KIN_OFFERED, "and up to %d lords' kinswomen (%d)" % [Gatherings.KIN_OFFERED, kin_ids.size()])
+	var soc0 = w.social
+	var host_kin: Dictionary = soc0.house_kin(host)
+	check(host_kin.is_empty() or String(kin_ids[0]) == "partner_kin_%d" % int(host["id"]), "the host's own kin first")
+	var with_kin: Array = gs.gathering_lords(g).filter(func(l): return not soc0.house_kin(l).is_empty())
+	check(not with_kin.is_empty(), "some lord in the hall has kin with him")
+	var dl: Dictionary = with_kin[0] if not with_kin.is_empty() else host
+	var kin: Dictionary = soc0.house_kin(dl)
+	check(kin["name"] == soc0.house_kin(dl)["name"] and Gatherings.KIN_NAMES[String(dl["culture"])].has(String(kin["name"]))
+		and Gatherings.KIN_RELATIONS.has(String(kin["relation"])), "a lord's kinswoman is named from his land's women, and is the same woman each time")
 	var dr := LordTalk.regard(gs, dl)
-	dance.choose(partner)
+	dance.choose("partner_kin_%d" % int(dl["id"]))
 	var gain := Gatherings.DANCE_DARING if String(dl["bearing"]) == "Daring" else Gatherings.DANCE_LORD
-	check(LordTalk.regard(gs, dl) == dr + gain, "a dance with a lord is +%d Regard" % gain)
+	check(LordTalk.regard(gs, dl) == dr + gain, "a dance with his kinswoman is +%d Regard with the lord" % gain)
+	check(dance.log_text().contains(String(kin["name"])), "and she is named in the telling")
 	check(not bool(gs.dance_check(g)["ok"]), "one partner a night")
+	# The round: the same night again, for the test's sake.
+	(gs.gathering_record(g)["danced_nights"] as Array).clear()
+	var regard_before := {}
+	for l in gs.gathering_lords(g):
+		regard_before[int(l["id"])] = LordTalk.regard(gs, l)
+	var rr: Dictionary = gs.dance(g, "round", "")
+	check(bool(rr["ok"]) and int(rr["lords"]) == regard_before.size() and gs.gathering_lords(g).all(func(l): return LordTalk.regard(gs, l) == int(regard_before[int(l["id"])]) + Gatherings.DANCE_ROUND_REGARD),
+		"the round is +%d Regard with every lord in the hall (%d)" % [Gatherings.DANCE_ROUND_REGARD, regard_before.size()])
+	# A woman you've never met, across the hall: when Ravensford's lord is a guest, so is
+	# Edda, and a dance is a first meeting that asks the story's first question.
+	(gs.gathering_record(g)["danced_nights"] as Array).clear()
+	var rav: Dictionary = w.holder_lord("ravensford")
+	check(not soc0.attending("highcliff", [], "vardmark").any(func(p): return String(p["content_id"]) == "edda"), "Edda isn't at Highcliff on her own")
+	check(soc0.attending("highcliff", [rav], "vardmark").any(func(p): return String(p["content_id"]) == "edda"), "she comes with Ravensford's household")
+	check(soc0.attending("qasr_hamra", [], "kharzan").any(func(p): return String(p["content_id"]) == "farid")
+		and soc0.attending("khalun", [], "kharzan").any(func(p): return String(p["content_id"]) == "farid")
+		and not soc0.attending("highcliff", [], "vardmark").any(func(p): return String(p["content_id"]) == "farid"), "Farah, an envoy, is at every gathering of her realm")
+	# He rides to the feast (a lord at home has no party on the map).
+	if int(rav.get("party", -1)) < 0 or w.party(int(rav["party"])) == null:
+		w._lord_takes_field(rav, "highcliff")
+	var rav_party = w.party(int(rav["party"]))
+	rav_party.node = "highcliff"
+	rav_party.next = ""
+	rav_party.path = []
+	rav["state"] = "field"
+	rav["job"] = ""
+	rav["raiding"] = ""
+	check(gs.gathering_lords(g).has(rav), "Ravensford's lord is seated at Highcliff")
+	var partners0: Array = gs.dance_partners(g)
+	check(partners0.any(func(p): return String(p["kind"]) == "meet" and String(p["id"]) == "edda"), "and Edda, unmet, can be asked to dance")
+	check(not partners0.any(func(p): return String(p["kind"]) == "romance" and String(p["id"]) == "edda"), "but not as someone you know")
+	var mres: Dictionary = gs.dance(g, "meet", "edda")
+	check(bool(mres["ok"]) and bool(mres["intent"]) and String(soc0.relationships["edda"]["status"]) == Relationships.ACQUAINTED and int(soc0.relationships["edda"]["trust"]) == 1,
+		"a dance with her is a first meeting: acquainted, +1 trust, and she asks what you mean to be")
+	var met_book: Array = soc0.memory_book(String(soc0.get_candidate_person("edda")["id"]))
+	check(not met_book.is_empty() and String(met_book[met_book.size() - 1]["kind"]) == "dance" and String(met_book[met_book.size() - 1]["text"]).contains("met Edda"), "the night you met her is kept")
+	var decided: Dictionary = gs.apply_social_choice("edda", "know_better")
+	check(bool(decided.get("ok", false)) and String(soc0.relationships["edda"]["status"]) == Relationships.COURTING and int(soc0.quests["quest_edda"]["chapter"]) == 2,
+		"answered on the floor, you are courting and the next chapter follows by letter")
+	soc0.relationships["edda"]["status"] = Relationships.UNKNOWN
+	soc0.relationships["edda"]["trust"] = 0
+	soc0.relationships["edda"]["romantic_intent"] = false
+	soc0.relationships["edda"]["intent_chosen"] = false
+	soc0.limits["current_partner_id"] = ""
+	soc0.quests["quest_edda"]["chapter"] = 1
+	soc0.quests["quest_edda"]["consumed_rewards"] = []
+	soc0.quests["quest_edda"].erase("opens_hour")
+	rav_party.node = "ravensford"
+	# Succession: the dead lord's daughter is the heir's sister; a wife or sister leaves with him.
+	var kin_before: Dictionary = soc0.house_kin(dl).duplicate()
+	var hid := "house_%s_%d" % [String(dl["realm"]), int(dl["id"])]
+	soc0.on_lord_succeeded(int(dl["id"]), String(dl["name"]), "Lord Test Heir")
+	var kin_after: Dictionary = soc0.houses[hid].get("kin", {"gone": true})
+	check((String(kin_before["relation"]) == "daughter" and String(kin_after.get("relation", "")) == "sister" and kin_after["name"] == kin_before["name"])
+		or (String(kin_before["relation"]) != "daughter" and kin_after.has("gone")), "an heir's household: the daughter becomes his sister, a wife or sister goes")
+	soc0.houses[hid]["kin"] = kin_before
 	dance.choose("done")
 	await _arrive("settlement.tscn")
 
@@ -302,6 +367,13 @@ func _init() -> void:
 	check(bool(gs.dance_check(rg)["ok"]), "every night of a dance has dancing")
 	var partners: Array = gs.dance_partners(rg)
 	check(partners.any(func(p): return String(p["kind"]) == "romance" and String(p["id"]) == "edda"), "Edda is there to dance with")
+	var away: Dictionary = w.call_gathering("kharzan", "season", "khalun", Gatherings.DANCE)
+	if not away.is_empty():
+		var far: Array = gs.dance_partners(away)
+		check(far.any(func(p): return String(p["kind"]) == "absent" and String(p["id"]) == "edda" and String(p["tag"]).contains("Ravensford")),
+			"at a dance she isn't at, a note says where she'd be")
+		w._end_gathering(away)
+		w.gathering_ended.erase("kharzan")
 	var mems_before: int = soc.memory_book(String(soc.get_candidate_person("edda")["id"])).size()
 	var dres: Dictionary = gs.dance(rg, "romance", "edda")
 	check(bool(dres["ok"]) and int(soc.relationships["edda"]["trust"]) == 21, "a dance with someone you court is time together: +1 trust")
@@ -313,6 +385,11 @@ func _init() -> void:
 	gs.dance(rg, "romance", "edda")
 	var trust_cap: int = int(soc.relationships["edda"]["trust"])
 	check(trust_cap == 20 + Gatherings.DANCE_TRUST_CAP, "dances add trust up to a cap (%d)" % trust_cap)
+	var danced: Array = soc.memory_book(String(soc.get_candidate_person("edda")["id"])).filter(func(m): return String(m["kind"]) == "dance")
+	var dance_texts := {}
+	for m in danced:
+		dance_texts[String(m["text"])] = true
+	check(danced.size() == 3 and dance_texts.size() == 3 and String(danced[2]["candidate"]) == "edda", "each dance is remembered as itself")
 
 	# ---- the hall on an ordinary day
 	for x in w.gatherings.duplicate():

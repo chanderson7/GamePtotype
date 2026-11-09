@@ -122,8 +122,37 @@ const LAST_WORDS := [
 ]
 const WOUNDED_WORDS := [
 	"I'm hit! Get me out!", "Just a scratch... just a...", "Drag me back, I'll live.",
-	"Damn it, my leg!", "Hold without me!",
+	"Damn it, my leg!", "Hold without me!", "Still breathing! Mostly!", "Leave me, I'll catch up!",
+	"Not dead! Just resting!", "Somebody get this arrow out of me!", "I can still hold a sword. Barely.",
 ]
+## A captain's own people's words, said alongside the ones above (see words_for).
+const CULTURE_LAST_WORDS := {
+	Cultures.VARDISH: [
+		"Tell my mother I kept the line.", "The banner... is it still up?", "Bury me facing the hills.",
+		"Hold the shields. Hold them.", "I'd have liked to see the harvest in.", "Light a candle for me at the chapel.",
+	],
+	Cultures.KHARZANI: [
+		"Water... the oasis was so cool...", "Write my name where the caravans pass.", "The stars over the sand... I see them now.",
+		"Tell my brothers I rode first.", "Take my bow. It shoots true.", "Turn me to face the east.",
+	],
+	Cultures.RYUMON: [
+		"The blossom falls. It is all right.", "No regrets. Well... one.", "Carry my name home across the strait.",
+		"My sword... give it to someone worthy.", "Tell them I did not step back.", "The sea is calling. I'll go quietly.",
+	],
+}
+const CULTURE_WOUNDED_WORDS := {
+	Cultures.VARDISH: ["By the saints, that stings!", "Shield's split, I'm fine!", "Get me to the wagons!"],
+	Cultures.KHARZANI: ["My horse... is my horse all right?", "A cat's scratch, no more!", "Bind it tight, I'm riding back!"],
+	Cultures.RYUMON: ["Shameful. I'll be back.", "It's nothing. A cut.", "Help me up. I'm not done."],
+}
+
+
+## What a captain of `culture` might say as they fall (`killed`) or are carried off
+## wounded: the words any captain says, and their own people's.
+static func words_for(culture: String, killed: bool) -> Array:
+	var out: Array = (LAST_WORDS if killed else WOUNDED_WORDS).duplicate()
+	out.append_array((CULTURE_LAST_WORDS if killed else CULTURE_WOUNDED_WORDS).get(culture, []))
+	return out
 
 
 ## A new captain of `culture`. `id` must be unique across the warband; `taken` lists
@@ -133,7 +162,7 @@ static func make(rng: RandomNumberGenerator, id: int, type: String, taken: Array
 	var origins: Array = Cultures.info(culture)["origins"]
 	var first: String = names[rng.randi_range(0, names.size() - 1)]
 	for i in 12:
-		if not taken.has(first):
+		if not taken.has(first) and not Cultures.RESERVED.has(first):
 			break
 		first = names[rng.randi_range(0, names.size() - 1)]
 	return {

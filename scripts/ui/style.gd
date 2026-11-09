@@ -39,6 +39,10 @@ const LARGE := 30
 ## Touch targets: a button is never shorter than this, about 44 pt.
 const TOUCH := 80.0
 
+## Menus, sheets and bottom bars keep to a column this wide (the phone's own width),
+## centred, however wide the window: a computer's, or a tablet's.
+const COLUMN_MAX := 720.0
+
 
 ## The phone's safe area, as insets in viewport units: {top, bottom}. Zero on desktop,
 ## where the window isn't under a notch or a home indicator.

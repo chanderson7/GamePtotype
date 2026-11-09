@@ -179,12 +179,70 @@ func _init() -> void:
 	change_scene_to_file("res://scenes/conversation.tscn")
 	await _arrive("conversation.tscn")
 	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
-	check(first_words == Lines.greeting("edda", "acquainted"), "with nothing new, the greeting for how things stand (%s)" % first_words)
+	check(Lines.greetings("edda", "acquainted").has(first_words), "with nothing new, a greeting for how things stand (%s)" % first_words)
+	var greeted := first_words
+	gs.world.hour += 1.0
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
+	check(Lines.greetings("edda", "acquainted").has(first_words) and first_words != greeted, "and the next visit, the other one")
+	for cand in ["edda", "farid", "kaede"]:
+		for st in Lines.GREETINGS[cand]:
+			check(Lines.greetings(cand, st).size() >= 2, "%s has two greetings when %s" % [cand, st])
+	# A wound counts once: the same wounded captain isn't her first words twice.
+	cap["wounded"] = 2
+	gs.world.hour += 1.0
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	gs.world.hour += 1.0
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
+	check(not first_words.contains("hurt"), "a wound she's already seen doesn't open the next visit (%s)" % first_words)
+	cap["wounded"] = 0
+	# Remember when: more than a page of memories can be paged through.
+	for i in 8:
+		social.add_memory(pid, "A small thing, number %d." % i)
+	current_scene.choose("remember")
+	check(current_scene.has_reply("older") and current_scene.choose("older") and current_scene.has_reply("newer"),
+		"older memories are a page further back")
 	for cand in ["edda", "farid", "kaede"]:
 		for key in Lines.OPENING_ORDER:
 			var line := Lines.opening(cand, "courting", {key: "Brann" if key in ["fallen", "wounded"] else ("Marchgate" if key == "victory" else (23 if key == "away" else true))})
 			check(line != Lines.greeting(cand, "courting") and not line.contains("{"), "%s has a line for %s (%s)" % [cand, key, line.left(40)])
 	gs.world.hour = hour0
+
+	# ---- "Remember when" knows what each thing was, and who it was with
+	check(Lines.callback({"kind": "ceremony", "private": true, "candidate": "kaede"}) == Lines.PRIVATE_VOWS["kaede"]
+		and Lines.callback({"kind": "ceremony", "candidate": "edda"}) == Lines.CEREMONIES["edda"], "vows by one candle and a wedding are told apart")
+	check(Lines.callback({"kind": "dance", "dance": 2}, "farid") == Lines.DANCES["farid"][1], "each dance is remembered as itself")
+	check(Lines.callback({"kind": "decision", "chapter": 4, "choice": "support_edda"}, "kaede") == Lines.CH4_CHOICES["kaede"]["support_edda"],
+		"the council is remembered as what you said there, in her words")
+
+	# ---- the fire: tempers on both sides, a few ways each
+	for rank in ["C", "B", "A"]:
+		var cells: Dictionary = gs.BOND_EXCHANGES[rank]
+		check(cells.size() == 6 and cells.values().all(func(v): return (v as Array).size() >= 2), "rank %s has talks for every pair of tempers, two each" % rank)
+	var fa: Dictionary = gs.army[0]["captain"]
+	var fb: Dictionary = gs.army[1]["captain"]
+	fa["temperament"] = "Fragile"
+	fb["temperament"] = "Vengeful"
+	var ex: Array = gs._bond_exchange(fa, fb, "C")
+	check(String(ex[0]["who"]) == "b", "the vengeful one speaks first, whoever is listed first")
+	# ---- a talk by the empty place
+	gs.fallen.append({"id": 9990, "name": "Wynn of Holloway", "first": "Wynn", "battle": gs.battles, "words": "Keep the line, lads.",
+		"temperament": "", "bonds": [], "bond_points": {str(int(fa["id"])): 13.0}, "type": "infantry"})
+	check(gs.remembered_bonds().any(func(rb): return int(rb["b"]["id"]) == 9990), "a fallen friend is remembered as a bond")
+	var mem: Dictionary = gs.bond_conversation(int(fa["id"]), 9990)
+	check(bool(mem.get("memorial", false)) and " ".join(PackedStringArray(mem["passages"])).contains("Keep the line"), "and the survivor's talk remembers their last words")
+	scenes.active_bond_a_id = int(fa["id"])
+	scenes.active_bond_b_id = 9990
+	scenes.bond_conversation_return = "res://scenes/main_menu.tscn"
+	change_scene_to_file("res://scenes/bond_conversation.tscn")
+	await _arrive("bond_conversation.tscn")
+	check(current_scene._memorial and current_scene.log_text().contains("Keep the line") and current_scene.reply_ids() == ["back"],
+		"told by the fire, with the fallen face greyed")
+	gs.fallen = gs.fallen.filter(func(f): return int(f.get("id", 0)) != 9990)
 
 	# ---- Farah and Kaede speak in their own words too
 	for pair in [["farid", "qasr_hamra", "Farah"], ["kaede", "kitayama", "Kaede"]]:

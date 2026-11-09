@@ -77,6 +77,11 @@ static func look(biome: String) -> Dictionary:
 ## Light and shade over the field's slopes, dry grass on the high ground, a contour line
 ## every CONTOUR of height. Null on level ground.
 static func hillshade(t: Terrain, biome: String) -> ImageTexture:
+	var img := hillshade_image(t, biome)
+	return ImageTexture.create_from_image(img) if img != null else null
+
+
+static func hillshade_image(t: Terrain, biome: String) -> Image:
 	var w := int(Terrain.ARENA.x / SHADE_PX)
 	var h := int(Terrain.ARENA.y / SHADE_PX)
 	var heights := PackedFloat32Array()
@@ -119,7 +124,7 @@ static func hillshade(t: Terrain, biome: String) -> ImageTexture:
 			if v > 0.1 and fmod(v, CONTOUR) < CONTOUR_W:
 				c = c.blend(Color(0.10, 0.08, 0.05, 0.20))
 			img.set_pixel(x, y, c)
-	return ImageTexture.create_from_image(img)
+	return img
 
 
 # ---------------------------------------------------------------- the plate
@@ -159,6 +164,11 @@ static func _put(img: Image, x: int, y: int, c: Color) -> void:
 ## `trees` are the field's tree sprites ({pos, ...}), so their shadows can fall on the
 ## forest floor. Null when the field is open.
 static func plate(t: Terrain, biome: String, trees: Array, seed: int) -> ImageTexture:
+	var img := plate_image(t, biome, trees, seed)
+	return ImageTexture.create_from_image(img) if img != null else null
+
+
+static func plate_image(t: Terrain, biome: String, trees: Array, seed: int) -> Image:
 	if t == null or t.features.is_empty():
 		return null
 	var w := int(Terrain.ARENA.x / PLATE_PX)
@@ -190,7 +200,27 @@ static func plate(t: Terrain, biome: String, trees: Array, seed: int) -> ImageTe
 	if drew and not trees.is_empty():
 		for tree in trees:
 			_shadow(img, tree["pos"] + Vector2(5.0, 4.0), 7.0, 4.0, 0.28)
-	return ImageTexture.create_from_image(img) if drew else null
+	return img if drew else null
+
+
+## The slopes and the plate as one texture at the plate's size, so the field draws one
+## see-through layer over the grass and not two (each covers the whole screen, every
+## frame). The hillshade is doubled pixel for pixel, as it was drawn, and the plate laid
+## over it the way the GPU would. Null when there is neither.
+static func overlay(shade: Image, features: Image) -> ImageTexture:
+	var img := overlay_image(shade, features)
+	return ImageTexture.create_from_image(img) if img != null else null
+
+
+static func overlay_image(shade: Image, features: Image) -> Image:
+	if features == null:
+		return shade
+	if shade == null:
+		return features
+	var out := shade.duplicate() as Image
+	out.resize(features.get_width(), features.get_height(), Image.INTERPOLATE_NEAREST)
+	out.blend_rect(features, Rect2i(Vector2i.ZERO, features.get_size()), Vector2i.ZERO)
+	return out
 
 
 static func _px(v: float) -> int:
