@@ -63,12 +63,20 @@ static func column(root: Control, heading: String, subtitle: String) -> VBoxCont
 
 ## Keep what `margin` holds to Style.COLUMN_MAX wide, centred: its side margins grow from
 ## `side` as the window gets wider than a phone (a computer held landscape, a tablet).
+## The width it measures is the room its parent gives it, not its own: content wider than
+## the screen would otherwise grow the margins, which grow the content, without end. The
+## resize its own change causes is let pass.
 static func cap_width(margin: MarginContainer, side: int) -> void:
 	margin.resized.connect(func():
-		var wide := side + maxi(0, int((margin.size.x - Style.COLUMN_MAX) * 0.5))
+		if margin.has_meta("capping"):
+			return
+		var room: float = margin.get_parent_area_size().x
+		var wide := side + maxi(0, int((room - Style.COLUMN_MAX) * 0.5))
 		if margin.get_theme_constant("margin_left") != wide:
+			margin.set_meta("capping", true)
 			margin.add_theme_constant_override("margin_left", wide)
-			margin.add_theme_constant_override("margin_right", wide))
+			margin.add_theme_constant_override("margin_right", wide)
+			margin.remove_meta("capping"))
 
 
 ## Words that wrap. In a row they take the room left beside the rest (a wrapping label with
