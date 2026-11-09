@@ -218,7 +218,6 @@ class Soldier:
 	var slot := Vector2.ZERO
 	## His place while his squad fights: his own file, but stepped up as the men in front fall.
 	var line_slot := Vector2.ZERO
-	var push := Vector2.ZERO
 	# For the screen only: distance walked (drives the walk cycle) and time left on the
 	# strike pose.
 	var stride := 0.0
@@ -505,6 +504,9 @@ var _bond_clock := 0.0
 var _next_id := 1
 var _cells: Array = []
 var _used_cells: Array = []
+## Where each used cell's men start in the separation pass's flat arrays, and how many.
+var _cell_start := PackedInt32Array()
+var _cell_count := PackedInt32Array()
 
 
 # ---------------------------------------------------------------- setup
@@ -3584,59 +3586,81 @@ func _separate() -> void:
 func _separate_pass() -> bool:
 	var crowded := false
 	_build_grid() # where everyone stands after this tick's moves
+	# Everyone's place and size copied once into flat arrays, cell by cell, so the pair
+	# loop below reads arrays rather than each man's properties: in a crowd each man is
+	# looked at by a dozen neighbours. The pairs are taken in the same order as ever (a
+	# man's own cell, then the cell to the right and the three below), so the pushes come
+	# out the same to the last bit.
+	var men: Array = []
+	var pos := PackedVector2Array()
+	var rad := PackedFloat64Array()
+	if _cell_start.size() != _cells.size():
+		_cell_start.resize(_cells.size())
+		_cell_count.resize(_cells.size())
+	_cell_count.fill(0)
 	for c in _used_cells:
 		var cell: Array = _cells[c]
+		_cell_start[c] = men.size()
+		_cell_count[c] = cell.size()
+		for so in cell:
+			men.append(so)
+			pos.append(so.pos)
+			rad.append(so.radius)
+	var push := PackedVector2Array()
+	push.resize(men.size())
+	var later := PackedInt32Array()
+	later.resize(4)
+	for c in _used_cells:
 		var cx: int = c % GRID_W
 		var cy: int = int(c / GRID_W)
-		var later: Array = []
-		if cx + 1 < GRID_W:
-			later.append_array(_cells[c + 1])
-		if cy + 1 < GRID_H:
-			var below: int = c + GRID_W
-			if cx > 0:
-				later.append_array(_cells[below - 1])
-			later.append_array(_cells[below])
-			if cx + 1 < GRID_W:
-				later.append_array(_cells[below + 1])
-		var n := cell.size()
-		for i in n:
-			var a = cell[i]
-			var ap: Vector2 = a.pos
-			var ar: float = a.radius
-			for j in range(i + 1, n):
-				var b = cell[j]
-				var diff: Vector2 = ap - b.pos
-				var min_d: float = ar + b.radius
+		later[0] = c + 1 if cx + 1 < GRID_W else -1
+		var below: int = c + GRID_W
+		var has_below := cy + 1 < GRID_H
+		later[1] = below - 1 if has_below and cx > 0 else -1
+		later[2] = below if has_below else -1
+		later[3] = below + 1 if has_below and cx + 1 < GRID_W else -1
+		var first: int = _cell_start[c]
+		var stop: int = first + _cell_count[c]
+		for ia in range(first, stop):
+			var ap: Vector2 = pos[ia]
+			var ar: float = rad[ia]
+			for ib in range(ia + 1, stop):
+				var diff: Vector2 = ap - pos[ib]
+				var min_d: float = ar + rad[ib]
 				var d2 := diff.length_squared()
 				if d2 < (min_d - 0.1) * (min_d - 0.1):
 					crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
-					var push := _push_for(diff, d2, min_d)
-					a.push += push
-					b.push -= push
-			for b in later:
-				var diff: Vector2 = ap - b.pos
-				var min_d: float = ar + b.radius
-				var d2 := diff.length_squared()
-				if d2 < (min_d - 0.1) * (min_d - 0.1):
-					crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
-					var push := _push_for(diff, d2, min_d)
-					a.push += push
-					b.push -= push
-	for sq in squads:
-		for so in sq.soldiers:
-			if not so.alive:
-				continue
-			if so.push != Vector2.ZERO:
-				var to: Vector2 = so.pos + so.push.limit_length(4.0)
-				# _open_ground(to), written out: this runs for most men every tick.
-				if not _rough or to.x < 0.0 or to.x >= ARENA.x or to.y < 0.0 or to.y >= ARENA.y \
-						or _foot[int(to.y / Terrain.CELL) * Terrain.COLS + int(to.x / Terrain.CELL)] > 0.0:
-					so.pos = to
-				else:
-					so.pos = _slide(so.pos, to)
-				so.push = Vector2.ZERO
-			if not sq.routing:
-				so.pos = Vector2(clampf(so.pos.x, 8.0, ARENA.x - 8.0), clampf(so.pos.y, 8.0, ARENA.y - 8.0))
+					var p := _push_for(diff, d2, min_d)
+					push[ia] += p
+					push[ib] -= p
+			for k in 4:
+				var nc: int = later[k]
+				if nc < 0:
+					continue
+				var n_first: int = _cell_start[nc]
+				var n_stop: int = n_first + _cell_count[nc]
+				for ib in range(n_first, n_stop):
+					var diff: Vector2 = ap - pos[ib]
+					var min_d: float = ar + rad[ib]
+					var d2 := diff.length_squared()
+					if d2 < (min_d - 0.1) * (min_d - 0.1):
+						crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
+						var p := _push_for(diff, d2, min_d)
+						push[ia] += p
+						push[ib] -= p
+	for k in men.size():
+		var so = men[k]
+		var shove: Vector2 = push[k]
+		if shove != Vector2.ZERO:
+			var to: Vector2 = pos[k] + shove.limit_length(4.0)
+			# _open_ground(to), written out: this runs for most men every tick.
+			if not _rough or to.x < 0.0 or to.x >= ARENA.x or to.y < 0.0 or to.y >= ARENA.y \
+					or _foot[int(to.y / Terrain.CELL) * Terrain.COLS + int(to.x / Terrain.CELL)] > 0.0:
+				so.pos = to
+			else:
+				so.pos = _slide(pos[k], to)
+		if not so.squad.routing:
+			so.pos = Vector2(clampf(so.pos.x, 8.0, ARENA.x - 8.0), clampf(so.pos.y, 8.0, ARENA.y - 8.0))
 
 	return crowded
 

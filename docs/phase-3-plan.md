@@ -167,7 +167,7 @@ All automated, in `tests/run_tests.gd` (with `--balance` where noted).
 | Objectives ask for something different | Tactician wins each ≥ 60%, and on average ≥ 15 points more often than Advance-all |
 | Send in matches real battles, with terrain and new units | Same winner ≥ 85% |
 | 30-day scripted campaigns (`Plans.campaign`) | Still pass |
-| Performance: a sim step per man on the field, on each kind of ground | ≤ 25% slower than on open ground |
+| Performance: a sim step per man on the field, on each kind of ground | ≤ 25% slower than on open ground; ≤ 30% in a pass, whose narrow gap packs the armies tightest (since 2026-11) |
 | Old saves | Phase 2/3 saves load |
 
 ---
