@@ -280,14 +280,19 @@ func _check_march_fights_back() -> void:
 	var theirs = sim.place(Sim.ENEMY, 2, Vector2(420, 545))
 	sim.start_battle()
 	sim.order_attack(theirs, mine)
-	sim.order_move(mine, Vector2(800, 720))
+	# The march goes past the company sent at it. (Marching straight away from it, it is
+	# never caught: a company running at a target goes no faster than one marching off.)
+	var march_to := Vector2(560, 300)
+	sim.order_move(mine, march_to)
 	while mine.struck_at < 0.0 and sim.time < 20.0:
 		sim.step()
+	var left_to_go: float = mine.center.distance_to(march_to)
 	for i in 30:
 		sim.step()
 	_expect(mine.struck_at >= 0.0 and mine.order == "hold" and mine.focus == theirs and mine.engaged,
 		"a squad struck on the march stops and fights back (order %s)" % mine.order)
-	_expect(mine.center.x < 700.0, "and stays to fight rather than marching on")
+	_expect(mine.center.distance_to(march_to) > left_to_go - 30.0,
+		"and stays to fight rather than marching on (%.0f px still to go when struck, %.0f after)" % [left_to_go, mine.center.distance_to(march_to)])
 	# Struck by a company standing further off than the usual holding range (the far end of
 	# a long line), it still turns on that one.
 	sim.order_move(mine, Vector2(800, 1000))
