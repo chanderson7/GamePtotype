@@ -75,7 +75,9 @@ func _init() -> void:
 		sc._puff(Vector2.ZERO, Vector2.ZERO, 1.0, 2.0, 5.0, Color.WHITE, 0.2)
 	check(sc._puffs.size() <= sc.MAX_PUFFS, "and dust is capped")
 
-	# ---- a squad breaks
+	# ---- a squad breaks (what its men drop is a roll each: seeded, so the check is the
+	# same every run)
+	seed(11)
 	sim.events.append({"type": "rout", "squad": theirs})
 	sc._consume_events()
 	check(sc._fallen_flags.size() == 1, "a broken squad's standard is left lying where it fell")
