@@ -277,6 +277,22 @@ var _shadow_col := Color.BLACK
 ## Each side's shadow, faintly in its own color, so in a melee the two hosts stay apart.
 var _shadow_cols := [Color.BLACK, Color.BLACK]
 const BATCH_FLOATS := 16
+## The top layer's shader: flag cloth waves here rather than being rebuilt in script every
+## frame. A vertex whose UV.x is 1.5 or more is cloth (see Heraldry.cloth_mesh):
+## UV.x - 2 is how far along the fly it is, UV.y its flag's phase. Its drop is the same
+## as Heraldry.flag's ripple. Nothing else drawn on the layer has a UV past 1.
+const FLAG_SHADER := """
+shader_type canvas_item;
+uniform float clock = 0.0;
+uniform float drop = 3.38;
+void vertex() {
+	if (UV.x >= 1.5) {
+		float u = UV.x - 2.0;
+		VERTEX.y += sin(clock * 5.0 + UV.y + u * 4.0) * drop * u;
+		UV = vec2(0.0);
+	}
+}
+"""
 const TROOP_SHADER := """
 shader_type canvas_item;
 varying float flash;
@@ -480,6 +496,21 @@ var _trees: Array = []
 ## treetops over the men are.
 const TREETOP_ALPHA := 0.78
 var _terrain_site_type := ""
+## The field's static layers: ground, water, props, then what falls on the ground (see
+## _make_layers). The last is redrawn when `_litter_sig` changes.
+var _field_layers: Array = []
+## Each standard's cloth, built once per look (see _draw_waving_flag).
+var _flag_geo := {}
+var _litter_sig := []
+## When the litter layer was last redrawn, and the newest body, arrow and piece of litter
+## it holds: anything newer is drawn each frame until the next redraw.
+var _litter_at := -99.0
+var _snap_corpse = null
+var _snap_arrow = null
+var _snap_litter := 0
+## The litter layer is redrawn at most this often, in seconds: arrows land nearly every
+## frame in a big fight.
+const LITTER_EVERY := 0.5
 
 
 func _ready() -> void:
@@ -539,6 +570,8 @@ func _ready() -> void:
 	_setup_terrain_visuals()
 	_scatter_doodads()
 	_set_hour(float(GameState.world.hour) if GameState.world != null else 12.0)
+	for layer in _field_layers:
+		layer.queue_redraw()
 	# Words on the order bar while the orders are new (the objective is in its chip under
 	# the top bar, for every kind of battle).
 	_order_words = GameState.battles < ORDER_WORD_BATTLES
@@ -1165,8 +1198,8 @@ func _draw_gear(c: Dictionary) -> void:
 
 
 ## Shields and spears dropped by men who ran.
-func _draw_litter() -> void:
-	for e in _litter:
+func _draw_litter(items: Array) -> void:
+	for e in items:
 		var p: Vector2 = e["p"]
 		if bool(e["shield"]):
 			_c.draw_circle(p, 2.8, (Style.PLAYER if int(e["team"]) == Sim.PLAYER else Style.ENEMY).darkened(0.4))
@@ -4344,6 +4377,7 @@ func _draw_roll() -> void:
 func _draw() -> void:
 	var t := Time.get_ticks_usec()
 	_c = self
+	_place_field_layers()
 	_draw_battle()
 	_perf_draw_us += Time.get_ticks_usec() - t
 
@@ -4388,11 +4422,30 @@ func _make_layers() -> void:
 	move_child(_troop_layer, 0)
 	_top_layer = Node2D.new()
 	_top_layer.name = "TopLayer"
+	var flag_mat := ShaderMaterial.new()
+	var flag_sh := Shader.new()
+	flag_sh.code = FLAG_SHADER
+	flag_mat.shader = flag_sh
+	flag_mat.set_shader_parameter("drop", FLAG.y * 0.13)
+	_top_layer.material = flag_mat
 	_top_layer.draw.connect(_draw_top_layer)
 	add_child(_top_layer)
 	move_child(_top_layer, 1)
 	_men_mm = _batch()
 	_shadow_mm = _batch()
+	# The field under everything, in child items drawn behind this one. They are placed by
+	# the camera's transform and redrawn only when what they show changes.
+	_field_layers.clear()
+	for spec in [["FieldBase", _draw_field_base], ["FieldWater", _draw_field_water],
+			["FieldProps", _draw_field_props], ["FieldLitter", _draw_field_litter]]:
+		var layer := Node2D.new()
+		layer.name = spec[0]
+		layer.show_behind_parent = true
+		var fn: Callable = spec[1]
+		layer.draw.connect(_draw_field_layer.bind(layer, fn))
+		add_child(layer)
+		move_child(layer, _field_layers.size())
+		_field_layers.append(layer)
 
 
 ## A MultiMesh of unit quads, each placed by a 2D transform, tinted, and told which atlas
@@ -4438,12 +4491,80 @@ func _draw_troop_layer() -> void:
 func _draw_top_layer() -> void:
 	var t := Time.get_ticks_usec()
 	_c = _top_layer
+	(_top_layer.material as ShaderMaterial).set_shader_parameter("clock", _clock)
 	if sim != null:
 		_draw_above()
 	if Sound.show_performance or _test:
 		_draw_perf()
 	_c = self
 	_perf_draw_us += Time.get_ticks_usec() - t
+
+
+## One of the field layers: drawn in field units, with the layer itself carrying the
+## camera's transform (see _place_field_layers), so it is redrawn only when its content
+## changes, not when the camera moves.
+func _draw_field_layer(layer: Node2D, fn: Callable) -> void:
+	if sim == null:
+		return
+	var t := Time.get_ticks_usec()
+	var origin := field_origin
+	var scale_was := field_scale
+	field_origin = Vector2.ZERO
+	field_scale = 1.0
+	_c = layer
+	fn.call()
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_c = self
+	field_origin = origin
+	field_scale = scale_was
+	_perf_draw_us += Time.get_ticks_usec() - t
+
+
+## What lies on the ground under the men: the hour's wash, the scars, gear and litter
+## where men fell, and the arrows stuck in the ground.
+func _draw_field_litter() -> void:
+	_draw_hour_ground()
+	_draw_scars(sim.corpses)
+	for c in sim.corpses:
+		_draw_gear(c)
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_draw_litter(_litter)
+	_draw_stuck_arrows(sim.stuck_arrows)
+
+
+## Put the field layers where the camera has the field this frame; redraw the water while
+## it glints and the litter when something new lies on the ground.
+func _place_field_layers() -> void:
+	if _field_layers.is_empty() or sim == null:
+		return
+	for layer in _field_layers:
+		layer.position = field_origin
+		layer.scale = Vector2(field_scale, field_scale)
+	if _terrain_site_type == "river":
+		_field_layers[1].queue_redraw()
+	var sig := [sim.corpses.size(), _litter.size(), sim.stuck_arrows.size(), _band]
+	if not sim.corpses.is_empty():
+		sig.append(sim.corpses.back()["pos"])
+	if not sim.stuck_arrows.is_empty():
+		sig.append(sim.stuck_arrows.back()["pos"])
+	if sig != _litter_sig and (_clock - _litter_at >= LITTER_EVERY or _clock < _litter_at):
+		_litter_sig = sig
+		_litter_at = _clock
+		_snap_corpse = null if sim.corpses.is_empty() else sim.corpses.back()
+		_snap_arrow = null if sim.stuck_arrows.is_empty() else sim.stuck_arrows.back()
+		_snap_litter = _litter.size()
+		_field_layers[3].queue_redraw()
+
+
+## The items of `items` after `last` (by identity): everything if `last` is null or has
+## gone from the list.
+static func _since(items: Array, last) -> Array:
+	if last == null:
+		return items
+	var i := items.size() - 1
+	while i >= 0 and not is_same(items[i], last):
+		i -= 1
+	return items.slice(i + 1)
 
 
 # ---------------------------------------------------------------- the performance readout
@@ -4512,21 +4633,23 @@ func _draw_perf() -> void:
 func _draw_battle() -> void:
 	if sim == null:
 		return
-	_draw_field()
+	# The ground, its features and props, and what has fallen on it are the field layers'.
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	_draw_hour_ground()
-	_draw_scars()
+	_draw_night_lights()
 	_draw_zones()
 	_draw_objectives()
 	var going_down := {}
 	for e in _falling:
 		going_down[e["corpse"]] = true
-	for c in sim.corpses:
+	# What has fallen since the litter layer was last redrawn, drawn here until it is.
+	var new_bodies := _since(sim.corpses, _snap_corpse)
+	_draw_scars(new_bodies)
+	for c in new_bodies:
 		_draw_gear(c)
 	_draw_corpses(going_down)
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	_draw_litter()
-	_draw_stuck_arrows()
+	_draw_litter(_litter.slice(_snap_litter))
+	_draw_stuck_arrows(_since(sim.stuck_arrows, _snap_arrow))
 	_draw_puffs()
 	_draw_volley_shadows()
 	_draw_front()
@@ -4609,8 +4732,8 @@ func _draw_above() -> void:
 	_draw_banner()
 
 
-## Pixel-art ground for the land the battle is in, and what grows on it.
-func _draw_field() -> void:
+## Pixel-art ground for the land the battle is in, its marks, slopes and baked features.
+func _draw_field_base() -> void:
 	var px := Art.GRASS_PIXEL
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale * px, field_scale * px))
 	# The ground runs on past the field, so the screen never shows a dark band around it.
@@ -4623,8 +4746,16 @@ func _draw_field() -> void:
 		_c.draw_texture_rect(_height_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
 	if _plate_tex != null:
 		_c.draw_texture_rect(_plate_tex, Rect2(Vector2.ZERO, Sim.ARENA), false)
-	if sim != null and _terrain_site_type == "river":
+
+
+## The river's glints, the one part of the ground that moves.
+func _draw_field_water() -> void:
+	if _terrain_site_type == "river":
 		FieldArt.draw_water(_c, sim.terrain, _clock, 0.5 if _band == "night" else 1.0)
+
+
+## What grows and stands on the field and past it, and the field's edge.
+func _draw_field_props() -> void:
 	for d in _doodads:
 		var s: float = field_scale * Art.PROP_PIXEL * float(d["scale"])
 		_c.draw_set_transform(field_origin + Vector2(d["pos"]) * field_scale, 0.0, Vector2(s * float(d["flip"]), s))
@@ -4653,8 +4784,7 @@ func _draw_field() -> void:
 	_c.draw_rect(Rect2(Vector2.ZERO, Sim.ARENA), Color(0, 0, 0, 0.3), false, 3.0)
 
 
-## The hour on the ground: its wash, mist along the far edge at dawn, and at night a warm
-## pool of light round every standard still up (and the gate, in a siege).
+## The hour on the ground: its wash, and mist along the far edge at dawn.
 func _draw_hour_ground() -> void:
 	var all := Rect2(-BEYOND, Sim.ARENA + BEYOND * 2.0)
 	if _ground_tint.a > 0.0:
@@ -4662,6 +4792,10 @@ func _draw_hour_ground() -> void:
 	if _band == "dawn":
 		for i in 8:
 			_c.draw_rect(Rect2(Vector2(-BEYOND.x, -BEYOND.y + i * 40.0), Vector2(Sim.ARENA.x + BEYOND.x * 2.0, BEYOND.y + 40.0)), Color(1.0, 0.95, 0.88, 0.035))
+
+
+## At night, a warm pool of light round every standard still up (and the gate, in a siege).
+func _draw_night_lights() -> void:
 	if _band == "night":
 		var lights := []
 		for sq in sim.squads:
@@ -4987,8 +5121,8 @@ func _culture_of(sq) -> String:
 
 
 ## Trampled, bloodied ground where men fell, so the field remembers the fight.
-func _draw_scars() -> void:
-	for c in sim.corpses:
+func _draw_scars(bodies: Array) -> void:
+	for c in bodies:
 		var p: Vector2 = c["pos"]
 		_c.draw_circle(p + Vector2(2, 3), 11.0, Color(0.27, 0.19, 0.09, 0.16))
 		_c.draw_circle(p, 5.0, Color(0.36, 0.08, 0.06, 0.18))
@@ -5054,8 +5188,8 @@ func _draw_objectives() -> void:
 			_c.draw_colored_polygon(PackedVector2Array([tip, pt + right * 14.0, pt - right * 14.0]), Color(Style.ENEMY_LIGHT, 0.85))
 
 
-func _draw_stuck_arrows() -> void:
-	for a in sim.stuck_arrows:
+func _draw_stuck_arrows(arrows: Array) -> void:
+	for a in arrows:
 		var p: Vector2 = a["pos"]
 		var d := Vector2.from_angle(float(a["angle"]))
 		_c.draw_line(p - d * 5.0, p + d * 1.5, Color(0.29, 0.2, 0.12, 0.85), 1.4)
@@ -5569,29 +5703,39 @@ func _draw_standards() -> void:
 	for sq in sim.squads:
 		if sq.alive_n > 0:
 			shown.append(sq)
-	# Fan out: start from the squad's own spot, then push overlapping flags apart.
-	var want := {}
-	for sq in shown:
-		want[sq] = _to_screen(sq.avg).x
+	# Fan out: start from the squad's own spot, then push overlapping flags apart. Each
+	# squad is put on the screen once; only the pairs close enough in height to touch are
+	# pushed, and they're found once, not on every pass.
+	var n := shown.size()
+	var want := PackedFloat64Array()
+	var ys := PackedFloat64Array()
+	want.resize(n)
+	ys.resize(n)
+	for i in n:
+		var at := _to_screen(shown[i].avg)
+		want[i] = at.x
+		ys[i] = at.y
+	var pairs := PackedInt32Array()
+	for i in n:
+		for j in range(i + 1, n):
+			if absf(ys[i] - ys[j]) <= FLAG.y + 22.0:
+				pairs.append(i)
+				pairs.append(j)
+	var need := FLAG.x + 8.0
 	for pass_i in 6:
-		for i in shown.size():
-			for j in range(i + 1, shown.size()):
-				var a = shown[i]
-				var b = shown[j]
-				var ya: float = _to_screen(a.avg).y
-				var yb: float = _to_screen(b.avg).y
-				if absf(ya - yb) > FLAG.y + 22.0:
-					continue
-				var gap: float = want[b] - want[a]
-				var need := FLAG.x + 8.0
-				if absf(gap) < need:
-					var push := (need - absf(gap)) * 0.5 * (1.0 if gap >= 0.0 else -1.0)
-					if absf(gap) < 0.01:
-						push = need * 0.5
-					want[a] -= push
-					want[b] += push
-	for sq in shown:
-		var x: float = want[sq]
+		for k in range(0, pairs.size(), 2):
+			var i := pairs[k]
+			var j := pairs[k + 1]
+			var gap: float = want[j] - want[i]
+			if absf(gap) < need:
+				var push := (need - absf(gap)) * 0.5 * (1.0 if gap >= 0.0 else -1.0)
+				if absf(gap) < 0.01:
+					push = need * 0.5
+				want[i] -= push
+				want[j] += push
+	for i in n:
+		var sq = shown[i]
+		var x: float = want[i]
 		_std_x[sq] = lerpf(float(_std_x.get(sq, x)), x, 0.25)
 		_draw_standard(sq, float(_std_x[sq]), ref_type)
 	for foe in _targeted():
@@ -5627,8 +5771,10 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	if sim.winner != -1 and sq.team == sim.winner and sq.is_active():
 		# The winners' standards glow, held high.
 		_c.draw_circle(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
-	var wave: float = -1.0 if Sound.reduced_motion else _clock * 5.0 + sq.id * 1.3
-	_draw_flag(_c, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge, wave)
+	if Sound.reduced_motion or _c != _top_layer:
+		_draw_flag(_c, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
+	else:
+		_draw_waving_flag(top + Vector2(0, 2), sq, selected or sq.braced(), lean, edge)
 	if sq.is_bodyguard or sq.is_chief:
 		var crown_c := top + Vector2(FLAG.x * 0.5, -16.0)
 		_c.draw_colored_polygon(PackedVector2Array([
@@ -5873,6 +6019,28 @@ func _draw_counter_hint(top: Vector2, type: String, ref_type: String) -> void:
 
 ## A team's flag on `ci`: a swallowtail for you, square for them, with a glyph for the
 ## troop type.
+## A squad's standard waving in the wind, as Heraldry.flag draws it with a wave of
+## `_clock * 5 + id * 1.3`, but built once per look as one triangle list and waved by the
+## top layer's FLAG_SHADER: one draw a flag.
+func _draw_waving_flag(at: Vector2, sq, lit: bool, lean: float, edge: Color) -> void:
+	var mine: bool = sq.team == Sim.PLAYER
+	var grey: bool = sq.routing
+	var key := "%d/%s/%d/%d/%s" % [sq.id, sq.type, int(grey), int(lit), edge.to_html()]
+	var mesh: Dictionary = _flag_geo.get(key, {})
+	if mesh.is_empty():
+		var cloth := Style.PLAYER if mine else Style.ENEMY
+		var dark := Style.PLAYER_DARK if mine else Style.ENEMY_DARK
+		if grey:
+			cloth = cloth.lerp(Color(0.45, 0.45, 0.45), 0.6)
+			dark = dark.lerp(Color(0.2, 0.2, 0.2), 0.6)
+		mesh = Heraldry.cloth_mesh(FLAG, mine, 3.0 if lit else 2.0, sq.id * 1.3, cloth, dark, edge, sq.type,
+			Style.TEXT if not grey else Color(0.85, 0.85, 0.85))
+		_flag_geo[key] = mesh
+	_c.draw_set_transform(at, lean, Vector2.ONE)
+	RenderingServer.canvas_item_add_triangle_array(_c.get_canvas_item(), mesh["indices"], mesh["points"], mesh["colors"], mesh["uvs"])
+	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
 func _draw_flag(ci: CanvasItem, at: Vector2, size: Vector2, team: int, type: String, grey: bool, lit: bool, lean: float, edge: Color = Heraldry.EDGE, wave: float = -1.0) -> void:
 	var mine := team == Sim.PLAYER
 	Heraldry.flag(ci, at, size, Style.PLAYER if mine else Style.ENEMY, Style.PLAYER_DARK if mine else Style.ENEMY_DARK,

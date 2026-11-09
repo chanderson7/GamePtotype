@@ -271,7 +271,19 @@ class Squad:
 	## How much further its bows carry from where it stands at whoever it's shooting at.
 	var range_mult := 1.0
 	var order_target = null
-	var focus = null
+	## The enemy squad it is going for. Setting it keeps the foe's `focused_by` list in
+	## step, so asking which squads are on a foe reads that list instead of every squad.
+	var focus = null:
+		set(v):
+			if v == focus:
+				return
+			if focus != null:
+				focus.focused_by.erase(self)
+			focus = v
+			if v != null:
+				v.focused_by.append(self)
+	## The squads whose focus is this one (see `focus`).
+	var focused_by: Array = []
 	## Which way out from its foe it is making for (fixed when it chose it, so a foe that
 	## turns doesn't lead it round in circles), so two squads don't pile onto the same side
 	## of the same enemy. ZERO: none free, it waits as a reserve.
@@ -2377,28 +2389,43 @@ func _on_its_side(sq, foe) -> bool:
 ## With `foot_only`, only foot squads': horse don't count toward the limit of two.
 func _taken_sides(sq, foe, foot_only := false) -> Array:
 	var taken := []
-	for o in squads:
-		if o == sq or o.team != sq.team or not o.is_active() or o.focus != foe:
+	for o in foe.focused_by:
+		if o == sq or o.team != sq.team or not o.is_active():
 			continue
-		if o.ranged and not o.hold_fire:
-			continue
-		var d := Vector2.ZERO
-		if o.engaged:
-			d = _bearing(o, foe)
-		elif o.attack_foe == foe and o.attack_dir != Vector2.ZERO:
-			d = o.attack_dir
+		var d := _side_held(o, foe)
 		if d == Vector2.ZERO or (foot_only and o.type == Troops.CAVALRY):
 			continue
 		taken.append(d)
 	return taken
 
 
+## The way out from `foe` that `o` (one of the squads focused on it) holds or is making
+## for; ZERO for none: archers still shooting, or a squad with no side yet.
+func _side_held(o, foe) -> Vector2:
+	if o.ranged and not o.hold_fire:
+		return Vector2.ZERO
+	if o.engaged:
+		return _bearing(o, foe)
+	if o.attack_foe == foe and o.attack_dir != Vector2.ZERO:
+		return o.attack_dir
+	return Vector2.ZERO
+
+
 ## The ways out from `foe` (front, flanks, rear) still free for `sq` to take. Two foot
 ## squads to an enemy, its front and a flank; any more would only crowd each other. Horse
 ## don't count toward the two: they ride in on any side still open.
 func _free_sides(sq, foe) -> Array:
-	var taken := _taken_sides(sq, foe)
-	var held := _taken_sides(sq, foe, true).size()
+	var taken := []
+	var held := 0
+	for o in foe.focused_by:
+		if o == sq or o.team != sq.team or not o.is_active():
+			continue
+		var d := _side_held(o, foe)
+		if d == Vector2.ZERO:
+			continue
+		taken.append(d)
+		if o.type != Troops.CAVALRY:
+			held += 1
 	var free := []
 	var dirs := _side_dirs(foe)
 	for k in 4:
@@ -2412,6 +2439,44 @@ func _free_sides(sq, foe) -> Array:
 			continue
 		free.append(dirs[k])
 	return free
+
+
+## Whether `_free_sides(sq, foe)` would find any side free, worked out without building
+## the lists: target scoring asks it of every enemy squad, every tick.
+func _has_free_side(sq, foe) -> bool:
+	var held := 0
+	var n := 0
+	var t0 := Vector2.ZERO
+	var t1 := Vector2.ZERO
+	var t2 := Vector2.ZERO
+	var t3 := Vector2.ZERO
+	for o in foe.focused_by:
+		if o == sq or o.team != sq.team or not o.is_active():
+			continue
+		var d := _side_held(o, foe)
+		if d == Vector2.ZERO:
+			continue
+		if o.type != Troops.CAVALRY:
+			held += 1
+		if n == 0: t0 = d
+		elif n == 1: t1 = d
+		elif n == 2: t2 = d
+		elif n == 3: t3 = d
+		n += 1
+	if held >= MAX_ON_ONE and sq.type != Troops.CAVALRY:
+		return false
+	if n >= 4:
+		# Rare enough (four squads on one foe) to take the long way.
+		return not _free_sides(sq, foe).is_empty()
+	var f: Vector2 = foe.facing if foe.facing != Vector2.ZERO else Vector2.UP
+	var o90 := f.orthogonal()
+	for k in 4:
+		var dir: Vector2 = f if k == 0 else (o90 if k == 1 else (-o90 if k == 2 else -f))
+		if (n > 0 and t0.dot(dir) > SIDE_CONE) or (n > 1 and t1.dot(dir) > SIDE_CONE) \
+				or (n > 2 and t2.dot(dir) > SIDE_CONE) or (n > 3 and t3.dot(dir) > SIDE_CONE):
+			continue
+		return true
+	return false
 
 
 ## How far `foe` reaches out from its middle toward `dir`.
@@ -2772,7 +2837,7 @@ func target_score(sq, foe, from: Vector2) -> float:
 	elif Troops.COUNTERED_BY[sq.type] == foe.type:
 		score += COUNTER_PULL
 	score -= (100.0 - float(foe.morale)) * 0.8
-	if _uses_sides(sq) and _free_sides(sq, foe).is_empty():
+	if _uses_sides(sq) and not _has_free_side(sq, foe):
 		score += CROWD_PENALTY
 	# Terrain: Cavalry don't choose targets across water or through woods
 	if sq.type == Troops.CAVALRY and _rough:
@@ -3715,6 +3780,7 @@ func dispose() -> void:
 			so.target = null
 		sq.soldiers.clear()
 		sq.focus = null
+		sq.focused_by.clear()
 		sq.order_target = null
 		sq.volley_target = null
 		sq.wheel_target = null
