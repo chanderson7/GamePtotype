@@ -105,8 +105,15 @@ func _init() -> void:
 	for sq in sim.squads:
 		living += sq.alive_n
 	check(sc._men_n == living and sc._shadow_n == living, "every living man is drawn once in the batch, with his shadow (%d of %d)" % [sc._men_n, living])
-	check(sc.find_child("TroopLayer", false, false) != null and sc.get_child(0).name == "TroopLayer" and sc.get_child(1).name == "TopLayer",
+	var troop_layer = sc.find_child("TroopLayer", false, false)
+	var top_layer = sc.find_child("TopLayer", false, false)
+	var field_first := true
+	for i in sc._field_layers.size():
+		field_first = field_first and sc.get_child(i) == sc._field_layers[i] and sc._field_layers[i].show_behind_parent
+	check(troop_layer != null and top_layer != null and troop_layer.get_index() == sc._field_layers.size() and top_layer.get_index() == troop_layer.get_index() + 1,
 		"the men are drawn on their own layer, under the top layer and the HUD")
+	check(sc._field_layers.size() == 4 and field_first,
+		"the field's ground, water, props and litter are layers drawn behind the battle, under the men")
 	check(int(sc.perf["frames"]) >= 0 and sc.perf.has("draw") and sc.perf.has("sim"), "the performance readout keeps its numbers")
 
 	# ---- 2. men who act: poses are drawn, never stored
