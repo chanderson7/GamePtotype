@@ -928,8 +928,12 @@ func _reindex_parties() -> void:
 			_lord_parties.append(p)
 
 
+## Rebuilt when the parties have changed: their number, or, when one left and another
+## came in the same hour (a beaten lord's party gone and his new one out), the newest, since
+## a party only ever joins at the end.
 func _sync_party_indices() -> void:
-	if _parties_by_id.size() != parties.size():
+	if _parties_by_id.size() != parties.size() \
+			or (not parties.is_empty() and _parties_by_id.get((parties[parties.size() - 1] as Party).id) != parties[parties.size() - 1]):
 		_reindex_parties()
 
 
