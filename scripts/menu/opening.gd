@@ -72,7 +72,8 @@ var rate := 1.0
 var kind := "full"
 var timeline: Dictionary = FULL
 var home_title: Label
-var title: Label
+## The opening's own title: a copy of Home's mark (or, with no mark, of its label).
+var title: Control
 var _mark: Control
 var _home_mark: Control
 var _name_local := Rect2()
@@ -151,14 +152,21 @@ func setup(home: Label, which: String = "full", card: Array = [], row: Array = [
 	_ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ground.draw.connect(_draw_ground)
 	_stage.add_child(_ground)
-	# The title, under the banners so they land on it.
-	title = home.duplicate() as Label
+	# The title, under the banners so they land on it. With a painted mark, just the mark,
+	# in a box the size of Home's label: the label's own (clear) text has nothing to show,
+	# and at the splash's size it would reach past the screen's edge.
+	_home_mark = home.get_node_or_null("Wordmark") as Control
+	if _home_mark != null:
+		title = Control.new()
+		title.name = "TitleCopy"
+		title.add_child(_home_mark.duplicate())
+	else:
+		title = home.duplicate() as Label
 	title.modulate.a = 1.0
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(title)
-	title.size = title.get_combined_minimum_size()
+	title.size = home.get_combined_minimum_size()
 	_mark = title.get_node_or_null("Wordmark") as Control
-	_home_mark = home.get_node_or_null("Wordmark") as Control
 	if _mark != null:
 		_mark.set("banners", 0.0)
 		var n: Rect2 = _mark.call("name_rect")
