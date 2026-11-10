@@ -341,7 +341,7 @@ func _check_task_and_house() -> void:
 	_expect(String(soc.task(RomanceStories.EDDA)["job_id"]) == String(job["id"]), "and the promise knows its job")
 	_expect(soc.complete_task(RomanceStories.EDDA, ctx["current_hour"])["ok"] and soc.get_quest("quest_edda")["chapter"] == 4
 		and soc.task(RomanceStories.EDDA).is_empty(), "done, the chapter ends and the next one opens")
-	_expect(soc.take_untold(RomanceStories.EDDA).contains("Three houses") and soc.take_untold(RomanceStories.EDDA) == "",
+	_expect(soc.take_untold(RomanceStories.EDDA).contains("Three pledges") and soc.take_untold(RomanceStories.EDDA) == "",
 		"her account of it waits for your next visit, once")
 	# Standing: chapter 3 brought 15; standing by her in council costs 10.
 	ctx["current_hour"] += 25.0

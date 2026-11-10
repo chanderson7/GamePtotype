@@ -83,8 +83,8 @@ func _init() -> void:
 	if talk.telling():
 		talk.tell_rest()
 	check(talk._log.find_child("Reaction", true, false) != null and not talk.log_text().contains("+10"), "what changed is told as how she takes it, not as a number")
-	var words: Array = talk._log.find_children("Words", "Label", true, false).filter(func(l): return String(l.text).contains("steadfast"))
-	check(words.size() == 1 and String(words[0].text).begins_with("A steadfast friend"), "her answer is her words alone in her bubble, with no quotes or narration inside it")
+	var words: Array = talk._log.find_children("Words", "Label", true, false).filter(func(l): return String(l.text).contains("asks nothing"))
+	check(words.size() == 1 and String(words[0].text).begins_with("A friend."), "her answer is her words alone in her bubble, with no quotes or narration inside it")
 	check(talk.find_child("TrustBar", true, false) != null, "and trust appears on the nameplate once there is some")
 	check(talk._log.find_child("Note", true, false) != null, "and the talk says what changed")
 
@@ -170,7 +170,7 @@ func _init() -> void:
 		"a decision memory opens on what you said, her answer to come a line at a time")
 	while moment.telling():
 		moment.reply_node("continue").pressed.emit()
-	check(moment.log_text().contains("A steadfast friend") and moment.reply_ids() == ["finish"], "then her answer, and the only way on is to close it")
+	check(moment.log_text().contains("there's a place at my table") and moment.reply_ids() == ["finish"], "then her answer, and the only way on is to close it")
 	check(int(social.get_relationship("edda").get("visits", 0)) == visits_before and social.get_relationship("edda").get("last_visit_hour", -1.0) == last_before,
 		"opening a memory is not a visit: nothing is counted")
 	moment.choose("finish")
@@ -313,6 +313,8 @@ func _init() -> void:
 		var spoken: Array = t._log.find_children("Words", "Label", true, false).map(func(l): return String(l.text))
 		check(not spoken.is_empty() and spoken.all(func(w): return not w.begins_with("'") and not w.contains(pair[2] + ": ")), "%s's words sit in her bubble without quotes or a name prefix" % pair[2])
 		check(t.has_reply("decide_offer_help") and t.choose("decide_offer_help"), "and the first audience ends the same way")
+		while t.telling():
+			t.tell_rest()
 		check(t._log.find_child("Reaction", true, false) != null and not t.log_text().contains("+10"), "%s's reaction is told in words" % pair[2])
 
 	print("FAILURES: %d" % failures)

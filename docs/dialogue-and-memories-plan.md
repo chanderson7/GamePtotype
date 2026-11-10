@@ -1,5 +1,28 @@
 # Romance dialogue: choices you make, and memories with more in them
 
+**Rewritten (2026-11-10, later).** The first build kept the old scenes and added choices
+to them, and the three women still spoke in one wry voice; in play it read as the same
+dialogue. So the dialogue itself was rewritten, everywhere it is met:
+
+- **Three voices.** Edda: brisk, exact, bossy because fond; orders, numbers, "Captain".
+  Farah: quick, playful, practised; guesses aloud, tries names on you, short when she
+  means it. Kaede: level, literal, exact; observations with their confidence stated, no
+  contractions, funny by accident. (Each file's header has the voice and the backstory.)
+- **Real backstory, carried through the eight visits.** Edda's mother brought forty-one
+  villagers out of burning Thornwall and was the forty-second; Edda, fourteen, was counting
+  them in with a tally stick. Farah's first truce held eleven days, and her brother Idris
+  was on the road when it failed. Kaede's father opened the lower gate to let nineteen
+  children out, and no account names him. The S-rank visits settle each: the forty-second
+  notch, the Salt Road, the deposition.
+- **Story chapters are scenes.** Every chapter (`romance_stories.gd`) has a lead-in she
+  speaks, a couple of things you might say back (`lead`: talk, not decisions, saved
+  nowhere), and answers to each decision written as an exchange instead of a summary.
+  Ids, effects, tags and memories are unchanged.
+- **Greetings, what she says about each visit, the remembered lines, the postscripts and
+  the vows** are rewritten to match.
+- The plan's tables of scenes below describe the first build; the scene files are now
+  the reference.
+
 **As built (2026-11-10).** Everything below is in, with the three questions answered:
 eight visits each (the two S-rank visits are new); the *heart* answers are affectionate,
 never explicit (a hand, a compliment, an admission, "I love you" at the last); and there

@@ -1,546 +1,566 @@
-## Kaede's visits: the archivist who records everything except her own preferences. (The
-## format is described in personal_conversations.gd.)
+## Kaede's visits. (The format is described in personal_conversations.gd. The ids are save
+## keys from the first version of each visit and no longer describe the scene.)
 ##
-## Her running habits are the cat on her private map, whose attendance is never guaranteed,
-## and her deliberately terrible theories about a very bad mystery. Her thread is the
-## childhood name she forbade, and the aunt who gave it. She asks you three things: a place
-## of no use to anyone, a place that changes each time, and a preference never said aloud.
+## Her voice: level, literal and exact. She states what she observes and how sure she is of
+## it, corrects before she comforts, and takes notes on you in front of you. She does not
+## make jokes; she says true things that are funny, and notices afterwards. No contractions.
+##
+## What is under it: at seven she was in the gatehouse of Kitayama during the siege. On the
+## eleventh night her father, Ishida Ren, keeper of the lower gate, opened it to let the
+## children out, and both clans loosed at the gate. He was carrying her. One clan's account
+## calls the one who opened it a traitor, the other a coward; neither names him. She was
+## given to the archive afterwards as a pledge-child, and has not passed the lower gate
+## since. The visits go from interviewing you as a source, to the romances she hides under
+## tide tables, to the name she wrote in a margin at nine, to the maps of places she has
+## never seen, to her file on you, to the gate itself, to her own deposition.
+##
+## She asks you: what a siege is like for the small; what is not on the map; a preference
+## you have never stated.
 extends RefCounted
 
 const SCENES := {
 	"kaede_useless_map": {
-		"title": "A Map of Useless Places", "rank": "C", "requires_any": [], "setting": "archive_room",
+		"title": "Primary Source", "rank": "C", "requires_any": [], "setting": "archive_room",
 		"parts": [
 			{"face": "thoughtful", "text": """
-Kaede covers a small page when you approach, then uncovers it with visible annoyance at herself.
+Kaede has a clean sheet, a fresh brush, and a list of questions. She has placed a stool for you at a measured distance from the desk.
 
-Kaede: It is a map. It will not help you travel.
+Kaede: You command soldiers in battle. I have four hundred accounts of battles, and none by anyone who was at the front of one. You are a primary source. Sit.
 
-There are no roads, borders, or distances. One mark records where afternoon light reaches a wall. Another notes a step that stays dry in rain. Beside the stairs is a compact ink shape.
+Kaede: First question. How many people have you killed?
 """, "options": [
-				{"say": "What's this one, by the stairs?", "tone": "ask", "face": "amused", "reply": """
-Kaede: A cat. Usually. I cannot guarantee the cat's attendance.
-"""},
-				{"say": "That stair has nine steps. You've drawn eight.", "tone": "tease", "mark": "kaede_corrected", "face": "amused", "reply": """
-Kaede counts the drawn steps. Then she goes to the door, counts the real ones, and comes back with color in her face.
+				{"say": "That's your first question?", "tone": "tease", "face": "amused", "reply": """
+Kaede: It is the one every account omits. I assumed it was therefore the important one.
 
-Kaede: Nine. You are right. That is the first correction anyone has made to this map, and it is a good one. I am annoyed at how pleased I am.
+Kaede: I see from your face that it is also impolite. I shall note that, and ask it last.
+"""},
+				{"say": "I stopped counting. On purpose.", "tone": "share", "mark": "kaede_honest_count", "reply": """
+Kaede writes: source ceased counting, deliberately. Then she looks up.
+
+Kaede: That is the first honest figure I have been given for a battle. It is not a number, and it is more exact than the numbers.
 """},
 			]},
 			{"face": "amused", "text": """
-As a child, she mapped places where she could read undisturbed: behind a storehouse at noon, beneath a stair after lessons, beside an aunt who hummed and never asked what the book was about.
+Kaede: Second. Before a charge. The chronicles say that commanders feel 'resolve'. Describe resolve.
 
-Kaede: Official maps explain how to reach an obligation. These explain why I might remain after arriving. I have not decided whether that makes them maps or illustrated excuses.
+You: Mostly I need to piss.
+
+Kaede: That is not in any chronicle.
+
+She writes it down, in full, in her best hand.
 """, "options": [
-				{"say": "No strategic value at all. I like that.", "tone": "comfort", "reply": """
-Kaede: None. I verified it. An army could take every position on this page and gain one dry step.
+				{"say": "You're really writing that?", "tone": "tease", "reply": """
+Kaede: It is corroborated. A ferryman told me the same of floods. I had dismissed him. I owe him a correction.
 
-Kaede: You are the first person to say so as a compliment.
+Kaede: Do you know how rare it is for two sources to agree without a motive?
 """},
-				{"say": "Do you draw these only for yourself?", "tone": "ask", "reply": """
-Kaede: Until now. That answer is technically no longer accurate.
+				{"say": "What do the chronicles say about fear?", "tone": "ask", "face": "thoughtful", "reply": """
+Kaede: That the enemy felt it. Always the enemy. In four hundred accounts, not one victor was afraid.
 
-She considers taking the page back, but leaves it between you.
+Kaede: I have long suspected the accounts. I had no method of testing them. Now I have you.
 """},
 			]},
-			{"face": "amused", "text": """
-She straightens the page, animated now that there is a classification to dispute.
+			{"face": "thoughtful", "text": """
+She has filled a page. She sets the brush down, squares it, and does something she has not done all afternoon: she hesitates.
 
-Kaede: You have looked at it long enough to have formed an opinion. That is how it starts. Name one. A place of no use to anyone, where you would stay anyway.
+Kaede: A last question. It is not for the record. I was in a siege, at seven. I remember almost nothing. A gate. Noise. Someone carrying me.
+
+Kaede: You have been inside such things as an adult. What is it like, for the ones who are small?
 """, "options": [
-				{"say": "A wall that keeps the sun's warmth after dusk.", "tone": "share", "mark": "you_spot_wall", "reply": """
-Kaede reaches for her brush.
+				{"say": "Loud. They don't understand it. They remember someone's arms.", "tone": "comfort", "mark": "kaede_told_siege",
+					"memory": "Was interviewed by Kaede as a primary source, and told her what the small ones keep from a siege.", "reply": """
+Kaede: Arms. Yes.
 
-Kaede: South-facing, then, and stone. How long does it hold? No. Do not make that objective. Tell me another day how long you stayed.
+Kaede: That is consistent. I had thought it too slight a thing to be all I kept. You are saying it is what there is to keep.
 """},
-				{"say": "A gate to lean on, with a road to watch.", "tone": "share", "mark": "you_spot_gate", "reply": """
-Kaede: A gate that is not being used as a gate. Good. That is exactly the category.
+				{"say": "Who carried you?", "tone": "ask", "reply": """
+Kaede: I do not know who else was there. It is the first omission I ever noticed.
 
-She draws it small, slightly open, and declines to say where the road goes.
+Kaede: I have spent twenty years in an archive looking for what nobody wrote down. That is not in my official statement of purpose. You may be the only person I have told.
 """},
-				{"say": "The step outside a cook tent, before anyone's up.", "tone": "share", "mark": "you_spot_step", "reply": """
-Kaede: A step again. We have a shared weakness.
+				{"say": "Not for the record. Ask me as yourself.", "tone": "share", "reply": """
+Kaede: I do not know the difference.
 
-Kaede: I shall mark it 'early'. The hour is part of the place; I learned that from the cat.
+Kaede: I put the brush down before I asked. I did not notice that I had. Perhaps that is the difference.
 """},
 			]},
 		],
 		"closing_face": "amused", "closing": """
-Kaede adds one small mark, then dates the corner.
+She dates the sheet, signs it, and then, instead of filing it, sets it apart from the others.
 
-Kaede: The cat may object to being represented without consent. I will amend the record if a complaint is submitted.
+Kaede: This is the most useful account in the building. It is also unpublishable. Nobody will believe the part about needing to piss.
 
-You: In writing?
-
-Kaede: Paw marks would be admissible.
-
-Her smile appears quickly and is gone only because she bends over the page again. When you leave, she does not cover it.
+Kaede: Come again. I have forty more questions. I have removed the impolite ones. There are now thirty-one.
 """,
-		"summary": "Kaede shows you a private map of places she likes: a dry stair, a patch of afternoon light, and a cat whose presence is not guaranteed. She asks you for a useless place of your own and adds it. The map offers no travel intelligence or strategic bonus.",
-		"memory": "Kaede showed you her map of pleasant and useless places, and you added one.",
+		"summary": "Kaede interviews you as a primary source on battles, since none of her four hundred chronicles was written by anyone at the front of one. Her questions are blunt and her note-taking exact. Then, off the record, she asks what a siege is like for a child: she was in one at seven, and remembers only a gate, noise, and being carried.",
+		"memory": "Was interviewed by Kaede as a primary source, and made it into the record.",
 	},
 	"kaede_bad_mystery": {
-		"title": "A Very Bad Mystery", "rank": "C", "requires_any": [], "setting": "archive_room",
+		"title": "A Reference Work", "rank": "C", "requires_any": [], "setting": "archive_room",
 		"parts": [
 			{"face": "amused", "text": """
-Kaede is reading a cheaply bound mystery with the concentration normally reserved for disputed covenants.
+Kaede is reading a cheaply bound book with the concentration she gives to disputed covenants, and writing in its margins. When you come in she puts a tide table over it. The tide table is not large enough.
 
-Kaede: The accusation is impossible. The seal is on the wrong side of the fold, and the witness described ink that had not yet been made.
+Kaede: It is a reference work.
 
-[?kaede_corrected] Kaede: You may correct the author as freely as you corrected my stairs. He needs it more.
+You: It's called 'The Bandit Prince's Bride'.
 
-You: Shall we stop reading?
+Kaede: It refers to bandits.
 
-Kaede: Certainly not. The gardener has just acquired a second disguise.
+[?kaede_honest_count] Kaede: You gave me an honest figure once. I shall give you one. I have read it nine times.
 """, "options": [
-				{"say": "The gardener did it. In the second disguise.", "tone": "tease", "reply": """
-Kaede: Too obvious. I accuse the cabinet. It has means, opportunity, and a documented history of being locked. Motive will emerge if the author has courage.
-"""},
-				{"say": "It was the cat. It's always the cat.", "tone": "tease", "mark": "kaede_accused_cat", "reply": """
-Kaede: There is no cat in this book.
+				{"say": "What are you writing in it?", "tone": "ask", "reply": """
+Kaede: Corrections. He scales a tower on a rope of bedsheets. I have calculated the load. He would fall forty feet.
 
-Kaede: Which is precisely what a competent cat would arrange. Entered. I shall need a motive by the end of the chapter, and it cannot be 'spite', which is assumed.
+Kaede: Also, the heroine faints eleven times, and no physician is consulted. I have recommended one.
+"""},
+				{"say": "Is it any good?", "tone": "tease", "reply": """
+Kaede: It is dreadful. The geography is impossible, the seal is on the wrong side of the letter, and a horse changes colour in chapter four.
+
+Kaede: I cannot stop reading it.
 """},
 			]},
 			{"face": "amused", "text": """
-She has read the story before. A favorite childhood reader gave every suspect the same guilty whisper, including an elderly dog and one locked cabinet. Kaede and her cousins competed to produce theories unsupported by any evidence.
+Kaede: A binder in the lower town sells them. I told him they were for a study of popular error. He wraps them in plain paper now, and winks. I do not know what the wink signifies.
 
-Kaede: I was excellent at being wrong. Deliberately wrong, I should clarify. Usually.
+Kaede: I do not understand the central matter. The prince says he would 'burn the world' for her. That is not a reasonable exchange. And yet I have read that page more often than the others.
 """, "options": [
-				{"say": "Why read it again, if it's so bad?", "tone": "ask", "reply": """
-Kaede: Because I know where it fails, so I can enjoy how confidently it approaches the failure. Also the dog is acquitted. I find that reassuring.
-"""},
-				{"say": "I've a worse book than that in my saddlebag.", "tone": "share", "reply": """
-Kaede: Worse. You are certain.
+				{"say": "People say foolish things when they're in love.", "tone": "share", "reply": """
+Kaede: So I have read. I had classified it as a convention of the form.
 
-Kaede: I shall want to see it. Not to borrow. To verify. A claim of that size requires an inspection of the binding at the very least.
+Kaede: You are a primary source on battles. Are you also one on this? You need not answer. I am noting that you have changed colour. Like the horse.
+"""},
+				{"say": "The wink means he knows why you buy them.", "tone": "tease", "mark": "kaede_wink", "reply": """
+Kaede: He cannot. I gave a false purpose.
+
+Kaede: The purpose was unconvincing. I see. I have been buying forbidden romances from a man who has known the entire time. I shall have to change binders. I shall not change binders.
 """},
 			]},
-			{"face": "amused", "text": """
-She turns the page and makes an offended sound at a clue she clearly enjoys.
+			{"face": "thoughtful", "text": """
+She takes the tide table off the book. It seems to cost her something, like declassifying a document.
 
-Kaede: Real evidence deserves care. Fictional evidence has volunteered to be mistreated for our amusement. I see no ethical conflict.
+Kaede: I was given to this archive at seven. Everything I was taught concerned what can be proven. Nobody mentioned this. I have had to study it from very poor sources.
+
+Kaede: Read the page. Tell me whether it is as foolish as I think. I require a second opinion, and I can hardly ask the scribes.
 """, "options": [
-				{"say": "Read me the next page.", "tone": "ask", "reply": """
-Kaede gives the narrator an unnecessarily sinister voice, then stops to object to her own performance.
+				{"say": "'I would burn the world for you, my desert rose!'", "tone": "tease", "mark": "kaede_read_aloud", "face": "amused",
+					"memory": "Caught Kaede with 'The Bandit Prince's Bride', read it aloud in the voice, and made her laugh.", "reply": """
+Kaede makes a sound you have not heard from her. It is, on inspection, a laugh, and she examines it with alarm.
 
-Kaede: No, that makes the actual culprit sound innocent. I must be less competent.
+Kaede: That was involuntary. Do it again. No. Do not. I have a reputation in this building.
 """},
-				{"say": "Does anyone know you read these?", "tone": "ask", "reply": """
-Kaede: The binder who sells them, who has been sworn to nothing and will tell anyone who asks.
+				{"say": "It's foolish. That's why it works.", "tone": "share", "reply": """
+Kaede: Explain.
 
-Kaede: And now you. I find I mind that less than I had planned to.
+You: Nobody wants a reasonable exchange.
+
+Kaede: That contradicts every principle of this archive. I am going to think about it for several days. I resent that I shall enjoy doing so.
 """},
-				{"say": "Deliberately wrong. Teach me.", "tone": "tease", "reply": """
-Kaede: First, identify what the evidence supports. Then walk briskly in the other direction.
+				{"say": "I think you like the prince.", "tone": "tease", "face": "amused", "reply": """
+Kaede: I do not. He is a poor planner and a worse climber.
 
-Kaede: The art is in the confidence. You must accuse the cabinet as though you had seen it holding the knife.
+Kaede: I like that she corrects his map in chapter six. It is the only credible scene. I have marked it. Twice.
 """},
 			]},
 		],
 		"closing_face": "amused", "closing": """
-The chapter ends by revealing a hidden tunnel that could not fit beneath the building described on page two. Kaede closes the book on one finger.
+She puts the book in the drawer with her private maps, not with the tide tables.
 
-Kaede: Outrageous. We will continue tomorrow.
+Kaede: You will tell no one.
 
-You: We?
+You: Who would I tell?
 
-[?kaede_accused_cat] Kaede: You have accused a cat that does not appear in the text. You are now part of the inquiry. No expertise is required; in fact, it may be a disadvantage.
-
-[?!kaede_accused_cat] Kaede: You have accused a man on the evidence. That will have to be trained out of you. You are now part of the inquiry.
-
-She leaves the book at the absurd clue, visibly pleased to have someone with whom to guess badly.
+Kaede: That is a sound argument. Very well. There is a sequel. 'The Bandit Prince's Heir.' It is worse. I have not had anyone to say so to.
 """,
-		"summary": "Kaede complains about an impossible forged letter in a favorite bad mystery, then refuses to stop reading. She enjoys making deliberately weak theories about fiction while keeping real evidence serious. You accuse an implausible suspect and are enrolled in the inquiry. No real clue or quest is involved.",
-		"memory": "Joined Kaede in solving a very bad mystery as incorrectly as possible.",
+		"summary": "You catch Kaede reading 'The Bandit Prince's Bride' under a tide table, and annotating its errors. She has read it nine times. Raised in an archive on what can be proven, she has been trying to study love from very poor sources, and asks you for a second opinion on one page.",
+		"memory": "Caught Kaede with 'The Bandit Prince's Bride', and was asked for a second opinion.",
 	},
 	"kaede_margin_name": {
 		"title": "A Name in the Margin", "rank": "B", "requires_any": ["kaede_useless_map", "kaede_bad_mystery"], "setting": "archive_room",
 		"parts": [
 			{"face": "concerned", "text": """
-A faded label has slipped from an old document box. The handwriting uses a name you do not recognize.
+The official account of the siege of Kitayama lies open on the desk: forty leaves, three seals. In the margin of the ninth leaf, in a child's round hand, someone has written a name. Someone else has tried to scrape it out.
 
-Kaede: My aunt wrote that. I was twelve and had just begun formal instruction. I demanded that everyone use my proper name.
+Kaede: I was nine. I was beaten for it. A margin is not for additions.
 
-You: Did they agree?
-
-Kaede: For nearly an hour.
+[?kaede_told_siege] Kaede: You told me what the small ones keep from a siege. Arms. These were the arms.
 """, "options": [
-				{"say": "What was the name?", "tone": "ask", "mark": "kaede_asked_name", "reply": """
-Kaede closes her hand over the label. Not quickly; she is not hiding it. She is deciding.
+				{"say": "Whose name?", "tone": "ask", "mark": "kaede_asked_name", "reply": """
+Kaede: My father's. Ishida Ren. He kept the lower gate.
 
-Kaede: Not today. I should like it noted that you asked, and that I am glad you did. Those are separate entries.
+Kaede: You are the second person to ask. The first was the archivist who beat me. She asked in a different tone.
 """},
-				{"say": "You needn't tell me what it says.", "tone": "quiet", "mark": "kaede_left_name", "reply": """
-Kaede folds the label into her palm.
+				{"say": "You needn't tell me.", "tone": "quiet", "mark": "kaede_left_name", "reply": """
+Kaede: No. I need not. That is why I find I am going to.
 
-Kaede: Thank you. Curiosity can be respectful without being satisfied. I would like to remember that from both sides.
+Kaede: It is my father's. Ishida Ren. He kept the lower gate.
 """},
 			]},
-			{"face": "amused", "text": """
-The nickname came from a childhood misunderstanding and became affectionate through repetition. Kaede had corrected her aunt in front of visiting scholars. Her aunt bowed gravely, used the proper name all afternoon, then labeled every sweet cake with the forbidden one.
+			{"face": "concerned", "text": """
+Kaede: The account says: 'on the eleventh night the lower gate was opened from within, and the slaughter began.' It does not say by whom. One clan's copy says a traitor. The other's says a coward. Neither gives a name, because a name could be argued with.
 
-Kaede: I was furious. I ate the cakes to destroy the evidence. This was not a strong archival principle.
+Kaede: He opened it to let the children out. There were nineteen of us in the gatehouse. Both clans loosed at the gate at once. He was carrying me.
 """, "options": [
-				{"say": "What was your aunt like?", "tone": "ask", "reply": """
-Kaede: Patient until patience became boring, then inventive. She corrected my citations and cheated at guessing games. I found this inconsistent. She considered it a complete personality.
-"""},
-				{"say": "I was called something, once. I stopped answering to it.", "tone": "share", "face": "thoughtful", "reply": """
-Kaede listens without asking for the name.
+				{"say": "He saved nineteen children.", "tone": "comfort", "reply": """
+Kaede: Eighteen. And he began the slaughter. Both statements are accurate.
 
-Kaede: Then you know the strange moment when a familiar sound no longer fits, and the later moment when perhaps it does again.
+Kaede: That is what I cannot file. An archive wants one heading. I have had him under two for twenty years.
+"""},
+				{"say": "And nobody wrote that down.", "tone": "ask", "reply": """
+Kaede: The children were seven. Nobody takes a statement from a child.
+
+Kaede: I have the names of eighteen of them. It took eleven years. Not one was ever asked. I was the nineteenth, and I asked myself, at nine, in a margin.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-She turns the label over. Her amusement softens.
+She touches the scraped place with one finger. The name is still legible under it, if you know to look.
 
-Kaede: I thought affection made me look less serious. She knew I was serious. She also knew I was twelve. Both facts survived the afternoon.
+Kaede: I became an archivist to put him in the record. Then I learned what a record is. If I write that he was a hero, I do what the clans do. I make the account convenient to me.
 
-Kaede: She died the winter before last. Nobody has used the name since. I notice the silence where it was, which is not something I expected to be able to catalog.
+Kaede: So he is nowhere. I keep the most accurate archive in Ryumon, and my father is a scraped place in a margin.
 """, "options": [
-				{"say": "Do you miss hearing it?", "tone": "ask", "reply": """
-Kaede: I miss being someone it could be said to. That is not the same, and I have not found the right heading for it.
+				{"say": "Then write only what you saw. You're a witness.", "tone": "help", "mark": "kaede_witness", "reply": """
+Kaede: A witness aged seven.
 
-Kaede: The name itself is only a sound. It was the license to use it that was rare.
+Kaede: A primary source, with the limits stated. 'I was carried. The gate was open. I did not see who loosed.' That is not convenient to anyone. I could sign that.
 """},
-				{"say": "She'd be glad it started a conversation.", "tone": "comfort", "face": "amused", "reply": """
-Kaede: She would be pleased that the label caused a discussion. She believed all properly stored objects should occasionally make trouble.
-"""},
-				{"say": "When you want it said again, I'd be honored.", "tone": "heart", "when": "romantic", "face": "warm",
-					"memory": "Spent an evening with Kaede and an old label, and offered to be the one who says her private name, when she chooses.", "reply": """
-Kaede is very still, in the way she is when a document turns out to be older than its catalog entry.
+				{"say": "A daughter looked for eleven years. That's a record too.", "tone": "comfort", "reply": """
+Kaede: That is a sentiment.
 
-Kaede: That is a significant offer. I am not declining it. I am filing it where I can find it.
+Kaede: It is also a fact. Eleven years, eighteen names. It is documented; I documented it. I had not thought of the search as testimony.
 """},
-				{"say": "If you ever want it heard, I'm a safe archive.", "tone": "warm", "when": "friend", "face": "amused", "reply": """
-Kaede: You are a terrible archive. You forget dates and you fold corners.
+				{"say": "He's somewhere. You said his name, and I heard it.", "tone": "heart", "when": "romantic", "face": "warm",
+					"memory": "Saw the name Kaede wrote in a margin at nine, and heard her say it aloud to someone for the first time.", "reply": """
+Kaede: Ishida Ren.
 
-Kaede: You are, however, safe. I have noted the distinction.
+She says it again, to you, and then a third time, like someone testing a floor.
+
+Kaede: It is different, said to a person. The margin did not answer. I had not understood what I was missing in a reader.
+"""},
+				{"say": "Tell me about him. I'll remember; that's an archive of a kind.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
+Kaede: You forget dates, and you fold corners.
+
+Kaede: He whistled when he checked the bolts. He had a name for me that I have not heard since. You see: I am telling you. You are a poor archive, and I am using you anyway.
 """},
 			]},
 		],
 		"closing_face": "thoughtful", "closing": """
-Kaede returns the label to the box rather than the official catalog.
+She does not close the book. She leaves it open at the ninth leaf, with the lamp on it.
 
-[?kaede_bad_mystery] Kaede: If this were our mystery, the label would be a clue and my aunt would be the cabinet. I am glad it is not our mystery.
+Kaede: I have never shown that margin to anyone. I should like it noted that the building is still standing.
 
-Kaede: I may tell you another day. That is not a test. I dislike tests whose rules are concealed from the person taking them.
-
-You: Then another day is enough.
-
-She nods, relieved that the boundary has not turned the evening cold.
+Kaede: Come again. I may have further omissions.
 """,
-		"summary": "Kaede finds a label bearing a childhood nickname she once forbade. She remembers the aunt who teased and respected her in equal measure, and who died the winter before last. The name stays private for now; respecting that completes the memory.",
-		"memory": "Spent an evening with Kaede and an old label whose private name remained her choice.",
+		"summary": "In the margin of the official account of the siege of Kitayama there is a name in a child's hand, half scraped out. Kaede wrote it at nine, and was beaten for it. It is her father's: Ishida Ren, who kept the lower gate and opened it to let nineteen children out, and whom both clans' accounts call a traitor without naming.",
+		"memory": "Saw the name Kaede wrote in a margin at nine, and learned whose it was.",
 	},
 	"kaede_missing_street": {
-		"title": "The Missing Street", "rank": "B", "requires_any": ["kaede_margin_name"], "setting": "archive_room",
+		"title": "Reported, Not Observed", "rank": "B", "requires_any": ["kaede_margin_name"], "setting": "archive_room",
 		"parts": [
 			{"face": "thoughtful", "text": """
-Kaede has redrawn the same corner three times. On one page a bench stands beneath a tree. On another it faces the road. The newest sketch has no bench at all.
+The desk is covered in maps. Not the archive's: Kaede's own, in her exact hand. The Glass Sea. The pass above Marchgate. A harbour, with every mooring drawn.
 
-Kaede: It moved. Again.
+Kaede: I have never seen any of them. I have not been past the lower gate since I was seven. They are compiled from travellers. Each is marked: reported, not observed.
 
-[?kaede_asked_name] Kaede: Before you ask: no, the bench does not have a private name. I saw your face. You were going to ask.
+[?kaede_asked_name] Kaede: You asked me a direct question once, and I answered it. You may ask why.
 
-[?kaede_left_name] Kaede: You are allowed to ask about this one. It is only a bench.
+[?kaede_left_name] Kaede: You did not ask, once. You will not ask why now, either. So I shall say.
 """, "options": [
-				{"say": "Give me the cord. We'll measure it properly.", "tone": "help", "reply": """
-You hold one end of a knotted cord against the wall while she paces out the corner in ink. The numbers agree with all three drawings and explain none of them.
+				{"say": "Why not go?", "tone": "ask", "reply": """
+Kaede: A pledge-child does not leave. That was the term: I was given to the archive so that both clans would trust the record.
 
-Kaede: The measurements are sound. The street is simply not cooperating with them.
+Kaede: The term lapsed when I came of age. Eleven years ago. I have examined the gate each morning since, and found no reason sufficient to walk through it.
 """},
-				{"say": "Perhaps it prefers the shade.", "tone": "tease", "face": "amused", "reply": """
-Kaede: So do I. That is the troublesome part; I approve of the change.
-"""},
-			]},
-			{"face": "amused", "text": """
-Her first map of home included a shortcut through a neighbor's gate. The route existed only when the neighbor remembered to leave it open, which Kaede's careful scale could not predict. She kept correcting the map until her mother wrote 'on Tuesdays, perhaps' beside the line.
+				{"say": "They're beautiful.", "tone": "comfort", "reply": """
+Kaede: They are accurate to the sources. The sources disagree; I have noted where.
 
-Kaede: I considered that vandalism. It was also the most accurate annotation.
-
-Kaede: You travel more than I do. There must be a place that is different each time you return to it. I should like a second example before I draw a conclusion.
-""", "options": [
-				{"say": "A ford I use. Never the same river twice.", "tone": "share", "mark": "you_change_ford", "face": "thoughtful", "reply": """
-Kaede: Then every crossing is a first crossing, and the map is a record of one afternoon's luck.
-
-Kaede: How do you find it again? No. I see. You do not find it; you find where it was, and ask the water.
-"""},
-				{"say": "Our camp. Same tents, new ground every night.", "tone": "share", "mark": "you_change_camp", "face": "thoughtful", "reply": """
-Kaede: A place that keeps its plan and changes its location. I have only ever studied the reverse.
-
-Kaede: Then you can walk to your own tent in the dark anywhere in the world. That is either a map or its opposite. I shall need to think.
-"""},
-				{"say": "The village I'm from. Smaller each time.", "tone": "share", "mark": "you_change_home", "face": "thoughtful", "reply": """
-She does not correct you, though both of you know the measurements have not changed.
-
-Kaede: Then the surveyor is the variable. I had not allowed for that. I am going to have to, I think, in several places.
+Kaede: Beautiful is not a category I had applied. I shall consider it. I am free to leave, you understand. The pledge lapsed eleven years ago. I have simply not found a sufficient reason.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-The present street keeps changing: a stall closes, a tree is pruned, the uncertain cat selects a different stair. Kaede has been treating each difference as a defect in the previous page rather than evidence of another day.
+Kaede: A ferryman told me the sea is the colour of slate. A pilgrim said jade. A child said it was the colour of the sea, and looked at me as though I were simple. I have recorded all three.
 
-She lays the three maps side by side.
+Kaede: You have been to these places. I should like a fourth source. Choose one, and tell me what is not on the map.
 """, "options": [
-				{"say": "Date each version and keep them all.", "tone": "help", "reply": """
-Kaede writes today's date beneath the missing bench.
+				{"say": "The sea. It's never one colour. That's the point of it.", "tone": "share", "mark": "you_told_sea", "reply": """
+Kaede: Then all three were right, and I was wrong to seek agreement.
 
-Kaede: Then none of them must defeat the others. They can each be correct for an afternoon. That is an unexpectedly generous system.
+She writes: colour, variable; the variation is the datum.
+
+Kaede: I have been correcting my sources toward each other. I may have been erasing the sea.
 """},
-				{"say": "Tell me about the old shortcut.", "tone": "ask", "face": "amused", "reply": """
-Kaede: It passed a kitchen window. On Tuesdays the neighbor baked pears, and the shortcut became very slow. I omitted that because appetite was not part of the scale.
+				{"say": "A battlefield, the morning after. The birds come back first.", "tone": "share", "mark": "you_told_field", "reply": """
+Kaede: Birds. No chronicle has birds. I have four hundred accounts that end at sunset. Nobody stays to write the morning.
+
+Kaede: You stayed. Of course you did. You had to count.
 """},
-				{"say": "Draw today's with us on the bench. Wherever it is.", "tone": "heart", "when": "romantic", "face": "warm",
-					"memory": "Watched Kaede turn a changing street into several true afternoons, and drawn into one of them beside her.", "reply": """
-Kaede: The bench is not in evidence today.
+				{"say": "The road at night, the company asleep. I'm the only one awake.", "tone": "share", "mark": "you_told_road", "reply": """
+Kaede: You keep a watch that nobody ordered.
 
-She draws it anyway, where the shade is, with two small marks on it that are not to scale and not labeled.
-
-Kaede: A conjecture. I shall date it. I should like it to have been true on at least one afternoon.
+Kaede: I do the same, with the lamp. I had thought it was peculiar to archives. I shall mark it on both maps: one person awake.
 """},
-				{"say": "Draw today's and I'll witness it.", "tone": "warm", "when": "friend", "face": "amused", "reply": """
-Kaede: A witnessed map of nothing in particular. Yes.
+			]},
+			{"face": "concerned", "text": """
+She looks at the lower gate, through the window. You have the sense she always knows where it is, the way one knows where a tooth is.
 
-She draws the corner as it stands, hands you the brush, and shows you where a witness signs. Your mark is crooked. She dates it without comment, which is a kindness.
+Kaede: I shall tell you the reason I have not found sufficient. It is not the pledge. If I walk through that gate, it is the gate. The one that was opened. I have not passed it since I was carried through.
+
+Kaede: That is not rational. I have catalogued it as not rational. It has not helped.
+""", "options": [
+				{"say": "Then don't go through it alone.", "tone": "help", "reply": """
+Kaede: That is not a method.
+
+Kaede: It is, in fact, exactly a method. It is the one he used. I was carried. I had not considered that I might be accompanied.
+"""},
+				{"say": "Not rational doesn't mean not real.", "tone": "comfort", "reply": """
+Kaede: That sentence would be struck from any finding of mine.
+
+Kaede: I am going to keep it anyway. In the private box, where the things go that are true and cannot be proven.
+"""},
+				{"say": "When you're ready, I'll walk through it with you. However long.", "tone": "heart", "when": "romantic", "face": "warm",
+					"memory": "Saw Kaede's maps of places she has never been, and promised to walk through the lower gate with her when she was ready.", "reply": """
+Kaede: You are frequently away. Your waiting would be intermittent.
+
+Kaede: I find that it would be sufficient. An intermittent source, consistently returning. I have relied on worse. I have never relied on better.
+"""},
+				{"say": "I'll walk you through it. Friends are allowed at gates.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
+Kaede: There is no rule concerning friends at gates.
+
+Kaede: I have checked, just now, in my head. There is no rule. It appears to be permitted.
 """},
 			]},
 		],
 		"closing_face": "thoughtful", "closing": """
-The moving bench becomes a sequence rather than an error.
+She takes the harbour map and, beneath 'reported, not observed', leaves a blank line.
 
-Kaede: Here it faced the sun. Here someone wanted to watch the road. Here it has gone somewhere outside my evidence.
+Kaede: For a later entry. I am not committing to one. I am leaving room, which I do not ordinarily do.
 
-You: Will you look for it?
-
-Kaede: Tomorrow. Today I know where it was not.
-
-She marks the patch of shade she likes, and allows that fact to remain in the first person.
+Kaede: Tell me another place before you go. I find I prefer them in your account.
 """,
-		"summary": "Kaede cannot finish a private street map because the bench, the stalls and the cat keep moving. She remembers a childhood shortcut that existed only when a neighbor's gate was open, and asks you for a place that changes each time you return. Each drawing becomes a record of one afternoon instead of a failed final version.",
-		"memory": "Watched Kaede turn a changing street from an error into several true afternoons.",
+		"summary": "Kaede has drawn exact maps of the Glass Sea, the pass above Marchgate and a harbour, all from travellers' accounts: she has not been past the lower gate since she was seven. She asks you what is not on the map. And she tells you why she has never gone, though the pledge lapsed years ago: the gate she would have to walk through is the one her father opened.",
+		"memory": "Saw Kaede's maps of places she has never been, and added what isn't on one.",
 	},
 	"kaede_kept_page": {
-		"title": "The Page She Kept", "rank": "A", "requires_any": ["kaede_missing_street"], "setting": "archive_room",
+		"title": "Loss of Objectivity", "rank": "A", "requires_any": ["kaede_missing_street"], "setting": "archive_room",
 		"parts": [
 			{"face": "concerned", "text": """
-Kaede places two accounts of the same family gathering on the desk. The first is impeccable: arrivals, witnesses, meal, departure. The second begins with a sentence in a younger, less certain hand.
+Kaede has a ledger you have not seen before. It is thick. Your name is on the spine, in her hand, with a catalogue number.
 
-Kaede: My relatives met after a long quarrel. Everyone had come to hear an apology. My official summary says they ate fish.
+Kaede: I must report an irregularity. I have kept a file on you since the first day. That is normal practice for a source. The file has become irregular.
 
-[?you_change_home] Kaede: You told me your village is smaller each time. I have been thinking about surveyors since. This is about one.
+[?kaede_wink] Kaede: Do not look like the binder. I know that expression now.
 """, "options": [
-				{"say": "May I read the other one?", "tone": "ask", "mark": "kaede_asked_page", "reply": """
-Kaede: You may read the first line. I am supervising.
+				{"say": "Read me the first entry.", "tone": "ask", "reply": """
+Kaede: 'Mercenary captain. Arrived before noon. Did not haggle. Was polite to the porter. Stands in the light.'
 
-It says: I was glad they stayed until evening. The hand is round, and presses too hard.
+Kaede: That is a proper entry. Dated, impersonal, verifiable. I was satisfied with it.
 """},
-				{"say": "I won't read it. Tell me what you'd like me to know.", "tone": "quiet", "mark": "kaede_page_closed", "reply": """
-Kaede: That is the correct procedure, and almost nobody follows it.
+				{"say": "Irregular how?", "tone": "ask", "reply": """
+Kaede: I shall demonstrate. The first entry: 'Mercenary captain. Arrived before noon. Polite to the porter. Stands in the light.' Proper. Verifiable.
 
-Kaede: It says I was glad they stayed until evening. I can say it aloud now. It took some years.
-"""},
-			]},
-			{"face": "thoughtful", "text": """
-You: Was the fish important?
-
-Kaede: It was verifiable. I omitted the apology because I could not decide whether it had succeeded.
-
-Her teacher asked who the account was for. Kaede answered: anyone who needed the facts. The teacher gave the page back and asked what Kaede herself might need to remember.
-""", "options": [
-				{"say": "Your teacher asked a useful question.", "tone": "comfort", "reply": """
-Kaede: Infuriatingly useful. I wanted a rule. She gave me another reader to consider, and that reader was myself. I could not cite her away.
-"""},
-				{"say": "What else did the second account say?", "tone": "ask", "reply": """
-Kaede: That my uncle's apology was clumsy, my grandmother accepted it anyway, and I wanted them to try again. The last part took longest to write. It could not be attributed to a witness.
+Kaede: They do not continue in that manner.
 """},
 			]},
 			{"face": "concerned", "text": """
-Kaede: For years I thought that sentence was less true because it belonged only to me.
+She turns to a marker. Her voice does not change; she reads it as she would a grain tally.
 
-She takes a third sheet from under the other two. It is recent; the ink is this season's.
+Kaede: Four months later. 'Captain late. Roads reported clear. No cause for concern identified. Checked the lower gate three times. Spoiled a sheet.'
 
-Kaede: This is the archive's visitor record. Every caller, the hour, the business. Your name is in it eleven times, and under 'business' I have written the truth, which is 'none'. I do not know which kind of page that makes it.
+Kaede: And this. 'Captain laughed at the ferryman's story. Recording the laugh. Unable to describe it. Attempted four times; see struck lines.'
 """, "options": [
-				{"say": "A record can have a purpose without holding everything.", "tone": "comfort", "face": "thoughtful", "reply": """
-Kaede: Yes. The official page is not false. It is simply unable to carry what the other page was made for. Precision includes knowing the limits of the form.
+				{"say": "You tried to describe my laugh four times?", "tone": "tease", "face": "amused", "reply": """
+Kaede: The attempts were inadequate. I struck them. One compared it to a door opening. That is not a description; a door does not laugh.
+
+Kaede: I have left the struck lines legible. I do not scrape out.
 """},
-				{"say": "Leave 'none' in the official one. It's accurate.", "tone": "tease", "face": "amused", "reply": """
-Kaede: It is accurate. It will also be read by the next archivist, who will conclude that someone visited this room eleven times for no reason.
+				{"say": "You checked the gate three times.", "tone": "comfort", "reply": """
+Kaede: It is an observation post. It has a view of the road.
 
-Kaede: Which is exactly what occurred. Very well. Let her wonder. A record should occasionally make trouble.
+Kaede: I have never before required a view of the road. I am not being evasive. I am establishing the sequence. I am an archivist; the sequence is all I have.
 """},
-				{"say": "Keep a private page too. Write why you were glad.", "tone": "heart", "when": "romantic", "face": "warm",
-					"memory": "Read the page where Kaede let her own experience into the record, and the new one she wrote about you.", "reply": """
-Kaede draws a clean sheet toward her and writes for some time, shielding nothing. Then she turns it for you to read. It says: glad, each time; more than the time before; the trend is consistent.
+			]},
+			{"face": "concerned", "text": """
+She closes the file and puts both hands on it.
 
-Kaede: I have signed it. That is enough authentication.
+Kaede: The finding is as follows. I have lost objectivity regarding the subject. The record is compromised. By the rules of this archive I should transfer the file to another keeper.
+
+Kaede: I do not wish to transfer the file. I wish that entered also. I have never before wished anything about a file.
+""", "options": [
+				{"say": "Keep it. A record can be true and not objective.", "tone": "share", "face": "thoughtful", "reply": """
+Kaede: That is heresy in this building.
+
+Kaede: It is also what my father's margin is. True, and mine. I have defended that margin for twenty years, and failed to notice that I had already conceded the principle.
 """},
-				{"say": "Put 'friendship'. It's a kind of business.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
-Kaede: It is not a recognized category.
+				{"say": "What would you write today?", "tone": "ask", "face": "thoughtful", "reply": """
+Kaede: 'Subject present. Subject listened to the whole irregularity without leaving. Keeper relieved.'
 
-She writes it anyway, in the margin, in the small upright hand she uses for corrections she is sure of.
+Kaede: And the date. I always have the date. It is the one thing I am never uncertain about.
+"""},
+				{"say": "I've lost objectivity too. For months.", "tone": "heart", "when": "romantic", "face": "warm",
+					"memory": "Heard Kaede report that her file on you had 'lost objectivity', and told her yours had too.", "reply": """
+Kaede: Then the compromise is mutual. That alters the finding.
 
-Kaede: It is now. I am the archivist. I recognize it.
+Kaede: Two biased sources, in agreement, with no motive to collude. Do you understand what that is? It is the strongest evidence there is. I have built covenants on less.
+
+She has taken your hand, and appears to be the last to have noticed.
+"""},
+				{"say": "It's the file of a friend. Keep that heading.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
+Kaede: 'Friend.' I ruled that column the first day, and did not know what to enter in it.
+
+Kaede: It appears I have been entering it ever since. Four hundred leaves. It is the fullest column I have.
 """},
 			]},
 		],
 		"closing_face": "thoughtful", "closing": """
-Kaede aligns the pages, then deliberately leaves the personal one on top.
+She does not return the file to the shelf. She puts it in the private box, with the maps and the bandit prince.
 
-Kaede: I still would not place this in a public archive. Feeling does not become evidence because it is sincere. But it does become part of a life. I was there. I was glad.
+Kaede: Reclassified. Not a source file. I do not have a name for the new class.
 
-She signs the old page beneath the younger handwriting, not to certify it for anyone else but to claim the account as hers.
-
-The records return to the same box, serving different truths without being forced into one.
+Kaede: You may read it. Not today. I should have to leave the room, and I do not wish to leave the room.
 """,
-		"summary": "Kaede shows you an official summary of a family reconciliation and the private page on which she admitted she was glad they stayed. Her teacher helped her see that records have different readers. Then she shows you the archive's visitor record, where your name appears eleven times with no business given.",
-		"memory": "Read the page where Kaede allowed her own experience into the record.",
+		"summary": "Kaede reports an irregularity: the file she has kept on you since the first day, as she would for any source, has stopped being objective. She reads you the entries to prove it. By the archive's rules she should hand the file to another keeper, and for the first time in her life she does not want to.",
+		"memory": "Heard Kaede report that her file on you had 'lost objectivity', and that she meant to keep it.",
 	},
 	"kaede_room_on_map": {
-		"title": "Room on the Map", "rank": "A", "requires_any": ["kaede_kept_page"], "coda": true, "setting": "archive_room",
+		"title": "The Lower Gate", "rank": "A", "requires_any": ["kaede_kept_page"], "coda": true, "setting": "kitayama",
 		"parts": [
 			{"face": "warm", "text": """
-A fresh personal map lies between two cups. Kaede has drawn the room accurately except for one broad empty space.
+Kaede is at the lower gate at dawn, in a travelling cloak that has never travelled. She has a satchel, a blank map, two brushes, and the expression of someone about to authenticate a doubtful document.
 
-Kaede: I left this unfinished on purpose. I checked twice.
+Kaede: I have determined that there is now a sufficient reason. I have it written down, in case I forget it at the threshold.
 
-[?you_spot_wall] Kaede: Your warm wall is on the old map. This is a different question: not where you would stay alone.
+[?you_told_sea] Kaede: The sea. Colour variable. I intend to observe the variation.
 
-[?you_spot_gate] Kaede: Your gate is on the old map, still slightly open. This is a different question: not where you would stay alone.
+[?you_told_field] Kaede: A morning, with birds. I have never been outdoors for one.
 
-[?you_spot_step] Kaede: Your early step is on the old map. This is a different question: not where you would stay alone.
+[?you_told_road] Kaede: A road, with one person awake on it. I should like to be the other.
 """, "options": [
-				{"say": "What belongs there?", "tone": "ask", "reply": """
-Kaede: Your choice, if you want one. A sunny place, a quiet corner, somewhere to watch people pass. This map records where we would remain, not what we own.
-"""},
-				{"say": "You've left the cat off.", "tone": "tease", "face": "amused", "reply": """
-Kaede: The cat is on the back. It declined to be on the front.
+				{"say": "Take my arm.", "tone": "help", "reply": """
+Kaede: That is not necessary for balance.
 
-Kaede: The blank is for you. A sunny place, a quiet corner, somewhere to watch people pass. This map records where we would remain, not what we own.
+She takes it. Her grip would hold a rope bridge.
+
+Kaede: It is necessary for a different purpose. I have not classified the purpose. Proceed.
+"""},
+				{"say": "We can stand here as long as you need.", "tone": "quiet", "reply": """
+Kaede: I need eleven years. I have had them.
+
+She steps up to the stone of the threshold and stops a hand's breadth short, breathing like someone reading a very bad page.
+"""},
+			]},
+			{"face": "concerned", "text": """
+The gate is only a gate: old timber, a new bar, a sentry yawning. Kaede looks at it as if it were forty leaves long.
+
+Kaede: The bolts are on the left. He checked them each evening, and whistled. I had forgotten that the bolts were on the left.
+
+Kaede: I was carried through here. I should like to walk through it awake. I find that my feet are not persuaded.
+""", "options": [
+				{"say": "Tell me what you see. Like a record.", "tone": "help", "face": "warm", "reply": """
+Kaede: Timber, oak, three bars. A sentry, unshaven. Beyond: a road, descending. A field. Fog on it.
+
+Kaede: A bird. On the fence. It is entirely unconcerned.
+
+She is through the gate. She was describing, and did not notice the step.
+"""},
+				{"say": "Whistle. Like he did.", "tone": "comfort", "face": "amused", "reply": """
+Kaede: I cannot whistle.
+
+She purses her lips anyway. What comes out is thin, flat and entirely tuneless; and then she is laughing, and somewhere in the laugh she has crossed the threshold.
+
+Kaede: That was inadequate. I am standing in the road.
 """},
 			]},
 			{"face": "warm", "text": """
-She offers the brush handle-first. The gesture is careful but not ceremonial.
+She stands in the road outside Kitayama for the first time in twenty years, and turns all the way round, once, slowly, like a surveyor.
 
-Kaede: I used to believe including another person's preference would make the map less exact. That was convenient. It meant I never had to ask, and never had to risk hearing that they would sit elsewhere.
+Kaede: It is larger than reported.
 
-[?kaede_bad_mystery] The impossible mystery waits beside the map, a ribbon at the hidden tunnel, for another deliberately poor theory.
-
-Kaede: You may also choose nothing today. An honest blank is still part of the page.
+Kaede: The sources were all correct, and none of them was adequate. I shall have to redraw everything. Every map. It will take the rest of my life. I find I am pleased.
 """, "options": [
-				{"say": "Mark the place beside the window.", "tone": "share", "reply": """
-Kaede marks the window seat and adds the hour when sunlight reaches it.
+				{"say": "Where first?", "tone": "ask", "reply": """
+Kaede: The ford. It is the nearest thing I have only read about. Then, in order of distance, everything.
 
-Kaede: We may need to move in summer. I find I am comfortable allowing for that revision.
+Kaede: I have a list. It is long. I have left a column for places you prefer.
 """},
-				{"say": "The quiet corner near your desk.", "tone": "share", "reply": """
-Kaede draws two small cushions near the desk, then pretends to measure their distance.
+				{"say": "How does it feel?", "tone": "ask", "reply": """
+Kaede: Unverified. Loud. There is weather on my face.
 
-Kaede: This is not necessary for scale. I wanted them to look as though conversation remained possible.
+Kaede: I should like it recorded that I did not know there was this much. And that I was not carried.
 """},
-				{"say": "Leave room to watch people pass.", "tone": "share", "reply": """
-Kaede places the mark near the open lattice.
+				{"say": "You're beautiful, standing in a road.", "tone": "heart", "when": "romantic",
+					"memory": "Walked with Kaede through the lower gate, the first time in twenty years, and told her she was beautiful standing in a road.", "reply": """
+Kaede: That is not relevant to the—
 
-Kaede: Good. A map should include somewhere the world can interrupt it. We need not identify everyone who walks by.
+Kaede: I withdraw the objection. Enter it. Beautiful, standing in a road. Dated. I shall want it when I am back at the desk and doubt the whole morning.
 """},
-			]},
-			{"face": "warm", "text": """
-Kaede adds her own preferred place after yours. The two marks do not claim the room or promise that either of you will always be there. They simply answer the question asked tonight.
+				{"say": "First observation of the day: you did it.", "tone": "warm", "when": "friend", "reply": """
+Kaede: Second. The first was the bird.
 
-[?you_change_ford] Kaede: Like your ford. Correct for this crossing.
-
-[?you_change_camp] Kaede: Like your camp. The plan holds; the ground may change.
-
-[?you_change_home] Kaede: And if it looks smaller next time, we shall know which of us to measure.
-
-Kaede: It is less balanced now.
-""", "options": [
-				{"say": "Does that trouble you?", "tone": "ask", "reply": """
-She studies the page, then smiles.
-
-Kaede: I think I should like it. Balance was easier when nothing had been chosen. This is more useful to me.
-"""},
-				{"say": "Unbalanced suits a map of preferences.", "tone": "tease", "face": "amused", "reply": """
-Kaede: A preference is by definition a departure from even weight. Yes.
-
-Kaede: I am going to stop apologizing to the page. It has never once complained.
-"""},
-				{"say": "Draw them closer. I'd sit nearer than that.", "tone": "heart", "when": "romantic",
-					"memory": "Added a place beside Kaede's on a map that belongs to neither of you, and asked her to draw them closer.", "reply": """
-Kaede lets her hand rest against yours beside the two marks, then moves her own mark the width of a brush hair.
-
-Kaede: Corrected. The earlier distance was an error of caution. I shall note the revision, and not the reason.
-"""},
-				{"say": "Good. It looks like two people now.", "tone": "warm", "when": "friend", "reply": """
-Kaede leaves both marks close, pleased by the company of a trusted friend.
-
-Kaede: It does. Before, it looked like a room. I had not seen the difference until there was one.
+Kaede: But entered. 'Keeper passed the lower gate. Accompanied.' I have underlined 'accompanied'. I do not ordinarily underline.
 """},
 			]},
 		],
 		"closing_face": "warm", "closing": """
-[?kaede_useless_map] Kaede adds a tiny uncertain cat at the edge, preserving its right not to attend.
+She unrolls the blank map on a milestone and makes the first mark: the gate, seen from outside. Beneath it she writes, not 'reported', but 'observed'.
 
-She leaves another small blank at the edge and labels it only with tomorrow's date: room for the map to change without becoming wrong.
+Then she looks back, once, at the gatehouse, and nods to it, the way one nods to a colleague; and walks on down the road ahead of you, already asking what the fog is called.
 """,
-		"summary": "Kaede invites you to add one ordinary preferred place to a new personal map, and adds her own beside it, leaving room for revision. In romance or friendship, the scene reflects chosen familiarity without assigning a home, claiming property or making a new commitment.",
-		"memory": "Added an ordinary place beside Kaede's to a map that belongs to neither of you.",
+		"summary": "At dawn Kaede stands at the lower gate with a satchel and a blank map. She has not passed it since she was carried through at seven, on the night her father opened it. With you beside her, she walks through it awake, and finds the world larger than reported.",
+		"memory": "Walked with Kaede through the lower gate, the first time she had passed it in twenty years.",
 	},
 	"kaede_preference_stated": {
 		"title": "A Preference, Stated", "rank": "S", "requires_any": ["kaede_room_on_map"], "coda": true, "setting": "archive_room",
 		"parts": [
 			{"face": "thoughtful", "text": """
-Kaede has two columns ruled on a sheet. One is headed 'Observed'. It is full. The other is headed 'Preferred', and it has one entry, crossed out.
+Two columns, ruled on a sheet. One is headed 'Observed'. It is full to the foot. The other is headed 'Preferred'. It has one entry, struck through.
 
-Kaede: I have been attempting an inventory. The first column took an evening. The second has taken nine days.
+Kaede: I have been attempting an inventory of myself. The first column took an evening. The second has taken nine days.
 
-[?kaede_asked_page] Kaede: You asked to read my private page once. This is the same page, grown up. You may look.
-
-[?kaede_page_closed] Kaede: You once declined to read my private page until I asked. I am asking. Look.
+[?kaede_read_aloud] Kaede: Do not read this one in the voice. It is not that sort of document.
 """, "options": [
-				{"say": "What did you cross out?", "tone": "ask", "reply": """
-Kaede: 'Quiet.' It was true, and it was a hiding place. Half of what I call quiet is only nobody asking me anything.
+				{"say": "What did you strike out?", "tone": "ask", "reply": """
+Kaede: 'Quiet.' It was true, and it was a hiding place. Most of what I call quiet is only that no one has asked me anything.
 
-Kaede: I am trying to list what I would choose if someone did ask.
+Kaede: I am trying to list what I should choose if someone did.
 """},
-				{"say": "Nine days. For one column.", "tone": "tease", "face": "amused", "reply": """
-Kaede: The first column only requires eyes. The second requires a position.
+				{"say": "Nine days, for one column.", "tone": "tease", "face": "amused", "reply": """
+Kaede: The first requires only eyes. The second requires a position. I have been trained for twenty years to hold none.
 
-Kaede: I crossed out 'quiet'. It was true, and it was a hiding place.
+Kaede: I struck out 'quiet'. It was true, and it was a hiding place.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-Kaede: I should like a model. You must have one: a preference you hold and have never said aloud, because nobody asked, or because it seemed too small to state.
+Kaede: I require a model. You must hold one: a preference you have never stated, because no one asked, or because it seemed too slight to enter.
 """, "options": [
 				{"say": "I'd rather ride at the back of the column. It's quiet there.", "tone": "share", "mark": "you_pref_back", "reply": """
 Kaede: A captain who prefers the rear, and rides at the front regardless.
 
-Kaede: So a preference can be held for years without being acted on, and remain true. That is useful. That is the piece I was missing.
+Kaede: Then a preference may be held for years without being acted upon, and remain true. That is the piece I lacked. I had assumed an unused preference lapsed, like a pledge.
 """},
 				{"say": "Rain on canvas. I'd take it over a fine day.", "tone": "share", "mark": "you_pref_rain", "reply": """
-Kaede: Against all practical interest. Wet rope, slow roads, cold supper. And preferred.
+Kaede: Against all interest. Wet rope, slow roads, cold food. And preferred.
 
-Kaede: Then a preference need not be defensible. I have been trying to defend mine before writing them. That is why the column is empty.
+Kaede: Then a preference need not be defensible. I have been trying to defend mine before entering them. That is why the column is empty.
 """},
 				{"say": "Plain bread, warm. Over any feast I've sat through.", "tone": "share", "mark": "you_pref_bread", "reply": """
 Kaede: Stated without apology to the feast.
 
-Kaede: I notice you did not explain it. I would have appended three reasons and a precedent. Apparently it stands without them.
+Kaede: You did not explain it. I should have appended three reasons and a precedent. It appears to stand without them.
 """},
 			]},
 			{"face": "warm", "text": """
-She takes up the brush. She does not rule a line first, or draft it on the blotter, or look at the door.
+She takes up the brush. She does not rule a line first, or try it on the blotter, or look at the door.
 
 [?romantic] She writes one word in the second column, and turns the sheet toward you. It is your name.
 
-[?friend] She writes in the second column: these afternoons. Then, after a moment: continued.
+[?friend] She writes in the second column: these afternoons. Then, after a moment, beneath it: continued.
 
-Kaede: Stated. No precedent. No witness clause. I find my hand is not entirely steady, which I am recording as a detail and not as a doubt.
+Kaede: Stated. No precedent. No witness clause. My hand is not steady. I am recording that as a detail, and not as a doubt.
 """, "options": [
 				{"say": "Read it aloud. A preference should be heard.", "tone": "ask", "reply": """
-Kaede reads it aloud. Her voice is level, and exact, and slightly louder than the room requires.
+Kaede reads it aloud. Her voice is level, exact, and rather louder than the room requires.
 
-Kaede: It is the same in the air as on the page. I had worried there would be a discrepancy.
+Kaede: It is the same in the air as on the page. I had feared a discrepancy.
 """},
 				{"say": "The column looks better with something in it.", "tone": "tease", "face": "amused", "reply": """
 Kaede: It looks unbalanced. One entry against forty.
@@ -548,13 +568,15 @@ Kaede: It looks unbalanced. One entry against forty.
 Kaede: I have decided not to mind. The forty are what I saw. The one is what I meant.
 """},
 				{"say": "Rule me a column. My entry is your name.", "tone": "heart", "when": "romantic",
-					"memory": "Kaede asked for a preference you had never said aloud, then wrote down her own: your name. You answered with hers.", "reply": """
-Kaede rules a third column, heads it with your name, and waits with the brush. You say hers. She writes it down.
+					"memory": "Kaede wrote down a preference for the first time in her life: your name. You answered with hers.", "reply": """
+Kaede rules a third column, heads it with your name, and waits with the brush. You say hers. She writes it.
 
-Kaede: Reciprocal, and independently stated. That is as close to proof as this kind of record allows. I am keeping this page. Not in the box. On my person.
+Kaede: Reciprocal, and independently stated. That is as near to proof as this kind of record allows.
+
+Kaede: I would burn the world for you. That is a quotation. I have decided it is not, after all, an unreasonable exchange.
 """},
 				{"say": "Enter it twice. Once for me.", "tone": "warm", "when": "friend", "face": "amused", "reply": """
-Kaede writes 'continued' a second time, beneath the first, and initials it on your behalf with a small crooked mark that is plainly meant to be your hand.
+Kaede writes 'continued' again beneath the first, and initials it on your behalf with a crooked mark plainly meant for your hand.
 
 Kaede: A forgery. In my own archive. You are a corrupting influence, and I have preferred it for some time.
 """},
@@ -563,80 +585,86 @@ Kaede: A forgery. In my own archive. You are a corrupting influence, and I have 
 		"closing_face": "warm", "closing": """
 She does not blot the entry. She lets it dry in the air, where anyone coming in would see it.
 
-Kaede: I believed stating a preference would make me a worse witness. It has not. I see the room exactly as before. I only know now where in it I would rather stand.
+Kaede: I believed that to state a preference would make me a worse witness. It has not. I see the room exactly as before. I only know now where in it I should rather stand.
 
-She pins the sheet above her desk, between a tide table and a list of disputed boundaries, as one more thing that is the case.
+She pins the sheet above her desk, between a tide table and a list of disputed boundaries: one more thing that is the case.
 """,
-		"summary": "Kaede has been trying to list her own preferences and has managed one entry in nine days. She asks you for a preference you have never said aloud, and you give one. Then she writes hers down, without a precedent or a witness clause.",
-		"memory": "Kaede asked for a preference you had never said aloud, and then wrote down her own.",
+		"summary": "Kaede has been trying to write down her own preferences and has managed one entry in nine days, which she struck out. She asks you for a preference you have never stated, as a model. Then she writes hers, with no precedent and no witness clause.",
+		"memory": "Kaede asked for a preference you had never stated, and then wrote down her own.",
 	},
 	"kaede_name_used": {
-		"title": "The Name, Used", "rank": "S", "requires_any": ["kaede_preference_stated"], "coda": true, "setting": "archive_room",
+		"title": "The Name, Entered", "rank": "S", "requires_any": ["kaede_preference_stated"], "coda": true, "setting": "archive_room",
 		"parts": [
 			{"face": "warm", "text": """
-The old document box is on the desk with its lid off. Kaede has the faded label in front of her, face up, and is sitting very straight.
+The official account of the siege is open at the ninth leaf. Beside it is a new sheet, in Kaede's hand, under her own seal. She is sitting very straight.
 
-[?kaede_asked_name] Kaede: You asked me once what this said. I told you: not today. I have reviewed the entry. Today is a different day.
+Kaede: It is a deposition. Mine. 'I, the nineteenth child, aged seven, state as follows.' It will be bound into the account. The council has agreed. It did not wish to; I cited eleven precedents.
 
-[?kaede_left_name] Kaede: You told me once that I need not say what this says. I have thought about that more than about most treaties. I should like to tell you now, because I was not asked.
-
-[?!kaede_asked_name,!kaede_left_name] Kaede: I told you once that I might tell you another day what this says. I have checked the calendar. It is another day.
+[?kaede_witness] Kaede: You said: write only what you saw. This is that. I have added nothing convenient.
 """, "options": [
-				{"say": "I'm listening.", "tone": "quiet", "reply": """
-Kaede: I know. You do it visibly. It is one of the first things I recorded about you.
+				{"say": "Read it to me.", "tone": "ask", "reply": """
+Kaede: 'I was in the gatehouse. Ishida Ren, keeper of the lower gate, opened it. He was carrying me. I did not see who loosed. He did not put me down.'
+
+Kaede: That is all. It took twenty years to be entitled to it.
 """},
-				{"say": "Shall I close the door?", "tone": "ask", "reply": """
-Kaede: Leave it. I am not hiding it. I am only choosing who hears it first.
+				{"say": "His name's in it.", "tone": "comfort", "reply": """
+Kaede: In the text. Not the margin. Ishida Ren, keeper of the lower gate. No one may scrape a deposition.
+
+Kaede: The last line is 'he did not put me down'. I am told it is not strictly evidentiary. I declined to remove it.
 """},
 			]},
 			{"face": "warm", "text": """
-Kaede: Suzume. Sparrow. I was four, and I announced to a room of scholars that I would be an archivist, and it came out as a chirp. My aunt said the sparrow had spoken. It lasted eight years, and then I forbade it.
+[?kaede_asked_name] Kaede: You asked me once whose name was in the margin, and I told you his. There is another I did not tell you.
 
-She says it without ceremony, in the voice she uses for dates.
+[?kaede_left_name] Kaede: You once told me I need not say a name. I said it. There is another; and again I need not, and again I find I shall.
 
-Kaede: You may use it. Once, tonight. After that we shall see what the record supports.
+[?!kaede_asked_name,!kaede_left_name] Kaede: There is a name that is not in the deposition. It is not evidence. It is only mine.
+
+Kaede: He called me Suzume. Sparrow. I announced at four that I would keep the gate with him, and it came out as a chirp. No one has used it since the eleventh night. There was no one left who knew it.
+
+Kaede: You may use it. Once, now. After that we shall see what the record supports.
 """, "options": [
 				{"say": "Suzume.", "tone": "quiet", "reply": """
-Kaede closes her eyes for the length of the word.
+Kaede closes her eyes for exactly the length of the word.
 
-Kaede: Yes. That is how it sounded. Not the same voice. The same license.
+Kaede: Yes. That is how it sounded. Not the voice. The license.
 """},
-				{"say": "Sparrow. It suits an archivist. Small, exact, everywhere.", "tone": "tease", "face": "amused", "reply": """
-Kaede: She said: small, loud, and impossible to keep out of the grain store.
+				{"say": "Sparrow. Small, exact, and into everything.", "tone": "tease", "face": "amused", "reply": """
+Kaede: He said: small, loud, and impossible to keep out of the grain.
 
-Kaede: Yours is kinder. I shall keep both definitions and cross-reference them.
+Kaede: Yours is kinder. I shall keep both definitions, and cross-reference them.
 """},
 				{"say": "Suzume. I'd like to be the one who says it.", "tone": "heart", "when": "romantic",
-					"memory": "Kaede told you the name her aunt gave her, and gave the saying of it into your keeping.", "reply": """
-Kaede: Then say it when nobody else is in the room, and not often, so that it does not wear smooth.
+					"memory": "Kaede entered her father's name in the record, told you the one he called her, and gave you the keeping of it.", "reply": """
+Kaede: Then say it when no one else is by, and not often, so that it does not wear smooth.
 
-She puts the label into your hand and closes your fingers over it.
+She puts her seal into your hand and closes your fingers on it: the archivist's seal, the one thing she has never set down.
 
-Kaede: Custody transferred. I have never done that with anything I could not replace.
+Kaede: Custody shared. I have never done that with anything I could not replace.
 """},
 				{"say": "Suzume. It's safe with me.", "tone": "warm", "when": "friend", "reply": """
-Kaede: I know it is. I checked, over several seasons, without telling you I was checking.
+Kaede: I know. I verified it, over several seasons, without informing you.
 
-Kaede: Use it when I am being insufferable about a citation. She did. It was extremely effective.
+Kaede: Use it when I am being insufferable about a citation. He did. It was very effective.
 """},
 			]},
 		],
 		"closing_face": "warm", "closing": """
-Something moves on the stair outside. A compact gray shape arrives on the sill, sits, and looks at the room as though it had called the meeting.
+Something moves on the stair. A compact grey cat arrives on the sill, sits, and regards the room as though it had convened the meeting.
 
-[?kaede_accused_cat] Kaede: The cat. In attendance. You accused it once of a crime it could not have committed. It has clearly come to hear the retraction.
+[?kaede_wink] Kaede: The cat. In attendance. It has the binder's expression. I begin to think everyone in this town knew before I did.
 
-[?!kaede_accused_cat] Kaede: The cat. In attendance. I have never once been able to guarantee that. I am recording the date.
+[?!kaede_wink] Kaede: The cat. In attendance. I have never once been able to guarantee that. I am recording the date.
 
-[?you_pref_back] Kaede: It has taken the place at the back, you will notice, where it is quiet. I know someone with the same preference.
+[?you_pref_back] Kaede: It has taken the place at the back, where it is quiet. I know someone with the same preference.
 
-[?you_pref_rain] Kaede: It will rain tonight; the cat only comes in ahead of rain. You will like that. I have it written down.
+[?you_pref_rain] Kaede: It comes in ahead of rain. There will be rain on the roof tonight. You will like that; I have it written down.
 
-[?you_pref_bread] Kaede: It wants the bread. Not the fish. The bread. I know someone with the same preference.
+[?you_pref_bread] Kaede: It wants the bread. Not the fish. I know someone with the same preference.
 
-She puts the lid back on the box, and does not lock it.
+She sands the deposition and binds it in herself, at the ninth leaf: the first thing in that account that anyone has signed with their own name.
 """,
-		"summary": "Kaede takes out the old label again and tells you the childhood name her aunt gave her, the one she forbade at twelve and nobody has used since her aunt died. She lets you say it. The cat, for once, attends.",
-		"memory": "Kaede told you the name her aunt gave her, and let you use it.",
+		"summary": "Kaede has written her own deposition as a witness to the siege, aged seven, with the limits stated, and the council has agreed to bind it into the official account: her father's name is in the text at last. Then she tells you the name he called her, which nobody has used since that night, and lets you say it.",
+		"memory": "Kaede entered her father's name in the record, and told you the one he called her.",
 	},
 }

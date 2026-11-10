@@ -240,15 +240,15 @@ func _check_remembering() -> void:
 	soc.apply_choice("edda", "know_better", {"invitations_enabled": true})
 	check(soc.personal_marks(PERSON).is_empty(), "nothing is remembered before you've said anything")
 	var plain: Dictionary = soc.personal_action(PERSON, "edda_wrong_verse", "begin", ctx)["progress"]
-	check(not _text(Stories.beats("edda_wrong_verse", 0, [], plain["context"])).contains("Four verses"), "a visit doesn't bring up what never happened")
+	check(not _text(Stories.beats("edda_wrong_verse", 0, [], plain["context"])).contains("You've eaten today"), "a visit doesn't bring up what never happened")
 	soc.personal_action(PERSON, "edda_wrong_verse", "summary", ctx)
-	finish(soc, FIRST, [0, 0, 1])
-	check(soc.personal_record(PERSON)["cosmetic_choices"][FIRST] == [0, 0, 1], "a finished visit keeps the answer you gave at each point")
-	check(soc.personal_marks(PERSON).has("edda_counted") and soc.personal_marks(PERSON).has("edda_noticed_place"), "and what those answers left behind")
-	check(String(soc.memory_book(PERSON).back()["text"]).contains("but her own"), "the memory book says what you did (%s)" % soc.memory_book(PERSON).back()["text"])
+	finish(soc, FIRST, [0, 0, 2])
+	check(soc.personal_record(PERSON)["cosmetic_choices"][FIRST] == [0, 0, 2], "a finished visit keeps the answer you gave at each point")
+	check(soc.personal_marks(PERSON).has("edda_fed") and soc.personal_marks(PERSON).has("edda_noticed_place"), "and what those answers left behind")
+	check(String(soc.memory_book(PERSON).back()["text"]).contains("no place for herself"), "the memory book says what you did (%s)" % soc.memory_book(PERSON).back()["text"])
 	soc._hour += 24.0
 	var boots: Dictionary = soc.personal_action(PERSON, "edda_boots_by_door", "begin", ctx)["progress"]
-	check(_text(Stories.beats("edda_boots_by_door", 0, [], boots["context"])).contains("Seven pairs"), "a later visit brings up what you did in an earlier one")
+	check(_text(Stories.beats("edda_boots_by_door", 0, [], boots["context"])).contains("haven't counted myself"), "a later visit brings up what you did in an earlier one")
 	var offered: Array = Stories.options("edda_boots_by_door", 2, boots["context"]).map(func(o): return String(o["tone"]))
 	check(offered.has("heart") and not offered.has("warm"), "courting, the last answer can be from the heart (%s)" % ", ".join(offered))
 	var friendly: Dictionary = boots["context"].duplicate(true)
@@ -263,14 +263,15 @@ func _check_remembering() -> void:
 	check(_text(Stories.beats("farid_own_answer", 3, [1, 0, 0], c)).contains("crooked stitch") and not _text(Stories.beats("farid_own_answer", 3, [0, 0, 0], c)).contains("crooked stitch"),
 		"what you do in a visit is there at its end")
 	# Her greeting and her letters.
-	check(Lines.remembered("edda", soc.personal_marks(PERSON), 2) == Lines.REMEMBERED["edda"]["edda_counted"] and Lines.remembered("edda", soc.personal_marks(PERSON), 1) == "",
+	check(Lines.remembered("edda", soc.personal_marks(PERSON), 2) == Lines.REMEMBERED["edda"]["edda_fed"] and Lines.remembered("edda", soc.personal_marks(PERSON), 1) == "",
 		"now and then she greets you with something you said")
 	check(Lines.opening("edda", "courting", {"fallen": "Brann"}, 2, soc.personal_marks(PERSON)).contains("Brann"), "though what has happened since comes first")
 	var letter: Dictionary = Letters.render("no_such_letter", "edda", true, {"sender": "Edda", "marks": soc.personal_marks(PERSON)})
-	check(String(letter["ps"]) == Letters.REMEMBERED_PS["edda_counted"], "and a letter with no postscript of its own carries one (%s)" % letter["ps"])
+	check(String(letter["ps"]) == Letters.REMEMBERED_PS["edda_fed"], "and a letter with no postscript of its own carries one (%s)" % letter["ps"])
 	# An older save: one passage, one answer. It keeps its place and leaves no marks.
 	var old: Dictionary = JSON.parse_string(JSON.stringify(w.to_dict()))
 	old["social"]["personal_conversations"][PERSON]["cosmetic_choices"][FIRST] = 1
+	old["social"]["personal_conversations"][PERSON]["cosmetic_choices"].erase("edda_wrong_verse")
 	old["social"]["personal_conversations"][PERSON]["completed"][FIRST]["content_version"] = 1
 	old["social"]["personal_conversations"][PERSON]["in_progress"]["edda_boots_by_door"] = {"scene_id": "edda_boots_by_door", "node": 1, "choice": 2,
 		"content_version": 1, "context": {"completed": [FIRST], "choices": {FIRST: 1}, "status": "courting", "romantic": true}}
@@ -394,26 +395,26 @@ func _check_ui(gs) -> void:
 	var first_point: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("say_"))
 	check(first_point == ["say_0", "say_1"] and talk.has_reply("summary"), "the first point comes early: how you join in, two ways (%s)" % ", ".join(first_point))
 	var kind := talk._replies.get_node("Reply_say_0").find_child("Tag", true, false) as Label
-	check(kind != null and kind.text == Stories.TONES["help"][1] and talk._replies.get_node("Reply_say_0").find_child("Kind", true, false) != null,
+	check(kind != null and kind.text == Stories.TONES["share"][1] and talk._replies.get_node("Reply_say_0").find_child("Kind", true, false) != null,
 		"each thing you could say shows what kind of thing it is")
 	talk.choose("say_1")
-	check(talk.log_text().contains("Isn't it one?") and talk.log_text().contains("failed it at the door") and not talk.has_reply("summary"),
+	check(talk.log_text().contains("Is this an inspection") and talk.log_text().contains("You're failing it") and not talk.has_reply("summary"),
 		"she answers what you said, and the short version is no longer offered")
 	talk.choose("later")
 	check(talk.has_reply("visit_edda_spare_spoon") and String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Tag", true, false).text).begins_with("resume"),
 		"leaving preserves response for resume")
 	talk.choose("visit_edda_spare_spoon")
-	check(talk.log_text().contains("failed it at the door"), "resume returns to where you were, with what was said")
+	check(talk.log_text().contains("You're failing it"), "resume returns to where you were, with what was said")
 	_read_to_end(talk)
 	check(talk.reply_ids().filter(func(id): return String(id).begins_with("say_")).size() == 2, "then a second point: a reaction")
 	talk.choose("say_0")
 	_read_to_end(talk)
 	check(talk.reply_ids().filter(func(id): return String(id).begins_with("say_")).size() == 3, "and last the answer that matters most, three ways")
-	talk.choose("say_1")
+	talk.choose("say_2")
 	_read_to_end(talk)
 	check(talk.has_reply("finish"), "after the last answer, the closing")
 	talk.choose("finish")
-	check(talk.log_text().contains("but her own"), "the memory kept says what you did")
+	check(talk.log_text().contains("no place for herself"), "the memory kept says what you did")
 	check(talk._log.find_child("Keepsake", true, false) != null, "a kept memory says so")
 	check(gs.silver == before["silver"] and gs.food == before["food"] and gs.renown == before["renown"] and gs.army == before["army"], "UI visit preserves player resources and army")
 	talk.choose("back")
@@ -424,13 +425,13 @@ func _check_ui(gs) -> void:
 	check(not mem_ids.is_empty(), "remembering lists your memories")
 	var spoon := ""
 	for id in mem_ids:
-		if String(talk._replies.get_node("Reply_" + id).find_child("Text", true, false).text).contains("spoon"):
+		if String(talk._replies.get_node("Reply_" + id).find_child("Text", true, false).text).contains("inspected"):
 			spoon = id
 	talk.choose(spoon)
-	check(talk.log_text().contains("spare spoon") or talk.log_text().contains("spoon"), "and they answer with what they remember")
+	check(talk.log_text().contains("famine"), "and they answer with what they remember")
 	talk.choose("relive")
 	_read_to_end(talk)
-	check(talk.has_reply("finish") and talk.log_text().contains("Isn't it one?") and talk.log_text().contains("You haven't counted yourself.")
+	check(talk.has_reply("finish") and talk.log_text().contains("Is this an inspection") and talk.log_text().contains("You haven't eaten either.")
 		and not talk.log_text().contains("No wrong answers"), "told again, a visit goes as you answered it, start to finish, and asks nothing")
 	talk.choose("finish")
 	check(archived == gs.to_dict(), "replay through real UI changes no campaign data")

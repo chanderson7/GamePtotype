@@ -361,7 +361,35 @@ func _story() -> void:
 		return
 	clear_log()
 	_face(String(cinfo.get("face", "")))
-	_tell(String(cinfo.get("text", "")), _story_choices.bind(ch, cinfo))
+	_lead(cinfo.get("lead", []), 0, func(): _tell(String(cinfo.get("text", "")), _story_choices.bind(ch, cinfo)))
+
+
+## A chapter opens as a scene. `parts` lead up to its decision: each is some lines, then
+## (optionally) two or three things you might say, which she answers before the next. What
+## you say here is talk, not a decision: it changes nothing but her reply. Then `then`.
+func _lead(parts: Array, i: int, then: Callable) -> void:
+	if i >= parts.size():
+		_skip = Callable()
+		then.call()
+		return
+	var part: Dictionary = parts[i]
+	_skip = then
+	_face(String(part.get("face", "")))
+	_tell(String(part.get("text", "")), func():
+		var options: Array = part.get("options", [])
+		if options.is_empty():
+			_lead(parts, i + 1, then)
+			return
+		var replies := []
+		for n in options.size():
+			var o: Dictionary = options[n]
+			var tone: Array = Stories.TONES.get(String(o.get("tone", "")), ["talk", ""])
+			replies.append({"id": "say_%d" % n, "text": String(o["say"]), "icon": String(tone[0]), "tag": String(tone[1]), "act": func():
+				say("you", String(o["say"]))
+				_face(String(o.get("face", "")))
+				_tell(String(o.get("reply", "")), _lead.bind(parts, i + 1, then))})
+		replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
+		set_replies(replies))
 
 
 ## A chapter's answers, once its text has been told.
@@ -488,7 +516,7 @@ func _post() -> void:
 	clear_log()
 	say("you", Lines.story_opener(cand, CHAPTERS + 1))
 	_face(String(project.get("face", "")))
-	_tell(String(project.get("text", "")), _post_choices.bind(project))
+	_lead(project.get("lead", []), 0, func(): _tell(String(project.get("text", "")), _post_choices.bind(project)))
 
 
 func _post_choices(project: Dictionary) -> void:

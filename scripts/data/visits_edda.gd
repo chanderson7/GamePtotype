@@ -1,646 +1,677 @@
-## Edda's visits: the steward who sets a place for everyone but herself. (The format is
-## described in personal_conversations.gd.)
+## Edda's visits. (The format is described in personal_conversations.gd. The ids are save
+## keys from the first version of each visit and no longer describe the scene.)
 ##
-## Her running habit is counting: spoons, boots, verses, heads at a table, and never
-## herself. Her thread is the aunt who visited the outlying houses and came home late.
-## She asks you two things: what you'd do with a free morning, and who set a place for you.
+## Her voice: brisk, exact and bossy, because she is fond. Orders (sit, eat, boots off),
+## numbers for everything, "Captain". She shows care by feeding people, counting them in
+## and correcting their sums; a feeling is said bluntly or not at all.
+##
+## What is under it: the winter she was fourteen, the lord took the riders south and raiders
+## fired Thornwall. Her mother, steward before her, made four journeys with a cart and
+## brought in forty-one people; Edda stood at the hall door cutting a notch for each, and
+## waited until light for the forty-second. She has counted the household in every night
+## since. The visits go from being inspected and fed, to why she counts, to the page she has
+## begun for your company's dead, to the forty-second notch.
+##
+## She asks you: why you took up the sword; how you carry your dead; who counted you in.
 extends RefCounted
 
 const SCENES := {
 	"edda_spare_spoon": {
-		"title": "The Spare Spoon", "rank": "C", "requires_any": [],
+		"title": "The Spare Place", "rank": "C", "requires_any": [],
 		"parts": [
 			{"face": "thoughtful", "text": """
-Edda stands beside a small table, moving spoons from one place to another.
+You are barely through the door of the common room when Edda looks you over, top to bottom, like a delivery.
 
-Edda: Seven spoons. Six guests. That ought to be enough. Unless someone has brought a cousin. Someone generally brings a cousin.
-
-She counts again, silently, then looks at you.
-
-Edda: You needn't stand as though this is an inspection.
+Edda: Stop there. Mud to the knee, a strap gone on that pauldron, and you've lost flesh since the thaw. When did you last sit at a table? A table, Captain. Not a saddle. Not a log.
 """, "options": [
-				{"say": "Give me half. I'll count from the other end.", "tone": "help", "mark": "edda_counted", "reply": """
-Edda hands you four spoons, considers, and takes one back.
+				{"say": "I can't remember.", "tone": "share", "mark": "edda_fed", "reply": """
+Edda: I can. It was here, eleven days ago, and you left half the bread.
 
-Edda: Three. I have seen how soldiers count rations. Lay them a hand's width from the edge. No, your hand. Mine has opinions.
+She has a bowl in front of you before you have finished sitting down.
+
+Edda: Eat. I'll be watching, so don't push it about.
 """},
-				{"say": "Isn't it one? An inspection?", "tone": "tease", "reply": """
-Edda: If it were, you would have failed it at the door. Your boots have brought half the road in with them.
+				{"say": "Is this an inspection, steward?", "tone": "tease", "face": "amused", "reply": """
+Edda: Yes. You're failing it.
 
-She pushes a stack of spoons toward you anyway.
+She puts a bowl in front of you regardless, and stands over it with her arms folded.
 
-Edda: Hold these. Now you are furniture, and furniture is never inspected.
+Edda: You can be witty when that's empty.
 """},
 			]},
 			{"face": "amused", "text": """
-Edda: I was remembering supper at home. My mother would announce the exact number expected, and my uncle would set another bowl out without answering her. They did this every evening for years.
+There are seven places laid at the long table, and six stools.
 
-Edda: Our neighbor claimed she only came to return things. A cup, a scarf, a pan she had borrowed before I was born. Somehow she always returned them just as the soup arrived.
+You: Who's the seventh for?
+
+Edda: Whoever comes. A drover, a tinker, a cousin; somebody always brings a cousin. It was my mother's rule. A steward lays one more place than she has people, every night, and never asks who it's for.
 """, "options": [
-				{"say": "And nobody ever said a word about it?", "tone": "ask", "reply": """
-Edda: Not one. My mother counted. My uncle set the bowl. The neighbor returned a pan. It was the most reliable treaty I have ever witnessed, and nobody signed anything.
-"""},
-				{"say": "I'd have borrowed a pan myself.", "tone": "tease", "reply": """
-Edda: You would have been found out inside a week. She had forty years of practice and a very honest face.
+				{"say": "And tonight it's for me.", "tone": "tease", "reply": """
+Edda: Tonight you happened to it. Don't get ideas; last week it was a man selling eels.
 
-Edda: She would have liked you, though. She approved of anyone who arrived hungry.
+Edda: He had better manners. He finished his bread.
+"""},
+				{"say": "Has it ever stood empty?", "tone": "ask", "face": "thoughtful", "reply": """
+Edda: Most nights. That isn't the point.
+
+Edda: The point is that nobody who comes to this door finds I hadn't thought of them. I can't stop the raids, Captain. I can lay a spoon.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-Edda turns a spoon over. Its handle has been worn almost smooth.
+She watches you eat with the frank satisfaction of someone watching a roof being mended.
 
-Edda: I thought the extra place was for her. Later I realized nobody ever decided who it belonged to. That was rather the point.
-
-She sets it down at the end of the row and counts the places once more. Six. She frowns at the seventh spoon as though it had miscounted itself.
+Edda: You feed ninety soldiers, I'm told. Who feeds you? Don't say 'the cook'. I've met army cooks.
 """, "options": [
-				{"say": "Who usually arrived late?", "tone": "ask", "face": "amused", "reply": """
-Edda: The neighbor could be relied upon. My cousin was less predictable. Once he arrived with a dog and argued that nobody had specifically excluded dogs. My mother gave it his chair. He ate standing up, very politely.
-"""},
-				{"say": "You haven't counted yourself.", "tone": "comfort", "mark": "edda_noticed_place",
-					"memory": "Noticed that Edda had counted every place at the table but her own, and laid a spoon there.", "reply": """
-Edda looks down at the empty end of the table.
+				{"say": "Nobody. I see to the company first.", "tone": "share", "mark": "edda_last_fed", "reply": """
+Edda: Of course you do. I do the same; I ate standing up for six years.
 
-Edda: It is too early in the evening for you to be this observant. Yes. I have counted everyone except myself. Again. Please don't give the household a new saying about it.
+Edda: It's a stupid habit, and I'm going to break you of it before I break myself. Sit down properly. That's an order from the household.
 """},
-				{"say": "I can sit wherever is free.", "tone": "share", "face": "amused", "reply": """
-Edda: A dangerous offer. At home that meant beside my uncle, who believed every meal needed a detailed account of the weather. He could make three minutes of rain last until pudding. I was very fond of him.
+				{"say": "You, apparently.", "tone": "tease", "face": "amused", "reply": """
+Edda: Apparently. I don't recall agreeing to it.
+
+Edda: I'll put you in the kitchen book. It isn't a favour. I simply can't abide an uncounted mouth.
+"""},
+				{"say": "You haven't eaten either.", "tone": "comfort", "mark": "edda_noticed_place",
+					"memory": "Was inspected and fed by Edda, and noticed she had laid no place for herself.", "reply": """
+She looks at the table. Seven places. She has laid none of them for herself.
+
+Edda: No.
+
+Edda: It's too early in our acquaintance for you to be this observant. Move over.
 """},
 			]},
 		],
 		"closing_face": "warm", "closing": """
-She opens a drawer, catches it against her knee, and lifts it carefully.
+She sits. It is, you gather from the kitchen boy's face, an event.
 
-Edda: It sticks. You have to lift it a little.
+Edda: The drawer sticks. For the spoons. You lift it a little.
 
-You take the seventh spoon and lay it at her place. She leaves it there. For a moment neither of you rearranges anything.
+You lift it a little. She takes the spoon you hand her, and for a while the steward of Ravensford eats her own soup at her own table, like a guest.
 
-Edda: There. Now there is enough room. I suppose I can stop counting.
-
-She sits down, looking pleased by the small untidiness of an extra setting.
+Edda: Come when you're hungry, Captain. Not when you need grain. I can tell the difference, and I'd rather the first.
 """,
-		"summary": "Edda is counting spoons for supper and remembers the extra place her family always set for whoever turned up. Counting everyone else's, she forgets her own. You lay a spoon at her place, and she sits down. The sticking drawer and the unclaimed seat become small shared memories.",
-		"memory": "Counted spoons with Edda, and laid one at her place.",
+		"summary": "Edda inspects you at the door, finds you underfed, and puts a bowl in front of you at the spare place her mother taught her always to lay. She asks who feeds the captain. By the end she has sat down at her own table, which the household does not often see.",
+		"memory": "Was inspected, fed, and given the spare place at Edda's table.",
 	},
 	"edda_wrong_verse": {
-		"title": "The Wrong Last Verse", "rank": "C", "requires_any": [],
+		"title": "The Company's Accounts", "rank": "C", "requires_any": [],
 		"parts": [
 			{"face": "amused", "text": """
-By a window, Edda is tapping a rhythm on the sill. She stops when she notices you, then deliberately starts again.
+Edda has your company's pay ledger. You did not give it to her.
 
-Edda: I am trying to remember a song. Before you ask, it has no historical importance whatsoever. There is a miller, a sack of flour, and an argument about a donkey.
+Edda: Your quartermaster left it on my bench. I'm not saying he should be flogged. I'm saying I read it, because it was there, and I've some questions.
 
-[?edda_counted] Edda: Four verses. I have counted. You may check my work; you have experience.
+[?edda_fed] Edda: You've eaten today. I can tell. Good. You'll want your strength.
 """, "options": [
-				{"say": "Does it go like this?", "tone": "tease", "reply": """
-You hum something. It is not a tune. Edda listens to all of it, which is generous.
+				{"say": "You read my books?", "tone": "tease", "reply": """
+Edda: I corrected your books. There's a difference, and the difference is eleven silver a month.
 
-Edda: No. It has never gone like that. Nothing has. Though I admit the donkey would have preferred your version.
+Edda: Your sutler charges you for forty sacks and delivers thirty-six. He's done it since autumn. He rounds his fours to look like nines; it's almost artistic.
 """},
-				{"say": "Which part have you forgotten?", "tone": "ask", "reply": """
-Edda: The ending. Thank you for assuming I had mislaid only one part. It is generous and, today, correct.
-"""},
-			]},
-			{"face": "amused", "text": """
-Edda: I remember two endings, and one of them cannot possibly fit the tune. My aunt insisted that the miller learned patience. My cousin insisted that he fell headfirst into his own flour bin.
+				{"say": "How bad is it?", "tone": "ask", "reply": """
+Edda: You're not a fool with money. You're only too busy to look. That's worse; fools get lucky.
 
-You: Which did you sing?
-
-Edda: Indoors? Patience. I was a sensible child.
-""", "options": [
-				{"say": "Sing me the flour bin.", "tone": "ask", "reply": """
-Edda: The donkey refuses to recognize him until he sneezes. That is the entire joke. My cousin needed four extra lines to explain it, which he sang increasingly quickly. It was dreadful. I still laughed every time.
-"""},
-				{"say": "Patience is the better ending.", "tone": "tease", "mark": "edda_argued_verse", "reply": """
-Edda: You are siding with my aunt. Nobody has sided with my aunt about that song in twenty years.
-
-She looks delighted, and tries to hide it by examining the sill.
-
-Edda: You are wrong, of course. But it is a pleasure to have an opponent.
+Edda: Your sutler charges you for forty sacks and delivers thirty-six. Since autumn. He rounds his fours to look like nines; it's almost artistic.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-She draws an invisible line across the window's dusty ledge.
+She turns the ledger round. The margins are full of her small upright figures, and here and there a single word: no.
 
-Edda: I used to write songs in a little book. I always chose the respectable version. Anyone reading it would think we were a household of remarkably solemn children. That book is a terrible witness.
+Edda: And this. You pay every soldier before yourself, and in the lean months you don't pay yourself at all. Three times last winter. Don't tell me it's noble. It's bad accounting. A captain in debt makes desperate bargains.
 """, "options": [
-				{"say": "Who invented the other version?", "tone": "ask", "face": "amused", "reply": """
-Edda: My cousin claimed credit. So did three children from the next street. I suspect it belonged to everyone and none of them. He considered this an outrageous accusation. He was eight; he took authorship very seriously.
-"""},
-				{"say": "I forget lyrics too.", "tone": "share", "face": "amused", "reply": """
-Edda: Then we could form a very unreliable choir. No performances, naturally. We would meet, disagree about the second verse, and go home. It sounds like an excellent institution. I would happily keep no records of it.
-"""},
-				{"say": "What else did the book leave out?", "tone": "ask", "face": "amused", "reply": """
-Edda: A rhyme about my uncle's hat that would have ended my career before it began. A counting game whose forfeit was kissing the pump handle. Everything worth remembering, in short.
+				{"say": "They've earned it. I can wait.", "tone": "share", "reply": """
+Edda: I know they have. I'm not telling you to short them.
 
-Edda: I kept excellent records of all the wrong things.
+Edda: I did the same with this house for six years, and one winter I'd nothing left to bargain with when it mattered. Pay yourself a wage, Captain. A small one. In the book, where you can't argue with it.
+"""},
+				{"say": "You hum when you add.", "tone": "tease", "face": "amused", "reply": """
+She stops. She had not known.
+
+Edda: It's the miller's song. My mother sang it over the accounts. The miller falls in his own flour bin at the end; she said it was a warning to people who don't check their sums.
+
+Edda: Stop changing the subject.
+"""},
+			]},
+			{"face": "thoughtful", "text": """
+Edda: I shouldn't have opened it. I know that. I see a thing going wrong and my hands are in it before I've asked.
+
+Edda: It's the only way I know of being fond of anyone. I fix their arithmetic. You may tell me to mind my own house.
+""", "options": [
+				{"say": "Keep the book. Check it every month.", "tone": "share", "mark": "edda_keeps_books", "face": "warm",
+					"memory": "Let Edda keep the company's accounts, since she had corrected them anyway.", "reply": """
+Edda: Every month.
+
+She has gone slightly pink, which on her is like another woman bursting into song.
+
+Edda: I'll want it by the first. Not the third. I know soldiers.
+"""},
+				{"say": "Mind your own house, steward.", "tone": "tease", "face": "amused", "reply": """
+Edda: I'm trying. You keep walking into it.
+
+She closes the ledger and holds it out. She does not quite let go until you pull.
+
+Edda: The sutler, though. Deal with the sutler. I shan't sleep.
+"""},
+				{"say": "Nobody's looked after my sums before.", "tone": "comfort", "face": "warm", "reply": """
+Edda: No. I could see that. They've the look of sums done by firelight with one glove on.
+
+Edda: Well. Somebody has now. I'd get used to it. I don't stop.
 """},
 			]},
 		],
 		"closing_face": "amused", "closing": """
-She tries the rhythm again, silently fitting the impossible ending into it. Her expression becomes so concentrated that you both laugh.
+She walks you to the door with the ledger under her own arm, apparently by accident.
 
-Edda: There. That is why I stopped writing it down. Some things are better when someone is getting them slightly wrong beside you.
+Edda: Thirty-six sacks. I want to be there when you tell him.
 
-The tapping fades. She leaves the dust on the sill undisturbed.
+You: You want to watch.
 
-Edda: If you ever find that book, promise me nothing. Just remember that its author knew considerably more foolish songs than she admitted.
+Edda: I want to count the sacks afterwards. But yes. I should also like to watch.
 """,
-		"summary": "Edda remembers two endings to a childhood song: her aunt's respectable lesson and her cousin's absurd flour-bin mishap. She admits that her careful childhood songbook left out the version she liked best. You share a laugh about unreliable lyrics, without performing a song or passing a test.",
-		"memory": "Learned why Edda's childhood songbook left out the funniest ending.",
+		"summary": "Edda has read your company's pay ledger without being asked, and corrected it. Your sutler has been cheating you since autumn, and you have been going without pay so your soldiers needn't. She admits that fixing people's arithmetic is the only way she knows of being fond of them.",
+		"memory": "Found Edda had corrected the company's accounts uninvited, and was right.",
 	},
 	"edda_boots_by_door": {
-		"title": "Boots by the Door", "rank": "B", "requires_any": ["edda_spare_spoon", "edda_wrong_verse"],
+		"title": "Forty-One", "rank": "B", "requires_any": ["edda_spare_spoon", "edda_wrong_verse"], "setting": "ravensford",
 		"parts": [
 			{"face": "concerned", "text": """
-Edda pauses under a sheltered doorway. Beyond it, water drips steadily from a crooked gutter.
+Dusk, and Edda is in the hall doorway looking down the valley road. The household's boots are lined up beside her, largest to smallest. You have the feeling she has been there some time.
 
-Edda: Our old roof made exactly that noise. I used to put a bowl underneath and pretend it was keeping time.
+Edda: Thirty-eight out this morning. Thirty-eight back. I can go in now.
 
-She glances at the boots beside the entrance. One pair has fallen over in the wet.
-
-[?edda_counted] Edda: Seven pairs. I counted before I could stop myself. You have seen me do it.
+[?edda_noticed_place] Edda: Don't say it. I know I haven't counted myself. I'm standing here; I know where I am.
 """, "options": [
-				{"say": "I'll bring them in out of the rain.", "tone": "help", "reply": """
-You stand the fallen pair under the eave and, without thinking, set the rest beside them, largest to smallest.
-
-Edda: You have done that before. Or you were once a child waiting for someone. It is the same training.
+				{"say": "You count them in every night?", "tone": "ask", "reply": """
+Edda: Every night. Carters, herd boys, the girl who takes the eggs to Kettlebrook. I don't sit down until the number's right.
 """},
-				{"say": "Stand here a minute. I like the noise.", "tone": "quiet", "reply": """
-She had been about to go in. She stays instead, her shoulder almost against the doorframe.
+				{"say": "Stand here a while. I'll count with you.", "tone": "comfort", "mark": "edda_counted", "reply": """
+Edda: There's nobody left to count.
 
-Edda: Most people apologize for a gutter. You are an unusual guest.
+She stays in the doorway all the same, and makes room in it.
+
+Edda: Thirty-eight. And one sellsword, extra. Thirty-nine.
+"""},
+			]},
+			{"face": "concerned", "text": """
+Edda: My mother was steward before me. The winter I was fourteen the lord took the riders south, and raiders came over the ford and fired Thornwall.
+
+Edda: She took a cart and went out to bring the village in. Four journeys, through the smoke. She brought in forty-one people.
+
+Edda: I was at this door with a tally stick, cutting a notch for each. I got to forty-one and waited for forty-two. I waited until it was light.
+""", "options": [
+				{"say": "She was the forty-second.", "tone": "comfort", "reply": """
+Edda: She went back for the miller's youngest. The roof came down on them both.
+
+Edda: Forty-one notches. I've still got the stick. I can't throw away a thing that's been counted.
+"""},
+				{"say": "You were a child with a stick.", "tone": "comfort", "reply": """
+Edda: I was the steward's daughter, with a job. I was to count them in.
+
+Edda: I counted right, Captain. That's what I can't get past. I counted exactly right, and it came out one short.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-Edda: My aunt visited the outlying houses. I imagined she was discussing great matters. Boundaries, harvests, things with seals attached. Mostly she listened to people explain which door wouldn't shut and whose roof still leaked. She remembered all of it.
+The last of the light goes off the road. She does not move from the door.
 
-Edda: Before I was old enough to go with her, I waited. I lined up everyone's muddy boots by size. I believed that if the hall looked ready, she would come home sooner. Children make very odd bargains with furniture.
+Edda: I took the books at sixteen. I've counted this household in every night for twelve years, and I've not been one short since.
 
-She smiles, then lets the smile go.
-
-Edda: Once she missed a little celebration I had spent all afternoon preparing. I understood why she was late. I was still furious. Those two things occupied the same small child quite comfortably.
+Edda: And now I catch myself listening for your company on the road. Ninety soldiers I don't feed and can't order. I didn't ask to start counting you.
 """, "options": [
-				{"say": "You were right to be furious.", "tone": "comfort", "mark": "edda_aunt_right", "reply": """
-Edda: I have waited a long time for someone to say so without adding 'but'.
+				{"say": "Count us. I'd like to be expected somewhere.", "tone": "share", "reply": """
+Edda: Don't say that lightly. I'll hold you to the number.
 
-She waits. You don't add it.
-
-Edda: Thank you. I shall be insufferable about it for an hour.
+Edda: Ninety-odd, then. Find out the odd. I can't work with 'odd'.
 """},
-				{"say": "I think she knew what it cost you.", "tone": "comfort", "mark": "edda_aunt_knew", "reply": """
-Edda: She did. She brought me back a ribbon from the far farm, which is not what a person brings unless she has been thinking about someone the whole road home.
+				{"say": "I can't promise you the number, Edda.", "tone": "share", "mark": "edda_no_promise", "reply": """
+Edda: No. I know. You're a soldier. I'm not a fool.
 
-Edda: I wore it. Furiously.
+Edda: Thank you for not lying. Everyone who rides out of this yard tells me they'll be back for supper. My mother said it.
 """},
-			]},
-			{"face": "concerned", "text": """
-Edda: I should tell you the rest, since you are being fair to both of us. This spring I had a supper planned for the kitchen girls. Nothing grand. Then a roof went at one of the outlying farms, and I rode out.
+				{"say": "Then count me. I'll come back to be counted.", "tone": "heart", "when": "romantic", "face": "warm",
+					"memory": "Stood at the door while Edda counted the household in, and told her to count you too.", "reply": """
+Edda: You can't know that. Say it again anyway.
 
-Edda: I came back after the candles. They had kept me a plate. Nobody was furious. That was considerably worse.
-""", "options": [
-				{"say": "What do you remember most, from the first one?", "tone": "ask", "face": "thoughtful", "reply": """
-Edda: The candles bending. I had set them too near the hearth. And how pleased she looked when she finally saw everything. That made it harder to be angry, which made me angrier. Memory is not a particularly orderly cupboard.
+You say it again. She puts her hand flat against your chest for a moment, like someone checking that a tally mark is really there.
 """},
-				{"say": "Did you and she ever talk about it?", "tone": "ask", "face": "thoughtful", "reply": """
-Edda: Badly, at first. I accused her of preferring broken roofs to me. She explained the roofs. Neither of us had answered the other. Later we did better. Not perfectly, but better. I am glad we had later.
-"""},
-				{"say": "Next time, tell me. I'll ride out to the roof.", "tone": "heart", "when": "romantic", "face": "warm",
-					"memory": "Listened to Edda's memories of waiting by the door, and offered to ride out to the next roof in her place.", "reply": """
-Edda: You would, too. You would stand in someone's kitchen holding a ladder and getting the children's names wrong.
+				{"say": "A friend at the door is worth counting for.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
+Edda: It is. I hadn't had one to count before.
 
-She has stepped nearer without quite deciding to.
-
-Edda: Then I should have no excuse left, and should have to sit down at my own supper. It is a serious offer. I am giving it serious thought.
-"""},
-				{"say": "Next time, send word. I can hold a ladder.", "tone": "warm", "when": "friend", "face": "warm",
-					"memory": "Listened to Edda's memories of waiting by the door, and offered to hold the ladder next time.", "reply": """
-Edda: Badly, I expect. But you would hold it.
-
-Edda: I am not used to having someone to send word to. I shall have to remember that I do.
+Edda: Go in, then, so I can stop. You're letting the cold into my arithmetic.
 """},
 			]},
 		],
 		"closing_face": "thoughtful", "closing": """
-A drop lands in the bowl someone has placed beneath the gutter. Edda listens until the next one falls.
+She straightens one boot with her foot. She notices herself doing it, and leaves its neighbour crooked, on purpose, as if to see whether the hall will fall down.
 
-Edda: I keep her habit of remembering the roofs. I hope I also remember the person waiting by the door.
+Edda: I've never told that properly. People here know it; they were there. Nobody's ever needed it explained.
 
-After a while she straightens a boot with her foot, notices herself doing it, and leaves its neighbor crooked.
-
-Edda: Come inside. We needn't spend the whole visit in the doorway.
+Edda: Come in. I'm not going to stand in a doorway all night like a ghost. It's bad for the rushes.
 """,
-		"summary": "Rain recalls Edda's childhood waits for an aunt who visited struggling households. Edda admired that care and resented the missed celebration; both feelings remain. This spring she missed a supper of her own for a farm roof. You listen without judging her family, and she reflects on remembering the people who wait as well as those who need help.",
-		"memory": "Listened to Edda's memories of waiting beside the boots by the door.",
+		"summary": "At dusk Edda counts the household in from the hall door, as she has every night for twelve years. She tells you why: the winter Thornwall burned, her mother brought forty-one villagers in through the smoke, and Edda, fourteen, counted them with a tally stick and waited all night for the forty-second. She has begun, against her will, to listen for your company too.",
+		"memory": "Stood at the door while Edda counted the household in, and learned who the forty-second was.",
 	},
 	"edda_morning_unclaimed": {
-		"title": "A Morning Unclaimed", "rank": "B", "requires_any": ["edda_boots_by_door"],
+		"title": "An Hour Unclaimed", "rank": "B", "requires_any": ["edda_boots_by_door"],
 		"parts": [
 			{"face": "amused", "text": """
-A quiet bench has room for two. Edda sits at one end, hands folded as though she is waiting for the purpose of the bench to be explained.
+You have taken the pen out of Edda's hand. She is looking at her empty fingers as though you had removed one of them.
 
-[?edda_aunt_right] Edda: You told me I was right to be furious, in the doorway. I have been pleasant to everyone since. It can't last.
+You: One hour. Nothing that needs doing.
 
-[?edda_aunt_knew] Edda: I found the ribbon, after we talked in the doorway. It was in with the good thread. I have not decided what to do with it.
+Edda: There is always something that needs doing. That's what a household is.
 
-You: A morning with nothing that needs doing. What would you choose?
+[?edda_keeps_books] Edda: I've your accounts to check, for one. It's nearly the first.
 
-Edda: I would mend— oh. You mean it. Nothing? Not even a letter?
+[?edda_last_fed] Edda: You see to your company before yourself; you told me so. I don't see why I'm the one being lectured.
 """, "options": [
-				{"say": "Nothing. I'll confiscate the pen.", "tone": "tease", "reply": """
-Edda: You will find three more. I keep them the way other people keep grudges.
+				{"say": "It'll still need doing in an hour.", "tone": "tease", "reply": """
+Edda: That's the most irresponsible sentence I've ever heard.
 
-She considers the question with suspicious seriousness.
+She sits down on the bench anyway, bolt upright, like someone waiting to be told what the bench is for.
 """},
-				{"say": "One errand. A small one. Then nothing.", "tone": "share", "reply": """
-Edda: Don't negotiate with me. I shall take the errand and build a morning's work on it.
+				{"say": "When did you last do nothing?", "tone": "ask", "reply": """
+Edda: I was ill, the winter before last. Two days. I reorganised the linen from my bed.
 
-Edda: No. Nothing. I can do nothing. I have seen it done.
-"""},
-			]},
-			{"face": "amused", "text": """
-Edda: The river, perhaps. My younger cousin and I used to skip stones. She had no technique whatsoever and regularly beat me. I found that deeply unreasonable.
-
-You: Did you tell her?
-
-Edda: At length. She asked whether I wanted to make a complaint to the river. I had walked directly into that one.
-""", "options": [
-				{"say": "Tell me your technique.", "tone": "ask", "reply": """
-Edda: Flat, but not too thin. Round, unless a better stone happens to be oval. You see how rigorous this is. Then a low throw and complete confidence that your cousin is standing in the better spot. That last part is essential.
-"""},
-				{"say": "Even leisure is a contest?", "tone": "tease", "reply": """
-Edda: Only when I am losing. When I win, it becomes a pleasant family tradition. I can hear how that sounds. You needn't look so delighted. My cousin would have liked you immediately, which is a mildly alarming thought.
+She sits down on the bench, bolt upright, like someone waiting to be told what the bench is for.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-Edda picks up a fallen leaf and turns it between her fingers.
+For a while she simply sits. It appears to be difficult.
 
-Edda: I haven't thought about that in years. I remember where the bank was softest, though. And the exact face she made when her stone went farther. Some records apparently keep themselves.
+Edda: I was going to be a weaver. Before. My aunt at Kettlebrook had a loom the size of a barn door, and I'd a pattern half set up on it: herons, in the reeds. Blue on grey.
 
-Edda: Now you. The same question, and you may not answer 'drill'. A morning with nothing that needs doing.
+Edda: Then Thornwall burned, and I was the steward's daughter with no steward. Nobody asked me. I didn't ask either; there were forty-one people in the hall wanting breakfast.
 """, "options": [
-				{"say": "The river. I'd like to lose to your cousin.", "tone": "share", "mark": "edda_morning_river", "face": "amused", "reply": """
-Edda: Everyone does. It is very good for the character, and she will tell you so.
+				{"say": "Is the loom still there?", "tone": "ask", "reply": """
+Edda: With the herons still on it, half done. My aunt won't cut them off. She says they're waiting for me, which is a wicked thing to say to a busy woman.
 
-Edda: I shall write to her. Not to arrange it. Only so that she can begin being unbearable in advance.
+Edda: I've not been up there in four years. I'd only see the mistakes.
 """},
-				{"say": "Sleep. Until the camp gives up on me.", "tone": "share", "mark": "edda_morning_sleep", "face": "amused", "reply": """
-Edda: How long does that take? No, don't tell me, I shall start planning around it.
+				{"say": "Do you regret it?", "tone": "ask", "reply": """
+Edda: No. I'm good at this. I'd have been a middling weaver, and I'm a very fine steward.
 
-Edda: I have never once slept past the bread. I am told it is pleasant. Report back.
+Edda: I just never chose it. That's a different sum from regret. It doesn't come out to anything. It only sits there.
 """},
-				{"say": "A market, and no list.", "tone": "share", "when": "friend", "mark": "edda_morning_market", "face": "amused", "reply": """
-Edda: No list. You say it so calmly.
+			]},
+			{"face": "thoughtful", "text": """
+Edda: Now you. And don't tell me you were born with a sword in your hand; I've met your sergeant, and he says you couldn't hold one straight at twenty.
 
-Edda: I should like to watch that. From a distance, at first. I would bring a list in case of emergency, and not look at it.
+Edda: Why this? Why a company? You could have been anything that pays worse and kills you slower.
+""", "options": [
+				{"say": "Someone had to keep them alive. It turned out to be me.", "tone": "share", "mark": "you_why_keep", "reply": """
+Edda: So you're a steward. With a sword instead of a ledger.
+
+Edda: I thought so. You count them in as well, don't you. You just haven't a door to do it at.
 """},
-				{"say": "This one. A bench, and you with nothing to do.", "tone": "heart", "when": "romantic", "mark": "edda_morning_bench", "face": "warm", "reply": """
-Edda: That is not an answer. That is flattery sitting where an answer should be.
+				{"say": "Coin. I was hungry, and I was good at it.", "tone": "share", "mark": "you_why_coin", "reply": """
+Edda: Honest. I like that better than a calling. A calling doesn't check its sums.
 
-She does not look displeased. Her hands, at least, have come unfolded.
+Edda: Hunger's a reason. I've watched it make worse people than you. It made you careful; I've seen your books.
+"""},
+				{"say": "I'd nowhere else. The company's the only house I've had.", "tone": "share", "when": "friend", "mark": "you_why_house", "reply": """
+Edda: A house that moves.
 
-Edda: It is a good bench. I shall allow it.
+She is quiet a moment, doing some arithmetic that isn't about silver.
+
+Edda: Then you've never had a door, Captain. Somebody ought to see to that.
+"""},
+				{"say": "I'd nowhere else. Until lately.", "tone": "heart", "when": "romantic", "mark": "you_why_house", "face": "warm",
+					"memory": "Took Edda's pen away for an hour, heard about the herons, and told her you'd had nowhere else until lately.", "reply": """
+Edda: Until lately.
+
+She looks at you, then at the bench, then at the door of her own hall, in that order.
+
+Edda: I see. I'm not going to answer that sitting down doing nothing; I'd say something I haven't checked. Give me until the hour's up.
 """},
 			]},
 		],
 		"closing_face": "amused", "closing": """
-She lets the leaf fall. There is no river here to settle the old contest, and neither of you gets up to find one.
+The hour is not up. She has, however, stopped looking at the door.
 
-Edda: I think I would enjoy choosing the stones again. Even if I lost. Please don't send that admission to my cousin.
+Edda: I might ride up to Kettlebrook. Before the snow. Only to see whether the moths have got at it.
 
-You sit a little longer.
+You: The herons.
 
-Edda: That was a surprisingly difficult question. Ask me another ordinary one sometime. I seem to have neglected them.
+Edda: The loom. The herons are my aunt's business. Don't smirk, Captain. And give me back my pen.
 """,
-		"summary": "Asked how she would spend a free morning, Edda first lists work, then remembers skipping stones with a cousin who always beat her. She asks you the same question, and you tell her what your own morning would be. The talk makes room for an ordinary pleasure; it creates no appointment or obligation.",
-		"memory": "Imagined an unclaimed morning with Edda, and told her what yours would be.",
+		"summary": "You take Edda's pen away for an hour. With nothing to do, she tells you she was going to be a weaver before Thornwall burned and made her steward at sixteen; a half-finished pattern of herons still waits on her aunt's loom. Then she asks why you took up the sword, and you tell her.",
+		"memory": "Took Edda's pen away for an hour, and heard about the herons.",
 	},
 	"edda_ledger_blot": {
-		"title": "The Blot in the Ledger", "rank": "A", "requires_any": ["edda_morning_unclaimed"],
+		"title": "The Names", "rank": "A", "requires_any": ["edda_morning_unclaimed"],
 		"parts": [
 			{"face": "concerned", "text": """
-Edda has a loose page on the desk. A thick correction crosses one line, and a blot obscures part of the margin. She has turned it face down twice since you came in.
+There is a second book under Edda's ledger: narrow, black, and much older. She closes it when you come in. Then, deliberately, she opens it again.
 
-Edda: It is nothing. It is a page. I keep it for reasons that sounded better this morning.
+Edda: You may as well see. It's the valley's dead. My mother began it. Name, year, and how. I've kept it up.
+
+[?edda_counted] Edda: You stood at the door and counted with me once. This is the other half of that.
 """, "options": [
-				{"say": "May I see it?", "tone": "ask", "reply": """
-She turns it over and slides it across, one finger still on the corner.
+				{"say": "May I read it?", "tone": "ask", "reply": """
+She turns it toward you. Forty years of names in two hands; and near the end, in fresh ink, a page headed with the name of your company.
 
-Edda: My first year keeping accounts. That is my handwriting, before I learned that making a number beautiful does not make it correct.
+Edda: I began that page in spring. I'd no right. They're not mine to keep.
 """},
-				{"say": "Show me when you're ready. Or not at all.", "tone": "quiet", "reply": """
-She looks at the page, then at you, and turns it over herself.
+				{"say": "Why show me?", "tone": "ask", "reply": """
+Edda: Because there's a page in it I'd no right to begin.
 
-Edda: That is an irritatingly effective thing to say to me. My first year keeping accounts. That is my handwriting, before I learned that making a number beautiful does not make it correct.
+She turns it. Near the end, in fresh ink, a page is headed with the name of your company.
+
+Edda: Spring. The first you lost after you started coming here. I asked your sergeant the name.
 """},
 			]},
 			{"face": "concerned", "text": """
-Edda: I entered a payment under the wrong name. A family was asked for the same levy twice. We corrected it before anything was collected, but they still had to come and explain themselves. Then I had to go and explain myself.
+Edda: I asked him for all of them, after that. Where they came from. Who's to be told. He thought I was mad. He told me anyway.
 
-Edda: At their kitchen table. There was a small boy watching me as though I might perform another mistake for his entertainment. His mother made him stop staring. He stared from behind his cup instead.
+Edda: You don't keep a book. I looked, when I had your accounts. Wages and rations to the last crust, and nowhere at all that says who's gone. How do you carry them, Captain?
 """, "options": [
-				{"say": "I'd have been as frightened as you were.", "tone": "share", "reply": """
-Edda: That moment before you knock is awful, isn't it? You imagine every possible speech except the one you actually give.
+				{"say": "I know every name. I say them, some nights.", "tone": "share", "mark": "you_carry_names", "reply": """
+Edda: Aloud?
 
-Edda: I won't ask you to trade a confession for mine. It helps simply to know you recognize the doorstep.
+Edda: Good. I'd thought you might be one of the ones who drinks instead. A name said aloud is still on somebody's account.
 """},
-				{"say": "What did they say to you?", "tone": "ask", "reply": """
-Edda: They wanted to know it wouldn't happen again. I wanted to promise that. Instead I explained how we would check the entries. It was a smaller answer and a more useful one.
+				{"say": "I don't. I can't count them and still give orders.", "tone": "share", "mark": "you_carry_none", "reply": """
+Edda: No. I can see that you can't.
 
-Edda: Then the boy asked whether I could draw a horse.
+Edda: Then let me. I don't have to give the orders; I only have to hold the pen. It's a fair division. It's how my mother and the old captain did it.
+"""},
+				{"say": "I write to their families. Badly.", "tone": "share", "mark": "you_carry_letters", "reply": """
+Edda: I've seen your handwriting. I believe you.
+
+Edda: Bring me the next one before you send it. I'll not change a word. I'll only make sure a mother can read it.
 """},
 			]},
 			{"face": "concerned", "text": """
-Edda: My supervisor would not let me copy the page clean. He said a correction should be visible to the next person checking the book. I thought he was keeping evidence against me. That tells you something about being young.
+She runs a finger down the new page, not touching the ink.
 
-She squares the page against the desk's edge, which it does not need.
+Edda: I swore I'd never be fond of a soldier. I've buried too many names I'd only just learned to spell.
 
-Edda: I made another one. This month. A tally of seed grain, carried over wrong. I found it myself, at night, and I have not yet shown anyone. You are the first.
+[?edda_no_promise] Edda: You wouldn't promise me the number, at the door. I've thought the better of you since, and slept the worse.
+
+Edda: And here's a whole page of yours in my own hand, and I listen for your horses like a girl. I'm angry about it. I want you to know that I'm angry.
 """, "options": [
-				{"say": "Why keep the old page at all?", "tone": "ask", "face": "thoughtful", "reply": """
-Edda: At first, to punish myself efficiently. I could feel dreadful without leaving my desk.
+				{"say": "Be angry. I'd rather that than be left out of the book.", "tone": "share", "reply": """
+Edda: You're not in the book. That's the whole—
 
-Edda: Now it reminds me that fixing something leaves a mark, and the mark belongs in the record. I do occasionally need reminding of the difference.
+She stops, and shuts her eyes.
+
+Edda: You're not in the book, Captain. See that it stays so. It's the only thing I'm asking, and I know you can't promise it.
 """},
-				{"say": "Then show me the new one. We'll read it together.", "tone": "help", "face": "thoughtful",
-					"memory": "Saw the corrected ledger page Edda keeps, and read the new correction with her before anyone else had.", "reply": """
-Edda takes a second sheet from under the blotter. The correction on it is small and very straight.
+				{"say": "I'm sorry I made you count us.", "tone": "comfort", "reply": """
+Edda: Don't be sorry. I'd started before you asked.
 
-Edda: There. Carried over as forty; it was fourteen. Nobody has gone hungry over it, and nobody will. It is better, read aloud. It sounds like a number again and not a verdict.
+Edda: I'd only like it noted that I didn't go looking for this. It rode into my yard and ate my bread.
 """},
-				{"say": "You found it at night and came to work in the morning. I like that about you.", "tone": "heart", "when": "romantic", "face": "warm", "reply": """
-Edda: You like that I lose sleep over seed grain.
+				{"say": "I listen for this door, too. On the road.", "tone": "heart", "when": "romantic", "face": "warm",
+					"memory": "Read the book of the valley's dead, found a page begun for the company, and told Edda you listen for her door.", "reply": """
+Edda: Do you.
 
-Edda: No. I heard it. I am only going to stand here a moment and hear it again.
+She closes the black book and puts both hands on it, to keep them still.
+
+Edda: Then we're both fools, and there are two of us, which is at least a number I can work with.
 """},
-				{"say": "Whoever checks that book after you is lucky.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
-Edda: They will not think so. They will think: here is a woman who could not carry a four.
+				{"say": "A friend who keeps my dead. That's more than most captains get.", "tone": "warm", "when": "friend", "face": "warm", "reply": """
+Edda: It is. I'd not thought of it as a gift.
 
-Edda: But they will be able to see it. Yes. That is rather the point. Thank you.
+Edda: I'd thought of it as trespass. I'll go on, then. With leave.
 """},
 			]},
 		],
 		"closing_face": "thoughtful", "closing": """
-She slides the old page back into its folder. One corner remains uneven. Her hand moves to straighten it, then stops.
+[?you_carry_names] Edda: Say them here, next time. Not to a fire. I'll write while you say.
 
-Edda: That first family forgave me before I did. It was inconvenient. I had prepared a very thorough case against myself.
+[?you_carry_none] Edda: You give the orders. I'll hold the pen. Send your sergeant to me after; you needn't come yourself.
 
-You: And the horse?
+[?you_carry_letters] Edda: The letters, mind. Before you send them. I mean it.
 
-Edda: Terrible. He said so immediately. A useful second opinion.
+She puts the black book back under the ledger, where it has always lived: the dead beneath the accounts, holding them up.
 
-[?edda_counted] Edda: You count well, for a soldier. I may let you check the next page.
-
-She closes the folder with the crooked corner still showing, and lays the new correction on top of tomorrow's work, where the clerk will see it first.
+Edda: There. Now you know where everything in this house is kept.
 """,
-		"summary": "Edda shows you a corrected page from her first year as a clerk: an entry error briefly had a family asked for a levy twice, and she apologized at their kitchen table. She keeps the correction visible on purpose. Then she tells you about a new mistake she found this month and has shown no one else.",
-		"memory": "Saw the corrected ledger page Edda keeps, and the new correction she had shown no one else.",
+		"summary": "Under her ledger Edda keeps a black book of the valley's dead, begun by her mother. She has started a page in it for your company's fallen, with names she got from your sergeant. She asks how you carry them, and admits, angrily, that she swore never to be fond of a soldier and now listens for your horses.",
+		"memory": "Read the book of the valley's dead, and found Edda had begun a page for the company.",
 	},
 	"edda_place_no_task": {
 		"title": "A Place With No Task", "rank": "A", "requires_any": ["edda_ledger_blot"], "coda": true,
 		"parts": [
 			{"face": "warm", "text": """
-There are two places at a small table. Edda has already drawn back both chairs. A folded cloth sits slightly crooked between them.
+Two places at the small table. Edda has laid her own first; you can tell, because hers is the one that is perfectly square.
 
-Edda: I have no letters for you. No requests, either. I checked, in case habit had hidden one up my sleeve.
+Edda: I've no letters for you. No petitions, no accounts, nothing wants signing. I checked. I'm at a complete loss.
 
-[?edda_spare_spoon] Edda: I put my own spoon out first this time. And you already know how to open the drawer.
+[?edda_fed] Edda: And you've eaten, and I've eaten. I don't know what's left to do to a person.
 """, "options": [
-				{"say": "Then I'll sit before you find one.", "tone": "tease", "reply": """
-You take the nearer chair. Edda stays standing a moment longer, as if the room might still produce a task.
+				{"say": "Sit down, Edda.", "tone": "quiet", "reply": """
+She sits. It takes her three tries to stop looking at the door.
 
-Edda: Very well. A remarkable administrative achievement: I have been outmanoeuvred into my own chair.
+Edda: There. I've occupied my own chair. Write it in the book.
 """},
-				{"say": "After you. It's your table.", "tone": "quiet", "reply": """
-She begins to ask whether you need anything, stops halfway through the question, and sits down instead.
+				{"say": "We could do nothing. You've practised.", "tone": "tease", "face": "amused", "reply": """
+Edda: One hour, once, and I thought about linen for most of it.
 
-Edda: There. A remarkable administrative achievement. I have managed to occupy my own chair.
+She sits, though, and makes a visible effort not to straighten the cloth.
 """},
 			]},
 			{"face": "warm", "text": """
-For a moment she watches the doorway. Then she turns back to you.
+Edda: I've been thinking about why I count.
 
-Edda: I used to think a visit needed a reason I could explain afterward. A problem solved, a message delivered. Now I am trying to let the afternoon speak for itself. It has made no requests for better management.
-
-[?edda_argued_verse] Edda: You still owe the miller an apology, by the way. I have not forgotten whose side you took.
-
-[?edda_wrong_verse,!edda_argued_verse] She taps a familiar, slightly impossible rhythm on the table: the miller's unfortunate ending.
+Edda: I thought it was care. It is care. But if I'm counting, I'm at the door, and if I'm at the door, I'm not at the table. I've spent twelve years laying a place for everyone in this valley so that I'd never have to sit in one.
 """, "options": [
-				{"say": "You left the cloth crooked.", "tone": "tease", "reply": """
-Edda glances at the cloth, then back at you.
+				{"say": "And now?", "tone": "ask", "reply": """
+Edda: Now there's somebody across the table who'd notice if I got up. It's very inconvenient.
 
-Edda: I did. I considered straightening it, but I was already sitting comfortably. A difficult decision. I expect the table will survive the consequences.
+Edda: I find I don't want to get up.
 """},
-				{"say": "How was your day?", "tone": "ask", "reply": """
-Edda: Ordinary. Someone told a story badly, and I laughed anyway. I found something I thought I had lost. Nothing that belongs in a report.
+				{"say": "That's the bravest sum you've done.", "tone": "comfort", "reply": """
+Edda: It's the first I've done about myself. I'm not sure I carried everything.
 
-Edda: Thank you for asking a question with room for such an unimportant answer. I liked my day.
+Edda: Check it for me. No, don't. Just stay there while it sits.
 """},
 			]},
 			{"face": "warm", "text": """
-[?edda_morning_river] Edda: My cousin has written back, incidentally. She says she will go easy on you at the river. She will not.
+[?you_why_keep] Edda: You said you took the company because someone had to keep them alive. I took the house the same way. I think we're allowed one hour a day when it isn't our turn.
 
-[?edda_morning_sleep] Edda: I slept past the bread on Tuesday. On purpose. I lay there the entire time composing a list of what I was not doing, but I am told that counts.
+[?you_why_coin] Edda: You said you took the sword because you were hungry. You're not hungry now; I've seen to it. So what do you want, when you're not?
 
-[?edda_morning_market] Edda: I went to the market without a list. I came back with a list. Someone was selling paper.
+[?you_why_house] Edda: You said the company was the only house you'd had. This is one, Captain. It's got a door and everything. I counted.
 
-[?edda_morning_bench] Edda: I have been back to that bench. It is a perfectly ordinary bench when you are not on it. I checked.
+Outside, the yard goes about its evening without her.
 
-Somewhere beyond the room, a door closes and someone laughs. Neither of you has to explain the sound or turn it into a subject.
-
-Edda: Stay a little, if you like. I haven't anything else to offer you.
+Edda: I haven't anything to give you. It's the first time since I was sixteen I've sat with someone and had nothing in my hands.
 """, "options": [
 				{"say": "This is enough.", "tone": "quiet", "reply": """
-She smiles, accepting the answer without searching for something to add.
+Edda: Is it.
 
-Edda: Then I shall stop looking for more. That is harder than it sounds, and I am doing it anyway.
+She tests the sentence the way she'd test a floorboard, and finds that it holds.
+
+Edda: Then I'll stop looking for more. That's harder than it sounds, and I'm doing it.
 """},
-				{"say": "Then tell me nothing important.", "tone": "ask", "reply": """
-Edda: The pump handle froze and the cook has named it. The cat has taken the good windowsill. I found a glove I have blamed on a cousin since autumn.
+				{"say": "Tell me something that isn't about the household.", "tone": "ask", "reply": """
+Edda: The herons. I rode up. The moths hadn't got at them.
 
-Edda: Not one line of it belongs in a report. I shall want yours afterward, in the same detail.
+Edda: I did a hand's breadth. Blue on grey. It's crooked. I'm leaving it crooked.
 """},
-				{"say": "Give me your hand, then. That's something.", "tone": "heart", "when": "romantic",
-					"memory": "Shared a quiet visit with Edda, with no task to justify it, and her hand in yours.", "reply": """
-You offer your hand across the table. She takes it, gently, and does not let go to straighten the cloth.
+				{"say": "Give me your hands, then. They're not empty now.", "tone": "heart", "when": "romantic",
+					"memory": "Sat with Edda with no task between you, and her hands in yours.", "reply": """
+You hold out yours. She puts hers in them: ink on the right forefinger, a burn from the bread oven, all of it.
 
-Edda: I had not counted that. I shall have to revise the inventory.
+Edda: I hadn't counted that. I'll have to revise the inventory.
 """},
-				{"say": "Your company's the offer. I'll take it.", "tone": "warm", "when": "friend", "reply": """
-Edda leans back in her chair, at ease in the familiar company of a friend.
+				{"say": "You're the offer. I'll take it.", "tone": "warm", "when": "friend", "reply": """
+Edda: A poor bargain. I come with forty hearths and a temper.
 
-Edda: Then we are both well supplied.
+Edda: But done. I don't go back on a count.
 """},
 			]},
 		],
 		"closing_face": "warm", "closing": """
-She rests her hands on the table. The cloth remains crooked. Nothing has been promised or assigned, and the visit has not become less worthwhile for it.
+She does not get up. When the kitchen boy comes to ask about the morning's bread she tells him, without turning her head, to ask her in the morning.
 
-Edda: Two places. I counted them twice, from habit, and both times I was one of them.
+He looks at you as though you had worked a miracle.
 
-Outside, the afternoon goes on without being managed.
+Edda: Two places. I counted them twice, from habit. Both times, I was one of them.
 """,
-		"summary": "Edda has set two places, including her own. With no letters or requests to deliver, she enjoys your company for its own sake. A harmless crooked cloth stays crooked. You share an ordinary, comfortable visit that reflects the relationship you already chose together, without making a new promise.",
-		"memory": "Shared a quiet visit with Edda, with no task to justify being together.",
+		"summary": "Edda has set two places and has nothing to hand you: no letters, no accounts. She tells you what she has worked out about her counting: that a woman who is always at the door never has to sit at the table. Tonight she sits, and stays sitting.",
+		"memory": "Sat with Edda with no task to justify it, and she stayed in her chair.",
 	},
 	"edda_who_set_your_place": {
-		"title": "Who Set Your Place", "rank": "S", "requires_any": ["edda_place_no_task"], "coda": true,
+		"title": "The Forty-Second", "rank": "S", "requires_any": ["edda_place_no_task"], "coda": true, "setting": "ravensford",
 		"parts": [
 			{"face": "thoughtful", "text": """
-Edda is laying a table, and for once she is doing it slowly. Two bowls. Two cups. She has a spoon in each hand and has not put either down.
+She has brought you up to Thornwall. The village is rebuilt; the new hall still smells of cut pine. Behind it, on the slope, there is a cairn, and Edda has stopped a little way short of it with her hands wrapped in her shawl.
 
-Edda: I have been meaning to ask you something, and I have been laying this table for a quarter of an hour so as not to.
+Edda: I come up on the day. I tell her the numbers. Hearths, harvest, how many born. She liked a full account.
 
-[?edda_noticed_place] Edda: You noticed, that first evening, that I had counted everyone but myself. I have been turning it over ever since. It occurred to me that I never asked who counted you.
+[?you_carry_names] Edda: You say your dead aloud, some nights; you told me. So do I, up here. It's the same habit.
 
-[?!edda_noticed_place] Edda: I have told you about my uncle's extra bowl a dozen times. It occurred to me that I never asked who set a place for you.
+[?you_why_house] Edda: You said you'd never had a house with a door. She kept this valley's. I'd like her to see who's come through it.
+
+Edda: I've never brought anyone. I'm not sure of the form.
 """, "options": [
-				{"say": "Ask. I've nowhere to be.", "tone": "quiet", "reply": """
-Edda: You always say that, and then a rider comes.
+				{"say": "Tell her the numbers. I'll wait.", "tone": "quiet", "reply": """
+Edda: You'll stand here. Not back there. Here.
 
-She puts one spoon down, which leaves her a hand free and nothing to do with it.
+She tells the cairn: forty-four hearths now, a good barley year, nine born and all living. Her voice is perfectly steady, like a clerk's.
 """},
-				{"say": "Put the spoons down first.", "tone": "tease", "reply": """
-Edda: I am perfectly capable of asking a question while holding—
+				{"say": "Introduce me.", "tone": "share", "reply": """
+Edda: She'd want your muster roll, and whether you pay on time.
 
-She looks at her hands, and puts the spoons down.
-
-Edda: That was unfair. Accurate, and unfair.
+She tells the cairn anyway: forty-four hearths, a good barley year, nine born. And then, in the same clerk's voice: and this is the captain.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-Edda: When you were small. Before the company, before anyone called you captain. Who set a place for you?
+Edda: I've been angry at her for fourteen years. For going back. She'd done it; she had forty-one. She could have stayed at the door with me.
+
+Edda: I understand it now, and I'm still angry. I've had to learn that both will fit.
+
+Edda: Captain. When you were small. Before the company. Was there someone who counted you in?
 """, "options": [
-				{"say": "Someone at home. Every night, early.", "tone": "share", "mark": "you_place_home", "face": "warm", "reply": """
-She nods slowly, as if a column has finally come out even.
+				{"say": "Someone at home. They'd stand in the lane till they saw me.", "tone": "share", "mark": "you_place_home", "face": "warm", "reply": """
+Edda: Then you know what it is to be looked for. I thought you might. You've the look of someone who was.
 
-Edda: Early. So you were expected. It shows, you know. You sit down at a table as though it had been waiting for you. I used to think that was a soldier's confidence.
+Edda: I'd like to have met them. I'd have compared notes.
 """},
-				{"say": "A stranger, once, on the road. I never forgot it.", "tone": "share", "mark": "you_place_stranger", "face": "warm", "reply": """
-Edda: One bowl, from someone who owed you nothing.
+				{"say": "Nobody. I came and went, and no one marked it.", "tone": "share", "mark": "you_place_none", "face": "concerned", "reply": """
+Edda does not say she is sorry. She looks at the cairn, and then at you, as if adding a figure to a column.
 
-Edda: I know that bowl. My uncle set it out every night for twenty years, and I never once met the person who needed it the way you did. I shall tell him it was used.
+Edda: Then it's been owed you a long time. I collect debts, Captain. I'm known for it.
 """},
-				{"say": "No one. I learned to set my own.", "tone": "share", "mark": "you_place_none", "face": "concerned", "reply": """
-Edda does not say she is sorry. She looks at the table she has been laying for a quarter of an hour.
+				{"say": "An old sergeant. He counted the whole company every dusk.", "tone": "share", "mark": "you_place_sergeant", "face": "warm", "reply": """
+Edda: Somebody who counts at dusk. I'd have liked him.
 
-Edda: Then you have been doing my work your whole life, and nobody thanked you for it either. That is going to stop. I am very good at stopping things.
+Edda: Is he in my book? No. Don't tell me now. Tell me at home, and I'll write it properly.
 """},
 			]},
 			{"face": "warm", "text": """
-She takes up the second bowl again and sets it down, not opposite her own but beside it. She squares it. She un-squares it.
+She takes something from her shawl: a hazel stick, grey with age, notched all down one side. Forty-one notches. She has her knife in her other hand.
 
-Edda: This is yours. Not the guest's place. Not whoever comes. I have written it in the household book, in ink, between the linen and the lamp oil, and the clerk has been told not to query it.
+Edda: I've carried this since I was fourteen, waiting for the next one. I always thought the forty-second notch was hers. It isn't. She's not coming in. I've known that a long time; I only never said it up here.
 
-She steps back and counts the table aloud.
+She cuts a notch. It is clean, and new, and white against the old wood.
 
-Edda: One. Two.
+Edda: That's you. Forty-two. Come in.
 """, "options": [
-				{"say": "You counted yourself first.", "tone": "tease", "reply": """
-Edda: I did. I have been practising when you are not here.
+				{"say": "I'm in.", "tone": "quiet", "reply": """
+She runs her thumb over the new notch, once.
 
-Edda: It is easier with two. With one, I kept losing my place.
+Edda: It came out right. First time in fourteen years the count's come out right.
 """},
-				{"say": "Then I'll be home for supper.", "tone": "share", "reply": """
-Edda: Don't promise the hour. I know what roads are.
+				{"say": "What happens to the stick now?", "tone": "ask", "reply": """
+Edda: It goes over the hall door, where I can see it when I'm counting.
 
-Edda: Promise the place. I shall keep it whether you are in it or not. That is what it is for.
+Edda: I shan't cut another. Forty-two's the number. I'm done waiting on that road.
 """},
-				{"say": "Two. I like how that sounds when you say it.", "tone": "heart", "when": "romantic",
-					"memory": "Edda asked who set a place for you, then set one beside her own, in ink, and counted to two.", "reply": """
-Edda: Two.
+				{"say": "Forty-two. And I'm not going back out without you.", "tone": "heart", "when": "romantic",
+					"memory": "At Thornwall, Edda cut the forty-second notch in her mother's tally stick, and put the stick in your hand.", "reply": """
+Edda: You will. You're a soldier. You'll ride out a hundred times.
 
-She says it again, more quietly, to see whether it holds. It does.
+Edda: But you'll be counted, every time, by someone who can't sit down till you're in. That's what I've got to give. It's all of it.
 
-Edda: I have counted a great many things in this house. I think that is the first number I have wanted to keep.
+She puts the stick into your hand, and closes her own hand over yours, and the cairn can make of that what it likes.
 """},
-				{"say": "Two. Your uncle would approve.", "tone": "warm", "when": "friend", "reply": """
-Edda: He would set a third, on principle.
+				{"say": "Forty-two. She'd approve the arithmetic.", "tone": "warm", "when": "friend", "reply": """
+Edda: She'd check it. Twice. Then she'd ask what you eat.
 
-Edda: But yes. He would look at this table and say nothing at all, which from him was applause.
+Edda: Yes. She'd approve. I can hear her doing it.
 """},
 			]},
 		],
 		"closing_face": "warm", "closing": """
-You sit. The drawer sticks when she goes for the ladle; you lift it a little without being asked, and she lets you.
+You walk down through Thornwall together. A woman at a door calls out to ask whether the steward will take bread, and Edda, to the visible astonishment of the whole street, says yes and sits down on the step.
 
-Edda: Seven spoons, the first evening. I remember being so sure the trouble was the number.
-
-She sits down beside you, in the place she counted first.
+Edda: Don't look at me like that. I'm allowed to be a guest. I've seen it done.
 """,
-		"summary": "Edda asks who set a place for you when you were small, and you tell her. Then she sets a place at her own table that is yours and no guest's, writes it into the household book, and counts the table aloud: herself first, then you.",
-		"memory": "Edda asked who set a place for you, and then set one beside her own, in ink.",
+		"summary": "Edda takes you to her mother's cairn above Thornwall, where she reports the valley's numbers every year. She asks who counted you in when you were small. Then she takes out the tally stick she has carried since she was fourteen, with its forty-one notches, and cuts the forty-second: you.",
+		"memory": "At Thornwall, Edda cut the forty-second notch in her mother's tally stick, and it was you.",
 	},
 	"edda_home_on_time": {
 		"title": "Home on Time", "rank": "S", "requires_any": ["edda_who_set_your_place"], "coda": true,
 		"parts": [
 			{"face": "concerned", "text": """
-The hall smells of bread. Trestles are up, the good cloth is out, and Edda is standing in the middle of it all with her riding cloak already over one arm.
+The hall smells of bread. Trestles are up, the good cloth is out, and the whole household is expected at dusk. Edda is standing in the middle of it with her riding cloak over her arm.
 
-Edda: The Hollin farm has lost half its barn roof. The boy came an hour ago. The feast is at dusk. If I ride now I can see the damage and be back before the second course.
+Edda: The Hollin farm's lost half its barn roof. The boy came an hour ago. If I ride now I can see it and be back by the second course.
 
-She is not looking at you. She is looking at the door, which is where her aunt always was.
+She is looking at the door. Over it hangs a hazel stick with forty-two notches.
 """, "options": [
-				{"say": "Your aunt would have gone.", "tone": "ask", "reply": """
-Edda: Yes.
+				{"say": "Your mother would have ridden.", "tone": "ask", "reply": """
+Edda: She would. She'd have been right to, most nights.
 
-Edda: And been back for the second course, and missed the first, and been forgiven by everyone at the table except one.
+Edda: She'd have been back for the second course, and missed the first, and been forgiven by everyone at the table but one.
 """},
-				{"say": "I'll hold your cloak. Either way.", "tone": "quiet", "reply": """
-You take the cloak from her arm and fold it, badly. She watches you do it.
+				{"say": "I'll hold your cloak. Whichever you choose.", "tone": "quiet", "reply": """
+You take it from her arm and fold it, badly. She watches you do it.
 
-Edda: You are not going to tell me what to do. You never do. It is extremely inconvenient.
+Edda: You're not going to tell me. You never do. It's the most irritating thing about you.
 """},
 			]},
 			{"face": "thoughtful", "text": """
-[?edda_aunt_right] Edda: You told me once I was right to be furious. I have been wondering whether I am about to earn it from someone else.
+[?you_carry_none] Edda: You told me you can't count your dead and still give orders. I'm the other way about. I count so hard I never give myself one. Here's one.
 
-[?edda_aunt_knew] Edda: You said she knew what it cost. She did. So do I. That has never yet been enough to stop a person.
+Edda: The roof's real. The barn won't mend for my eating supper. But the kitchen girls have been at this since before light, and three of them have asked the cook whether I'm coming.
 
-[?!edda_aunt_right,!edda_aunt_knew] Edda: I used to line up the boots so she would come home sooner. Somebody in that kitchen is doing the same with the cups. I can see it from here.
+She calls the stable boy. The carpenter, two men, a cart and a tarpaulin tonight; the steward at first light, with the tally book.
 
-Edda: The roof is real. But the girls have been at this since before light, and three of them have asked the cook whether I am coming.
-
-She calls the stable boy and gives him the errand without herself in it: the carpenter, two men, a tarpaulin tonight, and the steward at first light with the tally book.
-
-Edda: There. A roof can be looked at in the morning. A first course cannot.
+Edda: There. A roof can be looked at in the morning. A first course can't.
 """, "options": [
 				{"say": "How does it feel?", "tone": "ask", "reply": """
-Edda: Like leaving a column unadded. I keep reaching for it.
+Edda: Like a column left unadded. My hands keep going to it.
 
-Edda: Ask me again after the soup. I suspect it is going to feel like supper.
+Edda: Ask me after the soup. I've a suspicion it's going to feel like supper.
 """},
 				{"say": "I'll ride out with you at first light.", "tone": "help", "reply": """
-Edda: You will be useless on a roof.
+Edda: You'll be useless on a roof.
 
-Edda: Come anyway. You can hold the tally book and tell the Hollins I was late on purpose. They should hear that it can be done.
+Edda: Come anyway. Hold the book, and tell the Hollins I was late on purpose. They ought to hear that it can be done.
 """},
-				{"say": "Stay. And I'll stay too, if I'm asked.", "tone": "heart", "when": "romantic",
+				{"say": "Stay. And I'll stay, if I'm asked.", "tone": "heart", "when": "romantic",
 					"memory": "Stayed beside Edda at the feast she nearly rode away from, and was counted.", "reply": """
-Edda: You are asked. You were asked when I wrote you into the household book.
+Edda: You're asked. You were asked the day I cut the notch.
 
-She puts her arm through yours, in front of the whole kitchen, as though it were simply where an arm goes.
+She puts her arm through yours in front of the entire kitchen, as if that were simply where an arm goes.
 
 Edda: Come and be counted.
 """},
-				{"say": "Then put me to work. What needs carrying?", "tone": "warm", "when": "friend", "reply": """
-Edda: The bread. All of it. You may not eat any on the way; I shall know.
+				{"say": "Then give me something to carry.", "tone": "warm", "when": "friend", "reply": """
+Edda: The bread. All of it. You'll not eat any on the way; I'll know.
 
-Edda: And sit by me when it is done. I want one person at that table who knows what I nearly did.
+Edda: And sit by me. I want one person at that table who knows what I nearly did.
 """},
 			]},
 		],
 		"closing_face": "warm", "closing": """
-The hall fills. Somebody has brought a cousin; somebody generally does. Edda counts heads from the doorway, once, and comes out even.
+The hall fills. Somebody has brought a cousin; somebody always does. Edda counts heads from the doorway, once, and it comes out even.
 
-[?you_place_home] Edda: Early. You said they set yours early. I begin to see why.
+[?you_place_home] Edda: Someone stood in a lane for you, you said. I'm standing in a door. It's the same office.
 
-[?you_place_stranger] Edda: There is a spare bowl at the end, for whoever is on the road tonight. You know why.
+[?you_place_none] Edda: Nobody marked you in, you said. Mark this: I did. Tonight and after.
 
-[?you_place_none] Edda: Yours is the one by mine. Nobody set it but me. I wanted you to know whose hand.
+[?you_place_sergeant] Edda: Your old sergeant counted at dusk, you said. I've put him in the black book, on the first page of yours, where a founder goes.
 
-She is in her chair before the first course is carried in. The door stays shut behind her, and she does not once turn to look at it.
+She is in her own chair before the first course comes in. The door stays shut behind her, and she does not once turn to look at it.
 """,
-		"summary": "On the evening of a feast Edda has arranged for the household, word comes of a barn roof down at an outlying farm. She has her cloak on her arm, as her aunt always did. This time she sends the carpenter, keeps the roof for the morning, and is in her chair before the first course.",
+		"summary": "On the evening of a feast for the whole household, word comes of a barn roof down at an outlying farm. Edda has her cloak on her arm, as her mother would have. This time she sends the carpenter, keeps the roof for the morning, and is in her chair before the first course.",
 		"memory": "Stayed with Edda for the feast she nearly rode away from.",
 	},
 }

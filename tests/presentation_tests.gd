@@ -64,15 +64,15 @@ func _run() -> void:
 	check(action("begin")["progress"]["beat"] == 0, "first visit starts at opening beat")
 	var before: Dictionary = gs.to_dict().duplicate(true)
 	check(action("advance")["progress"]["beat"] == 1, "advance saves one beat")
-	check(action("advance")["progress"]["beat"] == 2, "successive beats persist")
-	check(action("previous")["progress"]["beat"] == 1, "previous keeps a saved reading position")
+	check(not action("advance")["ok"], "and stops at the end of the part, where you speak")
+	check(action("previous")["progress"]["beat"] == 0, "previous keeps a saved reading position")
 	var after: Dictionary = gs.to_dict().duplicate(true)
 	after["world"]["social"]["personal_conversations"] = before["world"]["social"]["personal_conversations"]
 	check(after == before, "reading changes only personal progress, not simulation or rewards")
 	var saved: Dictionary = JSON.parse_string(JSON.stringify(gs.to_dict()))
 	gs.from_dict(saved)
 	var resumed := action("begin")
-	check(resumed["progress"]["beat"] == 1 and resumed["progress"]["furthest_beat"] == 2, "JSON reload preserves position and history extent")
+	check(resumed["progress"]["beat"] == 0 and resumed["progress"]["furthest_beat"] == 1, "JSON reload preserves position and history extent")
 	check(action("choose", 1)["progress"]["beat"] == 1, "an answer shows your words and the first of hers")
 	var old: Dictionary = gs.world.social.personal_conversations[PERSON]["in_progress"][FIRST]
 	old.erase("beat")

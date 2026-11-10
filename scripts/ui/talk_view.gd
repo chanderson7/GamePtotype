@@ -470,6 +470,7 @@ func clear_log() -> void:
 	# A passage still being told belongs to what is being cleared away.
 	_pending.clear()
 	_pending_then = Callable()
+	_skip = Callable()
 	for c in _log.get_children():
 		_log.remove_child(c)
 		c.queue_free()
@@ -597,6 +598,9 @@ func _nudge_speaker() -> void:
 ## replies. A passage of one line is said, and `then` follows straight away.
 var _pending: Array = []
 var _pending_then: Callable
+## While a scene is leading up to something (lines, and things to say along the way): how
+## to go straight to what it leads to. Set by the scene; cleared when it gets there.
+var _skip: Callable
 
 
 func tell_lines(lines: Array, then: Callable = Callable()) -> void:
@@ -812,9 +816,9 @@ func reply_node(id: String) -> Button:
 
 ## Press a reply by id, as a tap would.
 func choose(id: String) -> bool:
-	# Asked for an answer while a passage is still being told: hear the rest first.
-	if reply_node(id) == null and telling():
-		tell_rest()
+	# Asked for an answer that comes after what is being told: hear it out first.
+	if reply_node(id) == null:
+		_hear_out()
 	var b := reply_node(id)
 	if b == null or b.disabled:
 		return false
@@ -822,19 +826,31 @@ func choose(id: String) -> bool:
 	return true
 
 
+## Hears out whatever is being told, and goes past anything leading up to the answers.
+func _hear_out() -> void:
+	for i in 40:
+		if telling():
+			tell_rest()
+		elif _skip.is_valid():
+			var skip := _skip
+			_skip = Callable()
+			skip.call()
+		else:
+			return
+
+
 ## Whether a reply is on offer (asked about one that comes after a passage still being
 ## told, the passage is heard out first, as choose() does).
 func has_reply(id: String, enabled_only: bool = true) -> bool:
-	if reply_node(id) == null and telling():
-		tell_rest()
+	if reply_node(id) == null:
+		_hear_out()
 	var b := reply_node(id)
 	return b != null and (not enabled_only or not b.disabled)
 
 
 ## The replies on offer once any passage being told has been heard out.
 func reply_ids() -> Array:
-	if telling():
-		tell_rest()
+	_hear_out()
 	return _replies.find_children("Reply_*", "Button", true, false).map(func(c): return String(c.name).trim_prefix("Reply_"))
 
 

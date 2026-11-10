@@ -147,7 +147,7 @@ func _init() -> void:
 	check(day.get_node_or_null("Stage/Dressing") != null and day.get_node_or_null("Stage/Face_center") != null, "the place is dressed, and she stands at its centre")
 	check(day.find_child("WhoCame", true, false) != null and day.has_reply("begin") and day.has_reply("later"), "who came, then: take your place, or not yet")
 	day.choose("begin")
-	check(day.log_text().contains("spare spoon") and day.find_child("Remembers", true, false) != null, "her vow comes from the time you shared")
+	check(day.log_text().contains("one place more than she had people") and day.find_child("Remembers", true, false) != null, "her vow comes from the time you shared")
 	check(day.has_reply("vow_promise") and day.has_reply("vow_honest") and day.has_reply("vow_laugh"), "three vows of your own")
 	day.choose("vow_promise")
 	check(day.log_text().contains("red cord"), "the Vardish rite: the cord")
