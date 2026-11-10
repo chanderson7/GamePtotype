@@ -21,11 +21,27 @@ const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const Page = preload("res://scripts/ui/menu_page.gd")
 const BondRow = preload("res://scripts/ui/bond_row.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
+const Motion = preload("res://scripts/ui/motion.gd")
+const CampFx = preload("res://scripts/ui/camp_fx.gd")
 
 var _scroll: ScrollContainer
 ## The open tab: camp, companies or deeds.
 var _tab := "camp"
-var _shown_silver := -1
+## Whether this visit's first build is done: things rise in only on arriving, and when a
+## tab is turned to (_turning).
+var _arrived := false
+var _turning := false
+## The camp picture, which drifts a little as the page scrolls.
+var _camp_art: TextureRect
+## The talks at the fire beyond the first few, once "All" is tapped.
+var _all_talks := false
+const TALKS_SHOWN := 3
+## Companies whose men rose with the last Reinforce, by id, to flash once.
+var _refilled := {}
+## The company's name was just taken up: it rises in under the title.
+var _title_new := false
+## Scroll to the fallen once the page is built (after Remember).
+var _to_fallen := false
 var _fallen_section: Control
 var _flicker: Tween
 ## The fallen card shows the five most recent until "All" is tapped.
@@ -66,6 +82,7 @@ func _build() -> void:
 	frame.add_child(page)
 	var col := Page.frame(page, 1.0)
 	_scroll = col.get_parent().get_parent() as ScrollContainer
+	_scroll.get_v_scroll_bar().value_changed.connect(_on_page_scroll)
 
 	# Who you are, where, and what you have. The camp's banner says the people.
 	col.add_child(Style.label("Warband", 64, Style.BRASS))
@@ -88,6 +105,10 @@ func _build() -> void:
 		var known := Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], Style.BODY, Style.BRASS)
 		known.name = "CompanyTitle"
 		col.add_child(known)
+		if _title_new:
+			_title_new = false
+			Motion.rise(known, 0.1)
+			Widgets.flash(known)
 	_tiles(col)
 	# The pay card only when it says something the tiles don't: it can't be met, or
 	# there's no map to put the chip on.
@@ -100,7 +121,11 @@ func _build() -> void:
 		{"id": "bonds", "label": "Bonds", "icon": "bond", "badge": GameState.new_bond_talks().size()},
 		{"id": "deeds", "label": "Deeds", "icon": "book", "badge": GameState.active_jobs.size()},
 	]
-	col.add_child(Widgets.tab_bar(tabs, _tab, _on_tab, "WarbandTabs", true))
+	var bar := Widgets.tab_bar(tabs, _tab, _on_tab, "WarbandTabs", true)
+	col.add_child(bar)
+	# The Camp tab's flame flickers while the camp is open.
+	if _tab == "camp":
+		Motion.flicker_icon(bar.find_child("Tab_camp", true, false) as Button, Style.TEXT, Color("f3d891"))
 
 	# Every tab is built, and only the open one shown, so links into any of them work.
 	var camp := VBoxContainer.new()
@@ -233,6 +258,15 @@ func _build() -> void:
 		back.pressed.connect(_on_battle)
 	frame.add_child(Widgets.bottom_bar(back, insets, "BackBar"))
 	_restore_scroll(keep)
+	_show_changes(col, tabs, pay)
+	var open_tab := {"camp": camp, "companies": companies, "bonds": bonds_tab, "deeds": deeds}[_tab] as Control
+	if not _arrived or _turning:
+		_arrive(col, open_tab)
+	_arrived = true
+	_turning = false
+	if _to_fallen:
+		_to_fallen = false
+		_jump_to_fallen.call_deferred()
 
 
 ## Silver (and what a day costs), food (and the days it lasts), men (with the wounded)
@@ -252,15 +286,105 @@ func _tiles(parent: Control) -> void:
 	parent.add_child(grid)
 	if grid.get_combined_minimum_size().x > _room():
 		grid.columns = 2
-	if _shown_silver >= 0 and _shown_silver != GameState.silver:
-		Widgets.tick_to(grid.get_child(0).find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v), "silver")
-	_shown_silver = GameState.silver
+
+
+## What the Warband showed when last looked at, kept on Scenes for this world only.
+func _seen() -> Dictionary:
+	var world_id: int = GameState.world.get_instance_id() if GameState.world != null else 0
+	if int(Scenes.warband_seen.get("world", -1)) != world_id:
+		Scenes.warband_seen = {"world": world_id}
+	return Scenes.warband_seen
+
+
+## What changed since the Warband was last looked at, shown as it changes: the tiles count
+## to their new numbers (the change rising off them), a pay that can no longer be met
+## shakes in, and a tab whose count went up pops its badge. Then this is what was seen.
+func _show_changes(col: Control, tabs: Array, pay: Dictionary) -> void:
+	var seen := _seen()
+	var now := {"silver": GameState.silver, "food": GameState.food, "men": GameState.total_men(), "renown": GameState.renown}
+	var grid := col.find_child("WarbandTiles", false, false) as Control
+	var n := 0
+	for key in now:
+		if seen.has(key) and int(seen[key]) != int(now[key]) and grid != null:
+			var tile := grid.find_child("Tile_%s" % key, false, false) as Control
+			if tile != null:
+				Widgets.tick_to(tile.find_child("Value", true, false) as Label, int(seen[key]), int(now[key]), func(v): return Widgets.thousands(v), key)
+				Widgets.flash(tile)
+				n += 1
+		seen[key] = now[key]
+	var short := bool(pay["short"])
+	if short and seen.has("short") and not bool(seen["short"]):
+		Motion.shake(col.find_child("NextPayCard", true, false) as Control)
+	seen["short"] = short
+	var badges: Dictionary = seen.get("badges", {})
+	for t in tabs:
+		var id := String(t["id"])
+		var count := int(t.get("badge", 0))
+		if badges.has(id) and count > int(badges[id]):
+			var tab := col.find_child("Tab_%s" % id, true, false)
+			if tab != null:
+				Motion.pop(tab.find_child("Badge", true, false) as Control, 1.5, 0.15)
+		badges[id] = count
+	seen["badges"] = badges
+	# The pay's last hour: the clock ticks and the chip glows brass.
+	var chip := col.find_child("NextPayChip", true, false) as PanelContainer
+	if chip != null and float(pay.get("hours", 24.0)) <= 1.0:
+		var sb := (chip.get_theme_stylebox("panel") as StyleBoxFlat).duplicate() as StyleBoxFlat
+		sb.border_color = Style.BRASS
+		chip.add_theme_stylebox_override("panel", sb)
+		Motion.pulse(chip.find_child("Icon", true, false) as Control)
+
+
+## Arriving on the page, or turning to a tab: its rows rise in one after another, its
+## meters fill and its met steps draw their ticks.
+func _arrive(col: Control, tab: Control) -> void:
+	if not Motion.on():
+		return
+	if not _arrived:
+		var tiles := col.find_child("WarbandTiles", false, false)
+		if tiles != null:
+			Motion.stagger(tiles.get_children(), 0.05)
+	var rows: Array = []
+	for pattern in ["CampCaptain_*", "Squad_*", "BondRow", "Deed_*"]:
+		rows.append_array(tab.find_children(pattern, "Control", true, false))
+	Motion.stagger(rows, 0.04, 0.08)
+	for m in tab.find_children("*Meter", "Control", true, false):
+		if (m as Control).has_meta("frac"):
+			Motion.grow(m as Control, 0.0, 0.15)
+	var met := tab.find_children("Met", "Control", true, false)
+	for i in met.size():
+		var mark := met[i] as Control
+		mark.set_meta("tick", 0.0)
+		var t := mark.create_tween()
+		t.tween_interval(0.3 + 0.08 * i)
+		t.tween_method(func(v: float):
+			mark.set_meta("tick", v)
+			mark.queue_redraw(), 0.0, 1.0, 0.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+## The node called `node_name` on the page as rebuilt, not the outgoing copy still
+## waiting to be freed this frame.
+func _live(node_name: String) -> Node:
+	for n in find_children(node_name, "", true, false):
+		if Widgets.live(n):
+			return n
+	return null
+
+
+## The camp picture drifts a little slower than the page, so it has some depth.
+func _on_page_scroll(value: float) -> void:
+	if _camp_art == null or not is_instance_valid(_camp_art) or not Motion.on():
+		return
+	var p := clampf(value * 0.05, 0.0, 10.0)
+	_camp_art.offset_top = -10.0 + p
+	_camp_art.offset_bottom = 10.0 + p
 
 
 func _on_tab(id: String) -> void:
 	if id == _tab:
 		return
 	_tab = id
+	_turning = true
 	Scenes.warband_tab = id
 	Sound.play("click", 0.0, 0.05)
 	_scroll.scroll_vertical = 0
@@ -276,38 +400,50 @@ func _camp_header() -> Control:
 	var camp := StoryArt.location("company_camp", 0)
 	camp.name = "WarbandCampIllustration"
 	camp.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# A little taller than the stage, to drift in as the page scrolls.
+	camp.offset_top = -10.0
+	camp.offset_bottom = 10.0
 	camp.modulate = _camp_light()
 	stage.add_child(camp)
+	_camp_art = camp
 	# Firelight: a slow, slight flicker; still when motion is reduced.
 	if not Style.motion_reduced():
 		var base := camp.modulate
 		_flicker = camp.create_tween().set_loops()
 		_flicker.tween_property(camp, "modulate", base * Color(1.06, 1.0, 0.92), 1.7).set_trans(Tween.TRANS_SINE)
 		_flicker.tween_property(camp, "modulate", base, 2.1).set_trans(Tween.TRANS_SINE)
-	var banner := Control.new()
-	banner.name = "CompanyBanner"
-	banner.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# The fire's life over the picture: glow, embers and smoke, stars, the weather.
+	var fx := CampFx.new()
+	fx.art = camp
+	fx.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var w = GameState.world
+	if w != null:
+		fx.light = CampFx.light_for(w.hour)
+		fx.weather = CampFx.weather_for(String(w.player().node), int(w.hour / 24.0))
+	fx.visible = Style.illustrations_on()
+	stage.add_child(fx)
+	# The company's own banner, moving in the wind: its realm's, or its crown once raised.
+	var realm := "crown" if GameState.is_crowned() else Heraldry.realm_of_culture(GameState.culture)
+	var banner := CampFx.waving_banner(realm, Vector2(116, 140))
+	banner.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	banner.offset_left = -136.0
+	banner.offset_right = -20.0
+	banner.offset_top = 8.0
+	banner.offset_bottom = 148.0
 	banner.visible = Style.illustrations_on()
-	banner.draw.connect(func():
-		var info: Dictionary = Cultures.info(GameState.culture)
-		var color: Color = info["color"]
-		var at := Vector2(maxf(22.0, banner.size.x - 145.0), 22.0)
-		banner.draw_line(at + Vector2(0, -2), at + Vector2(0, 146), Color("6b4a2a"), 5.0)
-		Heraldry.flag(banner, at + Vector2(4, 4), Vector2(108, 70), color, color.darkened(0.42), true, Troops.INFANTRY, false, true))
 	stage.add_child(banner)
-	# Who's at the fire, as chips on the foot of the picture, over a shade that keeps
-	# them readable on a bright camp.
+	# Who's at the fire, as chips across the sky, clear of the fire and the banner, over a
+	# shade that keeps them readable on a bright camp.
 	var shade := Control.new()
 	shade.name = "FireShade"
 	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shade.draw.connect(func():
-		var top := shade.size.y * 0.45
+		var low := shade.size.y * 0.6
 		var clear := Color(Style.NIGHT, 0.0)
-		var dark := Color(Style.NIGHT, 0.82)
-		shade.draw_polygon(PackedVector2Array([Vector2(0, top), Vector2(shade.size.x, top), shade.size, Vector2(0, shade.size.y)]),
-			PackedColorArray([clear, clear, dark, dark])))
+		var dark := Color(Style.NIGHT, 0.72)
+		shade.draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(shade.size.x, 0), Vector2(shade.size.x, low), Vector2(0, low)]),
+			PackedColorArray([dark, dark, clear, clear])))
 	stage.add_child(shade)
 	var counts := _fire_counts()
 	var chips := [Widgets.stat("fire", "%d ready" % int(counts["ready"]))]
@@ -321,12 +457,11 @@ func _camp_header() -> Control:
 		chips.append(remembered)
 	var fire := Widgets.chip_row(chips)
 	fire.name = "FireChips"
-	fire.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	fire.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	fire.offset_left = 12.0
-	fire.offset_right = -12.0
-	fire.offset_top = -12.0
-	fire.offset_bottom = -12.0
-	fire.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	fire.offset_right = -150.0
+	fire.offset_top = 12.0
+	fire.offset_bottom = 12.0
 	stage.add_child(fire)
 	return stage
 
@@ -402,7 +537,7 @@ func _camp_token(c: Dictionary) -> Button:
 		sb.content_margin_right = 4
 		token.add_theme_stylebox_override(state, sb)
 	if Style.illustrations_on():
-		token.icon = CaptainArt.texture(c)
+		token.icon = CaptainArt.texture(c, _mood(c))
 		token.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
 		token.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		token.add_theme_constant_override("icon_max_width", 55)
@@ -430,7 +565,38 @@ func _camp_token(c: Dictionary) -> Button:
 		mark.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		token.add_child(mark)
 	token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))
+	# A press gives a little under the finger.
+	token.button_down.connect(func():
+		if Motion.on():
+			token.pivot_offset = token.size * 0.5
+			token.create_tween().tween_property(token, "scale", Vector2(0.94, 0.94), 0.08))
+	token.button_up.connect(func():
+		if Motion.on():
+			token.create_tween().tween_property(token, "scale", Vector2.ONE, 0.28).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT))
 	return token
+
+
+## The face a captain wears at the fire, from what is true of them now: in pain while
+## wounded, grieving a friend just fallen, warm over a bond just grown, proud with a
+## promotion waiting; otherwise their resting face.
+func _mood(c: Dictionary) -> String:
+	var id := int(c.get("id", 0))
+	if int(c.get("wounded", 0)) > 0:
+		return "pain"
+	var m: Dictionary = CampMoments.pick(GameState)
+	match String(m.get("kind", "")):
+		"fallen":
+			for f in GameState.fallen:
+				if int(f.get("id", 0)) == int(m.get("captain_id", -1)):
+					var who = CampMoments.mourner(GameState, f)
+					if who is Dictionary and int(who.get("id", -1)) == id:
+						return "grief"
+		"bond":
+			if id == int(m.get("a_id", -1)) or id == int(m.get("b_id", -1)):
+				return "warm"
+	if Captains.can_specialize(c):
+		return "proud"
+	return ""
 
 
 ## One optional moment from what happened to the company, on a gold card, or nothing on
@@ -441,6 +607,7 @@ func _camp_moment(parent: Control) -> void:
 		return
 	var v := Widgets.card(parent, String(m["title"]), "", Style.MUTED, true)
 	v.get_parent().name = "CampMoment"
+	Motion.sheen(v.get_parent() as Control)
 	var text := Style.label(String(m["text"]), Style.BODY, Style.TEXT)
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(text)
@@ -459,7 +626,7 @@ func _camp_moment(parent: Control) -> void:
 	done.text = "Let it be"
 	done.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	done.custom_minimum_size = Vector2(0, Style.TOUCH)
-	done.pressed.connect(_on_moment_dismiss.bind(String(m["key"])))
+	done.pressed.connect(func(): Motion.fold(v.get_parent() as Control, _on_moment_dismiss.bind(String(m["key"]))))
 	row.add_child(done)
 
 
@@ -487,6 +654,7 @@ func _deeds_panel() -> Control:
 		row.add_child(line)
 		# Its icon on a tile: brass and ticked once the deed is done.
 		var tile := PanelContainer.new()
+		tile.name = "DeedTile"
 		tile.custom_minimum_size = Vector2(56, 56)
 		tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		tile.add_theme_stylebox_override("panel", Style.box(Style.BRASS if done else Style.RAISED, Color(0, 0, 0, 0), 0, 14))
@@ -513,7 +681,9 @@ func _deeds_panel() -> Control:
 		if done:
 			progress.add_child(Widgets.stat("day", str(int(GameState.deeds[id].get("day", 1)))))
 		else:
-			progress.add_child(Widgets.meter(float(have) / maxf(1.0, float(need)), Style.PLAYER_LIGHT.darkened(0.25), 12.0))
+			var dm := Widgets.meter(float(have) / maxf(1.0, float(need)), Style.PLAYER_LIGHT.darkened(0.25), 12.0)
+			dm.name = "DeedMeter"
+			progress.add_child(dm)
 			progress.add_child(Style.label("%d/%d" % [have, need], Style.SMALL, Style.MUTED))
 		words.add_child(progress)
 		if done:
@@ -532,10 +702,28 @@ func _deeds_panel() -> Control:
 			b.pressed.connect(func():
 				GameState.set_company_title("" if carried else id)
 				GameState.save_game()
-				_build())
+				_title_new = not carried
+				_build()
+				if not carried and _scroll != null and Motion.on():
+					_scroll.create_tween().tween_property(_scroll, "scroll_vertical", 0, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT))
 			line.add_child(b)
 		box.add_child(row)
 	box.add_child(_note("Yours to chase or ignore; the campaign never ends on one."))
+	# A deed done since the tab was last open is stamped in brass, with a ring.
+	if _tab == "deeds":
+		var seen := _seen()
+		var had: Array = seen.get("deeds", [])
+		var done_now: Array = []
+		for id in Achievements.ORDER:
+			if Achievements.done(GameState, id):
+				done_now.append(id)
+				if seen.has("deeds") and not had.has(id):
+					var deed_row := box.find_child("Deed_%s" % id, false, false)
+					if deed_row != null:
+						var ic := deed_row.find_child("DeedTile", true, false) as Control
+						Motion.pop(ic, 1.4, 0.4)
+						Motion.ring(ic, Style.BRASS, 0.4, false)
+		seen["deeds"] = done_now
 	return box
 
 
@@ -553,8 +741,8 @@ func _on_moment(m: Dictionary) -> void:
 		"bond":
 			_open_bond(int(m.get("a_id", 0)), int(m.get("b_id", 0)))
 		"memorial":
+			_to_fallen = true
 			_build()
-			_jump_to_fallen.call_deferred()
 
 
 func _jump_to_fallen() -> void:
@@ -566,6 +754,7 @@ func _jump_to_fallen() -> void:
 	await get_tree().process_frame
 	if _fallen_section != null and is_instance_valid(_fallen_section) and _scroll != null:
 		_scroll.scroll_vertical = int(_fallen_section.global_position.y - _scroll.global_position.y + _scroll.scroll_vertical)
+		Widgets.flash(_fallen_section)
 
 
 func _on_moment_dismiss(key: String) -> void:
@@ -586,12 +775,14 @@ func _pay_forecast() -> Dictionary:
 	var stipend := GameState.contract_daily_pay()
 	var rations := GameState.total_men()
 	var due := "daily"
+	var hours := 24.0
 	if GameState.world != null:
 		var next_day := (floori(GameState.world.hour / 24.0) + 1) * 24
-		due = Style.time_short(maxf(1.0, float(next_day) - GameState.world.hour))
+		hours = float(next_day) - GameState.world.hour
+		due = Style.time_short(maxf(1.0, hours))
 	var after_silver := GameState.silver - wages + stipend
 	var after_food := GameState.food - rations
-	return {"silver_out": wages - stipend, "food_out": rations, "due": due,
+	return {"silver_out": wages - stipend, "food_out": rations, "due": due, "hours": hours,
 		"after_silver": after_silver, "after_food": after_food, "short": after_silver < 0 or after_food < 0}
 
 
@@ -699,6 +890,10 @@ func _on_sort(index: int) -> void:
 	Scenes.warband_scroll = _scroll.scroll_vertical if _scroll != null else 0
 	Scenes.warband_sort = index
 	_build()
+	# The rows come back in their new order, one after another.
+	var card := _live("ActiveCard")
+	if card != null:
+		Motion.stagger(card.find_children("Squad_*", "Control", true, false), 0.035)
 
 
 func _sorted_roster(source: Array) -> Array:
@@ -810,6 +1005,7 @@ func _squad_row(s: Dictionary) -> Control:
 			var promo := Widgets.chip("Promotion", Style.BRASS, "★", "", true)
 			promo.name = "PromotionReady_%d" % int(c.get("id", -1))
 			who.add_child(promo)
+			Motion.sheen(promo, 0.42 * (int(s.get("id", 0)) % 6), 3.8, 0.42)
 
 	# Strength, then the level as pips and Train when it's ready.
 	var strength := Widgets.meter(float(men) / maxf(1.0, float(full)),
@@ -825,8 +1021,15 @@ func _squad_row(s: Dictionary) -> Control:
 		var train := Widgets.chip("Train", Style.BRASS, "▲", "", true)
 		train.name = "TrainReady_%d" % int(s.get("id", 0))
 		foot.add_child(train)
+		Motion.pulse(train.find_child("Shape", true, false) as Control, 1.25, 1.3)
 	if c != null:
 		_add_profile_tap(panel, int(c.get("id", -1)), String(c.get("name", "Captain")))
+	if _refilled.has(int(s.get("id", 0))):
+		var order := int(_refilled[int(s.get("id", 0))])
+		var t := panel.create_tween()
+		t.tween_interval(0.11 * order)
+		t.tween_callback(func(): Widgets.flash(panel))
+		Motion.grow(strength, float(_refilled.get("from_%d" % int(s.get("id", 0)), 0.0)), 0.11 * order, 0.5)
 	return panel
 
 
@@ -904,7 +1107,13 @@ func _active_job_row(job: Dictionary) -> Control:
 	var w = GameState.world
 	var cur_hour: float = w.hour if w != null else 0.0
 	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - cur_hour)
-	var chips: Array = [Widgets.stat("clock", Style.time_short(hrs_left), Style.ENEMY_LIGHT if hrs_left < 24.0 else Style.TEXT)]
+	var due := Widgets.stat("clock", Style.time_short(hrs_left), Style.ENEMY_LIGHT if hrs_left < 24.0 else Style.TEXT)
+	if hrs_left < 24.0:
+		var ic := due.find_child("Icon", true, false) as Control
+		if ic != null:
+			ic.modulate = Style.ENEMY_LIGHT
+			Motion.pulse(ic)
+	var chips: Array = [due]
 	for pair in [["silver", "reward_silver"], ["renown", "reward_renown"], ["bond", "reward_relation"]]:
 		var n := int(job.get(pair[1], 0))
 		if n != 0:
@@ -1018,8 +1227,23 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 	if not waiting.is_empty():
 		var wc := Widgets.card(tab, "Talks at the fire", str(waiting.size()), Style.BRASS, true)
 		wc.get_parent().name = "TalksCard"
-		for b in waiting:
-			wc.add_child(_bond_row(b))
+		for i in waiting.size():
+			if i >= TALKS_SHOWN and not _all_talks:
+				break
+			wc.add_child(_bond_row(waiting[i]))
+		if waiting.size() > TALKS_SHOWN and not _all_talks:
+			var all := Button.new()
+			all.name = "AllTalks"
+			all.text = "All %d" % waiting.size()
+			all.custom_minimum_size.y = Style.TOUCH
+			all.pressed.connect(func():
+				_all_talks = true
+				_build()
+				var card := _live("TalksCard")
+				if card != null:
+					var rows := card.find_children("BondRow", "Control", true, false)
+					Motion.stagger(rows.slice(TALKS_SHOWN), 0.055))
+			wc.add_child(all)
 	var rest: Array = ranked.filter(func(b): return not waiting.has(b))
 	rest.sort_custom(func(x, y): return _to_next_rank(float(x["points"])) < _to_next_rank(float(y["points"])))
 	if not rest.is_empty():
@@ -1069,8 +1293,47 @@ func _build_bonds_tab(tab: VBoxContainer) -> void:
 				"BondMemory_%d_%d" % [sid, gid]))
 		for line in remembered:
 			mc.add_child(_note(line))
+		# A candle for each friend remembered, before the talk button.
+		for row in mc.find_children("BondRow", "PanelContainer", true, false):
+			var line_box := (row as PanelContainer).get_child(0) as HBoxContainer
+			if line_box != null:
+				var flame := Motion.candle(52.0)
+				line_box.add_child(flame)
+				if line_box.get_child(line_box.get_child_count() - 2) is Button:
+					line_box.move_child(flame, line_box.get_child_count() - 2)
 	if ranked.is_empty() and growing.is_empty():
 		tab.add_child(_note("None yet. Fight with captains side by side and they'll grow close."))
+	_show_bond_changes(tab, ranked)
+
+
+## On the Bonds tab: a talk waiting pings on its button, and a bond that has reached a new
+## rank since the tab was last open pops its badge with a ring of brass and fills its bar
+## from the start. The ranks are only taken as seen while the tab is open.
+func _show_bond_changes(tab: Control, ranked: Array) -> void:
+	var k := 0
+	for dot in tab.find_children("NewDot", "Control", true, false):
+		if (dot as Control).visible:
+			Motion.ping(dot as Control, Style.BRASS, 0.3 * k)
+			k += 1
+	if _tab != "bonds":
+		return
+	var seen := _seen()
+	var ranks: Dictionary = seen.get("ranks", {})
+	for b in ranked:
+		var a: Dictionary = b["a"]
+		var c: Dictionary = b["b"]
+		var key := "%d|%d" % [mini(int(a["id"]), int(c["id"])), maxi(int(a["id"]), int(c["id"]))]
+		var rank := Captains.rank_for(float(b["points"]))
+		if ranks.has(key) and rank > int(ranks[key]):
+			for row in tab.find_children("BondRow", "Control", true, false):
+				var t := row.find_child("BondTitle", true, false) as Label
+				if t != null and t.text == "%s & %s" % [a["first"], c["first"]]:
+					var badge := row.find_child("Rank_%s" % String(Captains.RANKS[rank]), true, false) as Control
+					Motion.pop(badge, 1.5, 0.45)
+					Motion.ring(badge, Style.BRASS, 0.45)
+					Motion.grow(row.find_child("BondMeter", true, false) as Control, 0.0, 0.5)
+		ranks[key] = rank
+	seen["ranks"] = ranks
 
 
 ## Points still needed for the next rank (a big number at the top rank).
@@ -1157,6 +1420,7 @@ func _memorial_row(f: Dictionary) -> Control:
 		var av_words := Style.label(f["avenged_words"], Style.SMALL, Style.PLAYER_LIGHT)
 		av_words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text.add_child(av_words)
+	row.add_child(Motion.candle(56.0))
 	if int(f.get("id", 0)) > 0:
 		_add_profile_tap(panel, int(f["id"]), String(f.get("name", "Captain")))
 	return panel
@@ -1344,5 +1608,20 @@ func _on_battle() -> void:
 
 
 func _on_reinforce() -> void:
+	var before := {}
+	for s in GameState.army:
+		before[int(s.get("id", 0))] = int(s["men"])
 	GameState.reinforce()
+	# The companies that took men, in roster order, flash one after another as they fill.
+	_refilled.clear()
+	var order := 0
+	for s in GameState.army:
+		var id := int(s.get("id", 0))
+		if before.has(id) and int(s["men"]) > int(before[id]):
+			var unit_id := String(s.get("unit", ""))
+			var full := Units.full_size(unit_id) if Units.has(unit_id) else Troops.full_size(String(s["type"]))
+			_refilled[id] = order
+			_refilled["from_%d" % id] = float(before[id]) / maxf(1.0, float(full))
+			order += 1
 	_build()
+	_refilled.clear()

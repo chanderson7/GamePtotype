@@ -119,6 +119,12 @@ static func _living(gs, id: int):
 
 
 ## A living captain who was bonded to the fallen `f`: the one to mourn them.
+## The captain who mourns the fallen `f` most (the first bond of theirs still in the
+## company), or null.
+static func mourner(gs, f: Dictionary):
+	return _mourner(gs, f)
+
+
 static func _mourner(gs, f: Dictionary):
 	for entry in f.get("bonds", []):
 		var first := String(entry).split(" (")[0]

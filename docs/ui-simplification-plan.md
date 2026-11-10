@@ -273,6 +273,23 @@ captains stand in a grid four across (three at big text), the resting last, dimm
 `wounded` mark; "7 ready · 1 resting · 1 remembered" are chips on the camp picture, the last
 one jumping to The fallen. Not yet run in Godot.
 
+**Motion, as built** (prototyped as a live page first): the camp flies the company's own
+realm banner (`Heraldry.realm_pole` and `realm_cloth`, the crown once raised) in place of the
+old culture-coloured flag, its cloth drawn once into a viewport and rippled by
+`shaders/banner_wave.gdshader`. `scripts/ui/camp_fx.gd` lays the fire's life over the camp
+picture: lantern and cook-fire glow, embers, smoke, stars at night, and rain (snow in
+Ryumon) on about one day in six, from a stable hash of the place and the day, never the
+campaign's dice. The picture drifts a little as the page scrolls. Captains wear the face
+that's true of them (pain, grief, warm, proud). `Scenes.warband_seen` remembers what the
+screen last showed, so on a return the tiles count to their new numbers with the change
+rising off them, badges that went up pop, a pay that can no longer be met shakes in, a bond
+that reached a rank pops its badge, and a deed just done is stamped. Rows rise in and meters
+fill on arriving or turning to a tab; met crown steps draw their ticks; the moment card
+catches the light and folds away; Remember lands on The fallen; memorials and remembered
+bonds keep a candle; Promotion catches the light, Train beckons, a contract with under a day
+left ticks. Talks at the fire show three, then "All N". The helpers are
+`scripts/ui/motion.gd`; every one is a no-op under Reduced motion. Not yet run in Godot.
+
 1. **The roster row** (mockup 1): face with the troop badge, name with `men` 11/12 and
    `wounded` 1 on the right, captain with temperament and quirk icons and a gold Promotion chip,
    one strength meter, level pips, a ▲ Train chip. Drop the xp and bond meters (the profile and

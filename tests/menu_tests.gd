@@ -274,7 +274,8 @@ func _run() -> void:
 	check(way_back != null and way_back.name == "BackButton", "Escape and a phone's back find the Warband's way to the map")
 	check(current_scene.find_child("WarbandCampIllustration", true, false) != null and current_scene.find_children("CaptainPortrait", "TextureRect", true, false).size() >= gs.army.size(),
 		"Warband combines the camp header with stable captain portraits")
-	check(current_scene.find_child("CompanyBanner", true, false) != null and current_scene.find_child("WarbandSort", true, false) != null,
+	check(current_scene.find_child("CompanyBanner", true, false) != null and current_scene.find_child("CompanyBanner", true, false).get_meta("realm", "") != ""
+		and current_scene.find_child("WarbandSort", true, false) != null,
 		"Warband shows the company banner and selectable roster sorting")
 	var pay_chip = current_scene.find_child("NextPayChip", true, false)
 	check(pay_chip != null and pay_chip.get_parent().name == "WhereChips" and current_scene.find_child("NextPayCard", true, false) == null,

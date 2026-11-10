@@ -48,6 +48,10 @@ var warband_scroll := 0
 var warband_sort := 0
 ## The Warband tab last open.
 var warband_tab := "camp"
+## What the Warband showed when last looked at (its numbers, badges, bond ranks and deeds
+## done), so coming back after a battle counts up from there. Keyed to the world, so a new
+## campaign or a loaded save starts fresh.
+var warband_seen := {}
 var settlement_scroll := 0
 var settlement_place := ""
 ## Set only by the map's Enter action, so returning from a conversation does not replay

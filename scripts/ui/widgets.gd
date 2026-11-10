@@ -635,8 +635,10 @@ static func meter(frac: float, color: Color, height: float = 14.0, marks: Array 
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	c.draw.connect(func():
 		c.draw_style_box(Style.box(Style.NIGHT, Style.RULE, 2, int(height / 2)), Rect2(Vector2.ZERO, c.size))
-		var w := maxf(height, (c.size.x - 4.0) * clampf(frac, 0.0, 1.0))
-		if frac > 0.0:
+		# "shown" is the fill as drawn right now (Motion.grow moves it up to "frac").
+		var shown := float(c.get_meta("shown", frac))
+		var w := maxf(height, (c.size.x - 4.0) * clampf(shown, 0.0, 1.0))
+		if shown > 0.0:
 			c.draw_style_box(Style.box(color, Color(0, 0, 0, 0), 0, int(height / 2)), Rect2(Vector2(2, 2), Vector2(w, c.size.y - 4.0)))
 		for m in marks:
 			var x := 2.0 + (c.size.x - 4.0) * clampf(float(m), 0.0, 1.0)
@@ -1006,8 +1008,20 @@ static func checklist(steps: Array, list_name: String = "Checklist") -> VBoxCont
 			var r := minf(mark.size.x, mark.size.y) * 0.5 - 2.0
 			if done:
 				mark.draw_circle(c, r, Style.MORALE_HIGH)
-				mark.draw_polyline(PackedVector2Array([c + Vector2(-r * 0.5, 0.0), c + Vector2(-r * 0.12, r * 0.42), c + Vector2(r * 0.55, -r * 0.4)]),
-					Style.NIGHT, 3.0, true)
+				# The tick, drawn as far as "tick" says (0 to 1), so it can be drawn in.
+				var k := clampf(float(mark.get_meta("tick", 1.0)), 0.0, 1.0)
+				var a := c + Vector2(-r * 0.5, 0.0)
+				var b := c + Vector2(-r * 0.12, r * 0.42)
+				var e := c + Vector2(r * 0.55, -r * 0.4)
+				var first := a.distance_to(b) / (a.distance_to(b) + b.distance_to(e))
+				var line := PackedVector2Array([a])
+				if k <= first:
+					line.append(a.lerp(b, k / first))
+				else:
+					line.append(b)
+					line.append(b.lerp(e, (k - first) / (1.0 - first)))
+				if k > 0.0:
+					mark.draw_polyline(line, Style.NIGHT, 3.0, true)
 			else:
 				mark.draw_arc(c, r, 0.0, TAU, 32, Style.MUTED, 2.5, true))
 		row.add_child(mark)

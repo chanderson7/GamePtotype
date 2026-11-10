@@ -232,28 +232,60 @@ static func realm_banner(ci: CanvasItem, realm: String, box: Rect2, pole: bool =
 		base: Transform2D = Transform2D.IDENTITY) -> Vector2:
 	if not REALM_SIZES.has(realm):
 		realm = "bandits"
+	var cloth := cloth_rect(realm, box, pole)
+	var k := cloth.size.x / Vector2(REALM_SIZES[realm]).x
+	var finial := Vector2(cloth.position.x + cloth.size.x * 0.5, box.position.y) if realm == "vardmark" else Vector2(cloth.position.x - 2.0 * k, box.position.y)
+	if pole:
+		realm_pole(ci, realm, box)
+	realm_cloth(ci, realm, cloth, base)
+	if grey:
+		ci.draw_rect(cloth, Color(0.2, 0.2, 0.22, 0.55))
+	return finial
+
+
+## Where the realm's cloth sits when its banner is fitted into `box`: below a crossbar for
+## a gonfalon, beside a staff for the rest (or the whole box, without a pole).
+static func cloth_rect(realm: String, box: Rect2, pole: bool = true) -> Rect2:
+	if not REALM_SIZES.has(realm):
+		realm = "bandits"
 	var cloth: Vector2 = REALM_SIZES[realm]
-	# Room for the pole: a crossbar above a gonfalon, a staff beside the rest.
 	var lead := Vector2(0.0, 0.14) if realm == "vardmark" else Vector2(0.14, 0.06)
 	if not pole:
 		lead = Vector2.ZERO
 	var avail := box.size / (Vector2.ONE + lead)
 	var k := minf(avail.x / cloth.x, avail.y / cloth.y)
 	var drawn := cloth * k
-	var origin := box.position + Vector2(lead.x * drawn.x, lead.y * drawn.y)
-	var finial := Vector2(origin.x + drawn.x * 0.5, box.position.y) if realm == "vardmark" else Vector2(origin.x - 2.0 * k, box.position.y)
-	if pole:
-		var w := maxf(1.5, 3.5 * k)
-		if realm == "vardmark":
-			var mid := origin.x + drawn.x * 0.5
-			ci.draw_line(Vector2(mid, box.position.y), Vector2(mid, box.end.y), POLE, w)
-			ci.draw_line(Vector2(origin.x - 4.0 * k, origin.y - 1.0 * k), Vector2(origin.x + drawn.x + 4.0 * k, origin.y - 1.0 * k), POLE, w)
-			ci.draw_circle(Vector2(mid, box.position.y + w), w * 1.2, FINIAL)
-		else:
-			var x := origin.x - 2.0 * k
-			ci.draw_line(Vector2(x, box.position.y), Vector2(x, box.end.y), POLE if realm != "ryumon" else Color("2a1d14"), w)
-			ci.draw_circle(Vector2(x, box.position.y + w), w * 1.2, FINIAL)
-	ci.draw_set_transform_matrix(base * Transform2D(0.0, Vector2(k, k), 0.0, origin))
+	return Rect2(box.position + Vector2(lead.x * drawn.x, lead.y * drawn.y), drawn)
+
+
+## The realm's pole alone (staff, crossbar and finial) for its banner fitted into `box`, so
+## the cloth can be drawn apart from it (and move in the wind). Returns the finial.
+static func realm_pole(ci: CanvasItem, realm: String, box: Rect2) -> Vector2:
+	if not REALM_SIZES.has(realm):
+		realm = "bandits"
+	var r := cloth_rect(realm, box, true)
+	var origin := r.position
+	var drawn := r.size
+	var k := drawn.x / Vector2(REALM_SIZES[realm]).x
+	var w := maxf(1.5, 3.5 * k)
+	if realm == "vardmark":
+		var mid := origin.x + drawn.x * 0.5
+		ci.draw_line(Vector2(mid, box.position.y), Vector2(mid, box.end.y), POLE, w)
+		ci.draw_line(Vector2(origin.x - 4.0 * k, origin.y - 1.0 * k), Vector2(origin.x + drawn.x + 4.0 * k, origin.y - 1.0 * k), POLE, w)
+		ci.draw_circle(Vector2(mid, box.position.y + w), w * 1.2, FINIAL)
+		return Vector2(mid, box.position.y)
+	var x := origin.x - 2.0 * k
+	ci.draw_line(Vector2(x, box.position.y), Vector2(x, box.end.y), POLE if realm != "ryumon" else Color("2a1d14"), w)
+	ci.draw_circle(Vector2(x, box.position.y + w), w * 1.2, FINIAL)
+	return Vector2(x, box.position.y)
+
+
+## The realm's cloth alone, filling `rect` (keep its REALM_SIZES shape).
+static func realm_cloth(ci: CanvasItem, realm: String, rect: Rect2, base: Transform2D = Transform2D.IDENTITY) -> void:
+	if not REALM_SIZES.has(realm):
+		realm = "bandits"
+	var k := rect.size.x / Vector2(REALM_SIZES[realm]).x
+	ci.draw_set_transform_matrix(base * Transform2D(0.0, Vector2(k, k), 0.0, rect.position))
 	match realm:
 		"vardmark": _vardmark(ci)
 		"kharzan": _kharzan(ci)
@@ -261,9 +293,6 @@ static func realm_banner(ci: CanvasItem, realm: String, box: Rect2, pole: bool =
 		"crown": _crown(ci)
 		_: _bandits(ci)
 	ci.draw_set_transform_matrix(base)
-	if grey:
-		ci.draw_rect(Rect2(origin, drawn), Color(0.2, 0.2, 0.22, 0.55))
-	return finial
 
 
 static func _poly(ci: CanvasItem, pts: Array, color: Color) -> void:

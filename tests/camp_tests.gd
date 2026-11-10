@@ -4,6 +4,7 @@ extends SceneTree
 const Cultures = preload("res://scripts/data/cultures.gd")
 const CampMoments = preload("res://scripts/data/camp_moments.gd")
 const Captains = preload("res://scripts/data/captains.gd")
+const CampFx = preload("res://scripts/ui/camp_fx.gd")
 
 var gs
 var failures := 0
@@ -97,8 +98,36 @@ func _init() -> void:
 	var next_moment: Dictionary = CampMoments.pick(gs)
 	check(next_moment.get("key", "") != "fallen_9999", "and returning to camp doesn't repeat it")
 
-	# Without illustrations the camp still works: names, no portraits.
+	# The camp flies the company's own realm banner, its cloth moving in the wind, over the
+	# fire's life; with motion reduced the cloth is drawn flat and nothing moves.
+	var flag = camp.find_child("CompanyBanner", true, false)
+	check(flag != null and String(flag.get_meta("realm", "")) == "kharzan", "the camp flies the realm's own banner")
+	var cloth = flag.find_child("BannerCloth", true, false) if flag != null else null
+	check(cloth is TextureRect and (cloth as TextureRect).material is ShaderMaterial and flag.find_child("ClothViewport", true, false) != null,
+		"its cloth waves")
+	var fx = camp.find_child("CampFx", true, false)
+	check(fx != null and fx.is_processing() and fx.light == CampFx.light_for(gs.world.hour), "the fire lives, in the light of the hour")
+	check(CampFx.weather_for("marchgate", 12) == CampFx.weather_for("marchgate", 12) and CampFx.weather_for("", 3) == "clear",
+		"the weather is the same every time you look")
+	var wet := 0
+	var snow := false
+	for day in 400:
+		var w: String = CampFx.weather_for("kitayama", day)
+		wet += 1 if w != "clear" else 0
+		snow = snow or w == "snow"
+	check(wet > 30 and wet < 120 and snow, "and wet on some days, not most (%d of 400), and in Ryumon's mountains it snows" % wet)
+	var hurt_face = camp.find_child("CampCaptain_%d" % int(cap["id"]), true, false)
+	check(hurt_face != null and hurt_face.icon != null, "the resting captain still shows a face")
 	var sound = root.get_node("Sound")
+	sound.reduced_motion = true
+	camp = await _open_camp()
+	flag = camp.find_child("CompanyBanner", true, false)
+	fx = camp.find_child("CampFx", true, false)
+	check(flag != null and flag.find_child("ClothViewport", true, false) == null and fx != null and not fx.is_processing(),
+		"with motion reduced the banner hangs still and the fire is a picture")
+	sound.reduced_motion = false
+
+	# Without illustrations the camp still works: names, no portraits.
 	sound.illustrations_enabled = false
 	camp = await _open_camp()
 	tokens = camp.find_child("CampTableau", true, false).find_children("CampCaptain_*", "Button", true, false)
