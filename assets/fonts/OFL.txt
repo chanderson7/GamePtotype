@@ -1,5 +1,6 @@
 Cinzel-Bold.ttf: Copyright 2020 The Cinzel Project Authors (https://github.com/NDISCOVER/Cinzel)
 IMFellEnglish-Regular.ttf, IMFellEnglish-Italic.ttf: Copyright (c) 2007 Igino Marini (www.iginomarini.com), with Reserved Font Name IM FELL English.
+BannerfallText.ttf: a modified version of Alegreya Sans Medium (drawn larger on its em, tabular lining digits by default, hinting removed; see tools/body_font.py). Copyright 2013 The Alegreya Sans Project Authors (https://github.com/huertatipografica/Alegreya-Sans).
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

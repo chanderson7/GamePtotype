@@ -9,6 +9,9 @@ const BAR_ROOM := 124.0
 
 ## Whether the developer options are shown (they also show while the readout is on).
 var _dev_open := false
+## A slider has moved since the settings were last written: they're written when it's let
+## go, and on the way out if a keyboard moved it.
+var _slid := false
 
 
 func _ready() -> void:
@@ -26,7 +29,13 @@ func _build() -> void:
 	col.add_child(Page.note("Changes save automatically on this device.", Style.SMALL))
 	col.add_child(Widgets.section("Sound"))
 	col.add_child(_switch_row("Music", "", Sound.music_on, Sound.set_music_on))
+	col.add_child(_slider_row("Music volume", Sound.music_volume, 0.0, 1.0, Sound.set_music_volume, _percent))
 	col.add_child(_switch_row("Sound effects", "", Sound.sounds_on, Sound.set_sounds_on, "Sound"))
+	col.add_child(_slider_row("Sound volume", Sound.sound_volume, 0.0, 1.0, func(v: float, save: bool):
+		Sound.set_sound_volume(v, save)
+		# A click at the new level, so the slider is heard as it moves.
+		if not save:
+			Sound.play("click", 0.0, 0.0, 0.08), _percent))
 	col.add_child(Widgets.section("Reading & motion"))
 	# Text size as three A's, each drawn at the size it gives.
 	var sizes := [1.0, 1.25, 1.5]
@@ -45,7 +54,7 @@ func _build() -> void:
 			t.tooltip_text = tips[i]
 			t.accessibility_name = "Text size %s" % tips[i]
 	col.add_child(_control_row("Text size", size_bar))
-	col.add_child(_switch_row("Reduced motion", "No opening, menu scaling, Home drift or battle shake", Sound.reduced_motion, func(on: bool):
+	col.add_child(_switch_row("Reduced motion", "No opening, menu scaling, Home drift, battle shake or map glides", Sound.reduced_motion, func(on: bool):
 		Sound.set_reduced_motion(on)))
 	col.add_child(_switch_row("Text appears at once", "In conversations, instead of being written out", Sound.instant_text, func(on: bool):
 		Sound.set_instant_text(on)))
@@ -100,11 +109,22 @@ func _build() -> void:
 		col.add_child(_switch_row("Show performance", "What each battle frame costs, at the bottom of the field", Sound.show_performance, func(on: bool):
 			Sound.set_show_performance(on)
 			_build()))
+		col.add_child(Widgets.section("Feel tuning"))
+		col.add_child(Page.note("Multipliers on the battle's feel, for judging it on a device. 1.00 is as designed.", Style.SMALL))
+		var feel_words := {"shake": "Screen shake", "hitstop": "Hit-stop", "motion": "Men's motion", "camera": "Camera follow", "haptics": "Vibration strength"}
+		for key in Sound.FEEL:
+			col.add_child(_slider_row(String(feel_words[key]), float(Sound.feel[key]), Sound.FEEL_MIN, Sound.FEEL_MAX,
+				func(v: float, save: bool): Sound.set_feel(key, v, save), _times))
+		var reset := Page.button("Reset feel", func():
+			Sound.reset_feel()
+			_build())
+		reset.name = "ResetFeel"
+		col.add_child(reset)
 		if Sound.show_performance:
 			# Twelve companies a side, the computer commanding both; your campaign isn't touched.
 			var test := Page.button("Test battle: 12 against 12", func():
 				if load("res://scripts/battle/battle_screen.gd").test_battle(GameState.culture if GameState.culture != "" else "vardish"):
-					Scenes.go("res://scenes/battle.tscn"))
+					Scenes.go_battle())
 			test.name = "TestBattle"
 			col.add_child(test)
 	var bar := Widgets.bottom_bar(Widgets.back_button(_back), insets)
@@ -159,6 +179,91 @@ func _control_row(title: String, control: Control) -> Control:
 	control.size_flags_stretch_ratio = 1.3
 	row.add_child(control)
 	return row
+
+
+## A setting's name over a slider, with its value said at the right. `setter(value, save)`
+## is called as it moves (save false) and when it's let go (save true).
+func _slider_row(title: String, value: float, lo: float, hi: float, setter: Callable, say: Callable) -> Control:
+	var box := VBoxContainer.new()
+	box.name = "Setting_" + title.replace(" ", "")
+	box.add_theme_constant_override("separation", 0)
+	var head := HBoxContainer.new()
+	var t := Style.label(title, Style.BODY, Style.TEXT)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	var shown := Style.label(String(say.call(value)), Style.SMALL, Style.MUTED)
+	shown.name = "Value"
+	head.add_child(shown)
+	box.add_child(head)
+	var slider := HSlider.new()
+	slider.name = "Slider_" + title.replace(" ", "")
+	slider.min_value = lo
+	slider.max_value = hi
+	slider.step = 0.05
+	slider.value = value
+	slider.custom_minimum_size = Vector2(0, Style.TOUCH * 0.7)
+	slider.accessibility_name = title
+	_style_slider(slider)
+	slider.value_changed.connect(func(v: float):
+		shown.text = String(say.call(v))
+		_slid = true
+		setter.call(v, false))
+	slider.drag_ended.connect(func(_changed: bool):
+		_slid = false
+		setter.call(slider.value, true))
+	box.add_child(slider)
+	return box
+
+
+static func _percent(v: float) -> String:
+	return "%d%%" % roundi(v * 100.0)
+
+
+static func _times(v: float) -> String:
+	return "×%.2f" % v
+
+
+## A brass slider: a dark groove, filled brass up to a round grabber.
+static func _style_slider(slider: HSlider) -> void:
+	var groove := Style.box(Style.NIGHT, Style.RULE, 2, 8)
+	groove.content_margin_top = 6
+	groove.content_margin_bottom = 6
+	slider.add_theme_stylebox_override("slider", groove)
+	var fill := Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 8)
+	fill.content_margin_top = 6
+	fill.content_margin_bottom = 6
+	slider.add_theme_stylebox_override("grabber_area", fill)
+	slider.add_theme_stylebox_override("grabber_area_highlight", fill)
+	slider.add_theme_icon_override("grabber", _knob(Style.BRASS))
+	slider.add_theme_icon_override("grabber_highlight", _knob(Style.BRASS.lightened(0.2)))
+	slider.add_theme_icon_override("grabber_disabled", _knob(Style.MUTED))
+
+
+static var _knobs := {}
+
+
+static func _knob(col: Color) -> Texture2D:
+	var key := col.to_html()
+	if _knobs.has(key):
+		return _knobs[key]
+	var n := 40
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var c := Vector2(n, n) * 0.5
+	for y in n:
+		for x in n:
+			var d := Vector2(x + 0.5, y + 0.5).distance_to(c)
+			var a := clampf(n * 0.5 - 1.0 - d, 0.0, 1.0)
+			var ink := Style.BRASS_INK if d > n * 0.5 - 4.0 else col
+			img.set_pixel(x, y, Color(ink, a))
+	var tex := ImageTexture.create_from_image(img)
+	_knobs[key] = tex
+	return tex
+
+
+func _exit_tree() -> void:
+	# A keyboard moved a slider (no drag to end): write the settings now.
+	if _slid:
+		Sound.set_sound_volume(Sound.sound_volume)
 
 
 func _back() -> void:

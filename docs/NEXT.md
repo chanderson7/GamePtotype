@@ -8,6 +8,13 @@ first version, and all seven immersion packages of
 [`game-feel-and-immersion-roadmap.md`](game-feel-and-immersion-roadmap.md) have a first slice.
 The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
 
+**Newest (2026-11-10):** the feel-and-polish pass in [`feel-polish-plan.md`](feel-polish-plan.md):
+battle interpolation, blows heard as they land, order cues, sound that follows the battle's
+time, the map camera (fling, soft edges, glides, follow), the road autosave on a worker, a
+body typeface, the battle shutter, volume sliders, haptic weights, music rests and developer
+feel multipliers. **Built but not run in Godot**: run `tests/feel_polish_tests.gd` and the
+suites its "What the first engine run must confirm" lists first.
+
 **What's left:**
 - Painted art: the three capital plates, result/remembrance vignettes and village/castle
   plates ([`artwork-roadmap.md`](artwork-roadmap.md) Packages B and C). They need the external

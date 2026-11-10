@@ -116,10 +116,17 @@ func _init() -> void:
 	sound.placed = {}
 	mine.engaged = true
 	theirs.engaged = true
+	# Blows are heard as the screen sees them land: one man of theirs struck after another.
+	var struck: Array = theirs.soldiers.filter(func(so): return so.alive)
 	for i in 20:
-		screen._clash_clock = 0.0
-		screen._battle_sounds(0.1)
+		var so = struck[i % struck.size()]
+		so.flash = 1.0
+		so.target = mine.soldiers[0]
+		screen._hit_seen.erase(so)
+		screen._update_effects(0.15)
 		sound.end_battle_sounds()
+	for so in struck:
+		so.flash = 0.0
 	var blows := 0
 	for k in ["sword", "shield", "spear", "heavy"]:
 		blows += int(sound.placed.get(k, 0))

@@ -1216,7 +1216,7 @@ func _squad_art(captain, squad: Dictionary) -> Control:
 func _on_battle() -> void:
 	if GameState.total_men() == 0:
 		return
-	Scenes.go("res://scenes/battle.tscn")
+	Scenes.go_battle()
 
 
 func _on_reinforce() -> void:

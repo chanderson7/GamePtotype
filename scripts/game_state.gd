@@ -5041,19 +5041,77 @@ func save_game() -> bool:
 		return true
 	if world == null:
 		return false
-	# Replace only a completely written save, preserving the previous campaign on failure.
-	var temporary := save_path + ".tmp"
+	# An autosave still being written goes down first, so it can't land over this one.
+	finish_saving()
+	var t0 := Time.get_ticks_usec()
+	var ok := _write_save_text(save_path, JSON.stringify(to_dict(), "", true, true), ".tmp")
+	save_timing["sync_ms"] = float(Time.get_ticks_usec() - t0) / 1000.0
+	return ok
+
+
+## Replace only a completely written save, preserving the previous campaign on failure.
+static func _write_save_text(path: String, text: String, suffix: String) -> bool:
+	var temporary := path + suffix
 	var f := FileAccess.open(temporary, FileAccess.WRITE)
 	if f == null:
 		return false
-	f.store_string(JSON.stringify(to_dict(), "", true, true))
+	f.store_string(text)
 	f.flush()
 	var written := f.get_error() == OK
 	f.close()
 	if not written:
 		DirAccess.remove_absolute(temporary)
 		return false
-	return DirAccess.rename_absolute(temporary, save_path) == OK
+	return DirAccess.rename_absolute(temporary, path) == OK
+
+
+## The autosave on the road. The campaign is copied on the main thread (a deep copy, so the
+## worker never reads anything the game is changing), then turned into text and written on
+## a worker thread: a save every few seconds of travel doesn't cost the map a frame. If the
+## last one is still being written this one is skipped (the next will catch up). Returns
+## whether a save was started.
+var _save_task := -1
+## What saving costs, in ms (for the performance readout and tests): the copy taken on the
+## main thread for the last autosave, the worker's text and write for it, and the last
+## synchronous save from start to end.
+var save_timing := {"snapshot_ms": 0.0, "write_ms": 0.0, "sync_ms": 0.0}
+var _async_write_us := 0
+
+
+func save_game_async() -> bool:
+	if not persist:
+		return true
+	if world == null:
+		return false
+	if _save_task != -1:
+		if not WorkerThreadPool.is_task_completed(_save_task):
+			return false
+		finish_saving()
+	var t0 := Time.get_ticks_usec()
+	var snapshot: Dictionary = to_dict().duplicate(true)
+	save_timing["snapshot_ms"] = float(Time.get_ticks_usec() - t0) / 1000.0
+	_save_task = WorkerThreadPool.add_task(_write_snapshot.bind(snapshot, save_path), false, "autosave")
+	return true
+
+
+## On the worker: the copy to text and to disk, under its own temporary name.
+func _write_snapshot(snapshot: Dictionary, path: String) -> void:
+	var t0 := Time.get_ticks_usec()
+	_write_save_text(path, JSON.stringify(snapshot, "", true, true), ".async.tmp")
+	_async_write_us = Time.get_ticks_usec() - t0
+
+
+## Wait for an autosave being written, if there is one.
+func finish_saving() -> void:
+	if _save_task == -1:
+		return
+	WorkerThreadPool.wait_for_task_completion(_save_task)
+	_save_task = -1
+	save_timing["write_ms"] = float(_async_write_us) / 1000.0
+
+
+func _exit_tree() -> void:
+	finish_saving()
 
 
 ## Save, and keep this moment as the before-battle save, so a lost fight can be undone.
@@ -5093,6 +5151,7 @@ func to_dict() -> Dictionary:
 
 
 func load_game() -> bool:
+	finish_saving()
 	load_problem = ""
 	if not FileAccess.file_exists(save_path):
 		return false

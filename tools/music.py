@@ -14,7 +14,7 @@ the synthesized versions below stand in when the samples aren't fetched):
   battle(...) The first battle music (two layers), kept for reference; the game now plays
               the layered orchestral battle music in tools/orchestral.py.
   victory, defeat   Short stingers.
-Sound effects: clicks, coins, horns, clashes, volleys of arrows, crossbow bolts, javelins
+Sound effects: clicks, coins, horns, the four order cues of a battle, clashes, volleys of arrows, crossbow bolts, javelins
 and horse archers, a charge, a rout, dice, a bell, promotion and bond cues, footsteps,
 hoofbeats, and the loops of a camp, river ford, wood, open road, night road and three settlement cultures.
 Loops are seamless: each is rendered three times over and the middle pass kept, so
@@ -1017,7 +1017,66 @@ def sfx_objective():
     return sfx_horn(((62, 0.25), (65, 0.25), (69, 0.6)))
 
 
+# Orders in battle: each kind of order has its own short cue, so a thumb hears what it did
+# (and that it didn't) without looking down at the words.
+
+def _place(buf, x, at, gain=1.0):
+    s = int(at * SR)
+    m = min(len(x), len(buf) - s)
+    if m > 0:
+        buf[s:s + m] += x[:m] * gain
+    return buf
+
+
+def sfx_order_select():
+    """A squad taken in hand: a wooden tick and the rustle of a banner lifted."""
+    rng = rng_for("order_select")
+    n = int(0.12 * SR)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    _place(x, drum(1100, 0.010, dur=0.05, noise=0.25, drop=0.3, rng=rng, noise_hi=6000.0), 0.0, 0.8)
+    cloth = band(rng.standard_normal(n), 900, 4200) * np.exp(-((t - 0.035) / 0.022) ** 2)
+    x += cloth * 0.22
+    return fade_out(x, 0.02 * SR)
+
+
+def sfx_order_march():
+    """March: two taps on a field drum, the second a step lower."""
+    rng = rng_for("order_march")
+    x = np.zeros(int(0.42 * SR))
+    _place(x, drum(185, 0.055, dur=0.3, noise=0.55, drop=0.6, rng=rng, noise_hi=4000.0), 0.0, 0.9)
+    _place(x, drum(160, 0.06, dur=0.3, noise=0.5, drop=0.6, rng=rng, noise_hi=4000.0), 0.12, 0.8)
+    return fade_out(x, 0.05 * SR)
+
+
+def sfx_order_attack():
+    """Attack: three quick strokes rising to a hard one, and steel struck on a shield rim."""
+    rng = rng_for("order_attack")
+    x = np.zeros(int(0.6 * SR))
+    _place(x, drum(170, 0.045, dur=0.25, noise=0.5, drop=0.6, rng=rng), 0.0, 0.6)
+    _place(x, drum(185, 0.045, dur=0.25, noise=0.5, drop=0.6, rng=rng), 0.075, 0.7)
+    _place(x, drum(230, 0.07, dur=0.35, noise=0.7, drop=0.9, rng=rng, noise_hi=5000.0), 0.15, 1.0)
+    ring = sfx_clash(5)
+    _place(x, ring / (np.max(np.abs(ring)) + 1e-9), 0.15, 0.35)
+    return fade_out(x, 0.08 * SR)
+
+
+def sfx_order_refuse():
+    """Not there: a muffled knock and a short low note that sags."""
+    rng = rng_for("order_refuse")
+    n = int(0.3 * SR)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    _place(x, drum(95, 0.05, dur=0.25, noise=0.2, drop=0.3, rng=rng, noise_hi=1200.0), 0.0, 0.9)
+    f = 210.0 - 60.0 * np.clip(t / 0.22, 0, 1)
+    tone = np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR)) * np.exp(-t / 0.08) * ramp(n, 0.004 * SR)
+    x += lowpass(tone, 900.0) * 0.35
+    return fade_out(x, 0.04 * SR)
+
+
 SFX = {
+    "order_select": sfx_order_select, "order_march": sfx_order_march,
+    "order_attack": sfx_order_attack, "order_refuse": sfx_order_refuse,
     "click": sfx_click, "coins": sfx_coins, "horn": sfx_horn,
     "alarm": lambda: sfx_horn(((57, 0.22), (57, 0.22), (62, 0.7))),
     "clash1": lambda: sfx_clash(1), "clash2": lambda: sfx_clash(2), "clash3": lambda: sfx_clash(3),

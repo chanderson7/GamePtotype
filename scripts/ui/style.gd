@@ -99,6 +99,7 @@ static func box(bg: Color, border: Color = Color(0, 0, 0, 0), border_width: int 
 
 static func make_theme() -> Theme:
 	var t := Theme.new()
+	t.default_font = body_font()
 	t.default_font_size = text_size(BODY)
 	t.set_color("font_color", "Label", TEXT)
 
@@ -250,6 +251,28 @@ static func display_font() -> Font:
 		if f.load_dynamic_font(DISPLAY_FONT) == OK:
 			_display = f
 	return _display
+
+
+## Bannerfall Text (Alegreya Sans, drawn larger on its em with lining digits; see
+## tools/body_font.py and assets/fonts/OFL.txt) for everything that isn't a title or a
+## letter. Loaded straight from the file when the import cache isn't there, and the
+## engine's own face if the file can't be read at all.
+const BODY_FONT := "res://assets/fonts/BannerfallText.ttf"
+static var _body: Font = null
+static var _body_tried := false
+
+
+static func body_font() -> Font:
+	if _body_tried:
+		return _body if _body != null else ThemeDB.fallback_font
+	_body_tried = true
+	if ResourceLoader.exists(BODY_FONT, "FontFile"):
+		_body = load(BODY_FONT) as Font
+	elif FileAccess.file_exists(BODY_FONT):
+		var f := FontFile.new()
+		if f.load_dynamic_font(BODY_FONT) == OK:
+			_body = f
+	return _body if _body != null else ThemeDB.fallback_font
 
 
 ## IM FELL English, a 17th-century printer's face (SIL Open Font License, see

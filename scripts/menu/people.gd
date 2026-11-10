@@ -808,7 +808,7 @@ func _draw_step_dot(dot: Control, n: int, state: String) -> void:
 	elif state == "now":
 		dot.draw_circle(c, 18, Style.NIGHT)
 		dot.draw_arc(c, 17, 0, TAU, 32, Style.BRASS, 4.0)
-		dot.draw_string(ThemeDB.fallback_font, Vector2(0, 28), str(n), HORIZONTAL_ALIGNMENT_CENTER, 40, Style.text_size(Style.SMALL), Style.BRASS)
+		dot.draw_string(Style.body_font(), Vector2(0, 28), str(n), HORIZONTAL_ALIGNMENT_CENTER, 40, Style.text_size(Style.SMALL), Style.BRASS)
 	else:
 		dot.draw_circle(c, 18, Color("262c40"))
 		var lock := Widgets.icon("lock")
@@ -1197,7 +1197,7 @@ func _seal(view: Dictionary, r: float) -> Control:
 		c.draw_arc(ctr, r * 0.72, 0, TAU, 32, col.darkened(0.35), maxf(1.5, r * 0.08))
 		var f: Font = Style.display_font()
 		if f == null:
-			f = ThemeDB.fallback_font
+			f = Style.body_font()
 		var fs := int(r * 1.05)
 		c.draw_string(f, Vector2(2.0, ctr.y + fs * 0.36), mark, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, fs, col.lightened(0.55)))
 	return c

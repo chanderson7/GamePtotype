@@ -172,6 +172,9 @@ const FLINCH := 3.5
 const SHOVE := 9.0
 const SHOVE_TIME := 0.35
 const SHOVE_REACH := 30.0
+## The developer's feel multiplier on how far men move through a blow (Sound.feel), read
+## once a frame.
+var _motion_k := 1.0
 ## Men a charge has shoved, while it lasts: soldier -> {dir, k, age}.
 var _shoved := {}
 ## How set for the blow each squad is drawn (0 to 1, eased): braced, a shield wall, a schiltron.
@@ -330,6 +333,18 @@ void fragment() {
 }
 """
 var _shadow_off := Vector2(1.5, 3.0)
+## The sim steps 30 times a second; the screen draws at the display's rate. Each man, each
+## squad's middle and each missile is drawn between where it stood before the last step and
+## where it stands now, by how far the clock has got toward the next step, so motion is as
+## smooth as the frame rate (and at the slow paces, where a step comes every quarter
+## second, it doesn't jump). Read-only: nothing here goes back into the sim.
+var _prev_pos := {}
+var _prev_avg := {}
+var _prev_proj := {}
+var _lerp_k := 1.0
+## Further than this (field units, squared) between two steps is a jump, not a walk: a
+## squad placed or a reinforcement arriving is drawn where it is.
+const LERP_SNAP_SQ := 40.0 * 40.0
 var _shadow_long := 1.0
 var _shadow_a := 0.32
 var _vignette := 0.0
@@ -391,8 +406,12 @@ var _ripples: Array = []
 var _paddies: Array = []
 ## The culture each squad was raised in, by "team/roster id", which dresses its men.
 var _cultures := {}
-## When the next clash of steel sounds, and how many arrows were in the air last frame.
-var _clash_clock := 0.0
+## Blows heard: each is one the screen saw land (the same one that throws sparks), so steel
+## rings when and where steel meets. A budget refilled at BLOW_SOUND_RATE a second, holding
+## at most BLOW_SOUND_BURST, keeps a big melee from rattling; the din under it carries the rest.
+var _blow_budget := 0.0
+const BLOW_SOUND_RATE := 8.0
+const BLOW_SOUND_BURST := 3.0
 ## The missiles in the air last frame, so each volley is heard once.
 var _heard := {}
 ## The ram's swing last frame, to hear each blow land.
@@ -554,7 +573,7 @@ const LITTER_EVERY := 0.5
 func _ready() -> void:
 	_c = self
 	_make_layers()
-	font = ThemeDB.fallback_font
+	font = Style.body_font()
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
 	_perf_reset()
 	# Pixel art: hard edges, and the grass tile repeats.
@@ -616,8 +635,12 @@ func _ready() -> void:
 	_order_words = GameState.battles < ORDER_WORD_BATTLES
 	# The enemy's people set the music; an assault on walls has its own.
 	Sound.play_battle("siege" if sim.objective == Sim.OBJECTIVE_SIEGE else _enemy_culture)
-	# A river runs through a ford; birds sing in a wood.
-	Sound.set_loop(AMBIENCE.get(_terrain_site_type, ""))
+	# Read every battle sound in now, while the screen is still dark from the way in, so
+	# the first blow, charge or volley doesn't wait on the disk.
+	Sound.warm_battle("siege" if sim.objective == Sim.OBJECTIVE_SIEGE else _enemy_culture)
+	# A river runs through a ford; birds sing in a wood; wind crosses open ground; and after
+	# dark the night's own quiet (the river still runs).
+	Sound.set_loop(battle_ambience(String(_terrain_site_type), _band))
 	# The enemy lines up first, so you can see what you're facing while you deploy.
 	sim.ai[Sim.ENEMY].deploy(sim)
 	if sim.allied_ai != null:
@@ -638,6 +661,14 @@ func _ready() -> void:
 		# lands on the deployment hint.
 		_select_next_card()
 	_refresh_hud()
+
+
+## The ground's sound under a battle on `site` at the hour band `band`.
+static func battle_ambience(site: String, band: String) -> String:
+	var bed: String = AMBIENCE.get(site, "")
+	if band == "night" and bed != "water":
+		return "road_night"
+	return bed if bed != "" else "road_open"
 
 
 ## Whether the map said this fight had no way out: an ambush, or a lord whose riders cut
@@ -792,7 +823,7 @@ func _update_camera(delta: float) -> void:
 		if not first:
 			want_center = box.get_center()
 			want_zoom = clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0, MAX_ZOOM)
-	var k := 1.0 - exp(-delta * CAMERA_EASE * (4.0 if not _title.is_empty() else 1.0))
+	var k := 1.0 - exp(-delta * CAMERA_EASE * float(Sound.feel["camera"]) * (4.0 if not _title.is_empty() else 1.0))
 	cam_zoom = lerpf(cam_zoom, want_zoom, k)
 	cam_center = cam_center.lerp(want_center, k)
 	_shake = maxf(0.0, _shake - delta * 30.0)
@@ -893,7 +924,7 @@ func _decided() -> void:
 	if won and _last_rout_at != Vector2.ZERO:
 		_spotlight(_last_rout_at, CHEER_TIME)
 	_hush_until = _clock + CHEER_TIME
-	Sound.haptic(true)
+	Sound.pulse("heavy")
 
 
 func _pending_reason() -> String:
@@ -996,7 +1027,7 @@ func _draw_beats() -> void:
 ## Shakes the view by `amount` (screen units), along `dir` if given. One shake at a time:
 ## a bigger one replaces it, a smaller one is lost in it. The Settings scale it.
 func _kick(amount: float, dir: Vector2 = Vector2.ZERO) -> void:
-	amount *= float(Sound.shake)
+	amount *= float(Sound.shake) * float(Sound.feel["shake"])
 	if amount <= 0.0 or amount < _shake:
 		return
 	_shake = amount
@@ -1110,6 +1141,14 @@ func _recenter_camera() -> void:
 	_update_camera(1.0)
 
 
+## An order that can't be given: the reason over the field, a dull knock and a firmer tap
+## in the hand than an accepted order gets, so a refusal is felt without reading it.
+func _refuse(text: String) -> void:
+	_hint(text)
+	Sound.play("order_refuse", 0.0, 0.03, 0.2)
+	Sound.pulse("refuse")
+
+
 ## An order was given to `sq`: its standard dips, and the hand feels it (lightly, and not
 ## once per squad when a whole line is ordered).
 func _mark_ordered(sq) -> void:
@@ -1121,6 +1160,48 @@ func _mark_ordered(sq) -> void:
 
 func _to_screen(p: Vector2) -> Vector2:
 	return field_origin + p * field_scale
+
+
+## Where everything stands before a step, for drawing between it and the next.
+func _remember_positions() -> void:
+	for sq in sim.squads:
+		_prev_avg[sq] = sq.avg
+		for so in sq.soldiers:
+			if so.alive:
+				_prev_pos[so] = so.pos
+	_prev_proj.clear()
+	for p in sim.projectiles:
+		_prev_proj[p] = p.pos
+
+
+## Where a man is drawn this frame: between his place before the last step and now.
+func _drawn_pos(so) -> Vector2:
+	var was = _prev_pos.get(so)
+	if was == null:
+		return so.pos
+	var w: Vector2 = was
+	if w.distance_squared_to(so.pos) > LERP_SNAP_SQ:
+		return so.pos
+	return w.lerp(so.pos, _lerp_k)
+
+
+## Where a squad's standard stands this frame (its men's middle, between steps).
+func _drawn_avg(sq) -> Vector2:
+	var was = _prev_avg.get(sq)
+	if was == null:
+		return sq.avg
+	var w: Vector2 = was
+	if w.distance_squared_to(sq.avg) > LERP_SNAP_SQ:
+		return sq.avg
+	return w.lerp(sq.avg, _lerp_k)
+
+
+func _drawn_proj(p) -> Vector2:
+	var was = _prev_proj.get(p)
+	if was == null:
+		return p.pos
+	var w: Vector2 = was
+	return w.lerp(p.pos, _lerp_k)
 
 
 func _to_field(p: Vector2) -> Vector2:
@@ -1180,11 +1261,13 @@ func _update_effects(delta: float) -> void:
 		return
 	# Blows that have just landed: sparks thrown off steel away from the striker, and a
 	# spatter now and then.
+	_blow_budget = minf(BLOW_SOUND_BURST, _blow_budget + delta * BLOW_SOUND_RATE)
 	for sq in sim.squads:
 		for so in sq.soldiers:
 			if so.flash >= 0.95 and not _hit_seen.has(so):
 				_hit_seen[so] = true
 				_blow(so)
+				_blow_sound(so, sq)
 			elif so.flash < 0.5 and _hit_seen.has(so):
 				_hit_seen.erase(so)
 	# Men who have just fallen: each takes a moment to go down.
@@ -1216,6 +1299,19 @@ func _update_effects(delta: float) -> void:
 		for k in (3 if cav else 1):
 			var at: Vector2 = now - dir * (sq.extent + randf_range(2.0, 10.0)) + dir.orthogonal() * randf_range(-1.0, 1.0) * sq.extent
 			_puff(at, -dir * randf_range(4.0, 14.0), randf_range(5.0, 8.0), 12.0 if not cav else 20.0, randf_range(1.0, 1.6), _ground_dust(at), 0.26)
+
+
+## The sound of a blow that has just landed on `so`, of the kind his attacker trades,
+## where it landed. Only blows in a melee: an arrow strike is heard as the volley landing.
+func _blow_sound(so, sq) -> void:
+	if _blow_budget < 1.0 or not sq.engaged or not _roll.is_empty():
+		return
+	_blow_budget -= 1.0
+	var by: String = sq.type
+	if so.target != null and so.target.squad != null:
+		by = so.target.squad.type
+	var kinds: Array = BLOWS.get(by, ["sword"])
+	Sound.play_at(String(kinds[randi() % kinds.size()]), _to_screen(so.pos), randf_range(-2.5, 0.0), 0.08)
 
 
 ## Sparks off a blow that has just landed on `so`.
@@ -1439,6 +1535,7 @@ func _process(delta: float) -> void:
 		_beat["age"] = float(_beat["age"]) + delta
 	_update_grade(delta)
 	_ease_hud(delta)
+	Sound.set_battle_time(_felt_pace())
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty() \
 			and not terrain_hint_panel.visible:
 		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
@@ -1461,10 +1558,16 @@ func _process(delta: float) -> void:
 				_pre_step_order[sq] = sq.order
 		var steps := 0
 		var t_sim := Time.get_ticks_usec()
-		while _accumulator >= Sim.STEP and steps < 16:
+		var due := mini(16, int(floor(_accumulator / Sim.STEP)))
+		while steps < due:
+			# Where everything stood before the frame's last step: drawn from there toward
+			# where it stands after it.
+			if steps == due - 1:
+				_remember_positions()
 			sim.step()
 			_accumulator -= Sim.STEP
 			steps += 1
+		_lerp_k = clampf(_accumulator / Sim.STEP, 0.0, 1.0)
 		_perf_sim_us += Time.get_ticks_usec() - t_sim
 		_consume_events()
 		_battle_sounds(delta)
@@ -1684,6 +1787,28 @@ func _slow_handle() -> Rect2:
 
 
 ## Whether a thumb (or the mouse) is holding time back.
+## How fast the fight runs as the ear should hear it: stopped while paused, slowed under a
+## death roll, a thumb on the slow handle or a captain's fall. (A hit-stop's few hundredths
+## of a second are not a change of pace.)
+## The developer's feel multiplier on hit-stops (Sound.feel).
+func _hitstop_k() -> float:
+	return float(Sound.feel["hitstop"])
+
+
+func _felt_pace() -> float:
+	if sim == null or sim.winner != -1 or sim.phase != Sim.PHASE_BATTLE:
+		return 1.0
+	if paused:
+		return 0.0
+	if not _roll.is_empty():
+		return ROLL_PACE
+	if slow_held():
+		return HAND_PACE
+	if _slow > 0.0:
+		return SLOW_PACE
+	return 1.0
+
+
 func slow_held() -> bool:
 	return (not _slow_touches.is_empty() or _slow_mouse) and _slow_ready()
 
@@ -1738,10 +1863,10 @@ func _drop_squad(sq, at: Vector2) -> void:
 		return
 	if sim.phase == Sim.PHASE_DEPLOY:
 		if not bool(t["ok"]):
-			_hint("Place your squads in the blue zone, your half of the field.")
+			_refuse("Place your squads in the blue zone, your half of the field.")
 			return
 		if sim.place(Sim.PLAYER, sq.roster_id, t["ground"]) == null:
-			_hint("No room there. Try a more open spot.")
+			_refuse("No room there. Try a more open spot.")
 			return
 		_hand_placed[sq.roster_id] = true
 		Sound.haptic()
@@ -1759,7 +1884,8 @@ func _order_attack(sq, foe) -> void:
 	_mark_ordered(sq)
 	_mark_ordered(foe)
 	_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
-	Sound.play("clash2", -6.0, 0.05)
+	Sound.play("order_attack", 0.0, 0.03, 0.1)
+	Sound.play_at("warcry", _to_screen(sq.average_pos()), -8.0, 0.05, 1.5)
 	_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()], "attack")
 
 
@@ -1775,10 +1901,11 @@ func _march_refusal(sq, p: Vector2) -> String:
 func _order_move(sq, p: Vector2) -> void:
 	var why := _march_refusal(sq, p)
 	if why != "":
-		_hint(why)
+		_refuse(why)
 		return
 	sim.order_move(sq, p)
 	_mark_ordered(sq)
+	Sound.play("order_march", 0.0, 0.03, 0.1)
 	_hint("%s march there and hold." % _company_or_type(sq), "move")
 
 
@@ -1803,11 +1930,11 @@ func _line_drawn(a: Vector2, b: Vector2) -> void:
 		_order_line(a, b, only)
 		return
 	if sim.line_preview(Sim.PLAYER, a, b, null).is_empty():
-		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
+		_refuse("Cannot form a line there. Choose clear ground in the deployment zone.")
 		return
 	_pending_march = {}
 	_pending_line = {"a": a, "b": b}
-	Sound.play("page", -6.0, 0.05)
+	Sound.play("order_select", -3.0, 0.04)
 	if sim.phase == Sim.PHASE_DEPLOY:
 		_hint("Tap the line to move the whole warband onto it, the companies you placed too. Tap elsewhere to keep them where they are.")
 	else:
@@ -1836,12 +1963,12 @@ func _order_line(a: Vector2, b: Vector2, only) -> void:
 		only = null
 	var spots := sim.order_line(Sim.PLAYER, a, b, only)
 	if spots.is_empty():
-		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
+		_refuse("Cannot form a line there. Choose clear ground in the deployment zone.")
 		return
 	for spot in spots:
 		_mark_ordered(spot["squad"])
 	_line_shown = {"spots": spots, "face": sim.line_face(Sim.PLAYER, a, b), "at": _clock}
-	Sound.play("page", 0.0, 0.05)
+	Sound.play("order_march", 0.0, 0.03, 0.1)
 	if sim.phase == Sim.PHASE_DEPLOY:
 		selected_id = -1
 		_hand_placed.clear()
@@ -1892,13 +2019,13 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 			_hint("Tap a card first.")
 		return
 	if not sim.in_deploy_zone(Sim.PLAYER, p):
-		_hint("Place your squads in the blue zone, your half of the field.")
+		_refuse("Place your squads in the blue zone, your half of the field.")
 		return
 	if sim.caught_on_march(Sim.PLAYER):
-		_hint("No time to form up: they're on you from both ends. Press Fight.")
+		_refuse("No time to form up: they're on you from both ends. Press Fight.")
 		return
 	if sim.place(Sim.PLAYER, selected_id, p) == null:
-		_hint("No room there. Try a more open spot.")
+		_refuse("No room there. Try a more open spot.")
 		return
 	_hand_placed[selected_id] = true
 	# The squad lands: a ring closes on the spot and dust kicks up.
@@ -1957,7 +2084,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 	var why := _march_refusal(selected_squad, p)
 	if why != "":
 		_pending_march = {}
-		_hint(why)
+		_refuse(why)
 		return
 	if not _pending_march.is_empty() and _pending_march["squad"] == selected_squad \
 			and _to_screen(_pending_march["at"]).distance_to(_press_at) <= CONFIRM_TAP:
@@ -1972,6 +2099,8 @@ func _tap_battle(p: Vector2, tapped) -> void:
 func _select(sq) -> void:
 	selected_squad = sq
 	_drop_pending()
+	if sq != null:
+		Sound.play("order_select", 0.0, 0.04, 0.06)
 	if sq == null:
 		_hint("Orders go to the whole army.", "army")
 		return
@@ -2023,7 +2152,7 @@ func _on_fight() -> void:
 	if sim.phase != Sim.PHASE_DEPLOY or sim.winner != -1:
 		return
 	if not sim.all_placed(Sim.PLAYER):
-		_hint("Place every squad first, or tap Auto-place.")
+		_refuse("Place every squad first, or tap Auto-place.")
 		return
 	_start_battle()
 	_begin_title()
@@ -2034,7 +2163,7 @@ func _start_battle() -> void:
 	_call("start", Sim.PLAYER)
 	# The horn sounds the advance as the title goes up, and the music answers.
 	Sound.play("horn", 0.0, 0.03)
-	Sound.haptic(true)
+	Sound.pulse("impact")
 	Sound.battle_clash()
 	selected_id = -1
 	selected_squad = null
@@ -2123,9 +2252,11 @@ func _on_advance() -> void:
 	if selected_squad != null:
 		sim.order_advance(selected_squad)
 		_mark_ordered(selected_squad)
+		Sound.play("order_attack", -2.0, 0.03, 0.1)
 		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad), "advance")
 	else:
 		sim.order_all(Sim.PLAYER, "advance")
+		Sound.play("order_attack", 0.0, 0.03, 0.1)
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
@@ -2162,9 +2293,11 @@ func _on_hold() -> void:
 	if selected_squad != null:
 		sim.order_hold(selected_squad)
 		_mark_ordered(selected_squad)
+		Sound.play("order_march", -2.0, 0.0, 0.1, 0.8)
 		_hint("%s hold where they stand. %s" % [_company_or_type(selected_squad), BRACED_WORDS], "hold")
 	else:
 		sim.order_all(Sim.PLAYER, "hold")
+		Sound.play("order_march", 0.0, 0.0, 0.1, 0.8)
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
@@ -2182,9 +2315,9 @@ func _on_ability() -> void:
 	if sim.use_ability(sq):
 		_hint("%s: %s" % [ab["name"], ab["blurb"]], "ability_%s" % sq.type)
 	elif sq.ability_cd > 0.0:
-		_hint("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
+		_refuse("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
 	elif sq.type == Troops.ARCHERS:
-		_hint("No enemy in bow range." if sq.arrows > 0 else "Out of arrows.")
+		_refuse("No enemy in bow range." if sq.arrows > 0 else "Out of arrows.")
 
 
 ## With no squad selected: every company of archers that can looses a volley at once.
@@ -2200,9 +2333,9 @@ func _volley_all() -> void:
 	if fired > 0:
 		_hint("Volley from %d compan%s of bows." % [fired, "y" if fired == 1 else "ies"])
 	elif soonest < INF:
-		_hint("Volley is ready again in %d seconds." % ceili(soonest))
+		_refuse("Volley is ready again in %d seconds." % ceili(soonest))
 	else:
-		_hint("No enemy in bow range.")
+		_refuse("No enemy in bow range.")
 
 
 ## Your companies still shooting (arrows left), not your allies'; only archers with
@@ -2527,13 +2660,11 @@ func _battle_sounds(delta: float) -> void:
 	var cavalry_moving := false
 	# Who is winning: the men still standing on each side, weighed by their morale.
 	var strength := [0.0, 0.0]
-	var fighting := []
 	for sq in sim.squads:
 		if sq.is_active():
 			active += 1
 			if sq.engaged:
 				engaged += 1
-				fighting.append(sq)
 			if not sq.routing:
 				strength[sq.team] += float(sq.alive_count()) * clampf(sq.morale / 100.0, 0.15, 1.0)
 			if sq.team == Sim.PLAYER and not sq.engaged and sq.order != "hold":
@@ -2562,17 +2693,9 @@ func _battle_sounds(delta: float) -> void:
 	var total: float = strength[Sim.PLAYER] + strength[Sim.ENEMY]
 	if sim.phase == Sim.PHASE_BATTLE and total > 0.0:
 		Sound.set_battle_balance((strength[Sim.PLAYER] - strength[Sim.ENEMY]) / total * 1.5)
-	# The din of the melee under everything, and over it single blows where the lines meet,
-	# of the kinds the men fighting there trade.
+	# The din of the melee under everything (single blows are heard as they land: _blow_sound).
 	Sound.set_melee(clampf(float(engaged) / 6.0, 0.0, 1.0) if sim.phase == Sim.PHASE_BATTLE else 0.0)
 	Sound.set_field_distance(1.0 - (cam_zoom - 1.0) / maxf(0.01, MAX_ZOOM - 1.0))
-	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
-		_clash_clock -= delta * speed * (0.6 + engaged * 0.3)
-		if _clash_clock <= 0.0:
-			_clash_clock = randf_range(0.22, 0.5)
-			var sq = fighting[randi() % fighting.size()]
-			var kinds: Array = BLOWS.get(sq.type, ["sword"])
-			Sound.play_at(String(kinds[randi() % kinds.size()]), _to_screen(sq.average_pos()), randf_range(-2.5, 0.0), 0.08)
 	# Each kind of missile has its own sound going up, where it was loosed, and coming down,
 	# where it lands, played when enough of them fly at once.
 	var loosed := {}
@@ -2841,7 +2964,7 @@ func _consume_events() -> void:
 				_moment("The gate is broken!", "Hold the breach!" if defending else "Into the courtyard!",
 					Style.ENEMY_LIGHT if defending else Color("ffd77a"), "breach", true)
 				Sound.play_at("gate_break", _to_screen(sim.gate_center))
-				Sound.haptic(true)
+				Sound.pulse("impact")
 				_kick(12.0)
 				Sound.duck()
 			"rout":
@@ -2864,7 +2987,7 @@ func _consume_events() -> void:
 					if sim.withdrawing != Sim.PLAYER:
 						_moment("%s break" % _company_or_type(sq), "They run for the edge", Style.ENEMY_LIGHT, "retreat")
 					_card_broke[sq] = _clock
-					Sound.haptic(true)
+					Sound.pulse("impact")
 				else:
 					_callout(sq, "BROKEN", Style.PLAYER_LIGHT, true)
 			"charge":
@@ -2889,7 +3012,7 @@ func _consume_events() -> void:
 					if sq.team == Sim.PLAYER:
 						_call("charge", Sim.PLAYER)
 					if e["victim"].team == Sim.PLAYER:
-						Sound.haptic(false)
+						Sound.pulse("impact")
 				if e["victim"].team == Sim.PLAYER:
 					_card_hit[e["victim"]] = _clock
 			"out_of_arrows":
@@ -2920,7 +3043,7 @@ func _consume_events() -> void:
 					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT)
 			"chief_broken":
 				Sound.play("objective")
-				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
+				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP * _hitstop_k())
 				_moment("The chief falls back", "His guard is broken", Style.BRASS, "crown")
 			"chief_slain":
 				Sound.play("objective")
@@ -2932,11 +3055,11 @@ func _consume_events() -> void:
 				# One roll decides it (see BattleSim._captain_falls): he falls, and the line
 				# under it says what the result will: taken.
 				Sound.play("objective")
-				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
+				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP * _hitstop_k())
 				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Taken alive in the press of shields", Style.BRASS, "crown")
 			"lord_slain":
 				Sound.play("objective")
-				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
+				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP * _hitstop_k())
 				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Slain in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
@@ -2958,7 +3081,7 @@ func _impact(men: int, at: Vector2, dir: Vector2) -> void:
 	if _clock - _stop_at < 0.3:
 		return
 	_stop_at = _clock
-	_hitstop = clampf(HITSTOP_MIN + 0.006 * float(men - 1), HITSTOP_MIN, HITSTOP_MAX)
+	_hitstop = clampf(HITSTOP_MIN + 0.006 * float(men - 1), HITSTOP_MIN, HITSTOP_MAX) * _hitstop_k()
 	_kick(4.0 + minf(float(men), 10.0) * 0.4, dir)
 	if not Style.motion_reduced() and not _camera_hold:
 		_punch = PUNCH
@@ -2984,7 +3107,7 @@ func _shove(victim, at: Vector2, charger) -> void:
 func _captain_down(e: Dictionary) -> void:
 	var sq = e["squad"]
 	# The field holds its breath for a beat before the fall plays out.
-	_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
+	_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP * _hitstop_k())
 	Sound.play_at("captain_down", _to_screen(e["pos"]), 0.0 if sq.team == Sim.PLAYER else -4.0)
 	_burst(e["pos"], "fall", Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.PLAYER_LIGHT, 1.1)
 	var info: Dictionary = sq.info
@@ -3000,7 +3123,7 @@ func _captain_down(e: Dictionary) -> void:
 	_kick(9.0)
 	_hush_until = _clock + 0.6
 	Sound.duck()
-	Sound.haptic(true)
+	Sound.pulse("death")
 	var roll := {
 		"t": 0.0, "name": String(info.get("name", "")), "company": _company(sq.roster_id), "pos": e["pos"],
 		"captain": info,
@@ -5163,6 +5286,7 @@ func _draw_battle() -> void:
 ## melee back to front across squads.
 func _draw_troops() -> void:
 	_still_men = Style.motion_reduced()
+	_motion_k = float(Sound.feel["motion"])
 	_men_n = 0
 	_shadow_n = 0
 	_rings.clear()
@@ -6020,26 +6144,26 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 		# The blow: a lunge at the target, then easing back to his place.
 		var e: float = SWING - so.swing
 		var k := 1.0 if e < STRIKE_HOLD else 1.0 - _ease_out((e - STRIKE_HOLD) / (SWING - STRIKE_HOLD))
-		_po += fwd * LUNGE * k
+		_po += fwd * LUNGE * k * _motion_k
 		_pt += deg_to_rad(6.0) * k * side
 		_pi = 2
 	elif so.target != null and so.cooldown > 0.0 and ((sq.engaged and so.cooldown < WINDUP) or (look["ranged"] and so.cooldown < WINDUP * 2.0)):
 		# The wind-up, just before the next blow (or the bow drawn before the loose).
 		var k: float = 1.0 - so.cooldown / (WINDUP * (2.0 if look["ranged"] else 1.0))
-		_po -= fwd * WIND_BACK * k
+		_po -= fwd * WIND_BACK * k * _motion_k
 		_pt -= deg_to_rad(12.0) * k * side
 		if look["ranged"]:
 			_pi = 2
 	if so.flash > 0.0:
 		# Struck: knocked back from the man he faces, and turned by it.
-		_po -= fwd * FLINCH * so.flash
+		_po -= fwd * FLINCH * so.flash * _motion_k
 		_pt += deg_to_rad(14.0) * so.flash * side
 	var shove = _shoved.get(so)
 	if shove != null:
 		var t: float = float(shove["age"]) / SHOVE_TIME
 		var k: float = t / 0.2 if t < 0.2 else 1.0 - _ease_in_out((t - 0.2) / 0.8)
 		k *= float(shove["k"])
-		_po += Vector2(shove["dir"]) * SHOVE * k
+		_po += Vector2(shove["dir"]) * SHOVE * k * _motion_k
 		_pt += deg_to_rad(28.0) * k * side
 	var set_k: float = look["set"]
 	if set_k > 0.0:
@@ -6072,7 +6196,7 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 		index = _pi
 	var face: Vector2 = _pf if _pf_set else so.facing
 	var angle: float = face.angle() + PI * 0.5 + _pt
-	var at: Vector2 = so.pos + _po
+	var at: Vector2 = _drawn_pos(so) + _po
 	_add_shadow(so, sq, at)
 	if look["cheering"] and not still:
 		var beat := sin(_clock * 9.0 + i * 1.7)
@@ -6086,7 +6210,7 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 		if glance:
 			_glances.append(at)
 	if look["charging"]:
-		_streaks.append([so.pos, so.facing])
+		_streaks.append([_drawn_pos(so), so.facing])
 	var grow := 1.0
 	if so.captain:
 		# Captains stand a head taller, on a gold ring.
@@ -6112,20 +6236,21 @@ func _draw_arrows() -> void:
 	var turn := PackedFloat32Array()
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	for p in sim.projectiles:
-		var to: Vector2 = p.aim - p.pos
+		var pos: Vector2 = _drawn_proj(p)
+		var to: Vector2 = p.aim - pos
 		if to.length() < 0.01:
 			continue
-		var done: float = p.origin.distance_to(p.pos)
+		var done: float = p.origin.distance_to(pos)
 		var total: float = done + to.length()
 		var t: float = done / maxf(1.0, total)
 		var rise := minf(70.0, total * 0.2)
 		var height := 4.0 * rise * t * (1.0 - t)
 		var dir := to.normalized()
-		_c.draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
+		_c.draw_line(pos - dir * 4.0, pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
 		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
 		var screen_dir := (dir - Vector2(0, slope)).normalized()
 		# A streak behind it, so a volley reads as a flight of arrows.
-		var lifted: Vector2 = p.pos - Vector2(0, height)
+		var lifted: Vector2 = pos - Vector2(0, height)
 		_c.draw_line(lifted - screen_dir * 16.0, lifted - screen_dir * 3.0, Color(1, 1, 1, 0.3), 1.0)
 		at.append(lifted)
 		turn.append(screen_dir.angle() + PI * 0.5)
@@ -6215,7 +6340,7 @@ func _draw_standards() -> void:
 	want.resize(n)
 	ys.resize(n)
 	for i in n:
-		var at := _to_screen(shown[i].avg)
+		var at := _to_screen(_drawn_avg(shown[i]))
 		want[i] = at.x
 		ys[i] = at.y
 	var pairs := PackedInt32Array()
@@ -6248,7 +6373,7 @@ func _draw_standards() -> void:
 
 func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	var mine: bool = sq.team == Sim.PLAYER
-	var base := _to_screen(sq.avg)
+	var base := _to_screen(_drawn_avg(sq))
 	var fall := 0.0
 	if sq.routing:
 		fall = clampf((_clock - float(_broke_at.get(sq, _clock - 1.0))) / 0.7, 0.0, 1.0)

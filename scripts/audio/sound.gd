@@ -36,6 +36,7 @@ const SFX_DB := {
 	"cav_impact": -6.0, "brace": -9.0, "captain_down": -6.0,
 	"ram": -7.0, "gate_break": -4.0, "ladders": -9.0,
 	"call_start": -5.0, "call_charge": -7.0, "call_retreat": -7.0, "reinforce": -8.0,
+	"order_select": -15.0, "order_march": -10.0, "order_attack": -9.0, "order_refuse": -10.0,
 }
 ## How loud each battle sound peaks in play: its loudest tenth of a second, in dBFS, before
 ## where it is on the field and how far out the view is. Each file is trimmed to this from
@@ -75,6 +76,9 @@ const POOL := 10
 var settings_path := SETTINGS_PATH
 var music_on := true
 var sounds_on := true
+## How loud music and sound play, 0 to 1 (a slider each in Settings), on top of on/off.
+var music_volume := 1.0
+var sound_volume := 1.0
 var romance_invitations := true
 var text_scale := 1.0
 var reduced_motion := false
@@ -147,7 +151,9 @@ func _ready() -> void:
 		dull.cutoff_hz = 20000.0
 		AudioServer.add_bus_effect(field_bus, dull)
 	for i in 2:
-		_music.append(_player("Music"))
+		var mp := _player("Music")
+		mp.finished.connect(_on_music_finished.bind(mp))
+		_music.append(mp)
 	for key in BATTLE_LAYERS:
 		_layers[key] = _player("Music")
 	_stinger = _player("Music")
@@ -170,6 +176,13 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# The battle's time, heard: slowed or stopped, the field dulls and the music steps back.
+	if _time_slow != _time_want:
+		_time_slow = move_toward(_time_slow, _time_want, delta * TIME_EASE)
+		_apply_field()
+		_apply_music_volume()
+		if _melee_bed.playing:
+			_melee_bed.pitch_scale = time_pitch()
 	# The din of the melee follows how much of the field is fighting.
 	if _melee > 0.0 and not _melee_bed.playing and sounds_on:
 		_melee_bed.stream = _stream(SFX_PATH % "melee_bed", true)
@@ -206,20 +219,45 @@ const LAYER_FLOOR_DB := BATTLE_MUSIC_DB - 34.0
 var _layers_fading := false
 
 
+## The realms' road themes don't play end to end forever: after each time through, the
+## road and the wind have the map to themselves for a while, and then the tune comes back.
+const RESTING := ["vardish", "kharzani", "ryumon"]
+const REST_MIN := 25.0
+const REST_MAX := 55.0
+## Whether the music is resting between plays of a road theme (for tests and the map).
+var resting := false
+
+
 ## Fade into the named piece (title, vardish, kharzani, ryumon, ...), unless it's already on.
 func play_music(name: String) -> void:
 	if name == _track:
 		return
 	_track = name
+	resting = false
 	_stop_layers()
 	var old := _music[_current]
 	_current = 1 - _current
 	var next := _music[_current]
-	next.stream = _stream(MUSIC_PATH % name, true)
+	next.stream = _stream(MUSIC_PATH % name, not RESTING.has(name))
 	next.volume_db = SILENT_DB
 	next.play()
 	_fade(next, MUSIC_DB, FADE)
 	_fade(old, SILENT_DB, FADE, true)
+
+
+## A road theme has played through: rest, then play it again if it's still the one wanted.
+func _on_music_finished(p: AudioStreamPlayer) -> void:
+	if p != _music[_current] or not RESTING.has(_track):
+		return
+	var track := _track
+	resting = true
+	await get_tree().create_timer(randf_range(REST_MIN, REST_MAX)).timeout
+	if _track != track or p != _music[_current] or p.playing:
+		return
+	resting = false
+	p.volume_db = SILENT_DB
+	p.play()
+	_fade(p, MUSIC_DB, FADE * 2.0)
 
 
 ## The battle begins: while you deploy, the realm's drone and heartbeat drum. `realm` is
@@ -407,7 +445,7 @@ func play_at(name: String, at: Vector2, volume_db: float = 0.0, jitter: float = 
 	free.bus = group_of(name)
 	free.global_position = at
 	free.volume_db = _level_db(name, file) + volume_db
-	free.pitch_scale = pitch * (1.0 + randf_range(-jitter, jitter))
+	free.pitch_scale = pitch * time_pitch() * (1.0 + randf_range(-jitter, jitter))
 	free.set_meta("family", name)
 	free.play()
 	placed[name] = int(placed.get(name, 0)) + 1
@@ -421,23 +459,97 @@ func set_melee(level: float) -> void:
 ## How far out the battle view is, from 0 (close in) to 1 (the whole field): far off, the
 ## fighting sounds duller and a little quieter.
 func set_field_distance(far: float) -> void:
-	var f := clampf(far, 0.0, 1.0)
+	_far = clampf(far, 0.0, 1.0)
+	_apply_field()
+
+
+## The field bus as the view and the battle's time leave it: duller and a little quieter far
+## out, and much duller (and quieter) the slower the fight runs, down to a muffle when paused.
+func _apply_field() -> void:
 	var bus := AudioServer.get_bus_index("Field")
 	if bus == -1:
 		return
 	var dull := AudioServer.get_bus_effect(bus, 0) as AudioEffectLowPassFilter
 	if dull != null:
-		dull.cutoff_hz = lerpf(20000.0, 4500.0, f)
-	AudioServer.set_bus_volume_db(bus, lerpf(0.0, -2.5, f))
+		var by_view := lerpf(20000.0, 4500.0, _far)
+		var by_time := lerpf(20000.0, SLOW_CUTOFF, pow(_time_slow, 0.6))
+		dull.cutoff_hz = minf(by_view, by_time)
+	AudioServer.set_bus_volume_db(bus, lerpf(0.0, -2.5, _far) + lerpf(0.0, SLOW_FIELD_DB, _time_slow))
+
+
+# ---------------------------------------------------------------- the battle's time
+
+## How far out the view is (0 close, 1 the whole field), and how slowed the fight sounds
+## (0 at full pace, 1 stopped), eased toward what the battle last reported.
+var _far := 0.0
+var _time_slow := 0.0
+var _time_want := 0.0
+## Stopped, the field is heard through a wall: cut to this, quieter by this, the music down
+## by this, and the men's sounds pitched down toward this.
+const SLOW_CUTOFF := 700.0
+const SLOW_FIELD_DB := -4.0
+const SLOW_MUSIC_DB := -9.0
+const SLOW_PITCH := 0.82
+## How quickly the sound follows the time (whole range per second / this).
+const TIME_EASE := 4.0
+
+
+## The battle says how fast it runs, every frame: 1 full pace, 0 paused.
+func set_battle_time(pace: float) -> void:
+	_time_want = clampf(1.0 - pace, 0.0, 1.0)
+
+
+## How slowed the battle sounds now, 0 to 1.
+func time_slowed() -> float:
+	return _time_slow
+
+
+## The pitch the field's sounds play at under the battle's time.
+func time_pitch() -> float:
+	return lerpf(1.0, SLOW_PITCH, _time_slow)
 
 
 ## The battle is over: its din and everything placed on the field stop.
 func end_battle_sounds() -> void:
 	_melee = 0.0
 	_melee_bed.stop()
+	_melee_bed.pitch_scale = 1.0
 	for q in _pool_2d:
 		q.stop()
+	_time_want = 0.0
+	_time_slow = 0.0
+	_apply_music_volume()
 	set_field_distance(0.0)
+
+
+# ---------------------------------------------------------------- warming up
+
+## Every battle sound that can play in the first seconds of a fight, read in before it so the
+## first blow, charge or volley doesn't wait on the disk. Called while the screen is dark
+## between the map and the field. Returns how many streams were read.
+func warm_battle(realm: String = "") -> int:
+	var n := 0
+	var names: Array = []
+	for family in PEAK_DB:
+		var takes := int(BANKS.get(family, 0))
+		if takes > 1:
+			for k in takes:
+				names.append("%s_%d" % [family, k + 1])
+		elif family in ["call_start", "call_charge", "call_retreat", "reinforce"]:
+			for c in ["vardish", "kharzani", "ryumon"]:
+				names.append("%s_%s" % [family, c])
+		else:
+			names.append(family)
+	names.append_array(["order_select", "order_march", "order_attack", "order_refuse", "charge", "horn", "dice", "bell", "morale_low"])
+	for name in names:
+		var looped: bool = name in ["melee_bed", "hooves", "footsteps"]
+		if _stream(SFX_PATH % name, looped) != null:
+			n += 1
+	if realm != "":
+		for key in ["base_%s" % realm, "high_%s" % realm, "turn_win", "turn_lose"]:
+			if _stream(MUSIC_PATH % key, true) != null:
+				n += 1
+	return n
 
 
 ## A restrained arrival accent whose instrument and pitch reflect the place's culture.
@@ -508,6 +620,31 @@ func _set_named_loop(player: AudioStreamPlayer, name: String) -> void:
 	player.play()
 
 
+# ---------------------------------------------------------------- feel tuning
+
+## Multipliers on the battle's feel, for tuning on a device (Settings › Developer): how hard
+## the field shakes, how long a blow or a fall freezes it, how far men lunge and flinch, how
+## quickly the camera follows, and how strong vibrations are. 1 is as designed.
+const FEEL := ["shake", "hitstop", "motion", "camera", "haptics"]
+const FEEL_MIN := 0.0
+const FEEL_MAX := 2.0
+var feel := {"shake": 1.0, "hitstop": 1.0, "motion": 1.0, "camera": 1.0, "haptics": 1.0}
+
+
+func set_feel(key: String, value: float, save: bool = true) -> void:
+	if not FEEL.has(key):
+		return
+	feel[key] = clampf(value, FEEL_MIN, FEEL_MAX)
+	if save:
+		_save_settings()
+
+
+func reset_feel() -> void:
+	for key in FEEL:
+		feel[key] = 1.0
+	_save_settings()
+
+
 # ---------------------------------------------------------------- settings
 
 func set_music_on(on: bool) -> void:
@@ -522,11 +659,42 @@ func set_sounds_on(on: bool) -> void:
 	_save_settings()
 
 
+## A slider's 0 to 1 as the ear hears it: squared, so the middle of the slider is the middle
+## of the loudness rather than nearly full.
+static func volume_db(level: float) -> float:
+	return linear_to_db(maxf(0.0001, level * level))
+
+
+## Set while a slider moves (`save` false) and once more when it's let go (`save` true).
+func set_music_volume(level: float, save: bool = true) -> void:
+	music_volume = clampf(level, 0.0, 1.0)
+	_apply_music_volume()
+	if save:
+		_save_settings()
+
+
+func set_sound_volume(level: float, save: bool = true) -> void:
+	sound_volume = clampf(level, 0.0, 1.0)
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Sounds"), volume_db(sound_volume))
+	if save:
+		_save_settings()
+
+
+func _apply_music_volume() -> void:
+	var bus := AudioServer.get_bus_index("Music")
+	if bus != -1:
+		AudioServer.set_bus_volume_db(bus, volume_db(music_volume) + SLOW_MUSIC_DB * _time_slow)
+
+
 func _load_settings() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(settings_path) == OK:
 		music_on = bool(cfg.get_value("audio", "music", true))
 		sounds_on = bool(cfg.get_value("audio", "sounds", true))
+		music_volume = clampf(float(cfg.get_value("audio", "music_volume", 1.0)), 0.0, 1.0)
+		sound_volume = clampf(float(cfg.get_value("audio", "sound_volume", 1.0)), 0.0, 1.0)
+		for key in FEEL:
+			feel[key] = clampf(float(cfg.get_value("feel", key, 1.0)), FEEL_MIN, FEEL_MAX)
 		romance_invitations = bool(cfg.get_value("gameplay", "romance_invitations", true))
 		text_scale = float(cfg.get_value("presentation", "text_scale", 1.0))
 		if text_scale not in [1.0, 1.25, 1.5]:
@@ -542,6 +710,8 @@ func _load_settings() -> void:
 			shake = 1.0
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Music"), not music_on)
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Sounds"), not sounds_on)
+	_apply_music_volume()
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Sounds"), volume_db(sound_volume))
 
 
 func _save_settings() -> void:
@@ -550,6 +720,10 @@ func _save_settings() -> void:
 	cfg.load(settings_path)
 	cfg.set_value("audio", "music", music_on)
 	cfg.set_value("audio", "sounds", sounds_on)
+	cfg.set_value("audio", "music_volume", music_volume)
+	cfg.set_value("audio", "sound_volume", sound_volume)
+	for key in FEEL:
+		cfg.set_value("feel", key, float(feel[key]))
 	cfg.set_value("gameplay", "romance_invitations", romance_invitations)
 	cfg.set_value("presentation", "text_scale", text_scale)
 	cfg.set_value("presentation", "reduced_motion", reduced_motion)
@@ -740,12 +914,27 @@ func set_fullscreen(enabled: bool) -> void:
 	_save_settings()
 
 
+## Vibrations by weight, each [milliseconds, strength 0-1]: a tap for an accepted order or a
+## button, a firmer knock for a refused order, an impact for a charge into your men or a
+## line breaking, heavy for the end of a battle, and the longest for a captain's fall.
+const PULSES := {"tap": [15, 0.4], "refuse": [35, 0.7], "impact": [50, 0.85], "heavy": [90, 1.0], "death": [140, 1.0]}
+## The last pulse sent, by name (for tests).
+var last_pulse := ""
+
+
 ## A short vibration, if the player wants them: `strong` for a decisive moment.
 func haptic(strong: bool = false) -> void:
+	pulse("heavy" if strong else "tap")
+
+
+## A vibration of the named weight (see PULSES).
+func pulse(kind: String) -> void:
 	if not haptics_enabled:
 		return
+	var p: Array = PULSES.get(kind, PULSES["tap"])
 	haptic_count += 1
-	Input.vibrate_handheld(90 if strong else 15)
+	last_pulse = kind if PULSES.has(kind) else "tap"
+	Input.vibrate_handheld(int(p[0]), float(p[1]) * clampf(float(feel["haptics"]), 0.0, 1.0))
 
 
 ## Quiet routine contact sounds for a moment, so a critical cue is heard over the press.

@@ -175,7 +175,7 @@ var sheet_row: GridContainer
 
 
 func _ready() -> void:
-	font = ThemeDB.fallback_font
+	font = Style.body_font()
 	autoplay = OS.get_cmdline_user_args().has("--autoplay")
 	world = GameState.world
 	if world == null:
@@ -222,6 +222,9 @@ func _ready() -> void:
 			cam_center = Data.pos(focus)
 			_clamp_camera()
 			_sync_layers()
+			# The player asked to look here: the follow leaves the view be.
+			_looked_away = true
+			_was_moving = world.player().moving()
 
 
 func _exit_tree() -> void:
@@ -279,7 +282,8 @@ func _process(delta: float) -> void:
 		_save_clock += delta
 		if _save_clock > 5.0:
 			_save_clock = 0.0
-			GameState.save_game()
+			# Written on a worker: the road never stutters for it.
+			GameState.save_game_async()
 	for e in world.events:
 		match e["type"]:
 			"arrived", "waited":
@@ -339,6 +343,7 @@ func _process(delta: float) -> void:
 		_check_siege_proximity_sound()
 	_refresh_travel_presentation()
 	_update_travel_contact(delta)
+	_update_camera(delta)
 	_refresh_hud()
 	_sync_layers()
 	queue_redraw()
@@ -391,10 +396,148 @@ func _clamp_camera() -> void:
 	if _view.size.x <= 0.0:
 		return
 	cam_scale = clampf(cam_scale, _view.size.x / WIDEST_VIEW, _view.size.x / NARROWEST_VIEW)
+	cam_center = _clamped(cam_center)
+
+
+## `c` brought inside the map (with a little sea round it) at the present zoom.
+func _clamped(c: Vector2) -> Vector2:
+	if _view.size.x <= 0.0:
+		return c
 	var half := _view.size / cam_scale * 0.5
 	var margin := 80.0
-	cam_center.x = clampf(cam_center.x, minf(half.x - margin, Data.SIZE.x * 0.5), maxf(Data.SIZE.x - half.x + margin, Data.SIZE.x * 0.5))
-	cam_center.y = clampf(cam_center.y, minf(half.y - margin, Data.SIZE.y * 0.5), maxf(Data.SIZE.y - half.y + margin, Data.SIZE.y * 0.5))
+	return Vector2(clampf(c.x, minf(half.x - margin, Data.SIZE.x * 0.5), maxf(Data.SIZE.x - half.x + margin, Data.SIZE.x * 0.5)),
+		clampf(c.y, minf(half.y - margin, Data.SIZE.y * 0.5), maxf(Data.SIZE.y - half.y + margin, Data.SIZE.y * 0.5)))
+
+
+# The camera moves like one. A flick carries on and slows (_fling, map units a second).
+# Dragged past the edge the map gives a little, and springs back once let go. The game's own
+# moves (Show on map, a double tap, the wheel) glide rather than cut. And while the party
+# travels the view keeps it in sight, until the player pans away to look at something else
+# (from then until the next journey, the view is theirs). Under Reduced motion: no fling,
+# no give, every move a cut; the follow still keeps the party in sight.
+var _fling := Vector2.ZERO
+var _drag_trail: Array = []
+var _glide: Tween = null
+var _zoom_goal := -1.0
+var _zoom_anchor := Vector2.ZERO
+var _looked_away := false
+var _was_moving := false
+## How quickly a flick slows (per second), and the slowest it's still worth moving at.
+const FLING_FRICTION := 5.0
+const FLING_MIN := 6.0
+## How the last tenth of a second of a drag is read as the flick's speed.
+const FLING_WINDOW_MS := 100
+## Past the edge the map moves this much of the way with the finger, and springs back at this rate.
+const EDGE_GIVE := 0.35
+const SPRING := 12.0
+const GLIDE_TIME := 0.35
+const ZOOM_EASE := 14.0
+## Following: the party is kept inside the middle of the view, this far in from each side
+## (as a share of the view), easing at this rate.
+const FOLLOW_MARGIN := 0.25
+const FOLLOW_EASE := 2.5
+
+
+func _stop_glide() -> void:
+	if _glide != null and _glide.is_valid():
+		_glide.kill()
+	_glide = null
+
+
+## Glide the view to `center` (and `scale`, if given), the way the game moves it.
+func _glide_to(center: Vector2, scale: float = -1.0) -> void:
+	_stop_glide()
+	_fling = Vector2.ZERO
+	_zoom_goal = -1.0
+	var to_scale := cam_scale if scale <= 0.0 else scale
+	if Style.motion_reduced() or _view.size.x <= 0.0 or not is_inside_tree():
+		cam_scale = to_scale
+		cam_center = center
+		_clamp_camera()
+		_sync_layers()
+		return
+	var from_center := cam_center
+	var from_scale := cam_scale
+	_glide = create_tween()
+	_glide.tween_method(func(k: float):
+		cam_scale = lerpf(from_scale, to_scale, k)
+		cam_center = from_center.lerp(center, k)
+		_clamp_camera()
+		_sync_layers(), 0.0, 1.0, GLIDE_TIME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+## Whether the view is the game's to move this frame (no finger on it, no glide or framing).
+func _camera_free() -> bool:
+	if _pressing or _pinching or not _touches.is_empty():
+		return false
+	if _glide != null and _glide.is_valid():
+		return false
+	return _encounter_cam == null or not _encounter_cam.is_valid()
+
+
+func _update_camera(delta: float) -> void:
+	if _view.size.x <= 0.0 or world == null:
+		return
+	var p = world.player()
+	var moving: bool = p.moving()
+	if moving and not _was_moving:
+		_looked_away = false
+	_was_moving = moving
+	if not _camera_free():
+		return
+	if _zoom_goal > 0.0:
+		var next := lerpf(cam_scale, _zoom_goal, 1.0 - exp(-delta * ZOOM_EASE))
+		if absf(next - _zoom_goal) <= _zoom_goal * 0.002:
+			next = _zoom_goal
+			_zoom_goal = -1.0
+		_zoom_at(_zoom_anchor, next / cam_scale)
+	if _fling != Vector2.ZERO:
+		cam_center += _fling * delta
+		_fling *= exp(-delta * FLING_FRICTION)
+		if _clamped(cam_center) != cam_center:
+			# Running into the edge soaks the flick up.
+			_fling *= exp(-delta * FLING_FRICTION * 3.0)
+		if _fling.length() < FLING_MIN:
+			_fling = Vector2.ZERO
+	var held := _clamped(cam_center)
+	if held != cam_center:
+		cam_center = cam_center.lerp(held, 1.0 - exp(-delta * SPRING))
+		if cam_center.distance_to(held) < 0.5:
+			cam_center = held
+	if moving and not _looked_away and _fling == Vector2.ZERO:
+		var at: Vector2 = world.party_pos(p)
+		var box := _view.size / cam_scale * (0.5 - FOLLOW_MARGIN)
+		var off := at - cam_center
+		var want := cam_center
+		if absf(off.x) > box.x:
+			want.x = at.x - signf(off.x) * box.x
+		if absf(off.y) > box.y:
+			want.y = at.y - signf(off.y) * box.y
+		if want != cam_center:
+			cam_center = _clamped(cam_center.lerp(want, 1.0 - exp(-delta * FOLLOW_EASE)))
+
+
+## Where the finger has been over the last moments of a drag: [msec, screen position].
+func _note_drag(at: Vector2) -> void:
+	var now := Time.get_ticks_msec()
+	_drag_trail.append([now, at])
+	while _drag_trail.size() > 2 and now - int(_drag_trail[0][0]) > FLING_WINDOW_MS:
+		_drag_trail.pop_front()
+
+
+## A drag let go: whatever speed it had carries on.
+func _release_drag() -> void:
+	_fling = Vector2.ZERO
+	if _drag_trail.size() >= 2 and not Style.motion_reduced():
+		var first: Array = _drag_trail[0]
+		var last: Array = _drag_trail[_drag_trail.size() - 1]
+		var dt := float(int(last[0]) - int(first[0])) / 1000.0
+		var age := Time.get_ticks_msec() - int(last[0])
+		if dt > 0.005 and age < FLING_WINDOW_MS:
+			_fling = -(Vector2(last[1]) - Vector2(first[1])) / dt / cam_scale
+			if _fling.length() < FLING_MIN * 4.0:
+				_fling = Vector2.ZERO
+	_drag_trail.clear()
 
 
 func _to_screen(p: Vector2) -> Vector2:
@@ -425,6 +568,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_touches.erase(event.index)
 		if _touches.size() == 2:
 			_pinching = true
+			_looked_away = true
+			_fling = Vector2.ZERO
+			_zoom_goal = -1.0
+			_stop_glide()
 			var pts: Array = _touches.values()
 			_pinch_from = maxf(1.0, (pts[0] as Vector2).distance_to(pts[1]))
 			_pinch_scale = cam_scale
@@ -443,32 +590,49 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var mb := event as InputEventMouseButton
 	if mb != null:
-		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_zoom_at(mb.position, 1.15)
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_zoom_at(mb.position, 1.0 / 1.15)
+		if (mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN) and mb.pressed:
+			var step := 1.15 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.15
+			if Style.motion_reduced():
+				_zoom_at(mb.position, step)
+			else:
+				# Notches add up; the view eases to where they lead, about the pointer.
+				_stop_glide()
+				var from := _zoom_goal if _zoom_goal > 0.0 else cam_scale
+				_zoom_goal = clampf(from * step, _view.size.x / WIDEST_VIEW, _view.size.x / NARROWEST_VIEW)
+				_zoom_anchor = mb.position
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
 				if mb.double_click:
-					cam_center = world.party_pos(world.player())
-					_clamp_camera()
 					_pressing = false
+					_looked_away = false
+					_glide_to(world.party_pos(world.player()))
 					return
 				_pressing = true
 				_press_at = mb.position
 				_press_center = cam_center
+				_fling = Vector2.ZERO
+				_zoom_goal = -1.0
+				_drag_trail.clear()
+				_stop_glide()
 			elif _pressing:
 				_pressing = false
 				if not _pinching and mb.position.distance_to(_press_at) < DRAG_SLOP and _view.has_point(mb.position):
+					_drag_trail.clear()
 					_tap(mb.position)
+				elif not _pinching:
+					_release_drag()
 		return
 	var mm := event as InputEventMouseMotion
 	if mm != null and mm.button_mask == 0:
 		_hover_at(mm.position)
 	if mm != null and _pressing and not _pinching and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 		if mm.position.distance_to(_press_at) >= DRAG_SLOP:
-			cam_center = _press_center - (mm.position - _press_at) / cam_scale
-			_clamp_camera()
+			_looked_away = true
+			var raw := _press_center - (mm.position - _press_at) / cam_scale
+			var held := _clamped(raw)
+			# Past the edge the map gives a little under the finger, and springs back after.
+			cam_center = held if Style.motion_reduced() else held + (raw - held) * EDGE_GIVE
+			_note_drag(mm.position)
 
 
 ## The settlement under the mouse (a computer's pointer, no button held), ringed faintly
@@ -1020,6 +1184,11 @@ func _open_preview(id: String) -> void:
 	var hours: float = world.hours_to(id)
 	var sea := false
 	var route: Array = world.path(world.player().next if world.player().moving() else world.player().node, id)
+	# The road there, drawn faintly on the map while the sheet asks whether to ride.
+	_ghost_for = id
+	_ghost_route = route.duplicate()
+	if world.player().moving():
+		_ghost_route.push_front(world.player().next)
 	var a: String = world.player().node
 	for b in route:
 		if world.is_sea(a, b):
@@ -1616,6 +1785,9 @@ func _frame_encounter(b) -> void:
 	var from_scale := cam_scale
 	if _encounter_cam != null and _encounter_cam.is_valid():
 		_encounter_cam.kill()
+	_stop_glide()
+	_fling = Vector2.ZERO
+	_zoom_goal = -1.0
 	_encounter_cam = create_tween()
 	_encounter_cam.tween_method(func(k: float):
 		cam_center = from_center.lerp(to_center, k)
@@ -2640,9 +2812,8 @@ func _open_recommendation() -> void:
 
 func _focus_place(id: String) -> void:
 	_selected = id
-	cam_center = Data.pos(id)
-	_clamp_camera()
-	_sync_layers()
+	_looked_away = true
+	_glide_to(Data.pos(id))
 	_open_preview(id)
 
 
@@ -2652,9 +2823,8 @@ func _focus_party(party_id: int) -> void:
 	if p == null:
 		_close_sheet()
 		return
-	cam_center = world.party_pos(p)
-	_clamp_camera()
-	_sync_layers()
+	_looked_away = true
+	_glide_to(world.party_pos(p))
 	if p.kind == WorldSim.BAND:
 		_open_band(p)
 	else:
@@ -2968,7 +3138,7 @@ func _on_assault_answer(fight: bool) -> void:
 	_close_sheet()
 	if fight and not GameState.pending_battle.is_empty():
 		GameState.save_before_battle()
-		Scenes.go("res://scenes/battle.tscn")
+		Scenes.go_battle()
 	_refresh_hud()
 
 
@@ -3097,7 +3267,7 @@ func _open_raid(id: String) -> void:
 func _on_raid_fight(id: String) -> void:
 	GameState.start_raid_battle(id)
 	GameState.save_before_battle()
-	Scenes.go("res://scenes/battle.tscn")
+	Scenes.go_battle()
 
 
 func _on_raid_send(id: String) -> void:
@@ -3126,7 +3296,7 @@ func _on_storm(id: String) -> void:
 		return
 	GameState.start_siege_battle(id)
 	GameState.save_before_battle()
-	Scenes.go("res://scenes/battle.tscn")
+	Scenes.go_battle()
 
 
 func _on_storm_send(id: String) -> void:
@@ -3142,7 +3312,7 @@ func _on_storm_send(id: String) -> void:
 func _on_fight() -> void:
 	GameState.start_encounter_battle()
 	GameState.save_before_battle()
-	Scenes.go("res://scenes/battle.tscn")
+	Scenes.go_battle()
 
 
 ## Settle the fight at once, without the battle screen. When the scouts call it Hard or
@@ -4254,7 +4424,25 @@ func _rings_badge(c: Vector2) -> void:
 
 
 ## Where you're riding: a gold line through the settlements still ahead.
+## The road to the settlement whose sheet is open, before you ride: a faint dashed line
+## from the party through each stop, so "Ride there" shows where it goes.
+var _ghost_for := ""
+var _ghost_route: Array = []
+
+
+func _draw_ghost_route() -> void:
+	if _sheet != "preview" or _ghost_for == "" or _ghost_for != _selected or _ghost_route.is_empty():
+		return
+	var pts := PackedVector2Array([_to_screen(world.party_pos(world.player()))])
+	for id in _ghost_route:
+		pts.append(_to_screen(Data.pos(String(id))))
+	for i in pts.size() - 1:
+		labels.draw_dashed_line(pts[i], pts[i + 1], Color(0, 0, 0, 0.35), 5.0, 9.0)
+		labels.draw_dashed_line(pts[i], pts[i + 1], Color(Style.BRASS, 0.45), 2.5, 9.0)
+
+
 func _draw_route() -> void:
+	_draw_ghost_route()
 	var p = world.player()
 	if not p.moving():
 		return

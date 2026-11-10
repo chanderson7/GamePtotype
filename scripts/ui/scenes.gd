@@ -68,6 +68,23 @@ func _ready() -> void:
 	add_child(_veil)
 	get_tree().node_added.connect(_let_scroll_through)
 	_apply_fullscreen(Sound.fullscreen)
+	_use_body_font()
+
+
+## The game's body face everywhere a screen doesn't set its own: the window's theme (which
+## every control without a nearer theme reads) and the engine's fallback (for anything
+## drawn by hand, and controls under a layer the window's theme doesn't reach).
+func _use_body_font() -> void:
+	var Style = load("res://scripts/ui/style.gd")
+	var face: Font = Style.body_font()
+	if face == null:
+		return
+	ThemeDB.fallback_font = face
+	var root_theme := get_tree().root.theme
+	if root_theme == null:
+		root_theme = Theme.new()
+		get_tree().root.theme = root_theme
+	root_theme.default_font = face
 
 
 # ---------------------------------------------------------------- keys and back
@@ -278,6 +295,66 @@ func _dismiss_ribbon(panel: Control) -> void:
 	panel.queue_free()
 	if _ribbon == panel:
 		_ribbon = null
+
+
+## Into battle: not the menus' quick fade but a shutter, two dark bars closing from the top
+## and the bottom with a low drum, held a beat, then opening on the field (whose title card
+## has the same letterbox). Under Reduced motion, a cut.
+const BATTLE_PATH := "res://scenes/battle.tscn"
+const SHUTTER_IN := 0.3
+const SHUTTER_HOLD := 0.08
+const SHUTTER_OUT := 0.42
+const SHUTTER_COLOR := Color(0.05, 0.035, 0.04, 1.0)
+var _shutters: Array[ColorRect] = []
+
+
+func go_battle() -> void:
+	if _busy:
+		return
+	if bool(Sound.reduced_motion):
+		go(BATTLE_PATH)
+		return
+	_busy = true
+	if _shutters.is_empty():
+		for i in 2:
+			var bar := ColorRect.new()
+			bar.name = "Shutter%d" % i
+			bar.color = SHUTTER_COLOR
+			bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			add_child(bar)
+			_shutters.append(bar)
+	var vp := get_viewport().get_visible_rect().size
+	var top := _shutters[0]
+	var bottom := _shutters[1]
+	top.position = Vector2.ZERO
+	top.size = Vector2(vp.x, 0.0)
+	bottom.position = Vector2(0.0, vp.y)
+	bottom.size = Vector2(vp.x, 0.0)
+	for bar in _shutters:
+		bar.visible = true
+		bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	Sound.play("charge", -3.0, 0.02, 0.0, 0.7)
+	Sound.pulse("impact")
+	var half := vp.y * 0.5 + 2.0
+	var close := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	close.tween_property(top, "size:y", half, SHUTTER_IN)
+	close.tween_property(bottom, "size:y", half, SHUTTER_IN)
+	close.tween_property(bottom, "position:y", vp.y - half, SHUTTER_IN)
+	await close.finished
+	get_tree().change_scene_to_file(BATTLE_PATH)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().create_timer(SHUTTER_HOLD).timeout
+	vp = get_viewport().get_visible_rect().size
+	var open := create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	open.tween_property(top, "size:y", 0.0, SHUTTER_OUT)
+	open.tween_property(bottom, "size:y", 0.0, SHUTTER_OUT)
+	open.tween_property(bottom, "position:y", vp.y, SHUTTER_OUT)
+	await open.finished
+	for bar in _shutters:
+		bar.visible = false
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_busy = false
 
 
 ## Fade out, change to the scene at `path`, fade back in. Under Reduced motion, a cut.
