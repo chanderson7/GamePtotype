@@ -1,9 +1,35 @@
 # Romance dialogue: choices you make, and memories with more in them
 
-A plan, written after fixing the bug where a romance memory put all its dialogue on screen
-at once. The fix is in; the rest is planned here. It builds on
-`romance-personal-conversations-plan.md` (the 18 visits as built, and their writing rules)
-and `romance-dialogue-plan.md` (the talk screen).
+**As built (2026-11-10).** Everything below is in, with the three questions answered:
+eight visits each (the two S-rank visits are new); the *heart* answers are affectionate,
+never explicit (a hand, a compliment, an admission, "I love you" at the last); and there
+is **no "What if I'd said…"**: a memory told again goes as you answered it.
+
+Where the build differs from the plan below:
+
+- **One format, not two side by side.** All 24 visits are in the new format
+  (`scripts/data/visits_edda.gd`, `visits_farah.gd`, `visits_kaede.gd`; the rules and the
+  reader in `personal_conversations.gd`). A visit finished in an older save keeps its place
+  in the memory book and tells itself again; it left no marks, and on the retelling you
+  answer as you go. One left part way starts again.
+- **A scene is a list of parts**, each some lines and then two or three things to say
+  (`say`, `tone`, `reply`, and optionally `mark`, `when`, `face`, `memory`). A line that
+  begins `[?mark]` is told only when that mark (or visit, or route) holds. A save keeps the
+  answers as a list, one a part.
+- **After an answer, her first words back show at once**, with yours; then Go on.
+- **Opening a memory from the book is not a visit.** It used to count as one (and could
+  use up her account of chapter 3's deed unheard). Now nothing is counted, and closing the
+  memory goes back to the book.
+- **The last visit of each** (Home on Time, The Short Answer, The Name, Used) has two
+  points, not three: short scenes that didn't want a third.
+- **Greetings** bring up something you said every third visit, when nothing that has
+  happened since presses more; **letters** carry it as a postscript when they have none.
+- **Vows**: each of the six new visits has a wedding vow of hers that remembers it.
+
+The tests (`tests/personal_conversation_tests.gd`) check the content as well as the rules:
+eight visits a person in ranks, two or three things to say at every point on either
+route, never more than six lines before you speak, everything remembered is brought up
+somewhere, and every B, A and S visit has something to say from the heart.
 
 ## The bug, and what was done about it
 
