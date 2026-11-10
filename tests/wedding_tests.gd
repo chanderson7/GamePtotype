@@ -234,6 +234,9 @@ func _init() -> void:
 	talk.choose("decide_marry_private")
 	talk.choose("confirm")
 	check(soc.relationships["edda"]["status"] == Relationships.MARRIED and gs.silver == 1000, "private vows: married at once, no cost")
+	# Her answer, then the vows, each told a line at a time: hear them out.
+	while talk.telling():
+		talk.tell_rest()
 	check(talk.log_text().contains("one candle") or talk.log_text().contains("A candle"), "by one candle, in her room")
 	check(talk.has_reply("vow_honest"), "the same vows to say")
 	talk.choose("vow_honest")

@@ -48,8 +48,18 @@ func _init() -> void:
 	var plate_words: Array = talk._plate.find_children("*", "Label", true, false).map(func(l): return String(l.text))
 	check(talk.find_child("TrustBar", true, false) == null and plate_words.has("Not yet met"), "nothing measured on the nameplate before you've met (%s)" % ", ".join(plate_words))
 
-	# ---- a decision is marked as one, with what it does
+	# ---- a chapter is told a line at a time, then asks
 	talk.choose("story")
+	var lines_told: int = talk._log.get_children().filter(func(c): return c is HBoxContainer).size()
+	check(talk.telling() and talk.reply_node("continue") != null and talk.reply_node("tell_all") != null and talk.reply_node("decide_offer_help") == null,
+		"a chapter is told a line at a time, Go on for the next, and asks nothing until it's told")
+	talk.reply_node("continue").pressed.emit()
+	var lines_now: int = talk._log.get_children().filter(func(c): return c is HBoxContainer).size()
+	check(lines_now == lines_told + 1, "Go on brings one line more (%d, then %d)" % [lines_told, lines_now])
+	var writing: int = talk._log.find_children("Words", "Label", true, false).filter(func(l): return (l as Label).visible_characters >= 0).size()
+	check(writing <= 1, "and only the newest of her lines is still being written out")
+
+	# ---- a decision is marked as one, with what it does
 	var topics: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("topic_"))
 	check(not topics.is_empty(), "a first audience starts with talk")
 	talk.choose(topics[0])
@@ -61,6 +71,9 @@ func _init() -> void:
 	var trust0 := int(social.get_relationship("edda")["trust"])
 	talk.choose("decide_offer_help")
 	check(int(social.get_relationship("edda")["trust"]) == trust0 + 10 and social.get_relationship("edda")["status"] == "acquainted", "and does it")
+	check(talk._log.find_child("Reaction", true, false) == null or not talk.telling(), "her answer is told before what changed")
+	if talk.telling():
+		talk.tell_rest()
 	check(talk._log.find_child("Reaction", true, false) != null and not talk.log_text().contains("+10"), "what changed is told as how she takes it, not as a number")
 	var words: Array = talk._log.find_children("Words", "Label", true, false).filter(func(l): return String(l.text).contains("steadfast"))
 	check(words.size() == 1 and String(words[0].text).begins_with("A steadfast friend"), "her answer is her words alone in her bubble, with no quotes or narration inside it")

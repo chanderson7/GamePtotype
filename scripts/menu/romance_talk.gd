@@ -25,6 +25,9 @@ var _name := ""
 var _scene_id := ""
 var _progress := {}
 var _replay := false
+## How many lines of the visit being told have been heard already (shown whole when the
+## log is redrawn); -1 when it has just been opened.
+var _heard := -1
 var _ch1_topic_done := false
 ## Their first words this visit, chosen from what has happened since the last.
 var _opening := ""
@@ -235,11 +238,18 @@ func _hub(first: bool = false) -> void:
 	clear_log()
 	if first and _untold != "":
 		# What came of chapter 3's task, in her words, the first time you're back.
-		_tell(_untold)
+		var told := _untold
 		_untold = ""
-		add_to_log(note("Done, as you promised. The next chapter follows.", Style.MORALE_HIGH))
-	else:
-		say("them", (_opening if _opening != "" else Lines.greeting(cand, _status(), int(_rel().get("visits", 0)))) if first else "What else is on your mind?", _name)
+		_tell(told, func():
+			add_to_log(note("Done, as you promised. The next chapter follows.", Style.MORALE_HIGH))
+			_hub_choices())
+		return
+	say("them", (_opening if _opening != "" else Lines.greeting(cand, _status(), int(_rel().get("visits", 0)))) if first else "What else is on your mind?", _name)
+	_hub_choices()
+
+
+## What you might say, under their greeting.
+func _hub_choices() -> void:
 	if bool(_rel().get("strained", false)):
 		add_to_log(note("Things are strained between you since a broken promise. %s will hear you out on it." % _name, Style.MORALE_LOW))
 	var replies := []
@@ -337,7 +347,11 @@ func _story() -> void:
 		return
 	clear_log()
 	_face(String(cinfo.get("face", "")))
-	_tell(String(cinfo.get("text", "")))
+	_tell(String(cinfo.get("text", "")), _story_choices.bind(ch, cinfo))
+
+
+## A chapter's answers, once its text has been told.
+func _story_choices(ch: int, cinfo: Dictionary) -> void:
 	var replies := []
 	var strained := bool(_rel().get("strained", false))
 	var repair: Dictionary = cinfo.get("repair", {})
@@ -355,8 +369,7 @@ func _story() -> void:
 						_ch1_topic_done = true
 						say("you", said)
 						_face(face)
-						_tell(resp)
-						_intents(cinfo)})
+						_tell(resp, _intents.bind(cinfo))})
 			else:
 				_intents(cinfo)
 				return
@@ -461,7 +474,10 @@ func _post() -> void:
 	clear_log()
 	say("you", Lines.story_opener(cand, CHAPTERS + 1))
 	_face(String(project.get("face", "")))
-	_tell(String(project.get("text", "")))
+	_tell(String(project.get("text", "")), _post_choices.bind(project))
+
+
+func _post_choices(project: Dictionary) -> void:
 	var replies := []
 	for c in project.get("choices", []):
 		replies.append({"id": "post_" + String(c["id"]), "text": String(c["text"]), "tag": String(c.get("tag", "")), "tone": "gold",
@@ -478,13 +494,13 @@ func _post_decide(c: Dictionary) -> void:
 	GameState.save_game()
 	say("you", String(c["text"]))
 	_face(String(c.get("face", "")))
-	_tell(String(c.get("response", "")))
-	var reaction := _reaction({"standing_change": int(r.get("standing_change", 0))})
-	if reaction != null:
-		add_to_log(reaction)
-	add_to_log(keepsake("A memory kept: %s" % String(c.get("memory", "")), "book"))
-	_after_change()
-	set_replies([_back_or_leave()])
+	_tell(String(c.get("response", "")), func():
+		var reaction := _reaction({"standing_change": int(r.get("standing_change", 0))})
+		if reaction != null:
+			add_to_log(reaction)
+		add_to_log(keepsake("A memory kept: %s" % String(c.get("memory", "")), "book"))
+		_after_change()
+		set_replies([_back_or_leave()]))
 
 
 ## An evening together, married or sworn: nothing to decide, nothing kept count of.
@@ -523,22 +539,29 @@ func _favour() -> void:
 	set_replies([_back_or_leave()])
 
 
-## Authored text into the talk: narration centred, their words in their bubble, yours in
-## yours (see RomanceStories.beats).
-func _tell(text: String) -> void:
+## Authored text into the talk, a line at a time (Go on, or a tap, for the next): narration
+## centred, their words in their bubble, yours in yours (see RomanceStories.beats). After the
+## last line, `then`: the answers, and what changed.
+func _tell(text: String, then: Callable = Callable()) -> void:
+	tell_lines(_lines(text), then)
+
+
+func _lines(text: String) -> Array:
+	var out := []
 	for b in RomanceStories.beats(text):
 		var line := String(b["text"])
 		match String(b["speaker"]):
 			"Narrator":
 				# Older text kept their words in quotes.
 				if (line.begins_with("'") and line.ends_with("'")) or (line.begins_with("\"") and line.ends_with("\"")):
-					say("them", _strip_quotes(line), _name)
+					out.append({"who": "them", "text": _strip_quotes(line), "speaker": _name})
 				else:
-					say("narration", line)
+					out.append({"who": "narration", "text": line})
 			"You":
-				say("you", line)
+				out.append({"who": "you", "text": line})
 			_:
-				say("them", line, _name)
+				out.append({"who": "them", "text": line, "speaker": _name})
+	return out
 
 
 ## How they look as they say it ("" leaves the face as it is).
@@ -626,26 +649,25 @@ func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
 	if not confirmed:
 		say("you", text)
 	_face(String(c.get("face", "")))
-	if bool(res.get("task", false)):
-		# Promised, not yet done: her word on it, and the job in your journal.
-		_tell(String(c.get("promise", "")))
-		_ch1_topic_done = false
-		_after_change()
-		_take_task()
-		return
-	_tell(String(c.get("response", "")))
-	var reaction := _reaction(prev)
-	if reaction != null:
-		add_to_log(reaction)
 	_ch1_topic_done = false
-	_after_change()
-	if choice_id == "marry_public":
-		_where(false)
+	if bool(res.get("task", false)):
+		# Promised, not yet done: her word on it, and the job in your journal. (Left before
+		# the end, the promise stands, and the hub offers to take the job up again.)
+		_tell(String(c.get("promise", "")), func():
+			_after_change()
+			_take_task())
 		return
-	if choice_id == "marry_private":
-		_private_vows()
-		return
-	set_replies([_back_or_leave()])
+	_tell(String(c.get("response", "")), func():
+		var reaction := _reaction(prev)
+		if reaction != null:
+			add_to_log(reaction)
+		_after_change()
+		if choice_id == "marry_public":
+			_where(false)
+		elif choice_id == "marry_private":
+			_private_vows()
+		else:
+			set_replies([_back_or_leave()]))
 
 
 ## What changed, told once, as how they and their house take it, not as a sum. The cost
@@ -790,10 +812,13 @@ func _private_vows() -> void:
 		(_backdrop as TextureRect).modulate = Color(0.5, 0.54, 0.78)
 	var house: Dictionary = _house()
 	var host := String(GameState.world.social.get_person(String(house.get("head_person_id", ""))).get("name", "The head of the house"))
-	say("narration", "No guests, no banners. A candle, the door shut, the household asleep below.")
-	say("them", WeddingLines.fill(WeddingLines.PRIVATE.get(cand, ""), {"host": host}), _name)
 	var their: Dictionary = WeddingLines.their_vow(cand, _social().memory_book(person_id))
-	say("them", String(their["text"]), _name)
+	tell_lines([{"who": "narration", "text": "No guests, no banners. A candle, the door shut, the household asleep below."},
+		{"who": "them", "text": WeddingLines.fill(WeddingLines.PRIVATE.get(cand, ""), {"host": host}), "speaker": _name},
+		{"who": "them", "text": String(their["text"]), "speaker": _name}], _vow_choices.bind(their, house))
+
+
+func _vow_choices(their: Dictionary, house: Dictionary) -> void:
 	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
 	var replies := []
 	for v in WeddingLines.yours(cand):
@@ -812,6 +837,7 @@ func _private_vows() -> void:
 
 func _visit(scene_id: String, replay: bool) -> void:
 	_replay = replay
+	_heard = -1
 	_scene_id = scene_id
 	if replay:
 		var rec: Dictionary = _social().personal_record(person_id)
@@ -844,15 +870,21 @@ func _render_visit() -> void:
 	var seq := _sequence()
 	shown.append_array(seq.slice(0, int(_progress["beat"]) + 1))
 	var face := ""
-	for beat in shown:
+	# Redrawn whole at each step: the lines already heard are shown as they were, and only
+	# the new one is written out. Opened (or resumed) part way, only the last is.
+	var heard := _heard if _heard >= 0 else shown.size() - 1
+	for i in shown.size():
+		var beat: Dictionary = shown[i]
 		var who := String(beat["speaker"])
+		var again := i < heard
 		if who == "Narrator":
-			say("narration", String(beat["text"]))
+			say("narration", String(beat["text"]), "", again)
 		elif who == "You":
-			say("you", String(beat["text"]))
+			say("you", String(beat["text"]), "", again)
 		else:
-			say("them", String(beat["text"]), _name)
+			say("them", String(beat["text"]), _name, again)
 			face = String(beat.get("expression", face))
+	_heard = shown.size()
 	if face != "":
 		change_face("left", _portrait(face))
 	var pos := int(_progress["beat"])

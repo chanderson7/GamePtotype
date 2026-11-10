@@ -429,6 +429,9 @@ static func marks(r: Dictionary, tone: String) -> Control:
 		var tl := Style.label(tag, Style.SMALL, ink)
 		tl.name = "Tag"
 		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		# The rest of the line: a wrapping label's own minimum is one letter wide, and a
+		# flow row would give it no more, a letter to a line.
+		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(tl)
@@ -451,6 +454,7 @@ static func fx_note(fx: Array, text: String = "", tone: Color = Style.MORALE_HIG
 		var l := Style.label(text, Style.SMALL, tone.lightened(0.3))
 		l.name = "Words"
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(l)
 	p.add_child(row)
@@ -463,6 +467,9 @@ static func fx_note(fx: Array, text: String = "", tone: Color = Style.MORALE_HIG
 # ---------------------------------------------------------------- the conversation
 
 func clear_log() -> void:
+	# A passage still being told belongs to what is being cleared away.
+	_pending.clear()
+	_pending_then = Callable()
 	for c in _log.get_children():
 		_log.remove_child(c)
 		c.queue_free()
@@ -471,8 +478,9 @@ func clear_log() -> void:
 ## A line in the conversation. `who` is "them" (left, under `speaker`), "you" (right, in
 ## your blue), "other" (right, a second speaker who isn't you, in a neutral bubble) or
 ## "narration" (centred, no bubble). The speaker's name shows only when it isn't the name
-## on the plate: one on one, the face and the plate already say who it is.
-func say(who: String, text: String, speaker: String = "") -> Control:
+## on the plate: one on one, the face and the plate already say who it is. `instant`: shown
+## whole, not written out (a line already heard, shown again).
+func say(who: String, text: String, speaker: String = "", instant: bool = false) -> Control:
 	var holder := HBoxContainer.new()
 	holder.name = "Line"
 	if who == "narration":
@@ -511,7 +519,7 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(l)
 	bubble.add_child(v)
-	if who != "you":
+	if who != "you" and not instant:
 		_reveal(l)
 		_nudge_speaker()
 	var gap := Control.new()
@@ -581,6 +589,56 @@ func _nudge_speaker() -> void:
 			t.tween_property(face, "position:y", rest - 6.0, 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 			t.tween_property(face, "position:y", rest, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 			return
+
+
+## A passage, a line at a time: each line ({who, text, speaker}) is said in turn, and Go on
+## (or a tap) brings the next, so their words come one after another as they would be
+## spoken; "All of it" shows the rest at once. After the last line, `then`, which sets the
+## replies. A passage of one line is said, and `then` follows straight away.
+var _pending: Array = []
+var _pending_then: Callable
+
+
+func tell_lines(lines: Array, then: Callable = Callable()) -> void:
+	_pending = lines.duplicate()
+	_pending_then = then
+	_tell_on()
+
+
+## Whether a passage is still being told.
+func telling() -> bool:
+	return not _pending.is_empty()
+
+
+func _tell_on() -> void:
+	if not _pending.is_empty():
+		var line: Dictionary = _pending.pop_front()
+		say(String(line.get("who", "narration")), String(line.get("text", "")), String(line.get("speaker", "")))
+	if _pending.is_empty():
+		_told()
+		return
+	set_replies([{"row": [{"id": "continue", "text": "Go on", "tone": "quiet", "act": _tell_on},
+		{"id": "tell_all", "text": "All of it", "tone": "quiet", "act": tell_rest}]}])
+	_continue = _tell_on
+
+
+## The rest of the passage, at once.
+func tell_rest() -> void:
+	finish_writing()
+	var rest := _pending.duplicate()
+	_pending.clear()
+	for line in rest:
+		say(String(line.get("who", "narration")), String(line.get("text", "")), String(line.get("speaker", "")), true)
+	_told()
+
+
+func _told() -> void:
+	var then := _pending_then
+	_pending_then = Callable()
+	if then.is_valid():
+		then.call()
+	else:
+		set_replies([])
 
 
 func add_to_log(ctrl: Control) -> void:
@@ -754,6 +812,9 @@ func reply_node(id: String) -> Button:
 
 ## Press a reply by id, as a tap would.
 func choose(id: String) -> bool:
+	# Asked for an answer while a passage is still being told: hear the rest first.
+	if reply_node(id) == null and telling():
+		tell_rest()
 	var b := reply_node(id)
 	if b == null or b.disabled:
 		return false
@@ -761,12 +822,19 @@ func choose(id: String) -> bool:
 	return true
 
 
+## Whether a reply is on offer (asked about one that comes after a passage still being
+## told, the passage is heard out first, as choose() does).
 func has_reply(id: String, enabled_only: bool = true) -> bool:
+	if reply_node(id) == null and telling():
+		tell_rest()
 	var b := reply_node(id)
 	return b != null and (not enabled_only or not b.disabled)
 
 
+## The replies on offer once any passage being told has been heard out.
 func reply_ids() -> Array:
+	if telling():
+		tell_rest()
 	return _replies.find_children("Reply_*", "Button", true, false).map(func(c): return String(c.name).trim_prefix("Reply_"))
 
 
