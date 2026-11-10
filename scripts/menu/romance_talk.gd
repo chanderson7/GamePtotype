@@ -28,6 +28,11 @@ var _replay := false
 ## How many lines of the visit being told have been heard already (shown whole when the
 ## log is redrawn); -1 when it has just been opened.
 var _heard := -1
+## The answers you gave in the visit being told again, one a part (-1: none kept, so
+## you answer afresh, which changes nothing).
+var _kept: Array = []
+## Opened from the memory book to tell one memory again, not as a visit.
+var _from_book := false
 var _ch1_topic_done := false
 ## Their first words this visit, chosen from what has happened since the last.
 var _opening := ""
@@ -99,20 +104,29 @@ func _ready() -> void:
 	set_face("left", _portrait(_expression()), false, 0.98)
 	_refresh_plate()
 	Sound.set_loop("camp")
+	# Opened from the memory book to tell one memory again: not a visit. Nothing is noted,
+	# nothing waiting to be told is used up, and closing the memory goes back to the book.
+	var relive := Scenes.romance_relive
+	var moment := Scenes.romance_moment
+	Scenes.romance_relive = ""
+	Scenes.romance_moment = ""
+	if relive != "" and _social().personal_record(person_id)["completed"].has(relive):
+		_from_book = true
+		_visit(relive, true)
+		return
+	if moment != "" and not _decision_told(moment).is_empty():
+		_from_book = true
+		_moment(moment)
+		return
 	var facts := _facts()
 	var rel: Dictionary = _rel()
-	_opening = Lines.opening(cand, _status(), facts, int(rel.get("visits", 0)))
+	_opening = Lines.opening(cand, _status(), facts, int(rel.get("visits", 0)), _social().personal_marks(person_id))
 	_note_visit(Lines.opening_key(cand, facts))
 	_untold = _social().take_untold(cand)
 	# This visit is now the last one, for next time's opening.
 	rel["last_visit_hour"] = GameState.world.hour
 	rel["last_visit_battles"] = GameState.battles
 	_hub(true)
-	if Scenes.romance_relive != "":
-		var sid := Scenes.romance_relive
-		Scenes.romance_relive = ""
-		if _social().personal_record(person_id)["completed"].has(sid):
-			_visit(sid, true)
 
 
 func _exit_tree() -> void:
@@ -841,7 +855,8 @@ func _visit(scene_id: String, replay: bool) -> void:
 	_scene_id = scene_id
 	if replay:
 		var rec: Dictionary = _social().personal_record(person_id)
-		_progress = {"node": 0, "choice": -1, "context": rec["completed"][scene_id]["context"].duplicate(true)}
+		_kept = Stories.kept_picks(scene_id, rec["cosmetic_choices"].get(scene_id, -1))
+		_progress = {"part": 0, "picks": [], "context": rec["completed"][scene_id]["context"].duplicate(true)}
 		Stories.normalize_reader(scene_id, _progress)
 	else:
 		var r: Dictionary = GameState.personal_conversation_action(person_id, scene_id, "begin")
@@ -857,21 +872,30 @@ func _visit(scene_id: String, replay: bool) -> void:
 
 
 func _sequence() -> Array:
-	return Stories.beats(_scene_id, int(_progress["node"]), int(_progress["choice"]), _progress["context"])
+	return Stories.beats(_scene_id, int(_progress["part"]), _progress["picks"], _progress["context"])
+
+
+## Leaving a visit or a memory part way: back to the talk, or to the memory book it was
+## opened from.
+func _leave_visit() -> void:
+	if _from_book:
+		close()
+	else:
+		_hub()
 
 
 func _render_visit() -> void:
 	clear_log()
 	var scene: Dictionary = Stories.SCENES[_scene_id]
 	say("narration", ("Remembered · %s" if _replay else "%s") % scene["title"])
-	var shown := []
-	if int(_progress["node"]) == 1:
-		shown.append_array(Stories.beats(_scene_id, 0, -1, _progress["context"]))
+	var part := int(_progress["part"])
+	var parts := Stories.part_count(_scene_id)
+	var shown: Array = Stories.told_before(_scene_id, part, _progress["picks"], _progress["context"])
 	var seq := _sequence()
 	shown.append_array(seq.slice(0, int(_progress["beat"]) + 1))
 	var face := ""
 	# Redrawn whole at each step: the lines already heard are shown as they were, and only
-	# the new one is written out. Opened (or resumed) part way, only the last is.
+	# the new ones are written out. Opened (or resumed) part way, only the last is.
 	var heard := _heard if _heard >= 0 else shown.size() - 1
 	for i in shown.size():
 		var beat: Dictionary = shown[i]
@@ -883,30 +907,39 @@ func _render_visit() -> void:
 			say("you", String(beat["text"]), "", again)
 		else:
 			say("them", String(beat["text"]), _name, again)
-			face = String(beat.get("expression", face))
+		face = String(beat.get("expression", face))
 	_heard = shown.size()
 	if face != "":
 		change_face("left", _portrait(face))
 	var pos := int(_progress["beat"])
 	var summary := {"id": "summary", "text": "Short version", "tone": "quiet", "act": _summary}
-	var later := {"id": "later", "text": "Another time", "tone": "quiet", "act": _hub}
+	var later := {"id": "later", "text": "Another time", "tone": "quiet", "act": _leave_visit}
+	# The short version stands in for the whole visit, so it's offered until your first answer.
+	var early := part == 0 and not _replay
 	if pos < seq.size() - 1:
-		# Tap anywhere, or Go on; leave for later at any point, and before your answer
-		# you can also cut it short.
+		# Tap anywhere, or Go on; leave for later at any point.
 		var replies := [{"id": "continue", "text": "Go on", "tone": "quiet", "act": _advance}]
-		replies.append({"row": [summary, later]} if int(_progress["node"]) == 0 and not _replay else later)
+		replies.append({"row": [summary, later]} if early else later)
 		set_replies(replies)
 		_continue = _advance
-	elif int(_progress["node"]) == 0:
+	elif part < parts:
+		# A point in the talk where you say something. Told again, it is what you said then;
+		# with no answer kept (the short version, an older visit) you answer afresh.
+		var kept := int(_kept[part]) if _replay and part < _kept.size() else -1
+		if kept >= 0 and Stories.offers(_scene_id, part, _progress["context"], kept):
+			set_replies([{"id": "continue", "text": "Go on", "tone": "quiet", "act": _respond.bind(kept)}, later])
+			_continue = _respond.bind(kept)
+			return
 		add_to_log(note("No wrong answers.", Style.MUTED))
 		var replies := []
-		for i in scene["choices"].size():
-			replies.append({"id": "say_%d" % i, "text": String(scene["choices"][i]), "act": _respond.bind(i)})
-		if not _replay:
-			replies.append(summary)
+		for o in Stories.options(_scene_id, part, _progress["context"]):
+			var tone: Array = Stories.TONES.get(String(o.get("tone", "")), ["talk", ""])
+			replies.append({"id": "say_%d" % int(o["index"]), "text": String(o["say"]), "icon": String(tone[0]), "tag": String(tone[1]),
+				"act": _respond.bind(int(o["index"]))})
+		replies.append({"row": [summary, later]} if early else later)
 		set_replies(replies)
 	elif _replay:
-		set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": _hub}])
+		set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": _leave_visit}])
 	else:
 		set_replies([{"id": "finish", "text": "Keep this memory", "tone": "gold", "bare": true, "act": _finish.bind("finish")}])
 
@@ -924,9 +957,10 @@ func _advance() -> void:
 
 func _respond(choice: int) -> void:
 	if _replay:
-		_progress["choice"] = choice
-		_progress["node"] = 1
-		_progress["beat"] = 0
+		(_progress["picks"] as Array).append(choice)
+		_progress["part"] = int(_progress["part"]) + 1
+		# Your words, and the first of hers in answer.
+		_progress["beat"] = mini(1, _sequence().size() - 1)
 	else:
 		var r: Dictionary = GameState.personal_conversation_action(person_id, _scene_id, "choose", choice)
 		if not bool(r.get("ok", false)):
@@ -942,7 +976,7 @@ func _summary() -> void:
 
 
 func _finish(action: String) -> void:
-	var scene: Dictionary = Stories.SCENES[_scene_id]
+	var kept_as := Stories.memory_text(_scene_id, [] if action == "summary" else _progress["picks"])
 	var r: Dictionary = GameState.personal_conversation_action(person_id, _scene_id, action)
 	if not bool(r.get("ok", false)):
 		add_to_log(note(String(r.get("reason", "Not now.")), Style.MORALE_LOW))
@@ -951,9 +985,46 @@ func _finish(action: String) -> void:
 	var fx := []
 	if int(r.get("trust_change", 0)) > 0:
 		fx = [["heart", int(r["trust_change"])], ["cup", "%d of %d" % [claims, Relationships.PERSONAL_CONVERSATION_CAP]]]
-	add_to_log(keepsake("A memory kept: %s" % scene["memory"], "cup", fx))
+	add_to_log(keepsake("A memory kept: %s" % kept_as, "cup", fx))
 	_after_change()
 	set_replies([_back_or_leave()])
+
+
+# ---------------------------------------------------------------- a decision, told again
+
+## What you said at a story decision and how she answered: {title, text, response}, or {}
+## if `choice` isn't one of this story's.
+func _decision_told(choice: String) -> Dictionary:
+	var story: Dictionary = RomanceStories.story_data(cand)
+	for n in story.get("chapters", {}):
+		var ch: Dictionary = story["chapters"][n]
+		var all: Array = []
+		for key in ["choices", "intent_choices", "variants", "final_choices"]:
+			all.append_array(ch.get(key, []))
+		if ch.has("repair"):
+			all.append(ch["repair"])
+		for o in all:
+			if String(o.get("id", "")) == choice and String(o.get("response", "")) != "":
+				return {"title": String(ch.get("title", "")), "text": String(o.get("text", "")), "response": String(o.get("response", "")),
+					"face": String(o.get("face", ""))}
+	return {}
+
+
+## A decision from the memory book, as the moment it was: what you said, and her answer a
+## line at a time. Changes nothing.
+func _moment(choice: String) -> void:
+	var told := _decision_told(choice)
+	if told.is_empty():
+		_leave_visit()
+		return
+	set_stage_share(0.38)
+	clear_log()
+	say("narration", "Remembered · %s" % told["title"])
+	_face(String(told["face"]))
+	var lines := [{"who": "you", "text": String(told["text"])}]
+	lines.append_array(_lines(String(told["response"])))
+	tell_lines(lines, func():
+		set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": _leave_visit}]))
 
 
 # ---------------------------------------------------------------- remembering
@@ -994,6 +1065,8 @@ func _recall(m: Dictionary) -> void:
 	var sid := String(m.get("scene_id", ""))
 	if String(m.get("kind", "")) == "visit" and _social().personal_record(person_id)["completed"].has(sid):
 		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "a memory · changes nothing", "act": _visit.bind(sid, true)})
+	elif String(m.get("kind", "")) == "decision" and not _decision_told(String(m.get("choice", ""))).is_empty():
+		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "a memory · changes nothing", "act": _moment.bind(String(m.get("choice", "")))})
 	elif String(m.get("kind", "")) == "ceremony" and sid == "wedding":
 		var mid := String(m["id"])
 		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "your wedding · changes nothing", "act": func():

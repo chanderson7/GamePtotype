@@ -36,6 +36,9 @@ var active_candidate_id := "edda"
 var active_person_id := ""
 ## A shared visit to tell again when the talk opens (from the memory book), or "".
 var romance_relive := ""
+## A story decision to tell again when the talk opens (from the memory book): its choice
+## id, or "".
+var romance_moment := ""
 ## Where the wedding returns to, and the memory id to tell again ("" for the day itself).
 var wedding_return := "res://scenes/world_map.tscn"
 var wedding_replay := ""

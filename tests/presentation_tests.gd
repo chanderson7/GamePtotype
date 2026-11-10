@@ -73,21 +73,24 @@ func _run() -> void:
 	gs.from_dict(saved)
 	var resumed := action("begin")
 	check(resumed["progress"]["beat"] == 1 and resumed["progress"]["furthest_beat"] == 2, "JSON reload preserves position and history extent")
-	action("choose", 1)
+	check(action("choose", 1)["progress"]["beat"] == 1, "an answer shows your words and the first of hers")
 	var old: Dictionary = gs.world.social.personal_conversations[PERSON]["in_progress"][FIRST]
 	old.erase("beat")
 	old.erase("furthest_beat")
 	old.erase("reader_version")
 	resumed = action("begin")
-	check(resumed["progress"]["choice"] == 1 and resumed["progress"]["node"] == 1 and resumed["progress"]["beat"] == 0, "legacy closing visit keeps its selected response")
+	check(resumed["progress"]["picks"] == [1] and resumed["progress"]["part"] == 1 and resumed["progress"]["beat"] == 0, "a position with no line kept still keeps the answer given")
 	check(not action("previous")["ok"], "reader rejects stepping before the first beat")
 	var cursor: Dictionary = gs.world.social.personal_conversations[PERSON]["in_progress"][FIRST]
 	cursor["beat"] = 900
 	cursor["furthest_beat"] = 900
 	resumed = action("begin")
-	var sequence := Stories.beats(FIRST, 1, 1, resumed["progress"]["context"])
+	var sequence := Stories.beats(FIRST, 1, [1], resumed["progress"]["context"])
 	check(resumed["progress"]["beat"] == sequence.size() - 1, "stale cursor is safely clamped")
 	check(not action("advance")["ok"], "reader rejects advancing beyond passage")
+	check(not action("finish")["ok"], "a visit can't be kept before its last answer")
+	action("choose", 0)
+	action("choose", 0)
 	check(action("finish")["trust_change"] == 1, "presentation preserves first-completion reward")
 	check(not action("advance")["ok"], "archive commands cannot mutate completed visits")
 	for candidate_id in ["edda", "farid", "kaede"]:
@@ -277,16 +280,11 @@ func _check_ui() -> void:
 	# A kept visit told again, all the way through, changes nothing.
 	talk._visit(FIRST, true)
 	check(talk.log_text().contains("Remembered"), "a kept visit can be told again")
-	for i in 80:
+	for i in 200:
 		if not talk.has_reply("continue"):
 			break
 		talk.choose("continue")
-	if talk.has_reply("say_0"):
-		talk.choose("say_0")
-	for i in 80:
-		if not talk.has_reply("continue"):
-			break
-		talk.choose("continue")
+	check(talk.has_reply("finish") and not talk.log_text().contains("No wrong answers"), "and goes as you answered it, asking nothing")
 	talk.choose("finish")
 	check(gs.to_dict() == baseline, "telling a memory again changes no campaign state")
 	talk.choose("visit_edda_wrong_verse")

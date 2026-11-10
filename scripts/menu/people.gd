@@ -891,9 +891,16 @@ func _open_memory(cand: String, e: Dictionary, detail: Label) -> void:
 			if String(e.get("place", "")) != "":
 				_show_on_map(String(e["place"]))
 		"decision":
-			var said := _decision_said(cand, String(e.get("choice", "")))
-			detail.text = said if said != "" else "A choice you made together."
-			detail.visible = not detail.visible
+			# The moment itself, told again in the talk; an old or answerless one just says so.
+			if _decision_said(cand, String(e.get("choice", ""))) != "":
+				Scenes.active_candidate_id = cand
+				Scenes.active_person_id = String(_candidate_person(cand).get("id", ""))
+				Scenes.romance_moment = String(e.get("choice", ""))
+				Scenes.personal_conversation_return = "res://scenes/people.tscn"
+				Scenes.go("res://scenes/personal_conversation.tscn")
+			else:
+				detail.text = "A choice you made together."
+				detail.visible = not detail.visible
 		_:
 			pass
 
@@ -907,6 +914,7 @@ func _decision_said(cand: String, choice: String) -> String:
 		options.append_array(ch.get("choices", []))
 		options.append_array(ch.get("intent_choices", []))
 		options.append_array(ch.get("variants", []))
+		options.append_array(ch.get("final_choices", []))
 		if ch.has("repair"):
 			options.append(ch["repair"])
 		for o in options:

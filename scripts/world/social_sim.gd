@@ -604,6 +604,7 @@ func _render_letter(l: Dictionary) -> Dictionary:
 	ctx["hour"] = float(l.get("created_hour", 0.0))
 	ctx["sender"] = String(sender.get("name", "A friend"))
 	ctx["house"] = house_family(String(sender.get("house_id", "")))
+	ctx["marks"] = personal_marks(String(l.get("sender_id", ""))) if cand != "" else []
 	if not ctx.has("old"):
 		ctx["old"] = "the old seat"
 	return Letters.render(String(l.get("template_key", "")), cand, is_courting(cand), ctx)
@@ -1591,6 +1592,12 @@ func personal_record(person_id: String) -> Dictionary:
 	}).duplicate(true)
 
 
+## What your answers in visits with this person have left behind (the marks of the options
+## you picked), for greetings, letters and later visits.
+func personal_marks(person_id: String) -> Array:
+	return PersonalConversations.marks(personal_record(person_id)["cosmetic_choices"])
+
+
 func _personal_candidate(person_id: String) -> String:
 	for candidate_id in relationships:
 		if relationships[candidate_id].get("person_id", "") == person_id:
@@ -1648,6 +1655,9 @@ func available_personal_conversations(person_id: String, context: Dictionary) ->
 
 
 ## Only this command mutates personal records. Replays are read-only UI sessions.
+## A visit is read a line at a time ("advance", "previous") through its parts; "choose"
+## answers the current part's point and moves to the next; "finish" keeps the memory once
+## the last point is answered; "summary" keeps it from anywhere, with no answers given.
 func personal_action(person_id: String, scene_id: String, action: String, context: Dictionary, choice: int = -1) -> Dictionary:
 	var access := personal_scene_access(person_id, scene_id, context)
 	if not access.get("ok", false):
@@ -1655,45 +1665,60 @@ func personal_action(person_id: String, scene_id: String, action: String, contex
 	if access.get("replay", false):
 		return {"ok": false, "reason": "This memory is already complete. Replay cannot change it."}
 	var record := personal_record(person_id)
-	var scene: Dictionary = PersonalConversations.SCENES[scene_id]
 	var progress: Dictionary = record["in_progress"].get(scene_id, {})
 	var rel: Dictionary = relationships[_personal_candidate(person_id)]
+	var parts := PersonalConversations.part_count(scene_id)
+	var current: bool = progress.get("scene_id", "") == scene_id and int(progress.get("content_version", 0)) == PersonalConversations.VERSION
 	if action == "begin":
-		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+		if not current:
 			record["last_visit_day"] = _day_of(context)
-			progress = {"scene_id": scene_id, "node": 0, "choice": -1,
+			progress = {"scene_id": scene_id, "part": 0, "picks": [],
 				"content_version": PersonalConversations.VERSION,
 				"context": {"completed": record["completed"].keys(), "choices": record["cosmetic_choices"].duplicate(true), "status": rel.get("status", Relationships.UNKNOWN),
 					"romantic": bool(rel.get("romantic_intent", false)) and bool(context.get("invitations_enabled", true)) and rel.get("status") != Relationships.ENDED}}
 		# A resumed visit reflects the current relationship; completed memories retain their old context.
 		progress["context"]["status"] = rel.get("status", Relationships.UNKNOWN)
-		progress["context"]["romantic"] = bool(rel.get("romantic_intent", false)) and bool(context.get("invitations_enabled", true)) and rel.get("status") != Relationships.ENDED
+		var romantic: bool = bool(rel.get("romantic_intent", false)) and bool(context.get("invitations_enabled", true)) and rel.get("status") != Relationships.ENDED
+		if romantic != bool(progress["context"].get("romantic", false)) and not (progress.get("picks", []) as Array).is_empty():
+			# The route changed part way: answers given on the other route may not be on
+			# offer on this one, so the visit starts again.
+			progress["part"] = 0
+			progress["picks"] = []
+			progress["beat"] = 0
+			progress["furthest_beat"] = 0
+		progress["context"]["romantic"] = romantic
 		PersonalConversations.normalize_reader(scene_id, progress)
 		record["in_progress"][scene_id] = progress
 	elif action == "advance" or action == "previous":
-		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+		if not current:
 			return {"ok": false, "reason": "Reopen this visit before continuing."}
 		PersonalConversations.normalize_reader(scene_id, progress)
-		var sequence := PersonalConversations.beats(scene_id, int(progress["node"]), int(progress["choice"]), progress["context"])
+		var sequence := PersonalConversations.beats(scene_id, int(progress["part"]), progress["picks"], progress["context"])
 		var next_beat := int(progress["beat"]) + (1 if action == "advance" else -1)
 		if next_beat < 0 or next_beat >= sequence.size():
 			return {"ok": false, "reason": "You have reached the end of this passage."}
 		progress["beat"] = next_beat
 		progress["furthest_beat"] = maxi(int(progress["furthest_beat"]), next_beat)
 	elif action == "choose":
-		if progress.get("scene_id", "") != scene_id or int(progress.get("node", -1)) != 0 or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+		if not current:
 			return {"ok": false, "reason": "Reopen this visit before choosing a response."}
-		if choice < 0 or choice >= scene["choices"].size():
+		PersonalConversations.normalize_reader(scene_id, progress)
+		var part := int(progress["part"])
+		if part >= parts:
+			return {"ok": false, "reason": "There is nothing left to answer in this visit."}
+		if not PersonalConversations.offers(scene_id, part, progress["context"], choice):
 			return {"ok": false, "reason": "Choose one of the offered responses."}
-		progress["choice"] = choice
-		progress["node"] = 1
-		progress["beat"] = 0
-		progress["furthest_beat"] = 0
+		(progress["picks"] as Array).append(choice)
+		progress["part"] = part + 1
+		# Your words, and the first of hers in answer.
+		progress["beat"] = 1
+		progress["furthest_beat"] = 1
 		PersonalConversations.normalize_reader(scene_id, progress)
 	elif action == "finish" or action == "summary":
-		if progress.get("scene_id", "") != scene_id or int(progress.get("content_version", 0)) != PersonalConversations.VERSION:
+		if not current:
 			return {"ok": false, "reason": "Reopen this visit before completing it."}
-		if action == "finish" and int(progress.get("node", -1)) != 1:
+		PersonalConversations.normalize_reader(scene_id, progress)
+		if action == "finish" and int(progress["part"]) < parts:
 			return {"ok": false, "reason": "Choose a response or read the summary first."}
 		var delta := 0
 		if record["bonus_claims"].size() < Relationships.PERSONAL_CONVERSATION_CAP:
@@ -1701,11 +1726,16 @@ func personal_action(person_id: String, scene_id: String, action: String, contex
 			rel["trust"] = mini(Relationships.TRUST_MAX, old_trust + Relationships.PERSONAL_CONVERSATION_TRUST)
 			delta = int(rel["trust"]) - old_trust
 			record["bonus_claims"][scene_id] = delta # A claim at 100 still consumes a slot.
+		var picks: Array = [] if action == "summary" else (progress["picks"] as Array).duplicate()
 		record["completed"][scene_id] = {"content_version": PersonalConversations.VERSION, "context": progress["context"].duplicate(true), "summary": action == "summary"}
-		record["cosmetic_choices"][scene_id] = -1 if action == "summary" else int(progress["choice"])
+		# The answers given, one a part; -1 for the short version (no answers, no marks).
+		if action == "summary":
+			record["cosmetic_choices"][scene_id] = -1
+		else:
+			record["cosmetic_choices"][scene_id] = picks
 		record["in_progress"].erase(scene_id)
 		personal_conversations[person_id] = record
-		add_memory(person_id, scene["memory"], {"kind": "visit", "scene_id": scene_id})
+		add_memory(person_id, PersonalConversations.memory_text(scene_id, picks), {"kind": "visit", "scene_id": scene_id})
 		return {"ok": true, "trust_change": delta, "completed": true}
 	else:
 		return {"ok": false, "reason": "Unknown conversation action."}

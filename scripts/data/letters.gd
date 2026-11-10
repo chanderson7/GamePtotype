@@ -979,6 +979,37 @@ const CHAPTER_REPLIES := {
 }
 
 ## How you sign your own letters.
+## A postscript about something you said in a visit that has stayed with her, for a letter
+## with none of its own: by the mark your answer left.
+const REMEMBERED_PS := {
+	"edda_counted": "Six at supper tonight. I counted seven. I shall let you guess which of us was right.",
+	"edda_morning_river": "My cousin has sent a stone. Flat, round, and insulting. It is on your place at the table.",
+	"edda_morning_sleep": "Sleep past the bread once this week. That is not a request. It is an entry in the household book.",
+	"edda_morning_market": "I enclose a list for the next market. You will find it blank. Do not fill it in.",
+	"edda_morning_bench": "The bench is still there. I pass it oftener than the errands require.",
+	"you_place_home": "Your place is laid, whether you are in it or not. That is what it is for.",
+	"you_place_stranger": "Your place is laid, and the spare bowl beside it, for whoever is on the road.",
+	"you_place_none": "Your place is laid, by my hand, whether you are in it or not. That is what it is for.",
+	"farah_outdrafted": "This letter had a preamble. I struck it out before you could improve it.",
+	"you_name_bridge": "I have written 'the Leaning Bridge' in two dispatches now. A clerk has added it to the index.",
+	"you_name_kettle": "I have written 'Cold Kettle' in two dispatches now. A clerk has added it to the index.",
+	"you_name_elbow": "A fourth village has claimed your widow. I thought you should know.",
+	"you_tried_binding": "Your stitch holds. I say so in every letter, and shall go on saying so.",
+	"you_plain_orders": "In five words: come back when you can.",
+	"you_plain_grave": "In five words: come back when you can.",
+	"you_plain_now": "In five words: come back when you can.",
+	"you_spot_wall": "Your wall held its warmth forty minutes past dusk. I stayed for all forty.",
+	"you_spot_gate": "I leaned on a gate today and watched a road. For research.",
+	"you_spot_step": "The early step was dry this morning. I have amended the map.",
+	"kaede_accused_cat": "The cat has been seen near the grain store. I have added it to your file of accusations.",
+	"you_change_ford": "I have begun dating every map. It is your doing, and I am grateful.",
+	"you_change_camp": "I have begun dating every map. It is your doing, and I am grateful.",
+	"you_change_home": "I have begun dating every map. It is your doing, and I am grateful.",
+	"you_pref_back": "The column has a second entry. I will show you when you come.",
+	"you_pref_rain": "The column has a second entry. I will show you when you come.",
+	"you_pref_bread": "The column has a second entry. I will show you when you come.",
+}
+
 const PLAYER_SIGN := "The Captain"
 const PLAYER_SIGN_TITLE := "of the free company"
 
@@ -1001,6 +1032,12 @@ static func render(key: String, candidate_id: String, courting: bool, ctx: Dicti
 	for para in t["body"]:
 		body.append(_fill(String(para), ctx))
 	var seal: Dictionary = SEALS.get(candidate_id, {"mark": String(t["sign"]).left(1), "color": "8e1f17"})
+	# With no postscript of its own, one about something you said to her, if anything has stayed.
+	var ps := _fill(String(t.get("ps", "")), ctx)
+	if ps == "":
+		var kept: Array = (ctx.get("marks", []) as Array).filter(func(m): return REMEMBERED_PS.has(m))
+		if not kept.is_empty():
+			ps = String(REMEMBERED_PS[kept[posmod(key.hash(), kept.size())]])
 	return {
 		"subject": _fill(String(t["subject"]), ctx),
 		"place_line": place_line(String(ctx.get("place", "")), float(ctx.get("hour", 0.0))),
@@ -1008,7 +1045,7 @@ static func render(key: String, candidate_id: String, courting: bool, ctx: Dicti
 		"body": body,
 		"sign": String(t["sign"]),
 		"sign_title": _fill(String(t["sign_title"]), ctx),
-		"ps": _fill(String(t.get("ps", "")), ctx),
+		"ps": ps,
 		"seal": seal["mark"],
 		"seal_color": seal["color"],
 		"courting": courting,

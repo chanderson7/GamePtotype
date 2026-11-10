@@ -24,6 +24,14 @@ func _arrive(path: String) -> void:
 			return
 
 
+## Until the screen change's fade is over (it takes no taps till then).
+func _settled() -> void:
+	for i in 240:
+		if not root.get_node("Scenes")._busy:
+			return
+		await process_frame
+
+
 func _init() -> void:
 	await process_frame
 	var gs = root.get_node("GameState")
@@ -94,11 +102,14 @@ func _init() -> void:
 		talk.choose("continue")
 	check(talk._log.find_children("Them", "", true, false).size() > 0 and talk._log.find_children("Narration", "", true, false).size() > 0,
 		"their lines are bubbles and narration stands apart")
-	talk.choose("say_0")
-	for i in 60:
-		if not talk.has_reply("continue"):
+	# Through every point of the visit, taking the first thing offered at each.
+	for i in 200:
+		if talk.has_reply("finish"):
 			break
-		talk.choose("continue")
+		if talk.has_reply("continue"):
+			talk.choose("continue")
+		else:
+			talk.choose(talk.reply_ids().filter(func(id): return String(id).begins_with("say_"))[0])
 	talk.choose("finish")
 	check(talk._log.find_child("Keepsake", true, false) != null, "a kept memory is shown as one")
 
@@ -136,6 +147,36 @@ func _init() -> void:
 	row.pressed.emit()
 	await _arrive("personal_conversation.tscn")
 	check(current_scene.has_method("reply_ids") and current_scene.log_text().contains("Remembered"), "a visit memory opens as a replay")
+	check(current_scene.reply_node("later") != null and current_scene.reply_node("summary") == null, "which you can leave, and which has no short version")
+	await _settled()
+	current_scene.choose("later")
+	await _arrive("people.tscn")
+	await _settled()
+	check(current_scene.scene_file_path.ends_with("people.tscn"), "leaving a memory opened from the book goes back to the book")
+
+	# ---- and a decision opens as the moment it was
+	current_scene._person = "edda"
+	current_scene._build()
+	await process_frame
+	var visits_before := int(social.get_relationship("edda").get("visits", 0))
+	var last_before = social.get_relationship("edda").get("last_visit_hour", -1.0)
+	row = current_scene.find_child("Memory_" + String(decision["id"]), true, false)
+	check(row != null, "the profile lists the decision too")
+	row.pressed.emit()
+	await _arrive("personal_conversation.tscn")
+	await _settled()
+	var moment = current_scene
+	check(moment.log_text().contains("Remembered") and moment.log_text().contains("offer my sword") and moment.telling() and moment.reply_node("continue") != null,
+		"a decision memory opens on what you said, her answer to come a line at a time")
+	while moment.telling():
+		moment.reply_node("continue").pressed.emit()
+	check(moment.log_text().contains("A steadfast friend") and moment.reply_ids() == ["finish"], "then her answer, and the only way on is to close it")
+	check(int(social.get_relationship("edda").get("visits", 0)) == visits_before and social.get_relationship("edda").get("last_visit_hour", -1.0) == last_before,
+		"opening a memory is not a visit: nothing is counted")
+	moment.choose("finish")
+	await _arrive("people.tscn")
+	await _settled()
+	check(current_scene.scene_file_path.ends_with("people.tscn"), "and closing it goes back to the book")
 
 	# ---- captains' talks at the fire, rank by rank
 	var a: Dictionary = gs.army[0]["captain"]
@@ -198,7 +239,8 @@ func _init() -> void:
 	change_scene_to_file("res://scenes/conversation.tscn")
 	await _arrive("conversation.tscn")
 	first_words = current_scene._log.find_children("Words", "Label", true, false)[0].text
-	check(Lines.greetings("edda", "acquainted").has(first_words) and first_words != greeted, "and the next visit, the other one")
+	check((Lines.greetings("edda", "acquainted").has(first_words) or Lines.REMEMBERED["edda"].values().has(first_words)) and first_words != greeted,
+		"and the next visit, another: the other greeting, or something you said to her (%s)" % first_words)
 	for cand in ["edda", "farid", "kaede"]:
 		for st in Lines.GREETINGS[cand]:
 			check(Lines.greetings(cand, st).size() >= 2, "%s has two greetings when %s" % [cand, st])

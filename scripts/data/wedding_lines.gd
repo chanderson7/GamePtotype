@@ -45,6 +45,12 @@ const VOWS := {
 	"kaede_missing_street": "If the road moves, I'll walk it with you. I've stopped correcting the map; I'd rather keep the company.",
 	"kaede_kept_page": "I'm keeping this page. Whoever asks who wrote it, I'll say we did.",
 	"kaede_room_on_map": "There's a place on my map with a little smudge on it. It's where you are. I won't fix it.",
+	"edda_who_set_your_place": "You told me who set a place for you. From today it is me, in ink, and I shall count us both aloud: one, two.",
+	"edda_home_on_time": "I stayed for the first course once, with you beside me. I vow to be home on time, and to come home to you.",
+	"farid_said_plainly": "I said five plain words to you once and stopped. Today I add two: I will. Nothing follows them.",
+	"farid_short_answer": "I was asked twice whether I am happy. Here is the short answer, before witnesses: yes. With you.",
+	"kaede_preference_stated": "I wrote one entry in a column headed Preferred. I vow to keep the page, and never to cross it out.",
+	"kaede_name_used": "I gave you a name nobody else may use. Today I give you the rest of it, and take yours beside it.",
 }
 
 ## Her vow when no shared time has a vow of its own.

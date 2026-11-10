@@ -69,18 +69,24 @@ const VISITS := {
 	"edda_morning_unclaimed": "I skipped a stone at the ford. Four bounces. My cousin would say three. My cousin is wrong.",
 	"edda_ledger_blot": "That page is still in the ledger. I showed it to a new clerk who was crying over a mistake. It helped, I think.",
 	"edda_place_no_task": "I sat for an hour last evening with nothing to do. It was dreadful. I'd like to do it again with you.",
+	"edda_who_set_your_place": "The clerk queried your entry in the household book after all. I told her it sits between the linen and the lamp oil because that is where I keep the things I count on.",
+	"edda_home_on_time": "The Hollins' roof is mended. I saw it in the morning, as I said I would, and nobody at that farm was any the worse for my supper.",
 	"farid_supper_request": "I asked for supper at the inn in eleven words yesterday. Eleven. I'm told that's a record for me.",
 	"farid_two_street_names": "I walked down Crooked Lantern this morning. The new sign says South Market. The lantern is still crooked.",
 	"farid_unsealed_letter": "My cousin wrote back. Two lines. I've read them more often than any treaty.",
 	"farid_wrong_courtesy": "I washed dishes at a feast last month, on purpose. The host was appalled. The cook and I are friends now.",
 	"farid_own_answer": "The notebook has a new page. Things I think, not things I'm asked. It's short. It's mine.",
 	"farid_no_reply_required": "I have more unimportant news. The baker's cat has learned to open the gate. Nobody asked; I'm telling you anyway.",
+	"farid_said_plainly": "I said five words to you and stopped. I have told three people about it since, at considerable length. The irony has been pointed out.",
+	"farid_short_answer": "My cousin answered the short answer. She wrote: 'At last.' Two words. It runs in the family after all.",
 	"kaede_useless_map": "I added a bench to the useless map. Strategically worthless. Excellent for watching ducks.",
 	"kaede_bad_mystery": "I solved the bad mystery correctly by accident. I've decided not to tell anyone. Our answer was better.",
 	"kaede_margin_name": "The label still has its private name. I look at it sometimes. I haven't told the scribes.",
 	"kaede_missing_street": "The missing street moved again. I've stopped correcting it. I just walk it, now.",
 	"kaede_kept_page": "That page is still in the record. Someone asked who wrote it. I said I did. It felt strange. Good strange.",
 	"kaede_room_on_map": "Your place on the map has a little ink smudge now. I didn't fix it. It looks lived in.",
+	"kaede_preference_stated": "The sheet is still pinned above my desk. A visiting scholar read it and asked what it was evidence of. I said: a preference. He wrote that down.",
+	"kaede_name_used": "Nobody has said it since you did. I find I am not waiting for anyone else to.",
 }
 
 ## What they say about a chapter decision you made together, by chapter.
@@ -298,13 +304,65 @@ const OPENINGS := {
 ## besieged: bool, burned: bool, war: bool, victory: a place's name or "", away: days,
 ## night: bool}. The first that holds is what they speak to; otherwise the greeting for
 ## how things stand.
-static func opening(candidate: String, status: String, facts: Dictionary, pick: int = 0) -> String:
+static func opening(candidate: String, status: String, facts: Dictionary, pick: int = 0, marks: Array = []) -> String:
 	var lines: Dictionary = OPENINGS.get(candidate, {})
 	var key := opening_key(candidate, facts)
 	if key != "":
 		var v = facts[key]
 		return String(lines[key]).format({"name": str(v), "place": str(v), "days": str(v)})
-	return greeting(candidate, status, pick)
+	var kept := remembered(candidate, marks, pick)
+	return kept if kept != "" else greeting(candidate, status, pick)
+
+
+## A first line about something you said in a visit (see REMEMBERED), every third visit;
+## "" otherwise, or when no answer of yours has a line.
+static func remembered(candidate: String, marks: Array, pick: int) -> String:
+	if posmod(pick, 3) != 2:
+		return ""
+	var lines: Dictionary = REMEMBERED.get(candidate, {})
+	var mine := marks.filter(func(m): return lines.has(m))
+	if mine.is_empty():
+		return ""
+	return String(lines[mine[posmod(pick / 3, mine.size())]])
+
+
+## Their first words when something you said in a visit has stayed with them: by candidate,
+## the mark your answer left and the line. Said every third visit or so, when nothing that
+## has happened since presses more.
+const REMEMBERED := {
+	"edda": {
+		"edda_counted": "Captain. I have counted the cups already, so you needn't. I saved you the spoons.",
+		"edda_morning_river": "My cousin asks after you. She has been practising at the river. I told her that was unsporting.",
+		"edda_morning_sleep": "You look as though the camp has not yet given up on you. Sit. I shan't ask you to do anything for a quarter of an hour.",
+		"edda_morning_market": "I have a list for you. It is blank. I thought you would like that.",
+		"edda_morning_bench": "The bench is free. I looked on my way in. I am not saying why I looked.",
+		"you_place_home": "Your place is laid. Early, as you're used to. I only mention it because I like saying so.",
+		"you_place_stranger": "Your place is laid, and the spare one beside it. Somebody on the road may need it. You taught me that.",
+		"you_place_none": "Your place is laid. By my hand. I only mention it because I like saying so.",
+	},
+	"farid": {
+		"farah_outdrafted": "Before you ask: no, you may not see what I am drafting. I have not forgotten the soup.",
+		"you_name_bridge": "I wrote 'the Leaning Bridge' in a dispatch last week. Nobody queried it. You are becoming official.",
+		"you_name_kettle": "I wrote 'Cold Kettle' in a dispatch last week. Nobody queried it. You are becoming official.",
+		"you_name_elbow": "I wrote 'Widow's Elbow' in a dispatch last week. A clerk asked which widow. I said that was the question.",
+		"you_tried_binding": "Your stitch sends its regards. It is still crooked. I have grown fond of it.",
+		"you_plain_orders": "Captain. Plainly, since you prefer orders: sit down. I am glad you came.",
+		"you_plain_grave": "You came. I shall say it now, while it is of use: I am glad to see you.",
+		"you_plain_now": "There you are. I had a greeting drafted. This is shorter: I missed you.",
+	},
+	"kaede": {
+		"you_spot_wall": "I timed your wall. It holds its warmth forty minutes past dusk. I stayed for all forty.",
+		"you_spot_gate": "I leaned on a gate yesterday and watched a road. For research. The research was pleasant.",
+		"you_spot_step": "I sat on a step before anyone was up. You were right about the hour. I have amended the map.",
+		"kaede_accused_cat": "The cat has been seen near the grain store. I have added it to your file of accusations.",
+		"you_change_ford": "I have begun dating my maps. All of them. Like your ford: correct for one crossing.",
+		"you_change_camp": "I have begun dating my maps. All of them. The plan holds; the ground changes. You said so.",
+		"you_change_home": "I have begun dating my maps, and noting who held the cord. The surveyor is a variable. You said so.",
+		"you_pref_back": "Captain. I have kept you the seat at the back, where it is quiet. I know your preference.",
+		"you_pref_rain": "It rained on the archive roof all night. I thought of you. I have it written down.",
+		"you_pref_bread": "There is bread. Plain, and warm. I know your preference.",
+	},
+}
 
 
 ## Which of `facts` their first words speak to (see opening), or "" for none.
