@@ -5,6 +5,12 @@ Home by `scripts/menu/title.gd`; its first frame is meant to be the boot splash
 (`assets/splash.png`, rendered by `tools/render_splash.gd`). `tests/opening_tests.gd` covers
 it and passes today.
 
+**Decided (2026-11-10):**
+- **One set of banners.** The three on the ridge become the wordmark's three.
+- **Vardmark in the middle.** The ridge keeps its order (Kharzan, Vardmark, Ryumon) and the
+  wordmark is redrawn to match it.
+- **A short opening when there is a campaign.** A first visit gets the full one.
+
 ## How it plays now
 
 Frames captured from the running game (Godot 4.7, a 9:19.5 phone, a campaign under way). A
@@ -48,21 +54,52 @@ Frames captured from the running game (Godot 4.7, a 9:19.5 phone, a campaign und
 8. **A tap makes a cut.** `hurry()` jumps to 1.35 s, so the dawn and the banners snap to
    full before the fast finish.
 9. **Reduced motion gets a hard cut** from the splash to Home. A plain fade is not motion.
+10. **The same 2.75 s every launch,** for someone opening the game to carry on a campaign.
 
 ## What to build
 
-The idea stays: night on the ridge, dawn, the title, Home. Three changes of substance: the
-splash is the first frame again, the dawn opens onto Home with no dark between, and there
-is one set of banners which becomes the mark.
+The idea stays: night on the ridge, dawn, the title, Home. Four steps, in this order. The
+mark comes first because the splash's picture depends on it: done this way the splash is
+rendered once, in Stage 1, and never again.
+
+### Stage 0: the mark, in the ridge's order (small)
+
+The wordmark is a PNG with no source on `main`. Its source is `assets/branding/wordmark.svg`
+on the `app-logo` branch. Godot rasterizes that SVG to the committed PNG within a few levels
+per pixel (its letters are already paths, not text), so the mark can be rebuilt in the repo.
+
+- **Bring `wordmark.svg` to `main`** and give its three banner groups the ridge's layout:
+  Kharzan on the left, Vardmark in the middle on the tallest pole, Ryumon on the right, by
+  the name. The banners' relative sizes and positions are the ridge's `BANNERS` rects scaled
+  down, so the cluster on the ridge and the cluster in the mark are the same picture at two
+  sizes. Vardmark's gonfalon is smaller than Ryumon's nobori; it grows to the nobori's
+  height so the middle reads as the centre. The line of sea and the name stay where they
+  are.
+- **One layout, written once.** The three rects move from `opening.gd` to the shared
+  wordmark script (below); `opening.gd` reads them from there. The SVG is laid out by hand
+  to match them, and a test checks the banner regions of the rendered PNG against the rects
+  (each banner's opaque bounds, within a few pixels).
+- **`tools/render_wordmark.gd`** renders the SVG to `assets/branding/wordmark.png` with
+  Godot's `Image.load_svg_from_buffer`, as `render_splash.gd` does for the splash. No new
+  tool to install.
+- **Two regions of one image.** The mark is shown as two `AtlasTexture` regions: the banners
+  with their sea, and the name with its tagline. At rest on Home they sit exactly where the
+  whole image sat, so Home looks the same. The opening moves them apart.
+
+The app icon is a single flag and is not affected.
 
 ### Stage 1: make it true again (small)
 
-Fixes only. The opening looks as it does now, without the faults.
+Fixes, and the first frame as it will stay.
 
-- **One title, built in one place.** Move `title.gd`'s `_title()` and `_wordmark()` to a
-  small shared script (`scripts/ui/wordmark.gd`). Home, the opening and the render tool all
-  build the title from it. The tool's stand-in goes.
-- **Re-render the splash** from that title, so frame 0 and the splash are the same picture.
+- **One title, built in one place.** Move `title.gd`'s `_title()` and `_wordmark()` to
+  `scripts/ui/wordmark.gd`. Home, the opening and the render tool all build the title from
+  it. The tool's stand-in goes.
+- **The first frame, for good.** The three banners on the ridge, at night; under the ridge,
+  the name and tagline (the mark's name region) at the splash's size. No small banners: the
+  mark's banner region is hidden at t = 0. Until Stage 3, it fades in beside the name as
+  the title rises.
+- **Re-render the splash** from that frame.
 - **A guard that runs headless.** The render tool writes `assets/splash.json` beside the
   image: the MD5 of `wordmark.png`, and where the title and each banner sit in the box at
   t = 0. The test builds the opening at the box's size, compares those rects, and compares
@@ -70,18 +107,23 @@ Fixes only. The opening looks as it does now, without the faults.
   Pixels can't be compared headless, so the tool also takes `--check`: render, compare with
   the committed image, fail above a small mean error. Run it under xvfb when the opening
   changes.
-- **The glint, done on the picture.** A clipped copy of the same wordmark, modulated pale,
-  through the slit. It then brightens the letters that are there. It runs over the name
-  only, not the small banners.
+- **The glint, done on the picture.** A clipped copy of the name region, modulated pale,
+  through the slit. It then brightens the letters that are there.
 - **The land leaves without crossing the title.** It sinks 8% of the box, not 35%, and has
   faded before the title starts to move.
 - **A tap never cuts.** `hurry()` keeps `t` where it is and raises the rate, so the rest
   plays through in about 0.4 s.
 - **Reduced motion:** the opening's first frame fades off Home over 0.25 s. Nothing moves.
 
-### Stage 2: the dawn opens onto Home (medium)
+### Stage 2: the dawn opens onto Home, full and short (medium)
 
 The second half is rebuilt so the light that rises behind the ridge is the light Home is in.
+The opening's times become data: two timelines (`FULL`, `SHORT`) of named spans, chosen in
+`setup()`. `GameState.has_campaign()` picks `SHORT`; a first visit, and a launch whose
+autosave couldn't load (Home's "stranded" card), get `FULL`. Both start on the same first
+frame, because the engine shows the splash before the game knows which it will be.
+
+**Full** (first visit), 2.7 s:
 
 | Seconds | What happens |
 |---|---|
@@ -91,73 +133,79 @@ The second half is rebuilt so the light that rises behind the ridge is the light
 | 1.5–2.3 | The night lifts from the horizon upward, in the same 18px steps as the dawn bands, with a warm edge. Home's map shows first, under the dawn. The ridge sinks and darkens out below the lifting edge. The title rises ahead of that edge to its place on Home. |
 | 2.1–2.7 | Home arrives in order: the card rises 24px and fades in, then the bottom row. Home's own column fade waits for this, not for `_ready`. |
 
-- No frame is flat night after 0.25 s. That is the test for point 5.
-- Taps reach Home when the card is up (about 2.4 s), not when the last fade ends.
+**Short** (a campaign under way), 1.5 s:
+
+| Seconds | What happens |
+|---|---|
+| 0.0–0.15 | Hold: the splash. |
+| 0.15–0.6 | Dawn, quickly. All three banners light together, Vardmark a beat ahead; they sway. |
+| 0.5–1.1 | The night lifts and the title rises, as in the full one. |
+| 1.0–1.5 | The campaign card rises, then the bottom row. |
+
+No glint, no birds. Taps reach Home at about 1.2 s.
+
+**Both:**
+- No frame is flat night after the hold. That is the test for point 5.
+- Taps reach Home when the card is up, not when the last fade ends.
 - The night overlay is drawn as bands with their own alpha: no shader, safe on GL
   Compatibility, a few dozen rectangles a frame.
-- Total 2.7 s, as now.
 
-**Sound.** Three cues, all under the sound settings that exist:
-- `birds`, quietly, from 0.3 s, fading under the music.
-- One short rising cue as the glint crosses. There is no fitting sound in `assets/audio/sfx`
-  (`horn` and `bell` are battle and town); make one with `tools/battle_sfx.py` or
-  `tools/music.py`, and add its level to `sfx_levels.gd`.
-- `Sound.haptic()` once, when the title lands.
-- The music starts with the opening and reaches full as the title lands: give the opening
-  the 1.4 s fade's start, or hold `play_music` until 1.0 s. Try both by ear.
+**Sound.**
+- Full: `birds`, quietly, from 0.3 s, fading under the title music. One short rising cue as
+  the glint crosses. There is no fitting sound in `assets/audio/sfx` (`horn` and `bell` are
+  battle and town); make one with `tools/battle_sfx.py` or `tools/music.py`, and add its
+  level to `sfx_levels.gd`.
+- Short: the camp's fire comes up under the dawn, as Home already asks for
+  (`Sound.set_loop("camp")`); no other cue.
+- Both: `Sound.haptic()` once, when the title lands. The music (title, or your realm's camp
+  tune) reaches full as the title lands: give the opening the 1.4 s fade's start, or hold
+  `play_music` until the right moment. Try both by ear.
 
 ### Stage 3: the banners become the mark (medium)
 
-One set of banners. The three on the ridge are the wordmark's three, large.
+The three on the ridge fly into the mark. Because Stage 0 made the mark's cluster the
+ridge's cluster scaled down, this is one move, not three crossing paths.
 
-- **The splash:** the three banners on the ridge in the wordmark's order (Vardmark, Ryumon,
-  Kharzan) and the name with its tagline under them. No small banners.
-- **The gathering,** 1.5–2.2 s: each ridge banner shrinks and flies to its place beside the
-  name, 0.06 s apart, and over its last 0.15 s cross-fades into the painted one. The name
-  slides right to make room. The mark is whole as it reaches Home.
-- **How:** the wordmark is one image, so it is shown as two regions of it (banners, name)
-  with `AtlasTexture`. Each piece has a start rect in the box and an end rect taken from
-  Home's own wordmark, and moves between them. Nothing is measured by eye.
-- The line of sea under the wordmark's banners fades in as they land.
-- Re-render the splash; the Stage 1 guard covers the new first frame.
-
-Stage 3 changes what the splash looks like, so decide it before Stage 1's re-render if it
-is wanted; then the splash is rendered once.
+- **Full,** 1.5–2.2 s: the banners still and stop swaying as they lift off the ridge, then
+  shrink and fly as one group to the mark's banner region beside the name, each 0.04 s
+  after the one on its left, so they arrive left to right. Over the last 0.15 s each
+  cross-fades from the drawn banner (`Heraldry.realm_banner`) to the painted one. The name
+  rises with them to its place; the mark is whole as it reaches Home.
+- **Short:** the same move, in 0.5–1.1 s, all three together.
+- The line of sea under the mark's banners fades in as they land.
+- **How:** each piece has a start rect in the box and an end rect taken from Home's own
+  wordmark regions, and moves between them. Nothing is measured by eye.
+- Stage 1's interim fade-in of the mark's banners goes. The splash does not change.
 
 ## Files
 
 | File | Change |
 |---|---|
-| `scripts/ui/wordmark.gd` (new) | The title label and wordmark, shared; the two regions for Stage 3. |
-| `scripts/menu/opening.gd` | The timeline, the glint, the lifting night, `hurry()`, the cues, the gathering. |
+| `assets/branding/wordmark.svg` (from `app-logo`) | Banners in the ridge's order and layout. |
+| `assets/branding/wordmark.png` | Re-rendered from the SVG. |
+| `tools/render_wordmark.gd` (new) | Renders the SVG to the PNG. |
+| `scripts/ui/wordmark.gd` (new) | The title label and wordmark, shared; the banner layout; the two regions. |
+| `scripts/menu/opening.gd` | The two timelines, the glint, the lifting night, `hurry()`, the cues, the gathering. |
 | `scripts/menu/title.gd` | Uses the shared title; Home's column waits for the opening; reduced-motion fade. |
 | `tools/render_splash.gd` | Builds the real title; writes `splash.json`; `--check`. |
-| `assets/splash.png`, `assets/splash.json` | Re-rendered. |
+| `assets/splash.png`, `assets/splash.json` | Rendered once, in Stage 1. |
 | `scripts/audio/sound.gd`, `scripts/data/sfx_levels.gd`, one new sfx | The opening's cue. |
-| `tests/opening_tests.gd` | The guard; no dark frame; the land never overlaps the title; a tap doesn't move `t`; taps pass at the card; reduced motion fades. |
-| `README.md` | The opening's paragraph, and the `--check` command. |
+| `tests/opening_tests.gd` | The guard; the mark's banners match the ridge's layout; no dark frame; the land never overlaps the title; a tap doesn't move `t`; taps pass at the card; full on a first visit, short with a campaign, full when stranded; reduced motion fades. |
+| `README.md` | The opening's paragraph, and the render commands. |
 
 ## Done when
 
 - The splash and frame 0 match on a phone, a tablet and a desktop window: `--check` passes,
-  and a screen recording of a cold start shows no jump.
-- No frame between 0.25 s and the end is a flat colour.
+  and a screen recording of a cold start shows no jump, with and without a campaign.
+- Six banners never show at once; Vardmark is in the middle on the ridge and in the mark.
+- No frame after the hold is a flat colour.
 - Nothing crosses the title at any time.
+- With a campaign it is done in 1.5 s; a first visit takes 2.7 s.
 - A tap at any moment ends it in under half a second with no cut.
 - With reduced motion nothing moves, and nothing cuts.
 - `tests/opening_tests.gd`, `menu_tests.gd`, `presentation_tests.gd` and
   `screen_width_tests.gd` pass.
 - Checked on a real phone, cold start, sound on: the cue lands with the glint.
-
-## Questions
-
-1. **One set of banners or two?** Stage 3 is the better opening, and it changes the splash's
-   picture and the order on the ridge. Without it, Stages 1 and 2 stand on their own, with
-   six banners.
-2. **The ridge's order.** Stage 3 puts Ryumon in the middle, as the wordmark has it. If
-   Vardmark should stay in the middle, the wordmark image is the thing to change.
-3. **A shorter opening for a returning player?** It plays once a launch, every launch. A
-   1.6 s cut when a campaign exists (hold, a quick dawn, lift) is a small addition to Stage 2.
 
 ## Not in this plan
 
