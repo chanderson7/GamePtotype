@@ -86,6 +86,64 @@ var _travel_context := {}
 var _music_clock := 0.0
 var _siege_drum_clock := 0.0
 
+# ---- how the map answers the thumb (all of it drawn only; none of it touches the sim)
+## A flick keeps the map gliding after the finger lifts, slowing by this much a second.
+const FLING_FRICTION := 5.5
+## Below this many screen pixels a second, a fling has stopped.
+const FLING_MIN := 30.0
+## Dragged past the map's edge, it gives this much of the way, then springs back.
+const RUBBER := 0.35
+const RUBBER_SPRING := 14.0
+## How long the camera takes to glide to a place it's sent to.
+const GLIDE_TIME := 0.45
+## While you ride, the camera keeps you inside this share of the view.
+const FOLLOW_BOX := 0.56
+## A wheel notch zooms by this much, eased over a beat.
+const WHEEL_STEP := 1.15
+const ZOOM_EASE := 16.0
+## Taps on the same spot within this long cycle through what's stacked there.
+const TAP_CYCLE_MS := 1600
+const TAP_CYCLE_SLOP := 24.0
+## A selection ring lands from this much larger, over this long.
+const SELECT_POP := 0.38
+const SELECT_POP_TIME := 0.28
+## The route draws itself out from the rider over this long when you set off.
+const ROUTE_DRAW := 0.5
+## Parties' plates within this many pixels of each other share one plate ("+2").
+const PLATE_STACK := 34.0
+const PLATE_STACK_MIN := 3
+## How far in from the view's edge the pointers to off-screen things sit.
+const POINTER_INSET := 34.0
+var _fling := Vector2.ZERO
+var _drag_velocity := Vector2.ZERO
+var _drag_last := Vector2.ZERO
+var _drag_last_ms := 0
+var _dragging := false
+var _press_pinched := false
+var _cam_glide: Tween = null
+var _follow := true
+var _zoom_goal := -1.0
+var _zoom_anchor := Vector2.ZERO
+var _zoom_limit_hit := 0
+var _px_shown := -1.0
+var _walk_clock := 0.0
+var _cloud_time := 0.0
+var _press_target := ""
+var _tap_fx: Array = []
+var _bursts: Array = []
+var _last_tap_at := Vector2(INF, INF)
+var _last_tap_ms := -100000
+var _last_tap_keys: Array = []
+var _last_tap_index := 0
+var _select_ms := -100000
+var _route_ms := -100000
+var _turns := {}
+var _plate_lift := {}
+var _label_delta := 0.0
+var _pointers: Array = []
+var _res_shown := {}
+var _res_tweens := {}
+
 var terrain
 var backdrop
 var sky: ColorRect
@@ -285,6 +343,9 @@ func _process(delta: float) -> void:
 			"arrived", "waited":
 				GameState.save_game()
 				Sound.play("page", 0.0, 0.05)
+				if String(e["type"]) == "arrived":
+					# Pulling up: a puff of dust (or spray, off a boat) where you stop.
+					_burst(world.party_pos(world.player()), "arrive")
 				_open_here()
 			"encounter", "friendly_encounter":
 				GameState.save_game()
@@ -339,6 +400,8 @@ func _process(delta: float) -> void:
 		_check_siege_proximity_sound()
 	_refresh_travel_presentation()
 	_update_travel_contact(delta)
+	_update_camera(delta)
+	_update_feel(delta)
 	_refresh_hud()
 	_sync_layers()
 	queue_redraw()
@@ -390,11 +453,159 @@ func _autoplay() -> void:
 func _clamp_camera() -> void:
 	if _view.size.x <= 0.0:
 		return
-	cam_scale = clampf(cam_scale, _view.size.x / WIDEST_VIEW, _view.size.x / NARROWEST_VIEW)
+	cam_scale = clampf(cam_scale, _min_scale(), _max_scale())
+	cam_center = _clamped(cam_center)
+
+
+func _min_scale() -> float:
+	return _view.size.x / WIDEST_VIEW
+
+
+func _max_scale() -> float:
+	return _view.size.x / NARROWEST_VIEW
+
+
+## Where the camera may stand at the current zoom: `c`, pulled back inside the map.
+func _clamped(c: Vector2) -> Vector2:
+	if _view.size.x <= 0.0:
+		return c
 	var half := _view.size / cam_scale * 0.5
 	var margin := 80.0
-	cam_center.x = clampf(cam_center.x, minf(half.x - margin, Data.SIZE.x * 0.5), maxf(Data.SIZE.x - half.x + margin, Data.SIZE.x * 0.5))
-	cam_center.y = clampf(cam_center.y, minf(half.y - margin, Data.SIZE.y * 0.5), maxf(Data.SIZE.y - half.y + margin, Data.SIZE.y * 0.5))
+	return Vector2(
+		clampf(c.x, minf(half.x - margin, Data.SIZE.x * 0.5), maxf(Data.SIZE.x - half.x + margin, Data.SIZE.x * 0.5)),
+		clampf(c.y, minf(half.y - margin, Data.SIZE.y * 0.5), maxf(Data.SIZE.y - half.y + margin, Data.SIZE.y * 0.5)))
+
+
+## Dragged past the edge, the map gives a little, like a page pulled past its end: the
+## further you pull, the less it follows.
+func _rubber(c: Vector2) -> Vector2:
+	if Style.motion_reduced():
+		return _clamped(c)
+	var inside := _clamped(c)
+	var over := c - inside
+	var give := _view.size.length() / cam_scale * 0.12
+	var pulled := Vector2(
+		signf(over.x) * give * (1.0 - 1.0 / (1.0 + absf(over.x) * RUBBER / maxf(1.0, give))),
+		signf(over.y) * give * (1.0 - 1.0 / (1.0 + absf(over.y) * RUBBER / maxf(1.0, give))))
+	return inside + pulled
+
+
+## The camera between frames: a flick coasting to a stop, an edge springing back, an
+## eased wheel zoom, and while you ride, a gentle follow that keeps you in view. A finger
+## on the glass, or a glide under way, overrules all of it.
+func _update_camera(delta: float) -> void:
+	if _view.size.x <= 0.0:
+		return
+	var gliding := _cam_glide != null and _cam_glide.is_valid() and _cam_glide.is_running()
+	if _zoom_goal > 0.0:
+		var before := _to_map(_zoom_anchor)
+		var k := 1.0 if Style.motion_reduced() else 1.0 - exp(-ZOOM_EASE * delta)
+		cam_scale = lerpf(cam_scale, _zoom_goal, k)
+		if absf(cam_scale - _zoom_goal) < _zoom_goal * 0.002:
+			cam_scale = _zoom_goal
+			_zoom_goal = -1.0
+		cam_scale = clampf(cam_scale, _min_scale(), _max_scale())
+		cam_center += before - _to_map(_zoom_anchor)
+		cam_center = _clamped(cam_center)
+	if _pressing or _pinching or gliding:
+		_fling = Vector2.ZERO
+		return
+	if _fling != Vector2.ZERO:
+		cam_center += _fling * delta
+		_fling *= exp(-FLING_FRICTION * delta)
+		if _fling.length() * cam_scale < FLING_MIN:
+			_fling = Vector2.ZERO
+	var inside := _clamped(cam_center)
+	if not inside.is_equal_approx(cam_center):
+		# Past the edge: the coast dies on that side and the map springs home.
+		if inside.x != cam_center.x:
+			_fling.x = 0.0
+		if inside.y != cam_center.y:
+			_fling.y = 0.0
+		var spring := 1.0 if Style.motion_reduced() else 1.0 - exp(-RUBBER_SPRING * delta)
+		cam_center = cam_center.lerp(inside, spring)
+		if cam_center.distance_to(inside) < 0.5:
+			cam_center = inside
+	_follow_player(delta)
+
+
+## While you ride (and you haven't dragged the map away), keep your company inside the
+## middle of the view: the camera only moves when you near its edge, so it never fights
+## a glance around.
+func _follow_player(delta: float) -> void:
+	if not _follow or _fling != Vector2.ZERO or _sheet in ["encounter", "menu"]:
+		return
+	var p = world.player()
+	if not p.moving() or not world.busy() or paused:
+		return
+	var at := _to_screen(world.party_pos(p))
+	var box := Rect2(_view.position + _view.size * (1.0 - FOLLOW_BOX) * 0.5, _view.size * FOLLOW_BOX)
+	# A sheet covers the bottom of the view: keep the rider in the open part above it.
+	if _sheet_open() and sheet_panel != null:
+		box.size.y = minf(box.size.y, maxf(40.0, sheet_panel.global_position.y - box.position.y - 40.0))
+	var push := Vector2(
+		minf(0.0, at.x - box.position.x) + maxf(0.0, at.x - box.end.x),
+		minf(0.0, at.y - box.position.y) + maxf(0.0, at.y - box.end.y))
+	if push == Vector2.ZERO:
+		return
+	var k := 1.0 if Style.motion_reduced() else 1.0 - exp(-3.0 * delta)
+	cam_center = _clamped(cam_center + push / cam_scale * k)
+
+
+## Send the camera somewhere: it glides there (and to `to_scale` if given) rather than
+## cutting, unless motion is reduced. A finger on the map stops the glide where it is.
+func _glide_to(center: Vector2, to_scale: float = -1.0, time: float = GLIDE_TIME) -> void:
+	_fling = Vector2.ZERO
+	_zoom_goal = -1.0
+	if _cam_glide != null and _cam_glide.is_valid():
+		_cam_glide.kill()
+	var end_scale := clampf(to_scale if to_scale > 0.0 else cam_scale, _min_scale(), _max_scale()) if _view.size.x > 0.0 else cam_scale
+	if Style.motion_reduced() or _view.size.x <= 0.0 or not is_inside_tree():
+		cam_scale = end_scale
+		cam_center = center
+		_clamp_camera()
+		_sync_layers()
+		return
+	var from_center := cam_center
+	var from_scale := cam_scale
+	_cam_glide = create_tween()
+	_cam_glide.tween_method(func(k: float):
+		cam_scale = lerpf(from_scale, end_scale, k)
+		cam_center = from_center.lerp(center, k)
+		_clamp_camera()
+		_sync_layers(), 0.0, 1.0, time).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func _stop_glide() -> void:
+	if _cam_glide != null and _cam_glide.is_valid():
+		_cam_glide.kill()
+	_zoom_goal = -1.0
+
+
+## Zoom by `factor` about a point on the screen, eased; at the closest or widest view a
+## soft tick says there's no further to go.
+func _zoom_eased(screen_point: Vector2, factor: float) -> void:
+	_stop_glide()
+	var from := _zoom_goal if _zoom_goal > 0.0 else cam_scale
+	var want := clampf(from * factor, _min_scale(), _max_scale())
+	if is_equal_approx(want, from):
+		_bump_zoom_limit(factor)
+		return
+	_zoom_limit_hit = 0
+	_zoom_anchor = screen_point
+	if Style.motion_reduced():
+		_zoom_at(screen_point, want / cam_scale)
+		return
+	_zoom_goal = want
+
+
+func _bump_zoom_limit(factor: float) -> void:
+	var side := 1 if factor > 1.0 else -1
+	if _zoom_limit_hit == side:
+		return
+	_zoom_limit_hit = side
+	Sound.play("click", -10.0, 0.04, 0.25, 0.8 if side > 0 else 0.7)
+	Sound.haptic()
 
 
 func _to_screen(p: Vector2) -> Vector2:
@@ -407,10 +618,15 @@ func _to_map(p: Vector2) -> Vector2:
 
 func _zoom_at(screen_point: Vector2, factor: float) -> void:
 	var before := _to_map(screen_point)
+	var was := cam_scale
 	cam_scale *= factor
 	_clamp_camera()
 	cam_center += before - _to_map(screen_point)
 	_clamp_camera()
+	if is_equal_approx(was, cam_scale) and not is_equal_approx(factor, 1.0):
+		_bump_zoom_limit(factor)
+	elif not is_equal_approx(was, cam_scale):
+		_zoom_limit_hit = 0
 
 
 # ---------------------------------------------------------------- input
@@ -425,6 +641,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_touches.erase(event.index)
 		if _touches.size() == 2:
 			_pinching = true
+			_press_pinched = true
+			_press_target = ""
+			_stop_glide()
+			_fling = Vector2.ZERO
 			var pts: Array = _touches.values()
 			_pinch_from = maxf(1.0, (pts[0] as Vector2).distance_to(pts[1]))
 			_pinch_scale = cam_scale
@@ -432,8 +652,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_pinching = false
 		return
 	if event is InputEventScreenDrag:
-		if _encounter_cam != null and _encounter_cam.is_valid():
-			_encounter_cam.kill()
+		_stop_glide()
 		_touches[event.index] = event.position
 		if _touches.size() == 2:
 			var pts: Array = _touches.values()
@@ -444,31 +663,83 @@ func _unhandled_input(event: InputEvent) -> void:
 	var mb := event as InputEventMouseButton
 	if mb != null:
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_zoom_at(mb.position, 1.15)
+			_zoom_eased(mb.position, WHEEL_STEP)
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_zoom_at(mb.position, 1.0 / 1.15)
+			_zoom_eased(mb.position, 1.0 / WHEEL_STEP)
 		elif mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
 				if mb.double_click:
-					cam_center = world.party_pos(world.player())
-					_clamp_camera()
+					# Back to the company, and the camera rides with it again.
 					_pressing = false
+					_press_target = ""
+					_follow = true
+					_glide_to(world.party_pos(world.player()))
 					return
 				_pressing = true
+				_dragging = false
+				_press_pinched = _pinching
 				_press_at = mb.position
 				_press_center = cam_center
+				_drag_last = mb.position
+				_drag_last_ms = Time.get_ticks_msec()
+				_drag_velocity = Vector2.ZERO
+				_fling = Vector2.ZERO
+				_stop_glide()
+				# The place under the thumb shows it's been touched before the finger lifts.
+				_press_target = _settlement_at(mb.position) if _sheet not in ["encounter", "notice", "warning", "menu"] else ""
 			elif _pressing:
 				_pressing = false
-				if not _pinching and mb.position.distance_to(_press_at) < DRAG_SLOP and _view.has_point(mb.position):
+				_press_target = ""
+				if not _pinching and not _press_pinched and not _dragging and mb.position.distance_to(_press_at) < DRAG_SLOP and _view.has_point(mb.position):
 					_tap(mb.position)
+				elif _dragging and not _press_pinched:
+					_release_fling()
+				_dragging = false
 		return
 	var mm := event as InputEventMouseMotion
 	if mm != null and mm.button_mask == 0:
 		_hover_at(mm.position)
 	if mm != null and _pressing and not _pinching and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
-		if mm.position.distance_to(_press_at) >= DRAG_SLOP:
-			cam_center = _press_center - (mm.position - _press_at) / cam_scale
-			_clamp_camera()
+		if _dragging or mm.position.distance_to(_press_at) >= DRAG_SLOP:
+			if not _dragging:
+				_dragging = true
+				_press_target = ""
+				# You've taken the camera: it stops following until you ride somewhere new
+				# or double-tap back to the company.
+				_follow = false
+			var now := Time.get_ticks_msec()
+			var dt := maxf(0.001, float(now - _drag_last_ms) / 1000.0)
+			_drag_velocity = _drag_velocity.lerp((mm.position - _drag_last) / dt, 0.6)
+			_drag_last = mm.position
+			_drag_last_ms = now
+			cam_center = _rubber(_press_center - (mm.position - _press_at) / cam_scale)
+
+
+## The finger lifts mid-drag: the map coasts on the way it was going, if it was still
+## going (a drag that stopped before lifting doesn't fling).
+func _release_fling() -> void:
+	if Style.motion_reduced() or Time.get_ticks_msec() - _drag_last_ms > 90:
+		_fling = Vector2.ZERO
+		return
+	var v := _drag_velocity
+	var top := 4200.0
+	if v.length() > top:
+		v = v.normalized() * top
+	_fling = -v / cam_scale if v.length() > FLING_MIN * 3.0 else Vector2.ZERO
+
+
+## The settlement within a thumb of `at` on the screen, or "".
+func _settlement_at(at: Vector2) -> String:
+	var best := ""
+	var best_d := TAP_RADIUS
+	if not _view.has_point(at):
+		return best
+	for id in Data.SETTLEMENTS:
+		var d := at.distance_to(_to_screen(Data.pos(id)))
+		if d < best_d:
+			best_d = d
+			best = id
+	return best
 
 
 ## The settlement under the mouse (a computer's pointer, no button held), ringed faintly
@@ -522,31 +793,90 @@ func _unhandled_key_input(event: InputEvent) -> void:
 func _tap(at: Vector2) -> void:
 	if _sheet in ["encounter", "notice", "warning", "menu"]:
 		return
-	var best := ""
-	var best_d := TAP_RADIUS
+	# An arrow at the edge to something off-screen: glide there.
+	for ptr in _pointers:
+		if at.distance_to(ptr["at"]) < 30.0:
+			_tap_feedback(at, true)
+			if String(ptr["kind"]) == "you":
+				_follow = true
+			_glide_to(ptr["target"])
+			return
+	var hits := _tap_candidates(at)
+	if hits.is_empty():
+		_tap_feedback(at, false)
+		_select("")
+		_last_tap_keys = []
+		if _sheet != "notice":
+			_close_sheet()
+		return
+	# The nearest thing under the thumb wins; tapping the same spot again steps to the
+	# next thing stacked there (a lord standing on his own castle, a band at a village).
+	var keys: Array = hits.map(func(h): return h["key"])
+	var index := 0
+	if Time.get_ticks_msec() - _last_tap_ms < TAP_CYCLE_MS and at.distance_to(_last_tap_at) < TAP_CYCLE_SLOP and keys == _last_tap_keys:
+		index = (_last_tap_index + 1) % hits.size()
+	_last_tap_at = at
+	_last_tap_ms = Time.get_ticks_msec()
+	_last_tap_keys = keys
+	_last_tap_index = index
+	var hit: Dictionary = hits[index]
+	_tap_feedback(at, true)
+	match String(hit["kind"]):
+		"settlement":
+			var id := String(hit["id"])
+			_select(id)
+			if id == world.here():
+				_open_here()
+			else:
+				_open_preview(id)
+		"band":
+			_select("")
+			_open_band(hit["party"])
+		"lord":
+			_select("")
+			_open_lord(hit["party"])
+
+
+## Everything within a thumb of `at`, nearest first: settlements by their middle, parties
+## by their bodies (drawn standing up from where they are).
+func _tap_candidates(at: Vector2) -> Array:
+	var hits: Array = []
+	var px := _sprite_px()
 	for id in Data.SETTLEMENTS:
 		var d := at.distance_to(_to_screen(Data.pos(id)))
-		if d < best_d:
-			best_d = d
-			best = id
-	if best != "":
-		_selected = best
-		if best == world.here():
-			_open_here()
-		else:
-			_open_preview(best)
-		return
+		if d < TAP_RADIUS:
+			hits.append({"key": "s:" + id, "kind": "settlement", "id": id, "d": d})
 	for b in world.bands():
-		if at.distance_to(_to_screen(world.party_pos(b)) + Vector2(0, -14) * _sprite_px()) < TAP_RADIUS:
-			_open_band(b)
-			return
+		var d := at.distance_to(_to_screen(world.party_pos(b)) + Vector2(0, -14) * px)
+		if d < TAP_RADIUS:
+			# A hair nearer than a place at the same distance: you aimed at the people.
+			hits.append({"key": "b:%d" % b.id, "kind": "band", "party": b, "d": d - 2.0})
 	for lp in world.visible_lord_parties():
-		if at.distance_to(_to_screen(world.party_pos(lp)) + Vector2(0, -16) * _sprite_px()) < TAP_RADIUS:
-			_open_lord(lp)
-			return
-	_selected = ""
-	if _sheet != "notice":
-		_close_sheet()
+		var d := at.distance_to(_to_screen(world.party_pos(lp)) + Vector2(0, -16) * px)
+		if d < TAP_RADIUS:
+			hits.append({"key": "l:%d" % lp.id, "kind": "lord", "party": lp, "d": d - 2.0})
+	hits.sort_custom(func(a, b): return float(a["d"]) < float(b["d"]))
+	return hits
+
+
+## Select a settlement (or none): the ring around it lands with a little overshoot.
+func _select(id: String) -> void:
+	if id != _selected and id != "":
+		_select_ms = Time.get_ticks_msec()
+	_selected = id
+
+
+## A tap answers: a ring where the thumb landed (bright on something, faint on bare
+## ground), and on something, a soft click and a tick under the thumb.
+func _tap_feedback(at: Vector2, hit: bool) -> void:
+	if hit:
+		Sound.play("click", -6.0, 0.06)
+		Sound.haptic()
+	if Style.motion_reduced():
+		return
+	_tap_fx.append({"pos": _to_map(at), "age": 0.0, "hit": hit})
+	if _tap_fx.size() > 6:
+		_tap_fx.pop_front()
 
 
 # ---------------------------------------------------------------- sheets
@@ -1072,7 +1402,7 @@ func _open_here() -> void:
 	if id == "":
 		_close_sheet()
 		return
-	_selected = id
+	_select(id)
 	var buttons := [["Enter", _on_enter, true, "inside"], ["Wait %dh" % WAIT_HOURS, _on_wait, false, "revert"], ["Warband", _on_warband, false, "company"], ["Close", _close_sheet]]
 	var wedding_here := GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == id
 	if wedding_here:
@@ -1601,7 +1931,6 @@ func _open_encounter() -> void:
 ## takes the camera back at once.
 const ENCOUNTER_FRAME := 0.45
 const ENCOUNTER_ZOOM := 1.3
-var _encounter_cam: Tween = null
 
 
 func _frame_encounter(b) -> void:
@@ -1612,16 +1941,7 @@ func _frame_encounter(b) -> void:
 	var to_scale := clampf(cam_scale * ENCOUNTER_ZOOM, _view.size.x / WIDEST_VIEW, _view.size.x / NARROWEST_VIEW)
 	# The sheet takes the lower part of the view; the parties sit in the open part above it.
 	var to_center := (mine + theirs) * 0.5 + Vector2(0.0, _view.size.y * 0.2 / to_scale)
-	var from_center := cam_center
-	var from_scale := cam_scale
-	if _encounter_cam != null and _encounter_cam.is_valid():
-		_encounter_cam.kill()
-	_encounter_cam = create_tween()
-	_encounter_cam.tween_method(func(k: float):
-		cam_center = from_center.lerp(to_center, k)
-		cam_scale = lerpf(from_scale, to_scale, k)
-		_clamp_camera()
-		_sync_layers(), 0.0, 1.0, ENCOUNTER_FRAME).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_glide_to(to_center, to_scale, ENCOUNTER_FRAME)
 	var header := sheet_panel.find_child("LordHeader", true, false) as Control
 	if header != null and header.visible:
 		header.modulate.a = 0.0
@@ -1948,6 +2268,12 @@ func _on_travel(id: String) -> void:
 	if world.travel(id):
 		_close_sheet()
 		GameState.save_game()
+		# Setting off: the route draws itself out ahead of you, a thump under the thumb,
+		# a kick of dust, and the camera rides along.
+		_route_ms = Time.get_ticks_msec()
+		_follow = true
+		_burst(world.party_pos(world.player()), "depart")
+		Sound.haptic()
 
 
 ## Hours one Wait passes where you stand; the button says so.
@@ -2639,10 +2965,9 @@ func _open_recommendation() -> void:
 
 
 func _focus_place(id: String) -> void:
-	_selected = id
-	cam_center = Data.pos(id)
-	_clamp_camera()
-	_sync_layers()
+	_select(id)
+	_follow = false
+	_glide_to(Data.pos(id))
 	_open_preview(id)
 
 
@@ -2652,9 +2977,8 @@ func _focus_party(party_id: int) -> void:
 	if p == null:
 		_close_sheet()
 		return
-	cam_center = world.party_pos(p)
-	_clamp_camera()
-	_sync_layers()
+	_follow = p == world.player()
+	_glide_to(world.party_pos(p))
 	if p.kind == WorldSim.BAND:
 		_open_band(p)
 	else:
@@ -3290,11 +3614,11 @@ func _refresh_hud() -> void:
 	for badge in resource_buttons.values():
 		badge.disabled = modal
 	var days: int = GameState.food_days()
-	resource_buttons["men"].text = _short_amount(GameState.total_men())
-	resource_buttons["silver"].text = _short_amount(GameState.silver)
+	_show_resource("men", GameState.total_men())
+	_show_resource("silver", GameState.silver)
 	# Food is counted in days, and says so: "5d".
-	resource_buttons["food"].text = "%sd" % _short_amount(days)
-	resource_buttons["renown"].text = _short_amount(GameState.renown)
+	_show_resource("food", days)
+	_show_resource("renown", GameState.renown)
 	resource_buttons["men"].tooltip_text = "%d men in %d companies" % [GameState.total_men(), GameState.army.size()]
 	resource_buttons["silver"].tooltip_text = "%d silver · wages %d per day" % [GameState.silver, GameState.daily_outgoings()]
 	resource_buttons["food"].tooltip_text = "%d rations · %d days of food" % [GameState.food, days]
@@ -3334,6 +3658,38 @@ func _refresh_hud() -> void:
 	_refresh_status_chips(chaser, low_food, low_silver, captives)
 	_refresh_pinned(h)
 	_update_progress(p)
+
+
+## A pill in the top bar showing `value`: when it changes, the number counts to the new
+## one with a brass flash, and (but for food, which falls a day at a time) what it gained
+## or cost rises off it, as it does in town.
+func _show_resource(key: String, value: int) -> void:
+	var b: Button = resource_buttons[key]
+	var fmt := func(v: int) -> String: return ("%sd" % _short_amount(v)) if key == "food" else _short_amount(v)
+	if not _res_shown.has(key):
+		_res_shown[key] = value
+		b.text = fmt.call(value)
+		return
+	var was := int(_res_shown[key])
+	if was == value:
+		var running: Tween = _res_tweens.get(key, null)
+		if running == null or not running.is_valid() or not running.is_running():
+			b.text = fmt.call(value)
+		return
+	_res_shown[key] = value
+	var old: Tween = _res_tweens.get(key, null)
+	if old != null and old.is_valid():
+		old.kill()
+	if Style.motion_reduced() or not b.is_inside_tree():
+		b.text = fmt.call(value)
+		return
+	var t := b.create_tween()
+	t.tween_method(func(v: float): b.text = fmt.call(int(round(v))), float(was), float(value), 0.45) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_res_tweens[key] = t
+	Widgets.flash(b)
+	if key != "food":
+		Widgets.float_up(b, Widgets.effect(key, value - was))
 
 
 ## The chips after the status line, rebuilt only when what they say changes: the lord
@@ -3479,7 +3835,10 @@ func _sync_layers() -> void:
 	if backdrop == null or backdrop.land_layer == null:
 		return
 	backdrop.point_camera(cam_center, cam_scale, _view.get_center(), get_viewport_rect().size, [sky])
-	(sky.material as ShaderMaterial).set_shader_parameter("daylight", _daylight())
+	var mat := sky.material as ShaderMaterial
+	mat.set_shader_parameter("daylight", _daylight())
+	mat.set_shader_parameter("night", _night())
+	mat.set_shader_parameter("drift_time", _cloud_time if not Style.motion_reduced() else 0.0)
 	labels.queue_redraw()
 
 
@@ -3500,10 +3859,20 @@ func _night() -> float:
 	return clampf((1.0 - _daylight().b * 0.5 - _daylight().g * 0.5) / (1.0 - (NIGHT_LIGHT.b + NIGHT_LIGHT.g) * 0.5), 0.0, 1.0)
 
 
-## Screen pixels per sprite pixel: a little bigger as you zoom in, in half steps so the
-## pixel art stays even.
+## How big a sprite's pixel is drawn: stepped by the zoom (so pixel art stays even),
+## eased between steps so nothing pops mid-pinch.
 func _sprite_px() -> float:
-	return clampf(round(cam_scale * SPRITE_PIXEL / 1.125 * 2.0) / 2.0, 1.5, 3.5)
+	return _px_shown if _px_shown > 0.0 else _sprite_px_goal()
+
+
+func _sprite_px_goal() -> float:
+	return clampf(round(_raw_px() * 2.0) / 2.0, 1.5, 3.5)
+
+
+## The sprite pixel the zoom asks for before it's stepped: what fades follow, so a name
+## comes in smoothly rather than all at once at a step.
+func _raw_px() -> float:
+	return cam_scale * SPRITE_PIXEL / 1.125
 
 
 ## Select map ambience and the company's movement loop from read-only campaign facts.
@@ -3561,6 +3930,43 @@ func _update_travel_contact(delta: float) -> void:
 	_contact_position = pos
 
 
+## The small clocks the map's motion runs on, advanced each frame: taps' rings and dust
+## puffs age, the sprites' size eases to its step, the walk keeps time with the game's
+## speed, and the clouds drift faster when time runs fast.
+func _update_feel(delta: float) -> void:
+	_label_delta = delta
+	for fx in _tap_fx:
+		fx["age"] = float(fx["age"]) + delta
+	_tap_fx = _tap_fx.filter(func(fx): return float(fx["age"]) < TAP_FX_TIME)
+	for b in _bursts:
+		b["age"] = float(b["age"]) + delta
+	_bursts = _bursts.filter(func(b): return float(b["age"]) < BURST_TIME)
+	var goal := _sprite_px_goal()
+	if _px_shown < 0.0 or Style.motion_reduced():
+		_px_shown = goal
+	else:
+		_px_shown = lerpf(_px_shown, goal, 1.0 - exp(-14.0 * delta))
+		if absf(_px_shown - goal) < 0.01:
+			_px_shown = goal
+	var running: bool = world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]
+	var pace := clampf(sqrt(speed), 1.0, 2.5) if running else 1.0
+	_walk_clock += delta * pace
+	_cloud_time += delta * (1.0 + (speed - 1.0) * 0.6 if running else 1.0)
+
+
+## How long a tap's ring lasts, and a puff of dust.
+const TAP_FX_TIME := 0.4
+const BURST_TIME := 0.7
+
+
+## A puff where something happened on the road: setting off or pulling up.
+func _burst(at: Vector2, kind: String) -> void:
+	if Style.motion_reduced() or not Sound.illustrations_enabled:
+		return
+	var wet := not _travel_context.is_empty() and String(_travel_context.get("movement_contact", "")) == "wake"
+	_bursts.append({"pos": at, "age": 0.0, "kind": kind, "wet": wet})
+
+
 func _contact_color(mark: Dictionary) -> Color:
 	if String(mark.get("kind", "")) == "wake":
 		return Color(0.72, 0.9, 0.96, 0.52)
@@ -3597,6 +4003,7 @@ func _draw() -> void:
 			draw_circle(at - side + direction * 2.0 * px, (1.0 + age * 1.4) * px, color)
 		else:
 			draw_circle(at + Vector2(0, -2), (2.0 + age * 5.0) * px * 0.5, color)
+	_draw_bursts(px)
 	var things := []
 	for id in Data.SETTLEMENTS:
 		things.append({"y": Data.pos(id).y, "settlement": id})
@@ -3755,6 +4162,21 @@ func _draw_aftermath(px: float) -> void:
 				Color(Style.BRASS, alpha))
 
 
+## Puffs where the company set off or pulled up: a ring of dust (or spray) thrown out
+## low along the ground, fading as it spreads.
+func _draw_bursts(px: float) -> void:
+	for b in _bursts:
+		var k := float(b["age"]) / BURST_TIME
+		var c := _to_screen(b["pos"])
+		var tone := Color(0.72, 0.9, 0.96) if bool(b["wet"]) else Color(0.8, 0.72, 0.56)
+		var n := 7 if String(b["kind"]) == "arrive" else 5
+		var reach := (6.0 + 12.0 * (1.0 - pow(1.0 - k, 3.0))) * px
+		for i in n:
+			var a := float(i) / float(n) * TAU + 0.4
+			var at := c + Vector2(cos(a) * reach, sin(a) * reach * 0.38 - 2.0 * px - k * 4.0 * px)
+			draw_circle(at, (1.6 + k * 2.2) * px, Color(tone, 0.5 * (1.0 - k)))
+
+
 func _draw_settlement(id: String, px: float) -> void:
 	var s := Data.settlement(id)
 	var c := _to_screen(s["pos"])
@@ -3766,7 +4188,13 @@ func _draw_settlement(id: String, px: float) -> void:
 	draw_set_transform(c + Vector2(0, 2), 0.0, Vector2(1.0, 0.32))
 	draw_circle(Vector2.ZERO, w * 0.5, Color(0, 0, 0, 0.22))
 	if id == _selected:
-		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Style.BRASS, 3.0 / 0.32)
+		# The ring lands: in from a little wider, settling with an overshoot.
+		var t := clampf(float(Time.get_ticks_msec() - _select_ms) / 1000.0 / SELECT_POP_TIME, 0.0, 1.0)
+		var grow := 0.0 if Style.motion_reduced() else SELECT_POP * (1.0 - _ease_back(t))
+		draw_arc(Vector2.ZERO, w * 0.6 * (1.0 + grow), 0.0, TAU, 40, Color(Style.BRASS, clampf(0.4 + t, 0.0, 1.0)), 3.0 / 0.32)
+	elif id == _press_target:
+		# Under the thumb, before it lifts.
+		draw_arc(Vector2.ZERO, w * 0.56, 0.0, TAU, 40, Color(Style.BRASS, 0.75), 2.5 / 0.32)
 	elif id == _hover:
 		draw_arc(Vector2.ZERO, w * 0.6, 0.0, TAU, 40, Color(Style.BRASS, 0.5), 2.0 / 0.32)
 	draw_set_transform(c, 0.0, Vector2(px, px))
@@ -3846,7 +4274,11 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 	var facing := 1.0
 	if p.moving() and Data.pos(p.next).x < at.x:
 		facing = -1.0
-	var frame := int(_clock * 6.0) % 2 if moving else 0
+	# The walk keeps time with the game: quicker steps when time runs fast. Each stride
+	# lifts the body a pixel, and turning round squashes through the middle.
+	var frame := int(_walk_clock * 6.0 + float(p.id) * 0.37) % 2 if moving else 0
+	var turned := _turned(p.id, facing)
+	var body := base + (Vector2(0, -px) if moving and frame == 1 and not Style.motion_reduced() else Vector2.ZERO)
 	var mine := sprite == "rider"
 	# A marshal's host is drawn as one: the marshal under the realm's great standard, with
 	# the column behind, and a badge for what the army is doing.
@@ -3907,14 +4339,14 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		# Ryumon lord's is the flag on his back).
 		var followers := mini(2, men / 45)
 		for i in range(followers, 0, -1):
-			_draw_party_sprite(base + Vector2(-facing * (10.0 + 9.0 * (i - 1)) * px, 0.0), "follower/" + rides, frame, color, px, facing, 1.0, party_alpha)
-		_draw_party_sprite(base, sprite, frame, color, px, facing, 1.0, party_alpha)
+			_draw_party_sprite(body + Vector2(-facing * (10.0 + 9.0 * (i - 1)) * px, 0.0), "follower/" + rides, frame, color, px, turned, 1.0, party_alpha)
+		_draw_party_sprite(body, sprite, frame, color, px, turned, 1.0, party_alpha)
 		var realm := _party_realm(p)
 		if rides != "ryumon" or realm == Data.CROWN:
 			var bx := 5.0 if facing > 0.0 else -13.0
-			Heraldry.realm_banner(self, realm, Rect2(base + Vector2(bx, -28.0) * px, Vector2(8.0, 13.0) * px))
+			Heraldry.realm_banner(self, realm, Rect2(body + Vector2(bx, -28.0) * px, Vector2(8.0, 13.0) * px))
 	elif sprite.begins_with("outlaws/"):
-		_draw_party_sprite(base, sprite, frame, color, px, facing, 1.0, party_alpha)
+		_draw_party_sprite(body, sprite, frame, color, px, turned, 1.0, party_alpha)
 		if p.raiding:
 			# Torches and smoke over a raid.
 			for k in 3:
@@ -3931,7 +4363,7 @@ func _draw_party(p, sprite: String, color: Color, px: float) -> void:
 		# Heraldic banner / pennant by owner (a host carries its own great standard)
 		if not (host and sprite.begins_with("marshal/")):
 			_draw_pennant(base, 7.0 * px * facing, px, strength_scale, color, party_alpha, facing, p)
-		_draw_party_sprite(base, sprite, frame, color, px, facing, strength_scale, party_alpha)
+		_draw_party_sprite(body, sprite, frame, color, px, turned, strength_scale, party_alpha)
 	if chasing:
 		# A red "!" over the hunter, bobbing.
 		var mark := base + Vector2(0, (-30.0 - 3.0 * sin(_clock * 6.0)) * px * strength_scale)
@@ -4018,6 +4450,35 @@ func _draw_pennant(base: Vector2, pole_x: float, px: float, strength_scale: floa
 	draw_polyline(flag_pts, Color(0.12, 0.1, 0.08, 0.8 * party_alpha), 1.0)
 
 
+## The way a party faces as drawn: flips through a squash over a few frames when it turns
+## round, rather than snapping. Returns the x scale (−1…1).
+func _turned(id: int, facing: float) -> float:
+	var now := Time.get_ticks_msec()
+	var t: Dictionary = _turns.get(id, {})
+	if t.is_empty() or Style.motion_reduced():
+		_turns[id] = {"facing": facing, "ms": -100000}
+		return facing
+	if float(t["facing"]) != facing:
+		t["facing"] = facing
+		t["ms"] = now
+	var k := clampf(float(now - int(t["ms"])) / 1000.0 / TURN_TIME, 0.0, 1.0)
+	if k >= 1.0:
+		return facing
+	# From the old way round, through thin, to the new.
+	var l := lerpf(-1.0, 1.0, k)
+	return facing * (l if absf(l) > 0.2 else 0.2)
+
+
+const TURN_TIME := 0.14
+
+
+## Back-eased 0 → 1 with a small overshoot: how rings and pops land.
+static func _ease_back(t: float) -> float:
+	var c := 1.70158
+	var u := t - 1.0
+	return 1.0 + (c + 1.0) * u * u * u + c * u * u
+
+
 func _draw_party_sprite(base: Vector2, sprite: String, frame: int, color: Color, px: float, facing: float, strength_scale: float, party_alpha: float) -> void:
 	draw_set_transform(base, 0.0, Vector2(px * facing * strength_scale, px * strength_scale))
 	var tex_col := Color(1, 1, 1, party_alpha)
@@ -4028,19 +4489,29 @@ func _draw_party_sprite(base: Vector2, sprite: String, frame: int, color: Color,
 ## Above the light of the hour: lamps lit at night, your route, and every name.
 func _draw_labels() -> void:
 	var px := _sprite_px()
+	var raw := _raw_px()
 	var night := _night()
+	var still := Style.motion_reduced()
 	if night > 0.02:
 		for id in Data.SETTLEMENTS:
 			var c := _to_screen(Data.pos(id)) + Vector2(0, -8) * px
-			labels.draw_circle(c, 26.0 * px * 0.5, Color(LAMP, 0.10 * night))
-			labels.draw_circle(c, 14.0 * px * 0.5, Color(LAMP, 0.14 * night))
+			# Lamplight breathes: each hall's flame on its own beat.
+			var beat := float(absi(String(id).hash()) % 97)
+			var f := 1.0 if still else 0.86 + 0.14 * sin(_clock * 7.3 + beat) * sin(_clock * 2.9 + beat * 1.7)
+			labels.draw_circle(c, 26.0 * px * 0.5 * (0.96 + 0.04 * f), Color(LAMP, 0.10 * night * f))
+			labels.draw_circle(c, 14.0 * px * 0.5, Color(LAMP, 0.14 * night * f))
 	_draw_route()
 	_taken.clear()
-	for id in Data.SETTLEMENTS:
+	var seen := {}
+	# Towns place their names first, then castles, then villages: the names that matter
+	# most keep their spot, and the rest step aside.
+	var places: Array = Data.SETTLEMENTS.keys()
+	places.sort_custom(func(a, b): return _place_rank(a) < _place_rank(b))
+	for id in places:
 		var s := Data.settlement(id)
 		var size := Style.SMALL + 2 if s["type"] != Data.VILLAGE else Style.SMALL
 		_name_plate(_to_screen(s["pos"]) + Vector2(0, 8.0 + px * 2.0), String(s["name"]), size,
-			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT)
+			Style.BRASS if s["type"] == Data.TOWN else Style.TEXT, Color(0, 0, 0, 0), -1, false, {"side": true})
 	var wp := _wedding_place()
 	if wp != "":
 		var ready := String(GameState.wedding()["state"]) == "ready"
@@ -4049,54 +4520,130 @@ func _draw_labels() -> void:
 			# Ready: a pulsing badge with the rings, nothing to read.
 			_rings_badge(over + Vector2(0, 14.0))
 		else:
-			_icon_plate(over, [{"icon": "rings"}, {"icon": "clock"}, {"text": GameState._when_text(float(GameState.wedding()["ready_hour"]))}],
+			var r := _icon_plate(over, [{"icon": "rings"}, {"icon": "clock"}, {"text": GameState._when_text(float(GameState.wedding()["ready_hour"]))}],
 				Color("f3d27a"), Color("8a6a2a"))
+			_tether(r, over, Color("8a6a2a"))
 	for g in world.gatherings:
 		var lift := 34.0 * px + 18.0 + (40.0 if String(g["place"]) == wp else 0.0)
 		var at := _to_screen(Data.pos(String(g["place"]))) + Vector2(0, -lift)
+		var r: Rect2
 		if GameState.gathering_barred(g):
-			_icon_plate(at, [{"icon": "lock"}, {"text": _gathering_plate(g)}], Style.ENEMY_LIGHT, Style.ENEMY_LIGHT)
+			r = _icon_plate(at, [{"icon": "lock"}, {"text": _gathering_plate(g)}], Style.ENEMY_LIGHT, Style.ENEMY_LIGHT)
+			_tether(r, at, Style.ENEMY_LIGHT)
 		else:
-			_icon_plate(at, _gathering_parts(g), Color("f3d891"), Style.BRASS)
-	# Parties' plates step up out of the way of any name already placed.
-	for b in world.bands():
-		if px >= 2.0:
-			var b_col := Color("e8d9c0")
-			if px < 2.5:
-				b_col.a = clampf((px - 2.0) / 0.5, 0.3, 1.0)
-			_name_plate(_to_screen(world.party_pos(b)) + Vector2(0, -21.0 * px - 6.0), b.name, PARTY_PLATE, b_col,
-				Color(Style.ENEMY_LIGHT, b_col.a * 0.8), world.men_of(b.army), true)
+			r = _icon_plate(at, _gathering_parts(g), Color("f3d891"), Style.BRASS)
+			_tether(r, at, Style.BRASS)
+	# Parties' plates: gathered first, so the ones that matter most (who's hunting you,
+	# then enemies, then bands) take the nearest slots, and a crowd shares one plate.
+	var entries := _party_plates(px, raw)
+	entries.sort_custom(func(a, b):
+		return int(a["rank"]) < int(b["rank"]) or (int(a["rank"]) == int(b["rank"]) and int(a["men"]) > int(b["men"])))
+	var claimed := {}
+	for e in entries:
+		if claimed.has(e["key"]):
+			continue
+		var crowd: Array = []
+		for other in entries:
+			if other["key"] != e["key"] and not claimed.has(other["key"]) and (other["party_at"] as Vector2).distance_to(e["party_at"]) < PLATE_STACK:
+				crowd.append(other)
+		var text := String(e["text"])
+		if crowd.size() + 1 >= PLATE_STACK_MIN:
+			# Three or more on one spot: the one that matters most speaks for them ("+2");
+			# tapping the spot again steps through the rest.
+			for other in crowd:
+				claimed[other["key"]] = true
+			text = "%s +%d" % [text, crowd.size()]
+		claimed[e["key"]] = true
+		seen[e["key"]] = true
+		var placed := _name_plate(e["at"], text, PARTY_PLATE, e["color"], e["edge"], int(e["men"]), true, {"key": e["key"], "alpha": e["alpha"]})
+		if e.has("sub") and placed.size.x > 0.0:
+			_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), e["sub"], e["sub_color"], e["sub_edge"], false, float(e["alpha"]))
+	for key in _plate_lift.keys():
+		if not seen.has(key):
+			_plate_lift.erase(key)
+	_draw_tap_fx()
+	_draw_pointers()
+
+
+## Towns first, then castles, then villages.
+func _place_rank(id: String) -> int:
+	var t := String(Data.settlement(id)["type"])
+	return 0 if t == Data.TOWN else (2 if t == Data.VILLAGE else 1)
+
+
+## Every party plate to draw this frame, as plain entries: where, what it says, its
+## colours, how much it matters ("rank", lower first) and how strongly it's drawn. Bands
+## and lords fade in as you zoom close rather than appearing at a step; parties far from
+## you that mean you no harm are drawn quieter, so a threat stands out.
+func _party_plates(px: float, raw: float) -> Array:
+	var out: Array = []
+	var me: Vector2 = world.party_pos(world.player())
+	var far := WorldSim.SIGHT * 2.0
+	var band_fade := clampf((raw - 1.7) / 0.45, 0.0, 1.0)
+	if band_fade > 0.02:
+		for b in world.bands():
+			var at: Vector2 = world.party_pos(b)
+			var quiet := 0.75 if at.distance_to(me) > far * 1.5 else 1.0
+			out.append({"key": "b%d" % b.id, "at": _to_screen(at) + Vector2(0, -21.0 * px - 6.0), "party_at": _to_screen(at),
+				"text": b.name, "color": Color("e8d9c0"), "edge": Color(Style.ENEMY_LIGHT, 0.8), "men": world.men_of(b.army),
+				"rank": 2, "alpha": band_fade * quiet})
 	# Lords' names only once you're looking closely, or the map drowns in them. The plate
 	# shows the name they go by; the full title is on their sheet.
-	if px >= LORD_NAMES_PX:
-		for lp in world.visible_lord_parties():
-			var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
-			var ink := Cultures.color(Data.culture_of(lp.faction)).lightened(0.6)
-			if not army.is_empty() and army["state"] != "gathering":
-				if lp.id != int(army["leader"]):
-					# The brass ring groups a host's lords; only the marshal carries a plate.
-					continue
-				var total_men := 0
-				for m in world.MarshalArmies.members(world, army):
-					total_men += world.men_of(m.army)
-				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -25.0 * px - 6.0), "Marshal %s" % short_lord_name(lp.name), PARTY_PLATE,
-					ink, Style.BRASS, total_men, true)
-			else:
-				var rel := String(world.relation_to_player(lp.faction))
-				var edge := Style.ENEMY_LIGHT if rel == "hostile" else (Style.BRASS if rel in ["friendly", "allied", "employer"] else Color("6d7699"))
-				_name_plate(_to_screen(world.party_pos(lp)) + Vector2(0, -32.0 * px - 6.0), short_lord_name(lp.name), PARTY_PLATE,
-					ink, edge, world.men_of(lp.army), true)
-				# Bound for a gathering or your muster: say so under the name.
-				var l: Dictionary = world.lord_of(lp)
-				if lp.moving() and String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) > 0 and not _taken.is_empty():
-					var placed: Rect2 = _taken[_taken.size() - 1]
-					var feast: Dictionary = world.gathering_by_id(int(l["gather_id"]))
-					_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), [{"icon": "ride"}, {"icon": _gathering_icon(feast)}],
-						Color("f3d891"), Color("8a6a2a"), false)
-				elif lp.moving() and String(l.get("job", "")) == "muster" and not _taken.is_empty():
-					var placed: Rect2 = _taken[_taken.size() - 1]
-					_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), [{"icon": "ride"}, {"icon": "crown"}],
-						Color("f3b0a0"), Style.ENEMY, false)
+	var lord_fade := clampf((raw - (LORD_NAMES_PX - 0.45)) / 0.35, 0.0, 1.0)
+	if lord_fade <= 0.02:
+		return out
+	var hunter = _chaser()
+	for lp in world.visible_lord_parties():
+		var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
+		var ink := Cultures.color(Data.culture_of(lp.faction)).lightened(0.6)
+		var at: Vector2 = world.party_pos(lp)
+		var rel := String(world.relation_to_player(lp.faction))
+		if not army.is_empty() and army["state"] != "gathering":
+			if lp.id != int(army["leader"]):
+				# The brass ring groups a host's lords; only the marshal carries a plate.
+				continue
+			var total_men := 0
+			for m in world.MarshalArmies.members(world, army):
+				total_men += world.men_of(m.army)
+			out.append({"key": "l%d" % lp.id, "at": _to_screen(at) + Vector2(0, -25.0 * px - 6.0), "party_at": _to_screen(at),
+				"text": "Marshal %s" % short_lord_name(lp.name), "color": ink, "edge": Style.BRASS, "men": total_men,
+				"rank": 1 if rel == "hostile" else 3, "alpha": lord_fade})
+			continue
+		var edge := Style.ENEMY_LIGHT if rel == "hostile" else (Style.BRASS if rel in ["friendly", "allied", "employer"] else Color("6d7699"))
+		var rank := 1 if rel == "hostile" else (3 if rel in ["friendly", "allied", "employer"] else 4)
+		if hunter != null and hunter.id == lp.id:
+			rank = 0
+		var quiet := 1.0 if rel == "hostile" or at.distance_to(me) < far else 0.62
+		var e := {"key": "l%d" % lp.id, "at": _to_screen(at) + Vector2(0, -32.0 * px - 6.0), "party_at": _to_screen(at),
+			"text": short_lord_name(lp.name), "color": ink, "edge": edge, "men": world.men_of(lp.army),
+			"rank": rank, "alpha": lord_fade * quiet}
+		# Bound for a gathering or your muster: say so under the name.
+		var l: Dictionary = world.lord_of(lp)
+		if lp.moving() and String(l.get("job", "")) == "gather" and int(l.get("gather_id", 0)) > 0:
+			var feast: Dictionary = world.gathering_by_id(int(l["gather_id"]))
+			e["sub"] = [{"icon": "ride"}, {"icon": _gathering_icon(feast)}]
+			e["sub_color"] = Color("f3d891")
+			e["sub_edge"] = Color("8a6a2a")
+		elif lp.moving() and String(l.get("job", "")) == "muster":
+			e["sub"] = [{"icon": "ride"}, {"icon": "crown"}]
+			e["sub_color"] = Color("f3b0a0")
+			e["sub_edge"] = Style.ENEMY
+		out.append(e)
+	return out
+
+
+## A plate lifted off its place (stepped up out of another's way) keeps a thin line down
+## to it, so a feast's plate never reads as its neighbour's.
+func _tether(r: Rect2, anchor: Vector2, color: Color) -> void:
+	if r.size.x <= 0.0:
+		return
+	var foot := Vector2(clampf(anchor.x, r.position.x + 10.0, r.end.x - 10.0), r.end.y)
+	var to := anchor + Vector2(0, r.size.y + 6.0)
+	if to.y - foot.y > 10.0:
+		labels.draw_line(foot, to, Color(color, 0.7), 2.0)
+		labels.draw_circle(to, 3.0, Color(color, 0.85))
+	else:
+		labels.draw_colored_polygon(PackedVector2Array([foot + Vector2(-5, 0), foot + Vector2(5, 0), foot + Vector2(0, 6)]), Color(color, 0.9))
 
 
 ## Text size of a party's name plate: the same as a village's name.
@@ -4118,10 +4665,75 @@ static func short_lord_name(full: String) -> String:
 	return full
 
 
+## Step `rect` out of the way of plates already placed: up a row at a time (`dodge`), or
+## for a settlement's name, sideways away from the one it hits (`side`).
+func _dodged(rect: Rect2, dodge: bool, side: bool) -> Rect2:
+	if dodge:
+		for attempt in 4:
+			var hit := false
+			for other in _taken:
+				if other.grow(2.0).intersects(rect):
+					hit = true
+					break
+			if not hit:
+				break
+			rect.position.y -= rect.size.y + 4.0
+	elif side:
+		for attempt in 2:
+			var hit := Rect2()
+			for other in _taken:
+				if other.grow(2.0).intersects(rect):
+					hit = other
+					break
+			if hit.size.x <= 0.0:
+				break
+			if rect.get_center().x < hit.get_center().x:
+				rect.position.x -= rect.end.x - hit.position.x + 4.0
+			else:
+				rect.position.x += hit.end.x - rect.position.x + 4.0
+	return rect
+
+
+## Keep a plate inside the view's width, and fade it as what it names leaves the screen,
+## so a name is never cut off at the edge nor pinned there for something out of sight.
+## Returns how much of the plate still shows.
+func _keep_in_view(rect: Rect2, anchor_x: float) -> Array:
+	var left := _view.position.x + 4.0
+	var right := _view.end.x - 4.0
+	var fade := 1.0
+	if anchor_x < left:
+		fade = clampf(1.0 - (left - anchor_x) / 60.0, 0.0, 1.0)
+	elif anchor_x > right:
+		fade = clampf(1.0 - (anchor_x - right) / 60.0, 0.0, 1.0)
+	if rect.size.x < right - left:
+		rect.position.x = clampf(rect.position.x, left, right - rect.size.x)
+	return [rect, fade]
+
+
+## A plate that has been stepped up (or down) eases to its new row rather than jumping,
+## so plates don't flicker between rows as parties walk past each other.
+func _eased_lift(key: String, rest_y: float, rect: Rect2) -> Rect2:
+	if key == "":
+		return rect
+	var want := rect.position.y - rest_y
+	var shown := float(_plate_lift.get(key, want))
+	if Style.motion_reduced():
+		shown = want
+	else:
+		shown = lerpf(shown, want, 1.0 - exp(-12.0 * _label_delta))
+		if absf(shown - want) < 0.5:
+			shown = want
+	_plate_lift[key] = shown
+	rect.position.y = rest_y + shown
+	return rect
+
+
 ## A name on a dark plate, centered on `at` (the plate's top edge).
 ## `edge` rings the plate (red for enemies, brass for friends); `men` >= 0 adds a chip
-## with how they compare with you.
-func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1, dodge: bool = false) -> void:
+## with how they compare with you. `opts`: "key" (a party's, so its row eases), "alpha"
+## (how strongly it's drawn), "side" (a settlement's name, which steps sideways).
+## Returns the rectangle it was drawn in (empty if it wasn't).
+func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: Color = Color(0, 0, 0, 0), men: int = -1, dodge: bool = false, opts: Dictionary = {}) -> Rect2:
 	var size := Style.text_size(maxi(base_size, Style.SMALL))
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var chip_text := ""
@@ -4133,34 +4745,35 @@ func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: 
 		chip_text = "%s %d" % [mark[0], men]
 		chip_w = font.get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size).x + 14.0
 	var rect := Rect2(at + Vector2(-(w + chip_w) * 0.5 - 8.0, 0.0), Vector2(w + chip_w + 16.0 + (6.0 if chip_w > 0.0 else 0.0), size + 8.0))
-	if dodge:
-		for attempt in 4:
-			var hit := false
-			for other in _taken:
-				if other.grow(2.0).intersects(rect):
-					hit = true
-					break
-			if not hit:
-				break
-			rect.position.y -= rect.size.y + 4.0
+	rect = _dodged(rect, dodge, bool(opts.get("side", false)))
 	_taken.append(rect)
-	if _plate == null:
-		_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
+	rect = _eased_lift(String(opts.get("key", "")), at.y, rect)
+	var kept := _keep_in_view(rect, at.x)
+	rect = kept[0]
+	var alpha := float(opts.get("alpha", 1.0)) * float(kept[1])
+	if alpha <= 0.02:
+		return Rect2()
 	if edge.a > 0.0:
-		var sb := Style.box(Color(0.06, 0.07, 0.1, 0.78), edge, 2, 8)
+		var sb := Style.box(Color(0.06, 0.07, 0.1, 0.78 * alpha), Color(edge, edge.a * alpha), 2, 8)
 		sb.draw(labels.get_canvas_item(), rect)
+	elif alpha < 1.0:
+		Style.box(Color(0.06, 0.07, 0.1, 0.62 * alpha), Color(0, 0, 0, 0), 0, 8).draw(labels.get_canvas_item(), rect)
 	else:
+		if _plate == null:
+			_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
 		_plate.draw(labels.get_canvas_item(), rect)
-	labels.draw_string(font, rect.position + Vector2(8.0, size * 0.92 + 3.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, color)
+	labels.draw_string(font, rect.position + Vector2(8.0, size * 0.92 + 3.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(color, color.a * alpha))
 	if chip_w > 0.0:
 		var chip := Rect2(Vector2(rect.end.x - chip_w - 4.0, rect.position.y + 3.0), Vector2(chip_w, rect.size.y - 6.0))
-		labels.draw_style_box(Style.box(mark[1], Color(0, 0, 0, 0), 0, int(chip.size.y * 0.5)), chip)
-		labels.draw_string(font, chip.position + Vector2(7.0, chip.size.y * 0.5 + chip_size * 0.36), chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size, Color("14161f"))
+		labels.draw_style_box(Style.box(Color(mark[1], alpha), Color(0, 0, 0, 0), 0, int(chip.size.y * 0.5)), chip)
+		labels.draw_string(font, chip.position + Vector2(7.0, chip.size.y * 0.5 + chip_size * 0.36), chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size, Color(Color("14161f"), alpha))
+	return rect
 
 
 ## A plate of icons and words, centred on `at` (its top edge): `parts` are {"icon": key},
 ## {"text": words} or {"pips": [lit, of]}. Steps out of the way of plates already placed.
-func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bool = true) -> void:
+## Returns the rectangle it was drawn in.
+func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bool = true, alpha: float = 1.0) -> Rect2:
 	var size := Style.text_size(Style.SMALL)
 	var icon_w := float(size) + 2.0
 	var gap := 6.0
@@ -4175,17 +4788,15 @@ func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bo
 		w += gap
 	w -= gap
 	var rect := Rect2(at + Vector2(-w * 0.5 - 8.0, 0.0), Vector2(w + 16.0, size + 8.0))
-	for attempt in (4 if dodge else 0):
-		var hit := false
-		for other in _taken:
-			if other.grow(2.0).intersects(rect):
-				hit = true
-				break
-		if not hit:
-			break
-		rect.position.y -= rect.size.y + 4.0
+	rect = _dodged(rect, dodge, false)
 	_taken.append(rect)
-	Style.box(Color(0.06, 0.07, 0.1, 0.8), edge, 2, 8).draw(labels.get_canvas_item(), rect)
+	var kept := _keep_in_view(rect, at.x)
+	rect = kept[0]
+	alpha *= float(kept[1])
+	if alpha <= 0.02:
+		return Rect2()
+	color.a *= alpha
+	Style.box(Color(0.06, 0.07, 0.1, 0.8 * alpha), Color(edge, edge.a * alpha), 2, 8).draw(labels.get_canvas_item(), rect)
 	var x := rect.position.x + 8.0
 	var mid := rect.position.y + rect.size.y * 0.5
 	for part in parts:
@@ -4205,9 +4816,10 @@ func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bo
 				if lit:
 					labels.draw_circle(pc, 4.5, color)
 				else:
-					labels.draw_arc(pc, 4.0, 0.0, TAU, 12, Color(color, 0.6), 1.5)
+					labels.draw_arc(pc, 4.0, 0.0, TAU, 12, Color(color, color.a * 0.6), 1.5)
 			x += float(int(part["pips"][1])) * 12.0
 		x += gap
+	return rect
 
 
 ## A gathering over its hall, as marks: its kind, then the nights as pips while it's on
@@ -4253,16 +4865,136 @@ func _rings_badge(c: Vector2) -> void:
 		labels.draw_texture_rect(tex, Rect2(c - Vector2(r, r) * 0.68, Vector2(r, r) * 1.36), false, Color("f3d27a"))
 
 
-## Where you're riding: a gold line through the settlements still ahead.
+## Where you're riding: a gold line through the settlements still ahead, its dashes
+## marching toward where you're going. Setting off, it draws itself out from the rider;
+## the stretch of this road already ridden lies faint behind.
 func _draw_route() -> void:
 	var p = world.player()
 	if not p.moving():
 		return
-	var pts := PackedVector2Array([_to_screen(world.party_pos(p)), _to_screen(Data.pos(p.next))])
+	var here := _to_screen(world.party_pos(p))
+	labels.draw_line(_to_screen(Data.pos(p.node)), here, Color(Style.BRASS, 0.28), 3.0)
+	var pts := PackedVector2Array([here, _to_screen(Data.pos(p.next))])
 	for id in p.path:
 		pts.append(_to_screen(Data.pos(id)))
+	var total := 0.0
 	for i in pts.size() - 1:
-		labels.draw_dashed_line(pts[i], pts[i + 1], Color(Style.BRASS, 0.85), 4.0, 10.0)
+		total += pts[i].distance_to(pts[i + 1])
+	var still := Style.motion_reduced()
+	var k := 1.0 if still else clampf(float(Time.get_ticks_msec() - _route_ms) / 1000.0 / ROUTE_DRAW, 0.0, 1.0)
+	var shown := total * (1.0 - pow(1.0 - k, 3.0))
+	_dashed_path(pts, Color(Style.BRASS, 0.85), 4.0, 10.0, 10.0, 0.0 if still else _clock * 18.0, shown)
+	if k < 1.0:
+		return
 	var end := pts[pts.size() - 1]
 	var pulse := 0.5 + 0.5 * sin(_clock * 4.0)
 	labels.draw_arc(end, 16.0 + pulse * 6.0, 0.0, TAU, 28, Color(Style.BRASS, 0.9 - pulse * 0.5), 3.0)
+
+
+## Dashes along a path, offset by `phase` along it (so they can march), drawn only up to
+## `limit` pixels from its start.
+func _dashed_path(pts: PackedVector2Array, color: Color, width: float, dash: float, gap: float, phase: float, limit: float = INF) -> void:
+	var period := dash + gap
+	var walked := 0.0
+	for i in pts.size() - 1:
+		var a := pts[i]
+		var b := pts[i + 1]
+		var seg := a.distance_to(b)
+		if seg <= 0.001:
+			continue
+		var dir := (b - a) / seg
+		var start := walked - fposmod(walked - phase, period)
+		while start < walked + seg and start < limit:
+			var from := maxf(start, walked)
+			var to := minf(minf(start + dash, walked + seg), limit)
+			if to > from:
+				labels.draw_line(a + dir * (from - walked), a + dir * (to - walked), color, width)
+			start += period
+		walked += seg
+		if walked >= limit:
+			return
+
+
+## Where a tap landed: a ring that opens and fades, bright on something, faint on bare
+## ground (so a miss still says the map heard you).
+func _draw_tap_fx() -> void:
+	for fx in _tap_fx:
+		var k := float(fx["age"]) / TAP_FX_TIME
+		var at := _to_screen(fx["pos"])
+		var hit := bool(fx["hit"])
+		var r := (10.0 if hit else 6.0) + (22.0 if hit else 14.0) * (1.0 - pow(1.0 - k, 2.0))
+		var tone := Style.BRASS if hit else Color(1, 1, 1)
+		labels.draw_arc(at, r, 0.0, TAU, 28, Color(tone, (0.85 if hit else 0.35) * (1.0 - k)), 3.0 if hit else 2.0)
+
+
+## Pointers at the edge of the view to what matters off it: your own company, whoever is
+## riding after you, and a siege or raid on your side's places. Tap one to glide there.
+func _draw_pointers() -> void:
+	_pointers.clear()
+	if _view.size.x <= 0.0:
+		return
+	var box := _view.grow(-POINTER_INSET)
+	box.position.y += 20.0
+	box.size.y -= 20.0
+	if bottom_bar != null and bottom_bar.visible:
+		box.size.y -= 110.0
+	if _sheet_open() and sheet_panel != null:
+		box.size.y = minf(box.size.y, sheet_panel.global_position.y - box.position.y - POINTER_INSET)
+	if box.size.y < 80.0:
+		return
+	var wants: Array = []
+	var me: Vector2 = world.party_pos(world.player())
+	wants.append({"kind": "you", "target": me, "icon": "ride", "tone": Style.BRASS})
+	var hunter = _chaser()
+	if hunter != null:
+		wants.append({"kind": "hunter", "target": world.party_pos(hunter), "icon": "fight", "tone": Style.ENEMY_LIGHT})
+	for army in world.campaign_armies:
+		if String(army.get("state", "")) == "besieging" and Data.SETTLEMENTS.has(String(army["target"])) and _ours(String(army["target"])):
+			wants.append({"kind": "siege", "target": Data.pos(String(army["target"])), "icon": "storm", "tone": Style.ENEMY_LIGHT})
+	for b in world.bands():
+		if b.raiding and Data.SETTLEMENTS.has(String(b.node)) and _ours(String(b.node)):
+			wants.append({"kind": "raid", "target": world.party_pos(b), "icon": "fire", "tone": Style.ENEMY_LIGHT})
+	var center := box.get_center()
+	for w in wants:
+		var at := _to_screen(w["target"])
+		if _view.grow(-8.0).has_point(at):
+			continue
+		var dir := at - center
+		if dir.length() < 1.0:
+			continue
+		# Where the line from the middle of the view to it leaves the box.
+		var tx := (box.size.x * 0.5) / maxf(0.001, absf(dir.x))
+		var ty := (box.size.y * 0.5) / maxf(0.001, absf(dir.y))
+		var spot := center + dir * minf(tx, ty)
+		var crowded := false
+		for other in _pointers:
+			if (other["at"] as Vector2).distance_to(spot) < 40.0:
+				crowded = true
+				break
+		if crowded or _pointers.size() >= 4:
+			continue
+		w["at"] = spot
+		_pointers.append(w)
+		_paint_pointer(spot, dir.normalized(), String(w["icon"]), w["tone"], String(w["kind"]) == "hunter")
+
+
+func _paint_pointer(at: Vector2, dir: Vector2, icon: String, tone: Color, urgent: bool) -> void:
+	var beat := 0.0 if Style.motion_reduced() or not urgent else 0.5 + 0.5 * sin(_clock * 6.0)
+	var r := 17.0 + beat * 2.0
+	var tip := at + dir * (r + 10.0)
+	var side := Vector2(-dir.y, dir.x) * 8.0
+	labels.draw_colored_polygon(PackedVector2Array([tip, at + dir * (r - 2.0) + side, at + dir * (r - 2.0) - side]), tone)
+	labels.draw_circle(at, r + 2.0, Color(0, 0, 0, 0.55))
+	labels.draw_circle(at, r, Style.NIGHT)
+	labels.draw_arc(at, r, 0.0, TAU, 28, tone, 2.5)
+	var tex := Widgets.icon(icon)
+	if tex != null:
+		labels.draw_texture_rect(tex, Rect2(at - Vector2(r, r) * 0.62, Vector2(r, r) * 1.24), false, tone)
+
+
+## Whether a place is on your side: yours, your realm's or an ally's.
+func _ours(id: String) -> bool:
+	var holder := String(world.owner_of(id))
+	if holder == Data.CROWN:
+		return GameState.is_crowned()
+	return String(world.relation_to_player(holder)) == "friendly"

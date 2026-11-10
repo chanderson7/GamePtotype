@@ -9,6 +9,10 @@ uniform float cam_scale = 1.0;
 uniform vec2 view_center = vec2(360.0, 640.0);
 uniform vec2 rect_size = vec2(720.0, 1280.0);
 uniform vec4 daylight : source_color = vec4(1.0);
+// The clouds' own clock: the map runs it faster while time runs fast.
+uniform float drift_time = 0.0;
+// 0 by day, 1 at night: the edges darken further after dark.
+uniform float night = 0.0;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -24,10 +28,10 @@ float noise(vec2 p) {
 
 void fragment() {
 	vec2 map_pos = cam_center + (UV * rect_size - view_center) / cam_scale;
-	vec2 drift = vec2(TIME * 1.6, TIME * 0.7);
+	vec2 drift = vec2(drift_time * 1.6, drift_time * 0.7);
 	float c = noise((map_pos + drift) * 0.005) * 0.7 + noise((map_pos + drift * 1.4) * 0.014) * 0.3;
 	float shadow = smoothstep(0.6, 0.85, c) * 0.1;
 	vec2 d = UV - 0.5;
-	float edge = 1.0 - dot(d, d) * 0.4;
+	float edge = 1.0 - dot(d, d) * (0.4 + 0.45 * night);
 	COLOR = vec4(daylight.rgb * (1.0 - shadow) * edge, 1.0);
 }

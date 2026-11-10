@@ -1,4 +1,5 @@
-## The UI moves the way docs/game-feel-audit.md asks: buttons answer the thumb, sheets
+## The UI moves the way docs/game-feel-audit.md asks (and the map the way
+## docs/map-feel-plan.md does): buttons answer the thumb, sheets
 ## ease out as they ease in, tabs turn, what changed shows itself, the battle result
 ## tallies, time passing is seen, the road encounter lands, letters arrive, deeds are
 ## stamped, talk has a pulse, the dance and the wedding move, and the battle's big
@@ -48,6 +49,7 @@ func _init() -> void:
 	await _changes()
 	await _result()
 	await _map_moments()
+	await _map_feel()
 	await _ribbons()
 	await _talk_and_scenes()
 	await _battle_beats()
@@ -394,6 +396,123 @@ func _map_moments() -> void:
 	m._clock_shown = -1.0
 	m._refresh_hud()
 	check(m.clock_label.text == "%02d:00" % (int(w.hour) % 24), "under Reduced motion the clock just shows the hour")
+	sound.reduced_motion = false
+
+
+# ---- the map answers the thumb (docs/map-feel-plan.md)
+func _map_feel() -> void:
+	gs.new_campaign("vardish")
+	var w = gs.world
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await _arrive("world_map.tscn")
+	var m = current_scene
+	m._close_sheet()
+	await _wait(0.3)
+	var middle: Vector2 = m.Data.SIZE * 0.5
+	# A flick coasts on, slowing, and comes to rest.
+	m._follow = false
+	m.cam_center = middle
+	m._fling = Vector2(400, 0)
+	await _wait(0.25)
+	var coasted: float = m.cam_center.x - middle.x
+	check(coasted > 20.0 and m._fling.x < 400.0, "a flick coasts on after the finger lifts, slowing (%.0f)" % coasted)
+	await _wait(1.6)
+	check(m._fling == Vector2.ZERO, "and comes to rest")
+	# Past the edge it gives less than the finger pulls, then springs home.
+	var edge: Vector2 = m._clamped(Vector2(-5000.0, middle.y))
+	var pulled: Vector2 = m._rubber(edge - Vector2(400.0, 0.0))
+	check(pulled.x < edge.x and pulled.x > edge.x - 400.0, "dragged past the edge, the map gives, but less than the finger (%.0f of 400)" % (edge.x - pulled.x))
+	m.cam_center = pulled
+	await _wait(0.6)
+	check(m.cam_center.distance_to(edge) < 1.0, "and springs back inside when let go")
+	# Sent to a place, the camera glides rather than cuts.
+	var place: String = "thornwall" if w.here() != "thornwall" else "ravensford"
+	m.cam_center = middle
+	m._focus_place(place)
+	await _frames(2)
+	var on_the_way: Vector2 = m.cam_center
+	await _wait(0.7)
+	var there: Vector2 = m._clamped(m.Data.pos(place))
+	check(on_the_way.distance_to(there) > 1.0 and m.cam_center.distance_to(there) < 1.0, "sent to a place, the camera glides there")
+	m._close_sheet()
+	await _wait(0.3)
+	# A lord standing on a town: the nearer is opened, and a second tap on the spot steps
+	# to the other.
+	var lord = null
+	for lp in w.visible_lord_parties():
+		if w.MarshalArmies.for_party(w, lp.id).is_empty():
+			lord = lp
+			break
+	if lord != null:
+		lord.node = place
+		lord.next = ""
+		lord.path = []
+		await _frames(2)
+		var px: float = m._sprite_px()
+		var spot: Vector2 = m._to_screen(m.Data.pos(place)) + Vector2(0, -10.0) * px
+		var stacked: int = m._tap_candidates(spot).size()
+		m._tap(spot)
+		await _frames(2)
+		var first: String = m._sheet
+		check(first == "lord" and not m._tap_fx.is_empty(), "a tap on a lord standing on a town opens a lord, and the tap shows (%s)" % first)
+		var reached := false
+		for i in stacked - 1:
+			m._tap(spot)
+			await _frames(2)
+			if m._sheet == "preview" and m._selected == place:
+				reached = true
+				break
+		check(reached, "tapping the same spot again steps through what's there to the town (%d there)" % stacked)
+		m._close_sheet()
+		await _wait(0.3)
+	# Three on one spot share a plate: only one of their names is drawn.
+	var trio: Array = []
+	for lp in w.visible_lord_parties():
+		if w.MarshalArmies.for_party(w, lp.id).is_empty() and trio.size() < 3:
+			lp.node = place
+			lp.next = ""
+			lp.path = []
+			trio.append(lp)
+	if trio.size() == 3:
+		m.cam_scale = m._max_scale()
+		m._glide_to(m.Data.pos(place), m._max_scale())
+		await _wait(0.8)
+		var drawn := 0
+		for lp in w.visible_lord_parties():
+			if lp.node == place and not lp.moving() and m._plate_lift.has("l%d" % lp.id):
+				drawn += 1
+		for b in w.bands():
+			if b.node == place and not b.moving() and m._plate_lift.has("b%d" % b.id):
+				drawn += 1
+		check(drawn == 1, "three or more parties on one spot share one plate (%d drawn)" % drawn)
+	# Something of yours off-screen gets a pointer at the edge; tapping it glides there.
+	m._follow = false
+	var me: Vector2 = w.party_pos(w.player())
+	m.cam_scale = m._min_scale() * 2.0
+	m.cam_center = m._clamped(m.Data.SIZE - me)
+	await _frames(3)
+	var you: Array = m._pointers.filter(func(ptr): return String(ptr["kind"]) == "you")
+	if m._to_screen(me).distance_to(m._view.get_center()) > m._view.size.length() * 0.5:
+		check(not you.is_empty(), "your company off-screen gets a pointer at the edge")
+		if not you.is_empty():
+			m._tap(you[0]["at"])
+			await _wait(0.7)
+			check(m._view.has_point(m._to_screen(me)), "tapping it glides back to the company")
+	# The purse in the top bar counts to its new number, and the change rises off it.
+	gs.silver += 120
+	await _frames(4)
+	check(scenes.find_child("Float_Effect_silver", true, false) != null, "silver gained on the map rises off its pill")
+	await _wait(0.7)
+	check(m.resource_buttons["silver"].text == m._short_amount(gs.silver), "and the pill counts to it (%s)" % m.resource_buttons["silver"].text)
+	# Reduced motion: the camera cuts and nothing coasts.
+	sound.reduced_motion = true
+	m.cam_center = middle
+	m._glide_to(m.Data.pos(place))
+	check(m.cam_center.distance_to(m._clamped(m.Data.pos(place))) < 1.0, "under Reduced motion the camera goes at once")
+	m._drag_velocity = Vector2(2000, 0)
+	m._drag_last_ms = Time.get_ticks_msec()
+	m._release_fling()
+	check(m._fling == Vector2.ZERO, "and a drag doesn't coast")
 	sound.reduced_motion = false
 
 
