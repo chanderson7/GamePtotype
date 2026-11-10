@@ -30,6 +30,8 @@ const SFX_DB := {
 	"road_open": -25.0, "road_night": -26.0, "settlement_edge": -26.0,
 	"settlement_vardish": -27.0, "settlement_kharzani": -27.0, "settlement_ryumon": -27.0,
 	"objective": -6.0,
+	# The opening's light running across the title: a shimmer, just over the music.
+	"glint": -14.0,
 	"sword": -12.0, "shield": -12.0, "spear": -12.0, "heavy": -11.0, "melee_bed": -15.0,
 	"arrows_land": -13.0, "bolts_land": -12.0, "javelins_land": -11.0, "quiver_empty": -12.0,
 	"warcry": -10.0, "panic": -12.0, "cheer": -9.0, "gasp": -12.0,
@@ -204,13 +206,27 @@ const BATTLE_BAR := 2.0
 ## Where a quiet battle layer rests: the floor _toward() fades down to.
 const LAYER_FLOOR_DB := BATTLE_MUSIC_DB - 34.0
 var _layers_fading := false
+## Counts play_music calls, so a piece asked for later gives way to a newer one.
+var _music_asked := 0
 
 
 ## Fade into the named piece (title, vardish, kharzani, ryumon, ...), unless it's already on.
-func play_music(name: String) -> void:
+## `after`: start it this many seconds from now (the opening times Home's music to its title).
+func play_music(name: String, after: float = 0.0) -> void:
 	if name == _track:
 		return
 	_track = name
+	_music_asked += 1
+	if after > 0.0:
+		var asked := _music_asked
+		get_tree().create_timer(after).timeout.connect(func():
+			if asked == _music_asked:
+				_start_music(name))
+		return
+	_start_music(name)
+
+
+func _start_music(name: String) -> void:
 	_stop_layers()
 	var old := _music[_current]
 	_current = 1 - _current
@@ -237,6 +253,7 @@ func battle_clash() -> void:
 	if _battle_realm == "" or _layers["base"].playing:
 		return
 	_track = "battle"
+	_music_asked += 1
 	var names := {"base": "base_%s" % _battle_realm, "high": "high_%s" % _battle_realm, "win": "turn_win", "lose": "turn_lose"}
 	_layers_fading = false
 	for key in BATTLE_LAYERS:
@@ -265,6 +282,7 @@ func set_battle_balance(value: float) -> void:
 ## music so the music ends on the beat, then a quiet piece plays under the results.
 func stinger(name: String) -> void:
 	_track = "stinger:" + name
+	_music_asked += 1
 	_battle_realm = ""
 	var wait := 0.0
 	var base: AudioStreamPlayer = _layers["base"]

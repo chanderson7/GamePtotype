@@ -18,8 +18,7 @@ const SaveSlots = preload("res://scripts/save_slots.gd")
 const Opening = preload("res://scripts/menu/opening.gd")
 const NewCampaign = preload("res://scripts/menu/new_campaign.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
-## The wordmark: the three banners beside the name, and the tagline.
-const WORDMARK := "res://assets/branding/wordmark.png"
+const Wordmark = preload("res://scripts/ui/wordmark.gd")
 ## The light over the title's map: early morning.
 const DAWN := Color(1.0, 0.88, 0.76)
 
@@ -40,11 +39,13 @@ func _ready() -> void:
 		return
 	# A first visit hears the Glass Sea; with a campaign under way, your own realm's tune by
 	# the campfire, the fire crackling under it.
+	# Under the opening, the music waits so that it reaches full as the title lands.
+	var after := Opening.music_after(Opening.kind_for(GameState.has_campaign())) if Opening.wanted() else 0.0
 	if GameState.has_campaign():
-		Sound.play_music("camp_" + GameState.culture)
+		Sound.play_music("camp_" + GameState.culture, after)
 		Sound.set_loop("camp")
 	else:
-		Sound.play_music("title")
+		Sound.play_music("title", after)
 	_build()
 
 
@@ -99,7 +100,7 @@ func _build() -> void:
 	col.add_theme_constant_override("separation", 18)
 	margin.add_child(col)
 	var campaign: bool = GameState.has_campaign()
-	var title := _title(80 if campaign else 92)
+	var title := Wordmark.title(80 if campaign else 92)
 	col.add_child(title)
 	if title.get_node_or_null("Wordmark") == null:
 		# No wordmark to show: the name in the display face, and the sea under it.
@@ -142,11 +143,9 @@ func _build() -> void:
 	row.add_child(_minor("Settings", "gear", func():
 		Scenes.settings_return = "res://scenes/title.tscn"
 		Scenes.go("res://scenes/settings.tscn")))
-	if not Style.motion_reduced():
-		col.modulate.a = 0.0
-		col.create_tween().tween_property(col, "modulate:a", 1.0, 0.35)
 	# The first time Home opens this launch, the opening plays over it: the boot splash
-	# comes to life and its title rises into this one.
+	# comes to life, its banners fly into the title as it rises into place, and the rest of
+	# Home arrives under the lifting night. Otherwise Home's column fades in.
 	if Opening.wanted():
 		Opening.played = true
 		var layer := CanvasLayer.new()
@@ -155,58 +154,14 @@ func _build() -> void:
 		add_child(layer)
 		var opening := Opening.new()
 		layer.add_child(opening)
-		opening.setup(title)
-
-
-## The title: the wordmark, painted, over the word "Bannerfall" set clear. The opening
-## raises a copy of this label (wordmark and all) into its place, so the hand-over is
-## the same picture. With no wordmark file, the word itself shows in the display face.
-func _title(size: int) -> Label:
-	var title := Style.label("Bannerfall", size, Style.BRASS)
-	title.name = "HomeTitle"
-	# The name is the game's mark, not text to read: it keeps its size whatever the text
-	# setting, so the painted wordmark (a little wider than the word) stays on the screen.
-	title.add_theme_font_size_override("font_size", size)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	title.add_theme_constant_override("outline_size", 10)
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
-	var tex := _wordmark()
-	if tex == null:
-		return title
-	title.add_theme_color_override("font_color", Color(0, 0, 0, 0))
-	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0))
-	var mark := TextureRect.new()
-	mark.name = "Wordmark"
-	mark.texture = tex
-	mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	mark.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# A little wider than the word and twice as tall, so the banners and tagline fit
-	# around it; proportional, so the opening's scaled copy carries it the same way.
-	mark.anchor_left = -0.08
-	mark.anchor_right = 1.08
-	mark.anchor_top = -0.45
-	mark.anchor_bottom = 1.45
-	title.add_child(mark)
-	return title
-
-
-static var _mark_tex: Texture2D = null
-static var _mark_tried := false
-
-
-func _wordmark() -> Texture2D:
-	if _mark_tried:
-		return _mark_tex
-	_mark_tried = true
-	if ResourceLoader.exists(WORDMARK, "Texture2D"):
-		_mark_tex = load(WORDMARK) as Texture2D
-	elif FileAccess.file_exists(WORDMARK):
-		var img := Image.load_from_file(WORDMARK)
-		if img != null and not img.is_empty():
-			_mark_tex = ImageTexture.create_from_image(img)
-	return _mark_tex
+		var card: Array = []
+		for c in col.get_children():
+			if c != title:
+				card.append(c)
+		opening.setup(title, Opening.kind_for(campaign), card, [bar])
+	elif not Style.motion_reduced():
+		col.modulate.a = 0.0
+		col.create_tween().tween_property(col, "modulate:a", 1.0, 0.35)
 
 
 ## A small button with an icon over its word, for the bottom row.

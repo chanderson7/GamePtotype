@@ -39,6 +39,7 @@ const LOUDEST := {
 	"footsteps": -18.2,
 	"gasp": -10.9,
 	"gate_break": -17.5,
+	"glint": -11.2,
 	"heavy_1": -13.1,
 	"heavy_10": -13.4,
 	"heavy_11": -14.8,

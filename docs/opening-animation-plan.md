@@ -1,9 +1,29 @@
 # The opening: what's wrong with it and what to do
 
-A plan, nothing built yet. The opening is `scripts/menu/opening.gd` (240 lines), played over
-Home by `scripts/menu/title.gd`; its first frame is meant to be the boot splash
-(`assets/splash.png`, rendered by `tools/render_splash.gd`). `tests/opening_tests.gd` covers
-it and passes today.
+**As built (2026-11-10).** All four stages are in: the reordered mark (`assets/branding/wordmark.svg`,
+`tools/render_wordmark.gd`, `scripts/ui/wordmark.gd`), the splash rendered once from the new
+first frame with its guard (`assets/splash.json`, `--check`), the full and short timelines,
+the glint's shimmer (`tools/opening_sfx.py`), and the banners flying into the mark.
+`tests/opening_tests.gd` checks all of it.
+
+![The opening as built](mockups/opening-as-built.png)
+
+Where the build differs from the plan below:
+
+- **The banners fly to Home's mark, not to the moving title,** on their own span (`fly`)
+  a little ahead of the title's rise (`rise`). Chasing the rising title, they crossed the
+  name mid-flight; this way they keep above it and land beside it. The tests step through
+  both openings and fail if a banner or the dawn ever overlaps the name's ink.
+- **The night ends at the horizon.** Lifting the whole screen of night showed the dawn at
+  the top and a second warm band at the bottom, with night between. Now the sky stops at
+  the ridge line, a glow lies under the horizon behind the ridge, and when the ridge fades
+  Home shows beneath it; the night then lifts with the dawn as its lower edge.
+- **The ridge fades in place** rather than sinking, so it never moves past the name.
+- **The painted banners take over after the title has stopped** (over 0.12 s), and Home's
+  own title is shown once the night has lifted from over it, so nothing doubles.
+- **The mark** keeps the name and tagline as they were, moved left to sit by the banners;
+  the image is now 1512 by 360. The banner cluster is exactly the ridge's (Vardmark's
+  gonfalon is as tall as the nobori); the app icon, a single flag, is unchanged.
 
 **Decided (2026-11-10):**
 - **One set of banners.** The three on the ridge become the wordmark's three.
