@@ -18,8 +18,9 @@ What was left, and why:
 - **Brand:** only the wordmark came over from `app-logo` and sits on Home over the title
   label, with the Cinzel text as a fallback. The app icon still waits on a choice.
 - **Iron Company** is renamed **Mortal** in New campaign and Settings; change it freely.
-- **Not done:** tab icons on the Warband and settlement tab bars (five tabs with icon and word
-  overflow a phone); the settlement keeps its own shell rather than `Page.frame`; the marshal
+- **Not done:** tab icons on the settlement tab bar (five tabs with icon and word overflow a
+  phone). The Warband's four tabs have them, the icon over the word and the count on a brass
+  pill (`Widgets.tab_bar(..., stacked = true)`); the settlement keeps its own shell rather than `Page.frame`; the marshal
   army's "Expedition timed out" outcome type (it lives in `marshal_armies.gd`); the arrival
   subtitle's realm (in `travel_presentation.gd`); the map's top-bar pills stay 64 tall; men and
   morale are not in the battle info strip (the card and standard say them); grief and wavering
@@ -262,6 +263,15 @@ hall · 3".
    to 80.
 
 ### Warband (`menu/main_menu.gd`)
+
+**Compact header, as built** (mockup `mockups/warband-compact-before-after.png`): the four
+tiles share one row (`Widgets.compact_tile`; two rows when big text or big numbers won't fit),
+food shows the stock with its days under it; pay that can be met is a `clock` chip with the
+place, day and speed, and the Next pay card shows only when pay runs short (red edge, "Men may
+leave") or there's no map; the tabs stack icon over word with the count on a pill; the
+captains stand in a grid four across (three at big text), the resting last, dimmed, with a
+`wounded` mark; "7 ready · 1 resting · 1 remembered" are chips on the camp picture, the last
+one jumping to The fallen. Not yet run in Godot.
 
 1. **The roster row** (mockup 1): face with the troop badge, name with `men` 11/12 and
    `wounded` 1 on the right, captain with temperament and quirk icons and a gold Promotion chip,

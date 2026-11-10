@@ -72,7 +72,13 @@ func _init() -> void:
 	var captains: int = gs.army.filter(func(s): return s.get("captain") is Dictionary).size()
 	check(tokens.size() == captains, "every captain has a place at the fire (%d of %d)" % [tokens.size(), captains])
 	var hurt_token = camp.find_child("CampCaptain_%d" % int(cap["id"]), true, false)
-	check(hurt_token != null and hurt_token.text.contains("resting"), "the wounded captain is shown resting")
+	check(hurt_token != null and hurt_token.find_child("RestingMark", true, false) != null and String(hurt_token.accessibility_name).contains("resting"),
+		"the wounded captain is shown resting")
+	var grid_tokens: Array = tableau.find_child("CampCaptains", true, false).get_children() if tableau != null else []
+	check(not grid_tokens.is_empty() and grid_tokens.back() == hurt_token, "and sits at the end of the fire, after those ready")
+	var fire = camp.find_child("FireChips", true, false)
+	check(fire != null and fire.get_parent().name == "WarbandCampStage" and fire.get_child_count() >= 2,
+		"who's ready and who's resting is said on the camp picture")
 	check(camp.find_child("CampMoment", true, false) != null, "the camp shows the moment")
 	var state: String = _state_without_seen()
 	var dismiss: Button = null

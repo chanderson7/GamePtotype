@@ -70,30 +70,37 @@ func _build() -> void:
 	# Who you are, where, and what you have. The camp's banner says the people.
 	col.add_child(Style.label("Warband", 64, Style.BRASS))
 	var w = GameState.world
+	var pay := _pay_forecast()
 	if w != null:
 		var pace: float = w.party_pace(w.player())
 		var pace_tone := Style.MORALE_HIGH if pace >= 1.05 else (Style.MORALE_LOW if pace < 0.9 else Style.TEXT)
-		var where_chips := Widgets.chip_row([
+		var chips := [
 			Widgets.stat("mappin", String(WorldData.settlement(w.player().node)["name"])),
 			Widgets.stat("day", str(int(w.hour) / 24 + 1)),
 			Widgets.stat("speed", str(roundi(w.player_speed())), pace_tone),
-		])
+		]
+		if not bool(pay["short"]):
+			chips.append(_pay_chip(pay))
+		var where_chips := Widgets.chip_row(chips)
 		where_chips.name = "WhereChips"
 		col.add_child(where_chips)
 	if GameState.company_title != "" and Achievements.DEEDS.has(GameState.company_title):
 		var known := Style.label("Known as %s" % Achievements.DEEDS[GameState.company_title]["title"], Style.BODY, Style.BRASS)
 		known.name = "CompanyTitle"
 		col.add_child(known)
-	col.add_child(_tiles())
-	_upkeep_forecast(col)
+	_tiles(col)
+	# The pay card only when it says something the tiles don't: it can't be met, or
+	# there's no map to put the chip on.
+	if bool(pay["short"]) or w == null:
+		_upkeep_forecast(col, pay)
 
 	var tabs := [
-		{"id": "camp", "label": "Camp", "badge": 1 if CampMoments.pick(GameState).size() > 0 else 0},
-		{"id": "companies", "label": "Companies", "badge": _promotions_ready()},
-		{"id": "bonds", "label": "Bonds", "badge": GameState.new_bond_talks().size()},
-		{"id": "deeds", "label": "Deeds", "badge": GameState.active_jobs.size()},
+		{"id": "camp", "label": "Camp", "icon": "fire", "badge": 1 if CampMoments.pick(GameState).size() > 0 else 0},
+		{"id": "companies", "label": "Companies", "icon": "company", "badge": _promotions_ready()},
+		{"id": "bonds", "label": "Bonds", "icon": "bond", "badge": GameState.new_bond_talks().size()},
+		{"id": "deeds", "label": "Deeds", "icon": "book", "badge": GameState.active_jobs.size()},
 	]
-	col.add_child(Widgets.tab_bar(tabs, _tab, _on_tab, "WarbandTabs"))
+	col.add_child(Widgets.tab_bar(tabs, _tab, _on_tab, "WarbandTabs", true))
 
 	# Every tab is built, and only the open one shown, so links into any of them work.
 	var camp := VBoxContainer.new()
@@ -228,22 +235,26 @@ func _build() -> void:
 	_restore_scroll(keep)
 
 
-## Silver (and what a day costs), food, renown, and men (with the wounded), as tiles.
-func _tiles() -> Control:
+## Silver (and what a day costs), food (and the days it lasts), men (with the wounded)
+## and renown, as tiles in one row; two rows when big text or big numbers won't fit one.
+func _tiles(parent: Control) -> void:
 	var days := GameState.food_days()
 	var net := GameState.contract_daily_pay() - GameState.daily_outgoings()
 	var wounded := GameState.total_wounded()
 	var grid := Widgets.tile_grid([
-		Widgets.tile("silver", Widgets.thousands(GameState.silver), "%s%d a day" % ["+" if net > 0 else "−", absi(net)]),
-		Widgets.tile("food", str(days), "day" if days == 1 else "days", Style.ENEMY_LIGHT if days < 3 else Style.TEXT),
-		Widgets.tile("men", str(GameState.total_men()), "+%d wounded" % wounded if wounded > 0 else "all fit"),
-		Widgets.tile("renown", "%d" % GameState.renown, "renown"),
-	], 2)
+		Widgets.compact_tile("silver", Widgets.thousands(GameState.silver), "%s%d a day" % ["+" if net > 0 else "−", absi(net)]),
+		Widgets.compact_tile("food", Widgets.thousands(GameState.food), "%d day%s" % [days, "" if days == 1 else "s"], Style.ENEMY_LIGHT if days < 3 else Style.TEXT),
+		Widgets.compact_tile("men", str(GameState.total_men()), str(wounded) if wounded > 0 else "all fit", Style.TEXT, "wounded" if wounded > 0 else ""),
+		Widgets.compact_tile("renown", Widgets.thousands(GameState.renown), "renown"),
+	], 4)
 	grid.name = "WarbandTiles"
+	# Measured in the tree, where the words have their font.
+	parent.add_child(grid)
+	if grid.get_combined_minimum_size().x > _room():
+		grid.columns = 2
 	if _shown_silver >= 0 and _shown_silver != GameState.silver:
 		Widgets.tick_to(grid.get_child(0).find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v), "silver")
 	_shown_silver = GameState.silver
-	return grid
 
 
 func _on_tab(id: String) -> void:
@@ -285,7 +296,49 @@ func _camp_header() -> Control:
 		banner.draw_line(at + Vector2(0, -2), at + Vector2(0, 146), Color("6b4a2a"), 5.0)
 		Heraldry.flag(banner, at + Vector2(4, 4), Vector2(108, 70), color, color.darkened(0.42), true, Troops.INFANTRY, false, true))
 	stage.add_child(banner)
+	# Who's at the fire, as chips on the foot of the picture, over a shade that keeps
+	# them readable on a bright camp.
+	var shade := Control.new()
+	shade.name = "FireShade"
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.draw.connect(func():
+		var top := shade.size.y * 0.45
+		var clear := Color(Style.NIGHT, 0.0)
+		var dark := Color(Style.NIGHT, 0.82)
+		shade.draw_polygon(PackedVector2Array([Vector2(0, top), Vector2(shade.size.x, top), shade.size, Vector2(0, shade.size.y)]),
+			PackedColorArray([clear, clear, dark, dark])))
+	stage.add_child(shade)
+	var counts := _fire_counts()
+	var chips := [Widgets.stat("fire", "%d ready" % int(counts["ready"]))]
+	if int(counts["resting"]) > 0:
+		chips.append(Widgets.stat("wounded", "%d resting" % int(counts["resting"])))
+	if not GameState.fallen.is_empty():
+		var remembered := Widgets.stat("lantern", "%d remembered" % GameState.fallen.size())
+		remembered.name = "RememberedChip"
+		remembered.tooltip_text = "The fallen"
+		Widgets.on_tap(remembered, func(): _jump_to_fallen())
+		chips.append(remembered)
+	var fire := Widgets.chip_row(chips)
+	fire.name = "FireChips"
+	fire.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	fire.offset_left = 12.0
+	fire.offset_right = -12.0
+	fire.offset_top = -12.0
+	fire.offset_bottom = -12.0
+	fire.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	stage.add_child(fire)
 	return stage
+
+
+## How many captains stand ready at the fire, and how many rest wounded.
+func _fire_counts() -> Dictionary:
+	var out := {"ready": 0, "resting": 0}
+	for s in GameState.army:
+		var c = s.get("captain")
+		if c is Dictionary:
+			out["resting" if int(c.get("wounded", 0)) > 0 else "ready"] += 1
+	return out
 
 
 ## The camp's light by the hour on the map: night is dark and blue, dawn and dusk warm.
@@ -301,45 +354,83 @@ func _camp_light() -> Color:
 	return Color.WHITE
 
 
-## The captains around the fire: those fit for duty stand ready, the wounded rest. Each
-## opens the captain's profile. The fallen are remembered below, not here.
+## The captains around the fire, in an even grid, face over name: those fit for duty
+## first, then the wounded, dimmed and marked as resting. Each opens the captain's
+## profile. The counts are on the picture above; the fallen are remembered below.
 func _camp_tableau() -> Control:
 	var box := VBoxContainer.new()
 	box.name = "CampTableau"
-	box.add_theme_constant_override("separation", 6)
-	var ready := 0
-	var resting := 0
-	var flow := HFlowContainer.new()
-	flow.add_theme_constant_override("h_separation", 8)
-	flow.add_theme_constant_override("v_separation", 8)
+	var hurt_last := []
 	for s in GameState.army:
 		var c = s.get("captain")
-		if not (c is Dictionary):
-			continue
-		var hurt := int(c.get("wounded", 0)) > 0
-		if hurt:
-			resting += 1
-		else:
-			ready += 1
-		var token := Button.new()
-		token.name = "CampCaptain_%d" % int(c.get("id", 0))
-		token.text = "%s%s" % [String(c.get("first", c.get("name", "Captain"))), " · resting" if hurt else ""]
-		token.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
-		token.custom_minimum_size = Vector2(0, Style.TOUCH)
-		if Style.illustrations_on():
-			token.icon = CaptainArt.texture(c)
-			token.add_theme_constant_override("icon_max_width", 48)
-			token.add_theme_constant_override("h_separation", 8)
-		if hurt:
-			token.modulate = Color(0.75, 0.75, 0.82)
-		token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))
-		flow.add_child(token)
-	var summary := "Around the fire: %d ready%s" % [ready, (", %d resting" % resting) if resting > 0 else ""]
-	if not GameState.fallen.is_empty():
-		summary += " · %d remembered" % GameState.fallen.size()
-	box.add_child(_note(summary))
-	box.add_child(flow)
+		if c is Dictionary and int(c.get("wounded", 0)) <= 0:
+			hurt_last.append(c)
+	for s in GameState.army:
+		var c = s.get("captain")
+		if c is Dictionary and int(c.get("wounded", 0)) > 0:
+			hurt_last.append(c)
+	var grid := GridContainer.new()
+	grid.name = "CampCaptains"
+	# Four across; three when the text is set big.
+	grid.columns = 4 if Style.text_size(Style.SMALL) <= roundi(Style.SMALL * 1.15) else 3
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	for c in hurt_last:
+		grid.add_child(_camp_token(c))
+	box.add_child(grid)
 	return box
+
+
+## One captain at the fire: the face over the first name, the whole tile a button.
+func _camp_token(c: Dictionary) -> Button:
+	var hurt := int(c.get("wounded", 0)) > 0
+	var first := String(c.get("first", c.get("name", "Captain")))
+	var token := Button.new()
+	token.name = "CampCaptain_%d" % int(c.get("id", 0))
+	token.text = first
+	token.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	token.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	token.clip_text = true
+	token.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	token.custom_minimum_size = Vector2(0, Style.TOUCH)
+	# The theme's button looks, with narrow sides so a name has the tile's width.
+	var looks := {"normal": Style.box(Style.RAISED, Style.RULE, 2), "hover": Style.box(Style.RAISED.lightened(0.06), Style.MUTED, 2),
+		"pressed": Style.box(Style.RAISED.darkened(0.16), Style.BRASS, 4), "hover_pressed": Style.box(Style.RAISED.darkened(0.16), Style.BRASS, 4)}
+	for state in looks:
+		var sb: StyleBoxFlat = looks[state]
+		sb.content_margin_left = 4
+		sb.content_margin_right = 4
+		token.add_theme_stylebox_override(state, sb)
+	if Style.illustrations_on():
+		token.icon = CaptainArt.texture(c)
+		token.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		token.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		token.add_theme_constant_override("icon_max_width", 55)
+		token.add_theme_constant_override("h_separation", 2)
+	token.tooltip_text = first
+	if hurt:
+		var back := int(c.get("wounded", 0))
+		token.tooltip_text = "%s rests: back in %d battle%s" % [first, back, "" if back == 1 else "s"]
+		token.accessibility_name = "%s, resting" % first
+		for k in ["font_color", "font_hover_color", "font_pressed_color", "font_hover_pressed_color", "font_focus_color"]:
+			token.add_theme_color_override(k, Style.MUTED)
+		for k in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+			token.add_theme_color_override(k, Color(1, 1, 1, 0.62))
+		var mark := PanelContainer.new()
+		mark.name = "RestingMark"
+		mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var mb := Style.box(Style.NIGHT, Style.RULE, 2, 20)
+		mb.set_content_margin_all(5)
+		mark.add_theme_stylebox_override("panel", mb)
+		mark.add_child(Widgets.icon_rect("wounded", 22.0))
+		mark.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		mark.offset_left = -6.0
+		mark.offset_right = -6.0
+		mark.offset_top = 6.0
+		mark.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		token.add_child(mark)
+	token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))
+	return token
 
 
 ## One optional moment from what happened to the company, on a gold card, or nothing on
@@ -483,8 +574,14 @@ func _on_moment_dismiss(key: String) -> void:
 	_build()
 
 
-## What the next day costs, as a card: wages and rations going out, and what's left after.
-func _upkeep_forecast(parent: Control) -> void:
+## The width the page's column has: the screen's, up to a phone's, less the margins.
+func _room() -> float:
+	return minf(get_viewport_rect().size.x, Style.COLUMN_MAX) - 64.0
+
+
+## What the next day costs: wages (less a contract's pay) and rations going out, when,
+## what's left after, and whether that runs short.
+func _pay_forecast() -> Dictionary:
 	var wages := GameState.daily_outgoings()
 	var stipend := GameState.contract_daily_pay()
 	var rations := GameState.total_men()
@@ -494,7 +591,29 @@ func _upkeep_forecast(parent: Control) -> void:
 		due = Style.time_short(maxf(1.0, float(next_day) - GameState.world.hour))
 	var after_silver := GameState.silver - wages + stipend
 	var after_food := GameState.food - rations
-	var short := after_silver < 0 or after_food < 0
+	return {"silver_out": wages - stipend, "food_out": rations, "due": due,
+		"after_silver": after_silver, "after_food": after_food, "short": after_silver < 0 or after_food < 0}
+
+
+## Pay that can be met, as a chip by the place and the day: only the time is news, since
+## the tiles say what a day costs. Its tooltip has the sums.
+func _pay_chip(pay: Dictionary) -> Control:
+	var c := Widgets.stat("clock", "Pay in %s" % String(pay["due"]))
+	c.name = "NextPayChip"
+	c.mouse_filter = Control.MOUSE_FILTER_PASS
+	c.tooltip_text = "Wages %s → %s silver · rations −%s → %s" % [
+		("−" if int(pay["silver_out"]) > 0 else "+") + Widgets.thousands(absi(int(pay["silver_out"]))),
+		Widgets.thousands(int(pay["after_silver"])), Widgets.thousands(int(pay["food_out"])), Widgets.thousands(int(pay["after_food"]))]
+	return c
+
+
+## Pay as a card: wages and rations going out, and what's left after; red, with a
+## warning, when it runs short.
+func _upkeep_forecast(parent: Control, pay: Dictionary) -> void:
+	var due := String(pay["due"])
+	var after_silver := int(pay["after_silver"])
+	var after_food := int(pay["after_food"])
+	var short := bool(pay["short"])
 	var v := Widgets.card(parent, "Next pay", due, Style.ENEMY_LIGHT if short else Style.MUTED)
 	v.get_parent().name = "NextPayCard"
 	var aside := v.find_child("CardAside", true, false) as Control
@@ -502,8 +621,13 @@ func _upkeep_forecast(parent: Control) -> void:
 		var clock := Widgets.icon_rect("clock", 26.0)
 		aside.get_parent().add_child(clock)
 		aside.get_parent().move_child(clock, aside.get_index())
-	v.add_child(_pay_line("silver", wages - stipend, maxi(0, after_silver), after_silver < 0))
-	v.add_child(_pay_line("food", rations, maxi(0, after_food), after_food < 0))
+	if short:
+		var panel := v.get_parent() as PanelContainer
+		var sb := (panel.get_theme_stylebox("panel") as StyleBoxFlat).duplicate() as StyleBoxFlat
+		sb.border_color = Style.MORALE_LOW
+		panel.add_theme_stylebox_override("panel", sb)
+	v.add_child(_pay_line("silver", int(pay["silver_out"]), maxi(0, after_silver), after_silver < 0))
+	v.add_child(_pay_line("food", int(pay["food_out"]), maxi(0, after_food), after_food < 0))
 	if short:
 		var warn := Widgets.chip("Men may leave", Style.MORALE_LOW, "▼")
 		warn.name = "Shortfall"

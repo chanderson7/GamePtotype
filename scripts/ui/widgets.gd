@@ -83,6 +83,36 @@ static func tile(key: String, value: String, sub: String, tone: Color = Style.TE
 	return t
 
 
+## A tile narrow enough for four in a row: the icon beside the number, the line under
+## both. `sub_icon` puts a small icon before the line (the wounded beside their count).
+static func compact_tile(key: String, value: String, sub: String, tone: Color = Style.TEXT, sub_icon: String = "") -> PanelContainer:
+	var t := PanelContainer.new()
+	t.name = "Tile_%s" % key
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := Style.box(Style.PANEL, Style.RULE, 2, 14)
+	sb.content_margin_top = 10
+	sb.content_margin_bottom = 9
+	t.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	t.add_child(v)
+	var top := HBoxContainer.new()
+	top.add_theme_constant_override("separation", 8)
+	v.add_child(top)
+	top.add_child(icon_rect(key, 30.0))
+	var big := Style.label(value, Style.BODY, tone)
+	big.name = "Value"
+	top.add_child(big)
+	var under := HBoxContainer.new()
+	under.name = "Sub"
+	under.add_theme_constant_override("separation", 6)
+	v.add_child(under)
+	if sub_icon != "":
+		under.add_child(icon_rect(sub_icon, 22.0))
+	under.add_child(Style.label(sub, Style.SMALL, Style.MUTED))
+	return t
+
+
 ## Tiles in rows of `per_row`.
 static func tile_grid(tiles: Array, per_row: int = 2) -> GridContainer:
 	var g := GridContainer.new()
@@ -103,12 +133,14 @@ static func thousands(n: int) -> String:
 	return ("-" if n < 0 else "") + digits + out
 
 
-## A segmented tab bar. `tabs` is [{id, label, badge}]; tapping calls on_tab(id). The lit
+## A segmented tab bar. `tabs` is [{id, label, badge, icon}]; tapping calls on_tab(id). The lit
 ## tab carries a brass underline that slides across when it changes. Each tab is a full
 ## touch target; its words grow with the text setting as far as they fit, then wrap onto
 ## a second line (the bar grows taller) rather than being cut short. Under a mouse an unlit
 ## tab lights faintly, and a keyboard's focus shows as a brass ring.
-static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: String = "Tabs") -> PanelContainer:
+## `stacked` sets each tab's icon over its word and its count on a brass pill at the
+## icon's shoulder, so four tabs with icons fit a phone and every tab is one height.
+static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: String = "Tabs", stacked: bool = false) -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.name = bar_name
 	var box := Style.box(Style.PANEL, Style.RULE, 2, 18)
@@ -125,15 +157,38 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		var b := Button.new()
 		b.name = "Tab_%s" % t["id"]
 		var badge := int(t.get("badge", 0))
-		b.text = String(t["label"]) + ("  %d" % badge if badge > 0 else "")
+		b.text = String(t["label"]) + ("  %d" % badge if badge > 0 and not stacked else "")
 		var tab_icon := String(t.get("icon", ""))
 		if tab_icon != "":
 			b.icon = icon(tab_icon)
 			b.expand_icon = false
 			b.add_theme_constant_override("icon_max_width", 30)
-			b.add_theme_constant_override("h_separation", 8)
+			b.add_theme_constant_override("h_separation", 2 if stacked else 8)
+			if stacked:
+				b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+				b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			if String(t["label"]) == "":
 				b.tooltip_text = String(t.get("tip", t["id"]))
+		if stacked:
+			b.set_meta("stacked", true)
+			var pill := count_badge(badge)
+			var pill_box := Style.box(Style.BRASS, Style.PANEL, 2, 20)
+			pill_box.content_margin_left = 8
+			pill_box.content_margin_right = 8
+			pill_box.content_margin_top = 0
+			pill_box.content_margin_bottom = 1
+			pill.add_theme_stylebox_override("panel", pill_box)
+			(pill.get_node("Count") as Label).add_theme_color_override("font_color", Style.BRASS_INK)
+			(pill.get_node("Count") as Label).add_theme_font_size_override("font_size", Style.text_size(20))
+			# At the icon's top right: the middle of the tab, a little to the right.
+			pill.set_anchors_preset(Control.PRESET_CENTER_TOP)
+			pill.offset_left = 9.0
+			pill.offset_right = 9.0
+			pill.offset_top = 1.0
+			pill.grow_horizontal = Control.GROW_DIRECTION_END
+			b.add_child(pill)
+			if badge > 0:
+				b.accessibility_name = "%s, %d" % [String(t["label"]), badge]
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.custom_minimum_size = Vector2(0, Style.TOUCH)
 		# Tabs share one row: the words take the full text size where they fit, shrink no
@@ -155,10 +210,17 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		for state in ["normal", "hover", "pressed", "hover_pressed"]:
 			b.add_theme_stylebox_override(state, lit if on else (hover if state.begins_with("hover") else flat))
 		b.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Color(Style.BRASS, 0.7), 2, 14))
-		var ink := (Color("f3d891") if gold else Style.TEXT) if on else (Style.BRASS if badge > 0 or gold else Style.MUTED)
+		# A stacked tab's pill says something waits there, so its word stays plain.
+		var called := badge > 0 and not stacked
+		var ink := (Color("f3d891") if gold else Style.TEXT) if on else (Style.BRASS if called or gold else Style.MUTED)
 		for c in ["font_color", "font_pressed_color", "font_focus_color"]:
 			b.add_theme_color_override(c, ink)
-		b.add_theme_color_override("font_hover_color", ink if on or badge > 0 or gold else Style.TEXT)
+		b.add_theme_color_override("font_hover_color", ink if on or called or gold else Style.TEXT)
+		if stacked:
+			for c in ["icon_normal_color", "icon_pressed_color", "icon_focus_color"]:
+				b.add_theme_color_override(c, ink)
+			for c in ["icon_hover_color", "icon_hover_pressed_color"]:
+				b.add_theme_color_override(c, ink if on or gold else Style.TEXT)
 		b.pressed.connect(on_tab.bind(String(t["id"])))
 		row.add_child(b)
 	row.sort_children.connect(func(): _fit_tab_words(row))
@@ -178,7 +240,7 @@ static func _fit_tab_words(row: HBoxContainer) -> void:
 		var font := b.get_theme_font("font")
 		var full := int(b.get_meta("font_full", Style.text_size(Style.SMALL)))
 		var least := int(b.get_meta("font_least", full))
-		var room := b.size.x - 28.0 - (38.0 if b.icon != null else 0.0)
+		var room := b.size.x - 28.0 - (38.0 if b.icon != null and not b.has_meta("stacked") else 0.0)
 		var fits := full
 		if font != null:
 			for word in b.text.split(" ", false):

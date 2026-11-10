@@ -276,9 +276,23 @@ func _run() -> void:
 		"Warband combines the camp header with stable captain portraits")
 	check(current_scene.find_child("CompanyBanner", true, false) != null and current_scene.find_child("WarbandSort", true, false) != null,
 		"Warband shows the company banner and selectable roster sorting")
+	var pay_chip = current_scene.find_child("NextPayChip", true, false)
+	check(pay_chip != null and pay_chip.get_parent().name == "WhereChips" and current_scene.find_child("NextPayCard", true, false) == null,
+		"pay that can be met is a chip by the place and the day")
+	var tiles = current_scene.find_child("WarbandTiles", true, false)
+	check(tiles != null and tiles.columns == 4 and tiles.find_child("Tile_food", true, false).find_child("Value", true, false).text.replace(",", "") == str(gs.food),
+		"the four tiles share one row, food showing the stock")
+	var kept_silver: int = gs.silver
+	gs.silver = 0
+	current_scene._build()
+	await process_frame
 	var pay = current_scene.find_child("NextPayCard", true, false)
-	check(pay != null and pay.find_child("Pay_silver", true, false) != null and pay.find_child("Pay_food", true, false) != null,
-		"Warband forecasts the next wage and food payment")
+	check(pay != null and pay.find_child("Pay_silver", true, false) != null and pay.find_child("Pay_food", true, false) != null
+		and pay.find_child("Shortfall", true, false) != null and current_scene.find_child("NextPayChip", true, false) == null,
+		"pay that can't be met is a card, with what goes out and a warning")
+	gs.silver = kept_silver
+	current_scene._build()
+	await process_frame
 	check(_has_text(current_scene, "Active companies") and _has_text(current_scene, "Wounded captains"),
 		"active and wounded companies are visually separated")
 	check(current_scene.find_children("WarbandMeter", "", true, false).size() >= gs.army.size()
@@ -294,7 +308,9 @@ func _run() -> void:
 	check(scenes.warband_sort == 4 and int(current_scene.find_child("WarbandSort", true, false).get_meta("picked", -1)) == 4,
 		"Warband remembers the selected captain-name sort")
 	var bonds_tab_button := current_scene.find_child("Tab_bonds", true, false) as Button
-	check(bonds_tab_button != null and bonds_tab_button.text.ends_with("1"), "the Bonds tab says a talk waits at the fire")
+	var bonds_badge = bonds_tab_button.find_child("Badge", true, false) if bonds_tab_button != null else null
+	check(bonds_badge != null and bonds_badge.visible and (bonds_badge.get_node("Count") as Label).text == "1" and bonds_tab_button.icon != null,
+		"the Bonds tab says a talk waits at the fire")
 	current_scene._on_tab("bonds")
 	await process_frame
 	var talks: Array = current_scene.find_children("BondConversation_*", "Button", true, false)
