@@ -225,11 +225,8 @@ static func realm_of_culture(culture: String) -> String:
 	return "vardmark"
 
 
-## The realm's banner on its pole, fitted into `box` on `ci` (call from a draw callback).
-## `grey` washes it out (a realm that has fallen). `base` is the draw transform already in
-## use (a zoomed battlefield), kept and restored. Returns where the pole's finial is.
-static func realm_banner(ci: CanvasItem, realm: String, box: Rect2, pole: bool = true, grey: bool = false,
-		base: Transform2D = Transform2D.IDENTITY) -> Vector2:
+## Where the realm's cloth sits when its banner is fitted into `box` (see realm_banner).
+static func realm_cloth(realm: String, box: Rect2, pole: bool = true) -> Rect2:
 	if not REALM_SIZES.has(realm):
 		realm = "bandits"
 	var cloth: Vector2 = REALM_SIZES[realm]
@@ -240,7 +237,21 @@ static func realm_banner(ci: CanvasItem, realm: String, box: Rect2, pole: bool =
 	var avail := box.size / (Vector2.ONE + lead)
 	var k := minf(avail.x / cloth.x, avail.y / cloth.y)
 	var drawn := cloth * k
-	var origin := box.position + Vector2(lead.x * drawn.x, lead.y * drawn.y)
+	return Rect2(box.position + Vector2(lead.x * drawn.x, lead.y * drawn.y), drawn)
+
+
+## The realm's banner on its pole, fitted into `box` on `ci` (call from a draw callback).
+## `grey` washes it out (a realm that has fallen). `base` is the draw transform already in
+## use (a zoomed battlefield), kept and restored. Returns where the pole's finial is.
+static func realm_banner(ci: CanvasItem, realm: String, box: Rect2, pole: bool = true, grey: bool = false,
+		base: Transform2D = Transform2D.IDENTITY) -> Vector2:
+	if not REALM_SIZES.has(realm):
+		realm = "bandits"
+	var cloth: Vector2 = REALM_SIZES[realm]
+	var at := realm_cloth(realm, box, pole)
+	var drawn := at.size
+	var k := drawn.x / cloth.x
+	var origin := at.position
 	var finial := Vector2(origin.x + drawn.x * 0.5, box.position.y) if realm == "vardmark" else Vector2(origin.x - 2.0 * k, box.position.y)
 	if pole:
 		var w := maxf(1.5, 3.5 * k)
