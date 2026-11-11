@@ -358,7 +358,9 @@ hair swings, held where it leaves the head. Each character's head is placed in
 `PortraitLife` decides, moment to moment, the face worn and how the head sits: a breath
 in the head and hair always; a two-step blink every few seconds; a glance aside of their
 own now and then; and what a mood calls for, through `TalkView.express`: amused, a brow
-lifted with a tilt; warm, a small nod with the eyes lowered; thoughtful, a glance away.
+lifted with a tilt; warm, a small nod with the eyes lowered; thoughtful, the lids lowered
+further and the head tilted (the thoughtful paintings already look down, so they have no
+glance to give).
 Trust won on a romance visit brings a soft look (`TalkView.life_act`). The nod was tried
 deeper first, and read as a bob; it is now small and slow.
 

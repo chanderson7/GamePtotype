@@ -6,7 +6,8 @@
 ## This decides, moment to moment, which face is worn and how the head sits: a breath in
 ## the head and the hair always; a blink now and then, in two steps; a glance aside now
 ## and then; and what a mood calls for (`act`): a brow lifted when amused, a small nod when
-## warm, a glance away when thoughtful, a soft look when moved. Its state lives in the
+## warm, the lids lowered further and the head tilted when thoughtful (the thoughtful
+## paintings already look down, so they have no glance to give), a soft look when moved. Its state lives in the
 ## dictionary a screen keeps for the face (TalkView keeps one per side), so a screen can
 ## hold any number of faces.
 extends RefCounted
@@ -24,7 +25,7 @@ const GLANCE_HOLD := Vector2(0.9, 1.5)
 ## How long each act takes.
 const ACTS := {"brow": 1.5, "nod": 1.7, "glance": 1.6, "soft": 2.2}
 ## What each mood (StoryArt.EXPRESSIONS) calls for.
-const MOODS := {"amused": "brow", "warm": "nod", "thoughtful": "glance"}
+const MOODS := {"amused": "brow", "warm": "nod", "thoughtful": "soft"}
 
 
 ## Put `tex` (a painting) on the face kept in `f`: its other faces are found, and what the

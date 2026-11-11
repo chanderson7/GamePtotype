@@ -860,12 +860,21 @@ func _painted_blink() -> void:
 	check(nodded > 2.0 and nodded < 3.0 and lowered, "warm, a small nod, eyes lowered (%.1f px)" % nodded)
 	await _wait(1.8)
 	check(float(m.get_shader_parameter("pitch")) < 0.05 and f.texture == warm, "and up again")
-	tv.express("left", neutral, "thoughtful")
+	var thoughtful: Texture2D = StoryArt.texture("res://assets/portraits/edda_thoughtful.png")
+	tv.express("left", thoughtful, "thoughtful")
+	var lowered_more := false
+	for i in 60:
+		await process_frame
+		lowered_more = lowered_more or f.texture == StoryArt.face_frame(thoughtful, "soft")
+	check(lowered_more, "thoughtful, the lids lower further")
+	tv.life_act("left", "glance")
+	tv.express("left", neutral, "")
+	tv.life_act("left", "glance")
 	var glanced := false
 	for i in 40:
 		await process_frame
 		glanced = glanced or f.texture == StoryArt.face_frame(neutral, "away")
-	check(glanced, "thoughtful, a glance aside")
+	check(glanced, "a glance aside, where the eyes have room for one")
 	# An expression that changes mid-blink lands on the new face.
 	life["blink"]["wait"] = 0.01
 	await _wait(0.08)
