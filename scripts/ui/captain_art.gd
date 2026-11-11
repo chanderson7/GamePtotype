@@ -54,6 +54,29 @@ static func portrait(captain: Dictionary, size: Vector2 = Vector2(60, 80), expre
 	return node
 
 
+## A captain's face blinks now and then, wherever it is shown: `apply` is given the
+## picture to show (their resting face, or the same with their eyes shut), and `host` is
+## the control that shows it (the blinking stops when it goes). Only a resting face
+## blinks, and nothing does under Reduced motion.
+static func blink_loop(host: Node, apply: Callable, captain: Dictionary) -> void:
+	if host == null or Style.motion_reduced():
+		return
+	var rest := texture(captain)
+	var shut := texture(captain, "blink")
+	if rest == null or shut == null:
+		return
+	var start := func() -> void:
+		var t := host.create_tween().set_loops()
+		t.tween_interval(randf_range(2.4, 5.6))
+		t.tween_callback(apply.bind(shut))
+		t.tween_interval(0.13)
+		t.tween_callback(apply.bind(rest))
+	if host.is_inside_tree():
+		start.call()
+	else:
+		host.ready.connect(start, CONNECT_ONE_SHOT)
+
+
 static func _load(path: String) -> Texture2D:
 	if _textures.has(path):
 		return _textures[path]

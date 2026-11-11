@@ -318,6 +318,10 @@ func _process(delta: float) -> void:
 			"war":
 				Sound.play_war_horn()
 				Scenes.ribbon("War", _war_line(e), "battle", "")
+			"peace":
+				var sides: Array = e.get("realms", []) if e.get("realms") is Array else []
+				if sides.has(Data.CROWN) or (GameState.has_contract() and sides.has(GameState.contract_realm())):
+					Scenes.ribbon("Peace", _war_line(e).replace("are at war", "have made peace"), "peace", "")
 			"captured":
 				Sound.play_place_fallen()
 				_flag_changed(String(e.get("settlement", "")), String(e.get("from", "")))

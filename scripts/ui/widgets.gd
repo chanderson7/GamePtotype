@@ -461,6 +461,70 @@ static func flash(node: Control) -> void:
 	t.tween_property(node, "modulate", Color.WHITE, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
+## Wait for a control built this frame to be laid out (two frames). False if it has gone
+## in the meantime, or was never on a page.
+static func _settled(node: Control) -> bool:
+	if not is_instance_valid(node) or not node.is_inside_tree():
+		return false
+	var tree := node.get_tree()
+	for i in 2:
+		await tree.process_frame
+		if not is_instance_valid(node) or not node.is_inside_tree():
+			return false
+	return true
+
+
+## Run `go` now if `node` is on a page, or as soon as it is.
+static func _when_placed(node: Control, go: Callable) -> void:
+	if node.is_inside_tree():
+		go.call()
+	else:
+		node.ready.connect(go, CONNECT_ONE_SHOT)
+
+
+## Glow something a rebuilt page now shows (see flash), once it has been laid out. It can
+## be asked for before the control is on the page.
+static func flash_soon(node: Control) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	var go := func() -> void:
+		if await _settled(node) and live(node):
+			flash(node)
+	_when_placed(node, go)
+
+
+## A letter unfolds: it opens downward from its top edge as it fades up. There at once
+## under Reduced motion.
+static func unfold(node: Control) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	node.modulate.a = 0.0
+	var go := func() -> void:
+		if not await _settled(node):
+			return
+		node.pivot_offset = Vector2(node.size.x * 0.5, 0)
+		node.scale = Vector2(1.0, 0.12)
+		var t := node.create_tween().set_parallel()
+		t.tween_property(node, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(node, "modulate:a", 1.0, 0.2)
+	_when_placed(node, go)
+
+
+## A mark that wants noticing beats a few times (an unread letter's dot).
+static func pulse(node: Control, times: int = 2) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	var go := func() -> void:
+		if not await _settled(node):
+			return
+		node.pivot_offset = node.size * 0.5
+		var t := node.create_tween()
+		for i in times:
+			t.tween_property(node, "scale", Vector2(1.5, 1.5), 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			t.tween_property(node, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_when_placed(node, go)
+
+
 ## Someone or something steps into its place on a page from `offset` away, fading up. It
 ## waits for the page to lay it out first (its container owns where it rests). There at
 ## once under Reduced motion.
@@ -469,9 +533,7 @@ static func step_in(node: Control, offset: Vector2, delay: float = 0.0) -> void:
 		return
 	node.modulate.a = 0.0
 	var go := func() -> void:
-		for i in 2:
-			await node.get_tree().process_frame
-		if not is_instance_valid(node) or not node.is_inside_tree():
+		if not await _settled(node):
 			return
 		var rest := node.position
 		node.position = rest + offset
@@ -491,9 +553,7 @@ static func stamp(node: Control, delay: float = 0.0) -> void:
 		return
 	node.modulate.a = 0.0
 	var go := func() -> void:
-		for i in 2:
-			await node.get_tree().process_frame
-		if not is_instance_valid(node) or not node.is_inside_tree():
+		if not await _settled(node):
 			return
 		node.pivot_offset = node.size * 0.5
 		node.scale = Vector2(1.9, 1.9)

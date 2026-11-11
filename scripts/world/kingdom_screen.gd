@@ -69,6 +69,7 @@ func _ready() -> void:
 
 func _build() -> void:
 	Widgets.show_regard.call_deferred(self)
+	_show_change.call_deferred()
 	# A rebuild of the same page keeps its place: a switch flipped halfway down stays in view.
 	var keep := -1
 	if _scroll != null and is_instance_valid(_scroll) and _built_tab == tab:
@@ -302,10 +303,39 @@ func _flow() -> HFlowContainer:
 	return f
 
 
-func _act(ok: bool, message: String) -> void:
+## What the last act changed, by its card's name, and the treasury the page last showed.
+var _glow := ""
+var _treasury_shown := -1
+
+
+## Something you did: the page comes back saying so, and the card it changed (`glow`, by
+## name) shows itself.
+func _act(ok: bool, message: String, glow: String = "") -> void:
 	if ok:
 		_flash = message
+		_glow = glow
 	_build()
+
+
+## Once a page is built: the word on what you just did lands, the card it changed glows,
+## and the treasury counts to its new sum with what it gained or lost rising off it.
+func _show_change() -> void:
+	for n in find_children("Flash", "Control", true, false):
+		if Widgets.live(n):
+			Widgets.flash_soon(n as Control)
+	if _glow != "":
+		for n in find_children(_glow, "Control", true, false):
+			if Widgets.live(n):
+				Widgets.flash_soon(n as Control)
+				break
+		_glow = ""
+	if not gs.is_crowned():
+		return
+	var now: int = gs.crown_treasury()
+	for n in find_children("Tile_chest", "Control", true, false):
+		if Widgets.live(n) and _treasury_shown >= 0 and _treasury_shown != now:
+			Widgets.tick_to(n.find_child("Value", true, false) as Label, _treasury_shown, now, func(v: int) -> String: return Widgets.thousands(v), "silver")
+	_treasury_shown = now
 
 
 # ---------------------------------------------------------------- realm
@@ -471,7 +501,7 @@ func _open_grant_sheet(id: String) -> void:
 		var lid := int(l["id"])
 		grid.add_child(CourtUI.face_button(CaptainArt.texture(LordVoice.portrait_record(l)), LordTalk.first_name(l), "Grant_%s_%d" % [id, lid], func():
 			Widgets.close_sheet(v)
-			_act(gs.grant_fief(id, lid), "%s now holds %s (+%d Regard)." % [LordTalk.short_name(l), name, gs.GRANT_REGARD]), false, 72.0, lid))
+			_act(gs.grant_fief(id, lid), "%s now holds %s (+%d Regard)." % [LordTalk.short_name(l), name, gs.GRANT_REGARD], "Holding_%s" % id), false, 72.0, lid))
 	v.add_child(grid)
 
 
@@ -558,7 +588,7 @@ func _lords() -> void:
 			if hold != "" and kind != "guard":
 				v.add_child(_note("Hold keeps them at %s." % _place_name(hold)))
 			if fief != "":
-				var back := _flat_button("Take back %s" % _place_name(fief), func(): _act(gs.revoke_fief(lid), "You took %s back." % _place_name(fief)), "Revoke_%d" % lid)
+				var back := _flat_button("Take back %s" % _place_name(fief), func(): _act(gs.revoke_fief(lid), "You took %s back." % _place_name(fief), "CrownLord_%d" % lid), "Revoke_%d" % lid)
 				back.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 				v.add_child(back)
 
@@ -601,7 +631,7 @@ func _diplomacy() -> void:
 		if world.at_war(Data.CROWN, r):
 			var pc: Dictionary = gs.crown_peace_check(r)
 			var terms: Dictionary = world.peace_terms(Data.CROWN, r)
-			var peace := _icon_button("Sue for peace", "peace", func(): _act(gs.sue_for_peace(r), "Peace with %s." % name), "Peace_%s" % r, bool(pc["ok"]))
+			var peace := _icon_button("Sue for peace", "peace", func(): _act(gs.sue_for_peace(r), "Peace with %s." % name, "Realm_%s" % r), "Peace_%s" % r, bool(pc["ok"]))
 			peace.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			var daily := int(terms["daily"])
 			var costs := []
@@ -619,7 +649,7 @@ func _diplomacy() -> void:
 				words.add_child(ready)
 		else:
 			var wc: Dictionary = gs.war_check(r)
-			var war := _icon_button("Declare war", "fight", func(): _act(gs.declare_crown_war(r), "Your crown is at war with %s." % name), "War_%s" % r, bool(wc["ok"]))
+			var war := _icon_button("Declare war", "fight", func(): _act(gs.declare_crown_war(r), "Your crown is at war with %s." % name, "Realm_%s" % r), "War_%s" % r, bool(wc["ok"]))
 			war.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			var honorable: int = gs.crown_lords().filter(func(l): return String(l.get("bearing", "")) == Lords.HONORABLE).size()
 			if honorable > 0:
@@ -627,7 +657,7 @@ func _diplomacy() -> void:
 			else:
 				f.add_child(war)
 			if world.can_ally_crown(r):
-				var ally := _icon_button("Ally", "bond", func(): _act(gs.propose_alliance(r), "%s is your ally." % name), "Ally_%s" % r, true, true)
+				var ally := _icon_button("Ally", "bond", func(): _act(gs.propose_alliance(r), "%s is your ally." % name, "Realm_%s" % r), "Ally_%s" % r, true, true)
 				ally.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				f.add_child(ally)
 			if not bool(wc["ok"]):
@@ -721,11 +751,11 @@ func _round_button(text: String, act: Callable, id: String) -> Button:
 func _order_pick(pick: String, l: Dictionary, lid: int, hold: String) -> void:
 	match pick:
 		"follow":
-			_act(gs.order_lord(lid, "follow"), "%s rides with you." % LordTalk.short_name(l))
+			_act(gs.order_lord(lid, "follow"), "%s rides with you." % LordTalk.short_name(l), "CrownLord_%d" % lid)
 		"guard":
-			_act(gs.order_lord(lid, "guard", hold), "%s holds %s." % [LordTalk.short_name(l), _place_name(hold)])
+			_act(gs.order_lord(lid, "guard", hold), "%s holds %s." % [LordTalk.short_name(l), _place_name(hold)], "CrownLord_%d" % lid)
 		_:
-			_act(gs.order_lord(lid, ""), "%s goes about the realm's business." % LordTalk.short_name(l))
+			_act(gs.order_lord(lid, ""), "%s goes about the realm's business." % LordTalk.short_name(l), "CrownLord_%d" % lid)
 
 
 func _flat_button(text: String, act: Callable, id: String) -> Button:

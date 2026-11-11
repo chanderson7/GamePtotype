@@ -163,7 +163,17 @@ func _ready() -> void:
 
 
 ## Start over: a fresh warband of `culture_id` standing at its capital, in a new world.
+## Another campaign: what pages last showed of the old one (to show what changed since)
+## is forgotten, so nothing is seen to change that didn't.
+func _forget_seen() -> void:
+	var scenes := get_node_or_null("/root/Scenes")
+	if scenes != null and "people_seen" in scenes:
+		scenes.people_seen = {}
+		scenes.warband_men_seen = -1
+
+
 func new_campaign(culture_id: String) -> void:
+	_forget_seen()
 	culture = culture_id if Cultures.has(culture_id) else Cultures.VARDISH
 	world = null
 	pending_battle = {}
@@ -5136,6 +5146,7 @@ func from_dict(data: Dictionary) -> bool:
 		load_problem = "newer"
 		return false
 	load_problem = ""
+	_forget_seen()
 	culture = String(data.get("culture", Cultures.VARDISH))
 	world = null
 	if typeof(data.get("world")) == TYPE_DICTIONARY:

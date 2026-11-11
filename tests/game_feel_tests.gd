@@ -52,6 +52,7 @@ func _init() -> void:
 	await _talk_and_scenes()
 	await _turning_points()
 	await _battle_beats()
+	await _pages_show_change()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -423,6 +424,173 @@ func _ribbons() -> void:
 	gs.pending_battle = {}
 	gs.apply_result({"won": true, "lost": 0, "killed": 3, "squads": {int(sq["id"]): {"men": int(sq["men"]), "kills": 3, "captain": {"fate": "standing", "kills": 0}}}, "enemy_squads": {}})
 	check(scenes.ribbons.any(func(x): return String(x["title"]).contains("ready for a role")), "a captain who becomes ready for a role gets a ribbon")
+	scenes.ribbons.clear()
+
+
+# ---- pages that were rebuilt in a frame now show what changed: letters unfold, a mark is
+# struck, the thing you did glows, numbers count, and captains' faces are alive.
+func _pages_show_change() -> void:
+	var Widgets = load("res://scripts/ui/widgets.gd")
+	var CaptainArt = load("res://scripts/ui/captain_art.gd")
+	var Captains = load("res://scripts/data/captains.gd")
+	gs.new_campaign("vardish")
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	var host := VBoxContainer.new()
+	host.size = Vector2(400, 900)
+	root.add_child(host)
+	var paper := PanelContainer.new()
+	paper.custom_minimum_size = Vector2(300, 200)
+	host.add_child(paper)
+	Widgets.unfold(paper)
+	check(paper.modulate.a < 0.1, "a letter opened starts folded")
+	await _frames(4)
+	check(paper.scale.y < 0.95, "and unfolds from its top edge (%.2f)" % paper.scale.y)
+	await _wait(0.5)
+	check(paper.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(paper.modulate.a, 1.0), "to lie open")
+	var dot := Control.new()
+	dot.custom_minimum_size = Vector2(16, 16)
+	host.add_child(dot)
+	Widgets.pulse(dot)
+	await _wait(0.14)
+	check(dot.scale.x > 1.05, "an unread letter's dot beats")
+	await _wait(1.0)
+	check(dot.scale.is_equal_approx(Vector2.ONE), "and settles")
+	var mark := PanelContainer.new()
+	mark.custom_minimum_size = Vector2(60, 60)
+	host.add_child(mark)
+	Widgets.stamp(mark)
+	check(mark.modulate.a < 0.1, "a new mark isn't there yet")
+	await _frames(4)
+	check(mark.scale.x > 1.05, "it comes down large")
+	await _wait(0.5)
+	check(mark.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(mark.modulate.a, 1.0), "and is struck")
+	var changed := Label.new()
+	changed.text = "Changed"
+	Widgets.flash_soon(changed)
+	host.add_child(changed)
+	await _frames(5)
+	check(changed.modulate.r > 1.05, "what a tap changed glows on the page that comes back, asked for before it was on it")
+	var mover := PanelContainer.new()
+	mover.custom_minimum_size = Vector2(60, 60)
+	host.add_child(mover)
+	Widgets.step_in(mover, Vector2(-70, 0))
+	await _frames(4)
+	var mx: float = mover.position.x
+	await _wait(0.6)
+	check(mover.position.x > mx + 5.0 and is_equal_approx(mover.modulate.a, 1.0), "someone steps into their place on a page")
+	sound.reduced_motion = true
+	var still := PanelContainer.new()
+	still.custom_minimum_size = Vector2(60, 60)
+	host.add_child(still)
+	Widgets.unfold(still)
+	Widgets.stamp(still)
+	Widgets.pulse(still)
+	Widgets.flash_soon(still)
+	Widgets.step_in(still, Vector2(-70, 0))
+	await _frames(4)
+	check(still.scale.is_equal_approx(Vector2.ONE) and still.modulate.is_equal_approx(Color.WHITE), "under Reduced motion all of it is simply there")
+	sound.reduced_motion = false
+	host.queue_free()
+	# A captain's face blinks wherever it's shown.
+	var cap: Dictionary = gs.army[0]["captain"]
+	var shut_tex: Texture2D = CaptainArt.texture(cap, "blink")
+	var pic := TextureRect.new()
+	pic.texture = CaptainArt.texture(cap)
+	root.add_child(pic)
+	var blinked := [0]
+	var apply := func(tex: Texture2D) -> void:
+		pic.texture = tex
+		if tex == shut_tex:
+			blinked[0] += 1
+	CaptainArt.blink_loop(pic, apply, cap)
+	await _wait(6.0)
+	check(shut_tex != null and shut_tex != CaptainArt.texture(cap) and blinked[0] >= 1, "a captain's portrait blinks (%d in six seconds)" % blinked[0])
+	pic.queue_free()
+	# A ribbon about a person carries their face.
+	scenes.ribbons.clear()
+	scenes.ribbon_face("Test joins the company", "Sergeant", CaptainArt.texture(cap), "")
+	await _frames(4)
+	var rib := scenes.get_node_or_null("Ribbon") as Control
+	check(rib != null and rib.find_child("RibbonFace", true, false) != null, "a hero who joins is seen: their face on a ribbon")
+	if rib != null:
+		scenes._dismiss_ribbon(rib)
+	await _frames(2)
+	# A promotion: the new role is struck onto the page and told with their proud face.
+	cap["specialization"] = ""
+	cap["battles"] = Captains.SPECIALIZATION_BATTLES
+	scenes.active_captain_id = int(cap["id"])
+	change_scene_to_file("res://scenes/captain_profile.tscn")
+	await _arrive("captain_profile.tscn")
+	var prof = current_scene
+	scenes.ribbons.clear()
+	prof._picked = String(Captains.SPECIALIZATIONS[0])
+	prof._confirm_promotion()
+	var chips: Array = prof.find_children("SpecializationChip", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(not chips.is_empty() and (chips[0] as Control).modulate.a < 0.1, "a promotion's new role is about to be struck")
+	check(scenes.ribbons.any(func(x): return x.get("face") is Texture2D) or (scenes.get_node_or_null("Ribbon") != null), "and is told with the captain's face")
+	await _wait(0.8)
+	check(not chips.is_empty() and is_instance_valid(chips[0]) and is_equal_approx((chips[0] as Control).modulate.a, 1.0) and (chips[0] as Control).scale.is_equal_approx(Vector2.ONE), "and is")
+	scenes.ribbons.clear()
+	if scenes._ribbon != null:
+		scenes._dismiss_ribbon(scenes._ribbon)
+	# The Warband page counts men in.
+	var men: int = gs.total_men()
+	scenes.warband_men_seen = men - 3
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	var tile := current_scene.find_child("Tile_men", true, false)
+	await _wait(0.9)
+	check(tile != null and (tile.find_child("Value", true, false) as Label).text == str(men) and scenes.warband_men_seen == men, "men back on their feet are counted in on the Warband page")
+	check(current_scene.find_child("CampTableau", true, false) != null, "with the captains around the fire")
+	# A letter unfolds when it's opened.
+	var social = gs.world.social
+	var kp: Dictionary = social.get_candidate_person("kaede")
+	var unread: Dictionary = social.add_letter(kp["id"], "relocation", "", gs.world.hour, "takamine", {"old": "Kitayama"})
+	scenes.people_tab = "letters"
+	change_scene_to_file("res://scenes/people.tscn")
+	await _arrive("people.tscn")
+	var people = current_scene
+	check(people.find_child("Unread", true, false) != null, "an unread letter is marked")
+	people._open_letter(String(unread["id"]))
+	var sheet := people.find_children("Parchment", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(not sheet.is_empty() and (sheet[0] as Control).modulate.a < 0.1, "opened, the letter unfolds")
+	await _wait(0.7)
+	check(not sheet.is_empty() and is_instance_valid(sheet[0]) and (sheet[0] as Control).scale.is_equal_approx(Vector2.ONE) and is_equal_approx((sheet[0] as Control).modulate.a, 1.0), "and lies open to read")
+	people._build()
+	await _frames(3)
+	var again := people.find_children("Parchment", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(not again.is_empty() and is_equal_approx((again[0] as Control).modulate.a, 1.0), "a page rebuilt under it leaves it lying open")
+	# The Crown: what you did is said, and the treasury counts.
+	gs.renown = 250
+	gs.player_fief = {"settlement_id": "ravensford", "realm": gs.world.owner_of("ravensford"), "silver": 0, "food": 20,
+		"improvements": {}, "garrison": [], "granted_at": 0.0, "lost": false}
+	var p = gs.world.player()
+	p.node = "ravensford"
+	p.next = ""
+	p.path = []
+	scenes.ribbons.clear()
+	var crowned: bool = gs.declare_crown()
+	check(crowned and scenes.ribbons.any(func(x): return bool(x.get("grand", false)) and String(x["title"]) == "A crown is raised"), "raising your crown is marked as the moment it is")
+	scenes.ribbons.clear()
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	gs.silver = 5000
+	var K = load("res://scripts/world/kingdom_screen.gd")
+	var k = K.open(root, gs, "realm")
+	await _frames(3)
+	var before: int = gs.crown_treasury()
+	var fund := k.find_child("Fund", true, false) as Button
+	check(fund != null and not fund.disabled, "the treasury can be paid into")
+	if fund != null:
+		fund.pressed.emit()
+	await _frames(6)
+	var said: Array = k.find_children("Flash", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(gs.crown_treasury() > before and not said.is_empty() and (said[0] as Control).modulate.r > 1.02, "what you did on the Crown page lands with a glow")
+	var chest: Array = k.find_children("Tile_chest", "Control", true, false).filter(func(n): return Widgets.live(n))
+	await _wait(0.8)
+	check(not chest.is_empty() and ((chest[0] as Node).find_child("Value", true, false) as Label).text == Widgets.thousands(gs.crown_treasury()), "and the treasury counts to its new sum")
+	k.queue_free()
 	scenes.ribbons.clear()
 
 

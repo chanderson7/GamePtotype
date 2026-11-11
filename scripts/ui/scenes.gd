@@ -48,6 +48,8 @@ var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1
 var warband_scroll := 0
+## The men the Warband page last counted (-1: not yet looked), so a change since is seen.
+var warband_men_seen := -1
 var warband_sort := 0
 ## The Warband tab last open.
 var warband_tab := "camp"
@@ -188,6 +190,12 @@ func ribbon(title: String, sub: String = "", icon_key: String = "renown", sound:
 	set_process(true)
 
 
+## A ribbon about a person, with their face on it (the company's mark if there's none).
+func ribbon_face(title: String, sub: String, face: Texture2D, sound: String = "") -> void:
+	ribbons.append({"title": title, "sub": sub, "icon": "company", "sound": sound, "face": face})
+	set_process(true)
+
+
 func _process(_delta: float) -> void:
 	if ribbons.is_empty():
 		set_process(false)
@@ -316,9 +324,21 @@ func _show_ribbon(r: Dictionary) -> void:
 	row.add_theme_constant_override("separation", 16)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
-	var ic: TextureRect = Widgets.icon_rect(String(r.get("icon", "renown")), 48.0)
-	ic.modulate = Style.BRASS
-	row.add_child(ic)
+	if r.get("face") is Texture2D:
+		# Someone the ribbon is about: their face in place of a mark.
+		var who := TextureRect.new()
+		who.name = "RibbonFace"
+		who.texture = r["face"]
+		who.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		who.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		who.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		who.custom_minimum_size = Vector2(54, 72)
+		who.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_child(who)
+	else:
+		var ic: TextureRect = Widgets.icon_rect(String(r.get("icon", "renown")), 48.0)
+		ic.modulate = Style.BRASS
+		row.add_child(ic)
 	var words := VBoxContainer.new()
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	words.add_theme_constant_override("separation", 2)

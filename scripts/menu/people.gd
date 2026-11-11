@@ -48,6 +48,7 @@ func _ready() -> void:
 	if Scenes.people_letter != "":
 		_tab = "letters"
 		_letter = Scenes.people_letter
+		_unfold = true
 		Scenes.people_letter = ""
 	_build()
 
@@ -247,6 +248,7 @@ func _lord_place(l: Dictionary) -> String:
 
 func _on_tab(id: String) -> void:
 	_tab = id
+	_pulse_unread = id == "letters"
 	_build()
 
 
@@ -1205,14 +1207,27 @@ func _letter_row(l: Dictionary) -> PanelContainer:
 		dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		dot.draw.connect(func(): dot.draw_circle(Vector2(8, 8), 7, Style.BRASS))
+		dot.name = "Unread"
 		h.add_child(dot)
+		if _pulse_unread:
+			Widgets.pulse(dot)
+			set_deferred("_pulse_unread", false)
 	Widgets.on_tap(row, _open_letter.bind(String(l["id"])))
 	return row
+
+
+## A letter just opened (or a reply just written out, or sent) unfolds on the page that
+## shows it; other rebuilds of the reader leave it lying open.
+var _unfold := false
+var _sent_now := false
+## The unread dots beat once when the Letters tab is come to.
+var _pulse_unread := true
 
 
 func _open_letter(id: String) -> void:
 	_letter = id
 	_reply = ""
+	_unfold = true
 	Sound.play("page", 0.0, 0.05)
 	_build()
 
@@ -1313,6 +1328,10 @@ func _build_reader(col: VBoxContainer) -> void:
 	var view: Dictionary = social.letter_view(l)
 	l["read"] = true
 	l["announced"] = true
+	var unfold := _unfold
+	var sent_now := _sent_now
+	_unfold = false
+	_sent_now = false
 	var cand: String = social.letter_candidate(l)
 	var sender: Dictionary = social.get_person(String(l.get("sender_id", "")))
 	var name := String(sender.get("name", "Unknown"))
@@ -1339,20 +1358,32 @@ func _build_reader(col: VBoxContainer) -> void:
 	if _reply != "":
 		# Your answer, on your own paper, before you send it.
 		var mine: Dictionary = social.reply_preview(_letter, _reply, GameState.world.here())
-		col.add_child(_parchment(mine, true))
+		var draft := _parchment(mine, true)
+		col.add_child(draft)
+		if unfold:
+			Widgets.unfold(draft)
 		var send := _button("Send", _send_reply, true, "mail")
 		send.name = "SendReply"
 		var again := _button("Change", func(): _reply = ""; _build(), false, "back")
 		again.name = "ChooseAgain"
 		_set_bar([again, send])
 		return
-	col.add_child(_parchment(view, false))
+	var paper := _parchment(view, false)
+	col.add_child(paper)
+	if unfold:
+		Widgets.unfold(paper)
 	if l.has("reply"):
 		if _flash != "":
-			col.add_child(Page.note(_flash, Style.SMALL, Style.BRASS))
+			var went := Page.note(_flash, Style.SMALL, Style.BRASS)
+			col.add_child(went)
+			Widgets.flash_soon(went)
 			_flash = ""
 		col.add_child(_heading("Your reply"))
-		col.add_child(_parchment(l["reply"].get("letter", {}), true))
+		var sent := _parchment(l["reply"].get("letter", {}), true)
+		col.add_child(sent)
+		# Sent this moment: your answer is laid under theirs.
+		if sent_now:
+			Widgets.unfold(sent)
 	else:
 		var options: Array = Letters.replies(String(l.get("template_key", "")), social.letter_candidate(l))
 		if not options.is_empty():
@@ -1378,6 +1409,7 @@ func _build_reader(col: VBoxContainer) -> void:
 
 func _preview_reply(id: String) -> void:
 	_reply = id
+	_unfold = true
 	_build()
 
 
@@ -1391,6 +1423,7 @@ func _send_reply() -> void:
 		GameState.save_game()
 		var gain := int(res.get("trust_change", 0))
 		_flash = "Sent. A rider takes it to %s.%s" % [who, (" Trust +%d." % gain) if gain > 0 else ""]
+		_sent_now = true
 	_build()
 	# Down to the reply you just sent.
 	await get_tree().process_frame

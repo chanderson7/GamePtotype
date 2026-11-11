@@ -64,6 +64,7 @@ func _build() -> void:
 		var said := Page.note(_flash, Style.BODY, Style.BRASS)
 		said.name = "PromotionNote"
 		col.add_child(said)
+		Widgets.flash_soon(said)
 		_flash = ""
 	if promoting:
 		_add_promotion(col, captain)
@@ -116,6 +117,9 @@ func _add_hero(col: VBoxContainer, captain: Dictionary, found: Dictionary, falle
 	var pic := CaptainArt.portrait(captain, Vector2(150, 190), "proud" if _flash != "" else "")
 	if pic.texture != null:
 		hero.add_child(Widgets.framed(pic, Vector2(150, 190), fallen, 0.0))
+		# The living blink (not while they wear the pride of a new role).
+		if not fallen and _flash == "":
+			CaptainArt.blink_loop(pic, func(tex: Texture2D) -> void: pic.texture = tex, captain)
 	var identity := VBoxContainer.new()
 	identity.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	identity.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -296,14 +300,17 @@ func _confirm_promotion() -> void:
 	_picked = ""
 	_build()
 	_settle_new_role()
+	# The company hears of it: their proud face on a ribbon.
+	if typeof(captain) == TYPE_DICTIONARY:
+		Scenes.ribbon_face("%s: %s" % [first, String(Captains.SPECIALIZATION_TITLES.get(spec, spec))], "A new role in the company.", CaptainArt.texture(captain, "proud"), "promotion")
 
 
-## The new role's chip eases in once the page has laid out.
+## The new role's mark is struck onto the page.
 func _settle_new_role() -> void:
-	await get_tree().process_frame
-	var chip := find_child("SpecializationChip", true, false) as Control
-	if chip != null:
-		Style.ease_in(chip, Vector2(0.5, 0.5))
+	for chip in find_children("SpecializationChip", "Control", true, false):
+		if Widgets.live(chip):
+			Widgets.stamp(chip as Control)
+			return
 
 
 # ---------------------------------------------------------------- record
