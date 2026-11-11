@@ -851,6 +851,9 @@ func _painted_blink() -> void:
 	check(f.texture == amused, "and settles")
 	tv.express("left", warm, "warm")
 	check(f.texture == warm and life.get("shut") == StoryArt.eyes_shut(warm), "a new expression brings its own faces")
+	var was_face := f.get_node_or_null("Was") as TextureRect
+	check(is_equal_approx(f.modulate.a, 1.0) and was_face != null and was_face.texture != warm,
+		"changing, the face is never see-through: the old one fades away over it")
 	var nodded := 0.0
 	var lowered := false
 	for i in 60:

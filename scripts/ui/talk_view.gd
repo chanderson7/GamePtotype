@@ -538,11 +538,33 @@ func change_face(side: String, tex: Texture2D) -> void:
 		return
 	if tex == _faces[side].get("rest") and (face.texture == _faces[side].get("shut") or PortraitLife.wears(_faces[side], face.texture)):
 		return                                  # the same face, caught mid-blink or mid-glance
+	var was := face.texture
 	face.texture = tex
 	_painted_life(side, tex)
-	if not Style.motion_reduced():
-		face.modulate.a = 0.55
-		face.create_tween().tween_property(face, "modulate:a", 1.0, 0.18)
+	if not Style.motion_reduced() and was != null:
+		_fade_out_over(face, was)
+
+
+## The picture a face wore lies over its new one for a moment and fades away: the face is
+## never see-through while it changes (fading the new picture in let the room show through).
+func _fade_out_over(face: TextureRect, was: Texture2D) -> void:
+	var old := face.get_node_or_null("Was") as TextureRect
+	if old != null:
+		old.free()
+	old = TextureRect.new()
+	old.name = "Was"
+	old.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	old.texture = was
+	old.expand_mode = face.expand_mode
+	old.stretch_mode = face.stretch_mode
+	old.texture_filter = face.texture_filter
+	old.material = face.material                  # the same head, moving with the new one
+	old.self_modulate = face.self_modulate
+	old.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	face.add_child(old)
+	var t := old.create_tween()
+	t.tween_property(old, "modulate:a", 0.0, 0.18)
+	t.tween_callback(old.queue_free)
 
 
 func _place_face(side: String) -> void:
