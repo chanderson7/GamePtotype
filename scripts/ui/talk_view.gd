@@ -31,6 +31,8 @@ var _plate_name := ""
 var write_lines := true
 ## Faces breathe, and sway while they dance.
 const BREATH := 3.6
+## How much a painted face's whole picture swells with a breath.
+const PAINTED_BREATH := 0.0012
 var _clock := 0.0
 
 
@@ -189,7 +191,10 @@ func _pose(side: String) -> void:
 		return
 	var still := Style.motion_reduced()
 	var lean := 1.0 if still else float(face.get_meta("lean", 1.0))
-	var breath := 0.0 if still else sin(_clock * TAU / BREATH + float(side.length())) * 0.004
+	# A painted face fills the stage and breathes in its head too (PortraitLife): its whole
+	# picture swells less.
+	var depth := PAINTED_BREATH if _faces[side].has("frames") else 0.004
+	var breath := 0.0 if still else sin(_clock * TAU / BREATH + float(side.length())) * depth
 	face.pivot_offset = Vector2(face.size.x * 0.5, face.size.y)
 	face.scale = Vector2(lean, lean * (1.0 + breath))
 	face.rotation = 0.0 if still else sin(_clock * 2.2) * float(face.get_meta("sway", 0.0))

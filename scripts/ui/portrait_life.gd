@@ -24,6 +24,10 @@ const GLANCE_EVERY := Vector2(7.0, 13.0)
 const GLANCE_HOLD := Vector2(0.9, 1.5)
 ## How long each act takes.
 const ACTS := {"brow": 1.5, "nod": 1.7, "glance": 1.6, "soft": 2.2}
+## At rest: how far the head sinks with a breath (pixels) and leans as it settles (degrees).
+## Kept small: more read as heavy breathing.
+const BREATH_DROP := 0.25
+const IDLE_TILT := 0.6
 ## What each mood (StoryArt.EXPRESSIONS) calls for.
 const MOODS := {"amused": "brow", "warm": "nod", "thoughtful": "soft"}
 
@@ -77,8 +81,8 @@ static func step(f: Dictionary, delta: float) -> Dictionary:
 	f["t"] = t
 	var frames: Dictionary = f.get("frames", {})
 	var face := ""
-	var tilt := 1.0 * sin(t * TAU / 9.0)
-	var drop := 0.7 * sin(t * TAU / 3.6)
+	var tilt := IDLE_TILT * sin(t * TAU / 9.0)
+	var drop := BREATH_DROP * sin(t * TAU / 3.6)
 	var pitch := 0.0
 	var sway := 2.4 * sin(t * TAU / 2.6 + 0.6) + 1.0 * sin(t * TAU / 7.0)
 	# What a mood called for.
