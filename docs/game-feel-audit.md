@@ -220,3 +220,30 @@ now moves the same way, through the same helpers:
 
 All of it is still under Reduced motion. Checked by `_lord_talk` in
 `tests/game_feel_tests.gd`.
+
+## Added after: the romance screens
+
+Visits, the dance and the wedding are `TalkView`s, so most of this lives there and every
+talk built on it gets it:
+
+- **Faces are alive.** A slow breath, and `gesture(side, kind)`: a laugh ("bounce"), a
+  lean in, drawn back. `express(side, tex, mood)` changes the picture and plays the
+  gesture that goes with a `StoryArt` expression. Breath, lean and sway go through scale
+  and rotation about the feet, so they never fight the layout or a position tween. The
+  painted portraits can't blink without an eyes-shut frame each (art, not code).
+- **Only the new line is said.** A visit lays its exchange out again on each "Go on";
+  `write_lines` keeps the lines already heard still, and the log glides to the newest.
+- **Replies and keepsakes arrive.** Replies in a short run (pressable at once); a memory
+  kept, a status badge and the wedding's closing card settle in with a glow
+  (`TalkView.land`).
+- **Trust and standing are seen to change.** On the nameplate the bar fills from where
+  it stood, the number counts, the heart beats and a heart rises off their face. No sum
+  is floated: what it meant stays in words, as before. Courting, sworn friendship and
+  engagement drop a ribbon; a parting dims them.
+- **The dance.** A partner steps in (`replace_face`) and sways while you dance.
+- **The wedding.** Guests' faces come in one after another, the rite is told a line at a
+  time (a tap brings the rest), and "Married" throws petals (`WeddingDressing.burst`).
+- **People.** Back from a visit, her trust bar fills to its new value and new memories
+  glow (`Scenes.people_seen`).
+
+Checked by `_romance_moves` in `tests/game_feel_tests.gd`.

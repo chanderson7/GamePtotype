@@ -484,11 +484,30 @@ func _trust_meter(cand: String) -> Control:
 	var l := Style.label(Relationships.trust_label(trust), Style.SMALL, Style.MUTED)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(l)
-	head.add_child(Widgets.icon_value("bond", "%d" % trust, Style.ROMANCE_LIGHT))
+	var value := Widgets.icon_value("bond", "%d" % trust, Style.ROMANCE_LIGHT)
+	head.add_child(value)
 	var bar := Widgets.meter(trust / 100.0, Style.ROMANCE.darkened(0.15), 14.0, [0.25, 0.5, 0.7])
 	bar.name = "TrustBar"
 	box.add_child(bar)
+	# Back from a visit, trust is seen to have moved: the bar fills from where it stood
+	# and the number counts to the new one. Each page built in the same frame shows it.
+	var seen: Dictionary = Scenes.people_seen.get(cand, {})
+	var was := int(seen.get("trust", trust))
+	if was != trust:
+		bar.ready.connect(func(): Widgets.fill_from(bar, was / 100.0))
+		var number := value.get_node_or_null("Text") as Label
+		if number != null:
+			var as_number := func(v: int) -> String: return str(v)
+			number.ready.connect(func(): Widgets.tick_to(number, was, trust, as_number))
+	_note_seen.call_deferred(cand, "trust", trust)
 	return box
+
+
+## Remember what the page showed of `cand` once this frame's building is done.
+func _note_seen(cand: String, key: String, value: int) -> void:
+	var seen: Dictionary = Scenes.people_seen.get(cand, {})
+	seen[key] = value
+	Scenes.people_seen[cand] = seen
 
 
 ## Five beads for the chapters of their story, and the current one's title.
@@ -735,8 +754,17 @@ func _build_profile(col: VBoxContainer) -> void:
 	if book.is_empty():
 		col.add_child(Page.note("Nothing yet. Every story starts somewhere.", Style.SMALL))
 	var limit := book.size() if _all_memories else mini(book.size(), 10)
+	# Memories made since this page last showed them glow as they're shown.
+	var known: Dictionary = Scenes.people_seen.get(cand, {})
+	var fresh := book.size() - int(known.get("memories", book.size()))
+	var shown := 0
 	for e in book.slice(0, limit):
-		col.add_child(_keepsake_row(cand, e))
+		var row := _keepsake_row(cand, e)
+		col.add_child(row)
+		if shown < fresh:
+			_glow_later(row)
+		shown += 1
+	_note_seen.call_deferred(cand, "memories", book.size())
 	if book.size() > limit:
 		var more := _button("All %d memories" % book.size(), func():
 			_all_memories = true
@@ -814,6 +842,15 @@ func _draw_step_dot(dot: Control, n: int, state: String) -> void:
 		var lock := Widgets.icon("lock")
 		if lock != null:
 			dot.draw_texture_rect(lock, Rect2(c - Vector2(11, 11), Vector2(22, 22)), false, Color("79809a"))
+
+
+func _glow_later(node: Control) -> void:
+	if Style.motion_reduced():
+		return
+	for i in 2:
+		await get_tree().process_frame
+	if is_instance_valid(node) and node.is_inside_tree():
+		Widgets.flash(node)
 
 
 const MEMORY_ICONS := {"visit": "cup", "letter": "mail", "decision": "book", "ceremony": "rings", "move": "mappin", "note": "heart", "dance": "dance"}

@@ -101,7 +101,8 @@ func _dance(kind: String, id: String) -> void:
 	match kind:
 		"romance":
 			var person: Dictionary = GameState.world.social.get_candidate_person(id)
-			set_face("center", _portrait(id), false, 0.9)
+			replace_face("center", _portrait(id), false, 0.9)
+			sway("center")
 			say("you", "Dance with me.")
 			say("narration", String(r["text"]))
 			# What it gives was on the button; the result is the memory, once.
@@ -110,7 +111,8 @@ func _dance(kind: String, id: String) -> void:
 		"meet":
 			var person: Dictionary = GameState.world.social.get_candidate_person(id)
 			var who := String(person.get("name", ""))
-			set_face("center", _portrait(id), false, 0.9)
+			replace_face("center", _portrait(id), false, 0.9)
+			sway("center")
 			say("you", "Will you dance?")
 			say("narration", String(r["text"]))
 			add_to_log(keepsake("You met %s. Kept as a memory." % who, "dance"))
@@ -121,7 +123,8 @@ func _dance(kind: String, id: String) -> void:
 		"kin":
 			var l: Dictionary = GameState.world.lord_by_id(int(id))
 			var kin: Dictionary = GameState.world.social.house_kin(l)
-			set_face("center", CaptainArt.texture(LordVoice.kin_record(l, kin)), true, 0.8)
+			replace_face("center", CaptainArt.texture(LordVoice.kin_record(l, kin)), true, 0.8)
+			sway("center")
 			say("you", "Will you dance?")
 			say("narration", String(r["text"]))
 			add_to_log(TalkView.fx_note([], "%s thinks better of you." % LordTalk.first_name(l)))

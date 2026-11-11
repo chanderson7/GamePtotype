@@ -425,6 +425,129 @@ func _ribbons() -> void:
 	scenes.ribbons.clear()
 
 
+# ---- the talks you court and befriend in: faces breathe and gesture, only the new line is
+# said, replies and keepsakes arrive, trust is seen to change, and the People page shows
+# what a visit changed.
+func _romance_moves() -> void:
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("common_room", "night"), "Test")
+	var tex := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	var tex2 := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	tv.set_face("left", tex)
+	await _wait(0.5)
+	var f: TextureRect = tv.face_node("left")
+	var s0: float = f.scale.y
+	await _wait(0.4)
+	check(not is_equal_approx(f.scale.y, s0), "a face in a talk breathes")
+	tv.gesture("left", "lean")
+	await _wait(0.45)
+	check(f.scale.x > 1.02, "warm, they lean in and stay there (%.3f)" % f.scale.x)
+	tv.gesture("left", "back")
+	await _wait(0.45)
+	check(f.scale.x < 0.98, "concerned, they draw back")
+	tv.gesture("left", "")
+	await _wait(0.45)
+	check(absf(f.scale.x - 1.0) < 0.005, "and are as they were after")
+	var y0: float = f.position.y
+	tv.gesture("left", "bounce")
+	await _wait(0.07)
+	check(f.position.y < y0 - 1.0, "amused, they laugh: the face hops")
+	tv.say("them", "Ha!", "Test")
+	await _wait(0.6)
+	check(is_equal_approx(f.position.y, y0), "and lands where it stood, a line said meanwhile or not")
+	tv.sway("left")
+	await _wait(0.3)
+	check(absf(f.rotation) > 0.001, "a partner sways while dancing")
+	tv.sway("left", 0.0)
+	tv.finish_writing()
+	# Laid out again, an old line is simply there; the new one is said.
+	tv.write_lines = false
+	var heard: Control = tv.say("them", "You have heard this line before.", "Test")
+	tv.write_lines = true
+	var fresh: Control = tv.say("them", "And this one is new to you.", "Test")
+	var fresh_words := fresh.find_child("Words", true, false) as Label
+	check((heard.find_child("Words", true, false) as Label).visible_characters == -1 and fresh_words.visible_characters >= 0
+		and fresh_words.visible_characters < fresh_words.text.length(), "only the newest line is written out")
+	tv.finish_writing()
+	var nothing := func() -> void: pass
+	tv.set_replies([{"id": "a", "text": "One", "act": nothing}, {"id": "b", "text": "Two", "act": nothing}, {"id": "c", "text": "Three", "act": nothing}])
+	var last: Button = tv.reply_node("c")
+	check(last.modulate.a < 0.5 and not last.disabled and tv.has_reply("c"), "replies arrive in a short run, and can be pressed at once")
+	await _wait(0.5)
+	check(is_equal_approx(last.modulate.a, 1.0), "and are all there a moment later")
+	var kept: Control = tv.keepsake("A memory kept: the test.")
+	tv.add_to_log(kept)
+	check(kept.modulate.a < 0.1, "a memory kept lands in the talk")
+	await _wait(0.2)
+	check(kept.scale.x < 1.0 or kept.modulate.r > 1.0, "settling in with a glow")
+	await _wait(1.2)
+	check(is_equal_approx(kept.modulate.a, 1.0) and kept.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(kept.modulate.r, 1.0), "and is itself after")
+	tv.replace_face("left", tex2)
+	check(f.texture == tex2 and f.modulate.a < 0.5, "a new partner steps in")
+	await _wait(0.5)
+	check(is_equal_approx(f.modulate.a, 1.0), "and is there")
+	sound.reduced_motion = true
+	tv.gesture("left", "lean")
+	var still: Control = tv.keepsake("A memory kept: the still test.")
+	tv.add_to_log(still)
+	tv.set_replies([{"id": "a", "text": "One", "act": nothing}, {"id": "b", "text": "Two", "act": nothing}])
+	await _frames(3)
+	check(f.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(f.rotation, 0.0) and is_equal_approx(still.modulate.a, 1.0)
+		and is_equal_approx((tv.reply_node("b") as Button).modulate.a, 1.0), "under Reduced motion faces, memories and replies are simply there")
+	sound.reduced_motion = false
+	tv.queue_free()
+	# The petals thrown when you're wed.
+	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
+	var dr = Dressing.new()
+	dr.size = Vector2(400, 300)
+	root.add_child(dr)
+	dr.burst()
+	check(dr._burst > 0.9, "petals are thrown at a wedding")
+	await _wait(0.3)
+	check(dr._burst < 0.95 and dr._burst > 0.0, "and fall")
+	sound.reduced_motion = true
+	dr._burst = 0.0
+	dr.burst()
+	check(dr._burst == 0.0, "not under Reduced motion")
+	sound.reduced_motion = false
+	dr.queue_free()
+	# A visit: trust won is seen on the nameplate.
+	var social = gs.world.social
+	scenes.active_candidate_id = "edda"
+	scenes.conversation_return = "res://scenes/people.tscn"
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	var talk = current_scene
+	talk.choose("story")
+	var topics: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("topic_"))
+	talk.choose(topics[0])
+	for fl in _floats():
+		fl.queue_free()
+	var before := int(social.get_relationship("edda")["trust"])
+	talk.choose("decide_offer_help")
+	var trust := int(social.get_relationship("edda")["trust"])
+	await _frames(4)
+	var meter := talk.find_child("TrustMeter", true, false) as Control
+	check(trust > before and meter != null and float(meter.get_meta("frac")) < trust / 100.0 - 0.01,
+		"trust won in a visit fills the bar from where it stood (%.2f toward %.2f)" % [float(meter.get_meta("frac")) if meter != null else -1.0, trust / 100.0])
+	check(_floats().size() == 1 and not talk.log_text().contains("+%d" % (trust - before)), "a heart rises off their face, and no sum is shown")
+	await _wait(1.0)
+	check(is_equal_approx(float(meter.get_meta("frac")), trust / 100.0) and (talk.find_child("TrustNumber", true, false) as Label).text == str(trust),
+		"and the bar and the number land on the new trust")
+	# The People page shows what the visit changed.
+	scenes.people_seen = {"edda": {"trust": before, "memories": 0}}
+	scenes.people_tab = "people"
+	change_scene_to_file("res://scenes/people.tscn")
+	await _arrive("people.tscn")
+	var bar := current_scene.find_child("TrustBar", true, false) as Control
+	check(bar != null and float(bar.get_meta("frac")) < trust / 100.0 - 0.01, "back on People, her trust is seen to have moved")
+	check(int(scenes.people_seen["edda"]["trust"]) == trust, "and the page remembers what it has shown")
+	await _wait(1.0)
+	check(bar != null and is_instance_valid(bar) and is_equal_approx(float(bar.get_meta("frac")), trust / 100.0), "landing on what it is now")
+
+
 # ---- the lord talk moves as the other talks do: they step in, their line is written out,
 # their face answers what you say, Regard is seen to change, and leaving fades.
 func _lord_talk(tap: InputEvent) -> void:
@@ -532,6 +655,7 @@ func _talk_and_scenes() -> void:
 	sound.reduced_motion = false
 	tv.queue_free()
 	await _lord_talk(ev)
+	await _romance_moves()
 	# The wedding's bunting sways.
 	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
 	var d = Dressing.new()

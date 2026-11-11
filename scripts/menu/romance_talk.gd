@@ -172,6 +172,11 @@ func _portrait(expression: String) -> Texture2D:
 	return tex if tex != null else StoryArt.texture("res://assets/portraits/%s_neutral.png" % cand)
 
 
+## What the plate last showed, so a change in trust or in how things stand is seen.
+var _trust_shown := -1
+var _status_shown := ""
+
+
 ## How they look at you, by how things stand.
 func _expression() -> String:
 	var status := _status()
@@ -186,9 +191,14 @@ func _refresh_plate() -> void:
 	var trust := int(_rel().get("trust", 0))
 	if _status() == Relationships.UNKNOWN and trust <= 0:
 		set_plate(_name, [TalkView.stage_chip("Not yet met", Style.MUTED, "", "·")])
+		_trust_shown = trust
+		_status_shown = _status()
 		return
 	# How things stand as a badge, trust as a meter, a strain as a lock.
-	var chips := [TalkView.stage_chip(Relationships.status_label(_status()), Style.ROMANCE, TalkView.status_icon(_status()))]
+	var status_chip := TalkView.stage_chip(Relationships.status_label(_status()), Style.ROMANCE, TalkView.status_icon(_status()))
+	status_chip.name = "Status"
+	var chips := [status_chip]
+	_status_moment(status_chip)
 	chips.append(_trust_bar(trust))
 	if bool(_rel().get("strained", false)):
 		chips.append(TalkView.stage_chip("Strained", Style.ENEMY_LIGHT, "lock"))
@@ -211,18 +221,81 @@ func _trust_bar(trust: int) -> Control:
 	var heart := Widgets.icon_rect("heart", 26.0)
 	heart.modulate = Style.ROMANCE
 	h.add_child(heart)
-	h.add_child(Style.label(str(trust), Style.SMALL, Style.TEXT))
+	var number := Style.label(str(trust), Style.SMALL, Style.TEXT)
+	number.name = "TrustNumber"
+	h.add_child(number)
 	var bar := Widgets.meter(trust / 100.0, Style.ROMANCE, 14.0, [Relationships.TRUST_PUBLIC_WEDDING / 100.0])
+	bar.name = "TrustMeter"
 	bar.custom_minimum_size.x = 120
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	h.add_child(bar)
 	box.add_child(h)
+	# Trust that changed is seen to: the bar fills from where it stood, the number counts
+	# to the new one, the heart beats, and (for trust won) a heart rises off their face.
+	# No sum is shown: what it meant is told in words in the talk.
+	var was := _trust_shown
+	_trust_shown = trust
+	if was >= 0 and was != trust and not Style.motion_reduced():
+		bar.ready.connect(func(): Widgets.fill_from(bar, was / 100.0))
+		var as_number := func(v: int) -> String: return str(v)
+		number.ready.connect(func(): Widgets.tick_to(number, was, trust, as_number))
+		heart.ready.connect(func(): _beat(heart))
+		var face := face_node("left")
+		if trust > was and face != null:
+			var up := Widgets.icon_rect("heart", 44.0)
+			up.name = "Heart"
+			up.modulate = Style.ROMANCE_LIGHT
+			Widgets.float_up(face, up)
 	return box
+
+
+## A heart beats twice.
+func _beat(heart: Control) -> void:
+	await get_tree().process_frame
+	if not is_instance_valid(heart) or not heart.is_inside_tree():
+		return
+	heart.pivot_offset = heart.size * 0.5
+	var t := heart.create_tween()
+	for i in 2:
+		t.tween_property(heart, "scale", Vector2(1.35, 1.35), 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		t.tween_property(heart, "scale", Vector2.ONE, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+
+## How things stand has changed in this talk: the badge glows as it changes, a ribbon
+## marks a beginning (courting, sworn friends, engaged), and a parting dims them.
+func _status_moment(chip: Control) -> void:
+	var was := _status_shown
+	var now := _status()
+	_status_shown = now
+	var face := face_node("left")
+	if face != null:
+		var tint := Color(0.62, 0.62, 0.72) if now == Relationships.ENDED else Color.WHITE
+		if Style.motion_reduced() or was == "":
+			face.self_modulate = tint
+		elif face.self_modulate != tint:
+			face.create_tween().tween_property(face, "self_modulate", tint, 0.5)
+	if was == "" or was == now:
+		return
+	TalkView.land(chip, Color(1.6, 1.2, 1.4))
+	match now:
+		Relationships.COURTING:
+			Scenes.ribbon("Courting %s" % _name, "", "heart", "bond_rank")
+		Relationships.FRIENDSHIP:
+			Scenes.ribbon("Sworn friends", _name, "bond", "bond_rank")
+		Relationships.ENGAGED:
+			Scenes.ribbon("Engaged to %s" % _name, "", "rings", "bond_rank")
 
 
 func _after_change() -> void:
 	_refresh_plate()
-	change_face("left", _portrait(_expression()))
+	# A face the moment asked for stays; otherwise they look at you as things stand.
+	if _moment_face == "":
+		express("left", _portrait(_expression()), _expression())
+	_moment_face = ""
+
+
+## The face a line was said with, until the plate catches up (see _after_change).
+var _moment_face := ""
 
 
 # ---------------------------------------------------------------- the hub
@@ -544,7 +617,8 @@ func _tell(text: String) -> void:
 ## How they look as they say it ("" leaves the face as it is).
 func _face(expression: String) -> void:
 	if expression != "":
-		change_face("left", _portrait(expression))
+		_moment_face = expression
+		express("left", _portrait(expression), expression)
 
 
 static func _strip_quotes(s: String) -> String:
@@ -844,7 +918,10 @@ func _render_visit() -> void:
 	var seq := _sequence()
 	shown.append_array(seq.slice(0, int(_progress["beat"]) + 1))
 	var face := ""
-	for beat in shown:
+	# The exchange so far is laid out again as it was; only the newest line is said.
+	for i in shown.size():
+		var beat: Dictionary = shown[i]
+		write_lines = i == shown.size() - 1
 		var who := String(beat["speaker"])
 		if who == "Narrator":
 			say("narration", String(beat["text"]))
@@ -853,8 +930,9 @@ func _render_visit() -> void:
 		else:
 			say("them", String(beat["text"]), _name)
 			face = String(beat.get("expression", face))
+	write_lines = true
 	if face != "":
-		change_face("left", _portrait(face))
+		express("left", _portrait(face), face)
 	var pos := int(_progress["beat"])
 	var summary := {"id": "summary", "text": "Short version", "tone": "quiet", "act": _summary}
 	var later := {"id": "later", "text": "Another time", "tone": "quiet", "act": _hub}

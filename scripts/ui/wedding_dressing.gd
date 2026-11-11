@@ -19,6 +19,16 @@ var when := "dusk"
 var petals := true
 ## Time for the breeze: the bunting sways, the lanterns flicker and the petals drift.
 var _clock := 0.0
+## A shower of petals over the whole place, for the moment you're wed: 1 as it's thrown,
+## falling to 0 as the last of it lands.
+const BURST_TIME := 2.6
+var _burst := 0.0
+
+
+## Throw the petals. Nothing under Reduced motion.
+func burst() -> void:
+	if not Style.motion_reduced():
+		_burst = 1.0
 
 
 func _init() -> void:
@@ -31,6 +41,7 @@ func _process(delta: float) -> void:
 	if Style.motion_reduced():
 		return
 	_clock += delta
+	_burst = maxf(0.0, _burst - delta / BURST_TIME)
 	queue_redraw()
 
 
@@ -84,6 +95,18 @@ func _draw() -> void:
 			x += sin(_clock * 1.2 + i) * px * 2.0
 			var c := Color("f4b6c8") if rng.randf() < 0.6 else Color("fff3e6")
 			draw_rect(Rect2(Vector2(roundf(x / px) * px, roundf(y / px) * px), Vector2(px, px)), c)
+	# The shower: thrown from above, across the whole width, thinning as it falls.
+	if _burst > 0.0:
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 23
+		var gone := 1.0 - _burst
+		for i in 70:
+			var x := rng.randf() * s.x + sin(gone * 6.0 + i) * px * 5.0
+			var y := (rng.randf_range(-0.35, 0.25) + gone * rng.randf_range(0.7, 1.3)) * s.y
+			var c := Color("f4b6c8") if rng.randf() < 0.6 else Color("fff3e6")
+			c.a = minf(1.0, _burst * 2.5)
+			if y > 0.0 and y < s.y:
+				draw_rect(Rect2(Vector2(roundf(x / px) * px, roundf(y / px) * px), Vector2(px, px)), c)
 
 
 func _pennant(top: Vector2, half: float, depth: float, c: Color, px: float) -> void:

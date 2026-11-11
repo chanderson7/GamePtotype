@@ -25,6 +25,12 @@ var _continue: Callable
 var _faces := {}
 ## Whose name is on the plate: their bubbles don't repeat it.
 var _plate_name := ""
+## Whether their lines are written out as they're added. A screen that lays an old
+## exchange out again turns it off for the lines already heard.
+var write_lines := true
+## Faces breathe, and sway while they dance.
+const BREATH := 3.6
+var _clock := 0.0
 
 
 func _init() -> void:
@@ -123,6 +129,100 @@ func setup(backdrop: Control, caption: String) -> void:
 	if not resized.is_connected(_layout):
 		resized.connect(_layout)
 	_layout()
+
+
+## The faces on the stage are alive: a slow breath, a lean that a gesture set, and a sway
+## while dancing. All of it through scale and rotation about their feet, so it never
+## fights where the layout or a tween has put them. Still under Reduced motion.
+func _process(delta: float) -> void:
+	if _faces.is_empty() or Style.motion_reduced():
+		return
+	_clock += delta
+	for side in _faces:
+		_pose(side)
+
+
+func _pose(side: String) -> void:
+	var face: TextureRect = _faces[side]["node"]
+	if face == null or not is_instance_valid(face):
+		return
+	var still := Style.motion_reduced()
+	var lean := 1.0 if still else float(face.get_meta("lean", 1.0))
+	var breath := 0.0 if still else sin(_clock * TAU / BREATH + float(side.length())) * 0.004
+	face.pivot_offset = Vector2(face.size.x * 0.5, face.size.y)
+	face.scale = Vector2(lean, lean * (1.0 + breath))
+	face.rotation = 0.0 if still else sin(_clock * 2.2) * float(face.get_meta("sway", 0.0))
+
+
+## The face on `side`, or null.
+func face_node(side: String) -> TextureRect:
+	return _faces.get(side, {}).get("node")
+
+
+## What their body does: "bounce" (a laugh), "lean" (in, and stays), "back" (they draw
+## back, and stay), "" (as they were). Nothing under Reduced motion.
+func gesture(side: String, kind: String) -> void:
+	var face := face_node(side)
+	if face == null or not is_instance_valid(face):
+		return
+	var to: float = {"lean": 1.035, "back": 0.965}.get(kind, 1.0)
+	var old = (face.get_meta("lean_tween") if face.has_meta("lean_tween") else null)
+	if old is Tween and (old as Tween).is_valid():
+		(old as Tween).kill()
+	if Style.motion_reduced() or not is_inside_tree():
+		face.set_meta("lean", 1.0)
+		_pose(side)
+		return
+	var from := float(face.get_meta("lean", 1.0))
+	if not is_equal_approx(from, to):
+		var step := func(v: float) -> void:
+			face.set_meta("lean", v)
+		var lt := face.create_tween()
+		face.set_meta("lean_tween", lt)
+		lt.tween_method(step, from, to, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	if kind == "bounce":
+		var prev = (face.get_meta("nudge") if face.has_meta("nudge") else null)
+		if prev is Tween and (prev as Tween).is_valid():
+			(prev as Tween).kill()
+		_place_face(side)
+		var rest := face.position.y
+		var t := face.create_tween()
+		face.set_meta("nudge", t)
+		# A line said right after doesn't cut the laugh short.
+		face.set_meta("busy_until", Time.get_ticks_msec() + 420)
+		for hop in [10.0, 5.0]:
+			t.tween_property(face, "position:y", rest - hop, 0.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			t.tween_property(face, "position:y", rest, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+
+## Change the face on `side` to `tex` with the gesture that goes with `mood` (one of
+## StoryArt.EXPRESSIONS): a laugh when amused, a lean in when warm, drawn back when
+## concerned.
+func express(side: String, tex: Texture2D, mood: String) -> void:
+	change_face(side, tex)
+	gesture(side, {"amused": "bounce", "warm": "lean", "concerned": "back"}.get(mood, ""))
+
+
+## A face sways as it dances (`amount` in radians; 0 stops it).
+func sway(side: String, amount: float = 0.035) -> void:
+	var face := face_node(side)
+	if face != null and is_instance_valid(face):
+		face.set_meta("sway", amount)
+
+
+## Someone new takes the place on `side`: they step in as a first arrival does.
+func replace_face(side: String, tex: Texture2D, pixel: bool = false, height: float = 0.92) -> void:
+	var face := face_node(side)
+	var was: Texture2D = face.texture if face != null and is_instance_valid(face) else null
+	if face != null and is_instance_valid(face):
+		for key in ["nudge", "enter"]:
+			var old = (face.get_meta(key) if face.has_meta(key) else null)
+			if old is Tween and (old as Tween).is_valid():
+				(old as Tween).kill()
+		face.modulate = Color.WHITE
+	set_face(side, tex, pixel, height)
+	if was != null and was != tex:
+		_enter_face(side)
 
 
 func _layout() -> void:
@@ -290,6 +390,7 @@ static func enter(face: Control, offset: Vector2) -> void:
 	face.position = rest + offset
 	face.modulate = Color(tint, 0.0)
 	var t := face.create_tween().set_parallel()
+	face.set_meta("enter", t)
 	t.tween_property(face, "position", rest, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	t.tween_property(face, "modulate", tint, 0.25)
 
@@ -319,6 +420,7 @@ func _place_face(side: String) -> void:
 		face.position = Vector2(s.x * (0.02 if two else 0.04), s.y - h)
 	else:
 		face.position = Vector2(s.x * 0.98 - w, s.y - h)
+	_pose(side)
 
 
 ## Their name and what stands between you, at the foot of the stage.
@@ -516,7 +618,7 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.add_child(l)
 	bubble.add_child(v)
-	if who != "you":
+	if who != "you" and write_lines:
 		_reveal(l)
 		_nudge_speaker()
 	var gap := Control.new()
@@ -595,7 +697,9 @@ func _nudge_speaker() -> void:
 			var face: TextureRect = _faces[side]["node"]
 			if face == null or not is_instance_valid(face):
 				return
-			var old = face.get_meta("nudge", null)
+			if Time.get_ticks_msec() < int(face.get_meta("busy_until", 0)):
+				return
+			var old = (face.get_meta("nudge") if face.has_meta("nudge") else null)
 			if old is Tween and (old as Tween).is_valid():
 				(old as Tween).kill()
 			_place_face(side)
@@ -642,10 +746,28 @@ func keepsake(text: String, icon_key: String = "cup", fx: Array = []) -> PanelCo
 		v.add_child(Widgets.chip_row(fx_chips(fx)))
 	h.add_child(v)
 	p.add_child(h)
-	if not Style.motion_reduced():
-		p.modulate.a = 0.0
-		p.create_tween().tween_property(p, "modulate:a", 1.0, 0.3)
+	land(p, Color(1.5, 1.1, 1.3))
 	return p
+
+
+## Something kept or won lands in the talk: it fades up, settles from a little small with
+## a slight overshoot, and its glow (`glint`) cools to its own colours. Call it before the
+## control is in the tree. Simply there under Reduced motion.
+static func land(p: Control, glint: Color = Color(1.4, 1.25, 0.8)) -> void:
+	if Style.motion_reduced():
+		return
+	p.modulate = Color(glint, 0.0)
+	var go := func() -> void:
+		await p.get_tree().process_frame
+		if not is_instance_valid(p) or not p.is_inside_tree():
+			return
+		p.pivot_offset = p.size * 0.5
+		p.scale = Vector2(0.94, 0.94)
+		var t := p.create_tween().set_parallel()
+		t.tween_property(p, "modulate:a", 1.0, 0.2)
+		t.tween_property(p, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(p, "modulate", Color.WHITE, 0.9).set_delay(0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	p.ready.connect(go, CONNECT_ONE_SHOT)
 
 
 ## Replies you can give: {id, text, tag, tone ("plain", "gold", "red", "locked", "quiet"),
@@ -669,6 +791,14 @@ func set_replies(replies: Array) -> void:
 			_replies.add_child(row)
 		else:
 			_replies.add_child(reply_button(r))
+	# The replies arrive in a short run. Nothing waits on it: each can be pressed at once.
+	if not Style.motion_reduced():
+		var k := 0
+		for c in _replies.get_children():
+			var part := c as Control
+			part.modulate.a = 0.0
+			part.create_tween().tween_property(part, "modulate:a", 1.0, 0.16).set_delay(minf(0.045 * k, 0.3))
+			k += 1
 	_scroll_to_end()
 
 
@@ -802,10 +932,22 @@ func log_text() -> String:
 	return "\n".join(out)
 
 
+var _glide = null
+
+
 func _scroll_to_end() -> void:
 	await get_tree().process_frame
-	if is_instance_valid(_scroll):
-		_scroll.scroll_vertical = int(_scroll.get_v_scroll_bar().max_value)
+	if not is_instance_valid(_scroll):
+		return
+	var end := int(_scroll.get_v_scroll_bar().max_value)
+	if _glide is Tween and (_glide as Tween).is_valid():
+		(_glide as Tween).kill()
+	# The talk glides down to the newest line; it doesn't jump.
+	if Style.motion_reduced() or absi(end - _scroll.scroll_vertical) < 8:
+		_scroll.scroll_vertical = end
+		return
+	_glide = create_tween()
+	(_glide as Tween).tween_property(_scroll, "scroll_vertical", end, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 func close() -> void:
