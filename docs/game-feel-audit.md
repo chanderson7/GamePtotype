@@ -192,3 +192,31 @@ Other choices made while building:
 Helpers, so the whole game moves the same way: `Style.ease_out / closing / stop_easing`,
 `Widgets.dismiss_sheet / float_up / flash / show_regard / live`, `Scenes.ribbon`,
 `TalkView.writing / finish_writing`.
+
+
+## Added after: the lord talk
+
+The talk with a lord (`lord_conversation.gd`) is its own screen, not a `TalkView`, so it
+missed items 10 and 11 above (the note under 11 was true of the dance, not of this). It
+now moves the same way, through the same helpers:
+
+- **Opening and leaving.** They step in from their side, their banner unfurls, the plate
+  and your banner fade up; leaving is a 0.12 s fade (the host still hears `closed` at once).
+- **The line.** Written out (`TalkView.write_out`), a tap finishes it, and the replies
+  arrive in a short run after it. Nothing waits: a reply can be pressed at once.
+- **The face.** `_show(speech, extras, replies, mood, gesture)`: the portrait wears a
+  `CaptainFace` expression for the exchange (warm or proud for what they like, grim for
+  what they don't) with a gesture (a nod, a shake of the head, a lean in, a turn away,
+  leaving the stage). At rest they breathe and blink (`CaptainFace` draws "blink").
+- **The numbers.** The Regard chip counts to its new value and glows, the change rises
+  off their face (and is taken off `regard_events`, so it doesn't rise again on the page
+  behind), and the conviction bar fills from where it stood (`Widgets.fill_from`).
+- **Set pieces.** The oath: their banner comes down, the crown's goes up, the card glows.
+  Single combat: your champion steps onto the stage, they close twice, then the result
+  (decided and saved before any of it shows; a tap skips it). Drawn swords: a glint of
+  steel as the talk gives way to the field.
+- **The place.** Firelight in a hall or your camp after dark, their banner stirs, and a
+  painted place drifts very slowly.
+
+All of it is still under Reduced motion. Checked by `_lord_talk` in
+`tests/game_feel_tests.gd`.

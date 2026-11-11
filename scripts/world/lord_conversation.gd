@@ -59,6 +59,35 @@ var _beat := ""
 ## The news they told you in this talk.
 var _news: Array = []
 
+## Their face on the stage. It stands at `_face_rest` (the layout's), moved by `_face_off`
+## and grown by `_face_lean` (both tweened by a gesture), over a slow breath.
+const BREATH := 3.4
+const BLINK_TIME := 0.13
+const AWAY_TINT := Color(0.6, 0.6, 0.7)
+const NO_REGARD := -1000
+var _face: TextureRect
+var _face_rest := Vector2.ZERO
+var _face_off := Vector2.ZERO
+var _face_lean := 1.0
+var _face_tex := {}
+## The expression they wear for this exchange ("" at rest; see CaptainFace.EXPRESSIONS).
+var _mood := ""
+var _gesture = null
+var _settle = null
+var _clock := 0.0
+var _blink_in := 2.5
+var _blink_left := 0.0
+var _their_banner: Control
+## A painted place drifts very slowly behind them.
+var _drift := false
+## Their line being written out, and a duel being fought: a tap finishes either.
+var _write = null
+var _duel_tween = null
+## What the Regard chip and the conviction bar last showed, so a change is seen to happen.
+var _regard_shown := NO_REGARD
+var _conviction_shown := -1
+var _closing := false
+
 
 static func open(parent: Node, game, lord_id: int, how: String = "road", why: String = ""):
 	var c = new()
@@ -84,6 +113,7 @@ func _ready() -> void:
 	_scroll = ScrollContainer.new()
 	_scroll.name = "Talk"
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.gui_input.connect(_tap)
 	add_child(_scroll)
 	var pad := MarginContainer.new()
 	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -104,6 +134,7 @@ func _ready() -> void:
 		_beat_challenge(true)
 	else:
 		_beat_greet()
+	_enter_stage()
 
 
 func _layout() -> void:
@@ -185,6 +216,8 @@ func _build_stage() -> void:
 		var owner: String = world.owner_of(id)
 		var flag := owner if Heraldry.REALM_SIZES.has(owner) else Heraldry.realm_of_culture(Data.culture_of(owner))
 		_backdrop = HallScene.rect(Data.culture_of(Data.settlement(id)["faction"]), flag, when, id.hash())
+		if when in ["dusk", "night"]:
+			_backdrop.add_child(TalkView.firelight())
 	elif id in PAINTED or id == "company_camp":
 		var art := TextureRect.new()
 		art.name = "Painted"
@@ -196,6 +229,10 @@ func _build_stage() -> void:
 		# The painting is by day: dusk warms it and night cools and darkens it.
 		art.modulate = {"night": Color(0.42, 0.47, 0.72), "dusk": Color(1.0, 0.78, 0.62), "morning": Color(1.0, 0.95, 0.9)}.get(when, Color.WHITE)
 		_backdrop = art
+		_drift = true
+		# The camp's fire after dark.
+		if id == "company_camp" and when in ["dusk", "night"]:
+			art.add_child(TalkView.firelight())
 	elif Data.SETTLEMENTS.has(id):
 		var p := SettlementScene.params(world, id)
 		p["night"] = when == "night"
@@ -249,17 +286,20 @@ func _build_stage() -> void:
 	# Their face, their banner, and yours.
 	var face := TextureRect.new()
 	face.name = "Face"
-	face.texture = CaptainArt.texture(LordVoice.portrait_record(lord))
+	face.texture = _face_texture("")
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.add_child(face)
+	_face = face
 	var realm := String(lord.get("realm", ""))
 	_banner_realm = realm if Heraldry.REALM_SIZES.has(realm) else Heraldry.realm_of_culture(String(lord.get("culture", "")))
 	var theirs := Widgets.banner(_banner_realm, Vector2(70, 104))
 	theirs.name = "TheirBanner"
+	theirs.pivot_offset = Vector2(35, 0)
 	_stage.add_child(theirs)
+	_their_banner = theirs
 	var yours := PanelContainer.new()
 	yours.name = "YourBanner"
 	yours.add_theme_stylebox_override("panel", Style.box(Color(Style.NIGHT, 0.8), Style.BRASS, 3, 6))
@@ -314,12 +354,13 @@ func _place_backdrop() -> void:
 		else:
 			_backdrop.position = Vector2.ZERO
 			_backdrop.size = s
-	var face := _stage.get_node("Face") as TextureRect
+			_backdrop.pivot_offset = s * 0.5
 	var fs := Vector2(48, 64) * FACE_SCALE * clampf(s.x / 720.0, 0.6, 1.4)
-	face.size = fs
-	face.position = Vector2(24, s.y - fs.y - 64)
-	var theirs := _stage.get_node("TheirBanner") as Control
-	theirs.position = Vector2(face.position.x + fs.x + 6, s.y - 64 - 104 - 24)
+	_face.size = fs
+	_face.pivot_offset = Vector2(fs.x * 0.5, fs.y)
+	_face_rest = Vector2(24, s.y - fs.y - 64)
+	_pose_face()
+	_their_banner.position = Vector2(_face_rest.x + fs.x + 6, s.y - 64 - 104 - 24)
 	var yours := _stage.get_node("YourBanner") as Control
 	yours.position = Vector2(s.x - 24 - 80, s.y * 0.48)
 	var plate := _stage.get_node("Nameplate") as Control
@@ -349,16 +390,226 @@ func _refresh_regard() -> void:
 	t.name = "RegardText"
 	h.add_child(t)
 	_regard_chip.add_child(h)
+	# A change is seen to happen: the number counts to its new value, the chip glows, and
+	# what changed rises off their face (here, so not again on the page you go back to).
+	_forget_regard_events()
+	var was := _regard_shown
+	_regard_shown = value
+	if was == NO_REGARD or was == value or sworn:
+		return
+	Widgets.tick_to(t, was, value, func(v: int) -> String: return LordTalk.regard_text(v))
+	Widgets.float_up(_face, Widgets.effect("bond", value - was))
+	_flash_later(_regard_chip)
+	if value > was and LordTalk.standing(value) != LordTalk.standing(was):
+		Sound.play("bond_rank")
+
+
+## Regard changed in this talk has been shown in it.
+func _forget_regard_events() -> void:
+	if gs == null or not ("regard_events" in gs):
+		return
+	var lid := int(lord.get("id", -1))
+	gs.regard_events = (gs.regard_events as Array).filter(func(e): return int(e.get("id", -1)) != lid)
+
+
+## Glow a control once it has been laid out.
+func _flash_later(node: Control) -> void:
+	if Style.motion_reduced() or not is_inside_tree():
+		return
+	await get_tree().process_frame
+	if is_instance_valid(node) and node.is_inside_tree():
+		Widgets.flash(node)
+
+
+# ---------------------------------------------------------------- the face, alive
+
+func _face_texture(expression: String) -> Texture2D:
+	if not _face_tex.has(expression):
+		_face_tex[expression] = CaptainArt.texture(LordVoice.portrait_record(lord), expression)
+	return _face_tex[expression]
+
+
+## The face where it stands now: its place on the stage, any gesture, and its breath.
+func _pose_face() -> void:
+	if _face == null:
+		return
+	var breath := 0.0 if Style.motion_reduced() else sin(_clock * TAU / BREATH) * 2.0
+	_face.position = _face_rest + _face_off + Vector2(0, breath)
+	_face.scale = Vector2(_face_lean, _face_lean)
+
+
+## They breathe and blink, their banner stirs, and a painted place drifts. All of it holds
+## still under Reduced motion.
+func _process(delta: float) -> void:
+	if _face == null or _closing or Style.motion_reduced():
+		return
+	_clock += delta
+	if _mood == "" and _face.texture != null:
+		if _blink_left > 0.0:
+			_blink_left -= delta
+			if _blink_left <= 0.0:
+				_face.texture = _face_texture("")
+		else:
+			_blink_in -= delta
+			if _blink_in <= 0.0:
+				_blink_in = randf_range(2.6, 5.5)
+				_blink_left = BLINK_TIME
+				_face.texture = _face_texture("blink")
+	_pose_face()
+	if _their_banner != null and is_instance_valid(_their_banner):
+		_their_banner.rotation = sin(_clock * 1.3) * 0.02
+	if _drift and _backdrop != null:
+		var grow := 1.0 + 0.012 * (1.0 - cos(_clock * TAU / 44.0))
+		_backdrop.scale = Vector2(grow, grow)
+
+
+## The expression they wear for this exchange.
+func _set_mood(mood: String) -> void:
+	_mood = mood
+	_blink_left = 0.0
+	_blink_in = randf_range(1.6, 4.0)
+	var tex := _face_texture(mood)
+	if tex != null:
+		_face.texture = tex
+
+
+func _liked_mood() -> String:
+	return "proud" if String(lord.get("bearing", "")) in [Lords.DARING, Lords.CRUEL] else "warm"
+
+
+func _stop_gesture() -> void:
+	for t in [_gesture, _settle]:
+		if t is Tween and (t as Tween).is_valid():
+			(t as Tween).kill()
+	_gesture = null
+	_settle = null
+
+
+## What their body does with a line: "" (they lean into speaking it), "nod", "bristle" (a
+## shake of the head), "lean" (in, and stays), "away" (turns from you, dimmed, and stays),
+## "exit" (they go). Each starts from wherever the last one left them.
+func _play(kind: String) -> void:
+	_stop_gesture()
+	if _face == null:
+		return
+	var lean := 1.05 if kind == "lean" else 1.0
+	var tint := AWAY_TINT if kind == "away" else Color.WHITE
+	if Style.motion_reduced() or not is_inside_tree():
+		_face_off = Vector2.ZERO
+		_face_lean = 1.0
+		_face.modulate = tint
+		_pose_face()
+		return
+	var settle := create_tween().set_parallel()
+	_settle = settle
+	settle.tween_property(self, "_face_lean", lean, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	settle.tween_property(_face, "modulate", tint, 0.25)
+	var steps := []
+	match kind:
+		"nod":
+			steps = [[Vector2(0, 9), 0.12], [Vector2.ZERO, 0.2]]
+		"bristle":
+			steps = [[Vector2(-7, 0), 0.05], [Vector2(7, 0), 0.07], [Vector2(-4, 0), 0.06], [Vector2.ZERO, 0.08]]
+		"away":
+			steps = [[Vector2(-16, 0), 0.3]]
+		"lean":
+			steps = [[Vector2.ZERO, 0.12]]
+		"exit":
+			steps = [[Vector2.ZERO, 0.12], [Vector2.ZERO, 0.6], [Vector2(-(_face.size.x + 80.0), 0), 0.45]]
+		_:
+			steps = [[Vector2(0, -6), 0.1], [Vector2.ZERO, 0.18]]
+	var t := create_tween()
+	_gesture = t
+	for st in steps:
+		t.tween_property(self, "_face_off", st[0], float(st[1])).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+
+
+## Opening the talk: they step in from their side, their banner unfurls, and the plate
+## and your own banner fade up.
+func _enter_stage() -> void:
+	if Style.motion_reduced() or _face == null:
+		return
+	_stop_gesture()
+	_face_off = Vector2(-50, 0)
+	_face_lean = 1.0
+	_face.modulate = Color(1, 1, 1, 0)
+	_pose_face()
+	var t := create_tween().set_parallel()
+	_gesture = t
+	t.tween_property(self, "_face_off", Vector2.ZERO, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.tween_property(_face, "modulate", Color.WHITE, 0.25)
+	_unfurl(_their_banner, 0.12)
+	for key in ["Nameplate", "YourBanner"]:
+		var n := _stage.get_node_or_null(key) as Control
+		if n != null:
+			n.modulate.a = 0.0
+			n.create_tween().tween_property(n, "modulate:a", 1.0, 0.3).set_delay(0.15)
+
+
+## A banner let down from its pole.
+func _unfurl(flag: Control, delay: float = 0.0) -> void:
+	if flag == null or Style.motion_reduced():
+		return
+	flag.pivot_offset = Vector2(flag.custom_minimum_size.x * 0.5, 0)
+	flag.scale = Vector2(1, 0)
+	flag.create_tween().tween_property(flag, "scale", Vector2.ONE, 0.4).set_delay(delay) \
+		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+## Their banner comes down and your crown's goes up in its place.
+func _raise_crown_banner() -> void:
+	_banner_realm = "crown"
+	var old := _their_banner
+	var flag := Widgets.banner("crown", Vector2(70, 104))
+	flag.position = old.position
+	flag.pivot_offset = Vector2(35, 0)
+	old.name = "OldBanner"
+	flag.name = "TheirBanner"
+	_stage.add_child(flag)
+	_stage.move_child(flag, old.get_index())
+	_their_banner = flag
+	if Style.motion_reduced():
+		_stage.remove_child(old)
+		old.queue_free()
+		return
+	old.rotation = 0.0
+	var t := old.create_tween().set_parallel()
+	t.tween_property(old, "position:y", old.position.y + 40.0, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	t.tween_property(old, "modulate:a", 0.0, 0.3)
+	t.chain().tween_callback(old.queue_free)
+	_unfurl(flag, 0.25)
+
+
+## A tap (a release) on the stage or the talk finishes whatever is still playing: a duel
+## first, else the line being written. It never chooses anything.
+func _tap(event: InputEvent) -> void:
+	var up: bool = (event is InputEventMouseButton and not event.pressed and event.button_index == MOUSE_BUTTON_LEFT) \
+		or (event is InputEventScreenTouch and not event.pressed)
+	if not up:
+		return
+	if TalkView.running(_duel_tween):
+		TalkView.finish(_duel_tween)
+	elif TalkView.running(_write):
+		TalkView.finish(_write)
+
+
+func _gui_input(event: InputEvent) -> void:
+	_tap(event)
+
+
+## Whether their line is still being written out.
+func writing() -> bool:
+	return TalkView.running(_write)
 
 
 # ---------------------------------------------------------------- the talk
 
 ## One exchange: your last line, dimmed; their answer (the plate says who); anything to
 ## show with it; your replies; and a footer with the way back and the way out.
-func _show(speech: String, extras: Array, replies: Array) -> void:
-	for c in _talk.get_children():
-		_talk.remove_child(c)
-		c.queue_free()
+func _show(speech: String, extras: Array, replies: Array, mood: String = "", gesture: String = "") -> void:
+	_clear_talk()
+	_set_mood(mood)
+	_play(gesture)
 	if _said != "":
 		var said := Style.label("\"%s\"" % _said, Style.SMALL, Style.MUTED)
 		said.name = "YouSaid"
@@ -386,9 +637,25 @@ func _show(speech: String, extras: Array, replies: Array) -> void:
 		_talk.add_child(_footer(footer))
 	_refresh_regard()
 	_scroll.scroll_vertical = 0
+	# Their line is written out as they say it; the rest arrives in a short run after it.
+	# Nothing waits on either: a reply can be pressed the moment it's there.
+	_write = TalkView.write_out(line)
 	if not Style.motion_reduced():
-		_talk.modulate.a = 0.0
-		create_tween().tween_property(_talk, "modulate:a", 1.0, 0.18)
+		var k := 0
+		for c in _talk.get_children():
+			var part := c as Control
+			# Notes and the oath have their own way of arriving.
+			if part == null or part == line or String(part.name).begins_with("Note") or String(part.name) == "Oath":
+				continue
+			part.modulate.a = 0.0
+			part.create_tween().tween_property(part, "modulate:a", 1.0, 0.16).set_delay(minf(0.045 * k, 0.3))
+			k += 1
+
+
+func _clear_talk() -> void:
+	for c in _talk.get_children():
+		_talk.remove_child(c)
+		c.queue_free()
 
 
 ## The text of their current answer.
@@ -545,10 +812,26 @@ func _leave_reply(text: String = "Safe roads.") -> Dictionary:
 	return {"id": "leave", "text": text, "tag": "leave", "act": _leave}
 
 
+## Leaving: the host hears of it at once; the picture takes a moment to go.
 func _leave() -> void:
+	if _closing:
+		return
+	_closing = true
 	set_process(false)
+	_forget_regard_events()
 	closed.emit()
-	queue_free()
+	if Style.motion_reduced() or not is_inside_tree():
+		queue_free()
+		return
+	# Nothing here can be pressed on its way out.
+	var shield := Control.new()
+	shield.name = "Closing"
+	shield.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shield.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(shield)
+	var t := create_tween()
+	t.tween_property(self, "modulate:a", 0.0, 0.12)
+	t.tween_callback(queue_free)
 
 
 # ---------------------------------------------------------------- greeting
@@ -587,7 +870,9 @@ func _beat_greet() -> void:
 		var bonus: int = gs.first_word(lord)
 		if bonus > 0:
 			extras.append(_fx_note([["bond", bonus]], "first word at the table"))
-	_show("\"%s\"" % words, extras, _root_replies())
+	var regard := LordTalk.regard(gs, lord)
+	var mood := "warm" if kind in ["kin", "pact"] or regard >= 30 else ("grim" if regard <= -15 else "")
+	_show("\"%s\"" % words, extras, _root_replies(), mood)
 
 
 func _house_line() -> String:
@@ -678,7 +963,7 @@ func _order_replies() -> Array:
 	row.append({"id": "order_follow", "label": "Follow", "icon": "company", "says": "Ride with me.", "tip": "They follow you and join your fights",
 		"lit": kind == "follow", "act": func():
 			gs.order_lord(lid, "follow")
-			_show("\"At your side, then.\"", [_note("%s rides with you." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Good.")])})
+			_show("\"At your side, then.\"", [_note("%s rides with you." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Good.")], "", "nod")})
 	var hold := String(lord.get("fief", ""))
 	if hold == "" or not gs.crown_holdings().has(hold):
 		hold = world.capital_of(Data.CROWN)
@@ -687,11 +972,11 @@ func _order_replies() -> Array:
 		row.append({"id": "order_guard", "label": "Hold", "icon": "keep", "says": "Hold %s for the crown." % hold_name, "tip": "They guard %s" % hold_name,
 			"lit": kind == "guard" and String(order.get("target", "")) == hold, "act": func():
 				gs.order_lord(lid, "guard", hold)
-				_show("\"It will stand.\"", [_note("%s will hold %s." % [LordTalk.short_name(lord), hold_name], Style.BRASS)], [_leave_reply("Good.")])})
+				_show("\"It will stand.\"", [_note("%s will hold %s." % [LordTalk.short_name(lord), hold_name], Style.BRASS)], [_leave_reply("Good.")], "", "nod")})
 	row.append({"id": "order_free", "label": "Free", "icon": "mappin", "says": "Go about the realm's business.", "tip": "They choose for themselves",
 		"lit": kind == "", "act": func():
 			gs.order_lord(lid, "")
-			_show("\"As you say.\"", [], [_leave_reply("Go well.")])})
+			_show("\"As you say.\"", [], [_leave_reply("Go well.")], "", "nod")})
 	return [{"row": row}]
 
 
@@ -765,7 +1050,8 @@ func _beat_king() -> void:
 	var extras := []
 	if bool(view["doubts"]) and gs.is_crowned():
 		extras.append(_note("They doubt their ruler: that will count when you talk of crowns.", Style.BRASS))
-	_show(String(view["says"]), extras, [{"id": "back", "text": "Something else.", "act": _beat_greet_again}, _leave_reply()])
+	_show(String(view["says"]), extras, [{"id": "back", "text": "Something else.", "act": _beat_greet_again}, _leave_reply()],
+		"grim" if bool(view["doubts"]) else "")
 
 
 func _beat_greet_again() -> void:
@@ -816,7 +1102,13 @@ func _tell(story_id: String) -> void:
 		replies.append({"id": "story", "text": "Another?", "icon": "talk", "tag": "tell another", "act": _beat_stories})
 	replies.append({"id": "back", "text": "Something else.", "act": _beat_greet_again})
 	replies.append(_leave_reply())
-	_show(String(r.get("reaction", "")), extras, replies)
+	# A story they like is a nod and a warmer face; one they don't, a shake of the head.
+	if change >= LordTalk.STORY_LIKED:
+		_show(String(r.get("reaction", "")), extras, replies, _liked_mood(), "nod")
+	elif change < 0:
+		_show(String(r.get("reaction", "")), extras, replies, "grim", "bristle")
+	else:
+		_show(String(r.get("reaction", "")), extras, replies)
 
 
 # ---------------------------------------------------------------- troubles
@@ -856,7 +1148,8 @@ func _haggle() -> void:
 		{"id": "take", "text": "Done. I'll clear %s." % String(tr.get("name", "them")), "icon": "journal",
 			"fx": [["silver", silver], ["bond", LordTalk.JOB_REGARD]], "tag": "new job · when done",
 			"tone": "gold", "act": _take_trouble.bind(silver)},
-		{"id": "no", "text": "Not for that.", "tag": "nothing changes", "act": _beat_greet_again}])
+		{"id": "no", "text": "Not for that.", "tag": "nothing changes", "act": _beat_greet_again}],
+		"grim" if LordTalk.haggle_cost(lord) != 0 else "")
 
 
 func _take_trouble(silver: int) -> void:
@@ -867,7 +1160,7 @@ func _take_trouble(silver: int) -> void:
 	gs.save_game()
 	_show("\"Good. Find me when it's done, or don't; I'll hear of it.\"",
 		[_note("Added to your journal: %s." % String(job["title"]), Style.BRASS)],
-		[{"id": "back", "text": "Something else.", "act": _beat_greet_again}, _leave_reply()])
+		[{"id": "back", "text": "Something else.", "act": _beat_greet_again}, _leave_reply()], "", "nod")
 
 
 # ---------------------------------------------------------------- winning them over
@@ -894,7 +1187,14 @@ func _conviction_bar() -> Control:
 	n.name = "ConvictionText"
 	top.add_child(n)
 	box.add_child(top)
-	box.add_child(Widgets.meter(float(c) / LordTalk.CONVINCED, Style.BRASS, 12.0))
+	var bar := Widgets.meter(float(c) / LordTalk.CONVINCED, Style.BRASS, 12.0)
+	bar.name = "ConvictionBar"
+	box.add_child(bar)
+	# An argument that lands is seen to land: the bar fills from where it stood.
+	var was := _conviction_shown
+	_conviction_shown = c
+	if was >= 0 and was != c:
+		bar.ready.connect(func(): Widgets.fill_from(bar, float(was) / LordTalk.CONVINCED))
 	return box
 
 
@@ -955,7 +1255,7 @@ func _after_case(r: Dictionary) -> void:
 		gs.save_game()
 		_show(String(r["reaction"]), [_fx_note([["bond", LordTalk.REFUSAL_REGARD], ["clock", Style.time_short(LordTalk.REFUSAL_HOURS)]],
 			"They refuse you, and won't hear of it again till then.", Style.MORALE_LOW)],
-			[_leave_reply("As you like.")])
+			[_leave_reply("As you like.")], "grim", "away")
 		return
 	if bool(r.get("sworn", false)):
 		_beat_sworn()
@@ -964,7 +1264,12 @@ func _after_case(r: Dictionary) -> void:
 	var pts := int(r.get("points", 0))
 	# The points, once, with what you learned beside them; the bar below shows the total.
 	extras.push_front(_fx_note([["crown", pts]], String(r.get("learned", "")), Style.MORALE_HIGH if pts > 0 else Style.MORALE_LOW))
-	_show(String(r.get("reaction", "")), extras, _persuade_replies())
+	if pts < 0:
+		_show(String(r.get("reaction", "")), extras, _persuade_replies(), "grim", "bristle")
+	elif pts >= LordTalk.ARGUMENT_LIKED:
+		_show(String(r.get("reaction", "")), extras, _persuade_replies(), _liked_mood(), "nod")
+	else:
+		_show(String(r.get("reaction", "")), extras, _persuade_replies())
 
 
 func _beat_sworn() -> void:
@@ -973,14 +1278,7 @@ func _beat_sworn() -> void:
 	if not bool(r.get("ok", false)):
 		_beat_persuade(false)
 		return
-	_banner_realm = "crown"
-	var theirs := _stage.get_node("TheirBanner")
-	var flag := Widgets.banner("crown", Vector2(70, 104))
-	flag.name = "TheirBanner"
-	flag.position = theirs.position
-	_stage.remove_child(theirs)
-	theirs.queue_free()
-	_stage.add_child(flag)
+	_raise_crown_banner()
 	Sound.play("horn")
 	gs.save_game()
 	var card := PanelContainer.new()
@@ -1025,7 +1323,9 @@ func _beat_sworn() -> void:
 				_leave()}]})
 	replies.append(_leave_reply("Ride well, and raise your men."))
 	_refresh_regard()
-	_show("\"Then hear it plainly: House %s stands with your crown, as long as your crown stands.\"" % String(lord.get("house", "")), [card], replies)
+	_show("\"Then hear it plainly: House %s stands with your crown, as long as your crown stands.\"" % String(lord.get("house", "")), [card], replies, "proud", "nod")
+	# The oath is the moment: its card glows as it lands.
+	_flash_later(card)
 
 
 # ---------------------------------------------------------------- steel
@@ -1084,7 +1384,7 @@ func _beat_challenge(blocked: bool) -> void:
 		replies.append({"id": "back", "text": "Let me think.", "tag": "back to the road", "act": _leave})
 	else:
 		replies.append({"id": "back", "text": "Another time.", "tag": "nothing changes", "act": _beat_greet_again})
-	_show(speech, [], replies)
+	_show(speech, [], replies, "proud" if String(lord.get("bearing", "")) == Lords.DARING else "grim", "lean")
 
 
 ## What's at stake as two columns, Win and Lose, each a column of chips (see
@@ -1124,6 +1424,7 @@ func _draw_swords() -> void:
 	world.encounter = pid
 	world.events.clear()
 	set_process(false)
+	_steel_flash()
 	wants_fight.emit()
 	queue_free()
 
@@ -1133,7 +1434,7 @@ func _pay_tribute() -> void:
 		Sound.play("coins")
 		gs.save_game()
 		_show("\"Wise. Ride on, then, before I change my mind.\"", [_fx_note([["silver", -LordTalk.TRIBUTE], ["bond", LordTalk.TRIBUTE_REGARD]], "They let you pass.", Style.BRASS)],
-			[_leave_reply("Safe roads.")])
+			[_leave_reply("Safe roads.")], "proud")
 
 
 func _beat_duel() -> void:
@@ -1179,16 +1480,111 @@ func _beat_duel() -> void:
 	box.add_child(stakes)
 	_show("\"Ha! A duel, then. Choose your champion. Mine has never lost.\"", [],
 		[{"id": "champion", "text": "My champion is...", "icon": "fight", "tag": "choose a captain", "tone": "red", "extra": box},
-		{"id": "back", "text": "On second thought, no.", "tag": "nothing changes", "act": _beat_greet_again}])
+		{"id": "back", "text": "On second thought, no.", "tag": "nothing changes", "act": _beat_greet_again}], "proud", "lean")
 
 
 func _fight_duel(squad_id: int) -> void:
+	var champ := {}
+	for c in LordTalk.champions(gs):
+		if int(c["squad"]) == squad_id:
+			champ = c["captain"]
+	# The fight is decided and saved before any of it is shown: watching it, or tapping
+	# past it, changes nothing.
 	var r := LordTalk.duel(gs, lord, squad_id)
 	if not bool(r.get("ok", false)):
 		_beat_greet_again()
 		return
-	Sound.play("charge" if bool(r["won"]) else "bell")
 	gs.save_game()
+	var champ_tex: Texture2D = CaptainArt.texture(champ, "grim") if not champ.is_empty() else null
+	if Style.motion_reduced() or champ_tex == null or _face.texture == null or not is_inside_tree():
+		_duel_result(r)
+		return
+	_duel_beat(champ_tex, r)
+
+
+## Single combat, seen: your champion steps onto the stage across from the lord, they
+## close twice with steel ringing, and the result follows. About a second and a half; a
+## tap goes straight to the result.
+func _duel_beat(champ_tex: Texture2D, r: Dictionary) -> void:
+	_beat = "duel_fought"
+	_clear_talk()
+	var told := Style.label("%s steps out to meet their champion." % String(r["captain"]), Style.BODY, Style.MUTED)
+	told.name = "Narration"
+	told.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	told.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_talk.add_child(told)
+	_set_mood("grim")
+	_stop_gesture()
+	_face_off = Vector2.ZERO
+	_face_lean = 1.0
+	_face.modulate = Color.WHITE
+	var s := _stage.size
+	var rival := TextureRect.new()
+	rival.name = "Champion"
+	rival.texture = champ_tex
+	rival.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	rival.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	rival.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	rival.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rival.size = _face.size
+	var rest := Vector2(s.x - _face.size.x - 24.0, _face_rest.y)
+	rival.position = rest + Vector2(60, 0)
+	rival.modulate.a = 0.0
+	_stage.add_child(rival)
+	var plate := _stage.get_node_or_null("Nameplate")
+	if plate != null:
+		_stage.move_child(rival, plate.get_index())
+	var flash := ColorRect.new()
+	flash.name = "Clash"
+	flash.color = Color(1, 1, 1, 0)
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_stage.add_child(flash)
+	# How far each comes forward to meet the other.
+	var reach := maxf(20.0, (rest.x - _face_rest.x - _face.size.x) * 0.5 + 20.0)
+	var t := create_tween()
+	_duel_tween = t
+	t.tween_property(rival, "position", rest, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	t.parallel().tween_property(rival, "modulate:a", 1.0, 0.2)
+	t.tween_interval(0.2)
+	for i in 2:
+		t.tween_property(self, "_face_off", Vector2(reach, 0), 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		t.parallel().tween_property(rival, "position:x", rest.x - reach, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		t.tween_callback(_clash.bind(flash))
+		t.tween_property(self, "_face_off", Vector2.ZERO, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		t.parallel().tween_property(rival, "position:x", rest.x, 0.2).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		t.tween_interval(0.12)
+	t.tween_callback(_duel_done.bind(rival, flash, r))
+
+
+func _clash(flash: ColorRect) -> void:
+	Sound.play("clash%d" % (1 + randi() % 3), 0.0, 0.05)
+	Sound.haptic(true)
+	if not is_instance_valid(flash):
+		return
+	flash.color.a = 0.35
+	flash.create_tween().tween_property(flash, "color:a", 0.0, 0.18)
+
+
+## The fight is over: the beaten one dims, your champion leaves the stage, and the lord
+## says how it went.
+func _duel_done(rival: TextureRect, flash: ColorRect, r: Dictionary) -> void:
+	_duel_tween = null
+	if is_instance_valid(flash):
+		flash.queue_free()
+	if is_instance_valid(rival):
+		if not bool(r["won"]):
+			rival.modulate = Color(AWAY_TINT, rival.modulate.a)
+		var out := rival.create_tween()
+		out.tween_interval(0.7)
+		out.tween_property(rival, "modulate:a", 0.0, 0.35)
+		out.tween_callback(rival.queue_free)
+	_duel_result(r)
+
+
+func _duel_result(r: Dictionary) -> void:
+	_beat = "duel"
+	Sound.play("charge" if bool(r["won"]) else "bell")
 	var said := ""
 	var result: Control
 	if bool(r["won"]):
@@ -1198,7 +1594,29 @@ func _fight_duel(squad_id: int) -> void:
 		said = "\"Get your champion to a surgeon. Better luck next time.\""
 		result = _fx_note([["wounded", "2 battles"], ["bond", int(r["regard"])]], "%s was beaten." % String(r["captain"]), Style.MORALE_LOW)
 	_show(said, [result],
-		[{"id": "back", "text": "Something else.", "act": _beat_greet_again} if mode != "hostile" else {"id": "back", "text": "Back to the road.", "act": _leave}, _leave_reply()])
+		[{"id": "back", "text": "Something else.", "act": _beat_greet_again} if mode != "hostile" else {"id": "back", "text": "Back to the road.", "act": _leave}, _leave_reply()],
+		"grim" if bool(r["won"]) else "proud", "nod" if bool(r["won"]) else "")
+
+
+## Steel drawn: a ring of it and a white glint over everything, as the talk gives way to
+## the field. It rides on the top layer, so it outlasts this screen.
+func _steel_flash() -> void:
+	Sound.play("clash1", 0.0, 0.05)
+	Sound.haptic(true)
+	if Style.motion_reduced() or not is_inside_tree():
+		return
+	var top: Node = get_tree().root.get_node_or_null("Scenes")
+	if top == null:
+		return
+	var f := ColorRect.new()
+	f.name = "SteelFlash"
+	f.color = Color(1, 1, 1, 0.35)
+	f.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	f.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	top.add_child(f)
+	var t := f.create_tween()
+	t.tween_property(f, "color:a", 0.0, 0.22)
+	t.tween_callback(f.queue_free)
 
 
 # ---------------------------------------------------------------- captives
@@ -1216,6 +1634,7 @@ func _beat_captive() -> void:
 			speech = "\"Well fought, I'll give you that. So what now? Chains bore me.\""
 		_:
 			speech = "\"I'd sooner be home. Name your terms and let's be done.\""
+	var captive_mood := "grim" if String(lord.get("bearing", "")) == Lords.CRUEL else ""
 	var replies := []
 	if gs.is_crowned():
 		var sw: Dictionary = gs.swear_check(lid)
@@ -1223,21 +1642,21 @@ func _beat_captive() -> void:
 			"tone": "gold" if bool(sw["ok"]) else "locked", "act": func():
 				if gs.swear_lord_to_crown(lid):
 					Sound.play("horn")
-					_banner_realm = "crown"
-					_show("\"So be it. I'll serve your crown.\"", [_note("%s swears to your crown." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Welcome.")])})
+					_raise_crown_banner()
+					_show("\"So be it. I'll serve your crown.\"", [_note("%s swears to your crown." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Welcome.")], "proud", "nod")})
 	else:
 		replies.append({"id": "swear", "text": "Swear to my crown.", "tag": "raise your own banner first", "tone": "locked"})
 	replies.append({"id": "release", "text": "Go home, and remember who freed you.", "icon": "bond",
 		"fx": [["bond", int(gs.release_reward(lid)["regard"])], {"realm": _banner_realm, "amount": int(gs.release_reward(lid)["realm"])}], "tag": "for honor", "tone": "gold", "act": func():
 			gs.release_lord_for_honor(lid)
 			Sound.play("page")
-			_show("\"I won't forget it.\"", [_note("Released.")], [_leave_reply("Go.")])})
+			_show("\"I won't forget it.\"", [_note("Released.")], [_leave_reply("Go.")], "warm", "exit")})
 	var ransom: int = int(gs.ransom_offer(lid))
 	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "icon": "silver",
 		"fx": [["silver", ransom], ["bond", 5]], "tag": "ransom", "act": func():
 			gs.accept_lord_ransom(lid)
 			Sound.play("coins")
-			_show("\"They'll pay. Gladly, I expect.\"", [_note("Ransomed.", Style.BRASS)], [_leave_reply("Go.")])})
+			_show("\"They'll pay. Gladly, I expect.\"", [_note("Ransomed.", Style.BRASS)], [_leave_reply("Go.")], "", "exit")})
 	if gs.has_contract() and world.at_war(gs.contract_realm(), String(lord.get("realm", ""))):
 		var employer: String = gs.contract_realm()
 		replies.append({"id": "deliver", "text": "My employer will want to see you.", "icon": "lock",
@@ -1250,12 +1669,12 @@ func _beat_captive() -> void:
 		"tag": "Honorable lords hear of it", "tone": "red", "act": func():
 			LordTalk.keep_in_chains(gs, lord)
 			gs.save_game()
-			_show("\"...\"", [_note("Kept in chains.", Style.MORALE_LOW)], [_leave_reply("Take them back.")])})
+			_show("\"...\"", [_note("Kept in chains.", Style.MORALE_LOW)], [_leave_reply("Take them back.")], "grim", "away")})
 	replies.append(_leave_reply("Later."))
-	_show(speech, [], replies)
+	_show(speech, [], replies, captive_mood)
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel"):
+	if event.is_action_pressed("ui_cancel") and not _closing:
 		get_viewport().set_input_as_handled()
 		_leave()

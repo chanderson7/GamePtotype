@@ -425,6 +425,79 @@ func _ribbons() -> void:
 	scenes.ribbons.clear()
 
 
+# ---- the lord talk moves as the other talks do: they step in, their line is written out,
+# their face answers what you say, Regard is seen to change, and leaving fades.
+func _lord_talk(tap: InputEvent) -> void:
+	var LordConversation = load("res://scripts/world/lord_conversation.gd")
+	var LordTalk = load("res://scripts/world/lord_talk.gd")
+	var l: Dictionary = {}
+	for x in gs.world.lords:
+		if not bool(x.get("ruler", false)) and String(x.get("state", "")) != "prisoner":
+			l = x
+			break
+	var lid := int(l["id"])
+	var lt = LordConversation.open(root, gs, lid, "road")
+	await _frames(2)
+	var lf := lt.get_node("Stage/Face") as TextureRect
+	check(lf.modulate.a < 0.99, "a lord steps into the talk, fading up")
+	var speech := lt._talk.get_node("Speech") as Label
+	check(lt.writing() and speech.visible_characters >= 0 and speech.visible_characters < speech.text.length(),
+		"a lord's line is written out (%d of %d)" % [speech.visible_characters, speech.text.length()])
+	check(lt.has_reply("leave") and lt.speech_text() == speech.text, "nothing waits on it: the replies are there, and the line is whole to read")
+	lt._tap(tap)
+	check(not lt.writing() and speech.visible_characters == -1, "a tap finishes the lord's line")
+	await _wait(0.6)
+	check(is_equal_approx(lf.modulate.a, 1.0) and lt._face_off.length() < 0.5, "and they stand where they stand a moment later")
+	var y0: float = lf.position.y
+	await _wait(0.5)
+	check(not is_equal_approx(lf.position.y, y0), "they breathe")
+	# Their face answers what you say.
+	var resting: Texture2D = lt._face_texture("")
+	lt._show("\"Good.\"", [], [lt._leave_reply()], "warm", "nod")
+	check(resting == null or (lf.texture != resting and lf.texture == lt._face_texture("warm")), "a line they like changes their face")
+	check(resting == null or lt._face_texture("blink") != resting, "and there's a face with its eyes shut to blink with")
+	lt._show("\"What else?\"", [], [lt._leave_reply()])
+	check(lf.texture == resting, "the next line, they're themselves again")
+	lt._show("\"Enough.\"", [], [lt._leave_reply()], "grim", "away")
+	await _wait(0.5)
+	check(lf.modulate.r < 0.9 and lt._face_off.x < -8.0, "refused, they turn away and stay turned")
+	lt._show("\"What else?\"", [], [lt._leave_reply()])
+	await _wait(0.5)
+	check(lf.modulate.r > 0.99 and lt._face_off.length() < 0.5, "until the next thing said")
+	# Regard is seen to change.
+	for f in _floats():
+		f.queue_free()
+	gs.add_lord_relation(lid, 5)
+	var now: int = LordTalk.regard(gs, l)
+	lt._show("\"I'll remember it.\"", [], [lt._leave_reply()])
+	await _frames(5)
+	check(_floats().size() == 1, "Regard won in a talk rises off their face, once (%d)" % _floats().size())
+	check(gs.regard_events.filter(func(e): return int(e["id"]) == lid).is_empty(), "and won't rise again on the page you go back to")
+	await _wait(0.7)
+	check((lt.get_node("Stage").find_child("RegardText", true, false) as Label).text == LordTalk.regard_text(now), "the chip counts to the new Regard")
+	# Leaving: the host hears at once, the picture takes a moment.
+	var heard := [false]
+	lt.closed.connect(func(): heard[0] = true)
+	lt._leave()
+	check(heard[0] and is_instance_valid(lt) and not lt.is_queued_for_deletion(), "leaving tells the host at once, and fades")
+	await _wait(0.4)
+	check(not is_instance_valid(lt), "and is gone a moment later")
+	# Reduced motion: all of it is simply there.
+	sound.reduced_motion = true
+	var still = LordConversation.open(root, gs, lid, "road")
+	await _frames(2)
+	var sf := still.get_node("Stage/Face") as TextureRect
+	var words := still._talk.get_node("Speech") as Label
+	check(is_equal_approx(sf.modulate.a, 1.0) and not still.writing() and words.visible_characters == -1, "under Reduced motion the lord and the line are there at once")
+	var p0: Vector2 = sf.position
+	await _wait(0.3)
+	check(sf.position == p0 and sf.texture == still._face_texture(""), "and hold still")
+	still._leave()
+	check(still.is_queued_for_deletion(), "and leaving is a cut")
+	sound.reduced_motion = false
+	await _frames(2)
+
+
 # ---- 10, 11. talk has a pulse; the dance, the wedding and the hall move
 func _talk_and_scenes() -> void:
 	var TalkView = load("res://scripts/ui/talk_view.gd")
@@ -458,6 +531,7 @@ func _talk_and_scenes() -> void:
 	check((still.find_child("Words", true, false) as Label).visible_characters == -1, "and under Reduced motion")
 	sound.reduced_motion = false
 	tv.queue_free()
+	await _lord_talk(ev)
 	# The wedding's bunting sways.
 	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
 	var d = Dressing.new()

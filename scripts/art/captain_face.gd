@@ -57,7 +57,8 @@ const BRASS_DARK := Color("8a6a22")
 const PALE := Color("eae3d4")
 const RED := Color("a8322c")
 
-## The moments a face can be drawn for. "" is the captain's resting face.
+## The moments a face can be drawn for. "" is the captain's resting face. ("blink" is
+## also drawn: the resting face with its eyes shut, for a face that's alive on a stage.)
 const EXPRESSIONS := ["", "grim", "pain", "grief", "proud", "fear", "warm"]
 
 const SEASONED := 8
@@ -352,6 +353,8 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 ## How the eyes sit for an expression, over the captain's resting look.
 static func _lids(temperament: String, expression: String) -> String:
 	match expression:
+		"blink":
+			return "shut"
 		"grim":
 			return "narrow"
 		"pain":

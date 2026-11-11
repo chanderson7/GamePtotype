@@ -158,13 +158,13 @@ static func room(id: String, when: String) -> TextureRect:
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	art.modulate = {"night": Color(0.5, 0.54, 0.78), "dusk": Color(1.0, 0.82, 0.68), "morning": Color(1.0, 0.96, 0.92)}.get(when, Color.WHITE)
 	if when in ["dusk", "night"]:
-		art.add_child(_firelight())
+		art.add_child(firelight())
 	return art
 
 
 ## Warm light over a room after dark that breathes the way a hearth and candles do. Still
 ## (a steady glow) under Reduced motion.
-static func _firelight() -> ColorRect:
+static func firelight() -> ColorRect:
 	var glow := ColorRect.new()
 	glow.name = "Firelight"
 	glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -276,13 +276,18 @@ func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float =
 ## Someone comes into the scene: their face slides in from their own side (from below
 ## for the one in the middle) and fades up.
 func _enter_face(side: String) -> void:
+	var face: TextureRect = _faces[side]["node"]
+	enter(face, ({"left": Vector2(-50, 0), "right": Vector2(50, 0)} as Dictionary).get(side, Vector2(0, 30)))
+
+
+## `face` comes in from `offset` away and fades up to where and how it already is. Nothing
+## under Reduced motion.
+static func enter(face: Control, offset: Vector2) -> void:
 	if Style.motion_reduced():
 		return
-	var face: TextureRect = _faces[side]["node"]
 	var rest := face.position
-	var from: Vector2 = rest + ({"left": Vector2(-50, 0), "right": Vector2(50, 0)} as Dictionary).get(side, Vector2(0, 30))
 	var tint := face.modulate
-	face.position = from
+	face.position = rest + offset
 	face.modulate = Color(tint, 0.0)
 	var t := face.create_tween().set_parallel()
 	t.tween_property(face, "position", rest, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
@@ -536,21 +541,40 @@ var _writing: Array = []
 
 
 func _reveal(l: Label) -> void:
+	var t := write_out(l)
+	if t != null:
+		_writing.append(t)
+
+
+## Write `l`'s words out; the tween doing it, or null when they're whole at once (Reduced
+## motion, "Text appears at once", nothing to write). Finish it early with finish().
+static func write_out(l: Label) -> Tween:
 	if Style.motion_reduced() or bool(Sound.instant_text):
-		return
+		return null
 	var n := l.text.length()
 	if n == 0:
-		return
+		return null
 	l.visible_characters = 0
 	var t := l.create_tween()
 	t.tween_property(l, "visible_characters", n, minf(float(n) / WRITE_SPEED, WRITE_MAX))
 	t.tween_callback(func(): l.visible_characters = -1)
-	_writing.append(t)
+	return t
+
+
+## Whether a tween from write_out (or any other) is still going.
+static func running(t) -> bool:
+	return t is Tween and (t as Tween).is_valid() and (t as Tween).is_running()
+
+
+## Land a tween on its end state now.
+static func finish(t) -> void:
+	if t is Tween and (t as Tween).is_valid():
+		(t as Tween).custom_step(60.0)
 
 
 ## Whether any line is still being written out.
 func writing() -> bool:
-	_writing = _writing.filter(func(t): return t is Tween and (t as Tween).is_valid() and (t as Tween).is_running())
+	_writing = _writing.filter(func(t): return running(t))
 	return not _writing.is_empty()
 
 
