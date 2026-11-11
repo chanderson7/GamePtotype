@@ -47,8 +47,9 @@ FRAMES = ["shut", "half", "soft", "away", "brow1", "brow2"]
 LIDS = {"half": 0.6, "soft": 0.35}
 BROWS = {"brow1": 1.4, "brow2": 2.8}
 GLANCE = 3
-# Where to look for a face's eyes at all.
-FACE = (95, 110, 235, 200)
+# Where to look for a face's eyes at all: tight round the eyes, so a white hood or a pale
+# veil beside the face isn't taken for the white of an eye.
+FACE = (122, 132, 206, 188)
 # The hairline either side of the eyes: an eye is not followed into the hair.
 HAIR_LEFT = {"edda": 119, "farid": 123, "kaede": 120}
 HAIR_RIGHT = {"edda": 198, "farid": 197, "kaede": 193}

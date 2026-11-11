@@ -378,14 +378,25 @@ Seen on a screen in all three talks, at the height of each move; checked by
 
 ## Dressed for the wedding
 
-The three were painted in everyday clothes only. `tools/portrait_wedding.py` dresses them
-from those paintings for the wedding: Edda in a honey-ivory dress with a wreath of white
-and blush flowers, Farah in a crimson coat worked with gold, a coin circlet with a garnet on her brow, gold
-earrings, a coin necklace and jasmine above her ear, Kaede in a white
-over-robe with a red collar and a pin of red and white blossoms. Each garment is
-recoloured through a ramp by its own light and shade, so every fold and seam the painter
-put there stays; the flowers are painted on in code, clear of the strip a blink replaces.
+The three were painted in everyday clothes only. `tools/portrait_wedding.py` paints their
+wedding dress over those paintings, after what brides of the times their cultures draw
+on wore (a first pass that only re-dyed their clothes and dotted them with flowers read
+as cheap, and was replaced):
+
+- **Edda**, a northern bride: her best gown in deep woad blue (white weddings are a much
+  later custom) with a gold-embroidered neckline; her hair unbound below her braided
+  crown, as a bride wore it, falling in waves over both shoulders; a gold bridal crown
+  set with garnets. Her loose locks are what sways in the shader (`edda_wedding_hair`).
+- **Farah**, a desert-court bride: crimson silk with its bands worked in gold; a sheer
+  ivory veil set back on her crown and falling past her shoulders, bordered in gold; a
+  circlet of coins with a garnet on her brow, gold earrings, a necklace of coins.
+- **Kaede**, an island-court bride: all in white, a white silk hood over her hair (rolled
+  back round her face, folds where it falls), white robes with their pattern woven white
+  on white, a red inner collar.
+
+New cloth, hair and metal are drawn in code: rounded forms lit from the upper left, laid
+in a few flat tones checkered where they meet, with dark outlines, as the paintings are.
 Three expressions are dressed (neutral, warm, amused: the ones the day uses); the wedding
-(`wedding.gd::_portrait`) keeps her dressed for any other mood. They blink and move like
-every painting (`tools/portrait_faces.py` makes their other faces too). Seen on a screen
-at all three weddings; checked in `tests/wedding_tests.gd`.
+keeps her dressed in any other mood. They blink, glance and move like every painting;
+nothing sways under a veil or a hood. Seen on a screen at all three weddings; checked in
+`tests/wedding_tests.gd`.

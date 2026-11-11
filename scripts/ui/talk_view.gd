@@ -238,9 +238,10 @@ func _painted_life(side: String, tex: Texture2D) -> void:
 	var face: TextureRect = f["node"]
 	if PortraitLife.attach(f, tex):
 		var who := StoryArt.painted_who(tex)
-		if face.material == null or face.get_meta("life_of", "") != who:
-			face.material = StoryArt.life_material(who)
-			face.set_meta("life_of", who)
+		var dress := StoryArt.painted_dress(tex)
+		if face.material == null or face.get_meta("life_of", "") != who + dress:
+			face.material = StoryArt.life_material(who, dress)
+			face.set_meta("life_of", who + dress)
 	elif face.material != null and face.has_meta("life_of"):
 		face.material = null
 		face.remove_meta("life_of")

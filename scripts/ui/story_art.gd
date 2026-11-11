@@ -86,9 +86,17 @@ static func painted_who(tex: Texture2D) -> String:
 	return who if HEADS.has(who) else ""
 
 
+## What `tex` is dressed in: "wedding" for a painting dressed for the wedding
+## (tools/portrait_wedding.py), "" for every day.
+static func painted_dress(tex: Texture2D) -> String:
+	var path := String(_paths.get(tex.get_instance_id(), "")) if tex != null else ""
+	return "wedding" if path.get_file().contains("_wedding_") else ""
+
+
 ## A material that lets the head and loose hair of `who`'s painting move
-## (assets/shaders/portrait_life.gdshader), or null. Each face needs its own.
-static func life_material(who: String) -> ShaderMaterial:
+## (assets/shaders/portrait_life.gdshader), or null. Each face needs its own. Dressed, the
+## hair that may swing is the dress's own (Edda's unbound locks; none under a veil or hood).
+static func life_material(who: String, dress: String = "") -> ShaderMaterial:
 	if not HEADS.has(who) or not ResourceLoader.exists(LIFE_SHADER):
 		return null
 	var m := ShaderMaterial.new()
@@ -96,7 +104,7 @@ static func life_material(who: String) -> ShaderMaterial:
 	var head: Dictionary = HEADS[who]
 	for key in head:
 		m.set_shader_parameter(key, head[key])
-	var hair := texture("res://assets/portraits/face/%s_hair.png" % who)
+	var hair := texture("res://assets/portraits/face/%s_hair.png" % (who if dress.is_empty() else "%s_%s" % [who, dress]))
 	if hair != null:
 		m.set_shader_parameter("hair", hair)
 	return m

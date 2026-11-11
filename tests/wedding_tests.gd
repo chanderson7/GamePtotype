@@ -151,6 +151,9 @@ func _init() -> void:
 	check(dressed != null and bride.texture == dressed, "she is dressed for her wedding")
 	check(day._faces["center"].has("frames") and StoryArt.eyes_shut(dressed) != null, "and blinks and moves as on any other day")
 	check(day._portrait("thoughtful") == dressed, "a mood with no dressed painting keeps her dressed")
+	var hair_map = (bride.material as ShaderMaterial).get_shader_parameter("hair") if bride.material is ShaderMaterial else null
+	check(hair_map is Texture2D and (hair_map as Texture2D).resource_path.ends_with("edda_wedding_hair.png"),
+		"her unbound hair is what moves, not the braid she wears every day")
 	check(day.find_child("WhoCame", true, false) != null and day.has_reply("begin") and day.has_reply("later"), "who came, then: take your place, or not yet")
 	day.choose("begin")
 	check(day.log_text().contains("spare spoon") and day.find_child("Remembers", true, false) != null, "her vow comes from the time you shared")
