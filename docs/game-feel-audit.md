@@ -300,3 +300,31 @@ and dust by the ground under it. What was added:
 
 Checked by `_turning_points` and `_pages_show_change` in `tests/game_feel_tests.gd`
 and section 6b of `tests/battle_feel_tests.gd`.
+
+## Seen on a screen
+
+The pass above was then played on a real (virtual) display and looked at frame by
+frame: `xvfb-run` with Mesa's software renderer, as `tools/render_splash.gd` does, with
+`--fixed-fps 30` and the viewport saved at chosen moments. What that showed, and what
+was changed because of it:
+
+- **Reply tags and "what changed" notes stood one letter to a line** (on `main` too): a
+  wrapping label in a flow container is given no width. They now take the rest of their
+  line (`TalkView.marks`, `TalkView.fx_note`).
+- **The heart that rises when trust is won started above the screen**: a painted
+  portrait fills the stage. It starts by their head now.
+- **The petals at a wedding were a few specks.** They're a shower.
+- **The fire talk waited ten seconds before anyone spoke**: narration is given a glance
+  (`TalkView.turn_time`), what's said its reading time.
+- **In a duel your champion stood under your own banner's mark**: it's furled while
+  they fight.
+- **The passing step can hardly be seen**: from above, boots are under the body. The
+  step is now in the body as well: a marching man's shoulders roll and he sways off his
+  line, a horse stretches and gathers, and both ease away as a company halts
+  (`look["march"]`).
+- **The warning for horse out of sight sat under the objective** at the top of the
+  field, where the enemy mostly comes from. It sits clear of it, and is larger.
+
+Still as they were, and seen on the way: the Crown page's last tab wraps its label
+("Diplomac / y") at phone width.
+

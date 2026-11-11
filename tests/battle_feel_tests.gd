@@ -280,6 +280,33 @@ func _init() -> void:
 	check(seen == [0, 3, 1, 3] and sc.WALK == [0, 3, 1, 3], "a running man's stride goes step, passing, step, passing (%s)" % str(seen))
 	so.target = null
 	so.cooldown = 0.0
+	# Boots hardly show from above: the step is in the body.
+	var marching: Dictionary = sc._squad_look(mine)
+	marching["set"] = 0.0
+	marching["settle"] = 0.0
+	marching["idle"] = false
+	marching["march"] = 1.0
+	marching["horse"] = false
+	so.stride = sc.STRIDE * 0.25
+	var left: Dictionary = sc._pose(so, mine, 0, marching)
+	so.stride = sc.STRIDE * 0.75
+	var right: Dictionary = sc._pose(so, mine, 0, marching)
+	check(float(left["tilt"]) > 0.05 and float(right["tilt"]) < -0.05, "a marching man's shoulders roll one way, then the other, with his steps")
+	marching["horse"] = true
+	so.stride = sc.STRIDE * 0.125
+	var long: Dictionary = sc._pose(so, mine, 0, marching)
+	so.stride = sc.STRIDE * 0.375
+	var short: Dictionary = sc._pose(so, mine, 0, marching)
+	check(float(long["squash"]) > 1.03 and float(short["squash"]) < 0.97, "a horse stretches out and gathers itself as it goes")
+	marching["march"] = 0.0
+	so.stride = sc.STRIDE * 0.25
+	check(is_zero_approx(float(sc._pose(so, mine, 0, marching)["tilt"])), "and a company standing still stands straight")
+	sound.reduced_motion = true
+	marching["march"] = 1.0
+	marching["still"] = true
+	check(is_zero_approx(float(sc._pose(so, mine, 0, marching)["tilt"])), "as do marching men under Reduced motion")
+	sound.reduced_motion = false
+	so.stride = was_stride
 	sc._settled_at[mine] = sc._clock - sc.SETTLE_TIME * 0.5
 	var settling: Dictionary = sc._squad_look(mine)
 	settling["set"] = 0.0

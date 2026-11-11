@@ -5988,6 +5988,9 @@ func _squad_look(sq) -> Dictionary:
 		"set": float(_set_k.get(sq, 0.0)),
 		# Just halted on its ground: the men sink into their stance and come up (0 to 1 and back).
 		"settle": _settle_k(sq),
+		# On the march (0 standing to 1 at a walk and faster): the men roll with their steps.
+		"march": 0.0 if sq.engaged or sq.routing or not sq.is_active() else clampf((float(_sq_speed.get(sq, 0.0)) - 4.0) / 10.0, 0.0, 1.0),
+		"horse": sq.type == Troops.CAVALRY,
 		"idle": sim.phase == Sim.PHASE_BATTLE and not sq.engaged and not sq.routing and not moving,
 		"ranged": sq.ranged and sq.arrows != 0,
 		"team": sq.team,
@@ -6097,6 +6100,18 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 	elif look["idle"] and _pi == -1:
 		# Waiting, each man breathing on his own beat.
 		_po += fwd * sin(_clock * 1.6 + i * 0.9) * 0.8
+	elif float(look.get("march", 0.0)) > 0.0 and _pi == -1 and so.flash <= 0.0:
+		# Marching: seen from above, boots hardly show, so the step is in the body. A man's
+		# shoulders roll with each stride and he sways a little off his line; a horse
+		# stretches out and gathers itself as it goes. It eases away as the company halts.
+		var k: float = float(look["march"])
+		var ph: float = so.stride / STRIDE * TAU
+		if bool(look.get("horse", false)):
+			_ps = 1.0 + 0.06 * sin(ph * 2.0) * k
+			_pt += sin(ph) * deg_to_rad(2.5) * k
+		else:
+			_pt += sin(ph) * deg_to_rad(5.0) * k
+			_po += fwd.orthogonal() * sin(ph) * 0.7 * k
 	return
 
 
@@ -6242,22 +6257,25 @@ func _draw_edge_markers() -> void:
 		_c.draw_colored_polygon(PackedVector2Array([tip - dir * 2.0, back + side * 0.75, back - side * 0.75]), col)
 	# And what's coming for you from out of sight: enemy horse at the charge near one of
 	# your companies, as an open red chevron (yours are filled).
+	# They sit clear of the objective at the top of the field, where the enemy mostly comes from.
+	var clear := area.grow_individual(0.0, -THREAT_TOP_INSET, 0.0, 0.0)
 	for sq in _threats():
 		var at := _to_screen(sq.average_pos())
 		if area.has_point(at):
 			continue
-		var dir := (at - area.get_center()).normalized()
-		var tip := Vector2(clampf(at.x, area.position.x, area.end.x), clampf(at.y, area.position.y, area.end.y))
-		var back := tip - dir * 20.0
-		var side := dir.orthogonal() * 12.0
+		var dir := (at - clear.get_center()).normalized()
+		var tip := Vector2(clampf(at.x, clear.position.x, clear.end.x), clampf(at.y, clear.position.y, clear.end.y))
+		var back := tip - dir * 26.0
+		var side := dir.orthogonal() * 16.0
 		var chevron := PackedVector2Array([back + side, tip, back - side])
-		_c.draw_polyline(chevron, Color(0, 0, 0, 0.65), 7.0)
-		_c.draw_polyline(chevron, Style.ENEMY_LIGHT, 3.5)
+		_c.draw_polyline(chevron, Color(0, 0, 0, 0.7), 9.0)
+		_c.draw_polyline(chevron, Style.ENEMY_LIGHT, 4.5)
 
 
 ## Enemy horse at the charge within reach of one of your companies: worth a warning at
 ## the edge of the field when it's out of sight.
 const THREAT_REACH := 280.0
+const THREAT_TOP_INSET := 70.0
 
 
 func _threats() -> Array:

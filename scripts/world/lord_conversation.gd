@@ -1526,6 +1526,10 @@ func _duel_beat(champ_tex: Texture2D, r: Dictionary) -> void:
 	var plate := _stage.get_node_or_null("Nameplate")
 	if plate != null:
 		_stage.move_child(rival, plate.get_index())
+	# Your champion stands where your banner hangs: it's furled while they fight.
+	var yours := _stage.get_node_or_null("YourBanner") as Control
+	if yours != null:
+		yours.create_tween().tween_property(yours, "modulate:a", 0.0, 0.15)
 	var flash := ColorRect.new()
 	flash.name = "Clash"
 	flash.color = Color(1, 1, 1, 0)
@@ -1571,6 +1575,9 @@ func _duel_done(rival: TextureRect, flash: ColorRect, r: Dictionary) -> void:
 		out.tween_interval(0.7)
 		out.tween_property(rival, "modulate:a", 0.0, 0.35)
 		out.tween_callback(rival.queue_free)
+	var yours := _stage.get_node_or_null("YourBanner") as Control
+	if yours != null:
+		yours.create_tween().tween_property(yours, "modulate:a", 1.0, 0.3).set_delay(1.0)
 	_duel_result(r)
 
 

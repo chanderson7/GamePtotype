@@ -245,7 +245,18 @@ func _trust_bar(trust: int) -> Control:
 			var up := Widgets.icon_rect("heart", 44.0)
 			up.name = "Heart"
 			up.modulate = Style.ROMANCE_LIGHT
-			Widgets.float_up(face, up)
+			# Their picture fills the stage, so the heart starts by their head (a third of
+			# the way down it), not off the top of the screen.
+			var by_head := Control.new()
+			by_head.name = "HeartFrom"
+			by_head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			by_head.size = Vector2(8, 8)
+			by_head.position = Vector2(face.size.x * 0.5 - 4.0, face.size.y * 0.34)
+			face.add_child(by_head)
+			Widgets.float_up(by_head, up)
+			var tidy := by_head.create_tween()
+			tidy.tween_interval(1.0)
+			tidy.tween_callback(by_head.queue_free)
 	return box
 
 

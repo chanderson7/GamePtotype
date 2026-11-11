@@ -613,6 +613,9 @@ static func marks(r: Dictionary, tone: String) -> Control:
 		tl.name = "Tag"
 		tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# The words take what's left of the line after the marks before them. Without
+		# this a wrapping label in a flow is given no width, and stands one letter a line.
+		tl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(tl)
 	return row
@@ -635,6 +638,8 @@ static func fx_note(fx: Array, text: String = "", tone: Color = Style.MORALE_HIG
 		l.name = "Words"
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		# As with a reply's tag: the words take the rest of the line after the chips.
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(l)
 	p.add_child(row)
 	if not Style.motion_reduced():
@@ -796,9 +801,14 @@ func say_in_turn(lines: Array, done: Callable = Callable()) -> void:
 		t.tween_callback(done)
 
 
-## How long a line has the talk to itself: about as long as it takes to read.
+## How long a line has the talk to itself. Something said gets about as long as it takes
+## to read; narration sets the scene and is given a glance, so the talk starts soon (it
+## stays on the page to be read).
 static func turn_time(line: Dictionary) -> float:
-	return clampf(float(String(line["text"]).length()) / 18.0, 1.2, 5.0)
+	var n := float(String(line["text"]).length())
+	if String(line["who"]) == "narration":
+		return clampf(n / 60.0, 0.8, 2.2)
+	return clampf(n / 18.0, 1.2, 5.0)
 
 
 func _take_turn(holder: Control, line: Dictionary) -> void:
