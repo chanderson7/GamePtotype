@@ -256,6 +256,10 @@ the moment the pitch is honest, and once is enough.
 
 ## Package C: the Kharzani
 
+> **Superseded (2026-11-11):** what each paid people contains is now
+> [`paid-peoples-plan.md`](paid-peoples-plan.md): a rule, an order, a five-chapter story and a
+> home for each. The opening, deeds, roster and plate below are kept there as parts of it.
+
 What the purchase has to contain so that it is a different game to begin, not a flag.
 Most of it already exists (the capital, the kit, the captains, the music); the new work is
 the opening, the deeds, the roster, the plate.
