@@ -1254,7 +1254,13 @@ func _improvement_row(key: String, built: bool) -> Control:
 	var head := HFlowContainer.new()
 	head.add_theme_constant_override("h_separation", 10)
 	text.add_child(head)
-	head.add_child(Style.label(String(idef["name"]), Style.BODY, Style.TEXT))
+	# A long name wraps beside the plate and the Build button: a line that won't would push
+	# the row, and the whole page with it, past the edge of the screen.
+	var title := Style.label(String(idef["name"]), Style.BODY, Style.TEXT)
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.custom_minimum_size.x = 120
+	head.add_child(title)
 	if built:
 		var chip := Widgets.chip("Built", Style.BRASS, "★", "", true)
 		chip.name = "BuiltChip"

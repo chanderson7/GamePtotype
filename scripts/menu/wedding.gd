@@ -285,11 +285,10 @@ func _vows() -> void:
 	else:
 		say("narration", "%s reads the old words. Then stops, looks at %s, and everyone goes quiet." % [_host_name(), _name])
 	_their_vow(String(_their.get("text", "")), String(_their.get("scene_id", "")), int(_their.get("day", 0)))
-	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
 	var replies := []
 	for v in Lines.yours(cand):
-		replies.append({"id": "vow_" + String(v["id"]), "text": String(v["text"]), "tag": String(v["tag"]), "act": _said_vow.bind(String(v["text"]))})
-	set_replies(replies)
+		replies.append({"id": "vow_" + String(v["id"]), "text": String(v["text"]), "icon": "rings", "tag": String(v["tag"]), "act": _said_vow.bind(String(v["text"]))})
+	set_replies(replies, "Your vow. No wrong answers.")
 
 
 ## Her vow, and (when it comes from a time you shared) which one she remembers.
@@ -327,13 +326,12 @@ func _rite() -> void:
 		_say_with_face(_fill(Lines.captain_toast(int(captain["id"]))), "%s · captain" % String(captain["name"]), captain["face"])
 	if not _host.is_empty():
 		_say_with_face(Lines.host_toast(String(_host.get("bearing", ""))), "%s · host" % _host_name(), _host["face"])
-	add_to_log(note("Raise your cup", Style.BRASS))
-	var replies := [{"id": "toast_her", "text": _fill(Lines.YOUR_TOASTS["her"]), "tag": "everyone drinks", "act": _raise.bind("her")},
-		{"id": "toast_company", "text": Lines.YOUR_TOASTS["company"], "tag": "your captains will remember it", "act": _raise.bind("company")}]
+	var replies := [{"id": "toast_her", "text": _fill(Lines.YOUR_TOASTS["her"]), "icon": "cup", "tag": "everyone drinks", "act": _raise.bind("her")},
+		{"id": "toast_company", "text": Lines.YOUR_TOASTS["company"], "icon": "cup", "tag": "your captains will remember it", "act": _raise.bind("company")}]
 	var fallen := _fallen_names()
 	if fallen != "":
-		replies.append({"id": "toast_absent", "text": Lines.YOUR_TOASTS["absent"].replace("{fallen}", fallen), "tag": "the captains you lost", "act": _raise.bind("absent")})
-	set_replies(replies)
+		replies.append({"id": "toast_absent", "text": Lines.YOUR_TOASTS["absent"].replace("{fallen}", fallen), "icon": "cup", "tag": "the captains you lost", "act": _raise.bind("absent")})
+	set_replies(replies, "Raise your cup")
 
 
 ## Up to the last two captains who fell in your service: "Rowan, and Ilse".

@@ -16,6 +16,7 @@ const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const Visits = preload("res://scripts/data/personal_conversations.gd")
 
 const CANDIDATES := [RomanceStories.EDDA, RomanceStories.FARID, RomanceStories.KAEDE]
 const PARCHMENT := Color("ecdcb4")
@@ -36,6 +37,13 @@ var _scroll: ScrollContainer
 var _flash := ""
 ## Whether the profile shows every memory, or the latest few.
 var _all_memories := false
+## Which memories the profile's book shows: "all", "visit", "decision", "letter", "days".
+var _memory_filter := "all"
+## The profile's sections ({id: Control}) and its two rows of tabs (the one in the page and
+## the one pinned to the top once that has scrolled away).
+var _sections := {}
+var _profile_tabs: Array = []
+var _section_now := ""
 var _insets := {}
 ## Room the bottom bar takes under the page, above the safe area.
 const BAR_ROOM := 124.0
@@ -604,16 +612,18 @@ func _person_card(cand: String) -> PanelContainer:
 	var acts := HBoxContainer.new()
 	acts.add_theme_constant_override("separation", 10)
 	v.add_child(acts)
-	var spend := _button("Spend time", _spend_time.bind(cand), false, "cup")
+	var visit := _next_visit(cand)
+	var spend := _button(_spend_label(visit), _spend_time.bind(cand), false, "cup")
 	spend.name = "SpendTime_%s" % cand
+	spend.tooltip_text = String(visit.get("text", ""))
 	spend.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	spend.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+	spend.size_flags_stretch_ratio = 1.3
 	acts.add_child(spend)
+	_mark_new(spend, visit)
 	var main := _main_action(cand)
 	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	main.size_flags_stretch_ratio = 1.4
-	main.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 	acts.add_child(main)
+	_fit_bar([spend, main], [1.3, 1.0], Style.SMALL, 16)
 	_tap_opens(card, cand)
 	return card
 
@@ -657,9 +667,14 @@ func _build_profile(col: VBoxContainer) -> void:
 	var data: Dictionary = RomanceStories.candidate_data(cand)
 	var rel: Dictionary = _social().get_relationship(cand)
 	var house: Dictionary = _social().get_house(String(p.get("house_id", "")))
-	# The portrait, large, fading into the page.
+	_sections.clear()
+	_profile_tabs.clear()
+	# The portrait, fading into the page, with the name set over the fade: the first screen
+	# holds who she is, how things stand, and the way into everything under it.
 	var hero := Control.new()
-	hero.custom_minimum_size = Vector2(0, 560)
+	hero.name = "Hero"
+	hero.custom_minimum_size = Vector2(0, 340)
+	hero.clip_contents = true
 	hero.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(hero)
 	hero.draw.connect(func():
@@ -667,23 +682,44 @@ func _build_profile(col: VBoxContainer) -> void:
 		for i in 24:
 			var t := float(i) / 23.0
 			hero.draw_rect(Rect2(0, r.size.y * t, r.size.x, r.size.y / 23.0 + 1), Color("2c3a5c").lerp(Style.NIGHT, t)))
-	var pic := StoryArt.candidate_portrait(cand, _expression(cand), 600)
+	var pic := StoryArt.candidate_portrait(cand, _expression(cand), 440)
 	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	pic.anchor_left = 0.5
+	pic.anchor_right = 0.5
+	pic.offset_left = -165
+	pic.offset_right = 165
+	pic.offset_top = 0
+	pic.offset_bottom = 440
 	hero.add_child(pic)
-	var fade := Control.new()
-	fade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var fade := TextureRect.new()
+	fade.name = "Fade"
+	var grad := Gradient.new()
+	grad.set_color(0, Color(Style.NIGHT, 0.0))
+	grad.set_color(1, Color(Style.NIGHT, 0.96))
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill_to = Vector2(0, 1)
+	gt.width = 4
+	gt.height = 64
+	fade.texture = gt
+	fade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	fade.stretch_mode = TextureRect.STRETCH_SCALE
 	fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fade.draw.connect(func():
-		for i in 20:
-			var t := float(i) / 19.0
-			fade.draw_rect(Rect2(0, fade.size.y - 160.0 + t * 160.0, fade.size.x, 9.0), Color(Style.NIGHT, t)))
+	fade.anchor_right = 1.0
+	fade.anchor_top = 0.5
+	fade.anchor_bottom = 1.0
 	hero.add_child(fade)
+	var who := VBoxContainer.new()
+	who.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	who.add_theme_constant_override("separation", 0)
+	who.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	who.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hero.add_child(who)
 	var nm := Style.name_label(String(p.get("name", "")), 60)
 	nm.name = "ProfileName"
-	col.add_child(nm)
-	var line := "%s · %d" % [p.get("role", data.get("role", "")), int(data.get("age", 0))]
-	col.add_child(Page.note(line, Style.SMALL, Style.MUTED))
+	who.add_child(nm)
+	who.add_child(Page.note("%s · %d" % [p.get("role", data.get("role", "")), int(data.get("age", 0))], Style.SMALL, Style.TEXT))
 	var chips: Array = [_status_chip(cand)]
 	if _status(cand) == Relationships.MARRIED:
 		for m in _social().memory_book(String(p.get("id", ""))):
@@ -698,14 +734,18 @@ func _build_profile(col: VBoxContainer) -> void:
 	var mems: Array = p.get("memory_log", [])
 	var memories := maxi(mems.size(), (rel.get("memories", []) as Array).size())
 	var house_name := String(house.get("name", ""))
+	# Two tiles to a row, and the house (whose name can be long, and wraps) on its own: a
+	# line that won't wrap would stretch the whole page past the screen.
 	col.add_child(Widgets.tile_grid([
-		Widgets.tile("bond", str(trust), Relationships.trust_label(trust), Style.ROMANCE_LIGHT),
-		Widgets.tile("keep", "%s%d" % ["+" if standing > 0 else "", standing], "house" if house_name == "" else house_name.replace("House ", "")),
-		Widgets.tile("journal", str(memories), "memories"),
-	], 3))
-	# The story, chapter by chapter.
+		Widgets.tile("bond", str(trust), Relationships.trust_label(trust), Style.ROMANCE_LIGHT, true),
+		Widgets.tile("journal", str(memories), "memories", Style.TEXT, true),
+	], 2))
+	col.add_child(Widgets.tile("keep", "%s%d" % ["+" if standing > 0 else "", standing], "house" if house_name == "" else house_name.replace("House ", ""), Style.TEXT, true))
+	col.add_child(_tabs_row("ProfileTabs"))
+
+	# ---- the story, chapter by chapter
 	var story: Dictionary = RomanceStories.story_data(cand)
-	col.add_child(_heading(String(story.get("title", "Their story"))))
+	var story_box := _section(col, "story", String(story.get("title", "Their story")))
 	var now := _chapter(cand)
 	for n in range(1, CHAPTERS + 1):
 		var state := "done" if n < now else ("now" if n == now else "lock")
@@ -714,39 +754,381 @@ func _build_profile(col: VBoxContainer) -> void:
 			sub = _next_step(cand)
 		elif state == "lock" and n == now + 1:
 			sub = "After chapter %d" % now
-		col.add_child(_story_step(n, _chapter_title(cand, n), sub, state))
+		story_box.add_child(_story_step(n, _chapter_title(cand, n), sub, state))
 	var interests: Array = data.get("interests", [])
 	if not interests.is_empty():
-		col.add_child(_heading("%s cares about" % _pronoun(data)))
+		story_box.add_child(_heading("%s cares about" % _pronoun(data)))
 		var likes: Array = []
-		for s in interests:
-			likes.append(Widgets.chip(String(s).capitalize(), Style.MORALE_HIGH, "▲"))
-		col.add_child(Widgets.chip_row(likes))
+		for i in interests:
+			likes.append(Widgets.chip(String(i).capitalize(), Style.MORALE_HIGH, "▲"))
+		story_box.add_child(Widgets.chip_row(likes))
 	var limits: Array = data.get("boundaries", [])
 	if not limits.is_empty():
-		col.add_child(_heading("%s won't stand for" % _pronoun(data)))
+		story_box.add_child(_heading("%s won't stand for" % _pronoun(data)))
 		var dislikes: Array = []
-		for s in limits:
-			dislikes.append(Widgets.chip(_boundary_words(String(s)), Style.MORALE_LOW, "▼"))
-		col.add_child(Widgets.chip_row(dislikes))
-	col.add_child(_heading("Memories"))
-	var book: Array = _social().memory_book(String(p.get("id", "")))
+		for i in limits:
+			dislikes.append(Widgets.chip(_boundary_words(String(i)), Style.MORALE_LOW, "▼"))
+		story_box.add_child(Widgets.chip_row(dislikes))
+
+	# ---- time together: the eight visits, and what opens the next
+	var time_box := _section(col, "time", "Time together")
+	_fill_time_together(time_box, cand)
+
+	# ---- the memory book
+	var memory_box := _section(col, "memories", "Memories")
+	_fill_memories(memory_box, cand)
+
+	var visit := _next_visit(cand)
+	var spend := _button(_spend_label(visit), _spend_time.bind(cand), false, "cup")
+	spend.name = "SpendTime_%s" % cand
+	spend.tooltip_text = String(visit.get("text", ""))
+	_mark_new(spend, visit)
+	var back := Widgets.back_button(_close_person, "Back", "ProfileBack")
+	var main := _main_action(cand)
+	_set_bar([back, spend, main])
+	_fit_bar([back, spend, main], [0.8, 1.5, 1.2])
+	# The tabs again, pinned to the top once the ones in the page have scrolled away.
+	var pinned := _tabs_row("ProfileTabsPinned")
+	var holder := PanelContainer.new()
+	holder.name = "PinnedTabs"
+	holder.visible = false
+	var hb := Style.box(Style.NIGHT, Style.RULE, 0, 0)
+	hb.border_width_bottom = 2
+	hb.content_margin_top = 8 + float(_insets.get("top", 0.0))
+	hb.content_margin_bottom = 8
+	hb.content_margin_left = 32
+	hb.content_margin_right = 32
+	holder.add_theme_stylebox_override("panel", hb)
+	holder.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	holder.resized.connect(func():
+		var side := 32.0 + maxf(0.0, (holder.size.x - Style.COLUMN_MAX) * 0.5)
+		if not is_equal_approx(hb.content_margin_left, side):
+			hb.content_margin_left = side
+			hb.content_margin_right = side)
+	holder.add_child(pinned)
+	add_child(holder)
+	_scroll.get_v_scroll_bar().value_changed.connect(func(_v: float): _track_sections())
+	_light_tabs("story")
+
+
+# ---------------------------------------------------------------- a page's sections
+
+const PROFILE_TABS := [["story", "Story", "book"], ["time", "Time together", "cup"], ["memories", "Memories", "journal"]]
+
+
+## A section of the profile: its heading, then a column to fill.
+func _section(col: VBoxContainer, id: String, title: String) -> VBoxContainer:
+	var box := VBoxContainer.new()
+	box.name = "Section_%s" % id
+	box.add_theme_constant_override("separation", 14)
+	box.add_child(_heading(title))
+	col.add_child(box)
+	_sections[id] = box
+	return box
+
+
+## The row of tabs: a tap goes to that section, and the lit one follows the page.
+func _tabs_row(row_name: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = row_name
+	row.add_theme_constant_override("separation", 6)
+	for t in PROFILE_TABS:
+		var b := Button.new()
+		b.name = "Tab_%s" % String(t[0])
+		b.set_meta("section", String(t[0]))
+		b.text = String(t[1])
+		b.icon = Widgets.icon(String(t[2]))
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.size_flags_stretch_ratio = maxf(6.0, float(String(t[1]).length()))
+		b.custom_minimum_size = Vector2(0, Style.TOUCH)
+		b.clip_text = true
+		b.add_theme_constant_override("icon_max_width", 26)
+		b.add_theme_constant_override("h_separation", 8)
+		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		b.pressed.connect(_go_to_section.bind(String(t[0])))
+		row.add_child(b)
+	_profile_tabs.append(row)
+	_fit_bar(row.get_children(), [], Style.SMALL, 16, true)
+	return row
+
+
+func _light_tabs(id: String) -> void:
+	_section_now = id
+	for row in _profile_tabs:
+		if not is_instance_valid(row):
+			continue
+		for b in (row as Control).get_children():
+			var lit := String(b.get_meta("section", "")) == id
+			var ink := Style.BRASS if lit else Style.MUTED
+			for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color",
+					"icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
+				(b as Button).add_theme_color_override(c, ink)
+			for state in ["normal", "hover", "pressed", "focus"]:
+				var sb := Style.box(Color(Style.RAISED, 0.55) if lit else Color(Style.PANEL, 0.6), Style.BRASS if lit else Style.RULE, 0, 12)
+				sb.border_width_bottom = 3 if lit else 1
+				(b as Button).add_theme_stylebox_override(state, sb)
+
+
+## Where a section starts, as a scroll position that leaves it just under the pinned tabs.
+func _section_top(id: String) -> float:
+	var box: Control = _sections.get(id)
+	if box == null or not is_instance_valid(box):
+		return 0.0
+	var pinned := get_node_or_null("PinnedTabs") as Control
+	var under := pinned.get_combined_minimum_size().y if pinned != null else 0.0
+	return maxf(0.0, box.global_position.y - _scroll.global_position.y + _scroll.scroll_vertical - under - 8.0)
+
+
+func _go_to_section(id: String) -> void:
+	var to := _section_top(id)
+	_light_tabs(id)
+	if Style.motion_reduced():
+		_scroll.scroll_vertical = int(to)
+		return
+	var t := _scroll.create_tween()
+	t.tween_property(_scroll, "scroll_vertical", int(to), 0.25).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+## As the page scrolls: the pinned tabs show once the page's own have gone, and the lit
+## tab is the section under the top of the screen.
+func _track_sections() -> void:
+	if _person == "" or _profile_tabs.is_empty() or not is_instance_valid(_profile_tabs[0]):
+		return
+	var own: Control = _profile_tabs[0]
+	var pinned := get_node_or_null("PinnedTabs") as Control
+	if pinned != null:
+		pinned.visible = own.global_position.y < _scroll.global_position.y + float(_insets.get("top", 0.0))
+	var at := float(_scroll.scroll_vertical) + 4.0
+	var now := "story"
+	for t in PROFILE_TABS:
+		if _section_top(String(t[0])) <= at:
+			now = String(t[0])
+	# At the very foot of the page the last section is the one being read.
+	var bar := _scroll.get_v_scroll_bar()
+	if bar.max_value - bar.page > 0.0 and _scroll.scroll_vertical >= bar.max_value - bar.page - 2.0:
+		now = String(PROFILE_TABS[PROFILE_TABS.size() - 1][0])
+	if now != _section_now:
+		_light_tabs(now)
+
+
+## Buttons in a row share its width by `ratios` (as they are, when none are given), and
+## each one's words shrink from `full` as far as `least_px` to fit; past that they wrap (a
+## single word shrinks further instead: it has nowhere to break). `uniform`: the row keeps
+## to one size, its smallest. A label cut short ("Spen") is never what the row shows.
+func _fit_bar(buttons: Array, ratios: Array = [], full: int = Style.LARGE, least_px: int = 0, uniform: bool = false) -> void:
+	var least := least_px if least_px > 0 else Style.text_size(Style.SMALL)
+	var fit := func():
+		var sizes := []
+		var wraps := []
+		for item in buttons:
+			var b := item as Button
+			if b == null or not is_instance_valid(b) or b.size.x <= 0.0:
+				return
+			var font := b.get_theme_font("font")
+			var sb := b.get_theme_stylebox("normal")
+			var room := b.size.x - (sb.get_minimum_size().x if sb != null else 24.0)
+			if b.icon != null:
+				var cap := b.get_theme_constant("icon_max_width")
+				room -= (float(cap) if cap > 0 else float(b.icon.get_width())) + b.get_theme_constant("h_separation") + 4.0
+			var floor_px := least if b.text.contains(" ") else mini(least, 14)
+			var px := Style.text_size(full)
+			while px > floor_px and font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > room:
+				px -= 1
+			sizes.append(px)
+			wraps.append(font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > room)
+		var smallest: int = sizes.min() if not sizes.is_empty() else 0
+		for i in sizes.size():
+			var b := buttons[i] as Button
+			var px: int = smallest if uniform and not wraps.has(true) else int(sizes[i])
+			if b.get_theme_font_size("font_size") != px:
+				b.add_theme_font_size_override("font_size", px)
+			b.clip_text = not bool(wraps[i])
+			b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART if bool(wraps[i]) else TextServer.AUTOWRAP_OFF
+	for i in buttons.size():
+		var b: Button = buttons[i]
+		if i < ratios.size():
+			b.size_flags_stretch_ratio = float(ratios[i])
+		b.custom_minimum_size.x = 0
+		b.resized.connect(fit)
+	fit.call_deferred()
+
+
+# ---------------------------------------------------------------- time together
+
+## The next visit with `cand` and whether it can be had now: {state ("ready", "wait",
+## "done", "none"), text, title}.
+func _next_visit(cand: String) -> Dictionary:
+	var pid := String(_candidate_person(cand).get("id", ""))
+	var visits: Array = _social().available_personal_conversations(pid, GameState.personal_conversation_context())
+	if visits.is_empty():
+		return {"state": "none", "text": ""}
+	var fresh := visits.filter(func(v): return not bool(v.get("replay", false)))
+	if fresh.is_empty():
+		return {"state": "done", "text": "All %d shared. They are kept in your memories." % visits.size()}
+	var ready := fresh.filter(func(v): return bool(v.get("ok", false)))
+	if not ready.is_empty():
+		var id := String(ready[0]["scene_id"])
+		var title := String(Visits.SCENES[id]["title"])
+		var begun: bool = _social().personal_record(pid)["in_progress"].has(id)
+		return {"state": "ready", "title": title, "text": ("Left part way: %s" if begun else "Ready now: %s") % title}
+	# Today's visit spent is said before the next visit's own condition.
+	var today := fresh.filter(func(v): return bool(v.get("today", false)))
+	var why: Dictionary = today[0] if not today.is_empty() else fresh[0]
+	return {"state": "wait", "text": String(why.get("reason", "Not yet."))}
+
+
+func _spend_label(visit: Dictionary) -> String:
+	return "Spend time · new" if String(visit.get("state", "")) == "ready" else "Spend time"
+
+
+## A visit waiting is said in brass, on the button that leads to it.
+func _mark_new(b: Button, visit: Dictionary) -> void:
+	if String(visit.get("state", "")) != "ready":
+		return
+	b.set_meta("new", true)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color",
+			"icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		b.add_theme_color_override(c, Style.BRASS)
+
+
+## The eight visits as pips in rank order (C C B B A A S S), filled as they are shared, the
+## next one ringed; under them, what opens it.
+func _fill_time_together(box: VBoxContainer, cand: String) -> void:
+	var pid := String(_candidate_person(cand).get("id", ""))
+	var ids: Array = Visits.ids_for(cand)
+	var record: Dictionary = _social().personal_record(pid)
+	var letters := []
+	var done := 0
+	for id in ids:
+		letters.append(String(Visits.SCENES[id].get("rank", "")))
+		if record["completed"].has(id):
+			done += 1
+	var pips := Widgets.pips(ids.size(), done, Style.ROMANCE, letters, 14.0)
+	pips.name = "VisitPips"
+	pips.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	box.add_child(pips)
+	var visit := _next_visit(cand)
+	var ready := String(visit.get("state", "")) == "ready"
+	var line := Page.note("%d of %d shared. %s" % [done, ids.size(), String(visit.get("text", ""))] if String(visit.get("state", "")) != "done" else String(visit.get("text", "")),
+		Style.SMALL, Color("e6d3a8") if ready else Style.MUTED)
+	line.name = "NextVisit"
+	box.add_child(line)
+
+
+# ---------------------------------------------------------------- the memory book
+
+const MEMORY_FILTERS := [["all", "All"], ["visit", "Visits"], ["decision", "Decisions"], ["letter", "Letters"], ["days", "Days"]]
+## What "Days" gathers: the days themselves, not what was said on them.
+const DAY_KINDS := ["ceremony", "dance", "move", "note"]
+
+
+## The memory book as a timeline, newest first: a marker for each day down the left, what
+## happened that day beside it; a row of filters over it. Refilled in place when the
+## filter changes, so the page stays where it is.
+func _fill_memories(box: VBoxContainer, cand: String) -> void:
+	for c in box.get_children():
+		if c.get_index() > 0:
+			box.remove_child(c)
+			c.queue_free()
+	var book: Array = _social().memory_book(String(_candidate_person(cand).get("id", "")))
 	book.reverse()
 	if book.is_empty():
-		col.add_child(Page.note("Nothing yet. Every story starts somewhere.", Style.SMALL))
-	var limit := book.size() if _all_memories else mini(book.size(), 10)
-	for e in book.slice(0, limit):
-		col.add_child(_keepsake_row(cand, e))
-	if book.size() > limit:
-		var more := _button("All %d memories" % book.size(), func():
+		box.add_child(Page.note("Nothing yet. Every story starts somewhere.", Style.SMALL))
+		return
+	var ids := MEMORY_FILTERS.map(func(f): return String(f[0]))
+	var bar := Widgets.segmented(MEMORY_FILTERS.map(func(f): return String(f[1])), maxi(0, ids.find(_memory_filter)), func(i: int):
+		_memory_filter = String(ids[i])
+		_all_memories = false
+		_fill_memories(box, cand), "MemoryFilters")
+	for t in bar.find_children("Tab_*", "Button", true, false):
+		(t as Button).custom_minimum_size.y = Style.TOUCH
+		# Five across: a long word shrinks to fit its tab before it would break in two.
+		(t as Button).set_meta("font_least", 15)
+		(t as Button).size_flags_stretch_ratio = maxf(5.0, float((t as Button).text.length()))
+	box.add_child(bar)
+	var shown := book.filter(func(e):
+		var kind := String(e.get("kind", "note"))
+		return _memory_filter == "all" or kind == _memory_filter or (_memory_filter == "days" and kind in DAY_KINDS))
+	if shown.is_empty():
+		box.add_child(Page.note("None of these yet.", Style.SMALL))
+		return
+	var limit := shown.size() if _all_memories else mini(shown.size(), 10)
+	var list := VBoxContainer.new()
+	list.name = "MemoryList"
+	list.add_theme_constant_override("separation", 14)
+	box.add_child(list)
+	var day := -1
+	var rows: VBoxContainer = null
+	for e in shown.slice(0, limit):
+		if rows == null or int(e.get("day", 0)) != day:
+			day = int(e.get("day", 0))
+			rows = _day_group(list, day)
+		rows.add_child(_keepsake_row(cand, e))
+	if shown.size() > limit:
+		var more := _button("All %d memories" % shown.size(), func():
 			_all_memories = true
-			_build())
+			_fill_memories(box, cand))
 		more.name = "AllMemories"
-		col.add_child(more)
-	var spend := _button("Spend time", _spend_time.bind(cand), false, "cup")
-	spend.name = "SpendTime_%s" % cand
-	var back := Widgets.back_button(_close_person, "Back", "ProfileBack")
-	_set_bar([back, spend, _main_action(cand)])
+		box.add_child(more)
+
+
+## A day on the timeline: its number in a marker on the left with the line running down
+## from it, and a column for what happened that day.
+func _day_group(list: VBoxContainer, day: int) -> VBoxContainer:
+	var row := HBoxContainer.new()
+	row.name = "Day_%d" % day
+	row.add_theme_constant_override("separation", 12)
+	var mark := Control.new()
+	mark.name = "DayMark"
+	var font_size := Style.text_size(Style.SMALL)
+	mark.custom_minimum_size = Vector2(maxf(58.0, font_size * 2.6), 0)
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mark.tooltip_text = "Day %d" % day if day > 0 else "Before the days were kept"
+	mark.draw.connect(func():
+		var font := mark.get_theme_default_font()
+		var w := mark.size.x
+		var words := ["day", str(day)] if day > 0 else ["", "–"]
+		var top := 4.0
+		for i in 2:
+			var ink := Style.MUTED if i == 0 else Style.BRASS
+			var tw := font.get_string_size(String(words[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+			mark.draw_string(font, Vector2((w - tw) * 0.5, top + font_size * 0.85), String(words[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, ink)
+			top += font_size + 2.0
+		if mark.size.y > top + 14.0:
+			mark.draw_line(Vector2(w * 0.5, top + 8.0), Vector2(w * 0.5, mark.size.y), Color(Style.ROMANCE, 0.35), 2.0))
+	row.add_child(mark)
+	var rows := VBoxContainer.new()
+	rows.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rows.add_theme_constant_override("separation", 10)
+	row.add_child(rows)
+	list.add_child(row)
+	return rows
+
+
+## What a memory is, over its line: a visit's rank and title, a decision's chapter, a
+## letter's subject. [badge letter, words], either of which may be "".
+func _memory_title(cand: String, e: Dictionary) -> Array:
+	match String(e.get("kind", "note")):
+		"visit":
+			var scene: Dictionary = Visits.SCENES.get(String(e.get("scene_id", "")), {})
+			return [String(scene.get("rank", "")), String(scene.get("title", ""))]
+		"decision":
+			var n := int(e.get("chapter", 0))
+			if n > CHAPTERS:
+				return ["", "After the vows · %s" % String(RomanceStories.post_project(cand).get("title", ""))]
+			if n > 0:
+				return ["", "Chapter %d · %s" % [n, _chapter_title(cand, n)]]
+		"letter":
+			for l in _social().letters:
+				if String(l.get("id", "")) == String(e.get("letter_id", "")):
+					return ["", String(l.get("subject", "A letter"))]
+			return ["", "A letter"]
+		"ceremony":
+			return ["", "Your wedding" if String(e.get("scene_id", "")) == "wedding" else "A ceremony"]
+		"dance":
+			return ["", "A dance"]
+	return ["", ""]
 
 
 func _pronoun(data: Dictionary) -> String:
@@ -843,19 +1225,31 @@ func _keepsake_row(cand: String, e: Dictionary) -> Control:
 	var words := VBoxContainer.new()
 	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var marks: Array = []
-	if int(e.get("day", 0)) > 0:
-		marks.append(Widgets.icon_value("day", str(int(e["day"])), Style.BRASS))
+	# What it was (a visit's rank and title, a decision's chapter, a letter's subject), and
+	# where; the day is on the timeline's marker beside it.
+	var title := _memory_title(cand, e)
 	var place := String(e.get("place", ""))
-	if place != "":
-		marks.append(Widgets.icon_value("mappin", Letters.place_name(place), Style.BRASS))
-	if not marks.is_empty():
-		var when := HBoxContainer.new()
-		when.add_theme_constant_override("separation", 16)
-		when.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		for m in marks:
-			when.add_child(m)
-		words.add_child(when)
+	if String(title[0]) != "" or String(title[1]) != "" or place != "":
+		var head := HFlowContainer.new()
+		head.name = "Head"
+		head.add_theme_constant_override("h_separation", 10)
+		head.add_theme_constant_override("v_separation", 2)
+		head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if String(title[0]) != "":
+			head.add_child(Widgets.rank_badge(String(title[0]), 34.0))
+		if String(title[1]) != "":
+			var tl := Style.label(String(title[1]), Style.SMALL, Style.ROMANCE_LIGHT)
+			tl.name = "Title"
+			tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			tl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			head.add_child(tl)
+		if place != "":
+			var where := Widgets.icon_value("mappin", Letters.place_name(place), Style.MUTED)
+			where.name = "Place"
+			where.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			where.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			head.add_child(where)
+		words.add_child(head)
 	var t := Style.label(String(e.get("text", "")), Style.SMALL, Color("d5dae8"))
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(t)

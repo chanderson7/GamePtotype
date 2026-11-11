@@ -15,6 +15,14 @@ const Data = preload("res://scripts/world/world_data.gd")
 ## Where each person is usually found.
 const ROOMS := {"edda": "common_room", "farid": "envoy_room", "kaede": "archive_room"}
 const CHAPTERS := 5
+## How much of the screen the room and her portrait take: face to face, and while a visit
+## or a memory is being told (the stage gives up more while answers need the room).
+const HUB_SHARE := 0.40
+const TELLING_SHARE := 0.34
+## One-time hints, kept with the tutorial's: that no answer in a visit is wrong, and what
+## the small cup on a line means.
+const HINT_NO_WRONG := "visit_no_wrong"
+const HINT_REMEMBERED := "visit_remembered"
 
 ## How this screen was opened: "audience" (the story first) or "visits" (time together).
 @export var opened_as := "audience"
@@ -33,6 +41,9 @@ var _heard := -1
 var _kept: Array = []
 ## Opened from the memory book to tell one memory again, not as a visit.
 var _from_book := false
+## The remembered line the one-time hint sits under ("scene:line"), for as long as this
+## visit is on the screen.
+var _hint_at := ""
 var _ch1_topic_done := false
 ## Their first words this visit, chosen from what has happened since the last.
 var _opening := ""
@@ -100,6 +111,8 @@ func _ready() -> void:
 	var person: Dictionary = social.get_candidate_person(cand)
 	person_id = String(person.get("id", ""))
 	_name = String(person.get("name", cand.capitalize()))
+	shrink_for_answers = true
+	stage_share = HUB_SHARE
 	setup(TalkView.room(String(ROOMS.get(cand, "common_room")), TalkView.time_word(GameState.world.hour)), _caption())
 	set_face("left", _portrait(_expression()), false, 0.98)
 	_refresh_plate()
@@ -248,7 +261,13 @@ func _after_change() -> void:
 ## your own words, with what each one is under it, and one way to take your leave.
 func _hub(first: bool = false) -> void:
 	_scene_id = ""
-	set_stage_share(STAGE_SHARE)
+	set_stage_share(HUB_SHARE)
+	set_memory_look(false)
+	clear_header()
+	# Back from a visit somewhere else (the hall door, the bridge): her own room again.
+	var room := StoryArt.texture("res://assets/locations/%s.png" % String(ROOMS.get(cand, "common_room")))
+	if _backdrop is TextureRect and room != null:
+		(_backdrop as TextureRect).texture = room
 	clear_log()
 	if first and _untold != "":
 		# What came of chapter 3's task, in her words, the first time you're back.
@@ -360,6 +379,7 @@ func _story() -> void:
 		_hub()
 		return
 	clear_log()
+	set_header("Chapter %d of %d · %s" % [ch, CHAPTERS, String(cinfo.get("title", ""))])
 	_face(String(cinfo.get("face", "")))
 	_lead(cinfo.get("lead", []), 0, func(): _tell(String(cinfo.get("text", "")), _story_choices.bind(ch, cinfo)))
 
@@ -384,7 +404,8 @@ func _lead(parts: Array, i: int, then: Callable) -> void:
 		for n in options.size():
 			var o: Dictionary = options[n]
 			var tone: Array = Stories.TONES.get(String(o.get("tone", "")), ["talk", ""])
-			replies.append({"id": "say_%d" % n, "text": String(o["say"]), "icon": String(tone[0]), "tag": String(tone[1]), "act": func():
+			replies.append({"id": "say_%d" % n, "text": String(o["say"]), "icon": String(tone[0]), "tag": String(tone[1]),
+				"tone": _answer_tone(String(o.get("tone", ""))), "act": func():
 				say("you", String(o["say"]))
 				_face(String(o.get("face", "")))
 				_tell(String(o.get("reply", "")), _lead.bind(parts, i + 1, then))})
@@ -395,6 +416,7 @@ func _lead(parts: Array, i: int, then: Callable) -> void:
 ## A chapter's answers, once its text has been told.
 func _story_choices(ch: int, cinfo: Dictionary) -> void:
 	var replies := []
+	var prompt := ""
 	var strained := bool(_rel().get("strained", false))
 	var repair: Dictionary = cinfo.get("repair", {})
 	if strained and not repair.is_empty():
@@ -402,12 +424,12 @@ func _story_choices(ch: int, cinfo: Dictionary) -> void:
 	match ch:
 		1:
 			if not _ch1_topic_done:
-				add_to_log(note("Talk first; then say what you mean to be to %s." % _name, Style.MUTED))
+				prompt = "Talk first; then say what you mean to be to %s." % _name
 				for c in cinfo.get("choices", []):
 					var said := String(c["text"])
 					var resp := String(c["response"])
 					var face := String(c.get("face", ""))
-					replies.append({"id": "topic_" + String(c["id"]), "text": said, "tag": String(c.get("tag", "talk")), "act": func():
+					replies.append({"id": "topic_" + String(c["id"]), "text": said, "icon": "talk", "tag": String(c.get("tag", "talk")), "act": func():
 						_ch1_topic_done = true
 						say("you", said)
 						_face(face)
@@ -429,20 +451,19 @@ func _story_choices(ch: int, cinfo: Dictionary) -> void:
 					continue
 				replies.append(_decision(c))
 	replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
-	set_replies(replies)
+	set_replies(replies, prompt)
 
 
 ## What you mean to be to each other. Asked again later (`late`), it can't be put off by
 ## saying nothing: "Not now." simply leaves it for another day.
 func _intents(cinfo: Dictionary, late: bool = false) -> void:
-	add_to_log(note(String(cinfo.get("intent_prompt", "What do you mean to be to each other?")), Style.BRASS))
 	var replies := []
 	for it in cinfo.get("intent_choices", []):
 		if late and String(it.get("intent", "")) == "none":
 			continue
 		replies.append(_decision(it))
 	replies.append({"id": "back", "text": "Not now.", "tone": "quiet", "act": _hub})
-	set_replies(replies)
+	set_replies(replies, String(cinfo.get("intent_prompt", "What do you mean to be to each other?")))
 
 
 ## The first audience's question, never answered: you bring it up again.
@@ -514,6 +535,7 @@ func _post() -> void:
 		_hub()
 		return
 	clear_log()
+	set_header("After the vows · %s" % String(project.get("title", "")))
 	say("you", Lines.story_opener(cand, CHAPTERS + 1))
 	_face(String(project.get("face", "")))
 	_lead(project.get("lead", []), 0, func(): _tell(String(project.get("text", "")), _post_choices.bind(project)))
@@ -581,8 +603,8 @@ func _favour() -> void:
 	set_replies([_back_or_leave()])
 
 
-## Authored text into the talk, a line at a time (Go on, or a tap, for the next): narration
-## centred, their words in their bubble, yours in yours (see RomanceStories.beats). After the
+## Authored text into the talk, a line at a time (a tap for the next): narration in the
+## letter hand, their words in their bubble, yours in yours (see RomanceStories.beats). After the
 ## last line, `then`: the answers, and what changed.
 func _tell(text: String, then: Callable = Callable()) -> void:
 	tell_lines(_lines(text), then)
@@ -676,13 +698,12 @@ func _decide(c: Dictionary, prev: Dictionary, confirmed: bool = false) -> void:
 	var text := String(c["text"])
 	if bool(prev.get("requires_confirmation", false)) and not confirmed:
 		say("you", text)
-		add_to_log(note(String(prev.get("confirmation_text", "Are you sure?")), Style.BRASS))
 		var fx := _effects(prev)
 		set_replies([
 			{"id": "confirm", "text": "Yes. I mean it.", "fx": fx, "tag": "it stays between you" if fx.is_empty() else "",
 				"tone": "red" if bool(c.get("strained", false)) or choice_id == "part_respectfully" else "gold",
 				"act": _decide.bind(c, prev, true)},
-			{"id": "back", "text": "Not yet.", "tone": "quiet", "act": _story}])
+			{"id": "back", "text": "Not yet.", "tone": "quiet", "act": _story}], String(prev.get("confirmation_text", "Are you sure?")))
 		return
 	var res: Dictionary = GameState.apply_social_choice(cand, choice_id)
 	if not bool(res.get("ok", false)):
@@ -753,7 +774,6 @@ func _back_or_leave() -> Dictionary:
 ## its ride as a clock; what's set aside for it shows once, as chips.
 func _where(cost_note: bool = true) -> void:
 	var w: Dictionary = GameState.wedding()
-	add_to_log(note("Where will you marry?", Style.BRASS))
 	if cost_note:
 		add_to_log(TalkView.fx_note([["silver", Widgets.thousands(int(w.get("reserved_silver", 0)))], ["food", Widgets.thousands(int(w.get("reserved_food", 0)))]],
 			"set aside; it comes back if it's called off", Style.MUTED))
@@ -773,7 +793,7 @@ func _where(cost_note: bool = true) -> void:
 		replies.append({"id": "elsewhere", "text": "Somewhere else we both know.", "icon": "mappin", "tag": "a friendly town or castle near you",
 			"act": _elsewhere.bind(others)})
 	replies.append({"id": "later", "text": "Let's decide later.", "tone": "quiet", "tag": "stay engaged · no hurry", "act": _hub})
-	set_replies(replies)
+	set_replies(replies, "Where will you marry?")
 
 
 func _elsewhere(others: Array) -> void:
@@ -783,7 +803,7 @@ func _elsewhere(others: Array) -> void:
 	for p in others:
 		replies.append(_place_reply(p, "At %s." % p["name"], ready, "mappin"))
 	replies.append({"id": "back", "text": "Back", "tone": "quiet", "act": _where})
-	set_replies(replies)
+	set_replies(replies, "Where will you marry?")
 
 
 func _place_reply(p: Dictionary, text: String, tag: String, icon_key: String) -> Dictionary:
@@ -834,9 +854,9 @@ func _wedding_talk() -> void:
 func _call_off(confirmed: bool = false) -> void:
 	if not confirmed:
 		say("you", "Let's call it off, for now.")
-		add_to_log(note("Call off the wedding? You stay together, as before; what was set aside comes back.", Style.BRASS))
 		set_replies([{"id": "confirm", "text": "Yes. Call it off.", "tone": "red", "act": _call_off.bind(true)},
-			{"id": "back", "text": "No, keep it.", "tone": "quiet", "act": _wedding_talk}])
+			{"id": "back", "text": "No, keep it.", "tone": "quiet", "act": _wedding_talk}],
+			"Call off the wedding? You stay together, as before; what was set aside comes back.")
 		return
 	var r: Dictionary = GameState.cancel_wedding()
 	if not bool(r.get("ok", false)):
@@ -861,18 +881,17 @@ func _private_vows() -> void:
 
 
 func _vow_choices(their: Dictionary, house: Dictionary) -> void:
-	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
 	var replies := []
 	for v in WeddingLines.yours(cand):
 		var said := String(v["text"])
-		replies.append({"id": "vow_" + String(v["id"]), "text": said, "tag": String(v["tag"]), "act": func():
+		replies.append({"id": "vow_" + String(v["id"]), "text": said, "icon": "rings", "tag": String(v["tag"]), "act": func():
 			say("you", said)
 			GameState.record_private_vows(cand, said, String(their["text"]))
 			add_to_log(keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
 			add_to_log(TalkView.fx_note([["keep", Relationships.STANDING_PRIVATE_VOWS_PENALTY]],
 				"%s wasn't asked: no marriage pact yet. Their good word can still be earned." % String(house.get("name", "Her house")), Style.MORALE_LOW))
 			set_replies([_back_or_leave()])})
-	set_replies(replies)
+	set_replies(replies, "Your vow. No wrong answers.")
 
 
 # ---------------------------------------------------------------- time together
@@ -892,7 +911,9 @@ func _visit(scene_id: String, replay: bool) -> void:
 			add_to_log(note(String(r.get("reason", "Not now.")), Style.MORALE_LOW))
 			return
 		_progress = r["progress"]
-	set_stage_share(0.38)
+	_hint_at = ""
+	set_stage_share(TELLING_SHARE)
+	set_memory_look(replay)
 	var setting := String(Stories.SCENES[scene_id].get("setting", ROOMS.get(cand, "common_room")))
 	if _backdrop is TextureRect and StoryArt.texture("res://assets/locations/%s.png" % setting) != null:
 		(_backdrop as TextureRect).texture = StoryArt.texture("res://assets/locations/%s.png" % setting)
@@ -912,10 +933,39 @@ func _leave_visit() -> void:
 		_hub()
 
 
+## What an option's kind looks like as an answer: from the heart in rose (only a courtship
+## has it), as a friend in brass; the rest are talk.
+static func _answer_tone(kind: String) -> String:
+	return kind if kind in ["heart", "warm"] else "plain"
+
+
+## When and where a memory was made, for the strip that says it is one: "Remembered ·
+## title · day 14 · Ravensford".
+func _remembered_title(title: String, kind: String, key: String, value: String) -> String:
+	var bits := PackedStringArray(["Remembered", title])
+	for m in _social().memory_book(person_id):
+		if String(m.get("kind", "")) == kind and String(m.get(key, "")) == value:
+			if int(m.get("day", 0)) > 0:
+				bits.append("day %d" % int(m["day"]))
+			if String(m.get("place", "")) != "":
+				bits.append(Letters.place_name(String(m["place"])))
+			break
+	return " · ".join(bits)
+
+
+## The strip under the stage: the visit's rank and title, and a pip for each point where
+## you say something, filled as you answer.
+func _visit_header() -> void:
+	var scene: Dictionary = Stories.SCENES[_scene_id]
+	var title := String(scene["title"])
+	if _replay:
+		title = _remembered_title(title, "visit", "scene_id", _scene_id)
+	set_header(title, String(scene.get("rank", "")), Stories.part_count(_scene_id), int(_progress["part"]), _replay)
+
+
 func _render_visit() -> void:
 	clear_log()
-	var scene: Dictionary = Stories.SCENES[_scene_id]
-	say("narration", ("Remembered · %s" if _replay else "%s") % scene["title"])
+	_visit_header()
 	var part := int(_progress["part"])
 	var parts := Stories.part_count(_scene_id)
 	var shown: Array = Stories.told_before(_scene_id, part, _progress["picks"], _progress["context"])
@@ -932,9 +982,14 @@ func _render_visit() -> void:
 		if who == "Narrator":
 			say("narration", String(beat["text"]), "", again)
 		elif who == "You":
-			say("you", String(beat["text"]), "", again)
+			# An answer she will keep carries a small cup; what it means, you learn when it
+			# comes back.
+			say("you", String(beat["text"]), "", again, "kept" if bool(beat.get("kept", false)) else "")
 		else:
-			say("them", String(beat["text"]), _name, again)
+			var remembered := bool(beat.get("remembered", false))
+			say("them", String(beat["text"]), _name, again, "remembered" if remembered else "")
+			if remembered:
+				_remembered_hint("%s:%d" % [_scene_id, i])
 		face = String(beat.get("expression", face))
 	_heard = shown.size()
 	if face != "":
@@ -942,34 +997,46 @@ func _render_visit() -> void:
 	var pos := int(_progress["beat"])
 	var summary := {"id": "summary", "text": "Short version", "tone": "quiet", "act": _summary}
 	var later := {"id": "later", "text": "Another time", "tone": "quiet", "act": _leave_visit}
+	var close_memory := {"id": "later", "text": "Close the memory", "tone": "quiet", "act": _leave_visit}
 	# The short version stands in for the whole visit, so it's offered until your first answer.
 	var early := part == 0 and not _replay
+	var ways: Array = [close_memory] if _replay else ([summary, later] if early else [later])
 	if pos < seq.size() - 1:
-		# Tap anywhere, or Go on; leave for later at any point.
-		var replies := [{"id": "continue", "text": "Go on", "tone": "quiet", "act": _advance}]
-		replies.append({"row": [summary, later]} if early else later)
-		set_replies(replies)
-		_continue = _advance
+		# A tap anywhere goes on; leave for later at any point.
+		set_replies([{"id": "continue", "act": _advance}] + ways)
 	elif part < parts:
 		# A point in the talk where you say something. Told again, it is what you said then;
 		# with no answer kept (the short version, an older visit) you answer afresh.
 		var kept := int(_kept[part]) if _replay and part < _kept.size() else -1
 		if kept >= 0 and Stories.offers(_scene_id, part, _progress["context"], kept):
-			set_replies([{"id": "continue", "text": "Go on", "tone": "quiet", "act": _respond.bind(kept)}, later])
-			_continue = _respond.bind(kept)
+			set_replies([{"id": "continue", "act": _respond.bind(kept)}] + ways)
 			return
-		add_to_log(note("No wrong answers.", Style.MUTED))
 		var replies := []
 		for o in Stories.options(_scene_id, part, _progress["context"]):
 			var tone: Array = Stories.TONES.get(String(o.get("tone", "")), ["talk", ""])
 			replies.append({"id": "say_%d" % int(o["index"]), "text": String(o["say"]), "icon": String(tone[0]), "tag": String(tone[1]),
-				"act": _respond.bind(int(o["index"]))})
-		replies.append({"row": [summary, later]} if early else later)
-		set_replies(replies)
+				"tone": _answer_tone(String(o.get("tone", ""))), "act": _respond.bind(int(o["index"]))})
+		# Said once, at the first point of the first visit anyone has: after that it is known.
+		var prompt := ""
+		if not _replay and not Sound.has_seen_hint(TalkView.HINTS, HINT_NO_WRONG):
+			prompt = "No wrong answers."
+		set_replies(replies + ways, prompt)
 	elif _replay:
 		set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": _leave_visit}])
 	else:
-		set_replies([{"id": "finish", "text": "Keep this memory", "tone": "gold", "bare": true, "act": _finish.bind("finish")}])
+		set_replies([{"id": "finish", "text": "Keep this memory", "icon": "cup", "tone": "gold", "bare": true, "act": _finish.bind("finish")}])
+
+
+## Under the first line she ever remembers: what the mark means. Once, for good; it stays
+## under that line for as long as this visit is on the screen.
+func _remembered_hint(at: String) -> void:
+	if _replay:
+		return
+	if _hint_at == "" and not Sound.has_seen_hint(TalkView.HINTS, HINT_REMEMBERED):
+		Sound.mark_hint_seen(TalkView.HINTS, HINT_REMEMBERED)
+		_hint_at = at
+	if _hint_at == at:
+		hint("She remembered what you said.")
 
 
 func _advance() -> void:
@@ -994,6 +1061,8 @@ func _respond(choice: int) -> void:
 		if not bool(r.get("ok", false)):
 			return
 		_progress = r["progress"]
+		if prompt_text() != "":
+			Sound.mark_hint_seen(TalkView.HINTS, HINT_NO_WRONG)
 	_render_visit()
 
 
@@ -1045,9 +1114,10 @@ func _moment(choice: String) -> void:
 	if told.is_empty():
 		_leave_visit()
 		return
-	set_stage_share(0.38)
+	set_stage_share(TELLING_SHARE)
+	set_memory_look(true)
 	clear_log()
-	say("narration", "Remembered · %s" % told["title"])
+	set_header(_remembered_title(String(told["title"]), "decision", "choice", choice), "", 0, 0, true)
 	_face(String(told["face"]))
 	var lines := [{"who": "you", "text": String(told["text"])}]
 	lines.append_array(_lines(String(told["response"])))
@@ -1092,12 +1162,12 @@ func _recall(m: Dictionary) -> void:
 	var replies := []
 	var sid := String(m.get("scene_id", ""))
 	if String(m.get("kind", "")) == "visit" and _social().personal_record(person_id)["completed"].has(sid):
-		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "a memory · changes nothing", "act": _visit.bind(sid, true)})
+		replies.append({"id": "relive", "text": "Tell it again", "icon": "cup", "bare": true, "tag": "a memory · changes nothing", "act": _visit.bind(sid, true)})
 	elif String(m.get("kind", "")) == "decision" and not _decision_told(String(m.get("choice", ""))).is_empty():
-		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "a memory · changes nothing", "act": _moment.bind(String(m.get("choice", "")))})
+		replies.append({"id": "relive", "text": "Tell it again", "icon": "book", "bare": true, "tag": "a memory · changes nothing", "act": _moment.bind(String(m.get("choice", "")))})
 	elif String(m.get("kind", "")) == "ceremony" and sid == "wedding":
 		var mid := String(m["id"])
-		replies.append({"id": "relive", "text": "Tell it again", "bare": true, "tag": "your wedding · changes nothing", "act": func():
+		replies.append({"id": "relive", "text": "Tell it again", "icon": "rings", "bare": true, "tag": "your wedding · changes nothing", "act": func():
 			Scenes.wedding_replay = mid
 			Scenes.wedding_return = Scenes.personal_conversation_return if opened_as == "visits" else Scenes.conversation_return
 			Scenes.go("res://scenes/wedding.tscn")})

@@ -57,7 +57,6 @@ func _nothing(text: String) -> void:
 ## Who to ask: someone you know (or have only seen) who is in the hall, a lord's
 ## kinswoman for his Regard, the round everyone joins, the wall. Never a lord himself.
 func _ask() -> void:
-	add_to_log(note("Ask someone to dance", Style.BRASS))
 	var replies := []
 	var absent := []
 	for p in GameState.dance_partners(g):
@@ -83,13 +82,13 @@ func _ask() -> void:
 				replies.append({"id": "round", "text": "Join the round.", "icon": "company", "tag": String(p["tag"]),
 					"act": _dance.bind("round", "")})
 			"wall":
-				replies.append({"id": "wall", "text": "Watch from the wall.", "icon": "eye", "tag": String(p["tag"]), "tone": "quiet",
+				replies.append({"id": "wall", "text": "Watch from the wall.", "icon": "eye", "tag": String(p["tag"]),
 					"act": _dance.bind("wall", "")})
 			"absent":
 				absent.append(String(p["tag"]))
 	for line in absent:
 		add_to_log(note(line, Style.MUTED))
-	set_replies(replies)
+	set_replies(replies, "Ask someone to dance")
 
 
 func _dance(kind: String, id: String) -> void:
@@ -145,7 +144,6 @@ func _dance(kind: String, id: String) -> void:
 ## off, the audience at her seat asks it.
 func _meet_intents(cid: String, who: String) -> void:
 	var cinfo: Dictionary = RomanceStories.story_data(cid).get("chapters", {}).get(1, {})
-	add_to_log(note(String(cinfo.get("intent_prompt", "What do you mean to be to each other?")), Style.BRASS))
 	var replies := []
 	for it in cinfo.get("intent_choices", []):
 		var choice_id := String(it["id"])
@@ -162,7 +160,7 @@ func _meet_intents(cid: String, who: String) -> void:
 		replies.append({"id": "decide_" + choice_id, "text": String(it["text"]), "tag": " · ".join(bits), "tone": String(it.get("tone", "gold")),
 			"act": _meet_decide.bind(cid, who, it)})
 	replies.append({"id": "done", "text": "Not tonight. Back to the hall.", "tone": "quiet", "tag": "she'll ask at %s" % _seat_name(cid), "act": close})
-	set_replies(replies)
+	set_replies(replies, String(cinfo.get("intent_prompt", "What do you mean to be to each other?")))
 
 
 func _meet_decide(cid: String, who: String, it: Dictionary) -> void:

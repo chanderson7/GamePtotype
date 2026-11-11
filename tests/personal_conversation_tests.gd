@@ -9,6 +9,7 @@ const Lines = preload("res://scripts/data/romance_talk_lines.gd")
 const Letters = preload("res://scripts/data/letters.gd")
 const PERSON := "person_edda"
 const FIRST := "edda_spare_spoon"
+const TalkStyle = preload("res://scripts/ui/style.gd")
 var failures := 0
 var checks := 0
 var ctx := {"settlement_id": "ravensford", "invitations_enabled": true}
@@ -249,6 +250,10 @@ func _check_remembering() -> void:
 	soc._hour += 24.0
 	var boots: Dictionary = soc.personal_action(PERSON, "edda_boots_by_door", "begin", ctx)["progress"]
 	check(_text(Stories.beats("edda_boots_by_door", 0, [], boots["context"])).contains("haven't counted myself"), "a later visit brings up what you did in an earlier one")
+	var marked: Array = Stories.beats("edda_boots_by_door", 0, [], boots["context"]).filter(func(b): return bool(b.get("remembered", false)))
+	check(marked.size() == 1 and String(marked[0]["text"]).contains("haven't counted myself"), "and that line, and no other, is marked as her remembering")
+	var kept_lines: Array = Stories.beats(FIRST, 1, [0], {"romantic": true, "completed": [], "choices": {}}).filter(func(b): return bool(b.get("kept", false)))
+	check((kept_lines.size() == 1) == Stories.SCENES[FIRST]["parts"][0]["options"][0].has("mark"), "an answer of yours that leaves a mark is known as one she keeps")
 	var offered: Array = Stories.options("edda_boots_by_door", 2, boots["context"]).map(func(o): return String(o["tone"]))
 	check(offered.has("heart") and not offered.has("warm"), "courting, the last answer can be from the heart (%s)" % ", ".join(offered))
 	var friendly: Dictionary = boots["context"].duplicate(true)
@@ -262,6 +267,18 @@ func _check_remembering() -> void:
 	var c := {"romantic": false, "completed": [], "choices": {}}
 	check(_text(Stories.beats("farid_own_answer", 3, [1, 0, 0], c)).contains("crooked stitch") and not _text(Stories.beats("farid_own_answer", 3, [0, 0, 0], c)).contains("crooked stitch"),
 		"what you do in a visit is there at its end")
+	check(not Stories.beats("farid_own_answer", 3, [1, 0, 0], c).any(func(b): return bool(b.get("remembered", false))),
+		"though something said a moment ago, in the same visit, isn't marked as remembered")
+	for id in Stories.SCENES:
+		var parts: int = Stories.part_count(id)
+		for route in [true, false]:
+			var bare := {"romantic": route, "completed": [], "choices": {}}
+			var picks := []
+			for i in parts:
+				picks.append(int(Stories.options(id, i, bare)[0]["index"]))
+			for i in parts + 1:
+				if Stories.beats(id, i, picks.slice(0, i), bare).any(func(b): return bool(b.get("remembered", false))):
+					check(false, "%s marks a line as remembered with nothing to remember (the route alone isn't remembering)" % id)
 	# Her greeting and her letters.
 	check(Lines.remembered("edda", soc.personal_marks(PERSON), 2) == Lines.REMEMBERED["edda"]["edda_fed"] and Lines.remembered("edda", soc.personal_marks(PERSON), 1) == "",
 		"now and then she greets you with something you said")
@@ -366,6 +383,10 @@ func _find(node: Node, text: String) -> Button:
 	return null
 
 func _check_ui(gs) -> void:
+	# One-time hints are kept with the settings: a file of this run's own, so they start unseen.
+	var sound = root.get_node("Sound")
+	sound.settings_path = "user://bannerfall-visits-%d.cfg" % OS.get_process_id()
+	DirAccess.remove_absolute(sound.settings_path)
 	gs.new_campaign(Cultures.VARDISH)
 	gs.world.player().node = "ravensford"
 	gs.world.social.apply_choice("edda", "offer_help", {})
@@ -375,7 +396,8 @@ func _check_ui(gs) -> void:
 	change_scene_to_file("res://scenes/people.tscn")
 	await process_frame
 	await process_frame
-	check(button("Spend time") != null, "People exposes personal conversations")
+	var spend := current_scene.find_child("SpendTime_edda", true, false) as Button
+	check(spend != null and spend.text == "Spend time · new" and spend.has_meta("new"), "People exposes personal conversations, and says a visit is waiting")
 	change_scene_to_file("res://scenes/conversation.tscn")
 	await process_frame
 	await process_frame
@@ -391,7 +413,12 @@ func _check_ui(gs) -> void:
 	talk.choose("visit_edda_spare_spoon")
 	check(talk.has_reply("summary"), "reader offers accessible summary")
 	_read_to_end(talk)
-	check(talk.log_text().contains("No wrong answers"), "chat replies say there are no wrong answers")
+	check(talk.prompt_text().contains("No wrong answers") and not talk.log_text().contains("No wrong answers"),
+		"the first time you answer, the tray says there are no wrong answers")
+	var pips: Node = talk._header.find_child("Pips", true, false)
+	check(talk.header_text() == "The Spare Place" and talk._header.find_child("Rank_C", true, false) != null
+		and pips != null and int(pips.get_meta("total")) == 3 and int(pips.get_meta("filled")) == 0,
+		"the strip under the stage shows the visit's rank, its title and a pip for each point")
 	var first_point: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("say_"))
 	check(first_point == ["say_0", "say_1"] and talk.has_reply("summary"), "the first point comes early: how you join in, two ways (%s)" % ", ".join(first_point))
 	var kind := talk._replies.get_node("Reply_say_0").find_child("Tag", true, false) as Label
@@ -400,6 +427,10 @@ func _check_ui(gs) -> void:
 	talk.choose("say_1")
 	check(talk.log_text().contains("Is this an inspection") and talk.log_text().contains("You're failing it") and not talk.has_reply("summary"),
 		"she answers what you said, and the short version is no longer offered")
+	check(int(talk._header.find_child("Pips", true, false).get_meta("filled")) == 1, "and a pip fills")
+	var mine: Array = talk._log.find_children("You", "PanelContainer", true, false)
+	check(mine.size() == 1 and (mine[0].find_child("Kept", true, false) != null) == Stories.SCENES["edda_spare_spoon"]["parts"][0]["options"][1].has("mark"),
+		"an answer she will keep carries a small cup, and only such an answer")
 	talk.choose("later")
 	check(talk.has_reply("visit_edda_spare_spoon") and String(talk._replies.get_node("Reply_visit_edda_spare_spoon").find_child("Tag", true, false).text).begins_with("resume"),
 		"leaving preserves response for resume")
@@ -407,6 +438,7 @@ func _check_ui(gs) -> void:
 	check(talk.log_text().contains("You're failing it"), "resume returns to where you were, with what was said")
 	_read_to_end(talk)
 	check(talk.reply_ids().filter(func(id): return String(id).begins_with("say_")).size() == 2, "then a second point: a reaction")
+	check(talk.prompt_text() == "", "which doesn't say it again")
 	talk.choose("say_0")
 	_read_to_end(talk)
 	check(talk.reply_ids().filter(func(id): return String(id).begins_with("say_")).size() == 3, "and last the answer that matters most, three ways")
@@ -432,15 +464,52 @@ func _check_ui(gs) -> void:
 	talk.choose("relive")
 	_read_to_end(talk)
 	check(talk.has_reply("finish") and talk.log_text().contains("Is this an inspection") and talk.log_text().contains("You haven't eaten either.")
-		and not talk.log_text().contains("No wrong answers"), "told again, a visit goes as you answered it, start to finish, and asks nothing")
+		and talk.prompt_text() == "", "told again, a visit goes as you answered it, start to finish, and asks nothing")
+	check(talk.header_text().begins_with("Remembered · The Spare Place") and talk._memory_look and talk._backdrop.material != null
+		and talk.get_node("Stage/Face_left").material != null, "and can't be taken for a new one: the strip says Remembered, the room has lost its colour (%s)" % talk.header_text())
 	talk.choose("finish")
 	check(archived == gs.to_dict(), "replay through real UI changes no campaign data")
+	check(not talk._memory_look and talk._backdrop.material == null and talk.header_text() == "", "back in the talk, the room has its colour again")
 	check(not talk.has_reply("visit_edda_wrong_verse") and talk.has_reply("visits_locked", false), "the day's visit is spent; the talk says so")
 	gs.world.hour += 24.0
 	talk._hub()
 	talk.choose("visit_edda_wrong_verse")
 	talk.choose("summary")
 	check(gs.world.social.personal_record(PERSON)["completed"].size() == 2, "summary completes through real UI")
+	# A later visit: what you said comes back, and the screen shows that it did.
+	gs.world.hour += 24.0
+	talk._hub()
+	talk.choose("visit_edda_boots_by_door")
+	_read_to_end(talk)
+	var hers: Array = talk._log.find_children("Them", "PanelContainer", true, false).filter(func(b): return b.find_child("Remembered", true, false) != null)
+	check(hers.size() == 1 and String(hers[0].find_child("Words", true, false).text).contains("haven't counted myself") and hers[0].has_meta("remembered"),
+		"when she brings up something you said, that line is marked: a rose edge and a small cup")
+	check(talk._log.find_children("Hint", "Label", true, false).size() == 1, "the first time it ever happens, a line under it says what the mark means")
+	check(talk.prompt_text() == "", "and by now nobody needs telling there are no wrong answers")
+	var first_answers: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("say_"))
+	talk.choose(first_answers[0])
+	_read_to_end(talk)
+	check(talk._log.find_children("Hint", "Label", true, false).size() == 1, "it stays under that line while the visit is on the screen")
+	talk.choose(talk.reply_ids().filter(func(id): return String(id).begins_with("say_"))[0])
+	_read_to_end(talk)
+	# Friends here: the last point has a friend's answer, edged in brass. Courting, it is from
+	# the heart, and the one rose thing among the answers.
+	var last: Array = Stories.options("edda_boots_by_door", 2, talk._progress["context"])
+	var warm := ""
+	for o in last:
+		if String(o["tone"]) == "warm":
+			warm = "say_%d" % int(o["index"])
+	check(warm != "" and talk.reply_node(warm) != null, "as friends, the last point offers a friend's answer")
+	var plain := talk.reply_node("say_0").get_theme_stylebox("normal") as StyleBoxFlat
+	if warm != "":
+		var brass := talk.reply_node(warm).get_theme_stylebox("normal") as StyleBoxFlat
+		check(brass.border_color != plain.border_color and brass.border_color.is_equal_approx(Color(TalkStyle.BRASS, 0.6)) and talk.reply_node(warm).get_combined_minimum_size().y >= TalkStyle.TOUCH - 0.5,
+			"which is edged in brass, and a full touch target")
+	var heart_button: Button = talk.reply_button({"id": "probe", "text": "Stay.", "icon": "heart", "tag": "from the heart", "tone": "heart"})
+	var rose := heart_button.get_theme_stylebox("normal") as StyleBoxFlat
+	check(rose.border_color == TalkStyle.ROMANCE and plain.border_color != TalkStyle.ROMANCE and (heart_button.find_child("Kind", true, false) as CanvasItem).modulate == TalkStyle.ROMANCE,
+		"an answer from the heart is rose, edge and badge: the one such thing among the answers")
+	heart_button.free()
 
 
 func _read_to_end(talk) -> void:

@@ -65,7 +65,9 @@ static func icon_rect(key: String, size: float = 40.0) -> TextureRect:
 
 
 ## A tile: an icon, a big number and a line under it.
-static func tile(key: String, value: String, sub: String, tone: Color = Style.TEXT) -> PanelContainer:
+## `wrap`: the words under the number wrap inside the tile (a long name must not widen the
+## row of tiles past the screen); the tile then needs a row that shares its width out.
+static func tile(key: String, value: String, sub: String, tone: Color = Style.TEXT, wrap: bool = false) -> PanelContainer:
 	var t := PanelContainer.new()
 	t.name = "Tile_%s" % key
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -79,7 +81,13 @@ static func tile(key: String, value: String, sub: String, tone: Color = Style.TE
 	var big := Style.label(value, Style.LARGE, tone)
 	big.name = "Value"
 	v.add_child(big)
-	v.add_child(Style.label(sub, Style.SMALL, Style.MUTED))
+	var words := Style.label(sub, Style.SMALL, Style.MUTED)
+	words.name = "Sub"
+	if wrap:
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.custom_minimum_size.x = 70
+	v.add_child(words)
 	return t
 
 
@@ -716,6 +724,35 @@ static func rank_badge(letter: String, size: float = 44.0) -> Control:
 		var font := c.get_theme_default_font()
 		var w := font.get_string_size(letter, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 		c.draw_string(font, Vector2(mid.x - w / 2.0, mid.y + font_size * 0.36), letter, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color("f3d891")))
+	return c
+
+
+## Steps as a row of dots: `filled` of `total` done, the next one ringed. `letters` (one
+## for each) are written under the dots, for steps that have a rank.
+static func pips(total: int, filled: int, tone: Color = Style.BRASS, letters: Array = [], dot: float = 9.0) -> Control:
+	var c := Control.new()
+	c.name = "Pips"
+	c.set_meta("total", total)
+	c.set_meta("filled", filled)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var gap := dot * 2.0 + (22.0 if not letters.is_empty() else 10.0)
+	var font_size := Style.text_size(Style.SMALL)
+	c.custom_minimum_size = Vector2(gap * total - (gap - dot * 2.0) + 4.0, dot * 2.0 + 4.0 + (font_size + 6.0 if not letters.is_empty() else 0.0))
+	c.tooltip_text = "%d of %d" % [filled, total]
+	c.draw.connect(func():
+		var font := c.get_theme_default_font()
+		for i in total:
+			var at := Vector2(2.0 + dot + gap * i, 2.0 + dot)
+			if i < filled:
+				c.draw_circle(at, dot, tone)
+			else:
+				c.draw_circle(at, dot, Color(Style.NIGHT, 0.6))
+				c.draw_arc(at, dot - 1.5, 0.0, TAU, 28, tone if i == filled else Color(Style.MUTED, 0.45), 3.0 if i == filled else 2.0, true)
+			if i < letters.size():
+				var w := font.get_string_size(String(letters[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+				c.draw_string(font, Vector2(at.x - w * 0.5, dot * 2.0 + 6.0 + font_size * 0.85), String(letters[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, font_size,
+					Style.TEXT if i <= filled else Style.MUTED.darkened(0.2)))
 	return c
 
 

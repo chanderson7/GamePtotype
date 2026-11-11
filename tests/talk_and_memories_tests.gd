@@ -36,6 +36,10 @@ func _init() -> void:
 	await process_frame
 	var gs = root.get_node("GameState")
 	var scenes = root.get_node("Scenes")
+	# One-time hints are kept with the settings: a file of this run's own, so they start unseen.
+	var sound = root.get_node("Sound")
+	sound.settings_path = "user://bannerfall-talk-%d.cfg" % OS.get_process_id()
+	DirAccess.remove_absolute(sound.settings_path)
 	gs.persist = false
 	gs.new_campaign(Cultures.VARDISH)
 	var social = gs.world.social
@@ -60,18 +64,37 @@ func _init() -> void:
 	talk.choose("story")
 	var lines_told: int = talk._log.get_children().filter(func(c): return c is HBoxContainer).size()
 	check(talk.telling() and talk.reply_node("continue") != null and talk.reply_node("tell_all") != null and talk.reply_node("decide_offer_help") == null,
-		"a chapter is told a line at a time, Go on for the next, and asks nothing until it's told")
+		"a chapter is told a line at a time, and asks nothing until it's told")
+	check(talk.header_text() == "Chapter 1 of 5 · An Introduction", "the strip under the stage says which chapter this is (%s)" % talk.header_text())
+	# No "Go on" button: a mark at the foot of the conversation, and a tap anywhere.
+	var go_buttons: Array = talk.find_children("*", "Button", true, false).filter(func(b): return String((b as Button).text).to_lower().contains("go on") and b != talk._cue)
+	var go_labels: Array = talk._tray.find_children("*", "Label", true, false).filter(func(l): return String((l as Label).text) == "Go on")
+	check(go_buttons.is_empty() and go_labels.is_empty() and talk._tray.find_child("Reply_continue", true, false) == null and talk.reply_node("continue") == talk._cue,
+		"there is no Go on button: the way on is a mark at the foot of the conversation")
+	check(talk._cue.text == "Tap to go on", "which says how, until you have gone on once (%s)" % talk._cue.text)
+	for i in 4:
+		await process_frame
+	var screen_h: float = talk.size.y
+	var tray_bottom: float = talk._tray.position.y + talk._tray.size.y
+	check(is_equal_approx(tray_bottom, screen_h) and talk._scroll.position.y + talk._scroll.size.y <= talk._tray.position.y + 1.0,
+		"what you can press sits on the bottom edge, under the conversation (%.0f of %.0f)" % [tray_bottom, screen_h])
 	talk.reply_node("continue").pressed.emit()
 	var lines_now: int = talk._log.get_children().filter(func(c): return c is HBoxContainer).size()
-	check(lines_now == lines_told + 1, "Go on brings one line more (%d, then %d)" % [lines_told, lines_now])
+	check(lines_now == lines_told + 1, "going on brings one line more (%d, then %d)" % [lines_told, lines_now])
+	var narration := talk._log.find_child("Narration", true, false) as Label
+	check(narration != null and narration.horizontal_alignment == HORIZONTAL_ALIGNMENT_LEFT and narration.get_parent().get_node_or_null("Rule") != null,
+		"what happens is told beside a thin rule, not centred")
 	var writing: int = talk._log.find_children("Words", "Label", true, false).filter(func(l): return (l as Label).visible_characters >= 0).size()
 	check(writing <= 1, "and only the newest of her lines is still being written out")
 
 	# ---- a decision is marked as one, with what it does
 	var topics: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("topic_"))
 	check(not topics.is_empty(), "a first audience starts with talk")
+	check(talk.prompt_text().begins_with("Talk first") and not talk.log_text().contains("Talk first"), "what is being asked is a caption over the answers, not a box in the talk")
 	talk.choose(topics[0])
 	check(talk.has_reply("decide_offer_help"), "then asks what you mean to be to each other")
+	check(talk.prompt_text() != "" and talk.reply_node("decide_offer_help").find_child("Kind", true, false) != null
+		and talk.reply_node("back").get_parent() == talk._footer, "with the question over the answers, each with its badge, and the way out as a quiet link under them")
 	var tag := String(talk._replies.get_node("Reply_decide_offer_help").find_child("Tag", true, false).text)
 	check(tag.contains("as a friend") and tag.contains("now acquainted") and not tag.contains("trust"), "a decision says what it is and how things will stand, not a score (%s)" % tag)
 	var said := String(talk._replies.get_node("Reply_decide_offer_help").find_child("Text", true, false).text)
@@ -80,13 +103,36 @@ func _init() -> void:
 	talk.choose("decide_offer_help")
 	check(int(social.get_relationship("edda")["trust"]) == trust0 + 10 and social.get_relationship("edda")["status"] == "acquainted", "and does it")
 	check(talk._log.find_child("Reaction", true, false) == null or not talk.telling(), "her answer is told before what changed")
+	# Her answer runs to several lines: between them, nothing you can press moves.
+	check(talk.telling() and talk._pending.size() >= 2, "her answer comes a line at a time (%d to come)" % talk._pending.size())
+	for i in 4:
+		await process_frame
+	var link_y: float = talk.reply_node("tell_all").global_position.y
+	talk.reply_node("continue").pressed.emit()
+	for i in 4:
+		await process_frame
+	check(talk.reply_node("tell_all") != null and is_equal_approx(talk.reply_node("tell_all").global_position.y, link_y)
+		and is_equal_approx(talk._tray.position.y + talk._tray.size.y, talk.size.y), "and between her lines nothing you can press has moved")
+	check(talk._cue.text == "" and talk._cue.visible, "the mark that there is more stays, without the words")
+	# A tap anywhere on the conversation goes on; one that is heard twice is one tap.
+	talk.finish_writing()
+	var before_tap: int = talk._log.get_children().filter(func(c): return c is HBoxContainer).size()
+	for pressed in [true, false]:
+		var tap := InputEventMouseButton.new()
+		tap.button_index = MOUSE_BUTTON_LEFT
+		tap.pressed = pressed
+		tap.position = Vector2(200, 700)
+		talk._tap(tap)
+		talk._tap(tap)
+	check(talk._log.get_children().filter(func(c): return c is HBoxContainer).size() == before_tap + 1, "a tap on the conversation brings the next line, once")
 	if talk.telling():
 		talk.tell_rest()
 	check(talk._log.find_child("Reaction", true, false) != null and not talk.log_text().contains("+10"), "what changed is told as how she takes it, not as a number")
 	var words: Array = talk._log.find_children("Words", "Label", true, false).filter(func(l): return String(l.text).contains("asks nothing"))
 	check(words.size() == 1 and String(words[0].text).begins_with("A friend."), "her answer is her words alone in her bubble, with no quotes or narration inside it")
 	check(talk.find_child("TrustBar", true, false) != null, "and trust appears on the nameplate once there is some")
-	check(talk._log.find_child("Note", true, false) != null, "and the talk says what changed")
+	check(talk.reply_node("back") != null and talk.reply_node("leave") != null and talk._replies.get_child_count() == 0,
+		"and the ways on from there are the only things to press")
 
 	# ---- visits, from the hub
 	talk.choose("back")
@@ -144,6 +190,46 @@ func _init() -> void:
 	await process_frame
 	var row = current_scene.find_child("Memory_" + String(visit["id"]), true, false)
 	check(row != null, "the profile lists memories you can open")
+	# ---- the profile: three sections under a row of tabs, the visits as pips, the book as a timeline
+	var page = current_scene
+	check(page.find_child("Section_story", true, false) != null and page.find_child("Section_time", true, false) != null and page.find_child("Section_memories", true, false) != null,
+		"her page has her story, your time together and your memories")
+	var tabs: Array = page.find_child("ProfileTabs", true, false).get_children().map(func(b): return String(b.text))
+	check(tabs == ["Story", "Time together", "Memories"] and page.get_node_or_null("PinnedTabs") != null and not page.get_node("PinnedTabs").visible,
+		"a row of tabs leads to each, with a copy that pins to the top once the page has scrolled (%s)" % ", ".join(tabs))
+	page._go_to_section("memories")
+	check(page._section_now == "memories", "a tab takes you to its section")
+	var pips: Node = page.find_child("VisitPips", true, false)
+	var shared: int = social.personal_record(pid)["completed"].size()
+	check(pips != null and int(pips.get_meta("total")) == 8 and int(pips.get_meta("filled")) == shared and shared >= 1,
+		"time together shows the eight visits as pips, filled as they are shared (%d of 8)" % shared)
+	var next_line := page.find_child("NextVisit", true, false) as Label
+	check(next_line != null and next_line.text.begins_with("%d of 8 shared." % shared) and next_line.text.length() > 16, "and says what opens the next (%s)" % next_line.text)
+	var spend := page.find_child("SpendTime_edda", true, false) as Button
+	var waiting: bool = String(page._next_visit("edda")["state"]) == "ready"
+	check(spend != null and spend.text == ("Spend time · new" if waiting else "Spend time") and spend.has_meta("new") == waiting,
+		"Spend time says whether a visit is waiting (%s)" % spend.text)
+	var said_back: Array = page.find_children("*", "Label", true, false).filter(func(l): return String((l as Label).text).to_lower().contains("knows about you"))
+	check(said_back.is_empty(), "what she knows about you is nowhere on the page: being remembered stays a surprise")
+	var title := row.find_child("Title", true, false) as Label
+	var visit_rank := String(Stories.SCENES[String(visit["scene_id"])]["rank"])
+	check(title != null and title.text == String(Stories.SCENES[String(visit["scene_id"])]["title"]) and row.find_child("Rank_" + visit_rank, true, false) != null,
+		"a visit in the book shows its rank and its title")
+	var decided = page.find_child("Memory_" + String(decision["id"]), true, false)
+	check(decided != null and String((decided.find_child("Title", true, false) as Label).text).begins_with("Chapter "), "a decision shows its chapter")
+	check(page.find_child("Day_%d" % int(visit["day"]), true, false) != null and row.get_parent().get_parent().name == "Day_%d" % int(visit["day"]),
+		"the book is a timeline: what happened sits beside its day")
+	var filters: Node = page.find_child("MemoryFilters", true, false)
+	var filter_words: Array = filters.find_children("Tab_*", "Button", true, false).map(func(b): return String(b.text))
+	check(filter_words == ["All", "Visits", "Decisions", "Letters", "Days"], "with filters over it (%s)" % ", ".join(filter_words))
+	filters.find_child("Tab_2", true, false).pressed.emit()
+	await process_frame
+	check(page.find_child("Memory_" + String(visit["id"]), true, false) == null and page.find_child("Memory_" + String(decision["id"]), true, false) != null,
+		"Decisions shows the decisions and not the visits")
+	page.find_child("MemoryFilters", true, false).find_child("Tab_0", true, false).pressed.emit()
+	await process_frame
+	row = page.find_child("Memory_" + String(visit["id"]), true, false)
+	check(row != null, "and All brings everything back")
 	row.pressed.emit()
 	await _arrive("personal_conversation.tscn")
 	check(current_scene.has_method("reply_ids") and current_scene.log_text().contains("Remembered"), "a visit memory opens as a replay")

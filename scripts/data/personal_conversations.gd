@@ -99,6 +99,15 @@ static func flags(context: Dictionary, scene_id: String = "", picks: Array = [])
 ## (and dropping the condition itself).
 static func paragraphs(text: String, on: Dictionary) -> PackedStringArray:
 	var out := PackedStringArray()
+	for p in tagged_paragraphs(text, on):
+		out.append(String(p["text"]))
+	return out
+
+
+## The same paragraphs, each with what it was conditional on: [{text, conds}] (`conds`
+## the conditions that held, without any "!").
+static func tagged_paragraphs(text: String, on: Dictionary) -> Array:
+	var out := []
 	var buffer := PackedStringArray()
 	var lines := text.split("\n")
 	lines.append("")
@@ -111,16 +120,19 @@ static func paragraphs(text: String, on: Dictionary) -> PackedStringArray:
 			continue
 		var para := " ".join(buffer)
 		buffer.clear()
+		var conds := []
 		if para.begins_with("[?"):
 			var end := para.find("]")
 			var holds := true
 			for cond in para.substr(2, end - 2).split(",", false):
 				var c := cond.strip_edges()
 				holds = holds and (not on.has(c.substr(1)) if c.begins_with("!") else on.has(c))
+				if not c.begins_with("!"):
+					conds.append(c)
 			if not holds:
 				continue
 			para = para.substr(end + 1).strip_edges()
-		out.append(para)
+		out.append({"text": para, "conds": conds})
 	return out
 
 
@@ -161,6 +173,14 @@ static func beats(scene_id: String, part: int, picks: Array, context: Dictionary
 	if part < 0 or part > parts.size() or picks.size() < part:
 		return []
 	var on := flags(context, scene_id, picks.slice(0, part))
+	# What you said in visits before this one: a line that turns on one of these is her
+	# remembering it (the route, a visit being done, or an answer given a moment ago in
+	# this same visit, is not).
+	var others: Dictionary = (context.get("choices", {}) as Dictionary).duplicate()
+	others.erase(scene_id)
+	var earlier := {}
+	for m in marks(others):
+		earlier[m] = true
 	var closing := part == parts.size()
 	var face := String(scene.get("closing_face", "warm")) if closing else String(parts[part].get("face", "neutral"))
 	var result: Array = []
@@ -170,22 +190,29 @@ static func beats(scene_id: String, part: int, picks: Array, context: Dictionary
 		if p < 0 or p >= before.size():
 			return []
 		var said: Dictionary = before[p]
-		result.append({"speaker": "You", "text": String(said["say"]), "expression": face})
-		_tell(result, String(said.get("reply", "")), on, String(said.get("face", face)))
-	_tell(result, String(scene["closing"]) if closing else String(parts[part]["text"]), on, face)
+		var mine := {"speaker": "You", "text": String(said["say"]), "expression": face}
+		# An answer she will keep: it leaves a mark that later visits and letters read.
+		if said.has("mark"):
+			mine["kept"] = true
+		result.append(mine)
+		_tell(result, String(said.get("reply", "")), on, String(said.get("face", face)), earlier)
+	_tell(result, String(scene["closing"]) if closing else String(parts[part]["text"]), on, face, earlier)
 	return result
 
 
-static func _tell(into: Array, text: String, on: Dictionary, face: String) -> void:
-	for para in paragraphs(text, on):
+static func _tell(into: Array, text: String, on: Dictionary, face: String, earlier: Dictionary = {}) -> void:
+	for para in tagged_paragraphs(text, on):
 		var speaker := "Narrator"
-		var line := para
+		var line := String(para["text"])
 		for name in ["Edda", "Farah", "Kaede", "You"]:
 			if line.begins_with(name + ": "):
 				speaker = name
 				line = line.trim_prefix(name + ": ")
 				break
-		into.append({"speaker": speaker, "text": line, "expression": face})
+		var beat := {"speaker": speaker, "text": line, "expression": face}
+		if speaker != "You" and (para["conds"] as Array).any(func(c): return earlier.has(c)):
+			beat["remembered"] = true
+		into.append(beat)
 
 
 ## Everything told before `part`: the earlier parts, each with the answer given.
