@@ -72,12 +72,15 @@ Prompt:
 
 Use case: stylized-concept. Create a wide landscape 3:2 pixel-art background illustration for Bannerfall, an original phone strategy game. Quiet medieval northern household common room for an intimate optional conversation. Warm oak table in foreground with two simple bowls and spoons, one empty chair on each side, a slightly crooked cream cloth, small wooden sideboard with an old drawer, arched window at left bringing soft afternoon light, blue-grey stone walls, folded wool cloth. No people, no food feast, no writing, no interface, no flags. Restrained navy/teal shadows, amber/brass sunlight, warm cream highlights. Handcrafted crisp pixel-art clusters and readable shapes. Cozy practical room belonging to a steward, not a palace. Keep left and right portions visually calm to permit a portrait overlay, table and window establish the setting. Fully opaque wide landscape image.
 
-## Eyes shut (all three, every expression)
+## Other faces and hair maps (all three, every expression)
 
-- Game files: `assets/portraits/blink/<who>_<expression>.png`, fifteen 96×40 PNG strips.
+- Game files: `assets/portraits/face/<who>_<expression>.png`, fifteen 104×432 PNG strips
+  (six 104×72 faces each: eyes shut, half shut, soft, glance aside, brow half raised,
+  brow raised), and `assets/portraits/face/<who>_hair.png`, three 384×512 grey maps of
+  where loose hair may swing.
 - Not generated: made on 2026-11-11 from the fifteen portraits above by
-  `tools/portrait_blink.py`, which paints closed lids over each painting's own eyes and
-  saves the strip of face they are in. Run it again after a portrait is replaced.
+  `tools/portrait_faces.py`, which repaints and moves each painting's own pixels. Run it
+  again after a portrait is replaced.
 
 ## Farah / Qasr Hamra
 

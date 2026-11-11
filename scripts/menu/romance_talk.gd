@@ -242,6 +242,7 @@ func _trust_bar(trust: int) -> Control:
 		heart.ready.connect(func(): _beat(heart))
 		var face := face_node("left")
 		if trust > was and face != null:
+			life_act("left", "soft")            # moved: a softer look
 			var up := Widgets.icon_rect("heart", 44.0)
 			up.name = "Heart"
 			up.modulate = Style.ROMANCE_LIGHT

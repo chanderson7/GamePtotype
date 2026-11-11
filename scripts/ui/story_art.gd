@@ -4,14 +4,24 @@ const Style = preload("res://scripts/ui/style.gd")
 const Page = preload("res://scripts/ui/menu_page.gd")
 const EXPRESSIONS := ["neutral", "amused", "thoughtful", "concerned", "warm"]
 static var _textures: Dictionary = {}
-## The strip of a painted portrait its eyes are in. tools/portrait_blink.py saves that
-## strip with the eyes shut, for every painting, and must say the same.
-const EYES := Rect2i(112, 136, 96, 40)
+## The strip of a painted portrait its eyes and brows are in. tools/portrait_faces.py saves
+## that strip once per face it makes from each painting, stacked in FRAMES order, and must
+## say the same.
+const FACE := Rect2i(106, 104, 104, 72)
+const FRAMES := ["shut", "half", "soft", "away", "brow1", "brow2"]
 ## How long a blink keeps the eyes shut.
 const BLINK_TIME := 0.13
-## Path of each texture handed out, by instance id; and the shut-eyed twin made for a path.
+## Where each painted character's head sits, for assets/shaders/portrait_life.gdshader:
+## the neck (chin, collar), what the head turns about, and the front of the face.
+const HEADS := {
+	"edda": {"chin": 226.0, "collar": 260.0, "pivot": Vector2(186, 252), "front": Vector2(150, 172)},
+	"farid": {"chin": 232.0, "collar": 256.0, "pivot": Vector2(190, 250), "front": Vector2(148, 170)},
+	"kaede": {"chin": 230.0, "collar": 252.0, "pivot": Vector2(186, 248), "front": Vector2(148, 168)},
+}
+const LIFE_SHADER := "res://assets/shaders/portrait_life.gdshader"
+## Path of each texture handed out, by instance id; and the faces made for a path.
 static var _paths: Dictionary = {}
-static var _shut: Dictionary = {}
+static var _frames: Dictionary = {}
 
 static func texture(path: String) -> Texture2D:
 	if not Style.illustrations_on() or path.is_empty():
@@ -31,26 +41,65 @@ static func texture(path: String) -> Texture2D:
 	return result
 
 
-## `tex` (a painted portrait from texture()) with its eyes shut, or null if it has no
-## such picture. The shut eyes are a small strip (assets/portraits/blink/) laid over the
-## painting the first time it's asked for, so they sit exactly on the open ones.
+## `tex` (a painted portrait from texture()) with its eyes shut, or null if it has none.
 static func eyes_shut(tex: Texture2D) -> Texture2D:
-	if tex == null:
+	return face_frame(tex, "shut")
+
+
+## Another face of `tex` (a painted portrait from texture()): one of FRAMES, made from the
+## painting by tools/portrait_faces.py. Null if the painting has no such face. The strip
+## (assets/portraits/face/) is laid over the painting the first time it's asked for, so it
+## sits exactly on it.
+static func face_frame(tex: Texture2D, name: String) -> Texture2D:
+	if tex == null or not FRAMES.has(name):
 		return null
 	var path := String(_paths.get(tex.get_instance_id(), ""))
 	if path.is_empty():
 		return null
-	if _shut.has(path):
-		return _shut[path]
-	var result: Texture2D = null
+	if not _frames.has(path):
+		_frames[path] = _make_frames(path)
+	return (_frames[path] as Dictionary).get(name)
+
+
+static func _make_frames(path: String) -> Dictionary:
+	var made := {}
 	var whole := _image(path)
-	var strip := _image("%s/blink/%s" % [path.get_base_dir(), path.get_file()])
-	if whole != null and strip != null and strip.get_size() == EYES.size \
-			and Rect2i(Vector2i.ZERO, whole.get_size()).encloses(EYES):
-		whole.blit_rect(strip, Rect2i(Vector2i.ZERO, EYES.size), EYES.position)
-		result = ImageTexture.create_from_image(whole)
-	_shut[path] = result
-	return result
+	var atlas := _image("%s/face/%s" % [path.get_base_dir(), path.get_file()])
+	if whole == null or atlas == null or atlas.get_width() != FACE.size.x \
+			or atlas.get_height() != FACE.size.y * FRAMES.size() \
+			or not Rect2i(Vector2i.ZERO, whole.get_size()).encloses(FACE):
+		return made
+	for i in FRAMES.size():
+		var strip := atlas.get_region(Rect2i(0, FACE.size.y * i, FACE.size.x, FACE.size.y))
+		if strip.is_invisible():
+			continue                                  # a face that couldn't be made
+		var face := whole.duplicate() as Image
+		face.blit_rect(strip, Rect2i(Vector2i.ZERO, FACE.size), FACE.position)
+		made[FRAMES[i]] = ImageTexture.create_from_image(face)
+	return made
+
+
+## Whose painting `tex` is ("edda", "farid", "kaede"), or "".
+static func painted_who(tex: Texture2D) -> String:
+	var path := String(_paths.get(tex.get_instance_id(), "")) if tex != null else ""
+	var who := path.get_file().get_slice("_", 0)
+	return who if HEADS.has(who) else ""
+
+
+## A material that lets the head and loose hair of `who`'s painting move
+## (assets/shaders/portrait_life.gdshader), or null. Each face needs its own.
+static func life_material(who: String) -> ShaderMaterial:
+	if not HEADS.has(who) or not ResourceLoader.exists(LIFE_SHADER):
+		return null
+	var m := ShaderMaterial.new()
+	m.shader = load(LIFE_SHADER)
+	var head: Dictionary = HEADS[who]
+	for key in head:
+		m.set_shader_parameter(key, head[key])
+	var hair := texture("res://assets/portraits/face/%s_hair.png" % who)
+	if hair != null:
+		m.set_shader_parameter("hair", hair)
+	return m
 
 
 ## The pixels of the picture at `path`, as RGBA, or null.
@@ -72,9 +121,9 @@ static func _image(path: String) -> Image:
 	return img
 
 
-## A painted portrait blinks wherever it's shown: `node` swaps to its shut-eyed twin for
-## a moment, now and then, for as long as it wears the picture it has now. Nothing if
-## the picture has no twin, or under Reduced motion.
+## A painted portrait blinks wherever it's shown: `node` closes its eyes for a moment, now
+## and then (half, shut, half), for as long as it wears the picture it has now. Nothing if
+## the picture has no shut eyes, or under Reduced motion.
 static func blink(node: TextureRect) -> void:
 	if node == null or Style.motion_reduced():
 		return
@@ -82,18 +131,22 @@ static func blink(node: TextureRect) -> void:
 	var shut := eyes_shut(rest)
 	if shut == null:
 		return
-	var close := func() -> void:
-		if node.texture == rest:
-			node.texture = shut
-	var open := func() -> void:
-		if node.texture == shut:
-			node.texture = rest
+	var half := face_frame(rest, "half")
+	if half == null:
+		half = shut
+	var swap := func(from: Array, to: Texture2D) -> void:
+		if from.has(node.texture):
+			node.texture = to
 	var start := func() -> void:
 		var t := node.create_tween().set_loops()
 		t.tween_interval(randf_range(2.4, 5.6))
-		t.tween_callback(close)
-		t.tween_interval(BLINK_TIME)
-		t.tween_callback(open)
+		t.tween_callback(swap.bind([rest], half))
+		t.tween_interval(0.03)
+		t.tween_callback(swap.bind([half], shut))
+		t.tween_interval(0.1)
+		t.tween_callback(swap.bind([shut], half))
+		t.tween_interval(0.04)
+		t.tween_callback(swap.bind([half, shut], rest))
 	if node.is_inside_tree():
 		start.call()
 	else:

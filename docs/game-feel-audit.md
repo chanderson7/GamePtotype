@@ -328,27 +328,48 @@ was changed because of it:
 Still as they were, and seen on the way: the Crown page's last tab wraps its label
 ("Diplomac / y") at phone width.
 
-## The painted portraits blink
+## The painted portraits are alive
 
-Edda, Farah and Kaede are paintings, one per expression, and none was painted with its
-eyes shut. `tools/portrait_blink.py` makes that picture from each painting: it finds the
-eyes (the whites are the only grey on a face), mends skin over them from what surrounds
-them, lights the lid, and draws the lashes resting along the lower lid. Made from the
-open painting, the shut eyes sit exactly on it, for every expression.
+Edda, Farah and Kaede are paintings, one per expression, and none was painted blinking,
+glancing aside or with a lifted brow. `tools/portrait_faces.py` makes those faces from
+each painting's own pixels, so they sit exactly on it:
 
-- Only the strip the eyes are in is kept (`StoryArt.EYES`, 96×40, the same on every
-  painting): `assets/portraits/blink/<who>_<expression>.png`, about 7 KB each.
-  `StoryArt.eyes_shut(tex)` lays the strip over the painting the first time that face
-  is asked for, and keeps the result.
-- In a talk, `TalkView` finds the shut twin of whatever painting a face is given
-  (`set_face`, `change_face`), so every expression blinks with its own eyes, on the
-  same clock as every other face (`blink_step`). A face asked for mid-blink doesn't
-  flicker; a new expression mid-blink lands on the new face.
-- On a page (People), `StoryArt.candidate_portrait` blinks by itself (`StoryArt.blink`).
-- Nothing under Reduced motion. A painting with no strip simply doesn't blink.
-- Run the tool again after a portrait is repainted. One eye is given by hand
-  (`BY_HAND`: Farah, thoughtful, all but shut already); the tool stops and says so if
-  it can't find an eye.
+- **shut** and **half**: the eyes closed (skin mended over them from what surrounds them,
+  the lid lit, the lashes along the lower lid) and halfway closed. A blink is half, shut,
+  half, open.
+- **soft**: the lids a third of the way down: a fond look, and the bottom of a nod.
+- **away**: the irises moved further the way they lean: a glance aside. Not made where the
+  eyes are already lowered (the three thoughtful paintings).
+- **brow1**, **brow2**: the brows raised. The brow moves whole, the forehead gives, and only
+  the thin strip of plain skin under it stretches, so the lid's crease stays put.
 
-Seen on a screen in all three talks and on the People page; checked by `_painted_blink`
-in `tests/game_feel_tests.gd`.
+Only the strip the eyes and brows are in is kept (`StoryArt.FACE`, 104×72, the same on
+every painting), one per face, stacked: `assets/portraits/face/<who>_<expression>.png`.
+`StoryArt.face_frame(tex, name)` lays a strip over the painting the first time that face
+is asked for. The tool also writes `<who>_hair.png`, how freely each pixel of loose hair
+may swing.
+
+`assets/shaders/portrait_life.gdshader` moves the head and hair without repainting: the
+head tilts and sinks on a neck that bends between chin and collar, a nod turns the front
+of the face down more than the edge of the head (so it's a turn, not a slide), and loose
+hair swings, held where it leaves the head. Each character's head is placed in
+`StoryArt.HEADS`.
+
+`PortraitLife` decides, moment to moment, the face worn and how the head sits: a breath
+in the head and hair always; a two-step blink every few seconds; a glance aside of their
+own now and then; and what a mood calls for, through `TalkView.express`: amused, a brow
+lifted with a tilt; warm, a small nod with the eyes lowered; thoughtful, a glance away.
+Trust won on a romance visit brings a soft look (`TalkView.life_act`). The nod was tried
+deeper first, and read as a bob; it is now small and slow.
+
+- A face asked for mid-blink or mid-glance doesn't flicker; a new expression lands on the
+  new face and brings its own other faces.
+- A face that isn't painted (a captain's, put in the same place) loses the shader.
+- Under Reduced motion the painting is shown as painted, and nothing moves.
+- On a page (People), `StoryArt.candidate_portrait` blinks in two steps by itself.
+- Run the tool again after a portrait is repainted. One eye is given by hand (`BY_HAND`:
+  Farah, thoughtful, all but shut already); each character's hanging hair is placed in
+  `HAIR_HANGS`.
+
+Seen on a screen in all three talks, at the height of each move; checked by
+`_painted_blink` in `tests/game_feel_tests.gd`.

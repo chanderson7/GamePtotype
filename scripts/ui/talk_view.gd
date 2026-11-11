@@ -7,6 +7,7 @@ extends Control
 const Style = preload("res://scripts/ui/style.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
+const PortraitLife = preload("res://scripts/ui/portrait_life.gd")
 
 const STAGE_SHARE := 0.46
 
@@ -133,14 +134,53 @@ func setup(backdrop: Control, caption: String) -> void:
 
 ## The faces on the stage are alive: a slow breath, a lean that a gesture set, and a sway
 ## while dancing. All of it through scale and rotation about their feet, so it never
-## fights where the layout or a tween has put them. Still under Reduced motion.
+## fights where the layout or a tween has put them. A painted face does more
+## (PortraitLife): its head and hair move, and it blinks, glances and reacts. Still under
+## Reduced motion.
 func _process(delta: float) -> void:
-	if _faces.is_empty() or Style.motion_reduced():
+	if _faces.is_empty():
+		return
+	if Style.motion_reduced():
+		for side in _faces:
+			_hold_still(side)
 		return
 	_clock += delta
 	for side in _faces:
 		_pose(side)
-		_blink(side, delta)
+		if _faces[side].has("frames"):
+			_live(side, delta)
+		else:
+			_blink(side, delta)
+
+
+## A painted face, a moment on: the face it wears and how its head sits.
+func _live(side: String, delta: float) -> void:
+	var f: Dictionary = _faces[side]
+	var face: TextureRect = f["node"]
+	if face == null or not is_instance_valid(face) or not PortraitLife.wears(f, face.texture):
+		return
+	var now := PortraitLife.step(f, delta)
+	if now["texture"] != null and face.texture != now["texture"]:
+		face.texture = now["texture"]
+	PortraitLife.pose(face, now)
+
+
+## Under Reduced motion a painted face is as it was painted.
+func _hold_still(side: String) -> void:
+	var f: Dictionary = _faces[side]
+	var face: TextureRect = f["node"]
+	if face == null or not is_instance_valid(face) or not f.has("frames"):
+		return
+	if PortraitLife.wears(f, face.texture) and face.texture != f["rest"]:
+		face.texture = f["rest"]
+	PortraitLife.pose(face, PortraitLife.STILL)
+
+
+## The face on `side` does what `kind` is ("brow", "nod", "glance", "soft"), if it's a
+## painted face that can. Nothing under Reduced motion.
+func life_act(side: String, kind: String) -> void:
+	if _faces.has(side) and not Style.motion_reduced():
+		PortraitLife.act(_faces[side], kind)
 
 
 func _pose(side: String) -> void:
@@ -177,7 +217,7 @@ static func blink_step(state: Dictionary, delta: float) -> String:
 ## A face can blink: `rest` is its resting picture and `shut` the same with its eyes
 ## closed. It blinks only while it wears `rest`. A face the game draws has one resting
 ## look (an expression has its own eyes); a painted portrait has a shut-eyed twin for
-## every expression, found as each is put on (_painted_blink).
+## every expression, found as each is put on (_painted_life).
 func set_blink(side: String, rest: Texture2D, shut: Texture2D) -> void:
 	if not _faces.has(side) or rest == null or shut == null:
 		return
@@ -186,11 +226,19 @@ func set_blink(side: String, rest: Texture2D, shut: Texture2D) -> void:
 	_faces[side]["blink"] = {"wait": randf_range(1.2, 4.0), "left": 0.0}
 
 
-## A painted portrait blinks if a picture of it with its eyes shut was made.
-func _painted_blink(side: String, tex: Texture2D) -> void:
-	var shut := StoryArt.eyes_shut(tex)
-	if shut != null:
-		set_blink(side, tex, shut)
+## A painted portrait comes alive if its other faces were made (PortraitLife): it gets
+## them, and the shader that moves its head and hair. Anything else loses both.
+func _painted_life(side: String, tex: Texture2D) -> void:
+	var f: Dictionary = _faces[side]
+	var face: TextureRect = f["node"]
+	if PortraitLife.attach(f, tex):
+		var who := StoryArt.painted_who(tex)
+		if face.material == null or face.get_meta("life_of", "") != who:
+			face.material = StoryArt.life_material(who)
+			face.set_meta("life_of", who)
+	elif face.material != null and face.has_meta("life_of"):
+		face.material = null
+		face.remove_meta("life_of")
 
 
 func _blink(side: String, delta: float) -> void:
@@ -282,6 +330,7 @@ func gesture(side: String, kind: String) -> void:
 func express(side: String, tex: Texture2D, mood: String) -> void:
 	change_face(side, tex)
 	gesture(side, {"amused": "bounce", "warm": "lean", "concerned": "back"}.get(mood, ""))
+	life_act(side, PortraitLife.for_mood(mood))
 
 
 ## A face sways as it dances (`amount` in radians; 0 stops it).
@@ -295,8 +344,8 @@ func sway(side: String, amount: float = 0.035) -> void:
 func replace_face(side: String, tex: Texture2D, pixel: bool = false, height: float = 0.92) -> void:
 	var face := face_node(side)
 	var was: Texture2D = face.texture if face != null and is_instance_valid(face) else null
-	if was != null and was == _faces[side].get("shut"):
-		was = _faces[side].get("rest")          # caught mid-blink: still the same face
+	if was != null and (was == _faces[side].get("shut") or PortraitLife.wears(_faces[side], was)):
+		was = _faces[side].get("rest")          # caught mid-blink or mid-glance: the same face
 	if face != null and is_instance_valid(face):
 		for key in ["nudge", "enter"]:
 			var old = (face.get_meta(key) if face.has_meta(key) else null)
@@ -454,7 +503,7 @@ func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float =
 	known["node"] = face
 	known["height"] = height
 	_faces[side] = known
-	_painted_blink(side, tex)
+	_painted_life(side, tex)
 	_place_face(side)
 	if arriving:
 		_enter_face(side)
@@ -487,10 +536,10 @@ func change_face(side: String, tex: Texture2D) -> void:
 	var face: TextureRect = _faces.get(side, {}).get("node")
 	if face == null or tex == null or face.texture == tex:
 		return
-	if face.texture == _faces[side].get("shut") and tex == _faces[side].get("rest"):
-		return                                  # the same face, caught mid-blink
+	if tex == _faces[side].get("rest") and (face.texture == _faces[side].get("shut") or PortraitLife.wears(_faces[side], face.texture)):
+		return                                  # the same face, caught mid-blink or mid-glance
 	face.texture = tex
-	_painted_blink(side, tex)
+	_painted_life(side, tex)
 	if not Style.motion_reduced():
 		face.modulate.a = 0.55
 		face.create_tween().tween_property(face, "modulate:a", 1.0, 0.18)
