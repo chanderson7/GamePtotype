@@ -247,3 +247,56 @@ talk built on it gets it:
   glow (`Scenes.people_seen`).
 
 Checked by `_romance_moves` in `tests/game_feel_tests.gd`.
+
+## Added after: the big moments, the pages, and the battle's stride
+
+**Big moments.**
+
+- **The captains' talk at the fire** is told a line at a time (`TalkView.say_in_turn`).
+  Every line is in the talk from the start, so the way on can be pressed at once and
+  nothing waits; each shows and is written as its turn comes, at about reading pace, and
+  a tap brings the rest. The one speaking is lit and warm, the one listening quiet
+  (`spotlight`), and both blink (`set_blink`; one clock for every blinking face,
+  `TalkView.blink_step`, shared with the lord talk). A line is leaned into by its own
+  speaker's face: with two faces on a stage it used to be the right-hand one, always.
+- **A bond's new rank**: the two step toward each other and the rank is struck
+  (`Widgets.step_in`, `Widgets.stamp`). At a remembrance the lost captain arrives as
+  they were and greys as you watch.
+- **A crown raised, a crown fallen** takes the screen for a breath (`Scenes.moment`):
+  the light drops, the banner unfurls (or comes down) over its words, and a tap sends
+  it away. It waits its turn with the ribbons.
+- **The map tells what concerns you** with a ribbon: a fief granted or lost, a lord
+  sworn, slain or taken by you, a siege on your holding, an alliance made or ended, a
+  castle or town your crown gains or loses, and peace as well as war. A holding that
+  changes hands furls its old banner and lets down the new, with a ring going out.
+
+**Pages that were rebuilt in a frame.**
+
+- **Crown**: the word on what you did lands with a glow, the card it changed shows
+  itself (`_act(ok, message, glow)`), and the treasury counts to its new sum.
+- **Town**: a hero who joins is seen (their face on a ribbon, `Scenes.ribbon_face`; the
+  Squads tab glows), the lists' result drops in, its bouts are read out in turn when
+  opened, and a toast, gift or speech glows where it was done.
+- **Letters**: a letter unfolds when opened, as does a reply written out or sent
+  (`Widgets.unfold`); unread dots beat once when you come to the tab (`Widgets.pulse`).
+- **Captain's page**: a new role is struck onto the page and told with their proud
+  face; the living blink (`CaptainArt.blink_loop`).
+- **Warband**: the captains around the fire blink, and men back on their feet (or lost)
+  since you last looked are counted in.
+
+**The battle.** The audit behind this pass found most of what the immersion roadmap
+lists under "Formation state" and "Terrain contact" already built: the ring where a
+company halts, the wavering standard and glances, edge markers for your own companies,
+and dust by the ground under it. What was added:
+
+- **A stride in four.** Every soldier and horse has a passing step (frame 3, drawn by
+  `tools/unit_sprites.py`: boots drawn in under the body, a horse's legs gathered
+  level), and a stride runs step, passing, step, passing (`WALK`), twice as fast in a
+  rout. The three frames there were are unchanged.
+- **A halt is felt**: the men dip into their stance as the ring goes out.
+- **Rings on the water** under men wading or fighting in a ford.
+- **A warning at the edge** for enemy horse at the charge near one of yours, out of
+  sight: an open red chevron (yours are filled).
+
+Checked by `_turning_points` and `_pages_show_change` in `tests/game_feel_tests.gd`
+and section 6b of `tests/battle_feel_tests.gd`.

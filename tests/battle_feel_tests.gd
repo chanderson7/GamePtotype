@@ -9,6 +9,14 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const FieldArt = preload("res://scripts/battle/field_art.gd")
+const UnitArt = preload("res://scripts/art/unit_art.gd")
+const SpriteData = preload("res://scripts/art/sprite_data.gd")
+
+
+## A field that is a ford wherever you stand, for the rings men leave on water.
+class Ford extends "res://scripts/battle/terrain.gd":
+	func water_at(_p: Vector2) -> int:
+		return WATER_SHALLOW
 
 var failures := 0
 
@@ -246,6 +254,78 @@ func _init() -> void:
 	sound.reduced_motion = false
 	so.swing = 0.0
 	so.flash = 0.0
+
+	# ---- 6b. a stride in four, a halt that settles, rings at a ford, a warning at the edge
+	var frames_ok := true
+	for sprite in SpriteData.SPRITES:
+		var n: int = (SpriteData.SPRITES[sprite]["frames"] as Array).size()
+		if n != 1 and n != 4:
+			frames_ok = false
+	check(frames_ok, "every soldier's sprite has four frames: two steps, the strike, and the passing step between")
+	var all_differ := true
+	for troop in [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.CAVALRY]:
+		var pass_img: Image = UnitArt.frame(troop, Sim.PLAYER, 3, "vardish").get_image()
+		for other in 3:
+			if pass_img.get_data() == UnitArt.frame(troop, Sim.PLAYER, other, "vardish").get_image().get_data():
+				all_differ = false
+	check(all_differ, "the passing step is its own picture for foot, spear, bow and horse")
+	var was_stride: float = so.stride
+	var seen := []
+	mine.routing = true
+	for k in 4:
+		so.stride = sc.STRIDE * 0.125 * (k + 0.5)
+		seen.append(int(sc._pose(so, mine, 0, sc._squad_look(mine))["index"]))
+	mine.routing = false
+	so.stride = was_stride
+	check(seen == [0, 3, 1, 3] and sc.WALK == [0, 3, 1, 3], "a running man's stride goes step, passing, step, passing (%s)" % str(seen))
+	so.target = null
+	so.cooldown = 0.0
+	sc._settled_at[mine] = sc._clock - sc.SETTLE_TIME * 0.5
+	var settling: Dictionary = sc._squad_look(mine)
+	settling["set"] = 0.0
+	check(float(settling["settle"]) > 0.9, "a company that has just halted is settling onto its ground")
+	check(float(sc._pose(so, mine, 0, settling)["squash"]) < 0.95, "its men dip into their stance")
+	sound.reduced_motion = true
+	var held: Dictionary = sc._squad_look(mine)
+	held["set"] = 0.0
+	check(is_equal_approx(float(sc._pose(so, mine, 0, held)["squash"]), 1.0), "but stand as they are under Reduced motion")
+	sound.reduced_motion = false
+	sc._settled_at[mine] = sc._clock - 2.0
+	check(float(sc._squad_look(mine)["settle"]) == 0.0, "and are done with it a moment later")
+	sc._settled_at.erase(mine)
+	var dry = sim.terrain
+	sc._wades.clear()
+	for k in 40:
+		sc._ripple_under(mine)
+	check(sc._wades.is_empty(), "men on dry ground leave no rings")
+	sim.terrain = Ford.new()
+	for k in 40:
+		sc._ripple_under(mine)
+	check(sc._wades.size() > 5 and sc._wades.size() <= sc.MAX_RIPPLES, "men wading a ford leave rings on the water (%d)" % sc._wades.size())
+	sound.reduced_motion = true
+	sc._wades.clear()
+	for k in 40:
+		sc._ripple_under(mine)
+	check(sc._wades.is_empty(), "none under Reduced motion")
+	sound.reduced_motion = false
+	sim.terrain = dry
+	sc._wades.clear()
+	var was_type: String = theirs.type
+	var was_avg: Vector2 = theirs.avg
+	var was_engaged: bool = theirs.engaged
+	theirs.type = Troops.CAVALRY
+	theirs.engaged = false
+	theirs.avg = mine.avg + Vector2(120, 0)
+	sc._sq_speed[theirs] = 45.0
+	check(theirs.is_active() and sc._threats().has(theirs), "enemy horse at the charge near one of yours is a threat worth a warning at the edge")
+	sc._sq_speed[theirs] = 5.0
+	check(not sc._threats().has(theirs), "horse standing off is not")
+	sc._sq_speed[theirs] = 45.0
+	theirs.avg = Vector2(-9000.0, -9000.0)
+	check(not sc._threats().has(theirs), "nor horse far from all of yours")
+	theirs.type = was_type
+	theirs.avg = was_avg
+	theirs.engaged = was_engaged
 
 	# ---- 7. the HUD feels it
 	sc.paused = false
