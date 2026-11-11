@@ -767,6 +767,87 @@ func _turning_points() -> void:
 # ---- the talks you court and befriend in: faces breathe and gesture, only the new line is
 # said, replies and keepsakes arrive, trust is seen to change, and the People page shows
 # what a visit changed.
+## The painted portraits (Edda, Farah, Kaede) blink: each painting has a twin with its
+## eyes shut, made from it (tools/portrait_blink.py), and a talk swaps to it for a moment.
+func _painted_blink() -> void:
+	var StoryArt = load("res://scripts/ui/story_art.gd")
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var made := 0
+	var only_eyes := true
+	for who in ["edda", "farid", "kaede"]:
+		for expression in StoryArt.EXPRESSIONS:
+			var path := "res://assets/portraits/%s_%s.png" % [who, expression]
+			var open: Texture2D = StoryArt.texture(path)
+			var shut: Texture2D = StoryArt.eyes_shut(open)
+			if open == null or shut == null or shut == open or shut.get_size() != open.get_size():
+				continue
+			made += 1
+			var a: Image = StoryArt._image(path)
+			var b: Image = shut.get_image()
+			if a == null or b == null or b.is_empty():
+				continue                                  # no pixels to read back without a screen
+			b.convert(Image.FORMAT_RGBA8)
+			var changed := 0
+			for y in a.get_height():
+				for x in a.get_width():
+					if a.get_pixel(x, y) != b.get_pixel(x, y):
+						changed += 1
+						if not StoryArt.EYES.has_point(Vector2i(x, y)):
+							only_eyes = false
+			if changed < 60:
+				only_eyes = false
+	check(made == 15, "every painted portrait has a picture of its eyes shut (%d of 15)" % made)
+	check(only_eyes, "and it is the same painting everywhere but the eyes")
+	check(StoryArt.eyes_shut(ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))) == null, "a picture with no twin has none")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("common_room", "night"), "Edda")
+	var neutral: Texture2D = StoryArt.texture("res://assets/portraits/edda_neutral.png")
+	var warm: Texture2D = StoryArt.texture("res://assets/portraits/edda_warm.png")
+	tv.set_face("left", neutral, false, 0.98)
+	var f: TextureRect = tv.face_node("left")
+	check(tv._faces["left"].get("shut") == StoryArt.eyes_shut(neutral), "a painted face in a talk can blink")
+	tv._faces["left"]["blink"]["wait"] = 0.01
+	await _wait(0.06)
+	check(f.texture == StoryArt.eyes_shut(neutral), "she blinks")
+	tv.change_face("left", neutral)
+	check(f.texture == StoryArt.eyes_shut(neutral), "asked for the face she already wears, mid-blink, nothing jumps")
+	await _wait(0.3)
+	check(f.texture == neutral, "and her eyes open again")
+	tv.express("left", warm, "warm")
+	check(f.texture == warm and tv._faces["left"].get("shut") == StoryArt.eyes_shut(warm), "a new expression brings its own shut eyes")
+	tv._faces["left"]["blink"]["wait"] = 0.01
+	await _wait(0.06)
+	check(f.texture == StoryArt.eyes_shut(warm), "and blinks with them")
+	tv.express("left", neutral, "")
+	check(f.texture == neutral, "an expression that changes mid-blink lands on the new face")
+	await _wait(0.3)
+	check(f.texture == neutral, "and stays there")
+	tv.queue_free()
+	# The portrait on a page blinks too; under Reduced motion it doesn't.
+	var pic: TextureRect = StoryArt.candidate_portrait("kaede", "neutral", 200)
+	root.add_child(pic)
+	var rest: Texture2D = pic.texture
+	var seen := 0
+	for i in 130:
+		await _wait(0.05)
+		if pic.texture == StoryArt.eyes_shut(rest):
+			seen += 1
+	check(seen >= 1, "a painted portrait on a page blinks (seen shut %d times in six and a half seconds)" % seen)
+	pic.queue_free()
+	sound.reduced_motion = true
+	var still: TextureRect = StoryArt.candidate_portrait("kaede", "neutral", 200)
+	root.add_child(still)
+	seen = 0
+	for i in 130:
+		await _wait(0.05)
+		if still.texture != rest:
+			seen += 1
+	check(seen == 0, "and holds still under Reduced motion")
+	sound.reduced_motion = false
+	still.queue_free()
+
+
 func _romance_moves() -> void:
 	var TalkView = load("res://scripts/ui/talk_view.gd")
 	var tv = TalkView.new()
@@ -995,6 +1076,7 @@ func _talk_and_scenes() -> void:
 	tv.queue_free()
 	await _lord_talk(ev)
 	await _romance_moves()
+	await _painted_blink()
 	# The wedding's bunting sways.
 	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
 	var d = Dressing.new()

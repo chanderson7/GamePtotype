@@ -156,7 +156,7 @@ func _pose(side: String) -> void:
 
 
 ## How long a blink keeps the eyes shut.
-const BLINK_TIME := 0.13
+const BLINK_TIME := StoryArt.BLINK_TIME
 
 
 ## One tick of a blink's clock, kept in `state` ({wait, left}): "shut" when the eyes
@@ -174,15 +174,23 @@ static func blink_step(state: Dictionary, delta: float) -> String:
 	return "shut"
 
 
-## A face the game draws can blink: `rest` is its resting picture and `shut` the same
-## with its eyes closed. It blinks only while it wears `rest` (an expression has its own
-## eyes). Painted portraits have no such picture, and don't.
+## A face can blink: `rest` is its resting picture and `shut` the same with its eyes
+## closed. It blinks only while it wears `rest`. A face the game draws has one resting
+## look (an expression has its own eyes); a painted portrait has a shut-eyed twin for
+## every expression, found as each is put on (_painted_blink).
 func set_blink(side: String, rest: Texture2D, shut: Texture2D) -> void:
 	if not _faces.has(side) or rest == null or shut == null:
 		return
 	_faces[side]["rest"] = rest
 	_faces[side]["shut"] = shut
 	_faces[side]["blink"] = {"wait": randf_range(1.2, 4.0), "left": 0.0}
+
+
+## A painted portrait blinks if a picture of it with its eyes shut was made.
+func _painted_blink(side: String, tex: Texture2D) -> void:
+	var shut := StoryArt.eyes_shut(tex)
+	if shut != null:
+		set_blink(side, tex, shut)
 
 
 func _blink(side: String, delta: float) -> void:
@@ -287,6 +295,8 @@ func sway(side: String, amount: float = 0.035) -> void:
 func replace_face(side: String, tex: Texture2D, pixel: bool = false, height: float = 0.92) -> void:
 	var face := face_node(side)
 	var was: Texture2D = face.texture if face != null and is_instance_valid(face) else null
+	if was != null and was == _faces[side].get("shut"):
+		was = _faces[side].get("rest")          # caught mid-blink: still the same face
 	if face != null and is_instance_valid(face):
 		for key in ["nudge", "enter"]:
 			var old = (face.get_meta(key) if face.has_meta(key) else null)
@@ -444,6 +454,7 @@ func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float =
 	known["node"] = face
 	known["height"] = height
 	_faces[side] = known
+	_painted_blink(side, tex)
 	_place_face(side)
 	if arriving:
 		_enter_face(side)
@@ -476,7 +487,10 @@ func change_face(side: String, tex: Texture2D) -> void:
 	var face: TextureRect = _faces.get(side, {}).get("node")
 	if face == null or tex == null or face.texture == tex:
 		return
+	if face.texture == _faces[side].get("shut") and tex == _faces[side].get("rest"):
+		return                                  # the same face, caught mid-blink
 	face.texture = tex
+	_painted_blink(side, tex)
 	if not Style.motion_reduced():
 		face.modulate.a = 0.55
 		face.create_tween().tween_property(face, "modulate:a", 1.0, 0.18)

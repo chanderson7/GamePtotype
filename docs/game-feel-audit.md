@@ -230,7 +230,7 @@ talk built on it gets it:
   lean in, drawn back. `express(side, tex, mood)` changes the picture and plays the
   gesture that goes with a `StoryArt` expression. Breath, lean and sway go through scale
   and rotation about the feet, so they never fight the layout or a position tween. The
-  painted portraits can't blink without an eyes-shut frame each (art, not code).
+  painted portraits blink too (see "The painted portraits blink" below).
 - **Only the new line is said.** A visit lays its exchange out again on each "Go on";
   `write_lines` keeps the lines already heard still, and the log glides to the newest.
 - **Replies and keepsakes arrive.** Replies in a short run (pressable at once); a memory
@@ -328,3 +328,27 @@ was changed because of it:
 Still as they were, and seen on the way: the Crown page's last tab wraps its label
 ("Diplomac / y") at phone width.
 
+## The painted portraits blink
+
+Edda, Farah and Kaede are paintings, one per expression, and none was painted with its
+eyes shut. `tools/portrait_blink.py` makes that picture from each painting: it finds the
+eyes (the whites are the only grey on a face), mends skin over them from what surrounds
+them, lights the lid, and draws the lashes resting along the lower lid. Made from the
+open painting, the shut eyes sit exactly on it, for every expression.
+
+- Only the strip the eyes are in is kept (`StoryArt.EYES`, 96×40, the same on every
+  painting): `assets/portraits/blink/<who>_<expression>.png`, about 7 KB each.
+  `StoryArt.eyes_shut(tex)` lays the strip over the painting the first time that face
+  is asked for, and keeps the result.
+- In a talk, `TalkView` finds the shut twin of whatever painting a face is given
+  (`set_face`, `change_face`), so every expression blinks with its own eyes, on the
+  same clock as every other face (`blink_step`). A face asked for mid-blink doesn't
+  flicker; a new expression mid-blink lands on the new face.
+- On a page (People), `StoryArt.candidate_portrait` blinks by itself (`StoryArt.blink`).
+- Nothing under Reduced motion. A painting with no strip simply doesn't blink.
+- Run the tool again after a portrait is repainted. One eye is given by hand
+  (`BY_HAND`: Farah, thoughtful, all but shut already); the tool stops and says so if
+  it can't find an eye.
+
+Seen on a screen in all three talks and on the People page; checked by `_painted_blink`
+in `tests/game_feel_tests.gd`.
