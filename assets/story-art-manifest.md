@@ -82,6 +82,18 @@ Use case: stylized-concept. Create a wide landscape 3:2 pixel-art background ill
   `tools/portrait_faces.py`, which repaints and moves each painting's own pixels. Run it
   again after a portrait is replaced.
 
+## Wedding clothes (all three: neutral, warm, amused)
+
+- Game files: `assets/portraits/<who>_wedding_<expression>.png`, nine 384×512 PNGs, with
+  their other faces in `assets/portraits/face/` like every painting.
+- Not generated: made on 2026-11-11 from the portraits above by
+  `tools/portrait_wedding.py`. Each garment is recoloured through a ramp by its own light
+  and shade, so the painted folds, seams and texture stay; the flowers are painted on in
+  code, lit from the upper left. Edda: honey-ivory dress, a wreath of white and blush
+  flowers. Farah: crimson coat, jasmine above her ear. Kaede: white over-robe with a red
+  collar, a pin of red and white blossoms by her knot. Run it again (then
+  `tools/portrait_faces.py`) after a portrait is replaced.
+
 ## Farah / Qasr Hamra
 
 Farah uses the legacy game-file prefix `farid` because the persistent candidate ID predates

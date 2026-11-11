@@ -101,9 +101,17 @@ func _caption(when: String) -> String:
 	return "%s at %s · %s" % ["Remembered" if not _memory.is_empty() else "Your wedding", _place_name(), when]
 
 
+## Their portrait for the day: dressed for the wedding (tools/portrait_wedding.py) in any
+## expression that was dressed, else their warmest dressed one, else as every day.
 func _portrait(expression: String) -> Texture2D:
-	var tex := StoryArt.texture("res://assets/portraits/%s_%s.png" % [cand, expression])
-	return tex if tex != null else StoryArt.texture("res://assets/portraits/%s_neutral.png" % cand)
+	for path in ["res://assets/portraits/%s_wedding_%s.png" % [cand, expression],
+			"res://assets/portraits/%s_wedding_warm.png" % cand,
+			"res://assets/portraits/%s_%s.png" % [cand, expression],
+			"res://assets/portraits/%s_neutral.png" % cand]:
+		var tex := StoryArt.texture(path)
+		if tex != null:
+			return tex
+	return null
 
 
 ## The place's painting, or the settlement as the game paints it, at the hour.

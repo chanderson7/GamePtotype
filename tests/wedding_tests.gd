@@ -145,6 +145,12 @@ func _init() -> void:
 	await _arrive("wedding.tscn")
 	var day = current_scene
 	check(day.get_node_or_null("Stage/Dressing") != null and day.get_node_or_null("Stage/Face_center") != null, "the place is dressed, and she stands at its centre")
+	var StoryArt = load("res://scripts/ui/story_art.gd")
+	var dressed: Texture2D = StoryArt.texture("res://assets/portraits/edda_wedding_warm.png")
+	var bride := day.get_node("Stage/Face_center") as TextureRect
+	check(dressed != null and bride.texture == dressed, "she is dressed for her wedding")
+	check(day._faces["center"].has("frames") and StoryArt.eyes_shut(dressed) != null, "and blinks and moves as on any other day")
+	check(day._portrait("thoughtful") == dressed, "a mood with no dressed painting keeps her dressed")
 	check(day.find_child("WhoCame", true, false) != null and day.has_reply("begin") and day.has_reply("later"), "who came, then: take your place, or not yet")
 	day.choose("begin")
 	check(day.log_text().contains("spare spoon") and day.find_child("Remembers", true, false) != null, "her vow comes from the time you shared")

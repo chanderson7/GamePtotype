@@ -37,6 +37,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PORTRAITS = os.path.join(ROOT, "assets", "portraits")
 WHO = ["edda", "farid", "kaede"]
 EXPRESSIONS = ["neutral", "amused", "thoughtful", "concerned", "warm"]
+# The paintings dressed for the wedding (tools/portrait_wedding.py): the same faces.
+WEDDING = ["wedding_neutral", "wedding_warm", "wedding_amused"]
 
 # The strip that is saved: x, y, width, height. StoryArt.FACE must say the same.
 FACE_STRIP = (106, 104, 104, 72)
@@ -55,6 +57,11 @@ BY_HAND = {("farid", "thoughtful", 0): (124, 141, 160, 167)}
 # Lashes are drawn in the painting's own darkest tone, warmed toward this so they read
 # as lashes and not as ink.
 LASH_BROWN = np.array([70.0, 38.0, 26.0])
+
+
+def plain(expression):
+    """The everyday expression a painting was made from ("wedding_warm" is "warm")."""
+    return expression.replace("wedding_", "")
 
 
 def load(who, expression):
@@ -239,7 +246,7 @@ def eyes(a, who, expression):
     parts = []
     out = a.copy()
     for i, box in enumerate(boxes):
-        xa, xb, upper, lower = opening(a, box, who, (who, expression, i))
+        xa, xb, upper, lower = opening(a, box, who, (who, plain(expression), i))
         left, right = HAIR_LEFT[who], HAIR_RIGHT[who]
         tone = skin(a, box)
         # Everything the lid covers, a little wider toward the nose to take the tear duct.
@@ -268,7 +275,7 @@ def eyes(a, who, expression):
             fade[right - 3:] = np.clip((right + 1 - np.arange(right - 3, a.shape[1])) / 4.0, 0, 1)
         parts.append(dict(box=box, xa=xa, xb=xb, upper=upper, lower=lower, hole=hole,
                           k=hole * fade[None, :], lid=lid, lash=lash, tone=tone,
-                          inner_right=box[0] < 150, by_hand=(who, expression, i) in BY_HAND))
+                          inner_right=box[0] < 150, by_hand=(who, plain(expression), i) in BY_HAND))
     return parts
 
 
@@ -501,8 +508,10 @@ def main():
     missing = []
     for who in WHO:
         k = 3
-        sheet = Image.new("RGB", (fw * k * (len(FRAMES) + 1), fh * k * len(EXPRESSIONS)), (40, 36, 32))
-        for row, expression in enumerate(EXPRESSIONS):
+        sheet = Image.new("RGB", (fw * k * (len(FRAMES) + 1), fh * k * (len(EXPRESSIONS) + len(WEDDING))), (40, 36, 32))
+        for row, expression in enumerate(EXPRESSIONS + WEDDING):
+            if not os.path.exists(os.path.join(PORTRAITS, "%s_%s.png" % (who, expression))):
+                continue
             a, made = faces(who, expression)
             atlas = Image.new("RGBA", (fw, fh * len(FRAMES)))
             for i, name in enumerate(FRAMES):
@@ -528,7 +537,7 @@ def main():
         if preview:
             os.makedirs(preview, exist_ok=True)
             sheet.save(os.path.join(preview, "faces_%s.png" % who))
-    print("wrote %d face strips and %d hair maps to %s" % (len(WHO) * len(EXPRESSIONS), len(WHO), out_dir))
+    print("wrote face strips and %d hair maps to %s" % (len(WHO), out_dir))
     if missing:
         print("not made (the painting is used instead):", ", ".join(missing))
 

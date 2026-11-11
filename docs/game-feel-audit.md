@@ -375,3 +375,16 @@ deeper first, and read as a bob; it is now small and slow.
 
 Seen on a screen in all three talks, at the height of each move; checked by
 `_painted_blink` in `tests/game_feel_tests.gd`.
+
+## Dressed for the wedding
+
+The three were painted in everyday clothes only. `tools/portrait_wedding.py` dresses them
+from those paintings for the wedding: Edda in a honey-ivory dress with a wreath of white
+and blush flowers, Farah in a crimson coat with jasmine above her ear, Kaede in a white
+over-robe with a red collar and a pin of red and white blossoms. Each garment is
+recoloured through a ramp by its own light and shade, so every fold and seam the painter
+put there stays; the flowers are painted on in code, clear of the strip a blink replaces.
+Three expressions are dressed (neutral, warm, amused: the ones the day uses); the wedding
+(`wedding.gd::_portrait`) keeps her dressed for any other mood. They blink and move like
+every painting (`tools/portrait_faces.py` makes their other faces too). Seen on a screen
+at all three weddings; checked in `tests/wedding_tests.gd`.

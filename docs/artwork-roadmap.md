@@ -211,7 +211,8 @@ Qasr Hamra/envoy-room and Kitayama/archive-room settings are also implemented.
 Each of the fifteen paintings also has its other faces (eyes shut and half shut, a soft
 look, a glance, a brow raised) made from it by `tools/portrait_faces.py`
 (`assets/portraits/face/`), and a shader moves each character's head and loose hair; run
-the tool again after repainting one.
+the tool again after repainting one. `tools/portrait_wedding.py` dresses all three for their
+wedding from the same paintings (recoloured garments, flowers in the hair).
 
 Use bond introductions and milestone scenes to show paired portraits first. Reserve bespoke
 event paintings for a small number of authored moments after the everyday screens are covered.
