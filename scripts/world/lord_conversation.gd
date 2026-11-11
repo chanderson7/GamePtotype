@@ -62,7 +62,6 @@ var _news: Array = []
 ## Their face on the stage. It stands at `_face_rest` (the layout's), moved by `_face_off`
 ## and grown by `_face_lean` (both tweened by a gesture), over a slow breath.
 const BREATH := 3.4
-const BLINK_TIME := 0.13
 const AWAY_TINT := Color(0.6, 0.6, 0.7)
 const NO_REGARD := -1000
 var _face: TextureRect
@@ -75,8 +74,7 @@ var _mood := ""
 var _gesture = null
 var _settle = null
 var _clock := 0.0
-var _blink_in := 2.5
-var _blink_left := 0.0
+var _blink := {}
 var _their_banner: Control
 ## A painted place drifts very slowly behind them.
 var _drift := false
@@ -445,16 +443,11 @@ func _process(delta: float) -> void:
 		return
 	_clock += delta
 	if _mood == "" and _face.texture != null:
-		if _blink_left > 0.0:
-			_blink_left -= delta
-			if _blink_left <= 0.0:
-				_face.texture = _face_texture("")
-		else:
-			_blink_in -= delta
-			if _blink_in <= 0.0:
-				_blink_in = randf_range(2.6, 5.5)
-				_blink_left = BLINK_TIME
+		match TalkView.blink_step(_blink, delta):
+			"shut":
 				_face.texture = _face_texture("blink")
+			"open":
+				_face.texture = _face_texture("")
 	_pose_face()
 	if _their_banner != null and is_instance_valid(_their_banner):
 		_their_banner.rotation = sin(_clock * 1.3) * 0.02
@@ -466,8 +459,7 @@ func _process(delta: float) -> void:
 ## The expression they wear for this exchange.
 func _set_mood(mood: String) -> void:
 	_mood = mood
-	_blink_left = 0.0
-	_blink_in = randf_range(1.6, 4.0)
+	_blink = {"wait": randf_range(1.6, 4.0), "left": 0.0}
 	var tex := _face_texture(mood)
 	if tex != null:
 		_face.texture = tex

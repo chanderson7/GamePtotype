@@ -27,9 +27,15 @@ func _ready() -> void:
 			# The one who remains grieves; at a new rank, both are glad of each other.
 			var mood := "" if gone else ("grief" if kind == "memorial" else "warm")
 			var face := CaptainArt.portrait(captains[i], Vector2(108, 144), mood)
-			if gone:
-				face.modulate = Color(0.55, 0.55, 0.62)
 			faces.add_child(face)
+			# They step toward each other. The one who is gone arrives as they were, and
+			# greys as you watch (grey from the start under Reduced motion).
+			Widgets.step_in(face, Vector2(-70.0 if i == 0 else 70.0, 0), 0.1)
+			if gone:
+				if Style.motion_reduced():
+					face.modulate = GONE
+				else:
+					face.ready.connect(_grey.bind(face), CONNECT_ONE_SHOT)
 		col.add_child(faces)
 	col.add_child(Page.note(String(_event.get("pair", GameState.bond_intro_pair)), 36, Style.BRASS))
 	var shared := int(_event.get("shared_battles", 0))
@@ -55,7 +61,10 @@ func _rank_row(rank: String) -> Control:
 	row.name = "RankEffect"
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 12)
-	row.add_child(Widgets.rank_badge(rank, 56.0))
+	var badge := Widgets.rank_badge(rank, 56.0)
+	row.add_child(badge)
+	# The rank is struck once the two have met.
+	Widgets.stamp(badge, 0.5)
 	var regen := Widgets.stat("morale", "+%.1f/s" % Captains.RANK_REGEN[i])
 	regen.tooltip_text = "morale each second nearby"
 	row.add_child(regen)
@@ -65,6 +74,15 @@ func _rank_row(rank: String) -> Control:
 		hit.tooltip_text = "damage"
 		row.add_child(hit)
 	return row
+
+
+const GONE := Color(0.55, 0.55, 0.62)
+
+
+func _grey(face: Control) -> void:
+	var t := face.create_tween()
+	t.tween_interval(1.0)
+	t.tween_property(face, "modulate", GONE, 1.4).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
 
 
 func _rank_story(rank: String, shared: int) -> String:

@@ -629,7 +629,7 @@ func _squash(b: BaseButton, down: bool) -> void:
 	if not down and b.scale == Vector2.ONE:
 		return
 	b.pivot_offset = b.size * 0.5
-	var old = b.get_meta("press_tween", null)
+	var old = (b.get_meta("press_tween") if b.has_meta("press_tween") else null)
 	if old is Tween and (old as Tween).is_valid():
 		(old as Tween).kill()
 	var t := b.create_tween()

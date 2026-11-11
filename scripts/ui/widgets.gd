@@ -461,6 +461,51 @@ static func flash(node: Control) -> void:
 	t.tween_property(node, "modulate", Color.WHITE, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
+## Someone or something steps into its place on a page from `offset` away, fading up. It
+## waits for the page to lay it out first (its container owns where it rests). There at
+## once under Reduced motion.
+static func step_in(node: Control, offset: Vector2, delay: float = 0.0) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	node.modulate.a = 0.0
+	var go := func() -> void:
+		for i in 2:
+			await node.get_tree().process_frame
+		if not is_instance_valid(node) or not node.is_inside_tree():
+			return
+		var rest := node.position
+		node.position = rest + offset
+		var t := node.create_tween().set_parallel()
+		t.tween_property(node, "position", rest, 0.4).set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(node, "modulate:a", 1.0, 0.28).set_delay(delay)
+	if node.is_inside_tree():
+		go.call()
+	else:
+		node.ready.connect(go, CONNECT_ONE_SHOT)
+
+
+## A mark struck onto a page (a rank, a role): it comes down large and lands with a
+## little overshoot. There at once under Reduced motion.
+static func stamp(node: Control, delay: float = 0.0) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	node.modulate.a = 0.0
+	var go := func() -> void:
+		for i in 2:
+			await node.get_tree().process_frame
+		if not is_instance_valid(node) or not node.is_inside_tree():
+			return
+		node.pivot_offset = node.size * 0.5
+		node.scale = Vector2(1.9, 1.9)
+		var t := node.create_tween().set_parallel()
+		t.tween_property(node, "scale", Vector2.ONE, 0.28).set_delay(delay).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(node, "modulate:a", 1.0, 0.12).set_delay(delay)
+	if node.is_inside_tree():
+		go.call()
+	else:
+		node.ready.connect(go, CONNECT_ONE_SHOT)
+
+
 ## Whether `n` is on the page to stay: neither it nor anything above it is about to be
 ## freed (a page rebuilt this frame still holds its old copy until the frame ends).
 static func live(n: Node) -> bool:

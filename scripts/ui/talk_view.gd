@@ -140,6 +140,7 @@ func _process(delta: float) -> void:
 	_clock += delta
 	for side in _faces:
 		_pose(side)
+		_blink(side, delta)
 
 
 func _pose(side: String) -> void:
@@ -152,6 +153,78 @@ func _pose(side: String) -> void:
 	face.pivot_offset = Vector2(face.size.x * 0.5, face.size.y)
 	face.scale = Vector2(lean, lean * (1.0 + breath))
 	face.rotation = 0.0 if still else sin(_clock * 2.2) * float(face.get_meta("sway", 0.0))
+
+
+## How long a blink keeps the eyes shut.
+const BLINK_TIME := 0.13
+
+
+## One tick of a blink's clock, kept in `state` ({wait, left}): "shut" when the eyes
+## close now, "open" when they open again, "" between. One place for every face that
+## blinks (the talks here, and the lord talk).
+static func blink_step(state: Dictionary, delta: float) -> String:
+	if float(state.get("left", 0.0)) > 0.0:
+		state["left"] = float(state["left"]) - delta
+		return "open" if float(state["left"]) <= 0.0 else ""
+	state["wait"] = float(state.get("wait", 2.5)) - delta
+	if float(state["wait"]) > 0.0:
+		return ""
+	state["wait"] = randf_range(2.6, 5.5)
+	state["left"] = BLINK_TIME
+	return "shut"
+
+
+## A face the game draws can blink: `rest` is its resting picture and `shut` the same
+## with its eyes closed. It blinks only while it wears `rest` (an expression has its own
+## eyes). Painted portraits have no such picture, and don't.
+func set_blink(side: String, rest: Texture2D, shut: Texture2D) -> void:
+	if not _faces.has(side) or rest == null or shut == null:
+		return
+	_faces[side]["rest"] = rest
+	_faces[side]["shut"] = shut
+	_faces[side]["blink"] = {"wait": randf_range(1.2, 4.0), "left": 0.0}
+
+
+func _blink(side: String, delta: float) -> void:
+	var f: Dictionary = _faces[side]
+	if not f.has("shut"):
+		return
+	var face: TextureRect = f["node"]
+	if face == null or not is_instance_valid(face):
+		return
+	var state: Dictionary = f["blink"]
+	if face.texture != f["rest"] and face.texture != f["shut"]:
+		state["left"] = 0.0
+		return
+	match blink_step(state, delta):
+		"shut":
+			if face.texture == f["rest"]:
+				face.texture = f["shut"]
+		"open":
+			if face.texture == f["shut"]:
+				face.texture = f["rest"]
+
+
+## The colour of a face that is listening, not speaking.
+const LISTENING := Color(0.62, 0.62, 0.7)
+
+
+## Light the face on `side` (the one speaking) and dim the others; "" lights them all.
+func spotlight(side: String) -> void:
+	for s in _faces:
+		var face := face_node(s)
+		if face == null or not is_instance_valid(face):
+			continue
+		var to := Color.WHITE if side == "" or s == side else LISTENING
+		var old = (face.get_meta("light") if face.has_meta("light") else null)
+		if old is Tween and (old as Tween).is_valid():
+			(old as Tween).kill()
+		if Style.motion_reduced() or not is_inside_tree():
+			face.self_modulate = to
+		elif face.self_modulate != to:
+			var t := face.create_tween()
+			face.set_meta("light", t)
+			t.tween_property(face, "self_modulate", to, 0.2)
 
 
 ## The face on `side`, or null.
@@ -367,7 +440,10 @@ func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float =
 	face.texture = tex
 	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if pixel else CanvasItem.TEXTURE_FILTER_LINEAR
 	face.modulate = Color(0.5, 0.5, 0.58) if dim else Color.WHITE
-	_faces[side] = {"node": face, "height": height}
+	var known: Dictionary = _faces.get(side, {})
+	known["node"] = face
+	known["height"] = height
+	_faces[side] = known
 	_place_face(side)
 	if arriving:
 		_enter_face(side)
@@ -570,6 +646,7 @@ static func fx_note(fx: Array, text: String = "", tone: Color = Style.MORALE_HIG
 # ---------------------------------------------------------------- the conversation
 
 func clear_log() -> void:
+	_stop_turn()
 	for c in _log.get_children():
 		_log.remove_child(c)
 		c.queue_free()
@@ -620,7 +697,7 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	bubble.add_child(v)
 	if who != "you" and write_lines:
 		_reveal(l)
-		_nudge_speaker()
+		_nudge_speaker(_speaker_side(who))
 	var gap := Control.new()
 	gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	gap.size_flags_stretch_ratio = 1.0
@@ -671,7 +748,7 @@ static func running(t) -> bool:
 ## Land a tween on its end state now.
 static func finish(t) -> void:
 	if t is Tween and (t as Tween).is_valid():
-		(t as Tween).custom_step(60.0)
+		(t as Tween).custom_step(3600.0)
 
 
 ## Whether any line is still being written out.
@@ -682,17 +759,99 @@ func writing() -> bool:
 
 ## Every line being written lands whole.
 func finish_writing() -> void:
-	for t in _writing:
-		if t is Tween and (t as Tween).is_valid():
-			(t as Tween).custom_step(60.0)
-	_writing.clear()
+	# Finishing lines told in turn starts the next one's writing: take them as they come.
+	while not _writing.is_empty():
+		finish(_writing.pop_back())
+
+
+## Lines told one after another. They are all in the talk from the start (nothing waits
+## on them: the replies under them can be pressed at once), but each shows, and is
+## written out, as its turn comes; a tap brings the rest at once. Each is {who, text,
+## speaker, then} where `then` (optional) is called with the speaking face's side as the
+## line is said. `done` is called after the last. Under Reduced motion or "Text appears
+## at once" they are all simply there.
+var _turn = null
+
+
+func say_in_turn(lines: Array, done: Callable = Callable()) -> void:
+	_stop_turn()
+	var held := []
+	write_lines = false
+	for line in lines:
+		held.append(say(String(line["who"]), String(line["text"]), String(line.get("speaker", ""))))
+	write_lines = true
+	if Style.motion_reduced() or bool(Sound.instant_text) or not is_inside_tree() or lines.is_empty():
+		if done.is_valid():
+			done.call()
+		return
+	for h in held:
+		(h as Control).visible = false
+	var t := create_tween()
+	_turn = t
+	_writing.append(t)
+	for i in lines.size():
+		t.tween_callback(_take_turn.bind(held[i], lines[i]))
+		t.tween_interval(turn_time(lines[i]))
+	if done.is_valid():
+		t.tween_callback(done)
+
+
+## How long a line has the talk to itself: about as long as it takes to read.
+static func turn_time(line: Dictionary) -> float:
+	return clampf(float(String(line["text"]).length()) / 18.0, 1.2, 5.0)
+
+
+func _take_turn(holder: Control, line: Dictionary) -> void:
+	if not is_instance_valid(holder):
+		return
+	holder.visible = true
+	var who := String(line["who"])
+	if who == "narration":
+		holder.modulate.a = 0.0
+		holder.create_tween().tween_property(holder, "modulate:a", 1.0, 0.25)
+	elif who != "you":
+		var words := holder.find_child("Words", true, false) as Label
+		var w: Tween = write_out(words) if words != null else null
+		if w != null:
+			_writing.append(w)
+		var side := _speaker_side(who)
+		_nudge_speaker(side)
+		if line.has("then"):
+			(line["then"] as Callable).call(side)
+	_follow()
+
+
+## Keep the newest line in view, unless the reader has scrolled back up to read.
+func _follow() -> void:
+	if not is_instance_valid(_scroll):
+		return
+	var bar := _scroll.get_v_scroll_bar()
+	if bar.max_value - bar.page - _scroll.scroll_vertical < 140.0:
+		_scroll_to_end()
+
+
+func _stop_turn() -> void:
+	if _turn is Tween and (_turn as Tween).is_valid():
+		(_turn as Tween).kill()
+	_turn = null
+
+
+## Whose face says a line: a second speaker ("other") is the one on the right; "them" is
+## the one on the left, or in the middle.
+func _speaker_side(who: String) -> String:
+	if who == "other" and _faces.has("right"):
+		return "right"
+	for side in ["left", "center", "right"]:
+		if _faces.has(side):
+			return side
+	return ""
 
 
 ## The one speaking leans in: their face rises a few pixels and settles.
-func _nudge_speaker() -> void:
+func _nudge_speaker(speaker: String) -> void:
 	if Style.motion_reduced():
 		return
-	for side in ["center", "right", "left"]:
+	for side in [speaker]:
 		if _faces.has(side):
 			var face: TextureRect = _faces[side]["node"]
 			if face == null or not is_instance_valid(face):

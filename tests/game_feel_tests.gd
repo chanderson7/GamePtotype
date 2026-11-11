@@ -50,6 +50,7 @@ func _init() -> void:
 	await _map_moments()
 	await _ribbons()
 	await _talk_and_scenes()
+	await _turning_points()
 	await _battle_beats()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
@@ -423,6 +424,176 @@ func _ribbons() -> void:
 	gs.apply_result({"won": true, "lost": 0, "killed": 3, "squads": {int(sq["id"]): {"men": int(sq["men"]), "kills": 3, "captain": {"fate": "standing", "kills": 0}}}, "enemy_squads": {}})
 	check(scenes.ribbons.any(func(x): return String(x["title"]).contains("ready for a role")), "a captain who becomes ready for a role gets a ribbon")
 	scenes.ribbons.clear()
+
+
+# ---- the big moments: the captains' talk at the fire is told a line at a time, a bond's
+# new rank is struck, a crown raised takes the screen, and the map tells what concerns you.
+func _turning_points() -> void:
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("company_camp", "night"), "Test")
+	var rest := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	var shut := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	tv.set_face("left", rest, true, 0.6)
+	tv.set_face("right", rest, true, 0.6)
+	await _wait(0.5)
+	var lf: TextureRect = tv.face_node("left")
+	var rf: TextureRect = tv.face_node("right")
+	# Each captain's own face leans into their own line.
+	var ly: float = lf.position.y
+	var ry: float = rf.position.y
+	tv.say("them", "The one on the left speaks.", "A")
+	await _wait(0.08)
+	check(lf.position.y < ly - 1.0 and is_equal_approx(rf.position.y, ry), "the one on the left leans into their own line")
+	await _wait(0.4)
+	tv.say("other", "And the one on the right answers.", "B")
+	await _wait(0.08)
+	check(rf.position.y < ry - 1.0 and is_equal_approx(lf.position.y, ly), "and the one on the right into theirs")
+	tv.finish_writing()
+	tv.clear_log()
+	# Told in turn: all of it is in the talk, one line showing at a time.
+	var said := []
+	var done := [false]
+	var note := func(side: String) -> void: said.append(side)
+	var lines := [{"who": "narration", "text": "They sat late by the fire."},
+		{"who": "them", "text": "You held the left when it mattered.", "speaker": "A", "then": note},
+		{"who": "other", "text": "You'd have done the same.", "speaker": "B", "then": note},
+		{"who": "them", "text": "I would have. Badly.", "speaker": "A", "then": note}]
+	tv.say_in_turn(lines, func() -> void: done[0] = true)
+	var nothing := func() -> void: pass
+	tv.set_replies([{"id": "back", "text": "Back", "tone": "primary", "act": nothing}])
+	await _frames(3)
+	var rows: Array = tv._log.get_children()
+	check(rows.size() == 4 and rows[0].visible and not rows[2].visible and not rows[3].visible, "a talk at the fire is told a line at a time")
+	check(tv.log_text().contains("I would have. Badly.") and tv.has_reply("back"), "all of it is there to read back, and the way on can be pressed at once")
+	await _wait(1.6)
+	check(rows[1].visible and said == ["left"] and not done[0], "each line comes in its turn, said by its own speaker (%s)" % str(said))
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	tv._tap(up)
+	check(rows.all(func(r): return r.visible) and said == ["left", "right", "left"] and done[0] and not tv.writing(),
+		"a tap brings the rest at once (%s)" % str(said))
+	check((rows[3].find_child("Words", true, false) as Label).visible_characters == -1, "whole, not half written")
+	# The one speaking is lit, the one listening quiet.
+	tv.spotlight("left")
+	await _wait(0.35)
+	check(lf.self_modulate.is_equal_approx(Color.WHITE) and rf.self_modulate.r < 0.7, "the one speaking is lit, the one listening dimmed")
+	tv.spotlight("")
+	await _wait(0.35)
+	check(rf.self_modulate.is_equal_approx(Color.WHITE), "and both are lit once all is said")
+	# A face the game draws blinks while it wears its resting look.
+	tv.set_blink("left", rest, shut)
+	tv._faces["left"]["blink"]["wait"] = 0.01
+	await _frames(3)
+	check(lf.texture == shut, "a captain blinks")
+	await _wait(0.3)
+	check(lf.texture == rest, "and opens their eyes again")
+	tv.change_face("left", shut)
+	tv.change_face("left", ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8)))
+	tv._faces["left"]["blink"]["wait"] = 0.01
+	await _frames(3)
+	check(lf.texture != shut and lf.texture != rest, "but not while wearing an expression")
+	sound.reduced_motion = true
+	tv.clear_log()
+	tv.say_in_turn(lines)
+	check(tv._log.get_children().all(func(r): return r.visible) and not tv.writing(), "under Reduced motion a talk is all there at once")
+	sound.reduced_motion = false
+	tv.queue_free()
+	# The fire talk itself: two captains, the first line showing, the way on there.
+	var a: Dictionary = gs.army[0]["captain"]
+	var b: Dictionary = gs.army[1]["captain"]
+	a["bonds"][str(int(b["id"]))] = 25.0
+	b["bonds"][str(int(a["id"]))] = 25.0
+	scenes.active_bond_a_id = int(a["id"])
+	scenes.active_bond_b_id = int(b["id"])
+	scenes.bond_conversation_return = "res://scenes/main_menu.tscn"
+	change_scene_to_file("res://scenes/bond_conversation.tscn")
+	await _arrive("bond_conversation.tscn")
+	var fire = current_scene
+	var told: Array = fire._log.get_children()
+	check(told.size() > 2 and told[0].visible and not told[told.size() - 1].visible and fire.writing(), "by the fire, the captains' talk is told in turn (%d lines)" % told.size())
+	check(fire._faces["left"].has("shut") and fire._faces["right"].has("shut"), "and both can blink")
+	fire._tap(up)
+	await _frames(2)
+	check(told.all(func(r): return r.visible) and fire.face_node("left").self_modulate.is_equal_approx(Color.WHITE)
+		and fire.face_node("right").self_modulate.is_equal_approx(Color.WHITE), "a tap brings it all, both of them lit")
+	# A bond's new rank: the two step toward each other and the rank is struck.
+	gs.bond_events = [{"kind": "rank", "rank": "B", "a_id": int(a["id"]), "b_id": int(b["id"]),
+		"pair": "%s & %s" % [a["name"], b["name"]], "points": 12.0, "shared_battles": 4}]
+	change_scene_to_file("res://scenes/bond_intro.tscn")
+	await _arrive("bond_intro.tscn")
+	var pair := current_scene.find_child("BondPortraits", true, false) as Control
+	var badge := current_scene.find_child("Rank_B", true, false) as Control
+	check(pair != null and pair.get_child_count() == 2 and badge != null, "a new rank shows the two captains and the rank")
+	await _wait(1.4)
+	check(pair != null and is_equal_approx((pair.get_child(0) as Control).modulate.a, 1.0) and badge != null and badge.scale.is_equal_approx(Vector2.ONE)
+		and is_equal_approx(badge.modulate.a, 1.0), "they've stepped in and the rank is struck")
+	gs.bond_events = []
+	# A crown raised takes the screen for a breath.
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	scenes.ribbons.clear()
+	scenes.moment("A crown is raised", "Ravensford is the seat of your crown.", "crown", false, "")
+	await _frames(4)
+	var shade := scenes.get_node_or_null("Moment") as Control
+	check(shade != null and (shade.find_child("MomentTitle", true, false) as Label).text == "A crown is raised", "a crown raised takes the screen")
+	var flag := shade.find_child("Flag", true, false) as Control if shade != null else null
+	check(flag != null and flag.scale.y < 0.9, "its banner unfurls")
+	await _wait(1.3)
+	check(flag != null and is_instance_valid(flag) and flag.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(shade.modulate.a, 1.0), "and hangs there")
+	scenes._dismiss_ribbon(shade)
+	await _frames(2)
+	check(scenes.get_node_or_null("Moment") == null, "a tap sends it away")
+	scenes.moment("Your crown has fallen", "The company rides free again.", "crown", true, "")
+	await _frames(4)
+	shade = scenes.get_node_or_null("Moment") as Control
+	flag = shade.find_child("Flag", true, false) as Control if shade != null else null
+	await _wait(1.9)
+	check(flag != null and is_instance_valid(flag) and flag.modulate.a < 0.2, "a crown fallen: the banner comes down")
+	await _wait(3.2)
+	check(scenes.get_node_or_null("Moment") == null, "and the light comes back by itself")
+	sound.reduced_motion = true
+	scenes.moment("A crown is raised", "", "crown", false, "")
+	await _frames(4)
+	shade = scenes.get_node_or_null("Moment") as Control
+	flag = shade.find_child("Flag", true, false) as Control if shade != null else null
+	check(shade != null and is_equal_approx(shade.modulate.a, 1.0) and flag != null and flag.scale.is_equal_approx(Vector2.ONE), "under Reduced motion it is simply there")
+	if shade != null:
+		scenes._dismiss_ribbon(shade)
+	sound.reduced_motion = false
+	await _frames(2)
+	# The map tells what concerns you, and a holding that changes hands shows it.
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await _arrive("world_map.tscn")
+	var m = current_scene
+	var w = gs.world
+	m._sheet = ""
+	scenes.ribbons.clear()
+	w.events.append({"type": "fief_lost", "settlement": "ravensford", "by": "Lord Test"})
+	w.events.append({"type": "lord_slain", "lord": "Lord Other", "by": "someone else"})
+	w.events.append({"type": "captured", "settlement": "ravensford", "realm": "kharzan", "from": "vardmark"})
+	await _frames(3)
+	var heard: Array = scenes.ribbons.map(func(x): return String(x["title"]))
+	var showing: Node = scenes.get_node_or_null("Ribbon")
+	if showing != null:
+		heard.append((showing.find_child("RibbonTitle", true, false) as Label).text)
+	check(heard.has("Ravensford is lost"), "losing your fief is told on the map (%s)" % str(heard))
+	check(not heard.any(func(t): return String(t).contains("Lord Other")), "what doesn't concern you isn't")
+	check(m._flag_changes.has("ravensford") and String(m._flag_changes["ravensford"]["from"]) == "vardmark", "a holding that changes hands furls its old banner")
+	await _wait(1.8)
+	m.queue_redraw()
+	await _frames(3)
+	check(not m._flag_changes.has("ravensford"), "and flies the new one a moment later")
+	sound.reduced_motion = true
+	w.events.append({"type": "captured", "settlement": "ravensford", "realm": "vardmark", "from": "kharzan"})
+	await _frames(3)
+	check(not m._flag_changes.has("ravensford"), "under Reduced motion the banner simply changes")
+	sound.reduced_motion = false
+	scenes.ribbons.clear()
+	if scenes._ribbon != null:
+		scenes._dismiss_ribbon(scenes._ribbon)
 
 
 # ---- the talks you court and befriend in: faces breathe and gesture, only the new line is

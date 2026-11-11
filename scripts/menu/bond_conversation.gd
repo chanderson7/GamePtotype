@@ -30,6 +30,10 @@ func _ready() -> void:
 	stage.name = "BondConversationPortraits"
 	set_face("left", CaptainArt.texture(_a, "grief" if _memorial else "warm"), true, 0.62)
 	set_face("right", CaptainArt.texture(_b, "" if _memorial else "warm"), true, 0.62, _memorial)
+	# They blink while they listen (the one remembered doesn't).
+	set_blink("left", CaptainArt.texture(_a), CaptainArt.texture(_a, "blink"))
+	if not _memorial:
+		set_blink("right", CaptainArt.texture(_b), CaptainArt.texture(_b, "blink"))
 	if _memorial:
 		_show_memorial(conversation)
 		return
@@ -45,10 +49,12 @@ func _show_memorial(conversation: Dictionary) -> void:
 	set_plate(String(_a["first"]) + " & " + lost + " · remembered", badge)
 	clear_log()
 	var passages: Array = conversation["passages"]
+	var lines := []
 	for i in passages.size() - 1:
-		say("narration", String(passages[i]))
+		lines.append({"who": "narration", "text": String(passages[i])})
 	for line in conversation.get("exchange", []):
-		say("them", String(line["text"]), String(_a["first"]))
+		lines.append({"who": "them", "text": String(line["text"]), "speaker": String(_a["first"])})
+	say_in_turn(lines)
 	set_replies([{"id": "back", "text": _back_text(), "tone": "primary", "act": close}])
 
 
@@ -73,18 +79,36 @@ func _show(rank: String) -> void:
 	clear_log()
 	var passages: Array = conversation["passages"]
 	# What the company remembers, then their own words: the first captain on the left, the
-	# second on the right in a neutral bubble (your blue is for you).
+	# second on the right in a neutral bubble (your blue is for you). Told a line at a
+	# time, the one speaking lit and the one listening quiet; a tap brings it all.
+	var lines := []
 	for i in passages.size() - 1:
-		say("narration", String(passages[i]))
+		lines.append({"who": "narration", "text": String(passages[i])})
 	for line in conversation.get("exchange", []):
 		var who: Dictionary = _a if String(line["who"]) == "a" else _b
-		say("them" if who == _a else "other", String(line["text"]), String(who["first"]))
+		lines.append({"who": "them" if who == _a else "other", "text": String(line["text"]), "speaker": String(who["first"]), "then": _speaks})
+	_listen()
+	say_in_turn(lines, _listen)
 	GameState.acknowledge_bond_conversation(int(_a["id"]), int(_b["id"]), _rank)
 	var next := GameState.next_bond_talk(int(_a["id"]), int(_b["id"]))
 	if next != "":
 		set_replies([{"id": "next", "text": "Their next talk · Rank %s" % next, "tone": "primary", "act": _show.bind(next)}])
 	else:
 		set_replies([{"id": "back", "text": _back_text(), "tone": "primary", "act": close}])
+
+
+## One of them speaks: their face is lit and warm with it; the other listens, at rest.
+func _speaks(side: String) -> void:
+	spotlight(side)
+	change_face("left", CaptainArt.texture(_a, "warm" if side == "left" else ""))
+	change_face("right", CaptainArt.texture(_b, "warm" if side == "right" else ""))
+
+
+## Between lines and once all is said: both lit, glad of each other.
+func _listen() -> void:
+	spotlight("")
+	change_face("left", CaptainArt.texture(_a, "warm"))
+	change_face("right", CaptainArt.texture(_b, "warm"))
 
 
 ## A bond's rank as its badge, with what it does in battle as chips: morale back each

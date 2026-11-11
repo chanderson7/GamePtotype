@@ -186,7 +186,7 @@ static func closing(panel: Control) -> bool:
 
 
 static func stop_easing(panel: Control) -> void:
-	var old = panel.get_meta("ease_tween", null)
+	var old = (panel.get_meta("ease_tween") if panel.has_meta("ease_tween") else null)
 	if old is Tween and (old as Tween).is_valid():
 		(old as Tween).kill()
 	if closing(panel):

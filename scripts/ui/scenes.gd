@@ -197,7 +197,102 @@ func _process(_delta: float) -> void:
 	var cur := get_tree().current_scene
 	if cur == null or cur.scene_file_path.ends_with("battle.tscn"):
 		return
-	_show_ribbon(ribbons.pop_front())
+	var next: Dictionary = ribbons.pop_front()
+	if bool(next.get("grand", false)):
+		_show_moment(next)
+	else:
+		_show_ribbon(next)
+
+
+## A turning point (a crown raised, a crown fallen) takes the whole screen for a breath:
+## the light drops, a banner unfurls (or falls) over its words, and the light comes back.
+## It waits its turn with the ribbons, and a tap sends it away at once. Under Reduced
+## motion it is simply there for the hold.
+const MOMENT_HOLD := 2.4
+
+
+func moment(title: String, sub: String = "", banner: String = "crown", falls: bool = false, sound: String = "") -> void:
+	ribbons.append({"grand": true, "title": title, "sub": sub, "banner": banner, "falls": falls, "sound": sound})
+	set_process(true)
+
+
+func _show_moment(r: Dictionary) -> void:
+	var Style = load("res://scripts/ui/style.gd")
+	var Widgets = load("res://scripts/ui/widgets.gd")
+	var still: bool = Style.motion_reduced()
+	var shade := ColorRect.new()
+	shade.name = "Moment"
+	shade.theme = Style.make_theme()
+	shade.color = Color(0.02, 0.03, 0.07, 0.8)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# It holds the screen while it's up: the tap that sends it away presses nothing under it.
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	var col := VBoxContainer.new()
+	col.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 20)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shade.add_child(col)
+	var flag_size := Vector2(150, 222)
+	var pole := Control.new()
+	pole.name = "Pole"
+	pole.custom_minimum_size = flag_size
+	pole.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	pole.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(pole)
+	var flag: Control = Widgets.banner(String(r.get("banner", "crown")), flag_size)
+	flag.name = "Flag"
+	flag.pivot_offset = Vector2(flag_size.x * 0.5, 0)
+	pole.add_child(flag)
+	var title: Label = Style.label(String(r["title"]), Style.TITLE_SIZE, Color("f3d891"))
+	title.name = "MomentTitle"
+	var display: Font = Style.display_font()
+	if display != null:
+		title.add_theme_font_override("font", display)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(title)
+	var sub: Label = Style.label(String(r.get("sub", "")), Style.BODY, Style.TEXT)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sub.visible = sub.text != ""
+	col.add_child(sub)
+	add_child(shade)
+	move_child(shade, _veil.get_index())
+	_ribbon = shade
+	if String(r.get("sound", "")) != "":
+		Sound.play(String(r["sound"]), 0.0, 0.03)
+	Sound.haptic(true)
+	var falls := bool(r.get("falls", false))
+	var tw := shade.create_tween()
+	shade.set_meta("tween", tw)
+	if not still:
+		shade.modulate.a = 0.0
+		title.modulate.a = 0.0
+		sub.modulate.a = 0.0
+		if not falls:
+			flag.scale = Vector2(1, 0)
+		tw.tween_property(shade, "modulate:a", 1.0, 0.3)
+		if falls:
+			# The banner hangs a moment, then comes down.
+			tw.tween_property(title, "modulate:a", 1.0, 0.3)
+			tw.parallel().tween_property(sub, "modulate:a", 1.0, 0.3)
+			tw.tween_interval(0.4)
+			tw.tween_property(flag, "position:y", 260.0, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+			tw.parallel().tween_property(flag, "rotation", 0.22, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+			tw.parallel().tween_property(flag, "modulate:a", 0.0, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		else:
+			tw.tween_property(flag, "scale", Vector2.ONE, 0.55).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tw.tween_property(title, "modulate:a", 1.0, 0.3)
+			tw.parallel().tween_property(sub, "modulate:a", 1.0, 0.3).set_delay(0.15)
+	elif falls:
+		flag.modulate.a = 0.35
+	tw.tween_interval(MOMENT_HOLD * maxf(1.0, float(Sound.text_scale)))
+	if not still:
+		tw.tween_property(shade, "modulate:a", 0.0, 0.35)
+	tw.tween_callback(func():
+		shade.queue_free()
+		_ribbon = null)
 
 
 func _show_ribbon(r: Dictionary) -> void:
@@ -275,7 +370,7 @@ func _show_ribbon(r: Dictionary) -> void:
 func _dismiss_ribbon(panel: Control) -> void:
 	if not is_instance_valid(panel) or panel.is_queued_for_deletion():
 		return
-	var tw = panel.get_meta("tween", null)
+	var tw = (panel.get_meta("tween") if panel.has_meta("tween") else null)
 	if tw is Tween and (tw as Tween).is_valid():
 		(tw as Tween).kill()
 	panel.queue_free()

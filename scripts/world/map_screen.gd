@@ -320,6 +320,34 @@ func _process(delta: float) -> void:
 				Scenes.ribbon("War", _war_line(e), "battle", "")
 			"captured":
 				Sound.play_place_fallen()
+				_flag_changed(String(e.get("settlement", "")), String(e.get("from", "")))
+				_tell_capture(e)
+			"crown_raised":
+				_flag_changed(String(e.get("settlement", "")), String(e.get("from", "")))
+			"fief_granted":
+				Scenes.ribbon("%s is yours" % _place_name(String(e.get("settlement", ""))),
+					"Granted by %s." % _realm_name(String(e.get("realm", ""))), "keep", "promotion")
+			"fief_lost":
+				Scenes.ribbon("%s is lost" % _place_name(String(e.get("settlement", ""))),
+					"Taken by %s." % String(e.get("by", "an enemy")), "keep", "bell")
+			"lord_sworn":
+				Scenes.ribbon("%s swears to your crown" % String(e.get("lord", "A lord")), "", "crown", "")
+			"lord_slain":
+				if String(e.get("by", "")) == "Your warband":
+					Scenes.ribbon("%s is slain" % String(e.get("lord", "A lord")), "By your company's hand.", "skull", "")
+			"lord_captured":
+				if String(e.get("captor", "")) == "Your warband":
+					Scenes.ribbon("%s is your captive" % String(e.get("lord", "A lord")), "", "lock", "")
+			"siege_started":
+				var besieged := String(e.get("target", ""))
+				if besieged != "" and (besieged == GameState.fief_id() or world.owner_of(besieged) == Data.CROWN):
+					Sound.play("alarm", 0.0, 0.05)
+					Scenes.ribbon("%s is under siege" % _place_name(besieged),
+						"%s is at the walls." % _realm_name(String(e.get("realm", ""))), "walls", "")
+			"alliance":
+				Scenes.ribbon("An alliance", "%s stands with your crown." % _realm_name(String(e.get("realm", ""))), "bond", "bond_rank")
+			"alliance_ended":
+				Scenes.ribbon("An alliance ends", "%s no longer stands with you." % _realm_name(String(e.get("realm", ""))), "bond", "")
 	world.events.clear()
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
@@ -491,6 +519,36 @@ func _hover_at(at: Vector2) -> void:
 
 
 ## A war declared, in a line: "Vardmark and Kharzan are at war."
+func _place_name(id: String) -> String:
+	return String(Data.settlement(id)["name"]) if Data.SETTLEMENTS.has(id) else "A holding"
+
+
+func _realm_name(realm: String) -> String:
+	return String(Data.FACTIONS[realm]["name"]) if Data.FACTIONS.has(realm) else "Another realm"
+
+
+## A castle or town changing hands, when it's your crown's gain or loss.
+func _tell_capture(e: Dictionary) -> void:
+	var id := String(e.get("settlement", ""))
+	if not Data.SETTLEMENTS.has(id) or String(Data.settlement(id)["type"]) == Data.VILLAGE:
+		return
+	if String(e.get("realm", "")) == Data.CROWN:
+		Scenes.ribbon("%s is yours" % _place_name(id), "Your banner flies over it.", "crown", "")
+	elif String(e.get("from", "")) == Data.CROWN:
+		Scenes.ribbon("%s has fallen" % _place_name(id), "Taken by %s." % _realm_name(String(e.get("realm", ""))), "keep", "bell")
+
+
+## A holding that changed hands a moment ago: its old banner is furled and the new one
+## let down, with a ring of brass going out from it. {id: {at, from}}.
+const FLAG_TIME := 1.5
+var _flag_changes := {}
+
+
+func _flag_changed(id: String, from: String) -> void:
+	if id != "" and not Style.motion_reduced():
+		_flag_changes[id] = {"at": _clock, "from": from}
+
+
 func _war_line(e: Dictionary) -> String:
 	var names := PackedStringArray()
 	var realms = e.get("realms", [])
@@ -3793,8 +3851,22 @@ func _draw_settlement(id: String, px: float) -> void:
 	if String(s["type"]) != Data.VILLAGE and condition != "damaged":
 		var tall: float = MapArt.size(sprite).y * px
 		var holder := String(world.owner_of(id))
-		Heraldry.realm_banner(self, holder if Heraldry.REALM_SIZES.has(holder) else "bandits",
-			Rect2(c + Vector2(w * 0.22, -tall - 10.0 * px), Vector2(9.0, 13.0) * px))
+		var flown := holder
+		var share := 1.0
+		if _flag_changes.has(id):
+			# Changing hands: the old colours are furled (first half), the new let down.
+			var age: float = (_clock - float(_flag_changes[id]["at"])) / FLAG_TIME
+			if age >= 1.0:
+				_flag_changes.erase(id)
+			elif age < 0.5:
+				flown = String(_flag_changes[id]["from"])
+				share = maxf(0.08, 1.0 - age * 2.0)
+			else:
+				share = maxf(0.08, (age - 0.5) * 2.0)
+			if age < 1.0:
+				draw_arc(c, w * (0.5 + age * 0.9), 0.0, TAU, 40, Color(Style.BRASS, 0.8 * (1.0 - age)), 3.0)
+		Heraldry.realm_banner(self, flown if Heraldry.REALM_SIZES.has(flown) else "bandits",
+			Rect2(c + Vector2(w * 0.22, -tall - 10.0 * px), Vector2(9.0, 13.0 * share) * px))
 
 
 ## A party on the road: your rider under your banner, or a bandit band. Walks while it
