@@ -430,7 +430,7 @@ each, with sprites.
   on a deck: a narrow field with no flanks and no horse.
 - **Kharzani: the desert tracks.** Caravan tracks across the Red Wastes that only a
   Kharzani company knows: direct ways between places the roads go round (Qal'at Zeyra to
-  Qasr Hamra; Dar Nakhla to Nahrabad's far side), at a cost in water (double rations for
+  Qasr Hamra; Nahrabad to Bir Sahra, both by way of Khalun today), at a cost in water (double rations for
   the crossing).
 
 The map graph (`WorldData.ROADS`) gains edges with a `people` tag; open water is the larger
