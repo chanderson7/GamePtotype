@@ -380,7 +380,8 @@ Seen on a screen in all three talks, at the height of each move; checked by
 
 The three were painted in everyday clothes only. `tools/portrait_wedding.py` dresses them
 from those paintings for the wedding: Edda in a honey-ivory dress with a wreath of white
-and blush flowers, Farah in a crimson coat with jasmine above her ear, Kaede in a white
+and blush flowers, Farah in a crimson coat worked with gold, a coin circlet with a garnet on her brow, gold
+earrings, a coin necklace and jasmine above her ear, Kaede in a white
 over-robe with a red collar and a pin of red and white blossoms. Each garment is
 recoloured through a ramp by its own light and shade, so every fold and seam the painter
 put there stays; the flowers are painted on in code, clear of the strip a blink replaces.

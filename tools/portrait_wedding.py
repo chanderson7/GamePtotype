@@ -7,7 +7,9 @@ stays), and wedding details are painted into the hair, lit from the upper left l
 paintings.
 
   Edda   honey-ivory wool dress, its stitching left gold; a wreath of white and blush flowers
-  Farah  crimson coat over her cream linen; sprigs of jasmine in her curls
+  Farah  crimson coat over her cream linen, flecked with gold; a circlet of gold coins at
+         her hairline with a red drop on her brow, gold and garnet earrings, a coin
+         necklace at her throat, and jasmine in her curls
   Kaede  white over-robe, red collar; a pin of red and white blossoms by her knot
 
 Writes assets/portraits/<who>_wedding_<expression>.png for the expressions the wedding
@@ -151,6 +153,84 @@ def leaf(out, x0, y0, x1, y1, width, colour):
     out[..., :3] = out[..., :3] * (1 - k) + lit * k
 
 
+GOLD_LIGHT = (252, 226, 150)
+GOLD_MID = (214, 166, 72)
+GOLD_DARK = (120, 80, 28)
+GARNET = (170, 22, 38)
+
+
+def coin(out, cx, cy, r):
+    """A gold coin or bead: a dark rim, lit from the upper left, a glint."""
+    h, w = out.shape[:2]
+    rim, _dx, _dy = disc((h, w), cx, cy, r + 0.7)
+    paint(out, rim, GOLD_DARK)
+    body, dx, dy = disc((h, w), cx, cy, r)
+    lit = 1.0 + 0.45 * np.clip((-dx - dy) / (1.4 * max(r, 1.0)), -1, 1)
+    colour = np.clip(np.array(GOLD_MID, float)[None, None, :] * lit[..., None], 0, 255)
+    k = body[..., None]
+    out[..., :3] = out[..., :3] * (1 - k) + colour * k
+    out[..., 3] = np.maximum(out[..., 3], body * 255)
+    if r >= 1.8:
+        glint, _dx, _dy = disc((h, w), cx - r * 0.35, cy - r * 0.35, max(0.6, r * 0.28), soft=0.6)
+        paint(out, glint * 0.9, GOLD_LIGHT)
+
+
+def gem(out, cx, cy, r, colour=GARNET):
+    """A drop of red stone in a gold setting, lit from the upper left."""
+    h, w = out.shape[:2]
+    setting, _dx, _dy = disc((h, w), cx, cy, r + 1.0)
+    paint(out, setting, GOLD_MID)
+    body, dx, dy = disc((h, w), cx, cy, r)
+    lit = 1.0 + 0.5 * np.clip((-dx - dy) / (1.4 * r), -1, 1)
+    c = np.clip(np.array(colour, float)[None, None, :] * lit[..., None], 0, 255)
+    k = body[..., None]
+    out[..., :3] = out[..., :3] * (1 - k) + c * k
+    glint, _dx, _dy = disc((h, w), cx - r * 0.4, cy - r * 0.4, max(0.6, r * 0.3), soft=0.6)
+    paint(out, glint * 0.85, (255, 220, 220))
+
+
+def chain(out, points, step=1.6):
+    """Fine gold links along `points`."""
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        n = max(1, int(np.hypot(x1 - x0, y1 - y0) / step))
+        for i in range(n):
+            t = i / n
+            coin(out, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 0.55)
+
+
+def hairline(a, x0, x1, start):
+    """Where her forehead meets her hair, as a smooth curve over x0..x1: from inside the
+    forehead (row `start`) upward, while the skin lasts, then fitted so a stray curl
+    doesn't bend it."""
+    tone = np.median(a[start - 2:start + 3, (x0 + x1) // 2 - 6:(x0 + x1) // 2 + 6, :3].reshape(-1, 3), axis=0)
+    xs, ys = [], []
+    for x in range(x0, x1 + 1):
+        y = start
+        while y > 40 and np.abs(a[y - 1, x, :3] - tone).max() < 55:
+            y -= 1
+        xs.append(x)
+        ys.append(y)
+    fit = np.polyfit(xs, ys, 2)
+    return {x: float(np.polyval(fit, x)) for x in range(x0, x1 + 1)}
+
+
+def brocade(out, who):
+    """Small gold flowers worked into the coat on a diamond lattice, only on the cloth."""
+    h, w = out.shape[:2]
+    rgb = out[..., :3]
+    mx = rgb.max(axis=-1)
+    mn = rgb.min(axis=-1)
+    red = (rgb[..., 0] >= rgb[..., 1] * 1.8) & (rgb[..., 0] > 70) & ((mx - mn) / np.maximum(mx, 1) > 0.55)
+    yy = np.mgrid[0:h, 0:w][0]
+    coat = red & (yy >= NECK[who] + 30) & (out[..., 3] > 250)
+    for row, y in enumerate(range(NECK[who] + 38, h - 6, 17)):
+        for x in range(4 + (8 if row % 2 else 0), w - 4, 16):
+            if coat[y - 3:y + 4, x - 3:x + 4].all():
+                for dx, dy in ((0, -2), (2, 0), (0, 2), (-2, 0)):
+                    coin(out, x + dx, y + dy, 0.75)
+                coin(out, x, y, 0.9)
+
+
 def top_of_head(a, x):
     ys = np.nonzero(a[:, x, 3] > 128)[0]
     return int(ys[0]) if len(ys) else None
@@ -185,6 +265,34 @@ def adorn(out, who):
         for i, (x, y) in enumerate(spots):
             flower(out, x, y, 6.6 if i % 2 == 0 else 5.4, WHITE if i % 2 == 0 else BLUSH, CENTRE, turn=i * 0.7)
     elif who == "farid":
+        brocade(out, who)
+        line = hairline(out, 128, 196, 116)
+        # A circlet of small gold coins along her hairline, a garnet drop on her brow.
+        pts = [(x, line[x] - 1.0) for x in sorted(line) if x % 2 == 0]
+        chain(out, pts)
+        for x, y in pts[::4]:
+            coin(out, x, y + 2.2, 1.6)
+        mid = 158
+        top = line.get(mid, 100) - 1.5
+        chain(out, [(mid, top), (mid, top + 6)])
+        coin(out, mid, top + 6.5, 1.4)
+        gem(out, mid, top + 10.5, 2.6)
+        # Earrings: a gold stud at the lobe, a chain, a garnet, a little bell of gold.
+        chain(out, [(236, 178), (236, 190)])
+        coin(out, 236, 177.5, 1.8)
+        gem(out, 236, 192, 2.4)
+        coin(out, 236, 198.5, 2.2)
+        for dx in (-2.4, 0, 2.4):
+            coin(out, 236 + dx, 202.5, 0.9)
+        # A necklace of coins at her throat, a larger one at its centre.
+        neck = [(158, 262), (166, 270), (174, 276), (183, 280), (192, 281), (201, 278), (209, 272), (215, 266)]
+        chain(out, neck)
+        for x, y in neck[1:-1]:
+            chain(out, [(x, y), (x, y + 3)])
+            coin(out, x, y + 5, 2.0)
+        chain(out, [(188, 281), (188, 287)])
+        coin(out, 188, 291, 3.4)
+        gem(out, 188, 291, 1.4)
         # Jasmine tucked above her ear: a sprig of small white stars, buds and leaves.
         leaf(out, 222, 104, 236, 88, 2.2, GREEN)
         leaf(out, 228, 100, 246, 104, 2.0, GREEN)

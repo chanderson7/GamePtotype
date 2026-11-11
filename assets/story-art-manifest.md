@@ -90,7 +90,9 @@ Use case: stylized-concept. Create a wide landscape 3:2 pixel-art background ill
   `tools/portrait_wedding.py`. Each garment is recoloured through a ramp by its own light
   and shade, so the painted folds, seams and texture stay; the flowers are painted on in
   code, lit from the upper left. Edda: honey-ivory dress, a wreath of white and blush
-  flowers. Farah: crimson coat, jasmine above her ear. Kaede: white over-robe with a red
+  flowers. Farah: crimson coat worked with small gold flowers, a circlet of gold coins along her
+  hairline with a garnet drop on her brow, gold and garnet earrings, a coin necklace, and
+  jasmine above her ear. Kaede: white over-robe with a red
   collar, a pin of red and white blossoms by her knot. Run it again (then
   `tools/portrait_faces.py`) after a portrait is replaced.
 
