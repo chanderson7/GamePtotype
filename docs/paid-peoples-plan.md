@@ -52,6 +52,13 @@ Each people gets four parts:
 | **The order** | One order, once a battle, that no other people's company can give | Every battle |
 | **The story** | Five chapters across the campaign, ending in an office no crown gives | Days 1 to about 90 |
 | **The home** | The camp, the capital, the customs of the captains | Home, Warband, the memorial |
+| **The look** | The people's court, captains and commanders drawn a tier above | Every talk, every card, every battle |
+| **The war** | A different war at home, troops and roads only that company has | The whole campaign |
+
+The first four are the supporting layer. After review (2026-11-11) they were judged too
+small to carry a price on their own, and they are: none of them can be seen in a
+screenshot. **The look** and **the war**, below the two peoples' sections, are the
+headline of each pack.
 
 ## Rules that keep it honest
 
@@ -278,6 +285,181 @@ morale and fate code. Size: **medium**.
 - Deeds: *the Strait-Crossers*, *the Unbroken Line* (earlier plan), and *the Kept Word*
   (keep ten vows).
 
+## The look: a people drawn a tier above
+
+Where the art stands today, from `captain_face.gd`, `lord_voice.gd`, `tools/unit_sprites.py`
+and `battle_sim.gd`:
+
+- every captain **and every lord and ruler** is the same generated 60×80 pixel bust; a lord
+  differs by a circlet and his house's colours (`LordVoice.portrait_record`);
+- only Edda, Farah and Kaede are painted, with five expressions each;
+- in battle a captain is one of his men with a gold ring, and a lord is a flag on a squad
+  (`is_lord`): the Sultan on the field looks like an Askari;
+- **the player has no face and no name.** In a talk it is their portrait against your banner.
+
+One rule for all of it, simple enough to put on the People sheet:
+
+> **Owning a people changes how that people is drawn in every campaign you play.**
+
+A Vardish campaign on a phone that owns the Kharzani meets painted emirs; without it, the
+pixel busts of today. Nothing is missing for the player who has not paid, and the purchase
+shows on every screen for the one who has. (This amends the paid plan's never list by one
+line: the shared world's *content* is never locked, its *finer art* may be.)
+
+### L1. A painted court
+
+The ruler and the heads of the realm's six houses, painted as the romance cast is: a bust
+at 384×512 in three expressions (level, pleased, angered), used wherever a lord's face is
+shown: the road talk, the hall, People → Lords, the war council, the wedding's guests.
+
+This needs the court to be **authored, not rolled**. Today `_spawn_lords` draws a first
+name and a house at random each campaign, so a painting cannot belong to anyone. For a
+people with a painted court, the ruler and four lords are fixed by name, house and bearing,
+each with a named heir (the heir's painting waits for the death). The names and bearings
+ship to everyone; the paintings to owners.
+
+- Per people: 7 heads and 6 heirs, 13 faces, 39 images. Start with the ruler and the four
+  riding lords (15 images) and add heirs after.
+- The Sultan and the Shogun also get what Edda has and no lord has: a painted room of their
+  own (the divan at Khalun, the audience hall at Kurogane) and lines written for them
+  alone, not a bearing's shared lines.
+- Art: the external illustration workflow the portraits used; briefs go in a
+  `assets/court-art-manifest.md` beside the two that exist. Size: **large**, and it is not
+  code.
+
+### L2. Captains in full harness
+
+The generated face stays, because it carries the captain's life (scars, grey, the bandage,
+the role's token) and a painting cannot. For a paid people the generator draws **more of
+the captain**: a half-figure at 96×128 for the profile, the death roll, the fire and the
+memorial, with the 60×80 bust cut from it for cards.
+
+- **Armour that is earned.** Three sets by training level and a fourth at twenty battles.
+  Kharzani: quilted coat and turban; mail and a pointed helm with an aventail; gilded
+  lamellar; a plume and a cloak of the Sultan's colour. Ryumon: a lacquered hat and a
+  simple cuirass; full armour with shoulder guards; the great armour with a face guard; a
+  horned crest and a surcoat.
+- **The house's mark.** Each of the realm's six houses gets a device (a Ryumon crest, a
+  Kharzani emblem) drawn by `heraldry.gd`: on its lord's banner, his men's back-flags and
+  shields, his map party, behind his portrait. A company of that people **makes its own
+  mark** from parts on the Warband, and its men carry it into battle.
+- A weapon in hand by troop, and the temper in the stance.
+
+All of it is drawn in code, so it can be built and reviewed here on mockup sheets, as the
+current faces were. Size: **medium–large**.
+
+### L3. Commanders on the field
+
+A captain and a lord become figures you can find in a battle at a glance.
+
+- **A captain's party** in every company of a paid people: the captain a head taller in
+  his own armour set, a standard-bearer with the company's mark, and a musician (a
+  kettledrummer, a conch-blower). When the captain goes down, the standard dips.
+- **A lord's retinue.** An emir rides under a parasol with a kettledrum camel behind him. A
+  daimyo sits on a stool behind a painted curtain with a war fan, his great standard beside
+  him, and mounts only when his guard is committed. The Sultan and the Shogun each have a
+  figure of their own. When a lord falls, the great standard falls, and that is the moment
+  the callout stamps on.
+- On the map, the same lord's party carries his house's mark and the parasol or the great
+  standard, so the man you talked to is the man you see riding.
+
+Presentation only: the same seeded battle ends the same (`tests/battle_feel_tests.gd`
+already holds that line). Drawn in `tools/unit_sprites.py` and `tools/map_sprites.py`.
+Size: **medium**.
+
+### L4. You, drawn
+
+The largest gap in the game's cast is the player. Give the company a **commander**: a name
+and a face made at the start (the generator's parts, chosen or re-rolled), in the people's
+dress, who stands opposite a lord in a talk where your banner stands alone today, is one of
+the two at the wedding, sits at the fire with the captains, and wears the crown or the seal
+when one is won.
+
+This belongs to all three peoples (a Vardish commander in the free game, in today's bust),
+and each paid people's commander is drawn in the full harness of L2. It is the one item
+here that changes the free game most, so it is listed as a decision below. Size: **large**
+(it touches every talk screen).
+
+## The war: a different campaign, not a different start
+
+### W1. A different war at home
+
+Every campaign today opens on the same world: Vardmark and Kharzan at war, Ryumon watching
+(`WorldData.WARS`). `WorldSim.setup` already takes the player's people; let it set the
+stage.
+
+- **Kharzani: the Two Heirs.** Sultan Rustam dies inside the first twenty days. His two
+  heirs each hold part of the realm (Khalun and Qal'at Zeyra against Qasr Hamra and its
+  villages), each with two emirs, and Vardmark's war goes on over both their heads. You
+  serve one, play them against each other, or take the seal for yourself. The house of
+  Darvani has lent to both, which is what *The Debt of Khalun* is then about.
+- **Ryumon: the Empty Seat.** The Shogun sends the realm's host across the strait (the
+  balance-of-power war, brought forward), and with the army away a great house rises at
+  home. You carry the writ on the mainland while Kurogane is under threat behind you: go
+  back, or finish the Shogun's war first.
+
+Both need one new rule of the world, which `NEXT.md` already lists as owed: **a realm can
+split** (a second faction of the same culture holding some of its seats, at war with the
+first, rejoined when one side holds the capital and the other's ruler is taken). Built
+once, it serves both packs, and later rebellions anywhere in the free game.
+
+This is the feature a review would mention. Size: **large**.
+
+### W2. Household troops
+
+Each people's company can raise one kind of troop no one else can hire, at its capital,
+once its story's second chapter is done. One company at a time.
+
+- **Kharzani: the camel corps.** Slower than horse and no charge; enemy horse within reach
+  lose their charge and their nerve. The answer to knights.
+- **Ryumon: fire-lances.** A volley that shakes a whole company's nerve and punches
+  through armour, then a long reload in which they are helpless. Useless in rain (W4).
+- **Vardish, free: the banner guard.** Men-at-arms who cannot rout while the company's
+  standard stands.
+
+Sideways by the same gates as the troop trees: "neither branch of a role outclasses the
+other" in `--balance` extends to these. This is a second amendment to the never list
+(nothing existing is locked; these are new, and every people has one). Size: **medium**
+each, with sprites.
+
+### W3. Roads only that company can take
+
+- **Ryumon: open water.** The company keeps ships. Not three lanes but the whole Glass Sea:
+  sail from any Ryumon harbour and land on any shore beside a village, which makes every
+  coastal village on the mainland reachable in a night. A band of Wako met at sea is fought
+  on a deck: a narrow field with no flanks and no horse.
+- **Kharzani: the desert tracks.** Caravan tracks across the Red Wastes that only a
+  Kharzani company knows: direct ways between places the roads go round (Qal'at Zeyra to
+  Qasr Hamra; Dar Nakhla to Nahrabad's far side), at a cost in water (double rations for
+  the crossing).
+
+The map graph (`WorldData.ROADS`) gains edges with a `people` tag; open water is the larger
+piece (a sea-pathing layer and a deck field in `battle_site.gd`). Size: **medium**
+(tracks), **large** (open water).
+
+### W4. Their land's weather, their walls, their engines
+
+- **Weather by land.** Sandstorm in Kharzan (bow range cut by a third, dust over the far
+  half of the field), rain on the isles (mud slows horse, no fire-lances, arrows fall
+  short), fog in Vardmark at dawn. Shared by every campaign and every people: it makes the
+  two paid homelands feel like places, and it is free.
+- **Sieges by people.** `NEXT.md` lists siege engines as owed. Give each people its own:
+  Kharzani sappers (a mine under the wall: slow, then a breach where *you* choose),
+  Ryumon fire arrows (the garrison's cover burns; the gate does not), Vardish trebuchets
+  (free: the gate's bar drops before the assault). Walls drawn by who built them: Kharzani
+  towers and a double gate, a Ryumon castle's two baileys to take one after the other.
+
+Size: **medium** (weather), **large** (engines and walls).
+
+### W5. Someone who rides with you
+
+A painted character per people who carries its story and lives in your camp, with the
+five expressions and the talk screen the romance cast has: the house of Darvani's factor,
+who keeps your ledger and has her own view of what you borrow; the Shogun's inspector, sent
+to watch the company that carries his writ. Each has a say at the fire after a battle, a
+bond that is not a romance, and a part in how the story ends. Size: **medium**, plus one
+painted cast member each.
+
 ## What the Vardish get, free
 
 So the free game has every system and nobody plays the "lesser" people:
@@ -307,23 +489,26 @@ not a card that says "The End".
 
 ```
 WHAT YOU GET
-◆ A company financed by the house of Darvani: credit, favours, caravans
-◆ The swift raid: feed the company without burning a village
-◆ Feigned flight, an order only your riders know
-◆ The Debt of Khalun: five chapters, and the Sultan's seal at the end
-◆ Your own camp, memorial and three deeds
+◆ The Sultan's court, painted: every emir, in every campaign you play
+◆ Captains in full harness, and emirs under their parasols on the field
+◆ The Two Heirs: a succession war in your own homeland
+◆ The camel corps, and the desert tracks no one else can ride
+◆ A company on credit: the house of Darvani, its caravans, its factor
+◆ Feigned flight, the swift raid, and the Sultan's seal at the end
 ```
 
 ```
 WHAT YOU GET
-◆ Vows: stake the company's word before a battle
+◆ The Shogun's court, painted: every daimyo, in every campaign you play
+◆ Captains in the great armour, under a mark you make yourself
+◆ The Empty Seat: a rising at home while you carry the writ abroad
+◆ Fire-lances, and ships that land on any shore
 ◆ Houses of retainers: when a captain falls, their heir rides in
-◆ The challenge: call their commander out before the lines meet
-◆ The Writ Across the Strait: five chapters, and the mainland to govern
-◆ Your own ships, camp, memorial and three deeds
+◆ Vows, the challenge, and the mainland to govern at the end
 ```
 
-Every line is something the player does, and none is a number.
+The first two lines of each are what a screenshot shows; the middle two are what a review
+describes; the last two are what the player is still doing in week three.
 
 ## Order of work and sizes
 
@@ -338,13 +523,35 @@ Every line is something the player does, and none is a number.
 6. **The homes**: camps, memorials, name pools, deeds. Small–medium, pixel art only.
 7. The plates, when painted.
 
-**What can be cut and still be worth the price:** the story from five chapters to three
-(1, 3 and 5), and the caravans down to stakes that resolve unseen. **What cannot:** the two
-rules and the order. Without those, it is the coat again.
+The look and the war, in the order I would build them:
 
-**When to sell:** not before a people has its rules, its order, and its story through to
-an ending. Selling on the opening alone and promising the rest is how a $3.99 pack earns
-one-star reviews.
+8. **L3 commanders on the field and L2 captains in full harness.** Code-drawn, so they can
+   start now and be judged on mockup sheets. The cheapest things here that a player sees
+   in the first minute.
+9. **The realm that splits, then W1 for each people.** The largest single piece, and the one
+   that makes the campaign different, not only the company.
+10. **L1 the painted court**, in step with 9, since the two heirs and the rising house are
+    its first faces. Paced by the illustration workflow, not by code.
+11. **W2 household troops and W3 the desert tracks.** Medium each.
+12. **W5 the companion**, with the stories (5), since she or he speaks them.
+13. **W4 weather**, free for everyone. Then engines and walls, then open water: the two
+    largest, and the two a pack can ship without.
+14. **L4 the commander**, if wanted: a base-game feature on its own schedule.
+
+**What a pack is, at three sizes:**
+
+| Size | Contains | Honest price |
+| --- | --- | --- |
+| **Small** | The rules, the order, a three-chapter story, the home | $2.99 |
+| **Full** (recommended) | Small, plus L2, L3, W1, W2, the desert tracks or sea lanes at speed, the five-chapter story with its companion, and the ruler and four lords of L1 | $4.99 a people, $7.99 the pair |
+| **Grand** | Full, plus the whole painted court with heirs, sieges by people, open water | $6.99 a people, or Full now and the rest as a free update to owners |
+
+**What cannot be cut from any size:** the two rules and the order. Without those, it is
+the coat again, however well painted.
+
+**When to sell:** not before a people has its rules, its order, its look on the field (L2,
+L3) and its story through to an ending. Selling on the opening alone and promising the rest
+is how a pack earns one-star reviews.
 
 ## Files
 
@@ -362,7 +569,14 @@ one-star reviews.
 | `scripts/world/kingdom_screen.gd`, `crown_court.gd` | Tabs opened by an office. |
 | `scripts/world/settlement_screen.gd` | The Ledger card; the heir's arrival. |
 | `scripts/menu/main_menu.gd` | The company's word; camp and memorial by people. |
-| `tools/map_sprites.py` | The caravan. |
+| `tools/map_sprites.py` | The caravan; lords' parties with their mark, parasol or great standard. |
+| `scripts/art/captain_face.gd` | The half-figure, armour sets by level, the weapon in hand (L2). |
+| `scripts/ui/heraldry.gd` | House devices; the company's own mark and its maker (L2). |
+| `tools/unit_sprites.py`, `scripts/art/unit_art.gd` | Captain's parties, lords' retinues, household troops (L3, W2). |
+| `scripts/data/lords.gd`, `scripts/data/lord_voice.gd` | An authored court per painted people; painted portraits where owned (L1). |
+| `scripts/world/world_data.gd`, `world_sim.gd` | A realm that splits; the opening war by people; roads tagged by people (W1, W3). |
+| `scripts/battle/battle_site.gd`, `terrain_rules.gd` | Weather; the deck field; walls by builder (W3, W4). |
+| `assets/court-art-manifest.md` | New. Briefs and records for the painted courts and companions. |
 | `docs/paid-features-plan.md` | Packages C and D point here; the sheet's lines. |
 
 ## Tests
@@ -396,5 +610,15 @@ A `tests/peoples_tests.gd`, and the balance gates:
 - **Inherited bonds for a Ryumon heir**: one rank lower (recommended) or none.
 - **Caravans seen on the map** (recommended: they are the Kharzani's reason to care where
   the bandits are) or resolved unseen, which halves that package.
-- **Price.** With this in each, $3.99 a people holds up, and the $5.99 pair is the easy
-  choice. If only the cut-down version ships, $2.99 a people is the honest tier.
+- **Price and size.** See the three sizes above. My recommendation is Full at $4.99 a
+  people, with the Grand pieces following as free updates to owners.
+- **Art by ownership.** Whether owning a people upgrades how it is drawn in every campaign
+  (recommended: the purchase is seen everywhere and nothing playable is withheld), or the
+  better art ships to everyone and only *beginning* as the people is sold.
+- **An authored court.** L1 fixes the ruler's four lords by name and bearing in every
+  campaign, where today they are rolled. Recommended for the two paid realms; Vardmark can
+  follow.
+- **Household troops** amend "no people-locked troops". Recommended, since every people
+  gets one and nothing existing is locked; say no and W2 goes.
+- **The commander (L4).** A face and a name for the player, in the free game too.
+  Recommended, but as its own feature after the packs: it touches every talk screen.
