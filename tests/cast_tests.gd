@@ -89,6 +89,37 @@ func _init() -> void:
 		for bearing in Lords.BEARINGS:
 			customs = customs and LordLines.custom({"culture": cult, "bearing": bearing}) != ""
 	check(customs, "and a custom of their land to greet a stranger with")
+	var assumes_a_man := false
+	for key in LordLines.LINES:
+		for bearing in Lords.BEARINGS:
+			for t in LordLines.LINES[key][bearing]:
+				assumes_a_man = assumes_a_man or String(t).contains("a man's business")
+	for cult in LordLines.CUSTOM:
+		for bearing in LordLines.CUSTOM[cult]:
+			var t := String(LordLines.CUSTOM[cult][bearing])
+			assumes_a_man = assumes_a_man or t.contains(" his ") or t.contains(" he's ") or t.contains("man's")
+	check(not assumes_a_man, "nothing a lord says to you assumes you're a man")
+	# A lord may be a lady: her name says so, and her face is drawn as a woman's.
+	var CaptainFace = load("res://scripts/art/captain_face.gd")
+	var lady := {"id": 7, "name": "Lord Jessa Fairholt", "culture": Cultures.VARDISH, "bearing": Lords.CAUTIOUS, "house": "Fairholt"}
+	var lord := {"id": 8, "name": "Lord Piers Fairholt", "culture": Cultures.VARDISH, "bearing": Lords.CAUTIOUS, "house": "Fairholt"}
+	check(LordVoice.is_lady(lady) and not LordVoice.is_lady(lord) and LordVoice.is_lady({"name": "Emir Nasrin ibn Malik", "culture": Cultures.KHARZANI})
+		and LordVoice.is_lady({"name": "Daimyo Ume Hosokawa", "culture": Cultures.RYUMON}) and not LordVoice.is_lady({"name": "King Aldwin", "culture": Cultures.VARDISH}),
+		"a lord whose first name is a woman's is a lady, in every land")
+	var bearded := 0
+	var lady_hair := true
+	for i in 40:
+		var rec := LordVoice.portrait_record({"id": i, "name": "Lord %s Test" % ["Jessa", "Elspeth", "Una", "Mira"][i % 4], "culture": Cultures.VARDISH})
+		var f: Dictionary = CaptainFace.features(rec)
+		if String(f["beard"]) != "none":
+			bearded += 1
+		lady_hair = lady_hair and String(f["hair"]) in ["braid", "long"]
+	check(bearded == 0 and lady_hair, "a lady lord is never drawn with a beard, and wears her hair as the women of her land do")
+	var men_bearded := 0
+	for i in 40:
+		if String(CaptainFace.features(LordVoice.portrait_record({"id": i, "name": "Lord Piers Test", "culture": Cultures.VARDISH}))["beard"]) != "none":
+			men_bearded += 1
+	check(men_bearded > 0, "and the lords who are men still may be (%d of 40)" % men_bearded)
 	# The names of the people you court and the heroes are theirs alone.
 	var free := true
 	for cult in Cultures.ORDER:

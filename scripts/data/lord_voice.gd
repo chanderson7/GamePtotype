@@ -88,10 +88,17 @@ static func portrait_record(lord: Dictionary) -> Dictionary:
 		Lords.CRUEL:
 			temper = "Vengeful"
 	return {"id": PORTRAIT_BASE + int(lord.get("id", 0)), "culture": String(lord.get("culture", Cultures.VARDISH)),
-		"name": String(lord.get("name", "")), "temperament": temper, "quirk": quirk,
+		"name": String(lord.get("name", "")), "temperament": temper, "quirk": quirk, "woman": is_lady(lord),
 		"noble": "ruler" if bool(lord.get("ruler", false)) else "lord",
 		"house": (colors[0] as Color).to_html(false), "house_dark": (colors[1] as Color).to_html(false),
 		"battles": 20 if int(lord.get("renown", 0)) >= 300 else 0}
+
+
+## Whether a lord is a woman: her first name (after the title) is a woman's name of her land.
+static func is_lady(lord: Dictionary) -> bool:
+	var words := String(lord.get("name", "")).split(" ", false)
+	var first := String(words[1]) if words.size() >= 2 else String(lord.get("name", ""))
+	return Cultures.is_womans_name(first, String(lord.get("culture", "")))
 
 
 ## A lord's kinswoman's face (SocialSim.house_kin): her own record, in her lord's house

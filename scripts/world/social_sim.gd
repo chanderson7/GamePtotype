@@ -435,9 +435,16 @@ func house_kin(lord: Dictionary) -> Dictionary:
 			var cult := String(lord.get("culture", Cultures.VARDISH))
 			var names: Array = Gatherings.KIN_NAMES.get(cult, Gatherings.KIN_NAMES[Cultures.VARDISH])
 			var name := String(names[rng.randi_range(0, names.size() - 1)])
-			var relations: Array = Gatherings.KIN_RELATIONS
+			var lady := Cultures.is_womans_name(_first_of(String(lord.get("name", ""))), cult)
+			var relations: Array = Gatherings.KIN_RELATIONS_LADY if lady else Gatherings.KIN_RELATIONS
 			house["kin"] = {"name": name, "relation": String(relations[rng.randi_range(0, relations.size() - 1)])}
 	return house["kin"]
+
+
+## "Lord Jessa Fairholt" to "Jessa": the name after the title.
+static func _first_of(full: String) -> String:
+	var words := full.split(" ", false)
+	return String(words[1]) if words.size() >= 2 else full
 
 
 func get_person(person_id: String) -> Dictionary:

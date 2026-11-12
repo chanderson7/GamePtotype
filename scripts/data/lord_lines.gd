@@ -453,13 +453,13 @@ const STORY := {
 ## A custom of their land, said once, the first time you meet: where they're from shows.
 const CUSTOM := {
 	Cultures.VARDISH: {
-		D: "In Vardmark a stranger gets one cup before anyone asks his business. Yours is poured.",
-		C: "In Vardmark we ask a man's business before his name. So: your business?",
+		D: "In Vardmark a stranger gets one cup before anyone asks their business. Yours is poured.",
+		C: "In Vardmark we ask a stranger's business before their name. So: your business?",
 		H: "By Vardish custom the road's peace is mine to keep. Keep it with me.",
 		X: "Vardish law says the road is free. Vardish law is a long way from here.",
 	},
 	Cultures.KHARZANI: {
-		D: "In Kharzan a guest is safe for three days. On the fourth we find out what he's made of.",
+		D: "In Kharzan a guest is safe for three days. On the fourth we find out what they're made of.",
 		C: "In Kharzan we say a caravan is only as honest as its slowest camel. I'll be watching yours.",
 		H: "In Kharzan a guest at the well is a guest of the house. Drink, and then we'll talk.",
 		X: "In Kharzan water is owed to any traveller. You'll find I owe nothing else.",

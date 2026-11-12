@@ -113,6 +113,15 @@ static func features(captain: Dictionary) -> Dictionary:
 		f["soft"] = true
 		f["beard"] = "none"
 		f["hair"] = {"kharzani": "long", "ryumon": "tied"}.get(culture, "braid")
+	# A lady lord (LordVoice.is_lady): the same, her hair in one of her land's women's
+	# styles, chosen by who she is, and her brows finer.
+	elif bool(captain.get("woman", false)):
+		f["soft"] = true
+		f["beard"] = "none"
+		var styles: Array = {"kharzani": ["long", "wrap"], "ryumon": ["long"]}.get(culture, ["braid", "long"])
+		f["hair"] = styles[posmod(int(captain.get("id", 0)), styles.size())]
+		if int(f["brow"]) == 2:
+			f["brow"] = 1
 	# New draws come after the old ones, so nothing above changes.
 	f["eye_set"] = rng.randi_range(0, 1)   # wide-set or close-set eyes
 	f["lip"] = rng.randi_range(0, 1)       # full or thin lips
