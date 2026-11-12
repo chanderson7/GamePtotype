@@ -91,8 +91,6 @@ const BROW_HOLD := 1.3
 const GLANCE_EVERY := Vector2(7.0, 13.0)
 const GLANCE_HOLD := Vector2(0.9, 1.5)
 var _their_banner: Control
-## A painted place drifts very slowly behind them.
-var _drift := false
 ## Their line being written out, and a duel being fought: a tap finishes either.
 var _write = null
 var _duel_tween = null
@@ -242,7 +240,6 @@ func _build_stage() -> void:
 		# The painting is by day: dusk warms it and night cools and darkens it.
 		art.modulate = {"night": Color(0.42, 0.47, 0.72), "dusk": Color(1.0, 0.78, 0.62), "morning": Color(1.0, 0.95, 0.9)}.get(when, Color.WHITE)
 		_backdrop = art
-		_drift = true
 		# The camp's fire after dark.
 		if id == "company_camp" and when in ["dusk", "night"]:
 			art.add_child(TalkView.firelight())
@@ -367,7 +364,6 @@ func _place_backdrop() -> void:
 		else:
 			_backdrop.position = Vector2.ZERO
 			_backdrop.size = s
-			_backdrop.pivot_offset = s * 0.5
 	var fs := Vector2(48, 64) * FACE_SCALE * clampf(s.x / 720.0, 0.6, 1.4)
 	_face.size = fs
 	_face.pivot_offset = Vector2(fs.x * 0.5, fs.y)
@@ -451,7 +447,8 @@ func _pose_face() -> void:
 	_face.scale = Vector2(_face_lean, _face_lean)
 
 
-## They breathe and blink, their banner stirs, and a painted place drifts. All of it holds
+## They breathe and blink, and their banner stirs. The place behind them holds still (a
+## slow zoom was tried: on pixel art every step of it shimmered). All of it holds
 ## still under Reduced motion.
 func _process(delta: float) -> void:
 	if _face == null or _closing or Style.motion_reduced():
@@ -461,9 +458,6 @@ func _process(delta: float) -> void:
 	_pose_face()
 	if _their_banner != null and is_instance_valid(_their_banner):
 		_their_banner.rotation = sin(_clock * 1.3) * 0.02
-	if _drift and _backdrop != null:
-		var grow := 1.0 + 0.012 * (1.0 - cos(_clock * TAU / 44.0))
-		_backdrop.scale = Vector2(grow, grow)
 
 
 ## The expression they wear for this exchange. Their eyes keep living in it: they blink,

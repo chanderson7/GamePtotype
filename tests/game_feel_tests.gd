@@ -1074,6 +1074,7 @@ func _lord_talk(tap: InputEvent) -> void:
 	var y0: float = lf.position.y
 	await _wait(0.5)
 	check(not is_equal_approx(lf.position.y, y0), "they breathe")
+	check(lt._backdrop == null or lt._backdrop.scale.is_equal_approx(Vector2.ONE), "and the place behind them holds still")
 	# Their face answers what you say.
 	var resting: Texture2D = lt._face_texture("")
 	lt._show("\"Good.\"", [], [lt._leave_reply()], "warm", "nod")

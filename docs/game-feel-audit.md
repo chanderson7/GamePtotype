@@ -215,8 +215,9 @@ now moves the same way, through the same helpers:
   Single combat: your champion steps onto the stage, they close twice, then the result
   (decided and saved before any of it shows; a tap skips it). Drawn swords: a glint of
   steel as the talk gives way to the field.
-- **The place.** Firelight in a hall or your camp after dark, their banner stirs, and a
-  painted place drifts very slowly.
+- **The place.** Firelight in a hall or your camp after dark, and their banner stirs. The
+  painted place holds still: a slow zoom on it was tried and taken out, because on pixel
+  art every step of a zoom moves whole rows of pixels, and it read as a constant shimmer.
 
 All of it is still under Reduced motion. Checked by `_lord_talk` in
 `tests/game_feel_tests.gd`.
