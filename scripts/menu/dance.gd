@@ -34,7 +34,7 @@ func _ready() -> void:
 	var flag := owner if Heraldry.REALM_SIZES.has(owner) else Heraldry.realm_of_culture(Data.culture_of(owner))
 	var hall := HallScene.rect(Data.culture_of(Data.settlement(place)["faction"]), flag, "night" if when == "night" else "dusk", place.hash())
 	setup(hall, "%s at %s · %s" % [Gatherings.upper_first(String(g["name"])), Data.settlement(place)["name"], when])
-	Sound.play_music("camp_" + String(g.get("culture", Data.culture_of(owner))))
+	Sound.play_music("feast_" + String(g.get("culture", Data.culture_of(owner))))
 	var check: Dictionary = GameState.dance_check(g)
 	var guests := TalkView.stage_chip(str(GameState.gathering_lords(g).size()), Style.TEXT, "men")
 	guests.tooltip_text = "guests"

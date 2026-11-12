@@ -62,7 +62,8 @@ func _ready() -> void:
 	if not bool(_memory.get("private", false)):
 		_dress(when)
 	set_face("center", _portrait("warm"), false, 0.9)
-	Sound.play_music("camp_" + culture)
+	# The feast's music, unless she remembers it alone with you: then the quiet one.
+	Sound.play_music(("camp_" if bool(_memory.get("private", false)) else "feast_") + culture)
 	if not _memory.is_empty():
 		_tell_again()
 		return

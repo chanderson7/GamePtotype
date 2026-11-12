@@ -72,7 +72,9 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn" if w != null else "res://scenes/title.tscn")
 		return
 	place = w.here()
-	Sound.play_music(WorldData.culture_of(WorldData.settlement(place)["faction"]))
+	# A town keeps its land's theme; while a feast is on there, the feast's music.
+	var land := String(WorldData.culture_of(WorldData.settlement(place)["faction"]))
+	Sound.play_music(("feast_" if w.gathering_on(w.gathering_at(place)) else "") + land)
 	Sound.play_culture_accent(WorldData.culture_of(WorldData.settlement(place)["faction"]))
 	var travel := TravelPresentation.context(w, GameState.army)
 	Sound.set_loop(String(travel.get("ambience", "settlement_edge")))
