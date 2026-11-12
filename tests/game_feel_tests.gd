@@ -1112,7 +1112,7 @@ func _lord_talk(tap: InputEvent) -> void:
 		check(lt._face_off.length() < 0.5 and lf.texture == lt._face_texture("warm"), "and up again")
 		lt._show("\"Go on.\"", [], [lt._leave_reply()], "proud", "lean")
 		await _wait(0.1)
-		check(lf.texture == lt._face_texture("proud/brow"), "leaning in with interest, a brow lifts")
+		check(lf.texture in [lt._face_texture("proud/brow"), lt._face_texture("proud/brow,talk")], "leaning in with interest, a brow lifts")
 		await _wait(1.6)
 		check(lf.texture == lt._face_texture("proud"), "and settles")
 		lt._glance_wait = 0.01
@@ -1124,6 +1124,17 @@ func _lord_talk(tap: InputEvent) -> void:
 		check(glanced and lt._face_texture("proud/away") != lt._face_texture("proud"), "now and then they glance aside")
 		lt._glance_wait = 99.0
 		await _wait(1.6)
+		# Their mouth moves on the words while their line is written, and rests after.
+		lt._blink["wait"] = 99.0
+		lt._show("\"A long line, said slowly enough to watch it being said, word by word.\"", [], [lt._leave_reply()], "grim", "")
+		var talked := false
+		var talk_until := Time.get_ticks_msec() + 600
+		while Time.get_ticks_msec() < talk_until:
+			await process_frame
+			talked = talked or lf.texture == lt._face_texture("grim/talk")
+		check(talked and lt._face_texture("grim/talk") != lt._face_texture("grim"), "their mouth moves on the words as they're written")
+		await _wait(1.4)
+		check(not lt.writing() and lf.texture == lt._face_texture("grim"), "and rests when the line is whole")
 		sound.reduced_motion = true
 		lt._show("\"Agreed.\"", [], [lt._leave_reply()], "warm", "nod")
 		lt._blink["wait"] = 0.01
@@ -1163,8 +1174,9 @@ func _lord_talk(tap: InputEvent) -> void:
 	var words := still._talk.get_node("Speech") as Label
 	check(is_equal_approx(sf.modulate.a, 1.0) and not still.writing() and words.visible_characters == -1, "under Reduced motion the lord and the line are there at once")
 	var p0: Vector2 = sf.position
+	var t0: Texture2D = sf.texture
 	await _wait(0.3)
-	check(sf.position == p0 and sf.texture == still._face_texture(""), "and hold still")
+	check(sf.position == p0 and sf.texture == t0, "and hold still")
 	still._leave()
 	check(still.is_queued_for_deletion(), "and leaving is a cut")
 	sound.reduced_motion = false

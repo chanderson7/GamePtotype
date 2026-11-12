@@ -4637,7 +4637,7 @@ func _draw_chip(i: int) -> void:
 	var dim := 0.45 if out else 1.0
 	var rec := _squad_record(e["roster_id"])
 	var c = rec.get("captain")
-	var face: Texture2D = CaptainArt.texture(c) if typeof(c) == TYPE_DICTIONARY else null
+	var face: Texture2D = CaptainArt.texture(c, "", true) if typeof(c) == TYPE_DICTIONARY else null
 	# Deploying, the card shows the troop itself; in battle, the flag its standard flies.
 	var troop: Texture2D = Art.icon(String(e["type"]), Sim.PLAYER, String(rec.get("culture", GameState.culture))) if not battle else null
 	var mark := Rect2(36, 8, 28, 28) if face != null else Rect2(6, 4, 34, 34)
@@ -4799,7 +4799,7 @@ func _draw_roll() -> void:
 	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
 	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(34), Color(Style.TEXT, a))
 	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
-	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain")
+	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain", true)
 	if face != null:
 		# The face in a brass frame.
 		var fr := Rect2(Vector2(x + 16, y + 16), Vector2(78, 104))

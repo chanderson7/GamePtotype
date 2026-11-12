@@ -468,4 +468,37 @@ hand-set pixel parts, made by `tools/pixel_kit` and kept in `assets/portraits/ki
   15 ms) and kept; each mood or blink then repaints the eyes, brows and mouth (under a
   millisecond), so blinks and moods never stall.
 
+## Faces that feel what they say
+
+Talks used to wear two faces: the one speaking warm, the one listening at rest, the same
+for a joke, a promise and the names of the dead, and no mouth ever moved. Now:
+
+- **Seventeen moods** (`LordPortrait.MOODS`): at rest, warm, proud, grim, grief, pain,
+  fear, laughing, amused, teasing, surprised, angry, sad, shy (with a blush, only on the
+  skin), thoughtful, determined and worried. The kit's eyes gained smiling, laughing,
+  squinting and downcast states; its brows angry and sad, and one brow raised; its mouths
+  talking, talking with a smile, laughing, an "o", bared teeth, a pout and a smirk. Over any
+  mood a face can blink, glance, lift its brows and **open its mouth on a word**
+  ("grim/talk,shut").
+- **Captains are drawn from the kit too**, at 120×160: the face CaptainFace always gave
+  them (skin, hair, head, eyes, nose, beard, outfit, kept from the same draws), worn by a
+  woman when the name is a woman's, in their company's kit, with what their troop carries,
+  the brass of their rank, the token of a veteran role, their scars and a bandage while
+  they heal. Small slots (under 110 px tall) show head and shoulders, averaged down to
+  60×80, so a face is as big in a roster as it was. CaptainFace still draws them if the
+  kit can't be read.
+- **Reading a line** (`scripts/data/feeling.gd`): cues in the words (a jest, a name of the
+  dead, an insult, fear, a tender word, pride, warmth, a vow, wondering), shaded by who
+  says it (someone else's fear is mocked by a vengeful captain and comforted by a
+  steadfast one; a fragile one blushes at a tender word), give the face it's said with
+  and a gesture (a laugh bounces, warmth leans in, hurt draws back). A line with nothing
+  to read is said with the speaker's resting face, which already shows their temper.
+- **At the fire**, each line has its own feeling, and the one listening shows how it lands
+  a beat later: laughter is caught, grief shared, anger met by temper. Told passages set
+  both faces (the names of the absent lower every eye; a bond's rank is worn with pride).
+  By an empty place the survivor's words are grief, whatever else is in them.
+- **Mouths move** while a line is written out, and rest when it's whole (a tap makes it
+  whole). In the lord talk too, where a beat that sets no mood is now said with the
+  feeling in its words.
+
 Captains keep `CaptainFace`. Checked in `tests/lord_portrait_tests.gd`.

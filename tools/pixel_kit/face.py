@@ -133,7 +133,7 @@ EYE_SHAPES = {
     "narrow": {0: (1, 1), 1: (2, 2)},
     "round":  {-1: (1, 1), 0: (1, 1), 1: (1, 1)},
 }
-EYE_STATES = ["open", "half", "shut", "away", "wide"]
+EYE_STATES = ["open", "half", "shut", "away", "wide", "smile", "laugh", "squint", "down"]
 
 
 def eye(which, shape, state, lady):
@@ -163,9 +163,29 @@ def eye(which, shape, state, lady):
         for x in range(x0 + 2, x1 - 1):
             px(x, y - 3, "skin", 3)
         return cv
+    if state == "laugh":
+        # shut tight in a smile: the lash line arched up, the cheek pushed under it
+        for x in range(x0 + 1, x1):
+            t = (x - x0) / (x1 - x0)
+            arc = y + 1 - int(round(1.8 * math.sin(math.pi * t)))
+            for yy in range(y - 2, arc):
+                px(x, yy, "skin", 2 if yy > y - 2 else 3)
+            px(x, arc, "ink", 0)
+            for yy in range(arc + 1, y + 2):
+                px(x, yy, "skin", 2)
+        px(inner, y + 1, "skin", 4); px(outer, y + 1, "ink", 0)
+        for x in range(x0 + 3, x1 - 2):
+            px(x, y + 2, "skin", 3)
+        if lady:
+            px(outer + step, y, "ink", 0)
+        return cv
     rows = dict(EYE_SHAPES[shape])
-    if state == "half":
+    if state in ("half", "down"):
         rows.pop(min(rows))
+    if state == "smile" and len(rows) > 1:
+        rows.pop(max(rows))
+    if state == "squint":
+        rows = {0: (2, 2)}
     if state == "wide":
         rows[min(rows) - 1] = (2, 2)
     top = min(rows)
@@ -177,7 +197,9 @@ def eye(which, shape, state, lady):
         for x in range(a, b + 1):
             d = abs(x - ic)
             if d <= 1.7 and not (state == "wide" and r == top):
-                if r == top or (state == "wide" and r == top + 1):
+                if state == "down":
+                    m, t = (("ink", 1) if d <= 0.6 else ("iris", 1)) if r == max(rows) else ("iris", 3)
+                elif r == top or (state == "wide" and r == top + 1):
                     m, t = ("ink", 1) if d <= 0.6 else ("iris", 3)
                 elif r == 0:
                     m, t = ("ink", 1) if d <= 0.6 else ("iris", 1)
@@ -196,13 +218,23 @@ def eye(which, shape, state, lady):
     px(outer, y + top, "ink", 0)
     if lady:
         px(outer + step, lid, "ink", 0); px(outer + step, lid - 1, "ink", 0); px(outer, y + top + 1, "ink", 0)
-    if state == "half":
+    if state in ("half", "down", "squint"):
         for x in range(x0 + 1, x1):
             px(x, lid - 1, "skin", 3)
+    if state == "squint":
+        for x in range(x0 + 1, x1):
+            px(x, lid, "ink", 0)
+            px(x, lid - 1, "ink", 2 if x0 + 2 < x < x1 - 2 else 0)
     low = y + max(rows) + 1
     for x in range(x0 + 2, x1 - 1):
         px(x, low, "skin", 4)
     px(x0 + 1, low - 1, "skin", 4); px(x1 - 1, low - 1, "skin", 4)
+    if state in ("smile", "squint"):
+        # the cheek rises under a smiling or narrowed eye
+        for x in range(x0 + 1, x1):
+            px(x, low, "skin", 4 if x0 + 1 < x < x1 - 1 else 3)
+        for x in range(x0 + 2, x1 - 1):
+            px(x, low + 1, "skin", 3)
     if shape == "hooded":
         for x in range(x0 + 1, x1):
             px(x, lid - 1, "skin", 3)
@@ -214,7 +246,8 @@ def eye(which, shape, state, lady):
 
 # --------------------------------------------------------------------------- brows
 BROW_STYLES = {"thick": 1.25, "medium": 1.0, "thin": 0.72, "arched": 0.78}
-BROW_MOODS = {"rest": (0.0, 0.0), "raised": (1.6, 0.0), "stern": (-0.6, -0.35), "worried": (0.6, 0.38)}
+BROW_MOODS = {"rest": (0.0, 0.0), "raised": (1.6, 0.0), "stern": (-0.6, -0.35), "worried": (0.6, 0.38),
+              "angry": (-1.2, -0.75), "sad": (0.9, 0.75)}
 
 
 def brow(which, style, mood, lean=0.0):
@@ -300,7 +333,93 @@ def nose(style):
 
 
 # --------------------------------------------------------------------------- mouth
-MOUTH_MOODS = ["rest", "smile", "slight", "flat", "frown", "grimace", "open"]
+def _mouth_more(px, mood, mx, my, lady, full, lip):
+    """Mouths that move: talking (open, or open in a smile), a laugh, a surprised o, bared teeth,
+    a pout, a smirk."""
+    def lips_row(y, dxs, tone_l, tone_r):
+        for dx in dxs:
+            m, t = lip(tone_l if dx <= 0 else tone_r)
+            px(mx + dx, y, m, t)
+    if mood == "talk":
+        lips_row(my - 1, range(-4, 5), 2, 3)
+        for dx in range(-2, 3):
+            px(mx + dx, my, "ink", 2); px(mx + dx, my + 1, "ink", 2)
+        for dx in (-3, 3):
+            px(mx + dx, my, "lip", 4); px(mx + dx, my + 1, "lip", 4)
+        lips_row(my + 2, range(-3, 4), 2, 3)
+        m, t = lip(1); px(mx - 1, my + 2, m, t)
+        for dx in range(-2, 3):
+            px(mx + dx, my + 3, "skin", 3)
+    elif mood == "talk_smile":
+        lips_row(my - 1, range(-3, 4), 2, 3)
+        px(mx - 4, my - 1, "lip", 4); px(mx + 4, my - 1, "lip", 4)
+        for dx in range(-3, 4):
+            px(mx + dx, my, "white" if abs(dx) <= 1 else "ink", 1 if abs(dx) <= 1 else 2)
+            px(mx + dx, my + 1, "ink", 2)
+        lips_row(my + 2, range(-2, 3), 2, 3)
+        px(mx - 5, my - 2, "skin", 3); px(mx + 5, my - 2, "skin", 3)
+    elif mood == "laugh":
+        lips_row(my - 1, range(-4, 5), 2, 3)
+        px(mx - 5, my - 1, "lip", 4); px(mx + 5, my - 1, "lip", 4)
+        for dx in range(-4, 5):
+            for r in range(3):
+                if r == 2 and abs(dx) > 2:
+                    continue
+                if r == 0 and abs(dx) <= 3:
+                    px(mx + dx, my + r, "white", 1 if dx <= 0 else 2)
+                else:
+                    px(mx + dx, my + r, "ink", 2 if r < 2 else 3)
+        px(mx - 1, my + 2, "lip", 2); px(mx, my + 2, "lip", 2)
+        lips_row(my + 3, range(-2, 3), 2, 3)
+        px(mx - 6, my - 1, "skin", 3); px(mx + 6, my - 1, "skin", 3); px(mx - 6, my, "skin", 3); px(mx + 6, my, "skin", 3)
+    elif mood == "o":
+        px(mx - 1, my, "ink", 2); px(mx, my, "ink", 2); px(mx - 1, my + 1, "ink", 2); px(mx, my + 1, "ink", 3)
+        for x, y in ((mx - 2, my), (mx - 2, my + 1), (mx + 1, my), (mx + 1, my + 1)):
+            m, t = lip(3); px(x, y, m, t)
+        for x in (mx - 1, mx):
+            m, t = lip(2); px(x, my - 1, m, t)
+            m, t = lip(2); px(x, my + 2, m, t)
+        for dx in (-1, 0):
+            px(mx + dx, my + 3, "skin", 3)
+    elif mood == "teeth":
+        for dx in range(-4, 5):
+            px(mx + dx, my - 1, "lip", 4)
+            px(mx + dx, my + 1, "lip", 4)
+        for dx in range(-3, 4):
+            px(mx + dx, my, "white", 1 if dx < 2 else 2)
+        px(mx - 5, my + 1, "lip", 4); px(mx + 5, my + 1, "lip", 4)
+        for dx in range(-2, 3):
+            px(mx + dx, my + 3, "skin", 3)
+    elif mood == "pout":
+        for dx in range(-4, 5):
+            yy = my + (1 if abs(dx) >= 3 else 0) + (1 if abs(dx) >= 4 else 0)
+            px(mx + dx, yy, "lip", 4)
+        lips_row(my + 1, range(-2, 3), 1, 2)
+        lips_row(my + 2, range(-1, 2), 2, 3)
+        for dx in range(-2, 3):
+            px(mx + dx, my + 3, "skin", 3)
+    elif mood == "smirk":
+        for dx in range(-5, 6):
+            yy = my - (1 if dx >= 3 else 0) - (1 if dx >= 5 else 0)
+            px(mx + dx, yy, "lip", 4)
+        lips_row(my - 1, range(-3, 3), 2, 3)
+        lips_row(my + 1, range(-2, 3), 2, 3)
+        px(mx + 6, my - 3, "skin", 3)
+        for dx in range(-2, 3):
+            px(mx + dx, my + 2, "skin", 3)
+
+
+def blush_mark(lady):
+    """A colour in the cheeks (shy, embarrassed, flustered)."""
+    cv = Canvas()
+    m = blob(EYES_X["far"] - 1, NOSE_Y - 1, 5.5, 3) + blob(EYES_X["near"] + 3, NOSE_Y - 1, 6.5, 3.2)
+    on = ((m > 0.45) | ((m > 0.15) & (BAYER4[YY % 4, XX % 4] < 0.5))) & head_mask("f_heart") & ~shift(~head_mask("f_heart"), 0, 1, True)
+    cv.put(on, "blush", np.where(m > 0.6, 1, 2), flag=NO_LINE)
+    for dx in (-2, 0, 2):
+        cv.px(EYES_X["near"] + 3 + dx, NOSE_Y - 1, "blush", 0, flag=NO_LINE)
+    return cv
+MOUTH_MOODS = ["rest", "smile", "slight", "flat", "frown", "grimace", "open",
+               "talk", "talk_smile", "laugh", "o", "teeth", "pout", "smirk"]
 
 
 def mouth(style, mood):
@@ -315,6 +434,11 @@ def mouth(style, mood):
 
     def px(x, y, m, t):
         cv.px(x, y, m, t, flag=F)
+
+    lip = (lambda t: ("lip", t)) if (lady or full) else (lambda t: ("skin", t))
+    if mood in ("talk", "talk_smile", "laugh", "o", "teeth", "pout", "smirk"):
+        _mouth_more(px, mood, mx, my, lady, full, lip)
+        return cv
 
     if mood == "open":
         for dx in range(-3, 4):

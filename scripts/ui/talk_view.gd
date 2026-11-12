@@ -222,13 +222,18 @@ static func blink_step(state: Dictionary, delta: float) -> String:
 ## A face can blink: `rest` is its resting picture and `shut` the same with its eyes
 ## closed. It blinks only while it wears `rest`. A face the game draws has one resting
 ## look (an expression has its own eyes); a painted portrait has a shut-eyed twin for
-## every expression, found as each is put on (_painted_life).
-func set_blink(side: String, rest: Texture2D, shut: Texture2D, half: Texture2D = null) -> void:
+## every expression, found as each is put on (_painted_life). `talk` is the same face with
+## its mouth open on a word: given one, it moves its mouth while its lines are written out.
+func set_blink(side: String, rest: Texture2D, shut: Texture2D, half: Texture2D = null, talk: Texture2D = null) -> void:
 	if not _faces.has(side) or rest == null or shut == null:
 		return
 	_faces[side]["rest"] = rest
 	_faces[side]["shut"] = shut
 	_faces[side]["half"] = half if half != null else shut
+	if talk != null:
+		_faces[side]["talk"] = talk
+	else:
+		_faces[side].erase("talk")
 	if not _faces[side].has("blink"):
 		_faces[side]["blink"] = {"wait": randf_range(1.2, 4.0), "left": 0.0}
 
@@ -259,17 +264,50 @@ func _blink(side: String, delta: float) -> void:
 		return
 	var state: Dictionary = f["blink"]
 	var half: Texture2D = f.get("half", f["shut"])
-	if face.texture != f["rest"] and face.texture != f["shut"] and face.texture != half:
+	var talk: Texture2D = f.get("talk")
+	if face.texture != f["rest"] and face.texture != f["shut"] and face.texture != half and (talk == null or face.texture != talk):
 		state["left"] = 0.0
 		return
 	blink_step(state, delta)
 	var left := float(state["left"])
 	var want: Texture2D = f["rest"]
+	var open := _mouth_moves(f, delta)
 	if left > 0.0:
 		var into := BLINK_TIME - left
 		want = half if into < 0.03 or into > BLINK_TIME - 0.03 else f["shut"]
+	elif open and talk != null:
+		want = talk
 	if face.texture != want:
 		face.texture = want
+
+
+## How long a mouth stays open on a word, and shut between words (seconds).
+const MOUTH_OPEN := Vector2(0.08, 0.15)
+const MOUTH_SHUT := Vector2(0.05, 0.1)
+
+
+## The face on `side` talks while `writing` (a write_out tween) runs: its mouth opens and
+## closes on the words, and stops when the line is whole (or tapped whole).
+func speaking(side: String, writing) -> void:
+	if not _faces.has(side) or not running(writing):
+		return
+	_faces[side]["saying"] = writing
+	_faces[side]["flap"] = 0.0
+	_faces[side]["mouth_open"] = false
+
+
+## One tick of a talking mouth: whether it's open now.
+func _mouth_moves(f: Dictionary, delta: float) -> bool:
+	if not running(f.get("saying")):
+		f.erase("saying")
+		f["mouth_open"] = false
+		return false
+	f["flap"] = float(f.get("flap", 0.0)) - delta
+	if float(f["flap"]) <= 0.0:
+		var open := not bool(f.get("mouth_open", false))
+		f["mouth_open"] = open
+		f["flap"] = randf_range(MOUTH_OPEN.x, MOUTH_OPEN.y) if open else randf_range(MOUTH_SHUT.x, MOUTH_SHUT.y)
+	return bool(f["mouth_open"])
 
 
 ## The colour of a face that is listening, not speaking.
@@ -547,8 +585,8 @@ func change_face(side: String, tex: Texture2D) -> void:
 	var face: TextureRect = _faces.get(side, {}).get("node")
 	if face == null or tex == null or face.texture == tex:
 		return
-	if tex == _faces[side].get("rest") and (face.texture in [_faces[side].get("shut"), _faces[side].get("half")] or PortraitLife.wears(_faces[side], face.texture)):
-		return                                  # the same face, caught mid-blink or mid-glance
+	if tex == _faces[side].get("rest") and (face.texture in [_faces[side].get("shut"), _faces[side].get("half"), _faces[side].get("talk")] or PortraitLife.wears(_faces[side], face.texture)):
+		return                                  # the same face, caught mid-blink, mid-word or mid-glance
 	var was := face.texture
 	face.texture = tex
 	_painted_life(side, tex)
@@ -869,7 +907,8 @@ func finish_writing() -> void:
 ## on them: the replies under them can be pressed at once), but each shows, and is
 ## written out, as its turn comes; a tap brings the rest at once. Each is {who, text,
 ## speaker, then} where `then` (optional) is called with the speaking face's side as the
-## line is said. `done` is called after the last. Under Reduced motion or "Text appears
+## line is said ("" for narration); the face that says it moves its mouth as it's written
+## (if it can: set_blink). `done` is called after the last. Under Reduced motion or "Text appears
 ## at once" they are all simply there.
 var _turn = null
 
@@ -915,6 +954,8 @@ func _take_turn(holder: Control, line: Dictionary) -> void:
 	if who == "narration":
 		holder.modulate.a = 0.0
 		holder.create_tween().tween_property(holder, "modulate:a", 1.0, 0.25)
+		if line.has("then"):
+			(line["then"] as Callable).call("")
 	elif who != "you":
 		var words := holder.find_child("Words", true, false) as Label
 		var w: Tween = write_out(words) if words != null else null
@@ -924,6 +965,7 @@ func _take_turn(holder: Control, line: Dictionary) -> void:
 		_nudge_speaker(side)
 		if line.has("then"):
 			(line["then"] as Callable).call(side)
+		speaking(side, w)
 	_follow()
 
 

@@ -21,6 +21,7 @@ const Jobs = preload("res://scripts/data/jobs.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const HallScene = preload("res://scripts/ui/hall_scene.gd")
 const TalkView = preload("res://scripts/ui/talk_view.gd")
+const Feeling = preload("res://scripts/data/feeling.gd")
 
 ## Replies that take you back or away: they sit in a footer of two quiet buttons, not in
 ## the list of things to say.
@@ -85,6 +86,10 @@ var _brow_t := -1.0
 var _glance_t := -1.0
 var _glance_wait := 0.0
 var _glance_for := 1.2
+## Their mouth on the words while their line is written out: open or shut, and for how
+## much longer.
+var _mouth_open := false
+var _flap := 0.0
 ## A nod: the head dips this far (pixels) and the lids lower while it's down.
 const NOD_DIP := 3.0
 const NOD_DOWN := 0.3
@@ -508,9 +513,26 @@ func _live_eyes(delta: float) -> void:
 		eyes = "brow"
 	elif _glance_t >= 0.1:
 		eyes = "away"
+	if _talking(delta):
+		eyes = "talk" if eyes == "" else eyes + ",talk"
 	var tex := _face_texture(_mood if eyes == "" else "%s/%s" % [_mood, eyes])
 	if tex != null and _face.texture != tex:
 		_face.texture = tex
+
+
+## Whether their mouth is open on a word now: it opens and shuts while their line is
+## written out, and rests when it's whole.
+func _talking(delta: float) -> bool:
+	if not TalkView.running(_write):
+		_mouth_open = false
+		_flap = 0.0
+		return false
+	_flap -= delta
+	if _flap <= 0.0:
+		_mouth_open = not _mouth_open
+		_flap = randf_range(TalkView.MOUTH_OPEN.x, TalkView.MOUTH_OPEN.y) if _mouth_open \
+			else randf_range(TalkView.MOUTH_SHUT.x, TalkView.MOUTH_SHUT.y)
+	return _mouth_open
 
 
 func _liked_mood() -> String:
@@ -655,6 +677,10 @@ func writing() -> bool:
 ## show with it; your replies; and a footer with the way back and the way out.
 func _show(speech: String, extras: Array, replies: Array, mood: String = "", gesture: String = "") -> void:
 	_clear_talk()
+	# A beat that sets no mood is said with the feeling in its words (a question wonders,
+	# a threat glowers, a jest smiles), or at rest.
+	if mood == "":
+		mood = Feeling.mood_of(speech, {Lords.CRUEL: "Vengeful", Lords.CAUTIOUS: "Steadfast", Lords.HONORABLE: "Steadfast"}.get(String(lord.get("bearing", "")), ""))
 	_set_mood(mood)
 	_play(gesture)
 	if _said != "":

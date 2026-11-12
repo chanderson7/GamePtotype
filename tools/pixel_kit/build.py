@@ -17,6 +17,7 @@ import face as F
 import hair as Hh
 import garb as G
 import palettes as P
+import soldiers as Sd
 
 OUT = os.path.join(HERE, "..", "..", "assets", "portraits", "kit")
 
@@ -100,6 +101,24 @@ def sprites():
     add("hat/veil/back", vb); add("hat/veil/front", vf)
     add("hat/circlet", G.circlet()); add("hat/tiara", G.tiara()); add("hat/eboshi", G.eboshi())
     add("hat/kanzashi", G.kanzashi()); add("hat/kanzashi_rich", G.kanzashi(True))
+    # captains: four outfits a land for each sex, what their troop carries, rank, role, history
+    for cult, fns in Sd.OUTFITS.items():
+        for i, fn in enumerate(fns):
+            for g in ("m", "f"):
+                add("capt/%s_%s_%d" % (cult, g, i), fn(g, rng(600 + i))[1])
+    for kind in ("infantry", "spearmen", "archers", "cavalry"):
+        for g in ("m", "f"):
+            b, f = Sd.troop(kind, g)
+            add("troop/%s/%s/back" % (kind, g), b); add("troop/%s/%s/front" % (kind, g), f)
+    for lvl in (2, 3):
+        for g in ("m", "f"):
+            add("rank/%d/%s" % (lvl, g), Sd.rank(lvl, g))
+    for spec in ("Scout", "Quartermaster", "Drillmaster", "Champion"):
+        add("token/" + spec, Sd.token(spec))
+    for i in range(len(Sd.SCARS)):
+        add("scar/%d" % i, Sd.scar(i))
+    add("mark/bandage", Sd.bandage())
+    add("mark/blush", F.blush_mark(False))
     return out
 
 
@@ -134,6 +153,7 @@ def main():
         "house_steps": P.HOUSE_STEPS, "warm": P.WARM, "cool": P.COOL,
         "heads": {"m": MALE_HEADS, "f": FEMALE_HEADS}, "beards": BEARDS,
         "eye_shapes": list(F.EYE_SHAPES), "brow_styles": list(F.BROW_STYLES), "noses": list(F.NOSES),
+        "scars": len(Sd.SCARS),
     }
     with open(os.path.join(OUT, "kit.json"), "w") as f:
         json.dump(data, f, separators=(",", ":"), sort_keys=True)

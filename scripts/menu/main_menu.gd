@@ -334,11 +334,11 @@ func _camp_tableau() -> Control:
 		token.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		token.custom_minimum_size = Vector2(0, Style.TOUCH)
 		if Style.illustrations_on():
-			token.icon = CaptainArt.texture(c)
+			token.icon = CaptainArt.texture(c, "", true)
 			token.add_theme_constant_override("icon_max_width", 48)
 			token.add_theme_constant_override("h_separation", 8)
 			# Around the fire they're alive: each blinks in their own time.
-			CaptainArt.blink_loop(token, func(tex: Texture2D) -> void: token.icon = tex, c)
+			CaptainArt.blink_loop(token, func(tex: Texture2D) -> void: token.icon = tex, c, true)
 		if hurt:
 			token.modulate = Color(0.75, 0.75, 0.82)
 		token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))

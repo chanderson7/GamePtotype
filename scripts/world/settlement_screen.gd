@@ -1142,7 +1142,7 @@ func _squad_art(s: Dictionary) -> Control:
 	var art := Control.new()
 	art.custom_minimum_size = Vector2(72, 84)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var face_tex: Texture2D = CaptainArt.texture(s["captain"]) if s.get("captain") != null else null
+	var face_tex: Texture2D = CaptainArt.texture(s["captain"], "", true) if s.get("captain") != null else null
 	if face_tex != null:
 		var face := TextureRect.new()
 		face.name = "SquadCaptain"
@@ -1829,7 +1829,7 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 		var sid := int(e["squad"])
 		var c: Dictionary = e["captain"]
 		var name := String(c.get("first", String(c.get("name", "")).split(" ")[0]))
-		strip.add_child(CourtUI.face_button(CaptainArt.texture(c), name, "Ride_%d" % sid, func():
+		strip.add_child(CourtUI.face_button(CaptainArt.texture(c, "", true), name, "Ride_%d" % sid, func():
 			if _lists_pick.has(sid):
 				_lists_pick.erase(sid)
 			elif _lists_pick.size() < Gatherings.TOURNEY_CAPTAINS:
@@ -2155,7 +2155,7 @@ func _hero_row(hero: Dictionary) -> Control:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
-	var face_tex: Texture2D = CaptainArt.texture(hero)
+	var face_tex: Texture2D = CaptainArt.texture(hero, "", true)
 	if face_tex != null:
 		var pic := TextureRect.new()
 		pic.texture = face_tex
