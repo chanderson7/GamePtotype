@@ -683,6 +683,9 @@ func _turning_points() -> void:
 	var told: Array = fire._log.get_children()
 	check(told.size() > 2 and told[0].visible and not told[told.size() - 1].visible and fire.writing(), "by the fire, the captains' talk is told in turn (%d lines)" % told.size())
 	check(fire._faces["left"].has("shut") and fire._faces["right"].has("shut"), "and both can blink")
+	var fa: Dictionary = fire._a
+	check(fire._faces["left"]["rest"] == fire.face_node("left").texture and fire._faces["left"]["half"] == load("res://scripts/ui/captain_art.gd").texture(fa, "warm/half"),
+		"in the face they're wearing (warm), in two steps")
 	fire._tap(up)
 	await _frames(2)
 	check(told.all(func(r): return r.visible) and fire.face_node("left").self_modulate.is_equal_approx(Color.WHITE)
@@ -1078,6 +1081,55 @@ func _lord_talk(tap: InputEvent) -> void:
 	check(resting == null or lt._face_texture("blink") != resting, "and there's a face with its eyes shut to blink with")
 	lt._show("\"What else?\"", [], [lt._leave_reply()])
 	check(lf.texture == resting, "the next line, they're themselves again")
+	# Their eyes live in any mood: they blink in two steps, nod small with their lids
+	# lowered, lift a brow when they lean in, and glance aside now and then.
+	if resting != null:
+		lt._glance_wait = 99.0
+		lt._show("\"Hm.\"", [], [lt._leave_reply()], "grim", "")
+		await _wait(0.4)
+		lt._blink["wait"] = 0.01
+		var seen := {}
+		var until := Time.get_ticks_msec() + 400
+		while Time.get_ticks_msec() < until:
+			await process_frame
+			seen[lf.texture] = true
+		check(seen.has(lt._face_texture("grim/half")) and seen.has(lt._face_texture("grim/shut")) and lf.texture == lt._face_texture("grim"),
+			"grim, they still blink: half shut, shut, and open again")
+		check(lt._face_texture("grim/half") != lt._face_texture("grim") and lt._face_texture("grim/shut") != lt._face_texture("grim/half"),
+			"three different eyes to blink with")
+		lt._blink["wait"] = 99.0
+		lt._show("\"Agreed.\"", [], [lt._leave_reply()], "warm", "nod")
+		var dip := 0.0
+		var lowered := false
+		var nod_until := Time.get_ticks_msec() + 700
+		while Time.get_ticks_msec() < nod_until:
+			await process_frame
+			dip = maxf(dip, lt._face_off.y)
+			lowered = lowered or lf.texture == lt._face_texture("warm/half")
+		check(dip > 2.0 and dip <= lt.NOD_DIP + 0.01 and lowered, "a nod is a small dip with the lids lowered (%.1f px)" % dip)
+		await _wait(0.6)
+		check(lt._face_off.length() < 0.5 and lf.texture == lt._face_texture("warm"), "and up again")
+		lt._show("\"Go on.\"", [], [lt._leave_reply()], "proud", "lean")
+		await _wait(0.1)
+		check(lf.texture == lt._face_texture("proud/brow"), "leaning in with interest, a brow lifts")
+		await _wait(1.6)
+		check(lf.texture == lt._face_texture("proud"), "and settles")
+		lt._glance_wait = 0.01
+		var glanced := false
+		var glance_until := Time.get_ticks_msec() + 500
+		while Time.get_ticks_msec() < glance_until:
+			await process_frame
+			glanced = glanced or lf.texture == lt._face_texture("proud/away")
+		check(glanced and lt._face_texture("proud/away") != lt._face_texture("proud"), "now and then they glance aside")
+		lt._glance_wait = 99.0
+		await _wait(1.6)
+		sound.reduced_motion = true
+		lt._show("\"Agreed.\"", [], [lt._leave_reply()], "warm", "nod")
+		lt._blink["wait"] = 0.01
+		await _wait(0.3)
+		check(lf.texture == lt._face_texture("warm") and lt._face_off.length() < 0.5, "under Reduced motion they hold still")
+		sound.reduced_motion = false
+		lt._show("\"What else?\"", [], [lt._leave_reply()])
 	lt._show("\"Enough.\"", [], [lt._leave_reply()], "grim", "away")
 	await _wait(0.5)
 	check(lf.modulate.r < 0.9 and lt._face_off.x < -8.0, "refused, they turn away and stay turned")

@@ -30,10 +30,10 @@ func _ready() -> void:
 	stage.name = "BondConversationPortraits"
 	set_face("left", CaptainArt.texture(_a, "grief" if _memorial else "warm"), true, 0.62)
 	set_face("right", CaptainArt.texture(_b, "" if _memorial else "warm"), true, 0.62, _memorial)
-	# They blink while they listen (the one remembered doesn't).
-	set_blink("left", CaptainArt.texture(_a), CaptainArt.texture(_a, "blink"))
+	# They blink, whatever face they wear (the one remembered doesn't).
+	_blinks("left", _a, "grief" if _memorial else "warm")
 	if not _memorial:
-		set_blink("right", CaptainArt.texture(_b), CaptainArt.texture(_b, "blink"))
+		_blinks("right", _b, "warm")
 	if _memorial:
 		_show_memorial(conversation)
 		return
@@ -100,15 +100,25 @@ func _show(rank: String) -> void:
 ## One of them speaks: their face is lit and warm with it; the other listens, at rest.
 func _speaks(side: String) -> void:
 	spotlight(side)
-	change_face("left", CaptainArt.texture(_a, "warm" if side == "left" else ""))
-	change_face("right", CaptainArt.texture(_b, "warm" if side == "right" else ""))
+	_wear("left", _a, "warm" if side == "left" else "")
+	_wear("right", _b, "warm" if side == "right" else "")
 
 
 ## Between lines and once all is said: both lit, glad of each other.
 func _listen() -> void:
 	spotlight("")
-	change_face("left", CaptainArt.texture(_a, "warm"))
-	change_face("right", CaptainArt.texture(_b, "warm"))
+	_wear("left", _a, "warm")
+	_wear("right", _b, "warm")
+
+
+## A captain wears `mood`, and blinks in it.
+func _wear(side: String, captain: Dictionary, mood: String) -> void:
+	change_face(side, CaptainArt.texture(captain, mood))
+	_blinks(side, captain, mood)
+
+
+func _blinks(side: String, captain: Dictionary, mood: String) -> void:
+	set_blink(side, CaptainArt.texture(captain, mood), CaptainArt.texture(captain, mood + "/shut"), CaptainArt.texture(captain, mood + "/half"))
 
 
 ## A bond's rank as its badge, with what it does in battle as chips: morale back each

@@ -75,6 +75,21 @@ var _gesture = null
 var _settle = null
 var _clock := 0.0
 var _blink := {}
+## What their eyes are doing besides blinking: lowered at the bottom of a nod, glancing
+## aside now and then, the brows lifted with interest. Seconds since each began (-1: not).
+var _nod_t := -1.0
+var _brow_t := -1.0
+var _glance_t := -1.0
+var _glance_wait := 0.0
+var _glance_for := 1.2
+## A nod: the head dips this far (pixels) and the lids lower while it's down.
+const NOD_DIP := 3.0
+const NOD_DOWN := 0.3
+const NOD_UP := 0.45
+## How long a lifted brow is held; how often they glance aside, and for how long.
+const BROW_HOLD := 1.3
+const GLANCE_EVERY := Vector2(7.0, 13.0)
+const GLANCE_HOLD := Vector2(0.9, 1.5)
 var _their_banner: Control
 ## A painted place drifts very slowly behind them.
 var _drift := false
@@ -442,12 +457,7 @@ func _process(delta: float) -> void:
 	if _face == null or _closing or Style.motion_reduced():
 		return
 	_clock += delta
-	if _mood == "" and _face.texture != null:
-		match TalkView.blink_step(_blink, delta):
-			"shut":
-				_face.texture = _face_texture("blink")
-			"open":
-				_face.texture = _face_texture("")
+	_live_eyes(delta)
 	_pose_face()
 	if _their_banner != null and is_instance_valid(_their_banner):
 		_their_banner.rotation = sin(_clock * 1.3) * 0.02
@@ -456,12 +466,53 @@ func _process(delta: float) -> void:
 		_backdrop.scale = Vector2(grow, grow)
 
 
-## The expression they wear for this exchange.
+## The expression they wear for this exchange. Their eyes keep living in it: they blink,
+## glance and lift a brow whatever the mood.
 func _set_mood(mood: String) -> void:
 	_mood = mood
-	_blink = {"wait": randf_range(1.6, 4.0), "left": 0.0}
+	if _blink.is_empty():
+		_blink = {"wait": randf_range(1.6, 4.0), "left": 0.0}
+	if _glance_wait <= 0.0:
+		_glance_wait = randf_range(GLANCE_EVERY.x, GLANCE_EVERY.y)
 	var tex := _face_texture(mood)
 	if tex != null:
+		_face.texture = tex
+
+
+## What their eyes do this moment, over the mood: a blink (half, shut, half), lowered at
+## the bottom of a nod, a brow lifted, a glance aside. Only over a face of their own
+## (a duel or anything else that puts another picture there is left alone).
+func _live_eyes(delta: float) -> void:
+	if _face.texture == null or not _face_tex.values().has(_face.texture):
+		return
+	var eyes := ""
+	TalkView.blink_step(_blink, delta)
+	var left := float(_blink.get("left", 0.0))
+	for t in ["_nod_t", "_brow_t", "_glance_t"]:
+		if float(get(t)) >= 0.0:
+			set(t, float(get(t)) + delta)
+	if _nod_t > NOD_DOWN + NOD_UP:
+		_nod_t = -1.0
+	if _brow_t > BROW_HOLD:
+		_brow_t = -1.0
+	if _glance_t > _glance_for:
+		_glance_t = -1.0
+	_glance_wait -= delta
+	if _glance_wait <= 0.0 and _glance_t < 0.0 and _brow_t < 0.0 and _nod_t < 0.0:
+		_glance_wait = randf_range(GLANCE_EVERY.x, GLANCE_EVERY.y)
+		_glance_for = randf_range(GLANCE_HOLD.x, GLANCE_HOLD.y)
+		_glance_t = 0.0
+	if left > 0.0:
+		var into := TalkView.BLINK_TIME - left
+		eyes = "half" if into < 0.03 or into > TalkView.BLINK_TIME - 0.03 else "shut"
+	elif _nod_t >= NOD_DOWN * 0.5 and _nod_t < NOD_DOWN + NOD_UP * 0.5:
+		eyes = "half"
+	elif _brow_t >= 0.0:
+		eyes = "brow"
+	elif _glance_t >= 0.1:
+		eyes = "away"
+	var tex := _face_texture(_mood if eyes == "" else "%s/%s" % [_mood, eyes])
+	if tex != null and _face.texture != tex:
 		_face.texture = tex
 
 
@@ -499,13 +550,20 @@ func _play(kind: String) -> void:
 	var steps := []
 	match kind:
 		"nod":
-			steps = [[Vector2(0, 9), 0.12], [Vector2.ZERO, 0.2]]
+			# A small, slow dip, the lids lowering as it goes down (_live_eyes): a deep
+			# quick one read as a bob.
+			steps = [[Vector2(0, NOD_DIP), NOD_DOWN], [Vector2.ZERO, NOD_UP]]
+			_nod_t = 0.0
+			_glance_t = -1.0
 		"bristle":
 			steps = [[Vector2(-7, 0), 0.05], [Vector2(7, 0), 0.07], [Vector2(-4, 0), 0.06], [Vector2.ZERO, 0.08]]
 		"away":
 			steps = [[Vector2(-16, 0), 0.3]]
 		"lean":
+			# Leaning in with interest, a brow lifts.
 			steps = [[Vector2.ZERO, 0.12]]
+			_brow_t = 0.0
+			_glance_t = -1.0
 		"exit":
 			steps = [[Vector2.ZERO, 0.12], [Vector2.ZERO, 0.6], [Vector2(-(_face.size.x + 80.0), 0), 0.45]]
 		_:

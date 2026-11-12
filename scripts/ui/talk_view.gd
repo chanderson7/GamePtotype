@@ -223,12 +223,14 @@ static func blink_step(state: Dictionary, delta: float) -> String:
 ## closed. It blinks only while it wears `rest`. A face the game draws has one resting
 ## look (an expression has its own eyes); a painted portrait has a shut-eyed twin for
 ## every expression, found as each is put on (_painted_life).
-func set_blink(side: String, rest: Texture2D, shut: Texture2D) -> void:
+func set_blink(side: String, rest: Texture2D, shut: Texture2D, half: Texture2D = null) -> void:
 	if not _faces.has(side) or rest == null or shut == null:
 		return
 	_faces[side]["rest"] = rest
 	_faces[side]["shut"] = shut
-	_faces[side]["blink"] = {"wait": randf_range(1.2, 4.0), "left": 0.0}
+	_faces[side]["half"] = half if half != null else shut
+	if not _faces[side].has("blink"):
+		_faces[side]["blink"] = {"wait": randf_range(1.2, 4.0), "left": 0.0}
 
 
 ## A painted portrait comes alive if its other faces were made (PortraitLife): it gets
@@ -247,6 +249,7 @@ func _painted_life(side: String, tex: Texture2D) -> void:
 		face.remove_meta("life_of")
 
 
+## A blink in two steps: half shut, shut, half shut, open.
 func _blink(side: String, delta: float) -> void:
 	var f: Dictionary = _faces[side]
 	if not f.has("shut"):
@@ -255,16 +258,18 @@ func _blink(side: String, delta: float) -> void:
 	if face == null or not is_instance_valid(face):
 		return
 	var state: Dictionary = f["blink"]
-	if face.texture != f["rest"] and face.texture != f["shut"]:
+	var half: Texture2D = f.get("half", f["shut"])
+	if face.texture != f["rest"] and face.texture != f["shut"] and face.texture != half:
 		state["left"] = 0.0
 		return
-	match blink_step(state, delta):
-		"shut":
-			if face.texture == f["rest"]:
-				face.texture = f["shut"]
-		"open":
-			if face.texture == f["shut"]:
-				face.texture = f["rest"]
+	blink_step(state, delta)
+	var left := float(state["left"])
+	var want: Texture2D = f["rest"]
+	if left > 0.0:
+		var into := BLINK_TIME - left
+		want = half if into < 0.03 or into > BLINK_TIME - 0.03 else f["shut"]
+	if face.texture != want:
+		face.texture = want
 
 
 ## The colour of a face that is listening, not speaking.
@@ -542,7 +547,7 @@ func change_face(side: String, tex: Texture2D) -> void:
 	var face: TextureRect = _faces.get(side, {}).get("node")
 	if face == null or tex == null or face.texture == tex:
 		return
-	if tex == _faces[side].get("rest") and (face.texture == _faces[side].get("shut") or PortraitLife.wears(_faces[side], face.texture)):
+	if tex == _faces[side].get("rest") and (face.texture in [_faces[side].get("shut"), _faces[side].get("half")] or PortraitLife.wears(_faces[side], face.texture)):
 		return                                  # the same face, caught mid-blink or mid-glance
 	var was := face.texture
 	face.texture = tex

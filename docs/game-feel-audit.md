@@ -407,3 +407,30 @@ keeps her dressed in any other mood. They blink, glance and move like every pain
 Edda's unbound locks sway, Kaede's hair sways as every day, and nothing sways under
 Farah's veil. Seen on a screen at all three weddings; checked in
 `tests/wedding_tests.gd`.
+
+## The lords' faces, brought up to the painted ones
+
+What the romance portraits learned came over to the faces the game draws (lords, and the
+captains at the fire and in camp):
+
+- **Their eyes live in any mood.** A lord used to blink only at rest; once a line set a
+  mood (warm, grim, proud) the eyes froze until the next one. `CaptainFace` now draws what
+  the eyes do over any expression, written after a slash: `warm/shut`, `grim/half`,
+  `proud/away`, `/brow` (`EYES_DOING`). `blink` is kept as the resting `/shut`.
+- **Blinks are two steps**: half shut, shut, half shut, open, in the lord talk
+  (`_live_eyes`), the captains' fire talk (`TalkView._blink`, given a half face) and on
+  every page a captain's face is shown (`CaptainArt.blink_loop`). The fire talk blinks in
+  the face each captain is wearing, not only at rest.
+- **The nod is small**: a 3 px dip over a third of a second with the lids lowering, up
+  again over half a second. It was a 9 px drop and back in a third of a second, the bob
+  the painted faces were also cured of.
+- **Interest lifts a brow**: leaning in ("lean") lifts both brows, the middles most, for
+  just over a second.
+- **They glance aside** now and then (every 7 to 13 seconds, about a second), as the
+  painted faces do.
+- Not brought over: moving hair (on a 60×80 face it would be a pixel of flicker), lighter
+  breathing (theirs is already a 2 px rise), and the crossfade fix (their faces change at
+  once, so were never see-through).
+
+Under Reduced motion none of it plays. Checked in `_lord_talk` and the fire talk in
+`tests/game_feel_tests.gd`; seen on a screen.

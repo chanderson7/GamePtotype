@@ -60,6 +60,10 @@ const RED := Color("a8322c")
 ## The moments a face can be drawn for. "" is the captain's resting face. ("blink" is
 ## also drawn: the resting face with its eyes shut, for a face that's alive on a stage.)
 const EXPRESSIONS := ["", "grim", "pain", "grief", "proud", "fear", "warm"]
+## What a face alive on a stage does with its eyes, over any expression, written after a
+## slash ("warm/shut", "/half"): eyes shut, half shut (the middle of a blink, the bottom
+## of a nod), glancing aside, or the brows lifted (interest).
+const EYES_DOING := ["shut", "half", "away", "brow"]
 
 const SEASONED := 8
 const VETERAN := 20
@@ -142,6 +146,13 @@ static func texture(captain: Dictionary, backdrop: bool = true, expression: Stri
 
 ## The face as it is now, wearing `expression` if one is given.
 static func image(captain: Dictionary, backdrop: bool = false, expression: String = "") -> Image:
+	var eyes := ""
+	if expression.contains("/"):
+		eyes = expression.get_slice("/", 1)
+		expression = expression.get_slice("/", 0)
+	elif expression == "blink":
+		eyes = "shut"
+		expression = ""
 	var f := features(captain)
 	var img := Image.create(W, H, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -179,7 +190,7 @@ static func image(captain: Dictionary, backdrop: bool = false, expression: Strin
 	_neck(img, tones)
 	_head(img, f, tones)
 	_face(img, f, tones, hair_tones, String(captain.get("temperament", "")), String(captain.get("quirk", "")),
-		expression, greying)
+		expression, greying, eyes)
 	_beard(img, f, hair_tones)
 	_hair(img, f, hair_tones, main, trim, tones)
 	if noble == "ruler":
@@ -266,7 +277,7 @@ static func _neck(img: Image, t: Dictionary) -> void:
 
 ## Eyes, brows, nose and mouth, set by the captain's temper and the moment.
 static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temperament: String, quirk: String,
-		expression: String, greying: bool) -> void:
+		expression: String, greying: bool, eyes: String = "") -> void:
 	var eye: Color = EYES[int(f["eyes"])]
 	var ey := 36
 	var gap := 1 if int(f["eye_set"]) == 1 else 2
@@ -277,6 +288,14 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 		"grief":
 			look = 1
 	var lids := _lids(temperament, expression)
+	match eyes:
+		"shut":
+			lids = "shut"
+		"half":
+			# A lid halfway down: an open eye narrows, a narrowed or smiling one closes.
+			lids = String({"open": "narrow", "wide": "open", "narrow": "shut", "smiling": "shut"}.get(lids, lids))
+	# A glance aside: the irises sit a pixel toward the viewer's left.
+	var g := -1 if eyes == "away" else 0
 	for ex: int in [lx, rx]:
 		var shadow_side := ex > 30
 		match lids:
@@ -290,31 +309,32 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 				_px(img, ex + 4, ey, t["line"])
 			"narrow":
 				_rect(img, ex, ey, 4, 1, t["line"])
-				_px(img, ex, ey + 1, EYE_WHITE.darkened(0.2 if shadow_side else 0.0))
-				_px(img, ex + 1, ey + 1, eye)
-				_px(img, ex + 2, ey + 1, eye)
-				_px(img, ex + 3, ey + 1, EYE_WHITE.darkened(0.2 if shadow_side else 0.0))
+				_rect(img, ex, ey + 1, 4, 1, EYE_WHITE.darkened(0.2 if shadow_side else 0.0))
+				_px(img, ex + 1 + g, ey + 1, eye)
+				_px(img, ex + 2 + g, ey + 1, eye)
 			"smiling":
 				_rect(img, ex, ey + 1, 4, 1, t["line"])
 				_px(img, ex, ey, t["line"])
 				_px(img, ex + 3, ey, t["line"])
 				_px(img, ex + 1, ey, eye)
 				_px(img, ex + 2, ey, eye)
+				if g != 0:
+					_px(img, ex + 2, ey, t["line"])
 			"wide":
 				var white := EYE_WHITE.darkened(0.15 if shadow_side else 0.0)
 				_rect(img, ex, ey - 1, 4, 3, white)
-				_px(img, ex + 1, ey, eye)
-				_px(img, ex + 2, ey, eye)
-				_px(img, ex + 1, ey - 1, eye.lightened(0.25))
+				_px(img, ex + 1 + g, ey, eye)
+				_px(img, ex + 2 + g, ey, eye)
+				_px(img, ex + 1 + g, ey - 1, eye.lightened(0.25))
 				_rect(img, ex, ey - 2, 4, 1, t["line"])
 			_:
 				var white := EYE_WHITE.darkened(0.15 if shadow_side else 0.0)
 				_rect(img, ex, ey, 4, 2, white)
-				_px(img, ex + 1, ey + look, eye)
-				_px(img, ex + 2, ey + look, eye)
-				_px(img, ex + 1, ey + 1 - look, eye.darkened(0.2) if look == 0 else white)
-				_px(img, ex + 2, ey + 1, eye.darkened(0.2))
-				_px(img, ex + 1, ey, eye.lightened(0.3) if look == 0 else eye)
+				_px(img, ex + 1 + g, ey + look, eye)
+				_px(img, ex + 2 + g, ey + look, eye)
+				_px(img, ex + 1 + g, ey + 1 - look, eye.darkened(0.2) if look == 0 else white)
+				_px(img, ex + 2 + g, ey + 1, eye.darkened(0.2))
+				_px(img, ex + 1 + g, ey, eye.lightened(0.3) if look == 0 else eye)
 				# The upper lid: a dark line with a crease above it.
 				_rect(img, ex, ey - 1, 4, 1, t["line"])
 				_rect(img, ex, ey - 2, 4, 1, t["dark"])
@@ -335,7 +355,7 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 	var brow_col: Color = ht["dark"] if String(f["hair"]) not in ["turban", "wrap", "shaved"] else Color("2a1c16")
 	if greying:
 		brow_col = brow_col.lerp(GREY, 0.4)
-	_brows(img, f, temperament, expression, brow_col, t["deep"], lx, rx)
+	_brows(img, f, temperament, expression, brow_col, t["deep"], lx, rx, eyes == "brow")
 	_nose(img, f, t)
 	_mouth(img, f, temperament, quirk, expression, t)
 	if int(f["age"]) >= 1:
@@ -372,7 +392,7 @@ static func _lids(temperament: String, expression: String) -> String:
 
 ## The brows carry most of a face's feeling: knitted, level, lifted, or worried.
 static func _brows(img: Image, f: Dictionary, temperament: String, expression: String, c: Color, crease: Color,
-		lx: int, rx: int) -> void:
+		lx: int, rx: int, lifted: bool = false) -> void:
 	var thick := int(f["brow"]) == 2
 	var by := 33
 	var shape := ""
@@ -413,6 +433,9 @@ static func _brows(img: Image, f: Dictionary, temperament: String, expression: S
 		var lxp := lx + 3 - i
 		var rxp := rx + i
 		var y: int = by + int(off[i])
+		if lifted:
+			# Interest: both brows a pixel higher, their middles higher still.
+			y -= 2 if i in [1, 2, 3] else 1
 		_px(img, lxp, y, c)
 		_px(img, rxp, y, c)
 		if thick:
