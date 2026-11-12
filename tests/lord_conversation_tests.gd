@@ -9,6 +9,7 @@ const WorldSim = preload("res://scripts/world/world_sim.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
+const LordLines = preload("res://scripts/data/lord_lines.gd")
 
 var failures := 0
 
@@ -216,7 +217,9 @@ func _init() -> void:
 	var talk = LordConversation.open(root, gs, int(fresh["id"]), "road", "first")
 	await process_frame
 	check(talk.caption().begins_with("At Ravensford") and talk.get_node("Stage/Painted") != null, "at a painted place, you talk before its painting")
-	check(talk.speech_text().contains("captain everyone's talking about"), "a lord you've never met says so")
+	check(talk.greeting_kind(0, {}, 0) == "first" and talk.speech_text().contains(talk._house_line()),
+		"a lord you've never met says who they are (%s)" % talk.speech_text())
+	check(talk.speech_text().contains(LordLines.custom(fresh)) and LordLines.custom(fresh) != "", "and greets you by a custom of their land")
 	check(talk.has_reply("news") and talk.has_reply("trouble") and talk.has_reply("leave") and talk.has_reply("crown", false), "you can ask for news, their troubles, talk of crowns or part ways")
 	check(talk._talk.get_node_or_null("Footer") != null and talk._talk.get_node("Footer").get_node_or_null("Reply_leave") != null,
 		"the way out sits in a footer, not the list of things to say")
@@ -240,9 +243,32 @@ func _init() -> void:
 	await process_frame
 	check(night_talk.get_node_or_null("Stage/SettlementVista") != null or Data.SETTLEMENTS.has(w.player().node) and w.player().node in LordConversation.PAINTED,
 		"elsewhere, the game paints the place you're at")
-	check(not night_talk.speech_text().contains("captain everyone's talking about") and int(LordTalk.record(fresh).get("talks", 0)) >= 2,
+	check(not night_talk.speech_text().contains(night_talk._house_line()) and int(LordTalk.record(fresh).get("talks", 0)) >= 2,
 		"meeting again, a lord you've talked with greets you as someone they know")
+	# What they remember of you chooses the greeting.
+	check(night_talk.greeting_kind(2, {}, 0) == "known" and night_talk.greeting_kind(2, {}, 40) == "warm" and night_talk.greeting_kind(2, {}, -30) == "cold",
+		"someone they know is greeted by what they think of you")
+	fresh["met_player"] = 1
+	check(night_talk.greeting_kind(2, {}, 0) == "fought", "a lord you've met in the field remembers the field")
+	LordTalk.record(fresh)["jobs_done"] = 1
+	check(night_talk.greeting_kind(2, {}, 0) == "owed" and night_talk.greeting_kind(2, {}, -30) == "cold", "a job you did them comes first, unless they've turned against you")
+	fresh.erase("met_player")
+	LordTalk.record(fresh).erase("jobs_done")
+	# They never say the same thing twice running.
+	night_talk.choose("story")
+	var asked: String = night_talk.speech_text()
+	night_talk.choose("back")
+	var hub_one: String = night_talk.speech_text()
+	night_talk.choose("story")
+	night_talk.choose("back")
+	check(asked != hub_one and night_talk.speech_text() != hub_one, "back to what else there is to say, they don't repeat themselves (%s / %s)" % [hub_one, night_talk.speech_text()])
 	night_talk.queue_free()
+	# What they make of a story answers the kind of story it was, in their own voice.
+	var seen := {}
+	for bearing in Lords.BEARINGS:
+		for theme in ["prudence", "boldness", "modesty", "fear"]:
+			seen[LordLines.story({"id": 1, "bearing": bearing}, theme)] = true
+	check(seen.size() == 16, "sixteen ways to take a story: four kinds, four bearings (%d)" % seen.size())
 	# Married into their house: the head of it greets you as kin.
 	var kin_house := ""
 	for h in w.social.houses:
@@ -250,8 +276,7 @@ func _init() -> void:
 			kin_house = String(h)
 	w.social._form_pact(kin_house, "marriage", ["person_edda", "player"], [], w.hour)
 	var turn := int(LordTalk.record(fresh).get("talks", 0))
-	var kin_said := LordVoice.line("kin", fresh, turn)
-	var kin_words := kin_said.substr(kin_said.find("\"") + 1, kin_said.rfind("\"") - kin_said.find("\"") - 1)
+	var kin_words: String = LordLines.say("kin", fresh, {}, turn)
 	var kin_talk = LordConversation.open(root, gs, int(fresh["id"]), "road")
 	await process_frame
 	check(kin_house != "" and kin_talk.speech_text().contains(kin_words), "the head of a house you married into greets you as kin (%s)" % kin_talk.speech_text())

@@ -192,3 +192,330 @@ Other choices made while building:
 Helpers, so the whole game moves the same way: `Style.ease_out / closing / stop_easing`,
 `Widgets.dismiss_sheet / float_up / flash / show_regard / live`, `Scenes.ribbon`,
 `TalkView.writing / finish_writing`.
+
+
+## Added after: the lord talk
+
+The talk with a lord (`lord_conversation.gd`) is its own screen, not a `TalkView`, so it
+missed items 10 and 11 above (the note under 11 was true of the dance, not of this). It
+now moves the same way, through the same helpers:
+
+- **Opening and leaving.** They step in from their side, their banner unfurls, the plate
+  and your banner fade up; leaving is a 0.12 s fade (the host still hears `closed` at once).
+- **The line.** Written out (`TalkView.write_out`), a tap finishes it, and the replies
+  arrive in a short run after it. Nothing waits: a reply can be pressed at once.
+- **The face.** `_show(speech, extras, replies, mood, gesture)`: the portrait wears a
+  `CaptainFace` expression for the exchange (warm or proud for what they like, grim for
+  what they don't) with a gesture (a nod, a shake of the head, a lean in, a turn away,
+  leaving the stage). At rest they breathe and blink (`CaptainFace` draws "blink").
+- **The numbers.** The Regard chip counts to its new value and glows, the change rises
+  off their face (and is taken off `regard_events`, so it doesn't rise again on the page
+  behind), and the conviction bar fills from where it stood (`Widgets.fill_from`).
+- **Set pieces.** The oath: their banner comes down, the crown's goes up, the card glows.
+  Single combat: your champion steps onto the stage, they close twice, then the result
+  (decided and saved before any of it shows; a tap skips it). Drawn swords: a glint of
+  steel as the talk gives way to the field.
+- **The place.** Firelight in a hall or your camp after dark, and their banner stirs. The
+  painted place holds still: a slow zoom on it was tried and taken out, because on pixel
+  art every step of a zoom moves whole rows of pixels, and it read as a constant shimmer.
+
+All of it is still under Reduced motion. Checked by `_lord_talk` in
+`tests/game_feel_tests.gd`.
+
+## Added after: the romance screens
+
+Visits, the dance and the wedding are `TalkView`s, so most of this lives there and every
+talk built on it gets it:
+
+- **Faces are alive.** A slow breath, and `gesture(side, kind)`: a laugh ("bounce"), a
+  lean in, drawn back. `express(side, tex, mood)` changes the picture and plays the
+  gesture that goes with a `StoryArt` expression. Breath, lean and sway go through scale
+  and rotation about the feet, so they never fight the layout or a position tween. The
+  painted portraits blink too (see "The painted portraits blink" below).
+- **Only the new line is said.** A visit lays its exchange out again on each "Go on";
+  `write_lines` keeps the lines already heard still, and the log glides to the newest.
+- **Replies and keepsakes arrive.** Replies in a short run (pressable at once); a memory
+  kept, a status badge and the wedding's closing card settle in with a glow
+  (`TalkView.land`).
+- **Trust and standing are seen to change.** On the nameplate the bar fills from where
+  it stood, the number counts, the heart beats and a heart rises off their face. No sum
+  is floated: what it meant stays in words, as before. Courting, sworn friendship and
+  engagement drop a ribbon; a parting dims them.
+- **The dance.** A partner steps in (`replace_face`) and sways while you dance.
+- **The wedding.** Guests' faces come in one after another, the rite is told a line at a
+  time (a tap brings the rest), and "Married" throws petals (`WeddingDressing.burst`).
+- **People.** Back from a visit, her trust bar fills to its new value and new memories
+  glow (`Scenes.people_seen`).
+
+Checked by `_romance_moves` in `tests/game_feel_tests.gd`.
+
+## Added after: the big moments, the pages, and the battle's stride
+
+**Big moments.**
+
+- **The captains' talk at the fire** is told a line at a time (`TalkView.say_in_turn`).
+  Every line is in the talk from the start, so the way on can be pressed at once and
+  nothing waits; each shows and is written as its turn comes, at about reading pace, and
+  a tap brings the rest. The one speaking is lit and warm, the one listening quiet
+  (`spotlight`), and both blink (`set_blink`; one clock for every blinking face,
+  `TalkView.blink_step`, shared with the lord talk). A line is leaned into by its own
+  speaker's face: with two faces on a stage it used to be the right-hand one, always.
+- **A bond's new rank**: the two step toward each other and the rank is struck
+  (`Widgets.step_in`, `Widgets.stamp`). At a remembrance the lost captain arrives as
+  they were and greys as you watch.
+- **A crown raised, a crown fallen** takes the screen for a breath (`Scenes.moment`):
+  the light drops, the banner unfurls (or comes down) over its words, and a tap sends
+  it away. It waits its turn with the ribbons.
+- **The map tells what concerns you** with a ribbon: a fief granted or lost, a lord
+  sworn, slain or taken by you, a siege on your holding, an alliance made or ended, a
+  castle or town your crown gains or loses, and peace as well as war. A holding that
+  changes hands furls its old banner and lets down the new, with a ring going out.
+
+**Pages that were rebuilt in a frame.**
+
+- **Crown**: the word on what you did lands with a glow, the card it changed shows
+  itself (`_act(ok, message, glow)`), and the treasury counts to its new sum.
+- **Town**: a hero who joins is seen (their face on a ribbon, `Scenes.ribbon_face`; the
+  Squads tab glows), the lists' result drops in, its bouts are read out in turn when
+  opened, and a toast, gift or speech glows where it was done.
+- **Letters**: a letter unfolds when opened, as does a reply written out or sent
+  (`Widgets.unfold`); unread dots beat once when you come to the tab (`Widgets.pulse`).
+- **Captain's page**: a new role is struck onto the page and told with their proud
+  face; the living blink (`CaptainArt.blink_loop`).
+- **Warband**: the captains around the fire blink, and men back on their feet (or lost)
+  since you last looked are counted in.
+
+**The battle.** The audit behind this pass found most of what the immersion roadmap
+lists under "Formation state" and "Terrain contact" already built: the ring where a
+company halts, the wavering standard and glances, edge markers for your own companies,
+and dust by the ground under it. What was added:
+
+- **A stride in four.** Every soldier and horse has a passing step (frame 3, drawn by
+  `tools/unit_sprites.py`: boots drawn in under the body, a horse's legs gathered
+  level), and a stride runs step, passing, step, passing (`WALK`), twice as fast in a
+  rout. The three frames there were are unchanged.
+- **A halt is felt**: the men dip into their stance as the ring goes out.
+- **Rings on the water** under men wading or fighting in a ford.
+- **A warning at the edge** for enemy horse at the charge near one of yours, out of
+  sight: an open red chevron (yours are filled).
+
+Checked by `_turning_points` and `_pages_show_change` in `tests/game_feel_tests.gd`
+and section 6b of `tests/battle_feel_tests.gd`.
+
+## Seen on a screen
+
+The pass above was then played on a real (virtual) display and looked at frame by
+frame: `xvfb-run` with Mesa's software renderer, as `tools/render_splash.gd` does, with
+`--fixed-fps 30` and the viewport saved at chosen moments. What that showed, and what
+was changed because of it:
+
+- **Reply tags and "what changed" notes stood one letter to a line** (on `main` too): a
+  wrapping label in a flow container is given no width. They now take the rest of their
+  line (`TalkView.marks`, `TalkView.fx_note`).
+- **The heart that rises when trust is won started above the screen**: a painted
+  portrait fills the stage. It starts by their head now.
+- **The petals at a wedding were a few specks.** They're a shower.
+- **The fire talk waited ten seconds before anyone spoke**: narration is given a glance
+  (`TalkView.turn_time`), what's said its reading time.
+- **In a duel your champion stood under your own banner's mark**: it's furled while
+  they fight.
+- **The passing step can hardly be seen**: from above, boots are under the body. The
+  step is now in the body as well: a marching man's shoulders roll and he sways off his
+  line, a horse stretches and gathers, and both ease away as a company halts
+  (`look["march"]`).
+- **The warning for horse out of sight sat under the objective** at the top of the
+  field, where the enemy mostly comes from. It sits clear of it, and is larger.
+
+Still as they were, and seen on the way: the Crown page's last tab wraps its label
+("Diplomac / y") at phone width.
+
+## The painted portraits are alive
+
+Edda, Farah and Kaede are paintings, one per expression, and none was painted blinking,
+glancing aside or with a lifted brow. `tools/portrait_faces.py` makes those faces from
+each painting's own pixels, so they sit exactly on it:
+
+- **shut** and **half**: the eyes closed (skin mended over them from what surrounds them,
+  the lid lit, the lashes along the lower lid) and halfway closed. A blink is half, shut,
+  half, open.
+- **soft**: the lids a third of the way down: a fond look, and the bottom of a nod.
+- **away**: the irises moved further the way they lean: a glance aside. Not made where the
+  eyes are already lowered (the three thoughtful paintings).
+- **brow1**, **brow2**: the brows raised. The brow moves whole, the forehead gives, and only
+  the thin strip of plain skin under it stretches, so the lid's crease stays put.
+
+Only the strip the eyes and brows are in is kept (`StoryArt.FACE`, 104×72, the same on
+every painting), one per face, stacked: `assets/portraits/face/<who>_<expression>.png`.
+`StoryArt.face_frame(tex, name)` lays a strip over the painting the first time that face
+is asked for. The tool also writes `<who>_hair.png`, how freely each pixel of loose hair
+may swing.
+
+`assets/shaders/portrait_life.gdshader` moves the head and hair without repainting: the
+head tilts and sinks on a neck that bends between chin and collar, a nod turns the front
+of the face down more than the edge of the head (so it's a turn, not a slide), and loose
+hair swings, held where it leaves the head. Each character's head is placed in
+`StoryArt.HEADS`.
+
+`PortraitLife` decides, moment to moment, the face worn and how the head sits: a breath
+in the head and hair always; a two-step blink every few seconds; a glance aside of their
+own now and then; and what a mood calls for, through `TalkView.express`: amused, a brow
+lifted with a tilt; warm, a small nod with the eyes lowered; thoughtful, the lids lowered
+further and the head tilted (the thoughtful paintings already look down, so they have no
+glance to give).
+Trust won on a romance visit brings a soft look (`TalkView.life_act`). The nod was tried
+deeper first, and read as a bob; it is now small and slow.
+
+- A face asked for mid-blink or mid-glance doesn't flicker; a new expression lands on the
+  new face and brings its own other faces.
+- A face that isn't painted (a captain's, put in the same place) loses the shader.
+- Under Reduced motion the painting is shown as painted, and nothing moves.
+- On a page (People), `StoryArt.candidate_portrait` blinks in two steps by itself.
+- Run the tool again after a portrait is repainted. One eye is given by hand (`BY_HAND`:
+  Farah, thoughtful, all but shut already); each character's hanging hair is placed in
+  `HAIR_HANGS`.
+
+Seen on a screen in all three talks, at the height of each move; checked by
+`_painted_blink` in `tests/game_feel_tests.gd`.
+
+## Dressed for the wedding
+
+The three were painted in everyday clothes only. `tools/portrait_wedding.py` paints their
+wedding dress over those paintings, after what brides of the times their cultures draw
+on wore (a first pass that only re-dyed their clothes and dotted them with flowers read
+as cheap, and was replaced):
+
+- **Edda**, a northern bride: her best gown in deep woad blue (white weddings are a much
+  later custom) with a gold-embroidered neckline; her hair unbound below her braided
+  crown, as a bride wore it, falling in waves over both shoulders; a gold bridal crown
+  set with garnets. Her loose locks are what sways in the shader (`edda_wedding_hair`).
+- **Farah**, a desert-court bride: crimson silk with its bands worked in gold; a sheer
+  ivory veil set back on her crown and falling past her shoulders, bordered in gold; a
+  circlet of coins with a garnet on her brow, gold earrings, a necklace of coins.
+- **Kaede**, an island-court bride: her dress is painted whole, in place of what she
+  wears (`bridal_kimono`): a white kimono with three collars (white, red, white) crossed
+  about her throat, a brocade sash with a red scarf and cord, a purse tucked in her collar
+  and a fan in her sash, and over it a white robe worn open, lined in red, worked with
+  chrysanthemums in gold thread. Only her skin and the strands of hair over her shoulders
+  are kept from the painting below her chin. Her hair is as every day, with the pin
+  through her knot lacquered red and a small gold comb. Tried first and dropped: a white
+  silk hood (it hid her), and her own robes re-dyed white (a reskin, not a wedding dress).
+  Edda and Farah still wear their own clothes re-dyed, with new things over them.
+
+New cloth, hair and metal are drawn in code: rounded forms lit from the upper left, laid
+in a few flat tones checkered where they meet, with dark outlines, as the paintings are.
+Three expressions are dressed (neutral, warm, amused: the ones the day uses); the wedding
+keeps her dressed in any other mood. They blink, glance and move like every painting;
+Edda's unbound locks sway, Kaede's hair sways as every day, and nothing sways under
+Farah's veil. Seen on a screen at all three weddings; checked in
+`tests/wedding_tests.gd`.
+
+## The lords' faces, brought up to the painted ones
+
+What the romance portraits learned came over to the faces the game draws (lords, and the
+captains at the fire and in camp):
+
+- **Their eyes live in any mood.** A lord used to blink only at rest; once a line set a
+  mood (warm, grim, proud) the eyes froze until the next one. `CaptainFace` now draws what
+  the eyes do over any expression, written after a slash: `warm/shut`, `grim/half`,
+  `proud/away`, `/brow` (`EYES_DOING`). `blink` is kept as the resting `/shut`.
+- **Blinks are two steps**: half shut, shut, half shut, open, in the lord talk
+  (`_live_eyes`), the captains' fire talk (`TalkView._blink`, given a half face) and on
+  every page a captain's face is shown (`CaptainArt.blink_loop`). The fire talk blinks in
+  the face each captain is wearing, not only at rest.
+- **The nod is small**: a 3 px dip over a third of a second with the lids lowering, up
+  again over half a second. It was a 9 px drop and back in a third of a second, the bob
+  the painted faces were also cured of.
+- **Interest lifts a brow**: leaning in ("lean") lifts both brows, the middles most, for
+  just over a second.
+- **They glance aside** now and then (every 7 to 13 seconds, about a second), as the
+  painted faces do.
+- Not brought over: moving hair (on a 60×80 face it would be a pixel of flicker), lighter
+  breathing (theirs is already a 2 px rise), and the crossfade fix (their faces change at
+  once, so were never see-through).
+
+Under Reduced motion none of it plays. Checked in `_lord_talk` and the fire talk in
+`tests/game_feel_tests.gd`; seen on a screen.
+
+## Lords drawn from a pixel portrait kit
+
+Lords, rulers and their kinswomen are no longer the 60×80 faces captains have: they are
+put together at 120×160 (twice the detail, in the same space on screen) from a kit of
+hand-set pixel parts, made by `tools/pixel_kit` and kept in `assets/portraits/kit`
+(one atlas and `kit.json`).
+
+- **The parts**: seven head shapes (four for men, three for women), four eye shapes in
+  five states (open, half, shut, looking away, wide), four brows in four moods (at rest,
+  raised, stern, worried), four noses, three mouths in seven moods; fifteen hair styles
+  drawn as locks (slicked back, cropped, side-parted, receding, curled, long and loose,
+  topknot, shaved pate; for women long and waved, long and straight, a crown braid, a
+  braid over the shoulder, a bun, a raised updo, smooth under a veil); seven beards fitted
+  to each jaw; two cuts of dress for each land and sex (Vardmark: mantle with ermine and
+  a chain of office, or mail and surcoat; gown with a square neck, or a surcoat with an
+  ermine front. Kharzan: kaftan and sash, or a hooded cloak; a robe with an embroidered
+  collar and coins, or an open coat with a jewelled belt. Ryumon: kamishimo with its stiff
+  wings and crests, or laced armour; layered kimono with blossoms, or a kosode with its
+  obi); and headwear: crowns, turbans, a veil, a coin circlet, a tiara, an eboshi, pins.
+- **Colour comes from the record**: parts hold materials and shades, not colours. Skin,
+  hair, eyes and lips by land; cloth in the house's colour, made into six shades with
+  warmer lights and cooler darks (the same rule in the tool and in the game), toned down
+  to dyed cloth; the land's second and third cloths by house. Older lords grey and line.
+- **Chosen from who they are** (`LordPortrait.look`): their land, their sex, their house
+  (a realm's lords come from different houses, so they wear different styles and cuts),
+  a ruler crowned (a crown, a jewelled turban, a tiara over a veil, an eboshi or golden
+  pins), and their bearing at rest (a vengeful lord's brows draw down, a bold one half
+  smiles).
+- **Expressions only redraw the face**: a lord is put together and outlined once (about
+  15 ms) and kept; each mood or blink then repaints the eyes, brows and mouth (under a
+  millisecond), so blinks and moods never stall.
+
+## Places in pixel art
+
+The seven places that had painted (generated) pictures are drawn in pixel art now, at
+240×160, in the style of the towns and villages: flat colours, lit and shaded sides,
+dithered skies. Ravensford's castle stands on its crag over the bridge, Qasr Hamra's red
+walls over the water, Kitayama's castle above a terraced hill; the camp is drawn at night
+around its fire (so the hour never darkens it twice); the common room, the envoy's room
+and the archive have their own light (a hearth, lamps and a doorway of sun, a paper
+window and a floor lamp). They are shown with nearest filtering, like every pixel picture.
+
+## Faces that feel what they say
+
+Talks used to wear two faces: the one speaking warm, the one listening at rest, the same
+for a joke, a promise and the names of the dead, and no mouth ever moved. Now:
+
+- **Seventeen moods** (`LordPortrait.MOODS`): at rest, warm, proud, grim, grief, pain,
+  fear, laughing, amused, teasing, surprised, angry, sad, shy (with a blush, only on the
+  skin), thoughtful, determined and worried. The kit's eyes gained smiling, laughing,
+  squinting and downcast states; its brows angry and sad, and one brow raised; its mouths
+  talking, talking with a smile, laughing, an "o", bared teeth, a pout and a smirk. Over any
+  mood a face can blink, glance, lift its brows and **open its mouth on a word**
+  ("grim/talk,shut").
+- **Captains are drawn from the kit too**, at 120×160: the face CaptainFace always gave
+  them (skin, hair, head, eyes, nose, beard, outfit, kept from the same draws), worn by a
+  woman when the name is a woman's, in their company's kit, with what their troop carries,
+  the brass of their rank, the token of a veteran role, their scars and a bandage while
+  they heal. Small slots (under 110 px tall) show head and shoulders, averaged down to
+  60×80, so a face is as big in a roster as it was. CaptainFace still draws them if the
+  kit can't be read.
+- **Reading a line** (`scripts/data/feeling.gd`): cues in the words (a jest, a name of the
+  dead, an insult, fear, a tender word, pride, warmth, a vow, wondering), shaded by who
+  says it (someone else's fear is mocked by a vengeful captain and comforted by a
+  steadfast one; a fragile one blushes at a tender word), give the face it's said with
+  and a gesture (a laugh bounces, warmth leans in, hurt draws back). A line with nothing
+  to read is said with the speaker's resting face, which already shows their temper.
+- **At the fire**, each line has its own feeling, and the one listening shows how it lands
+  a beat later: laughter is caught, grief shared, anger met by temper. Told passages set
+  both faces (the names of the absent lower every eye; a bond's rank is worn with pride).
+  By an empty place the survivor's words are grief, whatever else is in them.
+- **Mouths move** while a line is written out, and rest when it's whole (a tap makes it
+  whole), in the lord talk too.
+- **Every lord line has its own face** (`LordLines.MOODS`, `STORY_MOODS`): each beat
+  (a greeting, the news, their troubles, a crown's case, steel, captivity, orders) has a
+  mood for each bearing, and each of that bearing's lines its own where they differ. A
+  daring lord laughs (with a laugh in their shoulders) and teases, a cautious one weighs
+  and approves, an honourable one is warm or solemn, a cruel one smirks and glowers. The
+  talk knows a line by its words (its {facts} matching whatever was put there, the
+  custom of their land looked past), so 304 of 316 lines are said with a face, not at
+  rest; anything else is read for its feeling (`feeling.gd`).
+
+Captains keep `CaptainFace`. Checked in `tests/lord_portrait_tests.gd`.

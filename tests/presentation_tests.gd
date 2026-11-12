@@ -98,11 +98,12 @@ func _run() -> void:
 			if tex != null:
 				check(tex.get_image().detect_alpha() != Image.ALPHA_NONE,
 					"%s %s retains transparency" % [candidate_id, expression])
+	# Places are pixel art, 240 x 160 (3:2), drawn like the towns and villages.
 	for name in ["ravensford", "common_room", "qasr_hamra", "envoy_room", "kitayama", "archive_room"]:
 		var tex := Art.texture("res://assets/locations/%s.png" % name)
-		check(tex != null and tex.get_width() == 768, name + " illustration available")
+		check(tex != null and tex.get_width() == 240 and tex.get_height() == 160, name + " illustration available, in pixel art")
 	var camp := Art.texture("res://assets/locations/company_camp.png")
-	check(camp != null and camp.get_width() == 768 and camp.get_height() == 512, "company camp has reusable header dimensions")
+	check(camp != null and camp.get_width() == 240 and camp.get_height() == 160, "company camp has reusable header dimensions")
 	for culture in Captains.APPEARANCES:
 		for appearance in Captains.APPEARANCES[culture]:
 			var tex := Art.texture("res://assets/portraits/captain_%s.png" % appearance)

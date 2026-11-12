@@ -32,7 +32,8 @@ func _init() -> void:
 
 	# ---- the pieces
 	var names := ["title", "victory", "defeat", "rest_victory", "rest_defeat", "turn_win", "turn_lose",
-		"vardish", "kharzani", "ryumon", "camp_vardish", "camp_kharzani", "camp_ryumon"]
+		"vardish", "kharzani", "ryumon", "camp_vardish", "camp_kharzani", "camp_ryumon",
+		"feast_vardish", "feast_kharzani", "feast_ryumon"]
 	for r in REALMS:
 		names.append_array(["deploy_" + r, "base_" + r, "high_" + r])
 	var missing := names.filter(func(n): return not FileAccess.file_exists(MUSIC % n))
@@ -46,6 +47,9 @@ func _init() -> void:
 	check(absf(fmod(battle_len, sound.BATTLE_BAR)) < 0.02 or absf(fmod(battle_len, sound.BATTLE_BAR) - sound.BATTLE_BAR) < 0.02,
 		"and a whole number of bars")
 	check(_length("deploy_siege") > 20.0 and _length("title") > 60.0, "deployment and Home pieces are full length")
+	var short := ["vardish", "kharzani", "ryumon"].filter(func(n): return _length(n) < 120.0)
+	check(short.is_empty(), "each land's theme runs over two minutes before it comes round again" + ("" if short.is_empty() else ": " + str(short)))
+	check(["feast_vardish", "feast_kharzani", "feast_ryumon"].all(func(n): return _length(n) > 45.0), "and each land has its feast music")
 
 	# ---- a battle, start to finish
 	sound.play_battle("ryumon")

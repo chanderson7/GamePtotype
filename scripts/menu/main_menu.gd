@@ -243,6 +243,13 @@ func _tiles() -> Control:
 	if _shown_silver >= 0 and _shown_silver != GameState.silver:
 		Widgets.tick_to(grid.get_child(0).find_child("Value", true, false), _shown_silver, GameState.silver, func(v): return Widgets.thousands(v), "silver")
 	_shown_silver = GameState.silver
+	# Men back on their feet (or lost) since you last looked at the company are counted
+	# in: the number runs to what it is now, with the change rising off it.
+	var men := GameState.total_men()
+	var seen := int(Scenes.warband_men_seen)
+	if seen >= 0 and seen != men:
+		Widgets.tick_to(grid.get_child(2).find_child("Value", true, false), seen, men, func(v): return str(v), "men")
+	Scenes.warband_men_seen = men
 	return grid
 
 
@@ -327,9 +334,11 @@ func _camp_tableau() -> Control:
 		token.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		token.custom_minimum_size = Vector2(0, Style.TOUCH)
 		if Style.illustrations_on():
-			token.icon = CaptainArt.texture(c)
+			token.icon = CaptainArt.texture(c, "", true)
 			token.add_theme_constant_override("icon_max_width", 48)
 			token.add_theme_constant_override("h_separation", 8)
+			# Around the fire they're alive: each blinks in their own time.
+			CaptainArt.blink_loop(token, func(tex: Texture2D) -> void: token.icon = tex, c, true)
 		if hurt:
 			token.modulate = Color(0.75, 0.75, 0.82)
 		token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))

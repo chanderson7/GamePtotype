@@ -50,7 +50,9 @@ func _init() -> void:
 	await _map_moments()
 	await _ribbons()
 	await _talk_and_scenes()
+	await _turning_points()
 	await _battle_beats()
+	await _pages_show_change()
 	print("\nGame feel tests: %d failures" % failures)
 	quit(1 if failures > 0 else 0)
 
@@ -425,6 +427,762 @@ func _ribbons() -> void:
 	scenes.ribbons.clear()
 
 
+# ---- pages that were rebuilt in a frame now show what changed: letters unfold, a mark is
+# struck, the thing you did glows, numbers count, and captains' faces are alive.
+func _pages_show_change() -> void:
+	var Widgets = load("res://scripts/ui/widgets.gd")
+	var CaptainArt = load("res://scripts/ui/captain_art.gd")
+	var Captains = load("res://scripts/data/captains.gd")
+	gs.new_campaign("vardish")
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	var host := VBoxContainer.new()
+	host.size = Vector2(400, 900)
+	root.add_child(host)
+	var paper := PanelContainer.new()
+	paper.custom_minimum_size = Vector2(300, 200)
+	host.add_child(paper)
+	Widgets.unfold(paper)
+	check(paper.modulate.a < 0.1, "a letter opened starts folded")
+	await _frames(4)
+	check(paper.scale.y < 0.95, "and unfolds from its top edge (%.2f)" % paper.scale.y)
+	await _wait(0.5)
+	check(paper.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(paper.modulate.a, 1.0), "to lie open")
+	var dot := Control.new()
+	dot.custom_minimum_size = Vector2(16, 16)
+	host.add_child(dot)
+	Widgets.pulse(dot)
+	await _wait(0.14)
+	check(dot.scale.x > 1.05, "an unread letter's dot beats")
+	await _wait(1.0)
+	check(dot.scale.is_equal_approx(Vector2.ONE), "and settles")
+	var mark := PanelContainer.new()
+	mark.custom_minimum_size = Vector2(60, 60)
+	host.add_child(mark)
+	Widgets.stamp(mark)
+	check(mark.modulate.a < 0.1, "a new mark isn't there yet")
+	await _frames(4)
+	check(mark.scale.x > 1.05, "it comes down large")
+	await _wait(0.5)
+	check(mark.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(mark.modulate.a, 1.0), "and is struck")
+	var changed := Label.new()
+	changed.text = "Changed"
+	Widgets.flash_soon(changed)
+	host.add_child(changed)
+	await _frames(5)
+	check(changed.modulate.r > 1.05, "what a tap changed glows on the page that comes back, asked for before it was on it")
+	var mover := PanelContainer.new()
+	mover.custom_minimum_size = Vector2(60, 60)
+	host.add_child(mover)
+	Widgets.step_in(mover, Vector2(-70, 0))
+	await _frames(4)
+	var mx: float = mover.position.x
+	await _wait(0.6)
+	check(mover.position.x > mx + 5.0 and is_equal_approx(mover.modulate.a, 1.0), "someone steps into their place on a page")
+	sound.reduced_motion = true
+	var still := PanelContainer.new()
+	still.custom_minimum_size = Vector2(60, 60)
+	host.add_child(still)
+	Widgets.unfold(still)
+	Widgets.stamp(still)
+	Widgets.pulse(still)
+	Widgets.flash_soon(still)
+	Widgets.step_in(still, Vector2(-70, 0))
+	await _frames(4)
+	check(still.scale.is_equal_approx(Vector2.ONE) and still.modulate.is_equal_approx(Color.WHITE), "under Reduced motion all of it is simply there")
+	sound.reduced_motion = false
+	host.queue_free()
+	# A captain's face blinks wherever it's shown.
+	var cap: Dictionary = gs.army[0]["captain"]
+	var shut_tex: Texture2D = CaptainArt.texture(cap, "blink")
+	var pic := TextureRect.new()
+	pic.texture = CaptainArt.texture(cap)
+	root.add_child(pic)
+	var blinked := [0]
+	var apply := func(tex: Texture2D) -> void:
+		pic.texture = tex
+		if tex == shut_tex:
+			blinked[0] += 1
+	CaptainArt.blink_loop(pic, apply, cap)
+	await _wait(6.0)
+	check(shut_tex != null and shut_tex != CaptainArt.texture(cap) and blinked[0] >= 1, "a captain's portrait blinks (%d in six seconds)" % blinked[0])
+	pic.queue_free()
+	# A ribbon about a person carries their face.
+	scenes.ribbons.clear()
+	scenes.ribbon_face("Test joins the company", "Sergeant", CaptainArt.texture(cap), "")
+	await _frames(4)
+	var rib := scenes.get_node_or_null("Ribbon") as Control
+	check(rib != null and rib.find_child("RibbonFace", true, false) != null, "a hero who joins is seen: their face on a ribbon")
+	if rib != null:
+		scenes._dismiss_ribbon(rib)
+	await _frames(2)
+	# A promotion: the new role is struck onto the page and told with their proud face.
+	cap["specialization"] = ""
+	cap["battles"] = Captains.SPECIALIZATION_BATTLES
+	scenes.active_captain_id = int(cap["id"])
+	change_scene_to_file("res://scenes/captain_profile.tscn")
+	await _arrive("captain_profile.tscn")
+	var prof = current_scene
+	scenes.ribbons.clear()
+	prof._picked = String(Captains.SPECIALIZATIONS[0])
+	prof._confirm_promotion()
+	var chips: Array = prof.find_children("SpecializationChip", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(not chips.is_empty() and (chips[0] as Control).modulate.a < 0.1, "a promotion's new role is about to be struck")
+	check(scenes.ribbons.any(func(x): return x.get("face") is Texture2D) or (scenes.get_node_or_null("Ribbon") != null), "and is told with the captain's face")
+	await _wait(0.8)
+	check(not chips.is_empty() and is_instance_valid(chips[0]) and is_equal_approx((chips[0] as Control).modulate.a, 1.0) and (chips[0] as Control).scale.is_equal_approx(Vector2.ONE), "and is")
+	scenes.ribbons.clear()
+	if scenes._ribbon != null:
+		scenes._dismiss_ribbon(scenes._ribbon)
+	# The Warband page counts men in.
+	var men: int = gs.total_men()
+	scenes.warband_men_seen = men - 3
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	var tile := current_scene.find_child("Tile_men", true, false)
+	await _wait(0.9)
+	check(tile != null and (tile.find_child("Value", true, false) as Label).text == str(men) and scenes.warband_men_seen == men, "men back on their feet are counted in on the Warband page")
+	check(current_scene.find_child("CampTableau", true, false) != null, "with the captains around the fire")
+	# A letter unfolds when it's opened.
+	var social = gs.world.social
+	var kp: Dictionary = social.get_candidate_person("kaede")
+	var unread: Dictionary = social.add_letter(kp["id"], "relocation", "", gs.world.hour, "takamine", {"old": "Kitayama"})
+	scenes.people_tab = "letters"
+	change_scene_to_file("res://scenes/people.tscn")
+	await _arrive("people.tscn")
+	var people = current_scene
+	check(people.find_child("Unread", true, false) != null, "an unread letter is marked")
+	people._open_letter(String(unread["id"]))
+	var sheet := people.find_children("Parchment", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(not sheet.is_empty() and (sheet[0] as Control).modulate.a < 0.1, "opened, the letter unfolds")
+	await _wait(0.7)
+	check(not sheet.is_empty() and is_instance_valid(sheet[0]) and (sheet[0] as Control).scale.is_equal_approx(Vector2.ONE) and is_equal_approx((sheet[0] as Control).modulate.a, 1.0), "and lies open to read")
+	people._build()
+	await _frames(3)
+	var again := people.find_children("Parchment", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(not again.is_empty() and is_equal_approx((again[0] as Control).modulate.a, 1.0), "a page rebuilt under it leaves it lying open")
+	# The Crown: what you did is said, and the treasury counts.
+	gs.renown = 250
+	gs.player_fief = {"settlement_id": "ravensford", "realm": gs.world.owner_of("ravensford"), "silver": 0, "food": 20,
+		"improvements": {}, "garrison": [], "granted_at": 0.0, "lost": false}
+	var p = gs.world.player()
+	p.node = "ravensford"
+	p.next = ""
+	p.path = []
+	scenes.ribbons.clear()
+	var crowned: bool = gs.declare_crown()
+	check(crowned and scenes.ribbons.any(func(x): return bool(x.get("grand", false)) and String(x["title"]) == "A crown is raised"), "raising your crown is marked as the moment it is")
+	scenes.ribbons.clear()
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	gs.silver = 5000
+	var K = load("res://scripts/world/kingdom_screen.gd")
+	var k = K.open(root, gs, "realm")
+	await _frames(3)
+	var before: int = gs.crown_treasury()
+	var fund := k.find_child("Fund", true, false) as Button
+	check(fund != null and not fund.disabled, "the treasury can be paid into")
+	if fund != null:
+		fund.pressed.emit()
+	await _frames(6)
+	var said: Array = k.find_children("Flash", "Control", true, false).filter(func(n): return Widgets.live(n))
+	check(gs.crown_treasury() > before and not said.is_empty() and (said[0] as Control).modulate.r > 1.02, "what you did on the Crown page lands with a glow")
+	var chest: Array = k.find_children("Tile_chest", "Control", true, false).filter(func(n): return Widgets.live(n))
+	await _wait(0.8)
+	check(not chest.is_empty() and ((chest[0] as Node).find_child("Value", true, false) as Label).text == Widgets.thousands(gs.crown_treasury()), "and the treasury counts to its new sum")
+	k.queue_free()
+	scenes.ribbons.clear()
+
+
+# ---- the big moments: the captains' talk at the fire is told a line at a time, a bond's
+# new rank is struck, a crown raised takes the screen, and the map tells what concerns you.
+func _turning_points() -> void:
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("company_camp", "night"), "Test")
+	var rest := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	var shut := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	tv.set_face("left", rest, true, 0.6)
+	tv.set_face("right", rest, true, 0.6)
+	await _wait(0.5)
+	var lf: TextureRect = tv.face_node("left")
+	var rf: TextureRect = tv.face_node("right")
+	# Each captain's own face leans into their own line.
+	var ly: float = lf.position.y
+	var ry: float = rf.position.y
+	tv.say("them", "The one on the left speaks.", "A")
+	await _wait(0.08)
+	check(lf.position.y < ly - 1.0 and is_equal_approx(rf.position.y, ry), "the one on the left leans into their own line")
+	await _wait(0.4)
+	tv.say("other", "And the one on the right answers.", "B")
+	await _wait(0.08)
+	check(rf.position.y < ry - 1.0 and is_equal_approx(lf.position.y, ly), "and the one on the right into theirs")
+	tv.finish_writing()
+	tv.clear_log()
+	# Told in turn: all of it is in the talk, one line showing at a time.
+	var said := []
+	var done := [false]
+	var note := func(side: String) -> void: said.append(side)
+	var lines := [{"who": "narration", "text": "They sat late by the fire."},
+		{"who": "them", "text": "You held the left when it mattered.", "speaker": "A", "then": note},
+		{"who": "other", "text": "You'd have done the same.", "speaker": "B", "then": note},
+		{"who": "them", "text": "I would have. Badly.", "speaker": "A", "then": note}]
+	tv.say_in_turn(lines, func() -> void: done[0] = true)
+	var nothing := func() -> void: pass
+	tv.set_replies([{"id": "back", "text": "Back", "tone": "primary", "act": nothing}])
+	await _frames(3)
+	var rows: Array = tv._log.get_children()
+	check(rows.size() == 4 and rows[0].visible and not rows[2].visible and not rows[3].visible, "a talk at the fire is told a line at a time")
+	check(tv.log_text().contains("I would have. Badly.") and tv.has_reply("back"), "all of it is there to read back, and the way on can be pressed at once")
+	await _wait(1.6)
+	check(rows[1].visible and said == ["left"] and not done[0], "each line comes in its turn, said by its own speaker (%s)" % str(said))
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	tv._tap(up)
+	check(rows.all(func(r): return r.visible) and said == ["left", "right", "left"] and done[0] and not tv.writing(),
+		"a tap brings the rest at once (%s)" % str(said))
+	check((rows[3].find_child("Words", true, false) as Label).visible_characters == -1, "whole, not half written")
+	# The one speaking is lit, the one listening quiet.
+	tv.spotlight("left")
+	await _wait(0.35)
+	check(lf.self_modulate.is_equal_approx(Color.WHITE) and rf.self_modulate.r < 0.7, "the one speaking is lit, the one listening dimmed")
+	tv.spotlight("")
+	await _wait(0.35)
+	check(rf.self_modulate.is_equal_approx(Color.WHITE), "and both are lit once all is said")
+	# A face the game draws blinks while it wears its resting look.
+	tv.set_blink("left", rest, shut)
+	tv._faces["left"]["blink"]["wait"] = 0.01
+	await _frames(3)
+	check(lf.texture == shut, "a captain blinks")
+	await _wait(0.3)
+	check(lf.texture == rest, "and opens their eyes again")
+	tv.change_face("left", shut)
+	tv.change_face("left", ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8)))
+	tv._faces["left"]["blink"]["wait"] = 0.01
+	await _frames(3)
+	check(lf.texture != shut and lf.texture != rest, "but not while wearing an expression")
+	sound.reduced_motion = true
+	tv.clear_log()
+	tv.say_in_turn(lines)
+	check(tv._log.get_children().all(func(r): return r.visible) and not tv.writing(), "under Reduced motion a talk is all there at once")
+	sound.reduced_motion = false
+	tv.queue_free()
+	# The fire talk itself: two captains, the first line showing, the way on there.
+	var a: Dictionary = gs.army[0]["captain"]
+	var b: Dictionary = gs.army[1]["captain"]
+	a["bonds"][str(int(b["id"]))] = 25.0
+	b["bonds"][str(int(a["id"]))] = 25.0
+	scenes.active_bond_a_id = int(a["id"])
+	scenes.active_bond_b_id = int(b["id"])
+	scenes.bond_conversation_return = "res://scenes/main_menu.tscn"
+	change_scene_to_file("res://scenes/bond_conversation.tscn")
+	await _arrive("bond_conversation.tscn")
+	var fire = current_scene
+	var told: Array = fire._log.get_children()
+	check(told.size() > 2 and told[0].visible and not told[told.size() - 1].visible and fire.writing(), "by the fire, the captains' talk is told in turn (%d lines)" % told.size())
+	check(fire._faces["left"].has("shut") and fire._faces["right"].has("shut"), "and both can blink")
+	var fa: Dictionary = fire._a
+	check(fire._faces["left"]["rest"] == fire.face_node("left").texture and fire._faces["left"]["half"] == load("res://scripts/ui/captain_art.gd").texture(fa, "warm/half"),
+		"in the face they're wearing (warm), in two steps")
+	fire._tap(up)
+	await _frames(2)
+	check(told.all(func(r): return r.visible) and fire.face_node("left").self_modulate.is_equal_approx(Color.WHITE)
+		and fire.face_node("right").self_modulate.is_equal_approx(Color.WHITE), "a tap brings it all, both of them lit")
+	# A bond's new rank: the two step toward each other and the rank is struck.
+	gs.bond_events = [{"kind": "rank", "rank": "B", "a_id": int(a["id"]), "b_id": int(b["id"]),
+		"pair": "%s & %s" % [a["name"], b["name"]], "points": 12.0, "shared_battles": 4}]
+	change_scene_to_file("res://scenes/bond_intro.tscn")
+	await _arrive("bond_intro.tscn")
+	var pair := current_scene.find_child("BondPortraits", true, false) as Control
+	var badge := current_scene.find_child("Rank_B", true, false) as Control
+	check(pair != null and pair.get_child_count() == 2 and badge != null, "a new rank shows the two captains and the rank")
+	await _wait(1.4)
+	check(pair != null and is_equal_approx((pair.get_child(0) as Control).modulate.a, 1.0) and badge != null and badge.scale.is_equal_approx(Vector2.ONE)
+		and is_equal_approx(badge.modulate.a, 1.0), "they've stepped in and the rank is struck")
+	gs.bond_events = []
+	# A crown raised takes the screen for a breath.
+	change_scene_to_file("res://scenes/main_menu.tscn")
+	await _arrive("main_menu.tscn")
+	scenes.ribbons.clear()
+	scenes.moment("A crown is raised", "Ravensford is the seat of your crown.", "crown", false, "")
+	await _frames(4)
+	var shade := scenes.get_node_or_null("Moment") as Control
+	check(shade != null and (shade.find_child("MomentTitle", true, false) as Label).text == "A crown is raised", "a crown raised takes the screen")
+	var flag := shade.find_child("Flag", true, false) as Control if shade != null else null
+	check(flag != null and flag.scale.y < 0.9, "its banner unfurls")
+	await _wait(1.3)
+	check(flag != null and is_instance_valid(flag) and flag.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(shade.modulate.a, 1.0), "and hangs there")
+	scenes._dismiss_ribbon(shade)
+	await _frames(2)
+	check(scenes.get_node_or_null("Moment") == null, "a tap sends it away")
+	scenes.moment("Your crown has fallen", "The company rides free again.", "crown", true, "")
+	await _frames(4)
+	shade = scenes.get_node_or_null("Moment") as Control
+	flag = shade.find_child("Flag", true, false) as Control if shade != null else null
+	await _wait(1.9)
+	check(flag != null and is_instance_valid(flag) and flag.modulate.a < 0.2, "a crown fallen: the banner comes down")
+	await _wait(3.2)
+	check(scenes.get_node_or_null("Moment") == null, "and the light comes back by itself")
+	sound.reduced_motion = true
+	scenes.moment("A crown is raised", "", "crown", false, "")
+	await _frames(4)
+	shade = scenes.get_node_or_null("Moment") as Control
+	flag = shade.find_child("Flag", true, false) as Control if shade != null else null
+	check(shade != null and is_equal_approx(shade.modulate.a, 1.0) and flag != null and flag.scale.is_equal_approx(Vector2.ONE), "under Reduced motion it is simply there")
+	if shade != null:
+		scenes._dismiss_ribbon(shade)
+	sound.reduced_motion = false
+	await _frames(2)
+	# The map tells what concerns you, and a holding that changes hands shows it.
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await _arrive("world_map.tscn")
+	var m = current_scene
+	var w = gs.world
+	m._sheet = ""
+	scenes.ribbons.clear()
+	w.events.append({"type": "fief_lost", "settlement": "ravensford", "by": "Lord Test"})
+	w.events.append({"type": "lord_slain", "lord": "Lord Other", "by": "someone else"})
+	w.events.append({"type": "captured", "settlement": "ravensford", "realm": "kharzan", "from": "vardmark"})
+	await _frames(3)
+	var heard: Array = scenes.ribbons.map(func(x): return String(x["title"]))
+	var showing: Node = scenes.get_node_or_null("Ribbon")
+	if showing != null:
+		heard.append((showing.find_child("RibbonTitle", true, false) as Label).text)
+	check(heard.has("Ravensford is lost"), "losing your fief is told on the map (%s)" % str(heard))
+	check(not heard.any(func(t): return String(t).contains("Lord Other")), "what doesn't concern you isn't")
+	check(m._flag_changes.has("ravensford") and String(m._flag_changes["ravensford"]["from"]) == "vardmark", "a holding that changes hands furls its old banner")
+	await _wait(1.8)
+	m.queue_redraw()
+	await _frames(3)
+	check(not m._flag_changes.has("ravensford"), "and flies the new one a moment later")
+	sound.reduced_motion = true
+	w.events.append({"type": "captured", "settlement": "ravensford", "realm": "vardmark", "from": "kharzan"})
+	await _frames(3)
+	check(not m._flag_changes.has("ravensford"), "under Reduced motion the banner simply changes")
+	sound.reduced_motion = false
+	scenes.ribbons.clear()
+	if scenes._ribbon != null:
+		scenes._dismiss_ribbon(scenes._ribbon)
+
+
+# ---- the talks you court and befriend in: faces breathe and gesture, only the new line is
+# said, replies and keepsakes arrive, trust is seen to change, and the People page shows
+# what a visit changed.
+## The painted portraits (Edda, Farah, Kaede) are alive: each painting has other faces made
+## from it (tools/portrait_faces.py): eyes shut and half shut, a softer look, a glance, a
+## brow raised. A talk blinks in two steps, glances, reacts to a mood, and moves the head
+## and hair through a shader. A page portrait blinks.
+func _painted_blink() -> void:
+	var StoryArt = load("res://scripts/ui/story_art.gd")
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var PortraitLife = load("res://scripts/ui/portrait_life.gd")
+	var made := 0
+	var lacking: Array = []
+	var only_face := true
+	for who in ["edda", "farid", "kaede"]:
+		for expression in StoryArt.EXPRESSIONS:
+			var path := "res://assets/portraits/%s_%s.png" % [who, expression]
+			var open: Texture2D = StoryArt.texture(path)
+			var a: Image = StoryArt._image(path)
+			for name in StoryArt.FRAMES:
+				var other: Texture2D = StoryArt.face_frame(open, name)
+				if other == null or other == open or other.get_size() != open.get_size():
+					lacking.append("%s %s %s" % [who, expression, name])
+					continue
+				made += 1
+				var b: Image = other.get_image()
+				if a == null or b == null or b.is_empty():
+					continue
+				b.convert(Image.FORMAT_RGBA8)
+				var changed := 0
+				for y in a.get_height():
+					for x in a.get_width():
+						if a.get_pixel(x, y) != b.get_pixel(x, y):
+							changed += 1
+							if not StoryArt.FACE.has_point(Vector2i(x, y)):
+								only_face = false
+				if changed < 20:
+					only_face = false
+	# A glance can't be made from eyes already lowered: the thoughtful paintings have none.
+	check(made == 87 and lacking.all(func(l): return String(l).contains("thoughtful away")),
+		"every painted portrait has its other faces (%d of 90; none for %s)" % [made, ", ".join(lacking)])
+	check(only_face, "and each is the same painting everywhere but the eyes and brows")
+	check(StoryArt.eyes_shut(ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))) == null, "a picture with no other faces has none")
+	check(StoryArt.painted_who(StoryArt.texture("res://assets/portraits/farid_warm.png")) == "farid", "a painting knows whose it is")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("common_room", "night"), "Edda")
+	var neutral: Texture2D = StoryArt.texture("res://assets/portraits/edda_neutral.png")
+	var warm: Texture2D = StoryArt.texture("res://assets/portraits/edda_warm.png")
+	tv.set_face("left", neutral, false, 0.98)
+	var f: TextureRect = tv.face_node("left")
+	var life: Dictionary = tv._faces["left"]
+	check(life.get("shut") == StoryArt.eyes_shut(neutral) and life.has("frames"), "a painted face in a talk comes alive")
+	check(f.material is ShaderMaterial, "with a shader to move its head and hair")
+	# A blink, in two steps: half, shut, half, open.
+	life["glance"]["wait"] = 99.0
+	life["blink"]["wait"] = 0.01
+	var seen := {}
+	for i in 30:
+		await process_frame
+		seen[f.texture] = true
+		if f.texture == StoryArt.face_frame(neutral, "shut"):
+			break
+	check(seen.has(StoryArt.face_frame(neutral, "half")) and seen.has(StoryArt.face_frame(neutral, "shut")), "she blinks: half shut, then shut")
+	tv.change_face("left", neutral)
+	check(f.texture != neutral, "asked for the face she already wears, mid-blink, nothing jumps")
+	await _wait(0.35)
+	check(f.texture == neutral, "and her eyes open again")
+	# Her head and hair move.
+	var m := f.material as ShaderMaterial
+	var a0: float = m.get_shader_parameter("sway")
+	await _wait(0.3)
+	check(not is_equal_approx(float(m.get_shader_parameter("sway")), a0), "her hair moves")
+	# A mood calls for something: amused, a brow lifted; warm, a small nod; thoughtful, a glance.
+	life["blink"]["wait"] = 99.0
+	tv.express("left", StoryArt.texture("res://assets/portraits/edda_amused.png"), "amused")
+	var amused: Texture2D = StoryArt.texture("res://assets/portraits/edda_amused.png")
+	var lifted := false
+	for i in 40:
+		await process_frame
+		if f.texture == StoryArt.face_frame(amused, "brow2"):
+			lifted = true
+	check(lifted, "amused, a brow lifts")
+	await _wait(1.0)
+	check(f.texture == amused, "and settles")
+	tv.express("left", warm, "warm")
+	check(f.texture == warm and life.get("shut") == StoryArt.eyes_shut(warm), "a new expression brings its own faces")
+	var was_face := f.get_node_or_null("Was") as TextureRect
+	check(is_equal_approx(f.modulate.a, 1.0) and was_face != null and was_face.texture != warm,
+		"changing, the face is never see-through: the old one fades away over it")
+	var nodded := 0.0
+	var lowered := false
+	for i in 60:
+		await process_frame
+		nodded = maxf(nodded, float(m.get_shader_parameter("pitch")))
+		lowered = lowered or f.texture == StoryArt.face_frame(warm, "soft")
+	check(nodded > 2.0 and nodded < 3.0 and lowered, "warm, a small nod, eyes lowered (%.1f px)" % nodded)
+	await _wait(1.8)
+	check(float(m.get_shader_parameter("pitch")) < 0.05 and f.texture == warm, "and up again")
+	var thoughtful: Texture2D = StoryArt.texture("res://assets/portraits/edda_thoughtful.png")
+	tv.express("left", thoughtful, "thoughtful")
+	var lowered_more := false
+	for i in 60:
+		await process_frame
+		lowered_more = lowered_more or f.texture == StoryArt.face_frame(thoughtful, "soft")
+	check(lowered_more, "thoughtful, the lids lower further")
+	tv.life_act("left", "glance")
+	tv.express("left", neutral, "")
+	tv.life_act("left", "glance")
+	var glanced := false
+	for i in 40:
+		await process_frame
+		glanced = glanced or f.texture == StoryArt.face_frame(neutral, "away")
+	check(glanced, "a glance aside, where the eyes have room for one")
+	# An expression that changes mid-blink lands on the new face.
+	life["blink"]["wait"] = 0.01
+	await _wait(0.08)
+	tv.express("left", warm, "")
+	check(f.texture == warm, "an expression that changes mid-blink lands on the new face")
+	# A captain's face, put in the same place, isn't moved by a painting's shader.
+	tv.set_face("left", ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8)), true)
+	check(f.material == null and not life.has("frames"), "a face that isn't painted loses the painting's life")
+	tv.set_face("left", warm, false, 0.98)
+	# Under Reduced motion: as painted.
+	sound.reduced_motion = true
+	await _wait(0.2)
+	check(f.texture == warm and is_zero_approx(float(f.material.get_shader_parameter("tilt"))) and is_zero_approx(float(f.material.get_shader_parameter("sway"))),
+		"under Reduced motion the face is as painted")
+	tv.life_act("left", "nod")
+	await _wait(0.4)
+	check(is_zero_approx(float(f.material.get_shader_parameter("pitch"))), "and doesn't nod")
+	sound.reduced_motion = false
+	tv.queue_free()
+	# The portrait on a page blinks too; under Reduced motion it doesn't.
+	var pic: TextureRect = StoryArt.candidate_portrait("kaede", "neutral", 200)
+	root.add_child(pic)
+	var rest: Texture2D = pic.texture
+	var shut_seen := 0
+	var half_seen := 0
+	var until := Time.get_ticks_msec() + 7000
+	while Time.get_ticks_msec() < until:
+		await process_frame
+		if pic.texture == StoryArt.eyes_shut(rest):
+			shut_seen += 1
+		elif pic.texture == StoryArt.face_frame(rest, "half"):
+			half_seen += 1
+	check(shut_seen >= 1 and half_seen >= 1, "a painted portrait on a page blinks in two steps (shut %d, half %d frames in seven seconds)" % [shut_seen, half_seen])
+	pic.queue_free()
+	sound.reduced_motion = true
+	var still: TextureRect = StoryArt.candidate_portrait("kaede", "neutral", 200)
+	root.add_child(still)
+	var moved := 0
+	for i in 130:
+		await _wait(0.05)
+		if still.texture != rest:
+			moved += 1
+	check(moved == 0, "and holds still under Reduced motion")
+	sound.reduced_motion = false
+	still.queue_free()
+
+
+func _romance_moves() -> void:
+	var TalkView = load("res://scripts/ui/talk_view.gd")
+	var tv = TalkView.new()
+	root.add_child(tv)
+	tv.setup(TalkView.room("common_room", "night"), "Test")
+	var tex := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	var tex2 := ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))
+	tv.set_face("left", tex)
+	await _wait(0.5)
+	var f: TextureRect = tv.face_node("left")
+	var s0: float = f.scale.y
+	await _wait(0.4)
+	check(not is_equal_approx(f.scale.y, s0), "a face in a talk breathes")
+	tv.gesture("left", "lean")
+	await _wait(0.45)
+	check(f.scale.x > 1.02, "warm, they lean in and stay there (%.3f)" % f.scale.x)
+	tv.gesture("left", "back")
+	await _wait(0.45)
+	check(f.scale.x < 0.98, "concerned, they draw back")
+	tv.gesture("left", "")
+	await _wait(0.45)
+	check(absf(f.scale.x - 1.0) < 0.005, "and are as they were after")
+	var y0: float = f.position.y
+	tv.gesture("left", "bounce")
+	await _wait(0.07)
+	check(f.position.y < y0 - 1.0, "amused, they laugh: the face hops")
+	tv.say("them", "Ha!", "Test")
+	await _wait(0.6)
+	check(is_equal_approx(f.position.y, y0), "and lands where it stood, a line said meanwhile or not")
+	tv.sway("left")
+	await _wait(0.3)
+	check(absf(f.rotation) > 0.001, "a partner sways while dancing")
+	tv.sway("left", 0.0)
+	tv.finish_writing()
+	# Laid out again, an old line is simply there; the new one is said.
+	tv.write_lines = false
+	var heard: Control = tv.say("them", "You have heard this line before.", "Test")
+	tv.write_lines = true
+	var fresh: Control = tv.say("them", "And this one is new to you.", "Test")
+	var fresh_words := fresh.find_child("Words", true, false) as Label
+	check((heard.find_child("Words", true, false) as Label).visible_characters == -1 and fresh_words.visible_characters >= 0
+		and fresh_words.visible_characters < fresh_words.text.length(), "only the newest line is written out")
+	tv.finish_writing()
+	var nothing := func() -> void: pass
+	tv.set_replies([{"id": "a", "text": "One", "act": nothing}, {"id": "b", "text": "Two", "act": nothing}, {"id": "c", "text": "Three", "act": nothing}])
+	var last: Button = tv.reply_node("c")
+	check(last.modulate.a < 0.5 and not last.disabled and tv.has_reply("c"), "replies arrive in a short run, and can be pressed at once")
+	await _wait(0.5)
+	check(is_equal_approx(last.modulate.a, 1.0), "and are all there a moment later")
+	var kept: Control = tv.keepsake("A memory kept: the test.")
+	tv.add_to_log(kept)
+	check(kept.modulate.a < 0.1, "a memory kept lands in the talk")
+	await _wait(0.2)
+	check(kept.scale.x < 1.0 or kept.modulate.r > 1.0, "settling in with a glow")
+	await _wait(1.2)
+	check(is_equal_approx(kept.modulate.a, 1.0) and kept.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(kept.modulate.r, 1.0), "and is itself after")
+	tv.replace_face("left", tex2)
+	check(f.texture == tex2 and f.modulate.a < 0.5, "a new partner steps in")
+	await _wait(0.5)
+	check(is_equal_approx(f.modulate.a, 1.0), "and is there")
+	sound.reduced_motion = true
+	tv.gesture("left", "lean")
+	var still: Control = tv.keepsake("A memory kept: the still test.")
+	tv.add_to_log(still)
+	tv.set_replies([{"id": "a", "text": "One", "act": nothing}, {"id": "b", "text": "Two", "act": nothing}])
+	await _frames(3)
+	check(f.scale.is_equal_approx(Vector2.ONE) and is_equal_approx(f.rotation, 0.0) and is_equal_approx(still.modulate.a, 1.0)
+		and is_equal_approx((tv.reply_node("b") as Button).modulate.a, 1.0), "under Reduced motion faces, memories and replies are simply there")
+	sound.reduced_motion = false
+	tv.queue_free()
+	# The petals thrown when you're wed.
+	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
+	var dr = Dressing.new()
+	dr.size = Vector2(400, 300)
+	root.add_child(dr)
+	dr.burst()
+	check(dr._burst > 0.9, "petals are thrown at a wedding")
+	await _wait(0.3)
+	check(dr._burst < 0.95 and dr._burst > 0.0, "and fall")
+	sound.reduced_motion = true
+	dr._burst = 0.0
+	dr.burst()
+	check(dr._burst == 0.0, "not under Reduced motion")
+	sound.reduced_motion = false
+	dr.queue_free()
+	# A visit: trust won is seen on the nameplate.
+	var social = gs.world.social
+	scenes.active_candidate_id = "edda"
+	scenes.conversation_return = "res://scenes/people.tscn"
+	change_scene_to_file("res://scenes/conversation.tscn")
+	await _arrive("conversation.tscn")
+	var talk = current_scene
+	talk.choose("story")
+	var topics: Array = talk.reply_ids().filter(func(id): return String(id).begins_with("topic_"))
+	talk.choose(topics[0])
+	for fl in _floats():
+		fl.queue_free()
+	var before := int(social.get_relationship("edda")["trust"])
+	talk.choose("decide_offer_help")
+	var trust := int(social.get_relationship("edda")["trust"])
+	await _frames(4)
+	var meter := talk.find_child("TrustMeter", true, false) as Control
+	check(trust > before and meter != null and float(meter.get_meta("frac")) < trust / 100.0 - 0.01,
+		"trust won in a visit fills the bar from where it stood (%.2f toward %.2f)" % [float(meter.get_meta("frac")) if meter != null else -1.0, trust / 100.0])
+	check(_floats().size() == 1 and not talk.log_text().contains("+%d" % (trust - before)), "a heart rises off their face, and no sum is shown")
+	await _wait(1.0)
+	check(is_equal_approx(float(meter.get_meta("frac")), trust / 100.0) and (talk.find_child("TrustNumber", true, false) as Label).text == str(trust),
+		"and the bar and the number land on the new trust")
+	# The People page shows what the visit changed.
+	scenes.people_seen = {"edda": {"trust": before, "memories": 0}}
+	scenes.people_tab = "people"
+	change_scene_to_file("res://scenes/people.tscn")
+	await _arrive("people.tscn")
+	var bar := current_scene.find_child("TrustBar", true, false) as Control
+	check(bar != null and float(bar.get_meta("frac")) < trust / 100.0 - 0.01, "back on People, her trust is seen to have moved")
+	check(int(scenes.people_seen["edda"]["trust"]) == trust, "and the page remembers what it has shown")
+	await _wait(1.0)
+	check(bar != null and is_instance_valid(bar) and is_equal_approx(float(bar.get_meta("frac")), trust / 100.0), "landing on what it is now")
+
+
+# ---- the lord talk moves as the other talks do: they step in, their line is written out,
+# their face answers what you say, Regard is seen to change, and leaving fades.
+func _lord_talk(tap: InputEvent) -> void:
+	var LordConversation = load("res://scripts/world/lord_conversation.gd")
+	var LordTalk = load("res://scripts/world/lord_talk.gd")
+	var l: Dictionary = {}
+	for x in gs.world.lords:
+		if not bool(x.get("ruler", false)) and String(x.get("state", "")) != "prisoner":
+			l = x
+			break
+	var lid := int(l["id"])
+	var lt = LordConversation.open(root, gs, lid, "road")
+	await _frames(2)
+	var lf := lt.get_node("Stage/Face") as TextureRect
+	check(lf.modulate.a < 0.99, "a lord steps into the talk, fading up")
+	var speech := lt._talk.get_node("Speech") as Label
+	check(lt.writing() and speech.visible_characters >= 0 and speech.visible_characters < speech.text.length(),
+		"a lord's line is written out (%d of %d)" % [speech.visible_characters, speech.text.length()])
+	check(lt.has_reply("leave") and lt.speech_text() == speech.text, "nothing waits on it: the replies are there, and the line is whole to read")
+	lt._tap(tap)
+	check(not lt.writing() and speech.visible_characters == -1, "a tap finishes the lord's line")
+	await _wait(0.6)
+	check(is_equal_approx(lf.modulate.a, 1.0) and lt._face_off.length() < 0.5, "and they stand where they stand a moment later")
+	var y0: float = lf.position.y
+	await _wait(0.5)
+	check(not is_equal_approx(lf.position.y, y0), "they breathe")
+	check(lt._backdrop == null or lt._backdrop.scale.is_equal_approx(Vector2.ONE), "and the place behind them holds still")
+	# Their face answers what you say.
+	var resting: Texture2D = lt._face_texture("")
+	lt._show("\"Good.\"", [], [lt._leave_reply()], "warm", "nod")
+	check(resting == null or (lf.texture != resting and lf.texture == lt._face_texture("warm")), "a line they like changes their face")
+	check(resting == null or lt._face_texture("blink") != resting, "and there's a face with its eyes shut to blink with")
+	lt._show("\"What else?\"", [], [lt._leave_reply()])
+	check(lf.texture == resting, "the next line, they're themselves again")
+	# Their eyes live in any mood: they blink in two steps, nod small with their lids
+	# lowered, lift a brow when they lean in, and glance aside now and then.
+	if resting != null:
+		lt._glance_wait = 99.0
+		lt._show("\"Hm.\"", [], [lt._leave_reply()], "grim", "")
+		await _wait(0.4)
+		lt._blink["wait"] = 0.01
+		var seen := {}
+		var until := Time.get_ticks_msec() + 400
+		while Time.get_ticks_msec() < until:
+			await process_frame
+			seen[lf.texture] = true
+		check(seen.has(lt._face_texture("grim/half")) and seen.has(lt._face_texture("grim/shut")) and lf.texture == lt._face_texture("grim"),
+			"grim, they still blink: half shut, shut, and open again")
+		check(lt._face_texture("grim/half") != lt._face_texture("grim") and lt._face_texture("grim/shut") != lt._face_texture("grim/half"),
+			"three different eyes to blink with")
+		lt._blink["wait"] = 99.0
+		lt._show("\"Agreed.\"", [], [lt._leave_reply()], "warm", "nod")
+		var dip := 0.0
+		var lowered := false
+		var nod_until := Time.get_ticks_msec() + 700
+		while Time.get_ticks_msec() < nod_until:
+			await process_frame
+			dip = maxf(dip, lt._face_off.y)
+			lowered = lowered or lf.texture == lt._face_texture("warm/half")
+		check(dip > 2.0 and dip <= lt.NOD_DIP + 0.01 and lowered, "a nod is a small dip with the lids lowered (%.1f px)" % dip)
+		await _wait(0.6)
+		check(lt._face_off.length() < 0.5 and lf.texture == lt._face_texture("warm"), "and up again")
+		lt._show("\"Go on.\"", [], [lt._leave_reply()], "proud", "lean")
+		await _wait(0.1)
+		check(lf.texture in [lt._face_texture("proud/brow"), lt._face_texture("proud/brow,talk")], "leaning in with interest, a brow lifts")
+		await _wait(1.6)
+		check(lf.texture == lt._face_texture("proud"), "and settles")
+		lt._glance_wait = 0.01
+		var glanced := false
+		var glance_until := Time.get_ticks_msec() + 500
+		while Time.get_ticks_msec() < glance_until:
+			await process_frame
+			glanced = glanced or lf.texture == lt._face_texture("proud/away")
+		check(glanced and lt._face_texture("proud/away") != lt._face_texture("proud"), "now and then they glance aside")
+		lt._glance_wait = 99.0
+		await _wait(1.6)
+		# Their mouth moves on the words while their line is written, and rests after.
+		lt._blink["wait"] = 99.0
+		lt._show("\"A long line, said slowly enough to watch it being said, word by word.\"", [], [lt._leave_reply()], "grim", "")
+		var talked := false
+		var talk_until := Time.get_ticks_msec() + 600
+		while Time.get_ticks_msec() < talk_until:
+			await process_frame
+			talked = talked or lf.texture == lt._face_texture("grim/talk")
+		check(talked and lt._face_texture("grim/talk") != lt._face_texture("grim"), "their mouth moves on the words as they're written")
+		await _wait(1.4)
+		check(not lt.writing() and lf.texture == lt._face_texture("grim"), "and rests when the line is whole")
+		sound.reduced_motion = true
+		lt._show("\"Agreed.\"", [], [lt._leave_reply()], "warm", "nod")
+		lt._blink["wait"] = 0.01
+		await _wait(0.3)
+		check(lf.texture == lt._face_texture("warm") and lt._face_off.length() < 0.5, "under Reduced motion they hold still")
+		sound.reduced_motion = false
+		lt._show("\"What else?\"", [], [lt._leave_reply()])
+	lt._show("\"Enough.\"", [], [lt._leave_reply()], "grim", "away")
+	await _wait(0.5)
+	check(lf.modulate.r < 0.9 and lt._face_off.x < -8.0, "refused, they turn away and stay turned")
+	lt._show("\"What else?\"", [], [lt._leave_reply()])
+	await _wait(0.5)
+	check(lf.modulate.r > 0.99 and lt._face_off.length() < 0.5, "until the next thing said")
+	# Regard is seen to change.
+	for f in _floats():
+		f.queue_free()
+	gs.add_lord_relation(lid, 5)
+	var now: int = LordTalk.regard(gs, l)
+	lt._show("\"I'll remember it.\"", [], [lt._leave_reply()])
+	await _frames(5)
+	check(_floats().size() == 1, "Regard won in a talk rises off their face, once (%d)" % _floats().size())
+	check(gs.regard_events.filter(func(e): return int(e["id"]) == lid).is_empty(), "and won't rise again on the page you go back to")
+	await _wait(0.7)
+	check((lt.get_node("Stage").find_child("RegardText", true, false) as Label).text == LordTalk.regard_text(now), "the chip counts to the new Regard")
+	# Leaving: the host hears at once, the picture takes a moment.
+	var heard := [false]
+	lt.closed.connect(func(): heard[0] = true)
+	lt._leave()
+	check(heard[0] and is_instance_valid(lt) and not lt.is_queued_for_deletion(), "leaving tells the host at once, and fades")
+	await _wait(0.4)
+	check(not is_instance_valid(lt), "and is gone a moment later")
+	# Reduced motion: all of it is simply there.
+	sound.reduced_motion = true
+	var still = LordConversation.open(root, gs, lid, "road")
+	await _frames(2)
+	var sf := still.get_node("Stage/Face") as TextureRect
+	var words := still._talk.get_node("Speech") as Label
+	check(is_equal_approx(sf.modulate.a, 1.0) and not still.writing() and words.visible_characters == -1, "under Reduced motion the lord and the line are there at once")
+	var p0: Vector2 = sf.position
+	var t0: Texture2D = sf.texture
+	await _wait(0.3)
+	check(sf.position == p0 and sf.texture == t0, "and hold still")
+	still._leave()
+	check(still.is_queued_for_deletion(), "and leaving is a cut")
+	sound.reduced_motion = false
+	await _frames(2)
+
+
 # ---- 10, 11. talk has a pulse; the dance, the wedding and the hall move
 func _talk_and_scenes() -> void:
 	var TalkView = load("res://scripts/ui/talk_view.gd")
@@ -458,6 +1216,9 @@ func _talk_and_scenes() -> void:
 	check((still.find_child("Words", true, false) as Label).visible_characters == -1, "and under Reduced motion")
 	sound.reduced_motion = false
 	tv.queue_free()
+	await _lord_talk(ev)
+	await _romance_moves()
+	await _painted_blink()
 	# The wedding's bunting sways.
 	var Dressing = load("res://scripts/ui/wedding_dressing.gd")
 	var d = Dressing.new()

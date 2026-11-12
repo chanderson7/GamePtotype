@@ -57,8 +57,13 @@ const BRASS_DARK := Color("8a6a22")
 const PALE := Color("eae3d4")
 const RED := Color("a8322c")
 
-## The moments a face can be drawn for. "" is the captain's resting face.
+## The moments a face can be drawn for. "" is the captain's resting face. ("blink" is
+## also drawn: the resting face with its eyes shut, for a face that's alive on a stage.)
 const EXPRESSIONS := ["", "grim", "pain", "grief", "proud", "fear", "warm"]
+## What a face alive on a stage does with its eyes, over any expression, written after a
+## slash ("warm/shut", "/half"): eyes shut, half shut (the middle of a blink, the bottom
+## of a nod), glancing aside, or the brows lifted (interest).
+const EYES_DOING := ["shut", "half", "away", "brow"]
 
 const SEASONED := 8
 const VETERAN := 20
@@ -103,11 +108,21 @@ static func features(captain: Dictionary) -> Dictionary:
 		f["beard"] = ["stubble", "short", "full", "moustache", "goatee"][rng.randi_range(0, 4)]
 	f["scar_seed"] = rng.randi()
 	f["outfit"] = rng.randi_range(0, 3)
+	f["woman"] = bool(captain.get("kin", false)) or bool(captain.get("woman", false))
 	# A lord's kinswoman (LordVoice.kin_record): a soft face, no beard, her hair worn long.
 	if bool(captain.get("kin", false)):
 		f["soft"] = true
 		f["beard"] = "none"
 		f["hair"] = {"kharzani": "long", "ryumon": "tied"}.get(culture, "braid")
+	# A lady lord (LordVoice.is_lady): the same, her hair in one of her land's women's
+	# styles, chosen by who she is, and her brows finer.
+	elif bool(captain.get("woman", false)):
+		f["soft"] = true
+		f["beard"] = "none"
+		var styles: Array = {"kharzani": ["long", "wrap"], "ryumon": ["long"]}.get(culture, ["braid", "long"])
+		f["hair"] = styles[posmod(int(captain.get("id", 0)), styles.size())]
+		if int(f["brow"]) == 2:
+			f["brow"] = 1
 	# New draws come after the old ones, so nothing above changes.
 	f["eye_set"] = rng.randi_range(0, 1)   # wide-set or close-set eyes
 	f["lip"] = rng.randi_range(0, 1)       # full or thin lips
@@ -141,6 +156,13 @@ static func texture(captain: Dictionary, backdrop: bool = true, expression: Stri
 
 ## The face as it is now, wearing `expression` if one is given.
 static func image(captain: Dictionary, backdrop: bool = false, expression: String = "") -> Image:
+	var eyes := ""
+	if expression.contains("/"):
+		eyes = expression.get_slice("/", 1)
+		expression = expression.get_slice("/", 0)
+	elif expression == "blink":
+		eyes = "shut"
+		expression = ""
 	var f := features(captain)
 	var img := Image.create(W, H, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
@@ -170,23 +192,31 @@ static func image(captain: Dictionary, backdrop: bool = false, expression: Strin
 	var level := rank(captain)
 	var spec := String(captain.get("specialization", ""))
 
-	# Body first, so the head and hair sit over the collar.
-	_outfit(img, f, main, trim, accent, "" if noble != "" else String(captain.get("type", "")), level, spec)
-	if noble != "":
-		_regalia_body(img, f, main)
+	# Body first, so the head and hair sit over the collar. A lady of a noble house wears a
+	# gown of her land in her house's colours, on narrower shoulders.
+	_slim = bool(f["woman"])
+	if bool(f["woman"]) and noble != "":
+		_lady_gown(img, f, main, accent, tones)
+	else:
+		_outfit(img, f, main, trim, accent, "" if noble != "" else String(captain.get("type", "")), level, spec)
+		if noble != "":
+			_regalia_body(img, f, main)
 	_hair_back(img, f, hair_tones, trim)
-	_neck(img, tones)
+	_neck(img, tones, bool(f["woman"]))
 	_head(img, f, tones)
 	_face(img, f, tones, hair_tones, String(captain.get("temperament", "")), String(captain.get("quirk", "")),
-		expression, greying)
+		expression, greying, eyes)
 	_beard(img, f, hair_tones)
 	_hair(img, f, hair_tones, main, trim, tones)
+	if bool(f["woman"]):
+		_lady_hair(img, f, hair_tones, main, noble == "ruler")
 	if noble == "ruler":
 		_circlet(img, f)
 	_scars(img, f, captain, tones)
 	if int(captain.get("wounded", 0)) > 0:
 		_bandage(img, f)
 	_outline(img)
+	_slim = false
 	if not backdrop:
 		return img
 	var back := _backdrop(String(f["culture"]), String(captain.get("house", "")))
@@ -204,6 +234,12 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 	var ry: float = [15.0, 14.5, 16.0, 15.0][head]
 	var chin: float = [0.28, 0.14, 0.32, 0.2][head]   # how much the jaw narrows
 	var flat: float = [0.0, 0.08, 0.0, 0.05][head]    # a squarer chin
+	var woman := bool(f.get("woman", false))
+	if woman:
+		# A finer face: a little narrower, the jaw tapering to a soft point.
+		rx -= 0.8
+		chin = maxf(chin, 0.34)
+		flat = 0.0
 	# Where the face's edge falls at the ears' height, so the ears join it.
 	var edge_l := W
 	var edge_r := -1
@@ -229,7 +265,7 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 				c = t["light"]
 			# The hollow under the right cheekbone: a wedge inside the shadow band, one tone
 			# deeper, widest just under the bone and tapering toward the jaw.
-			if dy > 0.1 and dy < 0.5 and dx < 0.86 and dx > 0.55 + 0.6 * (dy - 0.1):
+			if not woman and dy > 0.1 and dy < 0.5 and dx < 0.86 and dx > 0.55 + 0.6 * (dy - 0.1):
 				c = t["deep"]
 			if dy > 0.78 and absf(dx) < 0.5:
 				c = t["dark"]
@@ -254,7 +290,13 @@ static func _head(img: Image, f: Dictionary, t: Dictionary) -> void:
 
 
 ## The neck under the chin, in shadow, with the throat catching a little light.
-static func _neck(img: Image, t: Dictionary) -> void:
+static func _neck(img: Image, t: Dictionary, slender: bool = false) -> void:
+	if slender:
+		_rect(img, 25, 47, 10, 13, t["dark"])
+		_rect(img, 25, 47, 4, 13, t["base"])
+		_rect(img, 25, 47, 10, 3, t["deep"])
+		_rect(img, 33, 47, 2, 13, t["deep"])
+		return
 	_rect(img, 23, 47, 14, 11, t["dark"])
 	_rect(img, 23, 47, 5, 11, t["base"])
 	_rect(img, 23, 47, 14, 4, t["deep"])
@@ -265,7 +307,7 @@ static func _neck(img: Image, t: Dictionary) -> void:
 
 ## Eyes, brows, nose and mouth, set by the captain's temper and the moment.
 static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temperament: String, quirk: String,
-		expression: String, greying: bool) -> void:
+		expression: String, greying: bool, eyes: String = "") -> void:
 	var eye: Color = EYES[int(f["eyes"])]
 	var ey := 36
 	var gap := 1 if int(f["eye_set"]) == 1 else 2
@@ -276,6 +318,14 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 		"grief":
 			look = 1
 	var lids := _lids(temperament, expression)
+	match eyes:
+		"shut":
+			lids = "shut"
+		"half":
+			# A lid halfway down: an open eye narrows, a narrowed or smiling one closes.
+			lids = String({"open": "narrow", "wide": "open", "narrow": "shut", "smiling": "shut"}.get(lids, lids))
+	# A glance aside: the irises sit a pixel toward the viewer's left.
+	var g := -1 if eyes == "away" else 0
 	for ex: int in [lx, rx]:
 		var shadow_side := ex > 30
 		match lids:
@@ -289,34 +339,50 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 				_px(img, ex + 4, ey, t["line"])
 			"narrow":
 				_rect(img, ex, ey, 4, 1, t["line"])
-				_px(img, ex, ey + 1, EYE_WHITE.darkened(0.2 if shadow_side else 0.0))
-				_px(img, ex + 1, ey + 1, eye)
-				_px(img, ex + 2, ey + 1, eye)
-				_px(img, ex + 3, ey + 1, EYE_WHITE.darkened(0.2 if shadow_side else 0.0))
+				_rect(img, ex, ey + 1, 4, 1, EYE_WHITE.darkened(0.2 if shadow_side else 0.0))
+				_px(img, ex + 1 + g, ey + 1, eye)
+				_px(img, ex + 2 + g, ey + 1, eye)
 			"smiling":
 				_rect(img, ex, ey + 1, 4, 1, t["line"])
 				_px(img, ex, ey, t["line"])
 				_px(img, ex + 3, ey, t["line"])
 				_px(img, ex + 1, ey, eye)
 				_px(img, ex + 2, ey, eye)
+				if g != 0:
+					_px(img, ex + 2, ey, t["line"])
 			"wide":
 				var white := EYE_WHITE.darkened(0.15 if shadow_side else 0.0)
 				_rect(img, ex, ey - 1, 4, 3, white)
-				_px(img, ex + 1, ey, eye)
-				_px(img, ex + 2, ey, eye)
-				_px(img, ex + 1, ey - 1, eye.lightened(0.25))
+				_px(img, ex + 1 + g, ey, eye)
+				_px(img, ex + 2 + g, ey, eye)
+				_px(img, ex + 1 + g, ey - 1, eye.lightened(0.25))
 				_rect(img, ex, ey - 2, 4, 1, t["line"])
 			_:
 				var white := EYE_WHITE.darkened(0.15 if shadow_side else 0.0)
 				_rect(img, ex, ey, 4, 2, white)
-				_px(img, ex + 1, ey + look, eye)
-				_px(img, ex + 2, ey + look, eye)
-				_px(img, ex + 1, ey + 1 - look, eye.darkened(0.2) if look == 0 else white)
-				_px(img, ex + 2, ey + 1, eye.darkened(0.2))
-				_px(img, ex + 1, ey, eye.lightened(0.3) if look == 0 else eye)
+				_px(img, ex + 1 + g, ey + look, eye)
+				_px(img, ex + 2 + g, ey + look, eye)
+				_px(img, ex + 1 + g, ey + 1 - look, eye.darkened(0.2) if look == 0 else white)
+				_px(img, ex + 2 + g, ey + 1, eye.darkened(0.2))
+				_px(img, ex + 1 + g, ey, eye.lightened(0.3) if look == 0 else eye)
 				# The upper lid: a dark line with a crease above it.
 				_rect(img, ex, ey - 1, 4, 1, t["line"])
 				_rect(img, ex, ey - 2, 4, 1, t["dark"])
+	if bool(f.get("woman", false)):
+		# Lashes: the upper lid's line runs on past each outer corner and lifts a little.
+		var lid_y := ey - 1 if lids in ["open", "wide"] else ey
+		if lids == "shut":
+			lid_y = ey + 1
+		if lids == "wide":
+			lid_y = ey - 2
+		_px(img, lx - 1, lid_y, t["line"])
+		_px(img, lx - 2, lid_y - 1, t["line"])
+		_px(img, rx + 4, lid_y, t["line"])
+		_px(img, rx + 5, lid_y - 1, t["line"])
+		# A soft colour on the cheeks.
+		if expression not in ["warm", "pain"]:
+			_rect(img, 20, 41, 3, 1, t["base"].lerp(t["flush"], 0.6))
+			_rect(img, 37, 41, 3, 1, t["dark"].lerp(t["flush"], 0.5))
 	# A tear, sweat, or a flush, by the moment.
 	match expression:
 		"grief":
@@ -334,7 +400,7 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 	var brow_col: Color = ht["dark"] if String(f["hair"]) not in ["turban", "wrap", "shaved"] else Color("2a1c16")
 	if greying:
 		brow_col = brow_col.lerp(GREY, 0.4)
-	_brows(img, f, temperament, expression, brow_col, t["deep"], lx, rx)
+	_brows(img, f, temperament, expression, brow_col, t["deep"], lx, rx, eyes == "brow")
 	_nose(img, f, t)
 	_mouth(img, f, temperament, quirk, expression, t)
 	if int(f["age"]) >= 1:
@@ -352,6 +418,8 @@ static func _face(img: Image, f: Dictionary, t: Dictionary, ht: Dictionary, temp
 ## How the eyes sit for an expression, over the captain's resting look.
 static func _lids(temperament: String, expression: String) -> String:
 	match expression:
+		"blink":
+			return "shut"
 		"grim":
 			return "narrow"
 		"pain":
@@ -369,7 +437,7 @@ static func _lids(temperament: String, expression: String) -> String:
 
 ## The brows carry most of a face's feeling: knitted, level, lifted, or worried.
 static func _brows(img: Image, f: Dictionary, temperament: String, expression: String, c: Color, crease: Color,
-		lx: int, rx: int) -> void:
+		lx: int, rx: int, lifted: bool = false) -> void:
 	var thick := int(f["brow"]) == 2
 	var by := 33
 	var shape := ""
@@ -410,6 +478,9 @@ static func _brows(img: Image, f: Dictionary, temperament: String, expression: S
 		var lxp := lx + 3 - i
 		var rxp := rx + i
 		var y: int = by + int(off[i])
+		if lifted:
+			# Interest: both brows a pixel higher, their middles higher still.
+			y -= 2 if i in [1, 2, 3] else 1
 		_px(img, lxp, y, c)
 		_px(img, rxp, y, c)
 		if thick:
@@ -450,6 +521,11 @@ static func _mouth(img: Image, f: Dictionary, temperament: String, quirk: String
 	var lip: Color = t["base"].darkened(0.38).lerp(Color("8a3b36"), 0.3)
 	var lip_light := lip.lightened(0.18)
 	var full := int(f["lip"]) == 0
+	if bool(f.get("woman", false)):
+		# Rosier, and always full.
+		lip = t["base"].darkened(0.3).lerp(Color("b2434f"), 0.6)
+		lip_light = lip.lightened(0.22)
+		full = true
 	var my := 45
 	var shape := ""
 	match expression:
@@ -727,9 +803,16 @@ static func _hair_back(img: Image, f: Dictionary, ht: Dictionary, trim: Color) -
 static func _body(x: int, y: int) -> bool:
 	if y < 57 or y >= H or x < 0 or x >= W:
 		return false
-	# Broad at the top, so the neck sits in the shoulders rather than on a peg.
+	# Broad at the top, so the neck sits in the shoulders rather than on a peg. A woman's
+	# shoulders are narrower and slope more.
+	if _slim:
+		return absf(float(x) + 0.5 - CX) <= minf(14.0 + float(y - 57) * 2.0, 25.0)
 	var half := 18.0 + float(y - 57) * 2.2
 	return absf(float(x) + 0.5 - CX) <= minf(half, 28.0)
+
+
+## Drawing a woman: the body's outline is hers while she's drawn.
+static var _slim := false
 
 
 static func _put(img: Image, x: int, y: int, c: Color) -> void:
@@ -970,6 +1053,279 @@ static func _regalia_body(img: Image, f: Dictionary, house: Color) -> void:
 	_band(img, 27, 69, 6, 6, gold)
 	_band(img, 28, 70, 4, 4, RED)
 	_put(img, 28, 70, Color("d85a50"))
+
+
+## A lady's gown in her house's colours, by her land, lit from the upper left like every
+## garment, worked with the trims, patterns and jewels of a noblewoman of her land:
+##   Vardmark  a damask gown with a laced bodice under a square neckline banded in
+##             embroidery; over her shoulders a mantle lined with ermine, fastened by two
+##             brooches and a chain; a pendant at her throat
+##   Kharzan   a robe patterned with small figures, a broad collar worked in gold and edged
+##             with beads, gold-banded fronts over an underdress, two strands of coins, a
+##             sash, and a sheer shawl over one shoulder
+##   Ryumon    a kimono scattered with plum blossom, its red lining showing at the edges,
+##             collars crossed white and red, and a brocade sash with its cord and knot
+static func _lady_gown(img: Image, f: Dictionary, house: Color, accent: Color, t: Dictionary) -> void:
+	var gold := Color("d8b048")
+	var gold_light := Color("f4dc8a")
+	var gold_dark := Color("8a6a22")
+	var cloth := house.lightened(0.06)
+	var culture := String(f["culture"])
+	var variant := int(f.get("outfit", 0))
+	# The cloth, lit from the upper left, with folds falling from the shoulders.
+	for y in range(57, H):
+		for x in W:
+			if not _body(x, y):
+				continue
+			var c := cloth
+			if culture == "vardish" and (x + y) % 4 == 0 and (x - y + 64) % 8 == 0:
+				c = c.lightened(0.09)                                   # damask lattice
+			if culture == "kharzani" and (x % 6 == 2 and y % 6 == 3 or x % 6 == 5 and y % 6 == 0):
+				c = c.darkened(0.14)                                    # small figures
+			if y > 64 and (x in [13, 21, 39, 47]):
+				c = c.darkened(0.12)                                    # folds
+			if y > 64 and (x in [12, 20, 38, 46]):
+				c = c.lightened(0.06)
+			if x >= 39:
+				c = c.darkened(0.2)
+			elif x <= 20 and y <= 63:
+				c = c.lightened(0.12)
+			img.set_pixel(x, y, c)
+	match culture:
+		"ryumon":
+			_lady_ryumon(img, f, cloth, gold, gold_light, gold_dark, variant)
+		"kharzani":
+			_lady_kharzani(img, f, cloth, accent, gold, gold_light, gold_dark, t, variant)
+		_:
+			_lady_vardish(img, f, cloth, accent, gold, gold_light, gold_dark, t, variant)
+
+
+static func _lady_vardish(img: Image, f: Dictionary, cloth: Color, accent: Color, gold: Color, gold_light: Color,
+		gold_dark: Color, t: Dictionary, variant: int) -> void:
+	var red := RED.lightened(0.1)
+	# The mantle over both shoulders, falling at the sides: a deep cloth that sets off the
+	# gown (crimson, forest green or plum), or the house's second colour.
+	var mantle: Color = [Color("7a1c2a"), Color("1f4a32"), Color("4a2458"), accent.lightened(0.15)][variant % 4]
+	if absf(mantle.h - cloth.h) < 0.05 and absf(mantle.v - cloth.v) < 0.15:
+		mantle = Color("7a1c2a") if variant % 4 != 0 else Color("1f4a32")
+	for y in range(57, H):
+		var inner := 11.5 + float(y - 57) * 0.3
+		for x in W:
+			var d := float(x) + 0.5 - CX
+			if absf(d) < inner or not _body(x, y):
+				continue
+			var c := mantle
+			if (x + y * 2) % 7 == 0:
+				c = c.darkened(0.12)
+			if d > 0.0:
+				c = c.darkened(0.22)
+			elif y < 63:
+				c = c.lightened(0.1)
+			img.set_pixel(x, y, c)
+			# Its inner edge lined with ermine: white, with the black tails.
+			if absf(d) < inner + 2.0:
+				var e := PALE if d < 0.0 else PALE.darkened(0.15)
+				if (x * 3 + y) % 7 == 0:
+					e = Color("1c1a1e")
+				img.set_pixel(x, y, e)
+	# A laced bodice down the front, a shade lighter, its lacing crossing in gold.
+	for y in range(61, H):
+		for x in range(25, 36):
+			if _body(x, y):
+				var c := img.get_pixel(x, y).lightened(0.06)
+				img.set_pixel(x, y, c)
+	for y in range(63, H - 1, 3):
+		_put(img, 28, y, gold)
+		_put(img, 29, y + 1, gold_dark)
+		_put(img, 32, y, gold)
+		_put(img, 31, y + 1, gold_dark)
+		_put(img, 30, y + 1, gold_light)
+	_band(img, 27, 62, 1, H - 62, gold_dark)
+	_band(img, 33, 62, 1, H - 62, gold_dark)
+	# The square neckline, and the embroidered band that edges it.
+	for y in range(57, 61):
+		for x in range(23, 38):
+			_put(img, x, y, t["base"] if x < 30 else t["dark"])
+	for x in range(22, 39):
+		var stitch: Color = [gold, red, gold_light, red][x % 4]
+		_put(img, x, 61, stitch)
+		_put(img, x, 62, gold_dark)
+	for y in range(57, 61):
+		_put(img, 22, y, gold if y % 2 == 0 else red)
+		_put(img, 38, y, gold_dark if y % 2 == 0 else red.darkened(0.2))
+	# A pendant on a fine chain, inside the neckline.
+	for x in range(25, 36):
+		var sag := int(round(2.0 * (1.0 - pow((float(x) - CX) / 5.5, 2.0))))
+		_put(img, x, 57 + sag, gold_light if x < 30 else gold)
+	_put(img, 29, 59, gold)
+	_put(img, 30, 59, gold)
+	_put(img, 29, 60, RED.lightened(0.25))
+	_put(img, 30, 60, RED)
+	# Brooches fastening the mantle, and the chain slung between them.
+	for bx in [17, 43]:
+		_band(img, bx - 1, 62, 3, 3, gold)
+		_put(img, bx - 1, 62, gold_light)
+		_put(img, bx, 63, [Color("3a6ad8"), RED, Color("2f8a5a"), PALE][variant % 4])
+	for x in range(18, 43):
+		var sag := int(round(5.0 * (1.0 - pow((float(x) - CX) / 12.5, 2.0))))
+		if x % 2 == 0:
+			_put(img, x, 64 + sag, gold_light if x < 30 else gold)
+		else:
+			_put(img, x, 64 + sag, gold_dark)
+
+
+static func _lady_kharzani(img: Image, f: Dictionary, cloth: Color, accent: Color, gold: Color, gold_light: Color,
+		gold_dark: Color, t: Dictionary, variant: int) -> void:
+	var teal := Color("2f8a8a")
+	var under := PALE.darkened(0.05) if variant % 2 == 0 else accent.lightened(0.35)
+	# The underdress between the robe's gold-banded fronts.
+	for y in range(64, H):
+		for x in range(27, 34):
+			_put(img, x, y, under if x < 31 else under.darkened(0.12))
+	for y in range(64, H):
+		_put(img, 26, y, gold if y % 3 else gold_light)
+		_put(img, 25, y, gold_dark)
+		_put(img, 34, y, gold_dark if y % 3 else gold)
+		_put(img, 35, y, gold_dark.darkened(0.2))
+	for y in range(67, H, 4):
+		_put(img, 30, y, gold)
+	# A broad collar worked in gold about the neck, edged with beads.
+	for y in range(57, 66):
+		for x in W:
+			var d := Vector2(float(x) + 0.5 - CX, float(y) - 54.0).length()
+			if d < 6.5 or d > 12.5:
+				continue
+			var c := gold if int(d * 2.0 + x) % 3 != 0 else gold_dark
+			if d > 11.4:
+				c = teal if x % 2 == 0 else gold_light
+			if x >= 34:
+				c = c.darkened(0.15)
+			_put(img, x, y, c)
+	# Two strands of coins, the lower with a teal stone.
+	for k in 2:
+		for x in range(20 - k * 2, 41 + k * 2, 2):
+			var sag := int(round((3.0 + k * 2.0) * (1.0 - pow((float(x) - CX) / (11.0 + k * 2.0), 2.0))))
+			_put(img, x, 66 + k * 3 + sag, gold_light if x < 30 else gold)
+	_band(img, 29, 72, 3, 3, gold)
+	_put(img, 30, 73, teal)
+	# A sash at the waist, fringed.
+	for x in W:
+		_put(img, x, 77, accent.lightened(0.15))
+		_put(img, x, 78, accent)
+		if x % 2 == 0:
+			_put(img, x, 79, gold)
+	# A sheer shawl drawn over the near shoulder, its edge picked out in gold.
+	for y in range(57, H):
+		for x in W:
+			var edge := 22.0 - float(y - 57) * 0.55
+			if float(x) > edge or not _body(x, y):
+				continue
+			var c := img.get_pixel(x, y).lerp(PALE, 0.26)
+			if absf(float(x) - edge) < 1.0:
+				c = gold_light if y % 2 == 0 else gold
+			img.set_pixel(x, y, c)
+
+
+static func _lady_ryumon(img: Image, f: Dictionary, cloth: Color, gold: Color, gold_light: Color, gold_dark: Color,
+		variant: int) -> void:
+	var blossom := PALE if variant % 2 == 0 else Color("f0b4c0")
+	var lining := RED.lightened(0.05)
+	# Plum blossom scattered over the robe.
+	for i in 14:
+		var bx := (i * 17 + variant * 5) % 52 + 4
+		var by := 60 + (i * 11) % 14
+		if absf(float(bx) - CX) < 9.0:
+			continue
+		for p in [Vector2i(0, -1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, 1)]:
+			_put(img, bx + p.x, by + p.y, blossom if bx < 39 else blossom.darkened(0.2))
+		_put(img, bx, by, gold)
+	# The red lining showing at the robe's edges.
+	for y in range(57, H):
+		for x in W:
+			if _body(x, y) and (not _body(x - 1, y) or not _body(x + 1, y)):
+				img.set_pixel(x, y, lining if x < 30 else lining.darkened(0.2))
+	# Collars crossed left over right into a V at the breast: white, then red, then a
+	# paler band of the house's colour. The far collar runs on under the near one's edge.
+	for y in range(57, 72):
+		var d := y - 57
+		for k in 3:
+			var col: Color = [PALE, RED.lightened(0.05), cloth.lightened(0.2)][k]
+			var xl := 23 + d + k * 2
+			var xr := 37 - d - k * 2
+			if xl <= 30:
+				_put(img, xl - 1, y, col)
+				_put(img, xl, y, col.darkened(0.08))
+			if xr >= 30 or d >= 8:
+				_put(img, xr, y, col.darkened(0.18))
+				_put(img, xr + 1, y, col.darkened(0.25))
+	# The sash: a band of silk above, then brocade, its cord and knot across it.
+	var obiage := Color("e88aa0")
+	for x in W:
+		_put(img, x, 71, obiage if x < 39 else obiage.darkened(0.2))
+	for y in range(72, H):
+		for x in W:
+			var c := gold
+			if (x + y) % 4 == 0:
+				c = gold_dark
+			elif (x - y + 80) % 4 == 0:
+				c = gold_light
+			if (x % 8 == 3 and y % 4 == 2):
+				c = RED
+			if x >= 39:
+				c = c.darkened(0.15)
+			_put(img, x, y, c)
+	for x in W:
+		_put(img, x, 76, Color("a8202c") if x < 39 else Color("801820"))
+	_band(img, 28, 75, 4, 3, Color("c83040"))
+	_put(img, 29, 75, Color("e8606a"))
+	_put(img, 28, 78, Color("a8202c"))
+	_put(img, 31, 78, Color("a8202c"))
+
+
+## What a lady wears in her hair, by her land, and locks that frame her face.
+static func _lady_hair(img: Image, f: Dictionary, ht: Dictionary, house: Color, crowned: bool) -> void:
+	var gold := Color("e0b84a")
+	var gold_light := Color("f6e09a")
+	var style := String(f["hair"])
+	if style in ["long", "braid", "tied"]:
+		# Two locks falling past her cheeks from a parting at the crown.
+		for y in range(27, 47):
+			var drift := int(float(y - 27) * 0.18)
+			_px(img, 16 - drift, y, ht["base"])
+			_px(img, 17 - drift, y, ht["light"] if y % 4 == 0 else ht["base"])
+			_px(img, 43 + drift, y, ht["dark"])
+			_px(img, 42 + drift, y, ht["dark"])
+		_px(img, 30, 20, ht["dark"])
+		_px(img, 30, 21, ht["dark"])
+	if crowned:
+		return
+	match String(f["culture"]):
+		"ryumon":
+			# A gold hairpin through her hair, a red flower at its head and a bead below.
+			for k in 5:
+				_px(img, 37 + k, 22 - k, gold if k < 4 else gold_light)
+			for p in [Vector2i(43, 16), Vector2i(42, 17), Vector2i(44, 17), Vector2i(43, 18)]:
+				_px(img, p.x, p.y, RED)
+			_px(img, 43, 17, gold_light)
+			_px(img, 44, 19, RED.darkened(0.2))
+		"kharzani":
+			if style == "wrap":
+				# A band of coins across the brow, at the scarf's edge.
+				for x in range(19, 42, 2):
+					_px(img, x, 30, gold if x % 4 else gold_light)
+				_px(img, 30, 31, Color("2f7a8a"))
+			else:
+				for x in range(18, 43):
+					if img.get_pixel(x, 25).a > 0.0:
+						_px(img, x, 25, gold)
+				_px(img, 30, 26, Color("2f7a8a"))
+		_:
+			# A slim gold fillet across her hair, a pearl at its centre.
+			for x in range(17, 44):
+				if img.get_pixel(x, 24).a > 0.0:
+					_px(img, x, 24, gold if x < 36 else gold.darkened(0.2))
+			_px(img, 30, 24, PALE)
+			_px(img, 30, 25, PALE.darkened(0.2))
 
 
 static func _circlet(img: Image, f: Dictionary) -> void:

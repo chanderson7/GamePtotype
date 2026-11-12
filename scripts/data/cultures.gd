@@ -63,6 +63,28 @@ const DATA := {
 }
 
 
+## Women's names of each land: the women among the first names above, and more. Names
+## carry no other record of who is a woman, so a lord whose first name is here is a lady
+## (her portrait is drawn as one), and a lord's kinswomen are named from here.
+const WOMEN := {
+	VARDISH: ["Mira", "Tamsin", "Isolde", "Wenna", "Liane", "Briony", "Ysolde", "Maren", "Elspeth", "Gwen",
+		"Jessa", "Nell", "Sabine", "Una", "Brisa", "Dagny", "Freya", "Aldith", "Rosalind", "Hild"],
+	KHARZANI: ["Layla", "Nasrin", "Yasmin", "Leyla", "Dilara", "Soraya", "Mina", "Ayla", "Parisa", "Zahra",
+		"Shirin", "Roshan", "Gulnar", "Samira"],
+	RYUMON: ["Aiko", "Sayo", "Haru", "Emi", "Chiyo", "Natsu", "Mitsu", "Rin", "Ume", "Hana", "Tomoe", "Fuyu", "Kiku"],
+}
+
+
+## Whether `first` is a woman's name (of `culture`, or of any land if it's not given).
+static func is_womans_name(first: String, culture: String = "") -> bool:
+	if culture != "" and WOMEN.has(culture):
+		return (WOMEN[culture] as Array).has(first)
+	for names in WOMEN.values():
+		if (names as Array).has(first):
+			return true
+	return false
+
+
 static func has(culture: String) -> bool:
 	return DATA.has(culture)
 

@@ -163,7 +163,17 @@ func _ready() -> void:
 
 
 ## Start over: a fresh warband of `culture_id` standing at its capital, in a new world.
+## Another campaign: what pages last showed of the old one (to show what changed since)
+## is forgotten, so nothing is seen to change that didn't.
+func _forget_seen() -> void:
+	var scenes := get_node_or_null("/root/Scenes")
+	if scenes != null and "people_seen" in scenes:
+		scenes.people_seen = {}
+		scenes.warband_men_seen = -1
+
+
 func new_campaign(culture_id: String) -> void:
+	_forget_seen()
 	culture = culture_id if Cultures.has(culture_id) else Cultures.VARDISH
 	world = null
 	pending_battle = {}
@@ -1545,6 +1555,8 @@ func declare_crown() -> bool:
 	add_realm_relation(liege, -60)
 	_note("You raise your own banner over %s. %s will not forgive it: it is war." % [
 		WorldData.settlement(seat)["name"], WorldData.FACTIONS[liege]["name"] if WorldData.FACTIONS.has(liege) else "Your liege"])
+	# There is no going back: the moment is marked as one (the horn is the caller's).
+	_moment("A crown is raised", "%s is the seat of %s." % [WorldData.settlement(seat)["name"], crown_title()], "crown", false, "")
 	save_game()
 	return true
 
@@ -1730,6 +1742,7 @@ func fall_crown() -> void:
 	world.player().faction = ""
 	crown_won = false
 	crown_empty_days = 0
+	_moment("Your crown has fallen", "The company rides free again.", "crown", true, "bell")
 	map_notice_title = "The crown falls"
 	map_notice = "Your crown has fallen. It held nothing, and %s. The company rides free again; hold a castle or a town and you may raise a banner anew." % (
 		"its lords have gone back to their old allegiances" if not gone.is_empty() else "no lord was left to serve it")
@@ -1943,6 +1956,13 @@ func declare_crown_war(realm: String) -> bool:
 
 func _count_deed(id: String) -> void:
 	deed_counts[id] = int(deed_counts.get(id, 0)) + 1
+
+
+## A turning point takes the screen for a breath (see Scenes.moment).
+func _moment(title: String, sub: String, banner: String, falls: bool, sound: String) -> void:
+	var scenes := get_node_or_null("/root/Scenes")
+	if scenes != null and scenes.has_method("moment"):
+		scenes.moment(title, sub, banner, falls, sound)
 
 
 ## A moment worth a stamp drops in as a ribbon, once no battle is on screen.
@@ -5126,6 +5146,7 @@ func from_dict(data: Dictionary) -> bool:
 		load_problem = "newer"
 		return false
 	load_problem = ""
+	_forget_seen()
 	culture = String(data.get("culture", Cultures.VARDISH))
 	world = null
 	if typeof(data.get("world")) == TYPE_DICTIONARY:

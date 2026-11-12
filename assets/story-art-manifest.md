@@ -72,6 +72,41 @@ Prompt:
 
 Use case: stylized-concept. Create a wide landscape 3:2 pixel-art background illustration for Bannerfall, an original phone strategy game. Quiet medieval northern household common room for an intimate optional conversation. Warm oak table in foreground with two simple bowls and spoons, one empty chair on each side, a slightly crooked cream cloth, small wooden sideboard with an old drawer, arched window at left bringing soft afternoon light, blue-grey stone walls, folded wool cloth. No people, no food feast, no writing, no interface, no flags. Restrained navy/teal shadows, amber/brass sunlight, warm cream highlights. Handcrafted crisp pixel-art clusters and readable shapes. Cozy practical room belonging to a steward, not a palace. Keep left and right portions visually calm to permit a portrait overlay, table and window establish the setting. Fully opaque wide landscape image.
 
+## Other faces and hair maps (all three, every expression)
+
+- Game files: `assets/portraits/face/<who>_<expression>.png`, fifteen 104×432 PNG strips
+  (six 104×72 faces each: eyes shut, half shut, soft, glance aside, brow half raised,
+  brow raised), and `assets/portraits/face/<who>_hair.png`, three 384×512 grey maps of
+  where loose hair may swing.
+- Not generated: made on 2026-11-11 from the fifteen portraits above by
+  `tools/portrait_faces.py`, which repaints and moves each painting's own pixels. Run it
+  again after a portrait is replaced.
+
+## Wedding dress (all three: neutral, warm, amused)
+
+- Game files: `assets/portraits/<who>_wedding_<expression>.png`, nine 384×512 PNGs; their
+  other faces in `assets/portraits/face/`, and `face/<who>_wedding_hair.png`, where hair
+  may swing on the dressed painting.
+- Not generated: painted on 2026-11-11 over the portraits above by
+  `tools/portrait_wedding.py`, after what brides of the times the cultures draw on wore.
+  New cloth, hair and metal are drawn in code with the paintings' light (upper left), dark
+  outlines and flat tones; garments the brides already wore are re-dyed by their own light
+  and shade, so the painted folds stay.
+  - Edda (a northern court): her best gown in deep woad blue with a gold-embroidered
+    neckline; her hair unbound below her braided crown, falling over both shoulders; a
+    gold bridal crown set with garnets.
+  - Farah (a desert court): crimson silk with its bands worked in gold; a sheer ivory veil
+    bordered in gold, set back on her crown; a coin circlet with a garnet on her brow,
+    gold earrings, a coin necklace.
+  - Kaede (an island court): a bride's dress painted whole in place of what she wears
+    (not her own robes re-dyed): a white kimono with three collars (white, red, white)
+    crossed about her throat, a brocade sash with a red scarf and cord, a purse tucked in
+    her collar and a fan in her sash, and over it a white robe worn open, lined in red,
+    worked with chrysanthemums in gold thread. Her hair as every day, with the pin through
+    her knot lacquered red and a small gold comb. (A white silk hood was tried and taken
+    off; so was a version that only re-dyed her robes.)
+  Run it again (then `tools/portrait_faces.py`) after a portrait is replaced.
+
 ## Farah / Qasr Hamra
 
 Farah uses the legacy game-file prefix `farid` because the persistent candidate ID predates

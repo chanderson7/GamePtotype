@@ -208,6 +208,11 @@ envoy whose formality softens in private; Kaede's should follow her existing cha
 Match Edda's visual system while giving each a distinct silhouette and clothing. Design original
 faces and costumes rather than adapting recognizable Fire Emblem character designs. Their
 Qasr Hamra/envoy-room and Kitayama/archive-room settings are also implemented.
+Each of the fifteen paintings also has its other faces (eyes shut and half shut, a soft
+look, a glance, a brow raised) made from it by `tools/portrait_faces.py`
+(`assets/portraits/face/`), and a shader moves each character's head and loose hair; run
+the tool again after repainting one. `tools/portrait_wedding.py` paints all three dressed for their
+wedding over the same paintings (a veil, unbound hair, a crown, a comb, re-dyed gowns).
 
 Use bond introductions and milestone scenes to show paired portraits first. Reserve bespoke
 event paintings for a small number of authored moments after the everyday screens are covered.

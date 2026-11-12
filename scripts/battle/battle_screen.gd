@@ -154,6 +154,15 @@ var _slow := 0.0
 var _decided_at := -1.0
 const MAX_SPARKS := 260
 const MAX_PUFFS := 220
+## A stride in four frames: a step, the legs passing, the other step, the legs passing
+## (see tools/unit_sprites.py). A man takes one every STRIDE of ground, twice as fast
+## when he runs for his life.
+const WALK := [0, 3, 1, 3]
+const STRIDE := 14.0
+## Rings on the water where men wade a ford: [{p, age}].
+const MAX_RIPPLES := 70
+const RIPPLE_LIFE := 0.7
+var _wades: Array = []
 const MAX_LITTER := 160
 const MAX_FALLING := 40
 ## Seconds a man takes to fall: a stagger, then down.
@@ -1148,6 +1157,9 @@ func _update_effects(delta: float) -> void:
 		e["age"] += delta
 		e["p"] += (e["v"] + _wind) * delta
 	_puffs = _puffs.filter(func(e): return e["age"] < e["life"])
+	for e in _wades:
+		e["age"] += delta
+	_wades = _wades.filter(func(e): return e["age"] < RIPPLE_LIFE)
 	for e in _falling:
 		var was: float = e["age"]
 		e["age"] += delta
@@ -1209,6 +1221,9 @@ func _update_effects(delta: float) -> void:
 		_sq_last_avg[sq] = now
 		var v := (now - was) / delta
 		_sq_speed[sq] = lerpf(float(_sq_speed.get(sq, 0.0)), v.length(), 0.3)
+		# Men wading a ford, on the move or fighting in it, leave rings on the water.
+		if spawn and sq.is_active() and (sq.engaged or float(_sq_speed[sq]) >= 8.0):
+			_ripple_under(sq)
 		if not spawn or not sq.is_active() or sq.engaged or float(_sq_speed[sq]) < 8.0:
 			continue
 		var cav: bool = sq.type == Troops.CAVALRY
@@ -1216,6 +1231,19 @@ func _update_effects(delta: float) -> void:
 		for k in (3 if cav else 1):
 			var at: Vector2 = now - dir * (sq.extent + randf_range(2.0, 10.0)) + dir.orthogonal() * randf_range(-1.0, 1.0) * sq.extent
 			_puff(at, -dir * randf_range(4.0, 14.0), randf_range(5.0, 8.0), 12.0 if not cav else 20.0, randf_range(1.0, 1.6), _ground_dust(at), 0.26)
+
+
+## A ring on the water under one of `sq`'s men, if he stands in a ford. None under
+## Reduced motion.
+func _ripple_under(sq) -> void:
+	if Sound.reduced_motion or sim.terrain == null or sq.soldiers.is_empty() or randf() > 0.6:
+		return
+	var so = sq.soldiers[randi() % sq.soldiers.size()]
+	if not so.alive or sim.terrain.water_at(so.pos) != Terrain.WATER_SHALLOW:
+		return
+	if _wades.size() >= MAX_RIPPLES:
+		_wades.pop_front()
+	_wades.append({"p": so.pos + Vector2(randf_range(-3.0, 3.0), randf_range(-3.0, 3.0)), "age": 0.0})
 
 
 ## Sparks off a blow that has just landed on `so`.
@@ -1268,6 +1296,9 @@ func _draw_sparks() -> void:
 
 ## Dust on the ground: kicked up behind squads and where arrows come down.
 func _draw_puffs() -> void:
+	for e in _wades:
+		var k: float = float(e["age"]) / RIPPLE_LIFE
+		_c.draw_arc(e["p"], 2.0 + 8.0 * k, 0.0, TAU, 14, Color(0.88, 0.95, 1.0, 0.55 * (1.0 - k)), 1.2)
 	for e in _puffs:
 		var t := float(e["age"]) / float(e["life"])
 		var r: float = lerpf(e["r0"], e["r1"], t)
@@ -4606,7 +4637,7 @@ func _draw_chip(i: int) -> void:
 	var dim := 0.45 if out else 1.0
 	var rec := _squad_record(e["roster_id"])
 	var c = rec.get("captain")
-	var face: Texture2D = CaptainArt.texture(c) if typeof(c) == TYPE_DICTIONARY else null
+	var face: Texture2D = CaptainArt.texture(c, "", true) if typeof(c) == TYPE_DICTIONARY else null
 	# Deploying, the card shows the troop itself; in battle, the flag its standard flies.
 	var troop: Texture2D = Art.icon(String(e["type"]), Sim.PLAYER, String(rec.get("culture", GameState.culture))) if not battle else null
 	var mark := Rect2(36, 8, 28, 28) if face != null else Rect2(6, 4, 34, 34)
@@ -4768,7 +4799,7 @@ func _draw_roll() -> void:
 	ci.draw_string(font, Vector2(x, y + 44), "CAPTAIN DOWN", HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
 	ci.draw_string(font, Vector2(x, y + 86), String(_roll["name"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(34), Color(Style.TEXT, a))
 	ci.draw_string(font, Vector2(x, y + 118), String(_roll["company"]), HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), Color(Style.MUTED, a))
-	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain")
+	var face: Texture2D = CaptainArt.texture(_roll.get("captain", {}), "pain", true)
 	if face != null:
 		# The face in a brass frame.
 		var fr := Rect2(Vector2(x + 16, y + 16), Vector2(78, 104))
@@ -5927,6 +5958,18 @@ func _draw_corpses(going_down: Dictionary) -> void:
 		_flush(_corpse_mm[g], buf, list.size(), tex, 12)
 
 
+## How far into settling on its ground a squad that has just halted is: up to 1 and back
+## to 0 over a third of a second (the ring around it is _draw_settled's).
+const SETTLE_TIME := 0.35
+
+
+func _settle_k(sq) -> float:
+	if not _settled_at.has(sq):
+		return 0.0
+	var t: float = (_clock - float(_settled_at[sq])) / SETTLE_TIME
+	return sin(PI * t) if t >= 0.0 and t < 1.0 else 0.0
+
+
 ## How a squad's men are drawn this frame: kit, tint and what the squad as a whole is doing.
 func _squad_look(sq) -> Dictionary:
 	var still := Sound.reduced_motion
@@ -5943,6 +5986,11 @@ func _squad_look(sq) -> Dictionary:
 		"charging": sq.type == Troops.CAVALRY and sq.is_active() and not sq.engaged and float(_sq_speed.get(sq, 0.0)) > 30.0 and not still,
 		# Set for the blow: braced, a shield wall or a schiltron, eased in and out.
 		"set": float(_set_k.get(sq, 0.0)),
+		# Just halted on its ground: the men sink into their stance and come up (0 to 1 and back).
+		"settle": _settle_k(sq),
+		# On the march (0 standing to 1 at a walk and faster): the men roll with their steps.
+		"march": 0.0 if sq.engaged or sq.routing or not sq.is_active() else clampf((float(_sq_speed.get(sq, 0.0)) - 4.0) / 10.0, 0.0, 1.0),
+		"horse": sq.type == Troops.CAVALRY,
 		"idle": sim.phase == Sim.PHASE_BATTLE and not sq.engaged and not sq.routing and not moving,
 		"ranged": sq.ranged and sq.arrows != 0,
 		"team": sq.team,
@@ -6009,7 +6057,7 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 		fwd = Vector2.DOWN if sq.team == Sim.PLAYER else Vector2.UP
 		_pf = fwd
 		_pf_set = true
-		_pi = int(so.stride / 3.5) % 2
+		_pi = WALK[int(so.stride / (STRIDE * 0.125)) % 4]
 		if not look["still"]:
 			_pt = sin(so.stride * 0.45 + i) * deg_to_rad(15.0)
 		return
@@ -6046,9 +6094,24 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 		# Set for the blow: crouched behind the shield, a step into the line.
 		_po += fwd * 1.5 * set_k
 		_ps = 1.0 - 0.1 * set_k
+	elif float(look.get("settle", 0.0)) > 0.0:
+		# Come to a halt: a dip into the stance, and up.
+		_ps = 1.0 - 0.09 * float(look["settle"])
 	elif look["idle"] and _pi == -1:
 		# Waiting, each man breathing on his own beat.
 		_po += fwd * sin(_clock * 1.6 + i * 0.9) * 0.8
+	elif float(look.get("march", 0.0)) > 0.0 and _pi == -1 and so.flash <= 0.0:
+		# Marching: seen from above, boots hardly show, so the step is in the body. A man's
+		# shoulders roll with each stride and he sways a little off his line; a horse
+		# stretches out and gathers itself as it goes. It eases away as the company halts.
+		var k: float = float(look["march"])
+		var ph: float = so.stride / STRIDE * TAU
+		if bool(look.get("horse", false)):
+			_ps = 1.0 + 0.06 * sin(ph * 2.0) * k
+			_pt += sin(ph) * deg_to_rad(2.5) * k
+		else:
+			_pt += sin(ph) * deg_to_rad(5.0) * k
+			_po += fwd.orthogonal() * sin(ph) * 0.7 * k
 	return
 
 
@@ -6067,7 +6130,7 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var culture: String = look["culture"]
 	var still: bool = look["still"]
 	_pose_now(so, sq, i, look)
-	var index := 2 if so.swing > 0.0 else int(so.stride / 7.0) % 2
+	var index: int = 2 if so.swing > 0.0 else WALK[int(so.stride / (STRIDE * 0.25)) % 4]
 	if _pi >= 0:
 		index = _pi
 	var face: Vector2 = _pf if _pf_set else so.facing
@@ -6094,7 +6157,8 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 		_rings.append([at, sq.team, type])
 	if not look.has("cells"):
 		var team := int(look["team"])
-		look["cells"] = [Art.atlas_cell(type, team, 0, culture), Art.atlas_cell(type, team, 1, culture), Art.atlas_cell(type, team, 2, culture)]
+		look["cells"] = [Art.atlas_cell(type, team, 0, culture), Art.atlas_cell(type, team, 1, culture), Art.atlas_cell(type, team, 2, culture),
+			Art.atlas_cell(type, team, 3, culture)]
 		look["piv"] = Art.pivot(type, culture)
 		var role := Units.role(type) if Units.has(type) else type
 		look["width"] = (0.92 if role == Troops.CAVALRY else 0.86) if (Troops.TYPES.has(type) or Units.has(type)) else 1.0
@@ -6102,7 +6166,7 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var k: float = float(look["px"]) * grow
 	# A pale flash of the hit, light enough that the kit still reads (none under Reduced motion).
 	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not _still_men else 0.0
-	_put_man(look["cells"][clampi(index, 0, 2)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
+	_put_man(look["cells"][clampi(index, 0, 3)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
 func _draw_arrows() -> void:
@@ -6191,6 +6255,42 @@ func _draw_edge_markers() -> void:
 		var side := dir.orthogonal() * 11.0
 		_c.draw_colored_polygon(PackedVector2Array([tip, back + side, back - side]), Color(0, 0, 0, 0.6))
 		_c.draw_colored_polygon(PackedVector2Array([tip - dir * 2.0, back + side * 0.75, back - side * 0.75]), col)
+	# And what's coming for you from out of sight: enemy horse at the charge near one of
+	# your companies, as an open red chevron (yours are filled).
+	# They sit clear of the objective at the top of the field, where the enemy mostly comes from.
+	var clear := area.grow_individual(0.0, -THREAT_TOP_INSET, 0.0, 0.0)
+	for sq in _threats():
+		var at := _to_screen(sq.average_pos())
+		if area.has_point(at):
+			continue
+		var dir := (at - clear.get_center()).normalized()
+		var tip := Vector2(clampf(at.x, clear.position.x, clear.end.x), clampf(at.y, clear.position.y, clear.end.y))
+		var back := tip - dir * 26.0
+		var side := dir.orthogonal() * 16.0
+		var chevron := PackedVector2Array([back + side, tip, back - side])
+		_c.draw_polyline(chevron, Color(0, 0, 0, 0.7), 9.0)
+		_c.draw_polyline(chevron, Style.ENEMY_LIGHT, 4.5)
+
+
+## Enemy horse at the charge within reach of one of your companies: worth a warning at
+## the edge of the field when it's out of sight.
+const THREAT_REACH := 280.0
+const THREAT_TOP_INSET := 70.0
+
+
+func _threats() -> Array:
+	var out := []
+	for sq in sim.squads:
+		if sq.team == Sim.PLAYER or sq.type != Troops.CAVALRY or not sq.is_active() or sq.routing or sq.engaged:
+			continue
+		if float(_sq_speed.get(sq, 0.0)) < 30.0:
+			continue
+		var from: Vector2 = sq.average_pos()
+		for mine in sim.squads:
+			if mine.team == Sim.PLAYER and mine.is_active() and mine.average_pos().distance_to(from) < THREAT_REACH:
+				out.append(sq)
+				break
+	return out
 
 
 func _draw_standards() -> void:

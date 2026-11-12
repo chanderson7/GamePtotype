@@ -10,6 +10,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const LordVoice = preload("res://scripts/data/lord_voice.gd")
 
 var failures := 0
 var gs
@@ -239,7 +240,13 @@ func _init() -> void:
 	var dl: Dictionary = with_kin[0] if not with_kin.is_empty() else host
 	var kin: Dictionary = soc0.house_kin(dl)
 	check(kin["name"] == soc0.house_kin(dl)["name"] and Gatherings.KIN_NAMES[String(dl["culture"])].has(String(kin["name"]))
-		and Gatherings.KIN_RELATIONS.has(String(kin["relation"])), "a lord's kinswoman is named from his land's women, and is the same woman each time")
+		and (Gatherings.KIN_RELATIONS + Gatherings.KIN_RELATIONS_LADY).has(String(kin["relation"])), "a lord's kinswoman is named from the lord's land's women, and is the same woman each time")
+	var no_wives := true
+	for l in w.lords:
+		if LordVoice.is_lady(l):
+			var lk: Dictionary = w.social.house_kin(l)
+			no_wives = no_wives and String(lk.get("relation", "")) != "wife"
+	check(no_wives, "a lady lord's kinswoman is her sister or her daughter, never her wife")
 	var dr := LordTalk.regard(gs, dl)
 	dance.choose("partner_kin_%d" % int(dl["id"]))
 	var gain := Gatherings.DANCE_DARING if String(dl["bearing"]) == "Daring" else Gatherings.DANCE_LORD

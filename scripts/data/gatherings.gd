@@ -190,22 +190,18 @@ const DANCE_MEMORIES := {
 const KIN_RELATIONS := ["wife", "wife", "sister", "daughter", "daughter"]
 const KIN_NONE_CHANCE := 0.16
 ## Women's names of each land, for a lord's kin.
-const KIN_NAMES := {
-	Cultures.VARDISH: ["Mira", "Tamsin", "Isolde", "Wenna", "Liane", "Briony", "Ysolde", "Maren", "Elspeth", "Gwen",
-		"Jessa", "Nell", "Sabine", "Una", "Brisa", "Dagny", "Freya", "Aldith", "Rosalind", "Hild"],
-	Cultures.KHARZANI: ["Layla", "Nasrin", "Yasmin", "Leyla", "Dilara", "Soraya", "Mina", "Ayla", "Parisa", "Zahra",
-		"Shirin", "Roshan", "Gulnar", "Samira"],
-	Cultures.RYUMON: ["Aiko", "Sayo", "Haru", "Emi", "Chiyo", "Natsu", "Mitsu", "Rin", "Ume", "Hana", "Tomoe", "Fuyu", "Kiku"],
-}
+const KIN_NAMES := Cultures.WOMEN
+## A lady lord has no wife at her side: her kinswoman is her sister or her daughter.
+const KIN_RELATIONS_LADY := ["sister", "daughter", "daughter"]
 ## How many lords' kin are offered a night: the host's, then the guests'.
 const KIN_OFFERED := 3
-## A lord's kinswoman, when you ask, by his bearing. {name} is hers, {lord} his short
-## name, {relation} what she is to him.
+## A lord's kinswoman, when you ask, by the lord's bearing. {name} is hers, {lord} the
+## lord's short name, {relation} what she is to them. (A lord may be a lady: no "his".)
 const DANCE_KIN_LINES := {
 	Lords.CAUTIOUS: "{name} glances at {lord} before she takes your hand, and gets the smallest of nods. She dances carefully, and well, and {lord} watches every turn.",
-	Lords.DARING: "\"At last, someone who isn't a cousin.\" {name} is on the floor before you finish asking. {lord} laughs out loud from the table and bangs his cup for the fiddlers to go faster.",
-	Lords.HONORABLE: "{name} accepts with a curtsey a shade more formal than the room, and leads you through the figure without a fault. At the table {lord} inclines his head to you: his {relation} has been honoured, and so has he.",
-	Lords.CRUEL: "{name} takes your hand as if she expected it. \"Everyone is watching. They always are.\" {lord} smiles thinly from the table, and seems to count it as his own doing.",
+	Lords.DARING: "\"At last, someone who isn't a cousin.\" {name} is on the floor before you finish asking. {lord} laughs out loud from the table and bangs a cup for the fiddlers to go faster.",
+	Lords.HONORABLE: "{name} accepts with a curtsey a shade more formal than the room, and leads you through the figure without a fault. At the table {lord} inclines their head to you: their {relation} has been honoured, and so have they.",
+	Lords.CRUEL: "{name} takes your hand as if she expected it. \"Everyone is watching. They always are.\" {lord} smiles thinly from the table, and seems to count it as their own doing.",
 }
 ## The round everyone joins, by culture: Regard with every lord in the hall.
 const DANCE_ROUND_REGARD := 1

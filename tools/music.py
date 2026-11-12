@@ -5,8 +5,9 @@ drums, brass and bells, played from the scores below, then written to WAV and en
 to Ogg Vorbis with ffmpeg into assets/audio/. The same script always renders the same
 files.
 
-Music (the orchestral pieces are in tools/orchestral.py, played by recorded instruments;
-the synthesized versions below stand in when the samples aren't fetched):
+Music (the orchestral pieces are in tools/orchestral.py and the lands' themes and feasts in
+tools/realms.py, played by recorded instruments; the synthesized versions below stand in
+when the samples aren't fetched):
   title       The Glass Sea: horn over harp and strings, D minor.
   vardish     Vardmark: lute and recorder over a hurdy-gurdy drone, D dorian, in three.
   kharzani    Kharzan: oud and ney over a frame drum's maqsum, D hijaz.
@@ -217,9 +218,10 @@ def reverb(buf, seconds=2.2, wet=0.28, seed=5, tone=3500.0):
     return out
 
 
-def master(buf, loudness=-16.0, ceiling=0.95):
+def master(buf, loudness=-16.0, ceiling=0.87):
     """Bring a piece to a common loudness (RMS, in dBFS), rounding off any peaks that
-    would pass the ceiling."""
+    would pass the ceiling. The ceiling sits a little over a decibel down, because Ogg
+    Vorbis overshoots: at 0.95 the title and the victory stinger clipped once encoded."""
     rms = np.sqrt(np.mean(buf ** 2)) + 1e-9
     buf = buf * (10 ** (loudness / 20.0) / rms)
     return np.tanh(buf / ceiling) * ceiling
@@ -1046,7 +1048,10 @@ def _orchestral():
         print("No samples at %s: run tools/fetch_samples.sh for the orchestral pieces." % sampler.ROOT)
         return {}
     import orchestral
-    return orchestral.MUSIC
+    import realms
+    pieces = dict(orchestral.MUSIC)
+    pieces.update(realms.MUSIC)       # the lands' themes and their feasts (tools/realms.py)
+    return pieces
 
 
 def _battle_sfx():

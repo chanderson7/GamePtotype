@@ -139,7 +139,9 @@ def render_once(length, score, wet=0.25, verb=2.2, tail=1.8, loudness=-15.0):
     buf = reverb(track.buf, verb, wet)[:, : int((length + tail) * SR)]
     k = int(0.8 * SR)
     buf[:, -k:] *= np.linspace(1.0, 0.0, k)
-    return master(buf, loudness=loudness)
+    # The stingers land on a cymbal and timpani, whose transients overshoot once encoded:
+    # more headroom than the loops need (the game plays them a little louder anyway).
+    return master(buf, loudness=loudness, ceiling=0.7)
 
 
 # Synthesized voices for the realms' own instruments (from music.py's building blocks).

@@ -34,7 +34,7 @@ func _ready() -> void:
 	var flag := owner if Heraldry.REALM_SIZES.has(owner) else Heraldry.realm_of_culture(Data.culture_of(owner))
 	var hall := HallScene.rect(Data.culture_of(Data.settlement(place)["faction"]), flag, "night" if when == "night" else "dusk", place.hash())
 	setup(hall, "%s at %s · %s" % [Gatherings.upper_first(String(g["name"])), Data.settlement(place)["name"], when])
-	Sound.play_music("camp_" + String(g.get("culture", Data.culture_of(owner))))
+	Sound.play_music("feast_" + String(g.get("culture", Data.culture_of(owner))))
 	var check: Dictionary = GameState.dance_check(g)
 	var guests := TalkView.stage_chip(str(GameState.gathering_lords(g).size()), Style.TEXT, "men")
 	guests.tooltip_text = "guests"
@@ -101,7 +101,8 @@ func _dance(kind: String, id: String) -> void:
 	match kind:
 		"romance":
 			var person: Dictionary = GameState.world.social.get_candidate_person(id)
-			set_face("center", _portrait(id), false, 0.9)
+			replace_face("center", _portrait(id), false, 0.9)
+			sway("center")
 			say("you", "Dance with me.")
 			say("narration", String(r["text"]))
 			# What it gives was on the button; the result is the memory, once.
@@ -110,7 +111,8 @@ func _dance(kind: String, id: String) -> void:
 		"meet":
 			var person: Dictionary = GameState.world.social.get_candidate_person(id)
 			var who := String(person.get("name", ""))
-			set_face("center", _portrait(id), false, 0.9)
+			replace_face("center", _portrait(id), false, 0.9)
+			sway("center")
 			say("you", "Will you dance?")
 			say("narration", String(r["text"]))
 			add_to_log(keepsake("You met %s. Kept as a memory." % who, "dance"))
@@ -121,7 +123,8 @@ func _dance(kind: String, id: String) -> void:
 		"kin":
 			var l: Dictionary = GameState.world.lord_by_id(int(id))
 			var kin: Dictionary = GameState.world.social.house_kin(l)
-			set_face("center", CaptainArt.texture(LordVoice.kin_record(l, kin)), true, 0.8)
+			replace_face("center", CaptainArt.texture(LordVoice.kin_record(l, kin)), true, 0.8)
+			sway("center")
 			say("you", "Will you dance?")
 			say("narration", String(r["text"]))
 			add_to_log(TalkView.fx_note([], "%s thinks better of you." % LordTalk.first_name(l)))

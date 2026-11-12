@@ -461,6 +461,111 @@ static func flash(node: Control) -> void:
 	t.tween_property(node, "modulate", Color.WHITE, 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
+## Wait for a control built this frame to be laid out (two frames). False if it has gone
+## in the meantime, or was never on a page.
+static func _settled(node: Control) -> bool:
+	if not is_instance_valid(node) or not node.is_inside_tree():
+		return false
+	var tree := node.get_tree()
+	for i in 2:
+		await tree.process_frame
+		if not is_instance_valid(node) or not node.is_inside_tree():
+			return false
+	return true
+
+
+## Run `go` now if `node` is on a page, or as soon as it is.
+static func _when_placed(node: Control, go: Callable) -> void:
+	if node.is_inside_tree():
+		go.call()
+	else:
+		node.ready.connect(go, CONNECT_ONE_SHOT)
+
+
+## Glow something a rebuilt page now shows (see flash), once it has been laid out. It can
+## be asked for before the control is on the page.
+static func flash_soon(node: Control) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	var go := func() -> void:
+		if await _settled(node) and live(node):
+			flash(node)
+	_when_placed(node, go)
+
+
+## A letter unfolds: it opens downward from its top edge as it fades up. There at once
+## under Reduced motion.
+static func unfold(node: Control) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	node.modulate.a = 0.0
+	var go := func() -> void:
+		if not await _settled(node):
+			return
+		node.pivot_offset = Vector2(node.size.x * 0.5, 0)
+		node.scale = Vector2(1.0, 0.12)
+		var t := node.create_tween().set_parallel()
+		t.tween_property(node, "scale", Vector2.ONE, 0.34).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(node, "modulate:a", 1.0, 0.2)
+	_when_placed(node, go)
+
+
+## A mark that wants noticing beats a few times (an unread letter's dot).
+static func pulse(node: Control, times: int = 2) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	var go := func() -> void:
+		if not await _settled(node):
+			return
+		node.pivot_offset = node.size * 0.5
+		var t := node.create_tween()
+		for i in times:
+			t.tween_property(node, "scale", Vector2(1.5, 1.5), 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+			t.tween_property(node, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_when_placed(node, go)
+
+
+## Someone or something steps into its place on a page from `offset` away, fading up. It
+## waits for the page to lay it out first (its container owns where it rests). There at
+## once under Reduced motion.
+static func step_in(node: Control, offset: Vector2, delay: float = 0.0) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	node.modulate.a = 0.0
+	var go := func() -> void:
+		if not await _settled(node):
+			return
+		var rest := node.position
+		node.position = rest + offset
+		var t := node.create_tween().set_parallel()
+		t.tween_property(node, "position", rest, 0.4).set_delay(delay).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		t.tween_property(node, "modulate:a", 1.0, 0.28).set_delay(delay)
+	if node.is_inside_tree():
+		go.call()
+	else:
+		node.ready.connect(go, CONNECT_ONE_SHOT)
+
+
+## A mark struck onto a page (a rank, a role): it comes down large and lands with a
+## little overshoot. There at once under Reduced motion.
+static func stamp(node: Control, delay: float = 0.0) -> void:
+	if node == null or Style.motion_reduced():
+		return
+	node.modulate.a = 0.0
+	var go := func() -> void:
+		if not await _settled(node):
+			return
+		node.pivot_offset = node.size * 0.5
+		node.scale = Vector2(1.9, 1.9)
+		var t := node.create_tween().set_parallel()
+		t.tween_property(node, "scale", Vector2.ONE, 0.28).set_delay(delay).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		t.tween_property(node, "modulate:a", 1.0, 0.12).set_delay(delay)
+	if node.is_inside_tree():
+		go.call()
+	else:
+		node.ready.connect(go, CONNECT_ONE_SHOT)
+
+
 ## Whether `n` is on the page to stay: neither it nor anything above it is about to be
 ## freed (a page rebuilt this frame still holds its old copy until the frame ends).
 static func live(n: Node) -> bool:
@@ -573,14 +678,32 @@ static func meter(frac: float, color: Color, height: float = 14.0, marks: Array 
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	c.draw.connect(func():
 		c.draw_style_box(Style.box(Style.NIGHT, Style.RULE, 2, int(height / 2)), Rect2(Vector2.ZERO, c.size))
-		var w := maxf(height, (c.size.x - 4.0) * clampf(frac, 0.0, 1.0))
-		if frac > 0.0:
+		var now := float(c.get_meta("frac", frac))
+		var w := maxf(height, (c.size.x - 4.0) * clampf(now, 0.0, 1.0))
+		if now > 0.0:
 			c.draw_style_box(Style.box(color, Color(0, 0, 0, 0), 0, int(height / 2)), Rect2(Vector2(2, 2), Vector2(w, c.size.y - 4.0)))
 		for m in marks:
 			var x := 2.0 + (c.size.x - 4.0) * clampf(float(m), 0.0, 1.0)
 			c.draw_line(Vector2(x, -2.0), Vector2(x, c.size.y + 2.0), Style.TEXT, 2.0))
 	c.set_meta("frac", frac)
 	return c
+
+
+## A meter filling (or draining) from `from` to the share it was made with, so a change
+## is seen. At once under Reduced motion.
+static func fill_from(m: Control, from: float) -> void:
+	if m == null or Style.motion_reduced():
+		return
+	var to := float(m.get_meta("frac", 0.0))
+	if is_equal_approx(from, to):
+		return
+	m.set_meta("frac", from)
+	var step := func(v: float) -> void:
+		m.set_meta("frac", v)
+		m.queue_redraw()
+	var t := m.create_tween()
+	t.tween_interval(0.15)
+	t.tween_method(step, from, to, 0.5).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 ## A small rounded chip and its text. A status chip leads with a shape in `tone` (▲ good,

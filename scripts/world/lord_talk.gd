@@ -10,6 +10,7 @@ const Lords = preload("res://scripts/data/lords.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const LordLines = preload("res://scripts/data/lord_lines.gd")
 
 ## Conviction a lord needs before they swear to your crown.
 const CONVINCED := 100
@@ -233,38 +234,31 @@ static func tell_story(gs, l: Dictionary, story_id: String) -> Dictionary:
 	var out := {"ok": true, "theme": theme, "learned": ""}
 	if theme == likes(l):
 		out["regard"] = STORY_LIKED
-		out["reaction"] = _reaction(l, true)
+		out["reaction"] = _quote(LordLines.story(l, theme, told.size()))
 		if not like_known(l):
 			out["learned"] = "You learned: %s values %s." % [name, theme]
 		t["like_known"] = 1
 	elif theme == dislikes(l):
 		out["regard"] = STORY_DISLIKED
-		out["reaction"] = _reaction(l, false)
+		out["reaction"] = _quote(LordLines.story(l, theme, told.size()))
 		if not dislike_known(l):
 			out["learned"] = "You learned: %s has no taste for %s." % [name, THEME_WORDS[theme]]
 		t["dislike_known"] = 1
 	else:
 		out["regard"] = STORY_PLAIN
-		out["reaction"] = "\"A good story. The road's shorter for it.\""
+		out["reaction"] = _quote(LordLines.story(l, theme, told.size()))
 	change_regard(gs, l, int(out["regard"]))
 	return out
 
 
-static func _reaction(l: Dictionary, liked: bool) -> String:
-	match String(l.get("bearing", "")):
-		Lords.CAUTIOUS:
-			return "\"Good. Patience wins more wars than glory does. Most captains your age would have drowned their horses for a song.\"" if liked \
-				else "\"Brave. Or lucky. Luck runs out, captain, and it usually takes the brave with it.\""
-		Lords.DARING:
-			return "\"Ha! That's the way of it. Fortune rides with whoever rides first.\"" if liked \
-				else "\"Waiting on a hill. I'd have died of boredom before the brigands came.\""
-		Lords.HONORABLE:
-			return "\"That speaks well of you. A sword that serves the weak is worth ten that serve themselves.\"" if liked \
-				else "\"Hanged at a crossroads. There are better ways to keep a road, captain.\""
-		Lords.CRUEL:
-			return "\"Good. People remember a rope longer than a sermon.\"" if liked \
-				else "\"You gave it back? Then you're softer than your banner says.\""
-	return "\"Hm.\""
+## A lord's words as speech.
+static func _quote(words: String) -> String:
+	return "\"%s\"" % words
+
+
+## How many times you've talked with this lord: it turns which of their lines they say.
+static func _turn(l: Dictionary) -> int:
+	return int(record(l).get("talks", 0))
 
 
 # ---------------------------------------------------------------- news and their king
@@ -275,9 +269,9 @@ static func view_of_king(gs, l: Dictionary) -> Dictionary:
 	var realm := String(l.get("realm", ""))
 	var ruler := ruler_name(l)
 	if bool(l.get("ruler", false)):
-		return {"doubts": false, "says": "\"I am the crown here. Ask me what I'll do, not what someone else will.\""}
+		return {"doubts": false, "says": _quote(LordLines.say("king_ruler", l))}
 	if realm == Data.CROWN:
-		return {"doubts": false, "says": "\"Whatever you ask of me. That was the oath.\""}
+		return {"doubts": false, "says": _quote(LordLines.say("king_sworn", l))}
 	var weary := 0.0
 	var lost := false
 	if gs.world != null:
@@ -289,9 +283,11 @@ static func view_of_king(gs, l: Dictionary) -> Dictionary:
 				lost = true
 	if weary >= 40.0 or lost:
 		record(l)["doubts_king"] = 1
-		return {"doubts": true, "says": "\"%s sits at %s and counts the treasury while our villages burn. I've sent riders. None come back with anything but promises.\"" % [
-			ruler, Data.settlement(gs.world.capital_of(realm))["name"] if gs.world != null and gs.world.capital_of(realm) != "" else "court"]}
-	return {"doubts": false, "says": "\"%s knows the business of war. I'd follow %s banner into the sea, and so would every lord of ours.\"" % [ruler, ruler + "'s"]}
+		var capital := "court"
+		if gs.world != null and gs.world.capital_of(realm) != "":
+			capital = String(Data.settlement(gs.world.capital_of(realm))["name"])
+		return {"doubts": true, "says": _quote(LordLines.say("king_doubt", l, {"ruler": ruler, "capital": capital}, _turn(l)))}
+	return {"doubts": false, "says": _quote(LordLines.say("king_loyal", l, {"ruler": ruler}, _turn(l)))}
 
 
 # ---------------------------------------------------------------- troubles
@@ -299,14 +295,13 @@ static func view_of_king(gs, l: Dictionary) -> Dictionary:
 ## What a lord wants done, and whether you could do it as a job: {kind, text, band, name}
 ## (kind "job" for one you've taken, "bandits", "war" or "none").
 static func trouble(gs, l: Dictionary) -> Dictionary:
-	var name := short_name(l)
 	var t := record(l)
 	var job_id := String(t.get("job", ""))
 	if job_id != "":
 		for j in gs.active_jobs:
 			if String(j.get("id", "")) == job_id:
 				return {"kind": "job", "name": String(j.get("target_name", "the brigands")),
-					"text": "\"The %s still ride. You gave me your word, captain.\"" % String(j.get("target_name", "brigands"))}
+					"text": _quote(LordLines.say("trouble_job", l, {"band": String(j.get("target_name", "The brigands"))}))}
 		t["job"] = ""
 	var w = gs.world
 	if w != null:
@@ -322,12 +317,15 @@ static func trouble(gs, l: Dictionary) -> Dictionary:
 		if best != null:
 			var place: String = w.nearest_place(w.party_pos(best))
 			return {"kind": "bandits", "band": best.id, "name": String(best.name),
-				"text": "\"%s. They bleed %s every week, and %s sends no one. I keep to my lands, but I cannot be everywhere on them.\"" % [
-					String(best.name), Data.settlement(place)["name"] if Data.SETTLEMENTS.has(place) else Data.settlement(seat)["name"], ruler_name(l)]}
+				"text": _quote(LordLines.say("trouble_bandits", l, {"band": String(best.name), "ruler": ruler_name(l),
+					"place": Data.settlement(place)["name"] if Data.SETTLEMENTS.has(place) else Data.settlement(seat)["name"]}, _turn(l)))}
 		for r in w.realms:
-			if r != String(l.get("realm", "")) and w.at_war(String(l.get("realm", "")), r):
-				return {"kind": "war", "text": "\"%s. Every week a new village burns. Beat them for me once and I'll remember it.\"" % Data.FACTIONS[r]["name"]}
-	return {"kind": "none", "text": "\"My lands are quiet, for once. Ask me again when they're not.\"" if name != "" else "\"Nothing.\""}
+			# Not your own crown: they'd hardly ask you to beat yourself.
+			if r != String(l.get("realm", "")) and r != Data.CROWN and w.at_war(String(l.get("realm", "")), r):
+				var culture := String(Data.FACTIONS[r].get("culture", ""))
+				var enemy := "The %s" % culture.capitalize() if culture != "" else String(Data.FACTIONS[r]["name"])
+				return {"kind": "war", "text": _quote(LordLines.say("trouble_war", l, {"enemy": enemy}, _turn(l)))}
+	return {"kind": "none", "text": _quote(LordLines.say("trouble_none", l, {}, _turn(l)))}
 
 
 static func haggle_silver(l: Dictionary) -> int:
@@ -449,16 +447,7 @@ static func conviction_word(c: int) -> String:
 
 ## What they say when you first raise a crown.
 static func objection(l: Dictionary) -> String:
-	match String(l.get("bearing", "")):
-		Lords.CAUTIOUS:
-			return "\"A new crown is a fragile thing. If it falls, my house falls with it.\""
-		Lords.DARING:
-			return "\"Your crown? I've heard of it. What has it done that's worth my name?\""
-		Lords.HONORABLE:
-			return "\"I swore an oath to %s. You'd have me break it for what, exactly?\"" % ruler_name(l)
-		Lords.CRUEL:
-			return "\"Everyone wants something from me. What do I get, and what happens if I say no?\""
-	return "\"Why should I?\""
+	return _quote(LordLines.say("objection", l, {"ruler": ruler_name(l)}, _turn(l)))
 
 
 ## Arguments still open to you: [{id, says, theme, points, tag}]. Tags only say what you know.
@@ -530,16 +519,16 @@ static func argue(gs, l: Dictionary, arg_id: String) -> Dictionary:
 		if int(t["bristle"]) >= BRISTLE_LIMIT:
 			refuse(gs, l)
 			out["refused"] = true
-			out["reaction"] = "\"Enough. I've heard what kind of crown this is. Ride on, and don't ask me again this week.\""
+			out["reaction"] = _quote(LordLines.say("arg_refuse", l))
 			return out
-		out["reaction"] = "\"That's meant to persuade me?\""
+		out["reaction"] = _quote(LordLines.say("arg_disliked", l))
 	elif pts >= ARGUMENT_LIKED:
 		if not like_known(l) and arg_id != "king":
 			out["learned"] = "You learned: %s values %s." % [first_name(l), arg["theme"]]
 			t["like_known"] = 1
-		out["reaction"] = "\"...That is no small thing. Go on.\""
+		out["reaction"] = _quote(LordLines.say("arg_liked", l))
 	else:
-		out["reaction"] = "\"Perhaps. Words are cheap on the road.\""
+		out["reaction"] = _quote(LordLines.say("arg_plain", l))
 	out["sworn"] = conviction(gs, l) >= CONVINCED
 	return out
 
@@ -553,8 +542,7 @@ static func offer_silver(gs, l: Dictionary, amount: int) -> Dictionary:
 	var pts := amount / SILVER_PER_POINT
 	t["silver_pts"] = int(t.get("silver_pts", 0)) + pts
 	t["silver_paid"] = int(t.get("silver_paid", 0)) + amount
-	var said := "\"Silver. Well. It buys a great many swords.\"" if String(l.get("bearing", "")) == Lords.CRUEL else "\"That's a serious sum. It would rebuild what this war has burned.\""
-	return {"ok": true, "points": pts, "reaction": said, "sworn": conviction(gs, l) >= CONVINCED}
+	return {"ok": true, "points": pts, "reaction": _quote(LordLines.say("silver", l)), "sworn": conviction(gs, l) >= CONVINCED}
 
 
 static func refuse(gs, l: Dictionary) -> void:

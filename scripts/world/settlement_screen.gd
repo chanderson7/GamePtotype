@@ -47,6 +47,10 @@ var tab := ""
 static var _tab_by_place := {}
 ## What the last thing you did at the feast came to, shown at the top of the Court tab.
 var _court_note := ""
+## The court note the page last showed (a new one glows), and whether the tourney's bouts
+## were opened by the last tap (they're read out in turn).
+var _court_note_shown := ""
+var _bouts_fresh := false
 ## A lord talk open over the screen.
 var _talk: Control = null
 ## Your own gathering as you plan it: the kind and who beyond your sworn lords to ask.
@@ -68,7 +72,9 @@ func _ready() -> void:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn" if w != null else "res://scenes/title.tscn")
 		return
 	place = w.here()
-	Sound.play_music(WorldData.culture_of(WorldData.settlement(place)["faction"]))
+	# A town keeps its land's theme; while a feast is on there, the feast's music.
+	var land := String(WorldData.culture_of(WorldData.settlement(place)["faction"]))
+	Sound.play_music(("feast_" if w.gathering_on(w.gathering_at(place)) else "") + land)
 	Sound.play_culture_accent(WorldData.culture_of(WorldData.settlement(place)["faction"]))
 	var travel := TravelPresentation.context(w, GameState.army)
 	Sound.set_loop(String(travel.get("ambience", "settlement_edge")))
@@ -1136,7 +1142,7 @@ func _squad_art(s: Dictionary) -> Control:
 	var art := Control.new()
 	art.custom_minimum_size = Vector2(72, 84)
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var face_tex: Texture2D = CaptainArt.texture(s["captain"]) if s.get("captain") != null else null
+	var face_tex: Texture2D = CaptainArt.texture(s["captain"], "", true) if s.get("captain") != null else null
 	if face_tex != null:
 		var face := TextureRect.new()
 		face.name = "SquadCaptain"
@@ -1381,6 +1387,10 @@ func _add_court(col: VBoxContainer) -> void:
 		var n := _note(_court_note, Style.BRASS)
 		n.name = "CourtNote"
 		col.add_child(n)
+		# What a toast, a gift or a speech just did shows itself once.
+		if _court_note != _court_note_shown:
+			Widgets.flash_soon(n)
+	_court_note_shown = _court_note
 	var here: Array = GameState.gathering_lords(g) if on else _hall_lords()
 	# The tab already counts who's here.
 	var hall := Widgets.card(col, "In the hall")
@@ -1591,6 +1601,9 @@ func _feast_action(id: String, text: String, icon_key: String, marks: Array, why
 		v.add_child(st)
 	b.add_child(v)
 	b.pressed.connect(act)
+	# The thing just done glows on the page that comes back.
+	var tile_name := String(b.name)
+	b.pressed.connect(func(): _flash_named.call_deferred(tile_name))
 	return b
 
 
@@ -1786,12 +1799,22 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 		if lines.size() > 1:
 			var bouts := _button(("Hide the bouts" if _bouts_open else "Every bout (%d)" % (lines.size() - 1)), func():
 				_bouts_open = not _bouts_open
+				_bouts_fresh = _bouts_open
 				_build())
 			bouts.name = "ListsBouts"
 			res.add_child(bouts)
 			if _bouts_open:
+				# Opened just now, the bouts are read out one after another.
+				var k := 0
 				for line in lines.slice(0, lines.size() - 1):
-					res.add_child(_note(String(line), Color("e8d9b0")))
+					var bout := _note(String(line), Color("e8d9b0"))
+					bout.name = "Bout_%d" % k
+					res.add_child(bout)
+					if _bouts_fresh and not Style.motion_reduced():
+						bout.modulate.a = 0.0
+						bout.create_tween().tween_property(bout, "modulate:a", 1.0, 0.2).set_delay(minf(0.07 * k, 1.2))
+					k += 1
+				_bouts_fresh = false
 		box.add_child(res)
 		return
 	var check: Dictionary = CrownCourt.tourney_check(GameState)
@@ -1806,7 +1829,7 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 		var sid := int(e["squad"])
 		var c: Dictionary = e["captain"]
 		var name := String(c.get("first", String(c.get("name", "")).split(" ")[0]))
-		strip.add_child(CourtUI.face_button(CaptainArt.texture(c), name, "Ride_%d" % sid, func():
+		strip.add_child(CourtUI.face_button(CaptainArt.texture(c, "", true), name, "Ride_%d" % sid, func():
 			if _lists_pick.has(sid):
 				_lists_pick.erase(sid)
 			elif _lists_pick.size() < Gatherings.TOURNEY_CAPTAINS:
@@ -1816,10 +1839,15 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	box.add_child(_note("%d of %d ride · tap a face" % [_lists_pick.size(), Gatherings.TOURNEY_CAPTAINS]))
 	var go := _button("Ride the lists", func():
 		var r: Dictionary = CrownCourt.ride_tourney(GameState, _lists_pick)
-		if bool(r.get("ok", false)):
+		var rode := bool(r.get("ok", false))
+		if rode:
 			Sound.play("horn")
 			_bouts_open = false
-		_build())
+			# How it ended drops in as a ribbon, and the result shows itself on the page.
+			var told: Array = (GameState.hosted.get("tourney", {}) as Dictionary).get("lines", [])
+			if not told.is_empty():
+				Scenes.ribbon("The lists are run", String(told[-1]), "fight", "")
+		_lists_ridden(rode))
 	go.name = "RideLists"
 	go.disabled = not bool(check["ok"]) or _lists_pick.is_empty()
 	if not go.disabled:
@@ -1827,6 +1855,13 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	box.add_child(go)
 	if not bool(check["ok"]):
 		box.add_child(_note(String(check["reason"]), Style.MUTED))
+
+
+## The page after the lists: rebuilt, with their result showing itself if they were ridden.
+func _lists_ridden(rode: bool) -> void:
+	_build()
+	if rode:
+		_flash_named.call_deferred("ListsResult")
 
 
 func _host_row(key: String, text: String, sub: String, on: bool, can_change: bool) -> Control:
@@ -2120,7 +2155,7 @@ func _hero_row(hero: Dictionary) -> Control:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 14)
 	v.add_child(head)
-	var face_tex: Texture2D = CaptainArt.texture(hero)
+	var face_tex: Texture2D = CaptainArt.texture(hero, "", true)
 	if face_tex != null:
 		var pic := TextureRect.new()
 		pic.texture = face_tex
@@ -2149,7 +2184,10 @@ func _hero_row(hero: Dictionary) -> Control:
 	var hire_btn := _button("Recruit", func():
 		if GameState.recruit_hero(hid):
 			Sound.play("charge")
+			# They're seen to join: their face on a ribbon, and the Squads tab they went to glows.
+			Scenes.ribbon_face("%s joins the company" % name_str, "%s · %s" % [Units.troop_name({"unit": hero.get("unit", "")}, cult), spec.capitalize()], face_tex, "")
 			_build()
+			_flash_named.call_deferred("Tab_squads")
 	)
 	hire_btn.name = "Recruit_%s" % hid
 	hire_btn.custom_minimum_size = Vector2(150, Style.TOUCH)

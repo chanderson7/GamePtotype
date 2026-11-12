@@ -62,7 +62,8 @@ func _ready() -> void:
 	if not bool(_memory.get("private", false)):
 		_dress(when)
 	set_face("center", _portrait("warm"), false, 0.9)
-	Sound.play_music("camp_" + culture)
+	# The feast's music, unless she remembers it alone with you: then the quiet one.
+	Sound.play_music(("camp_" if bool(_memory.get("private", false)) else "feast_") + culture)
 	if not _memory.is_empty():
 		_tell_again()
 		return
@@ -101,9 +102,17 @@ func _caption(when: String) -> String:
 	return "%s at %s · %s" % ["Remembered" if not _memory.is_empty() else "Your wedding", _place_name(), when]
 
 
+## Their portrait for the day: dressed for the wedding (tools/portrait_wedding.py) in any
+## expression that was dressed, else their warmest dressed one, else as every day.
 func _portrait(expression: String) -> Texture2D:
-	var tex := StoryArt.texture("res://assets/portraits/%s_%s.png" % [cand, expression])
-	return tex if tex != null else StoryArt.texture("res://assets/portraits/%s_neutral.png" % cand)
+	for path in ["res://assets/portraits/%s_wedding_%s.png" % [cand, expression],
+			"res://assets/portraits/%s_wedding_warm.png" % cand,
+			"res://assets/portraits/%s_%s.png" % [cand, expression],
+			"res://assets/portraits/%s_neutral.png" % cand]:
+		var tex := StoryArt.texture(path)
+		if tex != null:
+			return tex
+	return null
 
 
 ## The place's painting, or the settlement as the game paints it, at the hour.
@@ -247,6 +256,10 @@ func _guest_card() -> Control:
 		cell.add_child(nm)
 		cell.add_child(_role_badge(g))
 		row.add_child(cell)
+		# The guests come in one after another.
+		if not Style.motion_reduced():
+			cell.modulate.a = 0.0
+			cell.create_tween().tween_property(cell, "modulate:a", 1.0, 0.22).set_delay(minf(0.3 + 0.09 * row.get_child_count(), 1.6))
 	var bits := PackedStringArray()
 	if String(_guests.get("gift_from", "")) != "":
 		bits.append("%s sent %s instead." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
@@ -317,8 +330,17 @@ func _said_vow(text: String) -> void:
 
 
 func _rite() -> void:
+	# The rite is told a line at a time; a tap brings the rest at once.
+	var n := 0
 	for line in Lines.rite(culture):
-		say("narration", _fill(String(line)))
+		var told := say("narration", _fill(String(line)))
+		if not Style.motion_reduced() and not bool(Sound.instant_text):
+			told.modulate.a = 0.0
+			var t := told.create_tween()
+			t.tween_interval(0.5 * n)
+			t.tween_property(told, "modulate:a", 1.0, 0.3)
+			_writing.append(t)
+		n += 1
 	var captain := {}
 	for g in _guests["guests"]:
 		if String(g["kind"]) == "captain" and (captain.is_empty() or int(g.get("battles", 0)) > int(captain.get("battles", 0))):
@@ -385,7 +407,10 @@ func _finish() -> void:
 	Sound.play("bell", 0.0, 0.0)
 	# "Married" is said once, on the closing card; the plate keeps only her name.
 	_set_chips("")
-	change_face("center", _portrait("amused"))
+	express("center", _portrait("amused"), "amused")
+	var dressing := stage.get_node_or_null("Dressing")
+	if dressing != null:
+		dressing.burst()
 	add_to_log(_closing_card(r))
 	var home := String(GameState.world.social.get_candidate_person(cand).get("residence", place))
 	var home_name := String(Data.settlement(home)["name"]) if Data.SETTLEMENTS.has(home) else _place_name()
@@ -450,9 +475,7 @@ func _closing_card(r: Dictionary) -> Control:
 	cost.name = "DayCost"
 	cost.alignment = FlowContainer.ALIGNMENT_CENTER
 	v.add_child(cost)
-	if not Style.motion_reduced():
-		p.modulate.a = 0.0
-		p.create_tween().tween_property(p, "modulate:a", 1.0, 0.4)
+	TalkView.land(p, Color(1.5, 1.15, 1.3))
 	return p
 
 
