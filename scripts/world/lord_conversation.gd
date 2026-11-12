@@ -548,8 +548,8 @@ func _stop_gesture() -> void:
 
 
 ## What their body does with a line: "" (they lean into speaking it), "nod", "bristle" (a
-## shake of the head), "lean" (in, and stays), "away" (turns from you, dimmed, and stays),
-## "exit" (they go). Each starts from wherever the last one left them.
+## shake of the head), "laugh" (two short hops), "lean" (in, and stays), "away" (turns from you,
+## dimmed, and stays), "exit" (they go). Each starts from wherever the last one left them.
 func _play(kind: String) -> void:
 	_stop_gesture()
 	if _face == null:
@@ -585,6 +585,9 @@ func _play(kind: String) -> void:
 			_glance_t = -1.0
 		"exit":
 			steps = [[Vector2.ZERO, 0.12], [Vector2.ZERO, 0.6], [Vector2(-(_face.size.x + 80.0), 0), 0.45]]
+		"laugh":
+			# Two short hops, the second smaller: a laugh in the shoulders.
+			steps = [[Vector2(0, -8), 0.09], [Vector2.ZERO, 0.12], [Vector2(0, -4), 0.08], [Vector2.ZERO, 0.11]]
 		_:
 			steps = [[Vector2(0, -6), 0.1], [Vector2.ZERO, 0.18]]
 	var t := create_tween()
@@ -677,10 +680,16 @@ func writing() -> bool:
 ## show with it; your replies; and a footer with the way back and the way out.
 func _show(speech: String, extras: Array, replies: Array, mood: String = "", gesture: String = "") -> void:
 	_clear_talk()
-	# A beat that sets no mood is said with the feeling in its words (a question wonders,
-	# a threat glowers, a jest smiles), or at rest.
-	if mood == "":
+	# Each of their lines is said with its own face (LordLines.MOODS: a daring lord laughs
+	# at a challenge, a cruel one smirks at a threat), over the beat's own; anything else
+	# with the feeling in its words, or at rest. A laugh shakes them; anger bristles.
+	var line_mood := LordLines.mood_of_line(speech, lord)
+	if line_mood != "":
+		mood = line_mood
+	elif mood == "":
 		mood = Feeling.mood_of(speech, {Lords.CRUEL: "Vengeful", Lords.CAUTIOUS: "Steadfast", Lords.HONORABLE: "Steadfast"}.get(String(lord.get("bearing", "")), ""))
+	if gesture == "":
+		gesture = String({"laugh": "laugh", "angry": "bristle"}.get(mood, ""))
 	_set_mood(mood)
 	_play(gesture)
 	if _said != "":

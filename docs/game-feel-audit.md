@@ -498,7 +498,14 @@ for a joke, a promise and the names of the dead, and no mouth ever moved. Now:
   both faces (the names of the absent lower every eye; a bond's rank is worn with pride).
   By an empty place the survivor's words are grief, whatever else is in them.
 - **Mouths move** while a line is written out, and rest when it's whole (a tap makes it
-  whole). In the lord talk too, where a beat that sets no mood is now said with the
-  feeling in its words.
+  whole), in the lord talk too.
+- **Every lord line has its own face** (`LordLines.MOODS`, `STORY_MOODS`): each beat
+  (a greeting, the news, their troubles, a crown's case, steel, captivity, orders) has a
+  mood for each bearing, and each of that bearing's lines its own where they differ. A
+  daring lord laughs (with a laugh in their shoulders) and teases, a cautious one weighs
+  and approves, an honourable one is warm or solemn, a cruel one smirks and glowers. The
+  talk knows a line by its words (its {facts} matching whatever was put there, the
+  custom of their land looked past), so 304 of 316 lines are said with a face, not at
+  rest; anything else is read for its feeling (`feeling.gd`).
 
 Captains keep `CaptainFace`. Checked in `tests/lord_portrait_tests.gd`.

@@ -473,6 +473,139 @@ const CUSTOM := {
 }
 
 
+## How each line is said: the face a lord says it with (LordPortrait.MOODS), by beat and
+## bearing; a list gives each of that bearing's lines its own, in order. A daring lord
+## laughs and teases, a cautious one weighs and approves, an honourable one is warm or
+## solemn, a cruel one smirks and glowers. ("" is their resting face.)
+const MOODS := {
+	"first": {D: ["amused", "tease", "proud"], C: ["thoughtful", "thoughtful", "determined"], H: ["warm", "", "warm"], X: ["tease", "grim", "grim"]},
+	"known": {D: ["laugh", "amused", "tease"], C: ["proud", "", "warm"], H: "warm", X: ["tease", "grim", "tease"]},
+	"warm": {D: ["laugh", "amused"], C: "warm", H: "warm", X: ["proud", "tease"]},
+	"cold": {D: ["angry", "tease"], C: "grim", H: ["grim", "determined"], X: ["tease", "grim"]},
+	"fought": {D: ["laugh", "amused"], C: ["determined", "proud"], H: ["proud", "warm"], X: "grim"},
+	"owed": {D: ["laugh", "warm"], C: "proud", H: "warm", X: "proud"},
+	"kin": {D: ["laugh", "amused"], C: ["proud", "warm"], H: ["warm", "amused"], X: ["tease", "proud"]},
+	"pact": {D: ["laugh", "amused"], C: "proud", H: "warm", X: ["tease", "proud"]},
+	"liege": {D: ["amused", "determined"], C: ["proud", "thoughtful"], H: "determined", X: "tease"},
+	"feast_host": {D: "laugh", C: "amused", H: "warm", X: "tease"},
+	"feast_yours": {D: "laugh", C: "worried", H: "warm", X: "tease"},
+	"feast_guest": {D: "laugh", C: "tease", H: "warm", X: "tease"},
+	"again": {D: ["amused", "amused", "tease"], C: ["", "tease", ""], H: ["warm", "", "warm"], X: ["grim", "tease", "grim"]},
+	"news": {D: ["amused", "laugh"], C: "thoughtful", H: "", X: ["tease", ""]},
+	"news_none": {D: ["laugh", "amused"], C: ["worried", "thoughtful"], H: ["sad", "worried"], X: ["grim", "tease"]},
+	"king_loyal": {D: ["laugh", "amused"], C: "proud", H: "proud", X: ["tease", "determined"]},
+	"king_doubt": {D: ["angry", "amused"], C: ["grim", "worried"], H: "sad", X: ["tease", "angry"]},
+	"king_ruler": {D: "tease", C: "determined", H: "determined", X: "grim"},
+	"king_sworn": {D: "laugh", C: "proud", H: "determined", X: "grim"},
+	"story_ask": {D: "laugh", C: ["thoughtful", "tease"], H: "warm", X: ["tease", "grim"]},
+	"trouble_bandits": {D: ["angry", "amused"], C: ["worried", "grim"], H: ["sad", "worried"], X: "angry"},
+	"trouble_war": {D: ["laugh", "determined"], C: ["worried", "grim"], H: ["sad", "grim"], X: ["angry", "grim"]},
+	"trouble_none": {D: "amused", C: ["proud", "amused"], H: "warm", X: "tease"},
+	"trouble_job": {D: "tease", C: "grim", H: "worried", X: "angry"},
+	"haggle": {D: "laugh", C: "thoughtful", H: "sad", X: "tease"},
+	"take": {D: "laugh", C: ["determined", "worried"], H: "warm", X: "grim"},
+	"objection": {D: ["tease", "amused"], C: ["worried", "thoughtful"], H: ["grim", "determined"], X: "grim"},
+	"go_on": {D: ["amused", "tease"], C: "thoughtful", H: ["thoughtful", ""], X: "tease"},
+	"arg_liked": {D: "laugh", C: "surprised", H: "warm", X: "proud"},
+	"arg_plain": {D: "amused", C: "thoughtful", H: "thoughtful", X: "tease"},
+	"arg_disliked": {D: "tease", C: "worried", H: "angry", X: "tease"},
+	"arg_refuse": {D: "angry", C: "grim", H: "grim", X: "angry"},
+	"silver": {D: "surprised", C: "surprised", H: "determined", X: "tease"},
+	"sworn": {D: "laugh", C: "determined", H: "proud", X: "tease"},
+	"challenge": {D: "laugh", C: "grim", H: ["determined", "sad"], X: ["tease", "angry"]},
+	"tribute": {D: "proud", C: "proud", H: "", X: "tease"},
+	"duel_accept": {D: "laugh", C: "determined", H: "determined", X: "tease"},
+	"duel_lost": {D: "laugh", C: "grim", H: "warm", X: "angry"},
+	"duel_won": {D: "laugh", C: "proud", H: "warm", X: "tease"},
+	"captive": {D: ["amused", "laugh"], C: ["sad", "thoughtful"], H: ["determined", "sad"], X: ["angry", "grim"]},
+	"captive_swear": {D: "laugh", C: "thoughtful", H: "determined", X: "grim"},
+	"captive_release": {D: "laugh", C: "warm", H: "warm", X: "surprised"},
+	"captive_ransom": {D: "amused", C: "amused", H: "sad", X: "tease"},
+	"captive_chains": {D: "tease", C: "sad", H: "sad", X: "angry"},
+	"order_follow": {D: "laugh", C: "determined", H: "determined", X: "determined"},
+	"order_guard": {D: "determined", C: "determined", H: "determined", X: "tease"},
+	"order_free": {D: "laugh", C: "", H: "", X: "tease"},
+}
+
+## How they say what they make of a story, as MOODS.
+const STORY_MOODS := {
+	D: {"boldness": "laugh", "prudence": ["tease", "amused"], "modesty": "amused", "fear": "amused"},
+	C: {"prudence": "proud", "boldness": ["worried", "thoughtful"], "modesty": "thoughtful", "fear": "thoughtful"},
+	H: {"modesty": "warm", "fear": ["sad", "grim"], "prudence": "proud", "boldness": "worried"},
+	X: {"fear": ["proud", "tease"], "modesty": "tease", "prudence": "tease", "boldness": "thoughtful"},
+}
+
+static var _said: Dictionary = {}
+
+
+## The face `lord` says `text` with, if it's one of their lines (MOODS, STORY_MOODS): ""
+## if it isn't, or it's said at rest. Quotation marks and the custom a stranger is greeted
+## with are looked past.
+static func mood_of_line(text: String, lord: Dictionary) -> String:
+	var bearing := String(lord.get("bearing", ""))
+	var t := text.strip_edges().trim_prefix("\"").trim_suffix("\"").strip_edges()
+	var greeting := custom(lord)
+	if greeting != "" and t.ends_with(greeting):
+		t = t.trim_suffix(greeting).strip_edges()
+	for said in _lines_of(bearing):
+		if (said[0] as RegEx).search(t) != null:
+			return String(said[1])
+	return ""
+
+
+## Every line of a bearing as a pattern (its {facts} matching anything) with its mood.
+static func _lines_of(bearing: String) -> Array:
+	if _said.has(bearing):
+		return _said[bearing]
+	var out := []
+	var by: String = bearing if (LINES["first"] as Dictionary).has(bearing) else H
+	for key in LINES:
+		var options: Array = (LINES[key] as Dictionary).get(by, [])
+		for i in options.size():
+			out.append([_pattern(String(options[i])), _pick_mood(MOODS.get(key, {}).get(by, ""), i)])
+	var stories: Dictionary = STORY.get(by, {})
+	for theme in stories:
+		for i in (stories[theme] as Array).size():
+			out.append([_pattern(String(stories[theme][i])), _pick_mood(STORY_MOODS.get(by, {}).get(theme, ""), i)])
+	_said[bearing] = out
+	return out
+
+
+static func _pick_mood(m, i: int) -> String:
+	if m is Array:
+		return String(m[mini(i, (m as Array).size() - 1)]) if not (m as Array).is_empty() else ""
+	return String(m)
+
+
+## A line as a pattern matching all of a said line: its words as written, any {fact} as
+## whatever was put there.
+static func _pattern(line: String) -> RegEx:
+	var out := "^"
+	var lit := ""
+	var i := 0
+	while i < line.length():
+		var c := line[i]
+		if c == "{":
+			var close := line.find("}", i)
+			if close > i:
+				out += _escape(lit) + "(.+?)"
+				lit = ""
+				i = close + 1
+				continue
+		lit += c
+		i += 1
+	var r := RegEx.new()
+	r.compile("(?s)" + out + _escape(lit) + "$")
+	return r
+
+
+static func _escape(s: String) -> String:
+	var out := ""
+	for c in s:
+		out += ("\\" + c) if ".^$*+?()[]{}|\\/".contains(c) else c
+	return out
+
+
 ## What `lord` says for `key`, their own way, with {facts} filled in. `turn` picks which
 ## of their lines: it moves on each time, and starts differently for each lord, so a lord
 ## doesn't repeat themselves and two alike don't open alike. No quotation marks.

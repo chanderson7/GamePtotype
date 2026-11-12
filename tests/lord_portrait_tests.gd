@@ -11,6 +11,7 @@ const LordPortrait = preload("res://scripts/art/lord_portrait.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const CaptainFace = preload("res://scripts/art/captain_face.gd")
 const Feeling = preload("res://scripts/data/feeling.gd")
+const LordLines = preload("res://scripts/data/lord_lines.gd")
 
 var failures := 0
 
@@ -147,6 +148,24 @@ func _init() -> void:
 	check(Feeling.reaction("laugh", "Ha! You should have seen it.", "Vengeful") == "laugh" and Feeling.reaction("grief") == "sad",
 		"laughter is caught, grief shared")
 	check(Feeling.scene("Before they rise, they speak the names of the absent: Bram.") == "sad", "the names of the absent sadden both")
+	# Every lord line has a face of its own, by beat and bearing.
+	var keys_match: bool = LordLines.MOODS.keys().size() == LordLines.LINES.keys().size()
+	var known_moods := true
+	for key in LordLines.LINES:
+		keys_match = keys_match and LordLines.MOODS.has(key)
+		for b in LordLines.MOODS.get(key, {}):
+			var ms = LordLines.MOODS[key][b]
+			for m in (ms if ms is Array else [ms]):
+				known_moods = known_moods and LordPortrait.MOODS.has(String(m))
+	check(keys_match and known_moods, "every beat a lord speaks has its moods, all of them faces the kit draws")
+	var bold := {"id": 3, "bearing": "Daring", "culture": Cultures.VARDISH}
+	var cruel := {"id": 3, "bearing": "Cruel", "culture": Cultures.VARDISH}
+	check(LordLines.mood_of_line("\"Ha! I was hoping you'd say that.\"", bold) == "laugh", "a daring lord laughs at a challenge")
+	check(LordLines.mood_of_line("\"Ash Hill brigands. They take from Thornwall. What's taken from Thornwall is taken from me, and nobody takes from me.\"", cruel) == "angry",
+		"a cruel one is angry at what's taken from them, whatever the names")
+	var stranger := "\"%s %s\"" % [String(LordLines.LINES["first"]["Cruel"][0]).format({"holds": "I hold Ravensford"}), LordLines.custom(cruel)]
+	check(LordLines.mood_of_line(stranger, cruel) == "tease", "a greeting is known with the custom of their land after it")
+	check(LordLines.mood_of_line("\"Good.\"", bold) == "" and LordLines.mood_of_line("\"...\"", bold) == "", "anything else isn't taken for one of their lines")
 	# Quick enough for a phone: a lord is put together once, then each expression is cheap.
 	var t0 := Time.get_ticks_usec()
 	for mood in ["", "warm", "/shut", "/half", "grim"]:
