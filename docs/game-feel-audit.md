@@ -390,13 +390,16 @@ as cheap, and was replaced):
 - **Farah**, a desert-court bride: crimson silk with its bands worked in gold; a sheer
   ivory veil set back on her crown and falling past her shoulders, bordered in gold; a
   circlet of coins with a garnet on her brow, gold earrings, a necklace of coins.
-- **Kaede**, an island-court bride: all in white, a white silk hood over her hair (rolled
-  back round her face, folds where it falls), white robes with their pattern woven white
-  on white, a red inner collar.
+- **Kaede**, an island-court bride: all in white, white robes with their pattern woven
+  white on white, a red inner collar. Her hair is as she wears it every day, with two
+  small things for the day: the pin through her knot lacquered red, and a gold comb set
+  behind her crown. A white silk hood was tried first; it hid her hair, dominated the
+  picture, and was taken off.
 
 New cloth, hair and metal are drawn in code: rounded forms lit from the upper left, laid
 in a few flat tones checkered where they meet, with dark outlines, as the paintings are.
 Three expressions are dressed (neutral, warm, amused: the ones the day uses); the wedding
 keeps her dressed in any other mood. They blink, glance and move like every painting;
-nothing sways under a veil or a hood. Seen on a screen at all three weddings; checked in
+Edda's unbound locks sway, Kaede's hair sways as every day, and nothing sways under
+Farah's veil. Seen on a screen at all three weddings; checked in
 `tests/wedding_tests.gd`.

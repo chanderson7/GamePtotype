@@ -12,12 +12,13 @@ own garments re-dyed by their own light and shade, so the painter's folds stay.
   Farah  (a desert court)    crimson silk, its bands worked in bright gold; a sheer ivory
          veil set back on her crown and falling past her shoulders, bordered in gold; a
          circlet of gold coins with a garnet on her brow, gold earrings, a coin necklace
-  Kaede  (an island court)   all in white: a white silk hood over her hair, white robes
-         with their pattern woven white on white, a red inner collar
+  Kaede  (an island court)   all in white: white robes with their pattern woven white on
+         white, a red inner collar; her hair as she wears it, the pin through her knot
+         lacquered red and a small gold comb set behind her crown
 
 Writes assets/portraits/<who>_wedding_<expression>.png for the expressions the wedding
 uses, and assets/portraits/face/<who>_wedding_hair.png, where the shader may swing hair
-on the dressed painting (Edda's loose locks; nothing under a veil or a hood). Then run
+on the dressed painting (Edda's loose locks, Kaede's as every day, nothing under a veil). Then run
 tools/portrait_faces.py, which gives the dressed paintings their blinks and glances.
 
     python3 tools/portrait_wedding.py
@@ -106,6 +107,14 @@ def poly(points, shape, ss=4):
     h, w = shape
     im = Image.new("L", (w * ss, h * ss), 0)
     ImageDraw.Draw(im).polygon([(x * ss, y * ss) for x, y in points], fill=255)
+    return np.array(im.resize((w, h), Image.BOX)).astype(float) / 255.0
+
+
+def stroke(points, width, shape, ss=4):
+    """How much of each pixel a line through `points`, `width` wide, covers (0..1)."""
+    h, w = shape
+    im = Image.new("L", (w * ss, h * ss), 0)
+    ImageDraw.Draw(im).line([(x * ss, y * ss) for x, y in points], fill=255, width=max(1, int(round(width * ss))), joint="curve")
     return np.array(im.resize((w, h), Image.BOX)).astype(float) / 255.0
 
 
@@ -381,55 +390,56 @@ def kaede(src):
     hh, ss, vv = hsv(src)
     lum = luminance(src)
     # White robes, their pattern woven white on white; a red inner collar.
-    throat = poly(curve([(146, 236), (198, 224), (212, 250), (200, 290), (176, 330), (160, 300), (144, 262)]), (h, w))
-    below = (yy >= 238) & (src[..., 3] > 0) & (throat < 0.5)
+    throat = poly(curve([(146, 236), (198, 222), (215, 228), (217, 250), (207, 272), (200, 290), (176, 330),
+                         (160, 300), (144, 262)]), (h, w))
+    below = (yy >= 226) & (src[..., 3] > 0) & (throat < 0.5)
     clasp = np.hypot(xx - 192, yy - 396) < 15
-    hair = ((xx < 140) & (xx > 70) & (yy < 286)) | ((xx > 196) & (xx < 226) & (yy < 292))
-    collar = below & (ss < 0.36) & (vv > 0.62) & (hh > 15) & (hh < 50) & (xx > 110) & (xx < 280) & (yy < 380)
+    # The strands that hang over her robe stay hair: dark, warm and saturated, where they hang.
+    hangs_left = (xx < 140) & (xx > 70) & (yy < 292)
+    hangs_right = (xx > 196) & (xx < 228) & (yy < 300)
+    warm = (hh < 40) | (hh > 352)
+    hair = (hangs_left | hangs_right) & ((warm & (ss > 0.5) & (vv < 0.62)) | (vv < 0.12))
+    hair = hair | (grow(hair, 1) & (hangs_left | hangs_right) & (vv < 0.3) & (ss > 0.35) & warm)
+    # Above her shoulders only the back of the collar and of the robe is cloth: the rest is
+    # her hair (near black, or dark and warm), and stays.
+    hair = hair | ((yy < 238) & (~((xx > 214) & (xx < 262)) | (vv < 0.14) | ((hh < 40) & (ss > 0.5) & (vv < 0.62))))
+    # The side of her neck shows behind that strand: skin (richer than the linen) stays too.
+    hair = hair | ((xx > 196) & (xx < 252) & (yy >= 222) & (yy < 264) & (hh > 12) & (hh < 36) & (ss >= 0.47) & (vv > 0.5))
+    # Her inner collar: cream linen (paler than skin), inside the line of the lapels.
+    zone = poly([(118, 300), (140, 240), (160, 236), (214, 226), (254, 226), (258, 262), (236, 300), (200, 380),
+                 (130, 380)], (h, w)) > 0.5
+    collar = below & zone & ~hair & ~hangs_left & (ss < 0.47) & (vv > 0.42) & (hh > 15) & (hh < 50)
+    collar = collar | (below & hangs_right & ~hair & (yy > 238))   # the strand lies on the collar
+    # Its back, by her neck: paler than any skin.
+    collar = collar | ((src[..., 3] > 0) & (xx > 206) & (xx < 262) & (yy >= 224) & (yy < 262) & ~hair
+                       & (ss < 0.40) & (vv > 0.5) & (hh > 10) & (hh < 55))
     robe = below & ~clasp & ~hair & ~collar
     out = src.copy()
     silk = [(0.0, (96, 98, 122)), (0.3, (176, 176, 194)), (0.6, (226, 226, 234)), (1.0, (252, 251, 247))]
     out[robe, :3] = ramp(silk, 0.42 + 0.58 * np.clip((lum - 8) / 150.0, 0, 1))[robe]
     red = [(0.0, (70, 10, 16)), (0.5, (168, 30, 38)), (1.0, (226, 92, 84))]
     out[collar, :3] = ramp(red, 0.2 + 0.8 * np.clip((lum - 120) / 110.0, 0, 1))[collar]
-    # A white silk hood over her hair: a dome lit from the upper left, its sides falling in
-    # folds onto her shoulders, a rolled edge round her face and a soft shade on her skin.
-    opening = poly(curve([(122, 120), (140, 108), (164, 104), (190, 108), (208, 120), (214, 146), (214, 176),
-                          (208, 204), (198, 224), (208, 246), (220, 290), (140, 290), (146, 238), (134, 214),
-                          (122, 186), (116, 152), (122, 120)], n=10), (h, w))
-    outer = curve([(132, 300), (112, 312), (94, 296), (84, 252), (82, 196), (88, 138), (104, 94), (132, 62), (172, 44),
-                   (212, 42), (252, 56), (282, 90), (300, 136), (306, 192), (304, 246), (298, 288), (282, 310),
-                   (262, 304), (244, 314), (226, 298)], n=14) + [(222, 292), (148, 292)]
-    cover = np.clip(poly(outer, (h, w)) - opening * 1.2, 0, 1)
-    m = cover > 0.5
-    ang = np.arctan2(xx - 192.0, yy - 34.0)
-    ripple = smooth(110, 250, yy) * (0.32 * np.sin(ang * 22.0) + 0.12 * np.sin(ang * 53.0 + 0.7))
-    lit = form_light(xx, yy, (192.0, 160.0), (112.0, 118.0), ripple)
-    ring = blur((grow(opening > 0.5, 5) & m).astype(float), 2)
-    lit = cel(lit * (1 - 0.30 * ring) * (1 - 0.18 * smooth(250, 300, yy)))
-    # Creases where the silk folds, darker in the falling sides than over the crown.
-    falls = smooth(150, 250, yy)
-    bend = ang + 0.0025 * np.clip(yy - 150, 0, None) * np.sign(xx - 192.0)
-    crease = (np.abs(np.sin(bend * 22.0 + 0.4)) < 0.04 + 0.08 * falls) & (falls > 0.05) & m & ~grow(~m, 2)
-    lit = np.where(crease, lit - 0.20 * falls, lit)
-    hood = [(0.0, (78, 76, 96)), (0.3, (142, 138, 154)), (0.55, (196, 192, 198)), (0.8, (230, 226, 222)),
-            (1.0, (248, 245, 236))]
-    # It casts a soft shade on the robe just below its hem.
-    hem_shade = blur((grow(m, 4) & ~m & robe & (yy > 280)).astype(float), 2)[..., None] * 0.3
-    out[..., :3] = out[..., :3] * (1 - hem_shade)
-    lay(out, cover, ramp(hood, lit))
-    lay(out, (grow(m, 1) & ~m & ~(opening > 0.5)).astype(float) * 0.9, (56, 56, 74))
-    # The brim: the silk rolled back round her face, a lit band with a shadowed line inside.
-    brim = m & grow(opening > 0.5, 4) & (yy < 250)
-    lay(out, brim.astype(float) * 0.9, ramp(hood, np.clip(lit + 0.18, 0, 1)))
-    lay(out, (m & grow(opening > 0.5, 1) & (yy < 250)).astype(float) * 0.9, (120, 116, 128))
-    lay(out, (brim & ~grow(opening > 0.5, 3)).astype(float) * 0.6, (150, 146, 156))
-    # The robe's own outline against the night behind her, as the painting draws it.
+    # The robe's own outline against what's behind her, as the painting draws it.
     figure = out[..., 3] > 128
     lay(out, (robe & grow(~figure, 1)).astype(float) * 0.8, (70, 70, 88))
-    under = (opening > 0.5) & grow(m, 3) & (yy < 236)
-    out[..., :3] = out[..., :3] * (1 - blur(under.astype(float), 1)[..., None] * 0.3)
-    return out, None
+    # Her hair as she wears it, dressed for the day with two things only. The pin through
+    # her knot is lacquered red (re-dyed by its own light, its gold band kept)...
+    pin = (xx > 250) & (xx < 300) & (yy > 158) & (yy < 186) & (src[..., 3] > 0) & (hh < 45) & (ss > 0.42) \
+        & (vv > 0.2) & ~((vv > 0.5) & (hh > 30))
+    pin = pin & ((xx > 268) | (vv > 0.24))
+    lacquer = [(0.0, (64, 8, 14)), (0.5, (164, 26, 34)), (1.0, (236, 96, 84))]
+    out[pin, :3] = ramp(lacquer, np.clip((lum - 20) / 95.0, 0, 1))[pin]
+    coin(out, 296.5, 166.5, 2.0)
+    # ...and a small gold comb is set behind her crown, across the sweep of her hair: an
+    # arched spine, its teeth running back into the hair toward her knot.
+    spine = curve([(231, 120), (236, 110), (244, 102), (255, 98)], n=10)
+    for i in range(1, len(spine) - 1, 3):
+        x, y = spine[i]
+        lay(out, stroke([(x + 0.8, y + 0.8), (x + 5.2, y + 5.0)], 1.0, (h, w)) * 0.9, (150, 100, 34))
+    lay(out, stroke(spine, 5.4, (h, w)), GOLD_DARK)
+    lay(out, stroke(spine, 3.8, (h, w)), GOLD_MID)
+    lay(out, stroke([(x - 0.9, y - 0.9) for x, y in spine[2:-2]], 1.2, (h, w)) * 0.95, GOLD_LIGHT)
+    return out, "as every day"
 
 
 DRESS = {"edda": edda, "farid": farah, "kaede": kaede}
@@ -446,9 +456,13 @@ def main():
                 os.path.join(PORTRAITS, "%s_wedding_%s.png" % (who, expression)), optimize=True)
             if free is None:
                 free = hair if hair is not None else np.zeros(dressed.shape[:2])
-        free = np.clip(free / max(free.max(), 1e-6), 0, 1)
-        Image.fromarray(np.round(free * 255).astype("uint8"), "L").save(
-            os.path.join(face_dir, "%s_wedding_hair.png" % who), optimize=True)
+        if isinstance(free, str):                     # her hair is as it is every day
+            import portrait_faces
+            map_ = portrait_faces.hair(who)
+        else:
+            free = np.clip(free / max(free.max(), 1e-6), 0, 1)
+            map_ = Image.fromarray(np.round(free * 255).astype("uint8"), "L")
+        map_.save(os.path.join(face_dir, "%s_wedding_hair.png" % who), optimize=True)
     print("dressed %d paintings" % (len(WHO) * len(EXPRESSIONS)))
 
 
