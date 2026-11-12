@@ -177,6 +177,7 @@ The project uses the Compatibility renderer, which also runs in the iOS Simulato
 | `tools/unit_sprites.py` | Where the unit pixel art is drawn, culture by culture, with the battlefield's rocks and bushes. Edit this, then run `python3 tools/unit_sprites.py preview/` to regenerate `sprite_data.gd` and a preview sheet. |
 | `scripts/art/map_art.gd`, `scripts/art/map_sprite_data.gd` | The same for the map: settlements by culture and type, terrain, and parties. |
 | `tools/map_sprites.py` | Where the map's pixel art is drawn. `python3 tools/map_sprites.py preview/`. |
+| `tools/pixel_kit/` | The lords' portrait kit: heads, eyes, brows, noses and mouths in every mood, hair, beards, each land's dress and headwear, drawn as materials and shades. `python3 tools/pixel_kit/build.py` writes `assets/portraits/kit/`; `python3 tools/pixel_kit/preview.py out.png` shows sample lords. `scripts/art/lord_portrait.gd` puts lords together from it. |
 | `shaders/` | The map's sea, land and sky (the hour's light and cloud shadows). |
 | `tools/music.py` | Composes and synthesizes the map themes and all the sound effects with numpy, and encodes them to Ogg Vorbis with ffmpeg into `assets/audio/`. `python3 tools/music.py` renders everything, or name one piece, `sfx`, or a prefix such as `'base_*'`. |
 | `tools/battle_sfx.py` | The battle sounds: clash banks, the melee's din, missiles landing, crowds, siege sounds and each realm's calls, layered from recorded metal and wood (the same CC0 library) and synthesis. `python3 tools/music.py battle_sfx` renders them. |

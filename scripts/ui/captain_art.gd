@@ -6,6 +6,7 @@ extends RefCounted
 const Style = preload("res://scripts/ui/style.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const CaptainFace = preload("res://scripts/art/captain_face.gd")
+const LordPortrait = preload("res://scripts/art/lord_portrait.gd")
 
 static var _textures: Dictionary = {}
 static var _faces: Dictionary = {}
@@ -24,7 +25,12 @@ static func texture(captain: Dictionary, expression: String = "") -> Texture2D:
 	var key := _face_key(captain) + "|" + expression
 	if _faces.has(key):
 		return _faces[key]
-	var tex: Texture2D = CaptainFace.texture(captain, true, expression)
+	# Lords, rulers and their kin are drawn from the pixel portrait kit; captains as before.
+	var tex: Texture2D = null
+	if String(captain.get("noble", "")) != "" and LordPortrait.available():
+		tex = LordPortrait.texture(captain, true, expression)
+	if tex == null:
+		tex = CaptainFace.texture(captain, true, expression)
 	if _faces.size() > 400:
 		_faces.clear()
 	_faces[key] = tex

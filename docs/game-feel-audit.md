@@ -435,3 +435,37 @@ captains at the fire and in camp):
 
 Under Reduced motion none of it plays. Checked in `_lord_talk` and the fire talk in
 `tests/game_feel_tests.gd`; seen on a screen.
+
+## Lords drawn from a pixel portrait kit
+
+Lords, rulers and their kinswomen are no longer the 60×80 faces captains have: they are
+put together at 120×160 (twice the detail, in the same space on screen) from a kit of
+hand-set pixel parts, made by `tools/pixel_kit` and kept in `assets/portraits/kit`
+(one atlas and `kit.json`).
+
+- **The parts**: seven head shapes (four for men, three for women), four eye shapes in
+  five states (open, half, shut, looking away, wide), four brows in four moods (at rest,
+  raised, stern, worried), four noses, three mouths in seven moods; fifteen hair styles
+  drawn as locks (slicked back, cropped, side-parted, receding, curled, long and loose,
+  topknot, shaved pate; for women long and waved, long and straight, a crown braid, a
+  braid over the shoulder, a bun, a raised updo, smooth under a veil); seven beards fitted
+  to each jaw; two cuts of dress for each land and sex (Vardmark: mantle with ermine and
+  a chain of office, or mail and surcoat; gown with a square neck, or a surcoat with an
+  ermine front. Kharzan: kaftan and sash, or a hooded cloak; a robe with an embroidered
+  collar and coins, or an open coat with a jewelled belt. Ryumon: kamishimo with its stiff
+  wings and crests, or laced armour; layered kimono with blossoms, or a kosode with its
+  obi); and headwear: crowns, turbans, a veil, a coin circlet, a tiara, an eboshi, pins.
+- **Colour comes from the record**: parts hold materials and shades, not colours. Skin,
+  hair, eyes and lips by land; cloth in the house's colour, made into six shades with
+  warmer lights and cooler darks (the same rule in the tool and in the game), toned down
+  to dyed cloth; the land's second and third cloths by house. Older lords grey and line.
+- **Chosen from who they are** (`LordPortrait.look`): their land, their sex, their house
+  (a realm's lords come from different houses, so they wear different styles and cuts),
+  a ruler crowned (a crown, a jewelled turban, a tiara over a veil, an eboshi or golden
+  pins), and their bearing at rest (a vengeful lord's brows draw down, a bold one half
+  smiles).
+- **Expressions only redraw the face**: a lord is put together and outlined once (about
+  15 ms) and kept; each mood or blink then repaints the eyes, brows and mouth (under a
+  millisecond), so blinks and moods never stall.
+
+Captains keep `CaptainFace`. Checked in `tests/lord_portrait_tests.gd`.

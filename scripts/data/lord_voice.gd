@@ -89,7 +89,7 @@ static func portrait_record(lord: Dictionary) -> Dictionary:
 			temper = "Vengeful"
 	return {"id": PORTRAIT_BASE + int(lord.get("id", 0)), "culture": String(lord.get("culture", Cultures.VARDISH)),
 		"name": String(lord.get("name", "")), "temperament": temper, "quirk": quirk, "woman": is_lady(lord),
-		"noble": "ruler" if bool(lord.get("ruler", false)) else "lord",
+		"noble": "ruler" if bool(lord.get("ruler", false)) else "lord", "house_index": house_index(lord),
 		"house": (colors[0] as Color).to_html(false), "house_dark": (colors[1] as Color).to_html(false),
 		"battles": 20 if int(lord.get("renown", 0)) >= 300 else 0}
 
@@ -107,7 +107,15 @@ static func kin_record(lord: Dictionary, kin: Dictionary) -> Dictionary:
 	var colors := house_colors(lord)
 	return {"id": PORTRAIT_BASE + 20000 + int(lord.get("id", 0)), "culture": String(lord.get("culture", Cultures.VARDISH)),
 		"name": String(kin.get("name", "")), "first": String(kin.get("name", "")), "noble": "lady", "kin": true,
+		"house_index": house_index(lord),
 		"house": (colors[0] as Color).to_html(false), "house_dark": (colors[1] as Color).to_html(false)}
+
+
+## Which of their land's houses they come from (a realm's lords are each of a different one),
+## or -1: the portrait kit dresses houses differently by it.
+static func house_index(lord: Dictionary) -> int:
+	var houses: Array = Lords.HOUSES.get(String(lord.get("culture", "")), [])
+	return houses.find(String(lord.get("house", "")))
 
 
 ## The colors of their house: the realm's own, turned by the house's name so houses differ.
