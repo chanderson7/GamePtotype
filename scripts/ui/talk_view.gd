@@ -429,7 +429,11 @@ func set_stage_share(share: float) -> void:
 		_layout()
 
 
-## A painted room or place as a backdrop, tinted for the hour.
+## Places drawn at night, already lit by their own fires: the hour doesn't darken them.
+const DRAWN_AT_NIGHT := ["company_camp"]
+
+
+## A room or place (pixel art, assets/locations) as a backdrop, tinted for the hour.
 static func room(id: String, when: String) -> TextureRect:
 	var art := TextureRect.new()
 	art.name = "Room"
@@ -437,7 +441,8 @@ static func room(id: String, when: String) -> TextureRect:
 	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	art.modulate = {"night": Color(0.5, 0.54, 0.78), "dusk": Color(1.0, 0.82, 0.68), "morning": Color(1.0, 0.96, 0.92)}.get(when, Color.WHITE)
+	art.modulate = Color.WHITE if id in DRAWN_AT_NIGHT else \
+		{"night": Color(0.5, 0.54, 0.78), "dusk": Color(1.0, 0.82, 0.68), "morning": Color(1.0, 0.96, 0.92)}.get(when, Color.WHITE)
 	if when in ["dusk", "night"]:
 		art.add_child(firelight())
 	return art

@@ -468,6 +468,16 @@ hand-set pixel parts, made by `tools/pixel_kit` and kept in `assets/portraits/ki
   15 ms) and kept; each mood or blink then repaints the eyes, brows and mouth (under a
   millisecond), so blinks and moods never stall.
 
+## Places in pixel art
+
+The seven places that had painted (generated) pictures are drawn in pixel art now, at
+240×160, in the style of the towns and villages: flat colours, lit and shaded sides,
+dithered skies. Ravensford's castle stands on its crag over the bridge, Qasr Hamra's red
+walls over the water, Kitayama's castle above a terraced hill; the camp is drawn at night
+around its fire (so the hour never darkens it twice); the common room, the envoy's room
+and the archive have their own light (a hearth, lamps and a doorway of sun, a paper
+window and a floor lamp). They are shown with nearest filtering, like every pixel picture.
+
 ## Faces that feel what they say
 
 Talks used to wear two faces: the one speaking warm, the one listening at rest, the same

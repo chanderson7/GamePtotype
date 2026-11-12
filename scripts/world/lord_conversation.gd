@@ -1,4 +1,4 @@
-## Talking to a lord, face to face where you met: the place behind them (a painted
+## Talking to a lord, face to face where you met: the place behind them (a pixel-art
 ## location, or the settlement as the game paints it, at the hour it is), their portrait
 ## and banner, what they think of you, and one exchange at a time. You answer with a line,
 ## tagged with what it does; nothing irreversible happens on a stray tap. The rules are in
@@ -27,7 +27,7 @@ const Feeling = preload("res://scripts/data/feeling.gd")
 ## the list of things to say.
 const FOOTER_IDS := ["back", "leave"]
 
-## Places with a painted picture of their own.
+## Places with a picture of their own (pixel art, assets/locations).
 const PAINTED := ["ravensford", "qasr_hamra", "kitayama"]
 ## The portrait is drawn at this many screen pixels to one of its own.
 const FACE_SCALE := 5.0
@@ -245,8 +245,10 @@ func _build_stage() -> void:
 		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 		art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		art.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		# The painting is by day: dusk warms it and night cools and darkens it.
-		art.modulate = {"night": Color(0.42, 0.47, 0.72), "dusk": Color(1.0, 0.78, 0.62), "morning": Color(1.0, 0.95, 0.9)}.get(when, Color.WHITE)
+		# The place is drawn by day: dusk warms it and night cools and darkens it (the camp
+		# is drawn at night, by its fire).
+		art.modulate = Color.WHITE if id in TalkView.DRAWN_AT_NIGHT else \
+			{"night": Color(0.42, 0.47, 0.72), "dusk": Color(1.0, 0.78, 0.62), "morning": Color(1.0, 0.95, 0.9)}.get(when, Color.WHITE)
 		_backdrop = art
 		# The camp's fire after dark.
 		if id == "company_camp" and when in ["dusk", "night"]:
