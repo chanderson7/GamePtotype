@@ -98,10 +98,13 @@ Use case: stylized-concept. Create a wide landscape 3:2 pixel-art background ill
   - Farah (a desert court): crimson silk with its bands worked in gold; a sheer ivory veil
     bordered in gold, set back on her crown; a coin circlet with a garnet on her brow,
     gold earrings, a coin necklace.
-  - Kaede (an island court): all white, white robes with their pattern woven white on
-    white, a red inner collar; her hair as she wears it every day, with the pin through
-    her knot lacquered red and a small gold comb set behind her crown. (A white silk hood
-    was tried first and taken off: it hid her and dominated the picture.)
+  - Kaede (an island court): a bride's dress painted whole in place of what she wears
+    (not her own robes re-dyed): a white kimono with three collars (white, red, white)
+    crossed about her throat, a brocade sash with a red scarf and cord, a purse tucked in
+    her collar and a fan in her sash, and over it a white robe worn open, lined in red,
+    worked with chrysanthemums in gold thread. Her hair as every day, with the pin through
+    her knot lacquered red and a small gold comb. (A white silk hood was tried and taken
+    off; so was a version that only re-dyed her robes.)
   Run it again (then `tools/portrait_faces.py`) after a portrait is replaced.
 
 ## Farah / Qasr Hamra

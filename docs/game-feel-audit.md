@@ -390,11 +390,15 @@ as cheap, and was replaced):
 - **Farah**, a desert-court bride: crimson silk with its bands worked in gold; a sheer
   ivory veil set back on her crown and falling past her shoulders, bordered in gold; a
   circlet of coins with a garnet on her brow, gold earrings, a necklace of coins.
-- **Kaede**, an island-court bride: all in white, white robes with their pattern woven
-  white on white, a red inner collar. Her hair is as she wears it every day, with two
-  small things for the day: the pin through her knot lacquered red, and a gold comb set
-  behind her crown. A white silk hood was tried first; it hid her hair, dominated the
-  picture, and was taken off.
+- **Kaede**, an island-court bride: her dress is painted whole, in place of what she
+  wears (`bridal_kimono`): a white kimono with three collars (white, red, white) crossed
+  about her throat, a brocade sash with a red scarf and cord, a purse tucked in her collar
+  and a fan in her sash, and over it a white robe worn open, lined in red, worked with
+  chrysanthemums in gold thread. Only her skin and the strands of hair over her shoulders
+  are kept from the painting below her chin. Her hair is as every day, with the pin
+  through her knot lacquered red and a small gold comb. Tried first and dropped: a white
+  silk hood (it hid her), and her own robes re-dyed white (a reskin, not a wedding dress).
+  Edda and Farah still wear their own clothes re-dyed, with new things over them.
 
 New cloth, hair and metal are drawn in code: rounded forms lit from the upper left, laid
 in a few flat tones checkered where they meet, with dark outlines, as the paintings are.

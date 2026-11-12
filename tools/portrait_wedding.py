@@ -12,9 +12,12 @@ own garments re-dyed by their own light and shade, so the painter's folds stay.
   Farah  (a desert court)    crimson silk, its bands worked in bright gold; a sheer ivory
          veil set back on her crown and falling past her shoulders, bordered in gold; a
          circlet of gold coins with a garnet on her brow, gold earrings, a coin necklace
-  Kaede  (an island court)   all in white: white robes with their pattern woven white on
-         white, a red inner collar; her hair as she wears it, the pin through her knot
-         lacquered red and a small gold comb set behind her crown
+  Kaede  (an island court)   a bride's dress painted whole, in place of what she wears: a
+         white kimono, its three collars (white, red, white) crossed about her throat; a
+         brocade sash with a red scarf and cord; a purse tucked in her collar, a fan in her
+         sash; over it a white robe worn open, lined in red, worked with chrysanthemums
+         in gold thread. Her hair as she wears it, the pin through her knot lacquered
+         red and a small gold comb set behind her crown
 
 Writes assets/portraits/<who>_wedding_<expression>.png for the expressions the wedding
 uses, and assets/portraits/face/<who>_wedding_hair.png, where the shader may swing hair
@@ -270,6 +273,203 @@ def locks(shape, masses, palette, seed=7, ss=3):
     return np.array(im.resize((w, h), Image.LANCZOS)).astype(float)
 
 
+WHITE_SILK = [(0.0, (92, 94, 124)), (0.3, (160, 162, 188)), (0.6, (214, 215, 228)), (0.85, (242, 242, 244)),
+              (1.0, (254, 253, 248))]
+RED_SILK = [(0.0, (64, 8, 16)), (0.45, (150, 24, 34)), (0.8, (204, 52, 52)), (1.0, (238, 110, 96))]
+BROCADE = [(0.0, (104, 76, 40)), (0.45, (190, 156, 96)), (0.8, (232, 210, 156)), (1.0, (252, 242, 208))]
+LINE = (58, 56, 78)
+
+
+def offset(path, r):
+    """`path` moved r to its right-hand side (as you walk it)."""
+    out = []
+    for i, (x, y) in enumerate(path):
+        x0, y0 = path[max(i - 1, 0)]; x1, y1 = path[min(i + 1, len(path) - 1)]
+        dx, dy = x1 - x0, y1 - y0
+        n = max(1e-6, np.hypot(dx, dy))
+        out.append((x - dy / n * r, y + dx / n * r))
+    return out
+
+def band(path, r0, r1, shape):
+    return poly(offset(path, r0) + offset(path, r1)[::-1], shape)
+
+def tones(lit, levels=6):
+    return np.clip(np.round(lit * levels) / levels, 0, 1)
+
+class Cloth:
+    """The light on a cloth everywhere: a base, shaped by the folds laid in it."""
+    def __init__(self, shape, base):
+        self.shape = shape; self.lit = base.copy()
+    def fold(self, pts, strength=0.16, width=1.4, soft=11.0):
+        pts = curve(pts, n=8)
+        self.lit -= strength * 0.8 * blur(stroke(pts, width, self.shape), 1)
+        self.lit -= 0.9 * strength * blur(stroke([(x + 4, y + 2) for x, y in pts], soft, self.shape), 4)
+        self.lit += 0.5 * strength * blur(stroke([(x - 4, y - 2) for x, y in pts], soft * 0.7, self.shape), 3)
+
+def kiku(out, cx, cy, r, petals=16, turn=0.0):
+    """A chrysanthemum roundel worked in white and gold thread."""
+    h, w = out.shape[:2]
+    thread = (184, 132, 48)
+    lay(out, disc((h, w), cx, cy, r + 1.0)[0], thread)
+    for i in range(petals):
+        a0 = turn + (i - 0.40) * 2 * np.pi / petals
+        a1 = turn + (i + 0.40) * 2 * np.pi / petals
+        am = (a0 + a1) / 2
+        pts = [(cx + np.cos(a0) * r * 0.26, cy + np.sin(a0) * r * 0.26)]
+        for t in np.linspace(0, 1, 5):
+            a = a0 + (a1 - a0) * t
+            rr = r * (0.93 + 0.07 * np.sin(np.pi * t))
+            pts.append((cx + np.cos(a) * rr, cy + np.sin(a) * rr))
+        pts.append((cx + np.cos(a1) * r * 0.26, cy + np.sin(a1) * r * 0.26))
+        lit = 0.5 + 0.5 * np.clip(-(np.cos(am) + np.sin(am)) / 1.4, -1, 1)
+        col = np.array((226, 222, 226.0)) * (1 - lit) + np.array((255, 253, 246.0)) * lit
+        lay(out, poly(pts, (h, w)), col)
+    coin(out, cx, cy, max(1.6, r * 0.24))
+
+def kiku(out, cx, cy, r, petals=16, turn=0.0):
+    """A chrysanthemum roundel worked in white and gold thread."""
+    h, w = out.shape[:2]
+    thread = (184, 132, 48)
+    lay(out, disc((h, w), cx, cy, r + 1.0)[0], thread)
+    for i in range(petals):
+        a0 = turn + (i - 0.40) * 2 * np.pi / petals
+        a1 = turn + (i + 0.40) * 2 * np.pi / petals
+        am = (a0 + a1) / 2
+        pts = [(cx + np.cos(a0) * r * 0.26, cy + np.sin(a0) * r * 0.26)]
+        for t in np.linspace(0, 1, 5):
+            a = a0 + (a1 - a0) * t
+            rr = r * (0.93 + 0.07 * np.sin(np.pi * t))
+            pts.append((cx + np.cos(a) * rr, cy + np.sin(a) * rr))
+        pts.append((cx + np.cos(a1) * r * 0.26, cy + np.sin(a1) * r * 0.26))
+        lit = 0.5 + 0.5 * np.clip(-(np.cos(am) + np.sin(am)) / 1.4, -1, 1)
+        col = np.array((226, 222, 226.0)) * (1 - lit) + np.array((255, 253, 246.0)) * lit
+        lay(out, poly(pts, (h, w)), col)
+    coin(out, cx, cy, max(1.6, r * 0.24))
+
+def crane(out, cx, cy, k=1.0, flip=1):
+    """A crane in flight, worked in white and gold thread."""
+    h, w = out.shape[:2]
+    def P(pts): return [(cx + flip * x * k, cy + y * k) for x, y in pts]
+    thread = (176, 124, 44)
+    wing1 = P([(-3, -2), (-11, -17), (-5, -23), (3, -17), (5, -3)])
+    wing2 = P([(2, -3), (9, -21), (18, -19), (17, -9), (9, -2)])
+    for wing, tip in ((wing2, P([(9, -21), (18, -19), (16.5, -14), (10, -16)])), (wing1, P([(-11, -17), (-5, -23), (-3.5, -18), (-9, -13.5)]))):
+        lay(out, stroke(wing + [wing[0]], 1.6, (h, w)), thread)
+        lay(out, poly(wing, (h, w)), (250, 246, 234))
+        lay(out, poly(tip, (h, w)), (78, 74, 92))
+        a0 = wing[0]
+        for t in (0.25, 0.5, 0.75):
+            b = (wing[1][0] * (1 - t) + wing[3][0] * t, wing[1][1] * (1 - t) + wing[3][1] * t)
+            lay(out, stroke([((a0[0] + b[0]) / 2, (a0[1] + b[1]) / 2), b], 0.8, (h, w)) * 0.8, thread)
+    body = P([(-9, 0), (-5, -3.5), (3, -4), (10, -1), (12, 2), (4, 4), (-5, 3.5)])
+    lay(out, stroke(body + [body[0]], 1.6, (h, w)), thread)
+    lay(out, poly(body, (h, w)), (252, 249, 240))
+    lay(out, stroke(curve(P([(-8, -1), (-14, -4.5), (-20, -5.5)]), n=5), 2.6, (h, w)), thread)
+    lay(out, stroke(curve(P([(-8, -1), (-14, -4.5), (-20, -5.5)]), n=5), 1.4, (h, w)), (60, 58, 76))
+    lay(out, stroke(P([(-20, -5.5), (-26, -4.5)]), 1.0, (h, w)), thread)
+    lay(out, stroke(P([(10, 1), (21, 4.5)]), 1.0, (h, w)), (70, 66, 84))
+    hx, hy = P([(-20, -7.2)])[0]
+    d = disc((h, w), hx, hy, 1.3 * k)[0]
+    lay(out, d, (200, 36, 44))
+
+
+def bridal_kimono(src):
+    """A bride's dress of an island court, painted whole (it is laid over her wherever she
+    isn't skin or hair): a white kimono with its three collars crossed left over right, a
+    brocade sash with its scarf and cord, a purse tucked in her collar and a fan in her sash,
+    and over it a white robe worn open, lined in red, worked with chrysanthemums."""
+    h, w = src.shape[:2]
+    S = (h, w)
+    yy, xx = np.mgrid[0:h, 0:w].astype(float)
+    # ---- the light on each cloth
+    side = np.clip(0.5 - (xx - 192) / 420.0, 0, 1)                 # lit from the upper left
+    drop = smooth(280, 512, yy)
+    figure = src[..., 3] > 0
+    top = np.where(figure[222:].any(axis=0), 222 + np.argmax(figure[222:], axis=0), h)[None, :].astype(float)
+    below_top = yy - top
+    robe = Cloth(S, 0.58 + 0.34 * side - 0.14 * drop + 0.16 * (1 - smooth(0, 46, below_top)))
+    for pts in ([(74, 300), (52, 380), (40, 512)], [(104, 300), (88, 400), (76, 512)], [(36, 330), (16, 420), (8, 512)],
+                [(302, 290), (324, 380), (336, 512)], [(336, 322), (358, 410), (368, 512)], [(276, 262), (304, 304), (318, 356)],
+                [(98, 284), (62, 304), (30, 338)]):
+        robe.fold(pts)
+    robe.lit -= 0.10 * blur(stroke(curve([(318, 300), (350, 400), (364, 512)], n=8), 46, S), 8)   # the far sleeve turns away
+    out_robe = ramp(WHITE_SILK, tones(robe.lit, 7))
+    # A woven ground: small diamonds, tone on tone.
+    weave = (((xx + yy) % 12 < 1.0) | ((xx - yy) % 12 < 1.0)) & (((xx + yy) % 24 < 13) ^ ((xx - yy) % 24 < 13))
+    out_robe = np.where(weave[..., None], out_robe * 0.965, out_robe)
+    img = np.dstack([out_robe, np.full(S, 255.0)])
+    # ---- the kimono beneath, between the over-robe's two edges
+    left_edge = curve([(150, 236), (132, 262), (118, 330), (104, 420), (94, 512)], n=10)
+    right_edge = curve([(236, 224), (254, 242), (268, 300), (282, 400), (294, 512)], n=10)
+    panel = poly(left_edge + right_edge[::-1], S)
+    kim = Cloth(S, 0.66 + 0.30 * side - 0.10 * smooth(320, 440, yy))
+    for pts in ([(176, 340), (200, 380), (214, 430)], [(150, 356), (160, 396), (160, 432)], [(206, 330), (236, 372), (250, 430)]):
+        kim.fold(pts, strength=0.14, soft=6)
+    lay(img, panel, ramp(WHITE_SILK, tones(kim.lit, 7)))
+    # ---- the sash, its scarf above it and its cord
+    obi_top = 434.0 + 3.0 * np.sin((xx - 100) / 60.0)
+    obi = panel * (yy > obi_top)
+    ol = 0.50 + 0.40 * side - 0.08 * smooth(440, 512, yy) + 0.12 * np.sin(np.clip((yy - 436) / 44.0, 0, 1) * np.pi)
+    lattice = ((xx + yy) % 16 < 1.3) | ((xx - yy) % 16 < 1.3)
+    flower = (np.hypot((xx + yy) % 16 - 8, (xx - yy) % 16 - 8) < 2.6)
+    ol = np.where(lattice, ol - 0.20, ol)
+    ol = np.where(flower, ol + 0.16, ol)
+    lay(img, obi, ramp(BROCADE, tones(ol, 6)))
+    scarf = panel * (yy > obi_top - 9 + 2.0 * np.sin(xx / 7.0)) * (yy <= obi_top + 1)
+    sl = 0.55 + 0.35 * side + 0.12 * np.sin(xx / 5.0)
+    lay(img, scarf, ramp(RED_SILK, tones(sl, 5)))
+    lay(img, panel * (np.abs(yy - obi_top) < 0.8), LINE, 0.7)
+    cord_y = 482.0 + 2.0 * np.sin((xx - 100) / 60.0)
+    lay(img, panel * (np.abs(yy - cord_y) < 3.4), (96, 14, 22))
+    lay(img, panel * (np.abs(yy - cord_y) < 2.4), ramp(RED_SILK, 0.45 + 0.4 * side))
+    lay(img, panel * (np.abs(yy - cord_y + 1.2) < 0.7), (240, 150, 130), 0.7)
+    # ---- the collars: white, red, white, crossed left over right about her throat
+    lpath = curve([(162, 226), (164, 262), (165, 298), (170, 323)], n=10)
+    rpath = curve([(240, 222), (234, 248), (222, 262), (213, 273), (170, 323), (148, 352), (134, 388), (126, 436)], n=10)
+    for path, sgn, shade in ((lpath, 1, 0.0), (rpath, -1, 0.06)):
+        edge = lambda r: band(path, sgn * r[0], sgn * r[1], S)
+        base = 0.74 + 0.24 * side - shade
+        lay(img, edge((13, 31)), ramp(WHITE_SILK, tones(base - 0.04 + 0.0 * xx, 7)))
+        lay(img, edge((7, 14)), ramp(RED_SILK, tones(base - 0.12, 6)))
+        lay(img, edge((-3, 8)), ramp(WHITE_SILK, tones(base + 0.10, 7)))
+        for r, a in ((31, 0.75), (14, 0.5), (7.5, 0.5)):
+            lay(img, stroke(offset(path, sgn * r), 1.0, S), LINE, a)
+        # The soft shade a collar casts on what lies under it.
+        cast = blur(band(path, sgn * 31, sgn * 39, S), 3)[..., None] * 0.24
+        img[..., :3] *= (1 - cast)
+    # ---- a little brocade purse tucked into her collar, its tassel hanging
+    purse = [(141, 352), (160, 344), (166, 357), (147, 366)]
+    lay(img, stroke(purse + [purse[0]], 1.6, S), (70, 20, 24))
+    pl = 0.5 + 0.3 * side + 0.25 * (((xx * 2 + yy) % 6) < 2)
+    lay(img, poly(purse, S), ramp(RED_SILK, tones(pl, 4)))
+    lay(img, stroke([(144, 357), (163, 349)], 1.6, S), GOLD_MID)
+    for i, dx in enumerate((-2.5, 0, 2.5)):
+        chain(img, [(149 + dx, 366), (148 + dx * 1.6, 378 + i % 2 * 2)])
+    coin(img, 148.5, 366, 1.6)
+    # ---- a fan tucked into her sash
+    fan = [(238, 446), (252, 404)]
+    lay(img, stroke(fan, 7.0, S), GOLD_DARK)
+    lay(img, stroke(fan, 5.0, S), ramp(GOLD, 0.7 + 0.0 * xx))
+    lay(img, stroke([(239.5, 441), (251.5, 406)], 1.0, S), GOLD_LIGHT, 0.9)
+    lay(img, stroke([(250.5, 409), (252.5, 403)], 6.0, S), (248, 244, 236))
+    lay(img, obi * poly([(226, 436), (262, 436), (262, 452), (226, 452)], S), ramp(BROCADE, tones(ol, 6)))
+    # ---- the over-robe's own collar bands down each side, lined in red
+    for path, sgn, shade in ((left_edge, -1, 0.0), (right_edge, 1, 0.10)):
+        b = band(path, 0, sgn * 22, S)
+        roll = 0.80 + 0.2 * side - shade
+        lay(img, b, ramp(WHITE_SILK, tones(roll + 0.0 * xx, 7)))
+        lay(img, band(path, sgn * -2.2, sgn * 0.6, S), ramp(RED_SILK, 0.5 + 0.3 * side))
+        lay(img, stroke(offset(path, sgn * 22), 1.0, S), LINE, 0.6)
+        lay(img, stroke(offset(path, sgn * -2.4), 1.0, S), LINE, 0.6)
+        cast = blur(band(path, sgn * -11, sgn * -2.4, S), 3)[..., None] * 0.22
+        img[..., :3] *= (1 - cast)
+    # ---- chrysanthemums in white and gold thread on the over-robe
+    for cx, cy, r, turn in ((50, 362, 15, 0.1), (84, 448, 10, 0.3), (24, 462, 8, 0.0),
+                            (338, 378, 15, 0.2), (318, 468, 10, 0.0), (366, 446, 8, 0.3)):
+        kiku(img, cx, cy, r, turn=turn)
+    return img
+
+
 # ---------------------------------------------------------------- the three
 def edda(src):
     h, w = src.shape[:2]
@@ -389,39 +589,21 @@ def kaede(src):
     yy, xx = np.mgrid[0:h, 0:w].astype(float)
     hh, ss, vv = hsv(src)
     lum = luminance(src)
-    # White robes, their pattern woven white on white; a red inner collar.
-    throat = poly(curve([(146, 236), (198, 222), (215, 228), (217, 250), (207, 272), (200, 290), (176, 330),
-                         (160, 300), (144, 262)]), (h, w))
-    below = (yy >= 226) & (src[..., 3] > 0) & (throat < 0.5)
-    clasp = np.hypot(xx - 192, yy - 396) < 15
-    # The strands that hang over her robe stay hair: dark, warm and saturated, where they hang.
-    hangs_left = (xx < 140) & (xx > 70) & (yy < 292)
-    hangs_right = (xx > 196) & (xx < 228) & (yy < 300)
+    alpha = src[..., 3] > 0
+    # What stays of the painting below her chin: her skin, and the strands of hair that hang
+    # over her shoulders. Everything else is dressed anew.
+    zone = poly([(136, 222), (222, 212), (236, 224), (238, 262), (206, 300), (182, 340), (160, 320), (140, 270)], (h, w)) > 0.5
+    skin = zone & (hh > 10) & (hh < 38) & (ss >= 0.46) & (vv > 0.42)
+    hangs = ((xx < 140) & (xx > 70) & (yy < 292)) | ((xx > 196) & (xx < 228) & (yy < 300))
     warm = (hh < 40) | (hh > 352)
-    hair = (hangs_left | hangs_right) & ((warm & (ss > 0.5) & (vv < 0.62)) | (vv < 0.12))
-    hair = hair | (grow(hair, 1) & (hangs_left | hangs_right) & (vv < 0.3) & (ss > 0.35) & warm)
-    # Above her shoulders only the back of the collar and of the robe is cloth: the rest is
-    # her hair (near black, or dark and warm), and stays.
+    hair = hangs & ((warm & (ss > 0.5) & (vv < 0.62)) | (vv < 0.12))
+    hair = hair | (grow(hair, 1) & hangs & (vv < 0.3) & (ss > 0.35) & warm)
     hair = hair | ((yy < 238) & (~((xx > 214) & (xx < 262)) | (vv < 0.14) | ((hh < 40) & (ss > 0.5) & (vv < 0.62))))
-    # The side of her neck shows behind that strand: skin (richer than the linen) stays too.
-    hair = hair | ((xx > 196) & (xx < 252) & (yy >= 222) & (yy < 264) & (hh > 12) & (hh < 36) & (ss >= 0.47) & (vv > 0.5))
-    # Her inner collar: cream linen (paler than skin), inside the line of the lapels.
-    zone = poly([(118, 300), (140, 240), (160, 236), (214, 226), (254, 226), (258, 262), (236, 300), (200, 380),
-                 (130, 380)], (h, w)) > 0.5
-    collar = below & zone & ~hair & ~hangs_left & (ss < 0.47) & (vv > 0.42) & (hh > 15) & (hh < 50)
-    collar = collar | (below & hangs_right & ~hair & (yy > 238))   # the strand lies on the collar
-    # Its back, by her neck: paler than any skin.
-    collar = collar | ((src[..., 3] > 0) & (xx > 206) & (xx < 262) & (yy >= 224) & (yy < 262) & ~hair
-                       & (ss < 0.40) & (vv > 0.5) & (hh > 10) & (hh < 55))
-    robe = below & ~clasp & ~hair & ~collar
+    cloth = alpha & (yy >= 222) & ~skin & ~hair
     out = src.copy()
-    silk = [(0.0, (96, 98, 122)), (0.3, (176, 176, 194)), (0.6, (226, 226, 234)), (1.0, (252, 251, 247))]
-    out[robe, :3] = ramp(silk, 0.42 + 0.58 * np.clip((lum - 8) / 150.0, 0, 1))[robe]
-    red = [(0.0, (70, 10, 16)), (0.5, (168, 30, 38)), (1.0, (226, 92, 84))]
-    out[collar, :3] = ramp(red, 0.2 + 0.8 * np.clip((lum - 120) / 110.0, 0, 1))[collar]
-    # The robe's own outline against what's behind her, as the painting draws it.
-    figure = out[..., 3] > 128
-    lay(out, (robe & grow(~figure, 1)).astype(float) * 0.8, (70, 70, 88))
+    out[cloth, :3] = bridal_kimono(src)[cloth, :3]
+    # The figure's outline against what's behind her, as the painting draws it.
+    lay(out, (cloth & (grow(~alpha, 1) | (src[..., 3] < 200))).astype(float) * 0.85, LINE)
     # Her hair as she wears it, dressed for the day with two things only. The pin through
     # her knot is lacquered red (re-dyed by its own light, its gold band kept)...
     pin = (xx > 250) & (xx < 300) & (yy > 158) & (yy < 186) & (src[..., 3] > 0) & (hh < 45) & (ss > 0.42) \
