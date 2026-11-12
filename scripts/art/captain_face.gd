@@ -1056,88 +1056,230 @@ static func _regalia_body(img: Image, f: Dictionary, house: Color) -> void:
 
 
 ## A lady's gown in her house's colours, by her land, lit from the upper left like every
-## garment: in Vardmark a gown with a scooped neckline edged in gold and a pendant; in
-## Kharzan a gown with a gold-worked yoke and a necklace of coins; in Ryumon a kimono, its
-## collars crossed white and red over the house's colour, and a gold sash.
+## garment, worked with the trims, patterns and jewels of a noblewoman of her land:
+##   Vardmark  a damask gown with a laced bodice under a square neckline banded in
+##             embroidery; over her shoulders a mantle lined with ermine, fastened by two
+##             brooches and a chain; a pendant at her throat
+##   Kharzan   a robe patterned with small figures, a broad collar worked in gold and edged
+##             with beads, gold-banded fronts over an underdress, two strands of coins, a
+##             sash, and a sheer shawl over one shoulder
+##   Ryumon    a kimono scattered with plum blossom, its red lining showing at the edges,
+##             collars crossed white and red, and a brocade sash with its cord and knot
 static func _lady_gown(img: Image, f: Dictionary, house: Color, accent: Color, t: Dictionary) -> void:
 	var gold := Color("d8b048")
 	var gold_light := Color("f4dc8a")
 	var gold_dark := Color("8a6a22")
 	var cloth := house.lightened(0.06)
+	var culture := String(f["culture"])
+	var variant := int(f.get("outfit", 0))
+	# The cloth, lit from the upper left, with folds falling from the shoulders.
 	for y in range(57, H):
 		for x in W:
 			if not _body(x, y):
 				continue
 			var c := cloth
-			# Soft folds falling from the shoulders.
-			if (x * 3 + y) % 11 == 0 and y > 64:
-				c = c.darkened(0.1)
+			if culture == "vardish" and (x + y) % 4 == 0 and (x - y + 64) % 8 == 0:
+				c = c.lightened(0.09)                                   # damask lattice
+			if culture == "kharzani" and (x % 6 == 2 and y % 6 == 3 or x % 6 == 5 and y % 6 == 0):
+				c = c.darkened(0.14)                                    # small figures
+			if y > 64 and (x in [13, 21, 39, 47]):
+				c = c.darkened(0.12)                                    # folds
+			if y > 64 and (x in [12, 20, 38, 46]):
+				c = c.lightened(0.06)
 			if x >= 39:
-				c = c.darkened(0.22)
+				c = c.darkened(0.2)
 			elif x <= 20 and y <= 63:
 				c = c.lightened(0.12)
 			img.set_pixel(x, y, c)
-	match String(f["culture"]):
+	match culture:
 		"ryumon":
-			# Collars crossed left over right into a V at the breast: the white inner one,
-			# then red, then the house. The far collar runs on under the near one's edge.
-			for y in range(57, 74):
-				var d := y - 57
-				for k in 3:
-					var col: Color = [PALE, RED.lightened(0.05), cloth.lightened(0.18)][k]
-					var xl := 23 + d + k * 2
-					var xr := 37 - d - k * 2
-					if xl <= 30:
-						_put(img, xl - 1, y, col)
-						_put(img, xl, y, col.darkened(0.08))
-					if xr >= 30 or d >= 8:
-						_put(img, xr, y, col.darkened(0.18))
-						_put(img, xr + 1, y, col.darkened(0.25))
-			# The sash.
-			_band(img, 0, 74, W, 6, gold)
-			_band(img, 0, 74, W, 1, gold_light)
-			_band(img, 0, 79, W, 1, gold_dark)
-			for x in range(4, W, 6):
-				_put(img, x, 76, gold_dark)
-				_put(img, x + 1, 77, RED)
+			_lady_ryumon(img, f, cloth, gold, gold_light, gold_dark, variant)
 		"kharzani":
-			# A yoke worked in gold about the neckline, a fine edge, then the coins.
-			for x in W:
-				for y in range(57, 64):
-					var d := absf(float(x) + 0.5 - CX)
-					if d < 6.0 + float(y - 57) * 0.6:
-						continue
-					if y < 61 and d < 16.0:
-						_put(img, x, y, gold if (x + y) % 3 != 0 else gold_dark)
-					elif y == 61 and d < 17.0:
-						_put(img, x, y, gold_light)
-			for x in range(19, 42, 3):
-				var sag := int(round(4.0 * (1.0 - pow((float(x) - CX) / 12.0, 2.0))))
-				_put(img, x, 63 + sag, gold)
-				_put(img, x, 64 + sag, gold_dark)
-			_band(img, 28, 68, 4, 4, gold)
-			_band(img, 29, 69, 2, 2, Color("2f7a8a"))
+			_lady_kharzani(img, f, cloth, accent, gold, gold_light, gold_dark, t, variant)
 		_:
-			# A scooped neckline, skin above it, edged in gold.
-			for y in range(57, 64):
-				var reach := 7.0 + 2.2 * sqrt(float(y - 57))
-				for x in W:
-					var d := absf(float(x) + 0.5 - CX)
-					if d <= reach - float(y - 57) * 1.15:
-						_put(img, x, y, t["base"] if x < 29 else t["dark"])
-					elif d <= reach + 1.0 - float(y - 57) * 1.15:
-						_put(img, x, y, gold)
-			# A fine chain and a pendant.
-			for x in range(24, 37):
-				var sag := int(round(3.0 * (1.0 - pow((float(x) - CX) / 6.5, 2.0))))
-				_put(img, x, 58 + sag, gold_light if x < 30 else gold)
-			_band(img, 29, 61, 2, 3, gold)
-			_put(img, 29, 62, RED.lightened(0.15))
-			_put(img, 30, 62, RED)
-			# Sleeves edged at the shoulder seam.
-			for y in range(64, H):
-				_put(img, int(CX - 14.0 - float(y - 64) * 0.4), y, accent.lightened(0.1))
-				_put(img, int(CX + 14.0 + float(y - 64) * 0.4), y, accent.darkened(0.1))
+			_lady_vardish(img, f, cloth, accent, gold, gold_light, gold_dark, t, variant)
+
+
+static func _lady_vardish(img: Image, f: Dictionary, cloth: Color, accent: Color, gold: Color, gold_light: Color,
+		gold_dark: Color, t: Dictionary, variant: int) -> void:
+	var red := RED.lightened(0.1)
+	# The mantle over both shoulders, falling at the sides: a deep cloth that sets off the
+	# gown (crimson, forest green or plum), or the house's second colour.
+	var mantle: Color = [Color("7a1c2a"), Color("1f4a32"), Color("4a2458"), accent.lightened(0.15)][variant % 4]
+	if absf(mantle.h - cloth.h) < 0.05 and absf(mantle.v - cloth.v) < 0.15:
+		mantle = Color("7a1c2a") if variant % 4 != 0 else Color("1f4a32")
+	for y in range(57, H):
+		var inner := 11.5 + float(y - 57) * 0.3
+		for x in W:
+			var d := float(x) + 0.5 - CX
+			if absf(d) < inner or not _body(x, y):
+				continue
+			var c := mantle
+			if (x + y * 2) % 7 == 0:
+				c = c.darkened(0.12)
+			if d > 0.0:
+				c = c.darkened(0.22)
+			elif y < 63:
+				c = c.lightened(0.1)
+			img.set_pixel(x, y, c)
+			# Its inner edge lined with ermine: white, with the black tails.
+			if absf(d) < inner + 2.0:
+				var e := PALE if d < 0.0 else PALE.darkened(0.15)
+				if (x * 3 + y) % 7 == 0:
+					e = Color("1c1a1e")
+				img.set_pixel(x, y, e)
+	# A laced bodice down the front, a shade lighter, its lacing crossing in gold.
+	for y in range(61, H):
+		for x in range(25, 36):
+			if _body(x, y):
+				var c := img.get_pixel(x, y).lightened(0.06)
+				img.set_pixel(x, y, c)
+	for y in range(63, H - 1, 3):
+		_put(img, 28, y, gold)
+		_put(img, 29, y + 1, gold_dark)
+		_put(img, 32, y, gold)
+		_put(img, 31, y + 1, gold_dark)
+		_put(img, 30, y + 1, gold_light)
+	_band(img, 27, 62, 1, H - 62, gold_dark)
+	_band(img, 33, 62, 1, H - 62, gold_dark)
+	# The square neckline, and the embroidered band that edges it.
+	for y in range(57, 61):
+		for x in range(23, 38):
+			_put(img, x, y, t["base"] if x < 30 else t["dark"])
+	for x in range(22, 39):
+		var stitch: Color = [gold, red, gold_light, red][x % 4]
+		_put(img, x, 61, stitch)
+		_put(img, x, 62, gold_dark)
+	for y in range(57, 61):
+		_put(img, 22, y, gold if y % 2 == 0 else red)
+		_put(img, 38, y, gold_dark if y % 2 == 0 else red.darkened(0.2))
+	# A pendant on a fine chain, inside the neckline.
+	for x in range(25, 36):
+		var sag := int(round(2.0 * (1.0 - pow((float(x) - CX) / 5.5, 2.0))))
+		_put(img, x, 57 + sag, gold_light if x < 30 else gold)
+	_put(img, 29, 59, gold)
+	_put(img, 30, 59, gold)
+	_put(img, 29, 60, RED.lightened(0.25))
+	_put(img, 30, 60, RED)
+	# Brooches fastening the mantle, and the chain slung between them.
+	for bx in [17, 43]:
+		_band(img, bx - 1, 62, 3, 3, gold)
+		_put(img, bx - 1, 62, gold_light)
+		_put(img, bx, 63, [Color("3a6ad8"), RED, Color("2f8a5a"), PALE][variant % 4])
+	for x in range(18, 43):
+		var sag := int(round(5.0 * (1.0 - pow((float(x) - CX) / 12.5, 2.0))))
+		if x % 2 == 0:
+			_put(img, x, 64 + sag, gold_light if x < 30 else gold)
+		else:
+			_put(img, x, 64 + sag, gold_dark)
+
+
+static func _lady_kharzani(img: Image, f: Dictionary, cloth: Color, accent: Color, gold: Color, gold_light: Color,
+		gold_dark: Color, t: Dictionary, variant: int) -> void:
+	var teal := Color("2f8a8a")
+	var under := PALE.darkened(0.05) if variant % 2 == 0 else accent.lightened(0.35)
+	# The underdress between the robe's gold-banded fronts.
+	for y in range(64, H):
+		for x in range(27, 34):
+			_put(img, x, y, under if x < 31 else under.darkened(0.12))
+	for y in range(64, H):
+		_put(img, 26, y, gold if y % 3 else gold_light)
+		_put(img, 25, y, gold_dark)
+		_put(img, 34, y, gold_dark if y % 3 else gold)
+		_put(img, 35, y, gold_dark.darkened(0.2))
+	for y in range(67, H, 4):
+		_put(img, 30, y, gold)
+	# A broad collar worked in gold about the neck, edged with beads.
+	for y in range(57, 66):
+		for x in W:
+			var d := Vector2(float(x) + 0.5 - CX, float(y) - 54.0).length()
+			if d < 6.5 or d > 12.5:
+				continue
+			var c := gold if int(d * 2.0 + x) % 3 != 0 else gold_dark
+			if d > 11.4:
+				c = teal if x % 2 == 0 else gold_light
+			if x >= 34:
+				c = c.darkened(0.15)
+			_put(img, x, y, c)
+	# Two strands of coins, the lower with a teal stone.
+	for k in 2:
+		for x in range(20 - k * 2, 41 + k * 2, 2):
+			var sag := int(round((3.0 + k * 2.0) * (1.0 - pow((float(x) - CX) / (11.0 + k * 2.0), 2.0))))
+			_put(img, x, 66 + k * 3 + sag, gold_light if x < 30 else gold)
+	_band(img, 29, 72, 3, 3, gold)
+	_put(img, 30, 73, teal)
+	# A sash at the waist, fringed.
+	for x in W:
+		_put(img, x, 77, accent.lightened(0.15))
+		_put(img, x, 78, accent)
+		if x % 2 == 0:
+			_put(img, x, 79, gold)
+	# A sheer shawl drawn over the near shoulder, its edge picked out in gold.
+	for y in range(57, H):
+		for x in W:
+			var edge := 22.0 - float(y - 57) * 0.55
+			if float(x) > edge or not _body(x, y):
+				continue
+			var c := img.get_pixel(x, y).lerp(PALE, 0.26)
+			if absf(float(x) - edge) < 1.0:
+				c = gold_light if y % 2 == 0 else gold
+			img.set_pixel(x, y, c)
+
+
+static func _lady_ryumon(img: Image, f: Dictionary, cloth: Color, gold: Color, gold_light: Color, gold_dark: Color,
+		variant: int) -> void:
+	var blossom := PALE if variant % 2 == 0 else Color("f0b4c0")
+	var lining := RED.lightened(0.05)
+	# Plum blossom scattered over the robe.
+	for i in 14:
+		var bx := (i * 17 + variant * 5) % 52 + 4
+		var by := 60 + (i * 11) % 14
+		if absf(float(bx) - CX) < 9.0:
+			continue
+		for p in [Vector2i(0, -1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, 1)]:
+			_put(img, bx + p.x, by + p.y, blossom if bx < 39 else blossom.darkened(0.2))
+		_put(img, bx, by, gold)
+	# The red lining showing at the robe's edges.
+	for y in range(57, H):
+		for x in W:
+			if _body(x, y) and (not _body(x - 1, y) or not _body(x + 1, y)):
+				img.set_pixel(x, y, lining if x < 30 else lining.darkened(0.2))
+	# Collars crossed left over right into a V at the breast: white, then red, then a
+	# paler band of the house's colour. The far collar runs on under the near one's edge.
+	for y in range(57, 72):
+		var d := y - 57
+		for k in 3:
+			var col: Color = [PALE, RED.lightened(0.05), cloth.lightened(0.2)][k]
+			var xl := 23 + d + k * 2
+			var xr := 37 - d - k * 2
+			if xl <= 30:
+				_put(img, xl - 1, y, col)
+				_put(img, xl, y, col.darkened(0.08))
+			if xr >= 30 or d >= 8:
+				_put(img, xr, y, col.darkened(0.18))
+				_put(img, xr + 1, y, col.darkened(0.25))
+	# The sash: a band of silk above, then brocade, its cord and knot across it.
+	var obiage := Color("e88aa0")
+	for x in W:
+		_put(img, x, 71, obiage if x < 39 else obiage.darkened(0.2))
+	for y in range(72, H):
+		for x in W:
+			var c := gold
+			if (x + y) % 4 == 0:
+				c = gold_dark
+			elif (x - y + 80) % 4 == 0:
+				c = gold_light
+			if (x % 8 == 3 and y % 4 == 2):
+				c = RED
+			if x >= 39:
+				c = c.darkened(0.15)
+			_put(img, x, y, c)
+	for x in W:
+		_put(img, x, 76, Color("a8202c") if x < 39 else Color("801820"))
+	_band(img, 28, 75, 4, 3, Color("c83040"))
+	_put(img, 29, 75, Color("e8606a"))
+	_put(img, 28, 78, Color("a8202c"))
+	_put(img, 31, 78, Color("a8202c"))
 
 
 ## What a lady wears in her hair, by her land, and locks that frame her face.
