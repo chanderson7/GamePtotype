@@ -85,6 +85,18 @@ def locks(cv, mask, flow, seeds, width=4.5, light=lit, sheen=None, rng=None, max
     return part
 
 
+def under_shadow(cv):
+    """The shadow hair casts on the brow: a pixel of shade just under the hairline, only where
+    there is hair to cast it (a shaved or bald crown casts none)."""
+    hair = cv.on.copy()
+    below = shift(hair, 1, 0, False) & ~hair
+    zone = (YY >= 24) & (YY <= 46) & (np.abs(XX + 0.5 - 59) < 17)
+    m = below & zone
+    if m.any():
+        cv.put(m, "skin", 3, cv.new_part(False))
+    return cv
+
+
 def seeds_in(mask, spacing, rng, jitter=0.45):
     ys, xs = np.where(mask)
     out = []

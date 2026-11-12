@@ -35,6 +35,8 @@ def sprites():
     out = {}
 
     def add(name, cv):
+        if cv is not None and name.startswith("hair/") and name.endswith("/front"):
+            Hh.under_shadow(cv)
         if cv is not None:
             cv.inner_lines()
             s = cv.sprite()

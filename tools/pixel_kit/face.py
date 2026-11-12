@@ -68,7 +68,6 @@ def head(head):
     val = val - blob(ex1 + 8, NOSE_Y + 3, 6, 5, 0.12 if not lady else 0.08)
     val = val - blob(MOUTH_X, MOUTH_Y + 3.5, 5, 1.6, 0.16)
     val = val + blob(MOUTH_X - 1, chin - 4, 4, 2.5, 0.06)
-    val = val - np.clip((HAIR_Y + 3 - ys) / 3, 0, 1) * 0.12 * (ys > HAIR_Y)
     cv.put(m, "skin", tones(val, dither=0.012), p)
     # blush on the cheeks and the tip of the nose, dithered in at its edges
     bl = blob(ex0 - 2, NOSE_Y - 1, 5, 3.5) + blob(ex1 + 3, NOSE_Y - 1, 6, 3.5) + blob(AXIS, NOSE_Y - 1, 2, 1.5, 0.6)
@@ -116,8 +115,7 @@ def age(lady, level):
     draw_line(cv, [(ax - 5, NOSE_Y), (ax - 6, NOSE_Y + 3), (ax - 6.5, MOUTH_Y + 1)], "skin", t, flag=flag)
     draw_line(cv, [(ax + 6, NOSE_Y), (ax + 7, NOSE_Y + 3), (ax + 7, MOUTH_Y + 1)], "skin", t, flag=flag)
     if level >= 2:
-        draw_line(cv, [(ax - 4, HAIR_Y + 6), (ax + 3, HAIR_Y + 5.5)], "skin", 2, flag=flag)
-        draw_line(cv, [(ax - 3, HAIR_Y + 9), (ax + 2, HAIR_Y + 8.5)], "skin", 2, flag=flag)
+        draw_line(cv, [(ax - 3, HAIR_Y + 8), (ax + 2, HAIR_Y + 7.5)], "skin", 2, flag=flag)
         cv.px(EYES_X["near"] + 7, EYE_Y, "skin", 3, flag=flag)
         cv.px(EYES_X["near"] + 7, EYE_Y + 2, "skin", 3, flag=flag)
         for x in range(int(EYES_X["far"]) - 3, int(EYES_X["far"]) + 3):
