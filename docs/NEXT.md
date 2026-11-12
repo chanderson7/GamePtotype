@@ -13,7 +13,7 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
   plates ([`artwork-roadmap.md`](artwork-roadmap.md) Packages B and C). They need the external
   illustration workflow the portraits used; the marshal map markers are done in pixel art.
 - Deeper slices: crown courts and granting crown fiefs to lords, rebellion inside a realm;
-  a mix-group sound system for battles; siege engines; more lord lines. (Movement cycles
+  a mix-group sound system for battles; siege engines. (The lords' talk was rewritten: every beat in four voices, `scripts/data/lord_lines.gd`.) (Movement cycles
   are in: a four-frame stride; see the end of `game-feel-audit.md`.)
 - Release: a build on a real phone, a frame-rate check there, and a playtest.
 - Before that playtest: [`playtest-audit.md`](playtest-audit.md), six code-traced passes

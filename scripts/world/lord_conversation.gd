@@ -14,6 +14,7 @@ const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
 const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
+const LordLines = preload("res://scripts/data/lord_lines.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
@@ -74,6 +75,8 @@ var _mood := ""
 var _gesture = null
 var _settle = null
 var _clock := 0.0
+## Which of their lines they say next (LordLines.say): moves on as the talk goes.
+var _turn := 0
 var _blink := {}
 ## What their eyes are doing besides blinking: lowered at the bottom of a nod, glancing
 ## aside now and then, the brows lifted with interest. Seconds since each began (-1: not).
@@ -882,41 +885,61 @@ func _leave() -> void:
 
 func _beat_greet() -> void:
 	_beat = "greet"
-	# The greeting is told in the third person on the map; here they say it to your face.
-	# Kin by your marriage, or sworn to you by a pact, they greet you as such; someone you've
-	# talked with before greets you as someone they know.
+	# How they greet you depends on what you are to them: their liege, kin by your marriage,
+	# sworn by a pact, a stranger (they say who they are, and a custom of their land), or
+	# someone they know, and then by what they remember: a job you did them, a field you
+	# met on, and whether they think well or ill of you.
 	var talked_before := LordTalk.note_talk(lord)
+	_turn = talked_before
 	var pact: Dictionary = world.social.pact_for_lord(int(lord.get("id", -1))) if world.social != null else {}
-	var kind := "greet"
-	if String(pact.get("origin", "")) == "marriage":
-		kind = "kin"
-	elif not pact.is_empty():
-		kind = "pact"
-	elif talked_before > 0:
-		kind = "known"
-	var said := LordVoice.line(kind, lord, talked_before)
-	var a := said.find("\"")
-	var b := said.rfind("\"")
-	var words := said.substr(a + 1, b - a - 1) if a >= 0 and b > a else "Well met, captain."
-	if String(lord.get("realm", "")) == Data.CROWN:
-		words = "My liege. %s is held, and my riders are ready." % (Data.settlement(String(lord["fief"]))["name"] if String(lord.get("fief", "")) != "" else "All")
-	elif reason == "first" and kind == "greet":
-		words = "So you're the captain everyone's talking about. %s. %s" % [_house_line(), words]
+	var regard := LordTalk.regard(gs, lord)
+	var kind := greeting_kind(talked_before, pact, regard)
+	var facts := {"holds": _house_line(),
+		"fief": Data.settlement(String(lord["fief"]))["name"] if String(lord.get("fief", "")) != "" else "All"}
+	var words := LordLines.say(kind, lord, facts, talked_before)
+	if kind == "first":
+		words = ("%s %s" % [words, LordLines.custom(lord)]).strip_edges()
 	var extras := []
 	if mode == "hall":
 		var g: Dictionary = world.gathering_at(place_id())
 		if world.gathering_on(g) and int(g.get("host_lord", -1)) == int(lord["id"]):
-			words = "Welcome to my table, captain. Eat, drink; the speeches come later."
+			words = LordLines.say("feast_host", lord)
 		elif world.gathering_on(g) and int(g.get("host_lord", -1)) < 0:
-			words = "Captain. Your table's the talk of the realm tonight, and your wine is better than your reputation."
+			words = LordLines.say("feast_yours", lord)
 		elif world.gathering_on(g):
-			words = "Captain. Come to drink %s's wine with the rest of us?" % gs.gathering_host_name(g)
+			words = LordLines.say("feast_guest", lord, {"host": gs.gathering_host_name(g)})
 		var bonus: int = gs.first_word(lord)
 		if bonus > 0:
 			extras.append(_fx_note([["bond", bonus]], "first word at the table"))
-	var regard := LordTalk.regard(gs, lord)
-	var mood := "warm" if kind in ["kin", "pact"] or regard >= 30 else ("grim" if regard <= -15 else "")
+	var mood := "warm" if kind in ["kin", "pact", "warm", "owed"] else ("grim" if kind == "cold" else "")
 	_show("\"%s\"" % words, extras, _root_replies(), mood)
+
+
+## Which greeting they give (a key of LordLines.LINES).
+func greeting_kind(talked_before: int, pact: Dictionary, regard: int) -> String:
+	if String(lord.get("realm", "")) == Data.CROWN:
+		return "liege"
+	if String(pact.get("origin", "")) == "marriage":
+		return "kin"
+	if not pact.is_empty():
+		return "pact"
+	if talked_before == 0:
+		return "first"
+	if regard < -15:
+		return "cold"
+	if int(LordTalk.record(lord).get("jobs_done", 0)) > 0:
+		return "owed"
+	if regard >= 30:
+		return "warm"
+	if int(lord.get("met_player", 0)) > 0:
+		return "fought"
+	return "known"
+
+
+## A line of theirs, as speech. Each time they speak, the next of their lines.
+func _say(key: String, facts: Dictionary = {}) -> String:
+	_turn += 1
+	return "\"%s\"" % LordLines.say(key, lord, facts, _turn)
 
 
 func _house_line() -> String:
@@ -1007,7 +1030,7 @@ func _order_replies() -> Array:
 	row.append({"id": "order_follow", "label": "Follow", "icon": "company", "says": "Ride with me.", "tip": "They follow you and join your fights",
 		"lit": kind == "follow", "act": func():
 			gs.order_lord(lid, "follow")
-			_show("\"At your side, then.\"", [_note("%s rides with you." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Good.")], "", "nod")})
+			_show(_say("order_follow"), [_note("%s rides with you." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Good.")], "", "nod")})
 	var hold := String(lord.get("fief", ""))
 	if hold == "" or not gs.crown_holdings().has(hold):
 		hold = world.capital_of(Data.CROWN)
@@ -1016,11 +1039,11 @@ func _order_replies() -> Array:
 		row.append({"id": "order_guard", "label": "Hold", "icon": "keep", "says": "Hold %s for the crown." % hold_name, "tip": "They guard %s" % hold_name,
 			"lit": kind == "guard" and String(order.get("target", "")) == hold, "act": func():
 				gs.order_lord(lid, "guard", hold)
-				_show("\"It will stand.\"", [_note("%s will hold %s." % [LordTalk.short_name(lord), hold_name], Style.BRASS)], [_leave_reply("Good.")], "", "nod")})
+				_show(_say("order_guard", {"place": hold_name}), [_note("%s will hold %s." % [LordTalk.short_name(lord), hold_name], Style.BRASS)], [_leave_reply("Good.")], "", "nod")})
 	row.append({"id": "order_free", "label": "Free", "icon": "mappin", "says": "Go about the realm's business.", "tip": "They choose for themselves",
 		"lit": kind == "", "act": func():
 			gs.order_lord(lid, "")
-			_show("\"As you say.\"", [], [_leave_reply("Go well.")], "", "nod")})
+			_show(_say("order_free"), [], [_leave_reply("Go well.")], "", "nod")})
 	return [{"row": row}]
 
 
@@ -1051,11 +1074,10 @@ func _beat_news() -> void:
 	var extras := []
 	var speech := ""
 	if news.is_empty():
-		speech = "\"Nothing you won't have heard already. The war grinds on.\""
+		speech = _say("news_none")
 	else:
 		var first := String(news[0]["text"])
-		speech = "\"%s thing%s since we last met. %s\"" % ["One" if news.size() == 1 else ("Two" if news.size() == 2 else str(news.size())),
-			"" if news.size() == 1 else "s", first]
+		speech = _say("news", {"count": LordLines.count_things(news.size()), "first": first})
 		for e in news.slice(0, 3):
 			extras.append(_news_chip(e))
 		world.news_heard_at = float(news[0]["hour"])
@@ -1100,7 +1122,7 @@ func _beat_king() -> void:
 
 func _beat_greet_again() -> void:
 	_beat = "again"
-	_show("\"What else?\"", [], _root_replies())
+	_show(_say("again"), [], _root_replies())
 
 
 ## Back from the war news (the host calls this when it closes).
@@ -1132,8 +1154,7 @@ func _beat_stories() -> void:
 		replies.append({"id": "tell_" + String(s["id"]), "text": String(s["says"]), "icon": "journal" if String(s["id"]).begins_with("log_") else "talk",
 			"fx": fx, "tag": tag, "act": _tell.bind(String(s["id"]))})
 	replies.append({"id": "back", "text": "Another time.", "act": _beat_greet_again})
-	var ask := "\"Go on, then. Tell me something your company did that I won't have heard in a tavern.\""
-	_show(ask, [], replies)
+	_show(_say("story_ask"), [], replies)
 
 
 func _tell(story_id: String) -> void:
@@ -1184,9 +1205,7 @@ func _beat_trouble() -> void:
 
 func _haggle() -> void:
 	var silver := LordTalk.haggle(gs, lord)
-	var said := "\"%d silver, then, when they're gone. Don't make me regret it.\"" % silver
-	if String(lord.get("bearing", "")) in [Lords.CAUTIOUS, Lords.HONORABLE]:
-		said = "\"Hm. I'd hoped you'd do it for the road's sake. %d silver, then.\"" % silver
+	var said := _say("haggle", {"silver": silver})
 	var tr := LordTalk.trouble(gs, lord)
 	_show(said, [], [
 		{"id": "take", "text": "Done. I'll clear %s." % String(tr.get("name", "them")), "icon": "journal",
@@ -1202,7 +1221,7 @@ func _take_trouble(silver: int) -> void:
 		_show("\"Then never mind it.\"", [], _root_replies())
 		return
 	gs.save_game()
-	_show("\"Good. Find me when it's done, or don't; I'll hear of it.\"",
+	_show(_say("take"),
 		[_note("Added to your journal: %s." % String(job["title"]), Style.BRASS)],
 		[{"id": "back", "text": "Something else.", "act": _beat_greet_again}, _leave_reply()], "", "nod")
 
@@ -1214,7 +1233,7 @@ func _beat_persuade(first: bool) -> void:
 	if not LordTalk.persuade_check(gs, lord)["ok"]:
 		_beat_greet_again()
 		return
-	var speech := LordTalk.objection(lord) if first else "\"Go on.\""
+	var speech := LordTalk.objection(lord) if first else _say("go_on")
 	_show(speech, [_conviction_bar()], _persuade_replies())
 
 
@@ -1367,7 +1386,7 @@ func _beat_sworn() -> void:
 				_leave()}]})
 	replies.append(_leave_reply("Ride well, and raise your men."))
 	_refresh_regard()
-	_show("\"Then hear it plainly: House %s stands with your crown, as long as your crown stands.\"" % String(lord.get("house", "")), [card], replies, "proud", "nod")
+	_show(_say("sworn", {"house": String(lord.get("house", ""))}), [card], replies, "proud", "nod")
 	# The oath is the moment: its card glows as it lands.
 	_flash_later(card)
 
@@ -1377,18 +1396,7 @@ func _beat_sworn() -> void:
 ## A challenge: battle or single combat, with what's at stake shown before you commit.
 func _beat_challenge(blocked: bool) -> void:
 	_beat = "challenge"
-	var speech := ""
-	match String(lord.get("bearing", "")):
-		Lords.CRUEL:
-			speech = "\"My riders have had no sport in a week. Shall I take your head, or your silver?\""
-		Lords.DARING:
-			speech = "\"Ha! I was hoping you'd say that.\""
-		Lords.CAUTIOUS:
-			speech = "\"You'd risk your company on my road? Think carefully, captain.\""
-		_:
-			speech = "\"If it must be steel, let it be clean.\""
-	if not blocked and String(lord.get("bearing", "")) != Lords.CRUEL:
-		speech = speech
+	var speech := _say("challenge")
 	var replies := []
 	var ch := LordTalk.challenge_check(gs, lord)
 	if bool(ch["ok"]) or blocked:
@@ -1477,7 +1485,7 @@ func _pay_tribute() -> void:
 	if LordTalk.pay_tribute(gs, lord):
 		Sound.play("coins")
 		gs.save_game()
-		_show("\"Wise. Ride on, then, before I change my mind.\"", [_fx_note([["silver", -LordTalk.TRIBUTE], ["bond", LordTalk.TRIBUTE_REGARD]], "They let you pass.", Style.BRASS)],
+		_show(_say("tribute"), [_fx_note([["silver", -LordTalk.TRIBUTE], ["bond", LordTalk.TRIBUTE_REGARD]], "They let you pass.", Style.BRASS)],
 			[_leave_reply("Safe roads.")], "proud")
 
 
@@ -1522,7 +1530,7 @@ func _beat_duel() -> void:
 	box.add_theme_constant_override("separation", 8)
 	box.add_child(row)
 	box.add_child(stakes)
-	_show("\"Ha! A duel, then. Choose your champion. Mine has never lost.\"", [],
+	_show(_say("duel_accept"), [],
 		[{"id": "champion", "text": "My champion is...", "icon": "fight", "tag": "choose a captain", "tone": "red", "extra": box},
 		{"id": "back", "text": "On second thought, no.", "tag": "nothing changes", "act": _beat_greet_again}], "proud", "lean")
 
@@ -1639,10 +1647,10 @@ func _duel_result(r: Dictionary) -> void:
 	var said := ""
 	var result: Control
 	if bool(r["won"]):
-		said = "\"...Yielded. Your %s fights like a devil. I'll remember this, captain.\"" % String(r["captain"]).split(" ")[0]
+		said = _say("duel_lost", {"champion": String(r["captain"]).split(" ")[0]})
 		result = _fx_note([["bond", int(r["regard"])], ["renown", int(r["renown"])]], "%s won." % String(r["captain"]))
 	else:
-		said = "\"Get your champion to a surgeon. Better luck next time.\""
+		said = _say("duel_won")
 		result = _fx_note([["wounded", "2 battles"], ["bond", int(r["regard"])]], "%s was beaten." % String(r["captain"]), Style.MORALE_LOW)
 	_show(said, [result],
 		[{"id": "back", "text": "Something else.", "act": _beat_greet_again} if mode != "hostile" else {"id": "back", "text": "Back to the road.", "act": _leave}, _leave_reply()],
@@ -1675,16 +1683,8 @@ func _steel_flash() -> void:
 func _beat_captive() -> void:
 	_beat = "captive"
 	var lid := int(lord["id"])
-	var speech := ""
-	match String(lord.get("bearing", "")):
-		Lords.HONORABLE:
-			speech = "\"You have kept me fairly, and fed my men. But I swore to %s, and I do not break oaths. Not for silver, not for fear.\"" % LordTalk.ruler_name(lord)
-		Lords.CRUEL:
-			speech = "\"Enjoy it while it lasts, sellsword. My house has a long memory.\""
-		Lords.DARING:
-			speech = "\"Well fought, I'll give you that. So what now? Chains bore me.\""
-		_:
-			speech = "\"I'd sooner be home. Name your terms and let's be done.\""
+	_turn = int(LordTalk.record(lord).get("talks", 0))
+	var speech := _say("captive", {"ruler": LordTalk.ruler_name(lord)})
 	var captive_mood := "grim" if String(lord.get("bearing", "")) == Lords.CRUEL else ""
 	var replies := []
 	if gs.is_crowned():
@@ -1694,20 +1694,20 @@ func _beat_captive() -> void:
 				if gs.swear_lord_to_crown(lid):
 					Sound.play("horn")
 					_raise_crown_banner()
-					_show("\"So be it. I'll serve your crown.\"", [_note("%s swears to your crown." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Welcome.")], "proud", "nod")})
+					_show(_say("captive_swear"), [_note("%s swears to your crown." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Welcome.")], "proud", "nod")})
 	else:
 		replies.append({"id": "swear", "text": "Swear to my crown.", "tag": "raise your own banner first", "tone": "locked"})
 	replies.append({"id": "release", "text": "Go home, and remember who freed you.", "icon": "bond",
 		"fx": [["bond", int(gs.release_reward(lid)["regard"])], {"realm": _banner_realm, "amount": int(gs.release_reward(lid)["realm"])}], "tag": "for honor", "tone": "gold", "act": func():
 			gs.release_lord_for_honor(lid)
 			Sound.play("page")
-			_show("\"I won't forget it.\"", [_note("Released.")], [_leave_reply("Go.")], "warm", "exit")})
+			_show(_say("captive_release"), [_note("Released.")], [_leave_reply("Go.")], "warm", "exit")})
 	var ransom: int = int(gs.ransom_offer(lid))
 	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "icon": "silver",
 		"fx": [["silver", ransom], ["bond", 5]], "tag": "ransom", "act": func():
 			gs.accept_lord_ransom(lid)
 			Sound.play("coins")
-			_show("\"They'll pay. Gladly, I expect.\"", [_note("Ransomed.", Style.BRASS)], [_leave_reply("Go.")], "", "exit")})
+			_show(_say("captive_ransom"), [_note("Ransomed.", Style.BRASS)], [_leave_reply("Go.")], "", "exit")})
 	if gs.has_contract() and world.at_war(gs.contract_realm(), String(lord.get("realm", ""))):
 		var employer: String = gs.contract_realm()
 		replies.append({"id": "deliver", "text": "My employer will want to see you.", "icon": "lock",
@@ -1720,7 +1720,7 @@ func _beat_captive() -> void:
 		"tag": "Honorable lords hear of it", "tone": "red", "act": func():
 			LordTalk.keep_in_chains(gs, lord)
 			gs.save_game()
-			_show("\"...\"", [_note("Kept in chains.", Style.MORALE_LOW)], [_leave_reply("Take them back.")], "grim", "away")})
+			_show(_say("captive_chains"), [_note("Kept in chains.", Style.MORALE_LOW)], [_leave_reply("Take them back.")], "grim", "away")})
 	replies.append(_leave_reply("Later."))
 	_show(speech, [], replies, captive_mood)
 
