@@ -10,9 +10,9 @@ extends SceneTree
 ##   another friendly company (companies merged), and how many engaged companies fight
 ##   loose rather than in a line.
 ##
-##   godot --headless --path . -s tools/battle_probe.gd -- [seed] [ours] [theirs] [ground] [lines]
-##   e.g.  ... -- 40 12 12 open          (the trailer's closing battle)
-##         ... -- 4 10 10 woods lines    (with formation_melee switched on)
+##   godot --headless --path . -s tools/battle_probe.gd -- [seed] [ours] [theirs] [ground]
+##   e.g.  ... -- 40 12 12 open     (the trailer's closing battle)
+##         ... -- 4 10 10 woods
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Commander = preload("res://scripts/battle/commander_ai.gd")
@@ -47,7 +47,6 @@ func _go() -> void:
 	var sim = Sim.new()
 	sim.setup(_army("vardish", ours, 9000, 0), _army("kharzani", theirs, 9100, 1), seed_v,
 		{"type": ground, "seed": seed_v, "biome": "kharzan", "fair": true}, "rout")
-	sim.formation_melee = args.size() > 4 and args[4] == "lines"
 	for team in [Sim.ENEMY, Sim.PLAYER]:
 		sim.ai[team] = Commander.new(team)
 		sim.ai[team].deploy(sim)
@@ -59,7 +58,7 @@ func _go() -> void:
 	var squad_turn := {} # squad -> [step of its last big turn, its sign]
 	var flicks := {}
 	var squad_flicks := {}
-	var crowd := {"pile": [], "from": [], "merged": [], "loose": []}
+	var crowd := {"pile": [], "from": [], "merged": [], "loose": [], "strayed": []}
 	var steps := 0
 	while sim.winner == -1 and steps < 30 * 300:
 		for sq in sim.squads:
@@ -101,8 +100,7 @@ func _go() -> void:
 					_count(flicks, why)
 				last[so][1] = steps
 				last[so][2] = signf(d)
-	print("seed %d, %d v %d on %s%s: side %d won after %.1f s" % [seed_v, ours, theirs, ground,
-		" (lines)" if sim.formation_melee else "", sim.winner, sim.time])
+	print("seed %d, %d v %d on %s: side %d won after %.1f s" % [seed_v, ours, theirs, ground, sim.winner, sim.time])
 	_report("facing flicks (a man turning >60 deg and back within 0.2 s)", flicks)
 	_report("squad-facing flicks while not engaged, by what moved its goal", squad_flicks)
 	print("crowding, sampled each second of fighting:")
@@ -110,6 +108,7 @@ func _go() -> void:
 	print("  companies those men come from           mean %.1f  max %d" % [_mean(crowd["from"]), _top(crowd["from"])])
 	print("  men nearest a man of another friendly company   %.0f%%" % (100.0 * _mean(crowd["merged"])))
 	print("  engaged companies fighting loose, not in a line %.0f%%" % (100.0 * _mean(crowd["loose"])))
+	print("  men in a line further from their place than their tether and a body  %.1f%%" % (100.0 * _mean(crowd["strayed"])))
 	sim.dispose()
 	quit()
 
@@ -158,6 +157,21 @@ func _crowd(sim, crowd: Dictionary) -> void:
 	if engaged == 0:
 		return
 	crowd["loose"].append(float(loose) / engaged)
+	var fighting := 0
+	var strayed := 0
+	for sq in sim.squads:
+		if not sim.in_line(sq):
+			continue
+		var tether: float = sim._leash(sq) + sq.radius * 2.0
+		for so in sq.soldiers:
+			if not so.alive:
+				continue
+			fighting += 1
+			var home: Vector2 = sq.center + sim._slot_world(so.line_slot, sq.facing, sq.team)
+			if so.pos.distance_to(home) > maxf(tether, Sim.WING_LEASH if so.target != null else 0.0):
+				strayed += 1
+	if fighting > 0:
+		crowd["strayed"].append(float(strayed) / fighting)
 	var most := 0
 	var from := 0
 	for c in sim.squads:

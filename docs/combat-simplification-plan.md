@@ -1,7 +1,8 @@
 # Bannerfall: fixing the flicker, and a simpler melee
 
 - **Date:** 2026-11-13
-- **Status:** proposed. Nothing here is built yet.
+- **Status:** built (2026-11-13). What was built, the numbers, and where it differs from
+  the plan are in section 8.
 - **Goal:** two things seen in battle footage. First, men who flick left and right many
   times a second while their company moves. Second, attacks that end with four to nine
   companies piled onto one spot as a single mixed blob. The flicker has a small, safe fix.
@@ -13,8 +14,8 @@ All numbers below come from `tools/battle_probe.gd`, which fights a seeded battl
 with the computer on both sides:
 
 ```sh
-godot --headless --path . -s tools/battle_probe.gd -- 40 12 12 open        # the trailer's closing battle
-godot --headless --path . -s tools/battle_probe.gd -- 4 10 10 woods lines  # with formation_melee on
+godot --headless --path . -s tools/battle_probe.gd -- 40 12 12 open   # the trailer's closing battle
+godot --headless --path . -s tools/battle_probe.gd -- 4 10 10 woods
 ```
 
 ## 1. The flicker

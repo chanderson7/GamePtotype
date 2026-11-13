@@ -46,7 +46,13 @@ func _init() -> void:
 	b.pos = Vector2(421, 417)
 	a.target = b
 	a.cooldown = 10
-	sim.squads[0].engaged = true
+	# A man fights from his place in his company's ranks: here, where he stands, facing the
+	# foe off to the diagonal, who is within reach of that place and his tether.
+	var mine = sim.squads[0]
+	mine.engaged = true
+	mine.center = a.pos
+	mine.facing = (b.pos - a.pos).normalized()
+	a.line_slot = Vector2.ZERO
 	sim._update_soldier(a, sim.squads[0], 1.0)
 	check(a.pos.distance_to(b.pos) >= a.radius + b.radius, "long movement step stops outside target body")
 	a.cooldown = 0
