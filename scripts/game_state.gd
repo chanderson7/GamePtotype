@@ -2443,6 +2443,7 @@ func _step_siege(_hours: float) -> void:
 		_siege_night(id)
 		if siege_camp.is_empty():
 			return
+		_walls_harass(id)
 		var throwers: int = (siege_camp["built"] as Array).count("thrower")
 		if throwers > 0 and bool(siege_camp.get("bombard", true)):
 			var hit := SiegeCamp.bombard(world, id, throwers, rng)
@@ -2497,6 +2498,40 @@ func _siege_night(id: String) -> void:
 		_note("The garrison of %s sallied in the night and set your %s alight." % [place, SiegeCamp.engine_name(lost, culture).to_lower()])
 	else:
 		_note("The garrison of %s sallied in the night; your camp drove them back." % place)
+
+
+## The walls' engines reach the camp: each day the bolt throwers pick off a man or so, and
+## a courtyard thrower may smash an engine (or set back the one being built). Sitting
+## before the walls costs something; it's why you storm.
+func _walls_harass(id: String) -> void:
+	var works: Array = SiegeCamp.defences(world, id, fief_works(id))
+	var place: String = WorldData.settlement(id)["name"]
+	var dead := 0
+	for i in works.count("bolt"):
+		dead += rng.randi_range(0, SiegeCamp.HARASS_PER_BOLT)
+	var left := dead
+	for sq in army:
+		if left <= 0:
+			break
+		var take := mini(left, maxi(0, int(sq["men"]) - 1))
+		sq["men"] = int(sq["men"]) - take
+		left -= take
+	dead -= left
+	var smashed := ""
+	if works.has("yard_thrower") and rng.randf() < SiegeCamp.YARD_SMASH:
+		if String(siege_camp.get("building", "")) != "":
+			smashed = String(siege_camp["building"])
+			siege_camp["left"] = float(siege_camp["left"]) + SiegeCamp.build_hours(smashed, culture, siege_builders(id)) * 0.4
+		else:
+			var engines := (siege_camp["built"] as Array).filter(func(k): return k != "ladders" and k != "more_ladders")
+			if not engines.is_empty():
+				smashed = String(engines.back())
+				(siege_camp["built"] as Array).erase(smashed)
+	if smashed != "":
+		_note("A stone from the courtyard of %s smashed your %s.%s" % [place, SiegeCamp.engine_name(smashed, culture).to_lower(),
+			" Their bolts killed %d in the camp." % dead if dead > 0 else ""])
+	elif dead > 0:
+		_note("Bolts from the walls of %s killed %d of your men in the camp." % [place, dead])
 
 
 ## A marshal army's throwers knock at the walls each day it camps.

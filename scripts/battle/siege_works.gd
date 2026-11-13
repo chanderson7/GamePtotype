@@ -63,8 +63,9 @@ const GATE_NO_RAM := 0.35
 ## Stone throwers: how far, how often, how true (a fixed scatter plus a share of the
 ## range), how long a stone is in the air.
 const THROW_RANGE := 720.0
-## The walls' own thrower stands on a raised platform: it reaches further.
-const YARD_RANGE := 840.0
+## The walls' own thrower stands on a raised platform: it reaches the whole field, so no
+## besieger's engine is safe from it.
+const YARD_RANGE := 1020.0
 const THROW_RELOAD := 10.0
 const THROW_SCATTER := 14.0
 const THROW_SCATTER_PER := 0.04
@@ -101,12 +102,29 @@ const WALL_HP := {"castle": 900.0, "town": 650.0}
 const WALL_SECTION := 3
 const RUBBLE_PACE := 0.6
 ## Bolt throwers on the wall's towers, either side of the gate (a third over it).
-const BOLT_RANGE := 450.0
+## They reach across the whole of the ground the stormers form up on, so sitting out of
+## reach isn't a choice: true within BOLT_SURE, and hitting at worst BOLT_FAR_HIT of the
+## time at the end of their range (a miss strikes the ground near the mark).
+const BOLT_RANGE := 780.0
+const BOLT_SURE := 320.0
+const BOLT_FAR_HIT := 0.4
+## A bolt thrower on a tower can't aim down at the foot of its own wall: men within this
+## of the wall line are dead ground to it (oil and the wall's bows are for them). Standing
+## off is what the bolts punish; closing with the walls gets you under them.
+const BOLT_DEAD := 90.0
+## Engines within this are a bolt thrower's first mark (a rolling tower anywhere in range);
+## further off it picks off the men standing about them, and shoots at a far engine only
+## when there's nobody to shoot.
+const BOLT_ENGINE_REACH := 450.0
 const BOLT_RELOAD := 5.0
-const BOLT_DAMAGE := 70.0
-const BOLT_BEHIND := 35.0
+## A bolt is heavy (an infantryman has 600 hit points, an arrow does 40): four kill a man,
+## and the one behind him takes half.
+const BOLT_DAMAGE := 150.0
+const BOLT_BEHIND := 75.0
 const BOLT_ENGINE := 80.0
-const BOLT_FLIGHT := 0.3
+const BOLT_FLIGHT := 0.15
+## Seconds of flight per unit of distance, on top of BOLT_FLIGHT.
+const BOLT_PACE := 1.0 / 1800.0
 const BOLT_SPREAD := 180.0
 const BOLT_FAST := 0.8
 ## Oil over the gate: a pour this often on everyone within the gate's reach.
@@ -900,16 +918,28 @@ func _work_bolt(e, dt: float) -> void:
 		return
 	e.reload = BOLT_RELOAD * (BOLT_FAST if count(BOLT, e.team) >= 3 else 1.0)
 	var to: Vector2 = target.pos
-	shots.append({"kind": "bolt", "team": e.team, "from": e.pos, "to": to, "t": 0.0, "flight": BOLT_FLIGHT,
+	var dist: float = e.pos.distance_to(to)
+	# Far off, a bolt may miss: it strikes the ground beside its mark.
+	if sim.rng.randf() > bolt_hit_chance(dist):
+		to += Vector2(sim.rng.randf_range(-1.0, 1.0), sim.rng.randf_range(-1.0, 1.0)).normalized() * sim.rng.randf_range(14.0, 34.0)
+		target = null
+	shots.append({"kind": "bolt", "team": e.team, "from": e.pos, "to": to, "t": 0.0, "flight": BOLT_FLIGHT + dist * BOLT_PACE,
 		"source": e, "target": target})
 	e.shots += 1
 	bolts[e.team] += 1
 	sim.events.append({"type": "engine_bolt", "engine": e})
 
 
-## A bolt thrower's mark: what it's been aimed at, else the stormers' engines in range
-## (the tower first), else the nearest man at the ram or on a ladder's foot, else the
-## nearest man in range.
+## The chance a bolt loosed at a mark `dist` away hits it.
+static func bolt_hit_chance(dist: float) -> float:
+	if dist <= BOLT_SURE:
+		return 1.0
+	return lerpf(1.0, BOLT_FAR_HIT, clampf((dist - BOLT_SURE) / (BOLT_RANGE - BOLT_SURE), 0.0, 1.0))
+
+
+## A bolt thrower's mark: what it's been aimed at, else the stormers' engines near enough
+## to matter (the tower first, and a rolling tower anywhere in range), else the nearest man
+## in range who isn't at the foot of the wall, else any engine in range.
 func _bolt_target(e):
 	var aim: Dictionary = e.aim
 	if String(aim.get("kind", "auto")) == "engine":
@@ -919,13 +949,17 @@ func _bolt_target(e):
 	if String(aim.get("kind", "auto")) == "squad":
 		var sq = aim.get("ref")
 		if sq != null and sq.is_active():
-			var man = _nearest_man(sq, e.pos)
+			var man = _nearest_man(sq, e.pos, true)
 			if man != null and e.pos.distance_to(man.pos) <= BOLT_RANGE:
 				return man
 	var best_engine = null
 	var best_t := 0.0
+	var far_engine = null
 	for o in engines:
 		if o.team == e.team or not o.working() or o.kind in [RAM, MANTLETS] or e.pos.distance_to(o.pos) > BOLT_RANGE:
+			continue
+		if e.pos.distance_to(o.pos) > BOLT_ENGINE_REACH and not (o.kind == TOWER and o.moving):
+			far_engine = o
 			continue
 		var t := _engine_threat(o)
 		if t > best_t:
@@ -939,23 +973,26 @@ func _bolt_target(e):
 		if sq.team == e.team or not sq.is_active():
 			continue
 		for so in sq.soldiers:
-			if not so.alive or sim.inside_walls(so.pos):
+			if not so.alive or sim.inside_walls(so.pos) or under_bolts(so.pos):
 				continue
 			var d: float = e.pos.distance_squared_to(so.pos)
-			# Men at the gate and the ladders' feet first.
-			if so.pos.distance_to(sim.gate_center) < 60.0 or sim.on_ladder(so.pos):
-				d *= 0.3
 			if d < best_d:
 				best_d = d
 				best = so
-	return best
+	return best if best != null else far_engine
 
 
-func _nearest_man(sq, from: Vector2):
+## Whether `at` is dead ground to the wall's bolt throwers: at the foot of the wall.
+func under_bolts(at: Vector2) -> bool:
+	return absf(at.y - sim.wall_y) < BOLT_DEAD
+
+
+## The man of `sq` nearest `from` (with `bolt_mark`, only one a bolt thrower can aim at).
+func _nearest_man(sq, from: Vector2, bolt_mark: bool = false):
 	var best = null
 	var best_d := INF
 	for so in sq.soldiers:
-		if so.alive:
+		if so.alive and not (bolt_mark and (sim.inside_walls(so.pos) or under_bolts(so.pos))):
 			var d: float = from.distance_squared_to(so.pos)
 			if d < best_d:
 				best_d = d
@@ -966,6 +1003,9 @@ func _nearest_man(sq, from: Vector2):
 func _bolt_lands(s: Dictionary) -> void:
 	var target = s["target"]
 	var team: int = s["team"]
+	if target == null:
+		sim.events.append({"type": "bolt_miss", "at": s["to"]})
+		return
 	if target is SiegeEngine:
 		if target.working():
 			target.hp -= BOLT_ENGINE

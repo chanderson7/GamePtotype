@@ -2885,7 +2885,7 @@ func _consume_events() -> void:
 			"stones":
 				_drop_stones(e["at"])
 			"engine_throw", "engine_bolt", "stone_lands", "wall_hit", "gate_hit", "wall_breached", "tower_docked", \
-					"engine_burning", "engine_lost", "oil", "fire_arrows", "sally_out", "engine_fire_out":
+					"engine_burning", "engine_lost", "oil", "fire_arrows", "sally_out", "engine_fire_out", "bolt_miss":
 				_engine_event(e)
 			"siege_moment":
 				var sq = e["squad"]
@@ -3377,6 +3377,12 @@ func _engine_event(e: Dictionary) -> void:
 					_tick("Their %s has the range!" % name, Style.ENEMY_LIGHT, "gate")
 		"engine_bolt":
 			Sound.play_at("crossbow", _to_screen(e["engine"].pos), -4.0, 0.1, 0.4)
+			var en_b = e["engine"]
+			if en_b.team != Sim.PLAYER and not _engine_said.has("bolts_far"):
+				_engine_said["bolts_far"] = true
+				_tick("Their bolt throwers reach the whole field!", Style.ENEMY_LIGHT, "walls")
+		"bolt_miss":
+			_burst(e["at"], "dust", Color("cfc4ac"), 0.5)
 		"stone_lands":
 			_burst(e["at"], "dust", Color("d8cdb4"), 0.7)
 			Sound.play_at("heavy", _to_screen(e["at"]), -6.0, 0.1, 0.3)
@@ -5674,6 +5680,9 @@ func _draw_above() -> void:
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_engines()
 		_draw_engine_shots()
+		# The reach labels go over the engines standing in the field.
+		for l in _reach_labels:
+			_field_label(l[0], l[1], l[2], l[3], l[4])
 		_draw_storm_plan()
 		_draw_gate_marker()
 	_draw_hour_air()
@@ -7271,9 +7280,14 @@ func _field_label(text: String, at: Vector2, fg: Color, bg: Color, edge: Color) 
 	_c.draw_string(font, Vector2(r.position.x + pad, r.position.y + pad * 0.5 + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)
 
 
+## The reach overlay's labels, drawn after the engines so none stands over them.
+var _reach_labels: Array = []
+
+
 ## Planning an assault: where the garrison's bows on the wall can reach (red), the cover
 ## under the ram's roof (blue), and the two ladders.
 func _draw_siege_reach() -> void:
+	_reach_labels.clear()
 	if not _deploying() or sim.siege_defender != Sim.ENEMY:
 		return
 	var w: float = Sim.ARENA.x
@@ -7310,7 +7324,23 @@ func _draw_siege_reach() -> void:
 				continue
 			_c.draw_dashed_line(a2, b2, Color("ff8a6a"), 2.5, 10.0)
 	if not zone.is_empty():
-		_field_label("Wall bows reach here", Vector2(label_x, minf(deepest + 20.0, Sim.ARENA.y - 20.0)), Color("ffb3a0"), Color(Style.NIGHT, 0.9), Color("a14a3c"))
+		_reach_labels.append(["Wall bows reach here", Vector2(label_x, minf(deepest + 20.0, Sim.ARENA.y - 20.0)), Color("ffb3a0"), Color(Style.NIGHT, 0.9), Color("a14a3c")])
+	# The walls' engines reach further: where their bolts still hit for sure, and how far
+	# they carry at all (the courtyard thrower's reach, the whole field).
+	if sim.works != null:
+		var bolt_n := 0
+		for e in sim.works.engines:
+			if e.team != Sim.ENEMY or not e.working():
+				continue
+			if String(e.kind) == "bolt":
+				bolt_n += 1
+				_c.draw_arc(e.pos, sim.works.BOLT_SURE, 0.15 * PI, 0.85 * PI, 40, Color("ffb070", 0.75), 2.5)
+				_c.draw_arc(e.pos, sim.works.BOLT_RANGE, 0.22 * PI, 0.78 * PI, 48, Color("ffb070", 0.45), 2.0)
+		if bolt_n > 0:
+			# Beside the wall bows' label, not in the middle where the engines stand.
+			var bolt_y := maxf(sim.wall_y + sim.works.BOLT_SURE + 40.0, deepest + 64.0)
+			_reach_labels.append(["Bolts sure here, and reach your whole camp", Vector2(label_x, minf(bolt_y, Sim.ARENA.y - 60.0)),
+				Color("ffd0a0"), Color(Style.NIGHT, 0.9), Color("a1643c")])
 	# The ram's roof.
 	var roof := PackedVector2Array()
 	for i in 48:

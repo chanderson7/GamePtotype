@@ -67,6 +67,7 @@ func _init() -> void:
 	_check_wall_engines()
 	_check_lands()
 	_check_end_rule()
+	_check_reach()
 	_check_art()
 	await _check_camp()
 	_check_armies_and_works()
@@ -296,6 +297,60 @@ func _check_end_rule() -> void:
 	sim.dispose()
 
 
+func _check_reach() -> void:
+	check(SiegeWorks.bolt_hit_chance(200.0) == 1.0 and absf(SiegeWorks.bolt_hit_chance(SiegeWorks.BOLT_RANGE) - SiegeWorks.BOLT_FAR_HIT) < 0.01,
+		"bolts are sure close in and miss more far off")
+	# A company standing at the very back of the stormers' ground is still under the bolts.
+	var sim := _sim(["infantry"], ["archers", "archers"], ["ladders"], ["bolt", "bolt"])
+	sim.start_battle()
+	var back = sim.squads.filter(func(q): return q.team == Sim.PLAYER)[0]
+	var bows = sim.squads.filter(func(q): return q.team == Sim.ENEMY)
+	for i in 30 * 30:
+		_put(sim, back, Vector2(sim.gate_center.x, Sim.ARENA.y - 60.0))
+		sim.order_hold(back)
+		for b in bows:
+			sim.order_hold(b)
+		sim.step()
+	var hurt := 0.0
+	for so in back.soldiers:
+		hurt += so.max_hp - maxf(so.hp, 0.0)
+	check(sim.works.bolts[Sim.ENEMY] >= 6 and hurt >= SiegeWorks.BOLT_DAMAGE * 2.0,
+		"the walls' bolt throwers reach the back of the stormers' ground (%d bolts, %.0f hit points lost, %d of %d left)" % [sim.works.bolts[Sim.ENEMY], hurt, back.alive_n, back.start_men])
+	# ...but not the foot of the wall: that's dead ground to a bolt thrower on a tower.
+	var near := _sim(["infantry"], ["archers"], ["ladders"], ["bolt"])
+	near.start_battle()
+	var under = near.squads.filter(func(q): return q.team == Sim.PLAYER)[0]
+	_put(near, under, Vector2(near.ladder_points()[0].x, near.wall_y + 40.0))
+	var bolt_e = _engine(near, "bolt")
+	var mark_under = near.works._bolt_target(bolt_e)
+	_put(near, under, Vector2(near.ladder_points()[0].x, near.wall_y + 240.0))
+	var mark_off = near.works._bolt_target(bolt_e)
+	check(mark_under == null and mark_off != null,
+		"men at the foot of the wall are under the bolts; men standing off are not")
+	near.dispose()
+	# Far engines wait: the bolts pick off the men standing off first.
+	var far := _sim(["infantry"], ["archers"], ["ladders", "thrower"], ["bolt"])
+	far.start_battle()
+	var off = far.squads.filter(func(q): return q.team == Sim.PLAYER)[0]
+	var far_bolt = _engine(far, "bolt")
+	var far_thr = _engine(far, "thrower")
+	_put(far, off, Vector2(far.gate_center.x, far.wall_y + 300.0))
+	var mark_men = far.works._bolt_target(far_bolt)
+	_put(far, off, Vector2(far.gate_center.x, far.wall_y + 30.0))
+	var mark_none = far.works._bolt_target(far_bolt)
+	check(far_bolt.pos.distance_to(far_thr.pos) > SiegeWorks.BOLT_ENGINE_REACH and not (mark_men is SiegeWorks.SiegeEngine) and mark_men != null
+		and mark_none == far_thr,
+		"a bolt thrower picks off men standing off before a far engine, and shoots the engine when nobody's left to shoot")
+	far.dispose()
+	var cap: Sim = _sim(["infantry", "cavalry"], ["infantry"], ["ladders", "thrower"], ["yard_thrower"])
+	var yard = _engine(cap, "yard_thrower")
+	var thr = _engine(cap, "thrower")
+	check(yard.pos.distance_to(thr.pos) <= SiegeWorks.YARD_RANGE and yard.pos.distance_to(thr.pos) > SiegeWorks.THROW_RANGE,
+		"the courtyard thrower reaches the besiegers' throwers, and they can't reach it")
+	sim.dispose()
+	cap.dispose()
+
+
 func _check_art() -> void:
 	var all_there := true
 	for land in ["vardish", "kharzani", "ryumon"]:
@@ -369,6 +424,15 @@ func _check_camp() -> void:
 	_pass(gs, 48.0)
 	if gs.siege_camp_at(target):
 		check(SiegeCamp.weakest_wall(w, target) < 1.0, "a thrower in the camp knocks at the walls each day (a stretch at %d%%)" % int(SiegeCamp.weakest_wall(w, target) * 100.0))
+	# The walls' bolts reach the camp, day after day. (The world may have ended the siege in
+	# the days just passed; if so, camp again.)
+	if not gs.siege_camp_at(target):
+		gs.lay_siege(target)
+		gs.siege_camp["built"].append("ram")
+	var men_camp: int = gs.total_men()
+	for day in 6:
+		gs._walls_harass(target)
+	check(gs.total_men() < men_camp, "the walls' bolt throwers pick men off in the camp (%d to %d)" % [men_camp, gs.total_men()])
 	# Saved and loaded.
 	var saved: Dictionary = gs.to_dict()
 	check(saved.has("siege_camp") and (saved["siege_camp"]["built"] as Array).has("ram") and saved["world"].has("siege_damage"),

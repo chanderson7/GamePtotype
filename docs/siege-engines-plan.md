@@ -373,11 +373,32 @@ Where it differs:
   the engine is seen.
 - **A fallen section is rubble along its whole width**, not one cell: a one-man gap was a
   slaughter, not a breach.
-- **The walls' thrower outranges the stormers'** (840 px to 720, on its platform), so
-  counter-battery happens; at equal range the two never met.
+- **The walls reach the whole field**, so the stormers can't sit out of range and wait:
+  - The courtyard thrower, on its platform, throws 1020 px to the stormers' 720. No
+    besieger's engine is safe from it, and it can't be answered.
+  - Bolt throwers reach 780 px, the whole ground the stormers form up on. They are true
+    within 320 px and hit 40% of the time at the end of their range (a miss strikes the
+    ground near the mark). A deployment overlay draws both arcs, and a callout says so
+    the first time a bolt flies.
+  - Bolts shoot engines within 450 px first (and a rolling tower anywhere), then the
+    nearest man standing off, and a far engine only when there's nobody to shoot. Aimed
+    at engines alone, they spent the whole bombardment on the tower and nobody felt it.
+  - A storming commander waiting on its throwers goes in anyway once a tenth of its men
+    are down (`BOMBARD_COST`), not only after `BOMBARD_WAIT`.
+  - In camp, the walls harass the besiegers every day. Each bolt thrower picks off up to
+    one man (`HARASS_PER_BOLT`), and a courtyard thrower has a one-in-four chance
+    (`YARD_SMASH`) of setting back the engine being built, or of smashing the newest. A
+    long siege costs the besieger too.
 - **Numbers that moved**: tower hp 2000 (bolts do 80 to an engine, not 260: two bolt
-  throwers would have stopped every tower), stones 100 to a wall section and 40 to a man,
-  scatter 14 + 4% of the range; reloads Vardish 11 s, Kharzani 8 s, Ryumon 7 s.
+  throwers would have stopped every tower); stones do 100 to a wall section; scatter is
+  14 + 4% of the range; reloads are Vardish 11 s, Kharzani 8 s, Ryumon 7 s.
+- **Bolts are heavy and can't reach the foot of the wall.** An infantryman has 600 hit
+  points and an arrow does 40. A bolt does 150 to its mark (four kill a man) and 75 to the
+  man behind. A bolt thrower on a tower can't aim down at men within 90 px of the wall line
+  (`BOLT_DEAD`): that ground belongs to oil and the wall's bows. Standing off is what the
+  bolts punish; closing with the walls gets you under them. (Stones, oil and naphtha keep
+  their old weight against men: making them heavier as well made twice the men with
+  ladders lose every time.)
 - **The AI.** A storming commander with crewed throwers waits for a breach (up to 100 s),
   sends nobody up ladders once the wall is down anywhere, and drops stones on the
   garrison's biggest company behind the breach, never within 70 px of its own men. A
@@ -409,10 +430,10 @@ Where it differs:
 | Even, ladders only (off the march) | 0 of 16 | 0% |
 | Half again, ladders only | 3 of 16 | at most 35% |
 | Half again, ram and ladders | 9 of 16 | 55–65% |
-| Even, full train vs bolt throwers and a postern | 1 of 16 | 30–45% |
-| Half again, the same | 15 of 16 | 75–85% |
-| Half again, full train vs full works | 12 of 16 | 50–60% |
-| Twice, ladders only vs full works | 15 of 16 | always |
+| Even, full train vs bolt throwers and a postern | 2 of 16 | 30–45% |
+| Half again, the same | 13 of 16 | 75–85% |
+| Half again, full train vs full works | 11 of 16 | 50–60% |
+| Twice, ladders only vs full works | 14 of 16 | always |
 
 Preparing a siege and building works both move the odds the way they should, but the
 curve is steeper than planned: an even assault on a castle stays very hard even with a
@@ -420,3 +441,14 @@ full train (the garrison's foot meets the breach braced and the stormers' bows s
 out of bowshot of the walk), and half again with engines is close to certain. The knobs,
 if that should change: `STONE_SPLASH`, `TOWER_CLIMB`, the stand-off share, and how long the
 AI waits for a breach.
+
+Giving the walls the whole field changed what the bolts do more than who wins. The bolts
+now reach 780 px, are heavier, have dead ground at the foot of the wall, and pick off men
+before far engines; the courtyard thrower reaches 1020 px.
+
+- In an even assault with a full train, the bolts kill about 18 of the stormers' men where
+  they used to kill 3. The stormers' commander goes in sooner for it.
+- The tower is no longer shot to pieces before it rolls: it docks every time.
+- Before the change, these rows read 1, 15, 12 and 15 of 16. Half again with a full train
+  is now on its target.
+- The rows without bolt throwers didn't move.

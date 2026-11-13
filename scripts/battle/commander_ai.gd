@@ -84,6 +84,8 @@ var _engine_think := 0.0
 ## How long a storming commander with stone throwers at work waits for a breach before it
 ## goes anyway.
 const BOMBARD_WAIT := 100.0
+## The share of its men a storming commander keeps while it waits on its throwers.
+const BOMBARD_COST := 0.9
 ## A garrison sallies by the postern at a stormers' engine with at most this many of them
 ## within SALLY_GUARD of it, and no further than SALLY_REACH from the postern.
 const SALLY_GUARD := 10
@@ -338,6 +340,9 @@ func _guard_ladders(sim) -> void:
 ## section has come down yet, and it hasn't waited BOMBARD_WAIT.
 func _bombarding(sim) -> bool:
 	if sim.works == null or sim.time > BOMBARD_WAIT or sim.works.any_breach():
+		return false
+	# Under the walls' bolts, waiting costs men: once a tenth of them are down, go.
+	if sim.men_on_field(team) + sim.reserve_men(team) < int(float(sim.start_men(team)) * BOMBARD_COST):
 		return false
 	for e in sim.works.engines:
 		if e.team == team and e.kind == sim.works.THROWER and e.working() and sim.works.manned(e):

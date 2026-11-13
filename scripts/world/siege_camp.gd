@@ -41,6 +41,10 @@ const BOMBARD_KILLS := Vector2i(0, 2)
 const BOMBARD_SPANS := [[10, 11, 12], [15, 16, 17]]
 ## A garrison sallies at a camp on a night with this chance (more for a big garrison).
 const NIGHT_SALLY := 0.15
+## The walls' engines reach a camp: each day each bolt thrower picks off up to this many
+## men, and a courtyard thrower smashes an engine with this chance.
+const HARASS_PER_BOLT := 1
+const YARD_SMASH := 0.25
 ## Damage mends at this share a day (the gate in two days, a stretch of wall in four);
 ## paying hurries it all at once.
 const REPAIR_GATE := 0.5
