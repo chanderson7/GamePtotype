@@ -68,7 +68,7 @@ EDL = [
     {"shot": "battle_woods", "at": 15.0, "to": bar(28), "sfx": 0.4},
     {"shot": "battle_hud", "at": 14.5, "to": bar(30), "sfx": 0.35,
      "cap": ("Shield walls. Volleys. Charges.", "Read the field and give the order.", "left")},
-    {"shot": "battle_river", "at": 12.0, "to": bar(31.5), "sfx": 0.4},
+    {"shot": "battle_river", "at": 8.5, "to": bar(31.5), "sfx": 0.4},
     {"shot": "battle_archers", "at": 10.0, "to": bar(33), "sfx": 0.4},
     {"shot": "battle_night", "at": 18.5, "to": bar(34.5), "sfx": 0.4},
     {"shot": "battle_win", "at": 20.0, "to": bar(37.5), "sfx": 0.5},
