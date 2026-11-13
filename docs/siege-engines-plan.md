@@ -389,6 +389,16 @@ Where it differs:
   is as strong as its weakest stretch. It mends at half the gate a day and a quarter of a
   stretch, unless someone is camped before it; your fief's Manor card has *Mend* (120).
 - **The camp follows the world's clock**, which moves only while you travel or wait.
+- **The art** is pixel art in the men's style and at their size (`tools/siege_sprites.py`,
+  2.4 arena units a pixel), each land's way: the Vardish trebuchet with its iron-bound
+  counterweight, the Kharzani mangonel with its haul ropes and a pot of naphtha, the Ryumon
+  bamboo thrower; towers roofed with hides, palm mats or lacquered planks, battlemented on
+  top, rolling on their wheels and then lowering a bridge; a roofed ram that swings;
+  mantlets of planks or bundles of bamboo; springalds on the wall. Every engine casts a
+  shadow as long as it is tall, and what has burned is drawn charred. Stones and naphtha
+  pots grow as they climb toward you; fire flickers in four frames; fallen wall is heaped
+  rubble in the walls' own stone. Crews stand behind their engines (`CREW_REACH` 100),
+  mantlets in front of their bows.
 
 ### Measured
 

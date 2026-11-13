@@ -14,6 +14,7 @@ const WorldData = preload("res://scripts/world/world_data.gd")
 const SiegeWorks = preload("res://scripts/battle/siege_works.gd")
 const SiegeCamp = preload("res://scripts/world/siege_camp.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
+const SiegeArt = preload("res://scripts/art/siege_art.gd")
 
 var failures := 0
 
@@ -66,6 +67,7 @@ func _init() -> void:
 	_check_wall_engines()
 	_check_lands()
 	_check_end_rule()
+	_check_art()
 	await _check_camp()
 	_check_armies_and_works()
 	print("Siege engine tests: %d failures" % failures)
@@ -292,6 +294,22 @@ func _check_end_rule() -> void:
 	sim._check_end()
 	check(sim.end_reason != "walls_held", "a wall broken anywhere isn't a wall that held")
 	sim.dispose()
+
+
+func _check_art() -> void:
+	var all_there := true
+	for land in ["vardish", "kharzani", "ryumon"]:
+		for kind in ["thrower", "tower", "ram", "mantlet", "bolt"]:
+			all_there = all_there and SiegeArt.has("%s/%s" % [land, kind]) and SiegeArt.texture("%s/%s" % [land, kind]) != null
+	check(all_there, "every land's engines have their pixel art")
+	check(SiegeArt.frames("vardish/thrower") == 3 and SiegeArt.frames("vardish/tower") == 3 and SiegeArt.frames("vardish/ram") == 2,
+		"a thrower winds, swings and throws; a tower rolls and docks; a ram swings")
+	var lit := SiegeArt.texture("vardish/tower").get_image()
+	var charred := SiegeArt.texture("vardish/tower", 0, true).get_image()
+	var p := Vector2i(16, 40)
+	check(charred.get_pixel(p.x, p.y).get_luminance() < lit.get_pixel(p.x, p.y).get_luminance() and charred.get_size() == lit.get_size(),
+		"what has burned is drawn charred")
+	check(SiegeArt.texture("vardish/thrower", 0, false, true).get_image().get_pixel(16, 24) == Color(0, 0, 0, 1), "and every engine casts a shadow")
 
 
 # ---------------------------------------------------------------- the campaign

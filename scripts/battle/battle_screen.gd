@@ -18,6 +18,7 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
+const SiegeArt = preload("res://scripts/art/siege_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Units = preload("res://scripts/data/units.gd")
@@ -2845,8 +2846,9 @@ func _draw_walls() -> void:
 			var p := foot.lerp(head, t)
 			_c.draw_line(p + Vector2(-7, 0), p + Vector2(7, 0), Color("8a5a2a"), 2.0)
 			t += 0.12
-	# The ram under its roof, swinging while men work it.
-	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0:
+	# The ram under its roof, swinging while men work it (drawn as an engine when the
+	# siege has its engines: see _draw_engines).
+	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0 and sim.works == null:
 		var swing := 4.0 * sin(_clock * 7.0) if not Style.motion_reduced() else 0.0
 		var outside := -inward
 		var shed := Rect2(gate.get_center().x - 18.0, 0, 36.0, 46.0)
@@ -3186,15 +3188,8 @@ func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
 
 # ---------------------------------------------------------------- siege engines
 
-## How much bigger than their footprint the big engines are drawn.
-const ENGINE_SCALE := 1.45
-## Wood, by land: light and dark planks, and the roof hides or cloth.
-const ENGINE_WOOD := {
-	"vardish": [Color("8a5a2a"), Color("5e3b1c"), Color("6b4a3a")],
-	"kharzani": [Color("b07a42"), Color("7a4e26"), Color("c8a070")],
-	"ryumon": [Color("6e5236"), Color("43301f"), Color("8a8a5a")],
-}
-
+## The shadows engines cast: as the men's, by the hour, but longer for what stands taller.
+const ENGINE_SHADOW := 0.3
 
 ## The wall where stones have hit it: cracks as a section weakens, rubble where it fell.
 func _draw_wall_damage() -> void:
@@ -3208,13 +3203,15 @@ func _draw_wall_damage() -> void:
 		var cols: Array = sec["cols"]
 		var share: float = float(sec["hp"]) / maxf(1.0, float(sec["hp_max"]))
 		if sec["broken"]:
+			# Fallen stone heaped where the wall stood, in the walls' own stone.
+			var px := SiegeArt.PIXEL
+			var tint: Color = Color(st["stone"]).lightened(0.25)
 			for cx in sec["open"]:
-				var r := Rect2(float(cx) * cell, top - 4.0, cell, cell + 8.0)
-				_c.draw_rect(r, Color(st["paving"]).darkened(0.3))
-				for k in 9:
-					var p := r.position + Vector2(2.0 + float((k * 11) % 24), 2.0 + float((k * 7) % 30))
-					_c.draw_rect(Rect2(p, Vector2(7.0, 5.0)), Color(st["stone"]).darkened(0.08 * float(k % 4)))
-					_c.draw_rect(Rect2(p, Vector2(7.0, 1.5)), Color(st["light"], 0.7))
+				_c.draw_rect(Rect2(float(cx) * cell, top - 4.0, cell, cell + 8.0), Color(st["paving"]).darkened(0.35))
+				var tile := SiegeArt.texture("rubble", int(cx) % 3)
+				_c.draw_set_transform(field_origin + Vector2(float(cx) * cell - 1.0, top - 3.0) * field_scale, 0.0, Vector2(px * field_scale, px * field_scale))
+				_c.draw_texture(tile, Vector2.ZERO, tint)
+				_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 		elif share < 0.999:
 			var cracks := 1 + int((1.0 - share) * 5.0)
 			for k in cracks:
@@ -3223,164 +3220,89 @@ func _draw_wall_damage() -> void:
 				_c.draw_polyline(PackedVector2Array([a, a + Vector2(4, 7), a + Vector2(-2, 15), a + Vector2(3, cell - 3.0)]), Color(0.12, 0.09, 0.08, 0.85), 2.0)
 
 
-## Every engine on the field, each land's way: stone throwers on their frames, the tower,
-## mantlets before the bows, bolt throwers on the wall's towers; fire on what burns, and the
-## black frames of what has burned.
+## Every engine on the field in its land's pixel art (SiegeArt, drawn like the men), each
+## with a shadow as long as it is tall: stone throwers working their arms, the tower
+## rolling and then its bridge down on the wall, the ram swinging while men work it,
+## mantlets before the bows, bolt throwers on the wall's towers, a courtyard thrower on its
+## platform; fire on what burns, and the charred frames of what has burned.
 func _draw_engines() -> void:
 	if sim.works == null:
 		return
 	for e in sim.works.engines:
-		# Engines are big beside a man: drawn half again their footprint, about where they stand.
-		var k := ENGINE_SCALE if String(e.kind) in ["thrower", "yard_thrower", "tower"] else 1.15
-		_c.draw_set_transform(field_origin + e.pos * field_scale * (1.0 - k), 0.0, Vector2(field_scale * k, field_scale * k))
+		var land := String(e.land)
+		var up: bool = (sim.inward() < 0.0) == (e.team == sim.works.attacker)
 		match String(e.kind):
 			"thrower", "yard_thrower":
-				_draw_thrower(e)
+				if String(e.kind) == "yard_thrower":
+					_engine_sprite("platform", 0, e.pos, up, false)
+				_engine_sprite(land + "/thrower", _thrower_frame(e), e.pos, up, e.burnt, "thrower")
 			"tower":
-				_draw_siege_tower(e)
+				var rolling := 0 if Style.motion_reduced() else int(e.pos.distance_to(e.home) / 6.0) % 2
+				_engine_sprite(land + "/tower", 2 if e.docked else rolling, e.pos, up, e.burnt, "tower")
 			"mantlets":
-				_draw_mantlet(e)
+				if not e.burnt:
+					_engine_sprite(land + "/mantlet", 0, e.pos, up, false, "mantlet")
 			"bolt":
-				_draw_bolt_thrower(e)
+				_engine_sprite(land + "/bolt", 0 if e.reload > 0.6 else 1, e.pos, up, e.burnt, "bolt")
 			"ram":
-				if e.burnt:
-					var g: Vector2 = sim.gate_center + Vector2(0.0, -sim.inward() * 40.0)
-					_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-					_c.draw_rect(Rect2(g - Vector2(18, 20), Vector2(36, 40)), Color("231a14"))
-					for j in 4:
-						_c.draw_line(g + Vector2(-16 + j * 10, -18), g + Vector2(-12 + j * 10, 18), Color("3a2a1e"), 2.0)
-		_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+				# At the gate while men work it (swinging home and back); charred where it burned.
+				if e.burnt or sim.gate_blows > 0.0 or sim.gate_hp <= 0.0:
+					var swing := 0 if Style.motion_reduced() or sim.gate_blows <= 0.0 else int(_clock * 2.4) % 2
+					_engine_sprite(land + "/ram", swing, e.pos, up, e.burnt, "ram")
 		if e.burning > 0.0 and not e.burnt:
-			var at: Vector2 = sim.gate_center + Vector2(0.0, -sim.inward() * 40.0) if String(e.kind) == "ram" else e.pos
-			_draw_engine_fire(at, 16.0 if String(e.kind) in ["mantlets", "bolt"] else 24.0)
+			var at: Vector2 = e.pos
+			var n := 3 if String(e.kind) in ["thrower", "yard_thrower", "tower"] else 1
+			for k in n:
+				var off := Vector2((float(k) - float(n - 1) * 0.5) * 22.0, float(k % 2) * 10.0 - 6.0)
+				_engine_fire(at + off, k)
 		if not e.burnt and String(e.kind) in ["thrower", "yard_thrower", "tower", "bolt"]:
 			_draw_engine_marks(e)
 	for f in sim.works.flames:
-		_draw_engine_fire(f["pos"], 14.0 * clampf(float(f["left"]) / 2.0, 0.4, 1.0))
+		_engine_fire(f["pos"], int(f["pos"].x) % 4, clampf(float(f["left"]) / 2.0, 0.4, 1.0))
 
 
-func _engine_wood(e) -> Array:
-	return ENGINE_WOOD.get(String(e.land), ENGINE_WOOD["vardish"])
+## Which frame a thrower shows: thrown for a moment after a stone goes, then swinging back
+## down, then wound and waiting.
+func _thrower_frame(e) -> int:
+	if Style.motion_reduced():
+		return 0
+	var since: float = sim.works.reload_of(e) - e.reload
+	if since < 0.35:
+		return 2
+	if since < 0.9:
+		return 1
+	return 0
 
 
-## A stone thrower, its throwing arm toward the wall: cocked back while it's wound, flung
-## forward for a moment after a stone goes.
-func _draw_thrower(e) -> void:
-	var wood := _engine_wood(e)
-	var toward: Vector2 = (sim.gate_center - e.pos).normalized() if String(e.kind) == "thrower" else Vector2(0.0, -sim.inward())
-	if String(e.kind) == "yard_thrower":
-		toward = Vector2(0.0, -sim.inward())
-	var side := toward.orthogonal()
-	var p: Vector2 = e.pos
-	var dark: Color = Color("1e1712") if e.burnt else wood[1]
-	var light: Color = Color("2c211a") if e.burnt else wood[0]
-	_c.draw_colored_polygon(PackedVector2Array([p + side * 16 + toward * 18, p - side * 16 + toward * 18, p - side * 16 - toward * 18, p + side * 16 - toward * 18]), Color(0, 0, 0, 0.3))
-	for s in [-1.0, 1.0]:
-		_c.draw_line(p + side * 13.0 * s + toward * 18.0, p + side * 13.0 * s - toward * 18.0, dark, 5.0)
-	_c.draw_line(p + side * 14.0 + toward * 14.0, p - side * 14.0 + toward * 14.0, light, 4.0)
-	_c.draw_line(p + side * 14.0 - toward * 14.0, p - side * 14.0 - toward * 14.0, light, 4.0)
-	if e.burnt:
+## Sprite `name` (SiegeArt) standing at field point `at`, facing up the field or down it,
+## charred if `burnt`, with a shadow by its height (`height_key` in SiegeArt.HEIGHT).
+func _engine_sprite(name: String, frame: int, at: Vector2, up: bool, burnt: bool, height_key: String = "platform") -> void:
+	var tex := SiegeArt.texture(name, frame, burnt)
+	if tex == null:
 		return
-	var just_threw: bool = e.reload > sim.works.reload_of(e) - 0.6
-	var arm_dir := toward if just_threw else -toward
-	var tip: Vector2 = p + arm_dir * 30.0
-	_c.draw_line(p - arm_dir * 8.0, tip, (wood[0] as Color).lightened(0.15), 4.0)
-	match String(e.land):
-		"vardish":
-			# the counterweight box at the short end
-			_c.draw_rect(Rect2(p - arm_dir * 12.0 - Vector2(7, 7), Vector2(14, 14)), Color("5b5e66"))
-		"kharzani":
-			_c.draw_circle(tip, 5.0, Color("3a2a1e"))
-			if not just_threw:
-				_c.draw_circle(tip, 3.0, Color(1.0, 0.6, 0.2, 0.9))
-		_:
-			pass
-	if not just_threw:
-		_c.draw_circle(tip, 3.5, Color("a8a39a"))
+	var px := SiegeArt.PIXEL * field_scale
+	var rot := 0.0 if up else PI
+	var piv := SiegeArt.pivot(name)
+	var fall: Vector2 = _shadow_off.normalized() * float(SiegeArt.HEIGHT.get(height_key, 3.0))
+	_c.draw_set_transform(field_origin + (at + fall) * field_scale, rot, Vector2(px, px))
+	_c.draw_texture(SiegeArt.texture(name, frame, false, true), -piv, Color(0, 0, 0, ENGINE_SHADOW))
+	_c.draw_set_transform(field_origin + at * field_scale, rot, Vector2(px, px))
+	_c.draw_texture(tex, -piv)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 
 
-## The siege tower from above: its hide roof and planking, wheels at the corners; docked, its
-## bridge lies across the wall top.
-func _draw_siege_tower(e) -> void:
-	var wood := _engine_wood(e)
-	var toward := Vector2(0.0, -sim.works.outward())
-	var p: Vector2 = e.pos
-	var r := Rect2(p - Vector2(22, 26), Vector2(44, 52))
-	_c.draw_rect(Rect2(r.position + Vector2(7, 8), r.size), Color(0, 0, 0, 0.35))
-	if e.burnt:
-		_c.draw_rect(r, Color("1e1712"))
-		for k in 5:
-			_c.draw_line(r.position + Vector2(4 + k * 9, 2), r.position + Vector2(2 + k * 9, r.size.y - 2), Color("3a2a1e"), 2.0)
-		return
-	for c in [r.position, Vector2(r.end.x - 8, r.position.y), Vector2(r.position.x, r.end.y - 10), r.end - Vector2(8, 10)]:
-		_c.draw_rect(Rect2(c + Vector2(-3, 0), Vector2(14, 10)), Color("2a2018"))
-	_c.draw_rect(r, wood[1])
-	var y := r.position.y + 4.0
-	while y < r.end.y - 2.0:
-		_c.draw_line(Vector2(r.position.x + 2, y), Vector2(r.end.x - 2, y), wood[0], 2.0)
-		y += 7.0
-	_c.draw_rect(r.grow(-8.0), wood[2])
-	_c.draw_rect(Rect2(r.position + Vector2(8, 8), Vector2(r.size.x - 16, 4)), (wood[2] as Color).lightened(0.2))
-	if e.docked:
-		var bridge_end: Vector2 = Vector2(p.x, sim.wall_y + sim.inward() * 10.0)
-		var front: Vector2 = p + toward * 26.0
-		_c.draw_rect(Rect2(Vector2(p.x - 16, minf(front.y, bridge_end.y)), Vector2(32, absf(bridge_end.y - front.y))), wood[0])
-		var yy := minf(front.y, bridge_end.y) + 3.0
-		while yy < maxf(front.y, bridge_end.y):
-			_c.draw_line(Vector2(p.x - 16, yy), Vector2(p.x + 16, yy), wood[1], 1.5)
-			yy += 6.0
-
-
-func _draw_mantlet(e) -> void:
-	if e.burnt:
-		return
-	var wood := _engine_wood(e)
-	var toward := Vector2(0.0, -sim.works.outward())
-	var p: Vector2 = e.pos + toward * 6.0
-	if String(e.land) == "ryumon":
-		# bundles of bamboo, lashed
-		for k in 7:
-			_c.draw_circle(p + Vector2(-18 + k * 6, 0), 3.4, Color("c8b860") if k % 2 == 0 else Color("a89a48"))
-		return
-	_c.draw_rect(Rect2(p - Vector2(20, 4), Vector2(40, 8)), wood[1])
-	for k in 5:
-		_c.draw_line(p + Vector2(-18 + k * 9, -4), p + Vector2(-18 + k * 9, 4), wood[0], 1.5)
-	_c.draw_line(p + Vector2(-12, 4), p + Vector2(-14, 12) - toward * 4.0, wood[1], 2.0)
-	_c.draw_line(p + Vector2(12, 4), p + Vector2(14, 12) - toward * 4.0, wood[1], 2.0)
-
-
-func _draw_bolt_thrower(e) -> void:
-	var wood := _engine_wood(e)
-	var out := Vector2(0.0, -sim.inward())
-	var p: Vector2 = e.pos
-	if e.burnt:
-		_c.draw_circle(p, 9.0, Color("1e1712"))
-		return
-	_c.draw_line(p - out * 8.0, p + out * 12.0, wood[1], 4.0)
-	var a := PackedVector2Array()
-	for k in 9:
-		var t := float(k) / 8.0
-		a.append(p + out * (8.0 - 6.0 * sin(t * PI)) + out.orthogonal() * (t - 0.5) * 26.0)
-	_c.draw_polyline(a, wood[0], 3.0)
-	_c.draw_line(p + out * 2.0, p + out * 16.0, Color("c9c4b8"), 1.5)
-
-
-## A wood fire: tongues of flame that lick up (still, under Reduced motion) and smoke.
-func _draw_engine_fire(at: Vector2, size: float) -> void:
-	var still := Style.motion_reduced()
-	for k in 5:
-		var off := Vector2(float(k - 2) * size * 0.3, 0.0)
-		var lick := 0.0 if still else sin(_clock * 9.0 + float(k) * 1.7) * size * 0.18
-		var h := size * (0.7 + 0.25 * float((k * 3) % 3)) + lick
-		var base := at + off
-		_c.draw_colored_polygon(PackedVector2Array([base + Vector2(-size * 0.18, 0), base + Vector2(size * 0.18, 0), base + Vector2(0, -h)]),
-			Color(1.0, 0.5, 0.12, 0.85))
-		_c.draw_colored_polygon(PackedVector2Array([base + Vector2(-size * 0.09, 0), base + Vector2(size * 0.09, 0), base + Vector2(0, -h * 0.6)]),
-			Color(1.0, 0.85, 0.35, 0.9))
-	if not still:
-		for k in 3:
-			var rise := fmod(_clock * 18.0 + float(k) * 13.0, 40.0)
-			_dot(at + Vector2(float(k - 1) * 6.0, -size - rise), 4.0 + rise * 0.15, Color(0.25, 0.23, 0.22, 0.35 * (1.0 - rise / 40.0)))
+## A wood fire's tongues licking up at `at` (`phase` staggers the flicker); a steady flame
+## under Reduced motion.
+func _engine_fire(at: Vector2, phase: int, size: float = 1.0) -> void:
+	var frame := 0 if Style.motion_reduced() else (int(_clock * 8.0) + phase) % 4
+	var px := SiegeArt.PIXEL * field_scale * size
+	_c.draw_set_transform(field_origin + at * field_scale, 0.0, Vector2(px, px))
+	_c.draw_texture(SiegeArt.texture("flame", frame), -SiegeArt.pivot("flame"))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	if not Style.motion_reduced():
+		for k in 2:
+			var rise := fmod(_clock * 16.0 + float(k) * 17.0 + float(phase) * 9.0, 44.0)
+			_dot(at + Vector2(float(k) * 6.0 - 3.0, -26.0 - rise), 4.0 + rise * 0.15, Color(0.22, 0.2, 0.2, 0.32 * (1.0 - rise / 44.0)))
 
 
 ## An engine's state when it matters: its wood when hurt, whether it has a crew, and what
@@ -3414,7 +3336,8 @@ func _draw_engine_marks(e) -> void:
 			_c.draw_arc(to, 18.0, 0.0, TAU, 24, Style.BRASS, 3.0)
 
 
-## Stones in the air on their arcs (a shadow on the ground beneath), and bolts.
+## Stones in the air on their arcs, growing as they climb toward you, a shadow on the
+## ground beneath; naphtha pots glowing; bolts along their line.
 func _draw_engine_shots() -> void:
 	if sim.works == null:
 		return
@@ -3423,20 +3346,20 @@ func _draw_engine_shots() -> void:
 		var from: Vector2 = sh["from"]
 		var to: Vector2 = sh["to"]
 		var ground := from.lerp(to, k)
+		var px := SiegeArt.PIXEL * field_scale
 		if String(sh["kind"]) == "stone":
 			var arc := minf(160.0, from.distance_to(to) * 0.3)
 			var lift := sin(k * PI) * arc
-			_dot(ground + Vector2(3, 3), 6.0 - lift / maxf(1.0, arc) * 2.0, Color(0, 0, 0, 0.35))
-			# A stone swells as it climbs toward you and shrinks as it falls.
-			var r := 7.0 + lift / arc * 7.0 if arc > 0.0 else 7.0
-			var col := Color(1.0, 0.6, 0.2) if bool(sh.get("naphtha", false)) else Color("a8a39a")
-			_dot(ground - Vector2(0, lift), r + 1.5, Color(0.15, 0.13, 0.12, 0.9))
-			_dot(ground - Vector2(0, lift), r, col)
-			_dot(ground - Vector2(r * 0.3, lift + r * 0.3), r * 0.35, Color(1, 1, 1, 0.55))
+			var grow := 1.0 + (lift / arc if arc > 0.0 else 0.0) * 0.8
+			_dot(ground + Vector2(3, 3), 5.0 * (1.2 - lift / maxf(1.0, arc) * 0.5), Color(0, 0, 0, 0.32))
+			var name := "naphtha" if bool(sh.get("naphtha", false)) else "stone"
+			_c.draw_set_transform(field_origin + (ground - Vector2(0, lift)) * field_scale, k * 6.0, Vector2(px * grow, px * grow))
+			_c.draw_texture(SiegeArt.texture(name), -SiegeArt.pivot(name))
 		else:
 			var dir := (to - from).normalized()
-			_c.draw_line(ground - dir * 14.0, ground, Color("3a2a1e"), 2.5)
-			_c.draw_line(ground - dir * 3.0, ground, Color("c9c4b8"), 2.5)
+			_c.draw_set_transform(field_origin + ground * field_scale, dir.angle() + PI * 0.5, Vector2(px, px))
+			_c.draw_texture(SiegeArt.texture("bolt_shot"), -SiegeArt.pivot("bolt_shot"))
+		_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 
 
 func _engine_event(e: Dictionary) -> void:

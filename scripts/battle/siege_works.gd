@@ -40,7 +40,7 @@ const HP := {RAM: 900.0, MANTLETS: 250.0, TOWER: 2000.0, THROWER: 700.0, BOLT: 5
 ## at a rate rising to full at CREW_FULL.
 const CREW_MIN := 6
 const CREW_FULL := 12
-const CREW_REACH := 78.0
+const CREW_REACH := 100.0
 ## What's left of an arrow that hits a man at an engine, behind its timbers.
 const ENGINE_COVER := 0.6
 ## Arrows barely mark wood: this much of an arrow's damage reaches an engine.
@@ -457,7 +457,7 @@ func on_spawned() -> void:
 	for sq in sim.squads:
 		if sq.team != attacker or not bool(sq.stats["ranged"]):
 			continue
-		var m = _add(MANTLETS, attacker, sq.center + Vector2(0.0, -outward() * 14.0))
+		var m = _add(MANTLETS, attacker, sq.center + Vector2(0.0, -outward() * 36.0))
 		m.owner = sq
 
 
@@ -466,7 +466,7 @@ func on_spawned() -> void:
 func crew_post(e) -> Vector2:
 	match e.kind:
 		TOWER:
-			return e.pos + Vector2(0.0, outward() * 52.0)
+			return e.pos + Vector2(0.0, outward() * 68.0)
 		YARD, BOLT:
 			return e.pos + Vector2(0.0, sim.inward() * 48.0)
 		THROWER:
@@ -477,8 +477,8 @@ func crew_post(e) -> Vector2:
 					sum += o.pos
 					n += 1
 			if n > 0:
-				return sum / float(n) + Vector2(0.0, outward() * 52.0)
-	return e.pos + Vector2(0.0, outward() * 48.0)
+				return sum / float(n) + Vector2(0.0, outward() * 76.0)
+	return e.pos + Vector2(0.0, outward() * 60.0)
 
 
 ## Whether `e` has its crew, or a company on its way to it.
@@ -561,7 +561,7 @@ func _follow_owner(e, dt: float) -> void:
 	var sq = e.owner
 	if sq == null or not sq.is_active():
 		return
-	var want: Vector2 = sq.center + Vector2(0.0, -outward() * 16.0)
+	var want: Vector2 = sq.center + Vector2(0.0, -outward() * 36.0)
 	e.pos = e.pos.move_toward(want, 60.0 * dt)
 
 
