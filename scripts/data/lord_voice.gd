@@ -53,6 +53,17 @@ const LINES := {
 		Lords.CRUEL: ["%s has the stragglers run down.",
 			"%s leaves your dead where they fell, as a warning."],
 	},
+	# A contract done for them: how they take the news.
+	"thanks": {
+		Lords.DARING: ["%s laughs and claps you on the shoulder. \"I wish I'd ridden with you!\"",
+			"%s raises a cup to you. \"Fine work. Call on me when there's more fighting.\""],
+		Lords.CAUTIOUS: ["%s reads the report twice, then nods. \"Done, and done properly. Thank you.\"",
+			"%s marks it off a long list. \"One less worry. You're reliable, captain.\""],
+		Lords.HONORABLE: ["%s takes your hand. \"You kept your word, and my people are safer for it.\"",
+			"%s bows to you. \"The roads are safe again. I won't forget it.\""],
+		Lords.CRUEL: ["%s smiles thinly. \"Good. I hope they suffered.\"",
+			"%s grunts. \"About time. Here's your due.\""],
+	},
 }
 
 

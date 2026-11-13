@@ -529,12 +529,14 @@ func complete_job(job_id: String) -> Dictionary:
 			var v_id := String(job.get("origin_settlement", ""))
 			world.offers[v_id] = world._new_offers(v_id)
 
+	var standing_realm := ""
 	if world != null and r_rel > 0:
 		var target_settlement: String = String(job.get("destination_settlement", job.get("origin_settlement", "")))
 		if target_settlement != "":
 			var owner_realm: String = world.owner_of(target_settlement)
 			if owner_realm != "" and owner_realm != WorldData.BANDITS:
 				add_realm_relation(owner_realm, r_rel)
+				standing_realm = owner_realm
 
 	var title: String = String(job.get("title", "Contract"))
 	# Only what it paid: a job for regard alone doesn't claim "0 silver".
@@ -543,10 +545,24 @@ func complete_job(job_id: String) -> Dictionary:
 		paid.append("%d silver" % r_silver)
 	if r_renown > 0:
 		paid.append("+%d renown" % r_renown)
-	_note("Completed: %s.%s" % [title, (" Claimed %s." % " and ".join(paid)) if not paid.is_empty() else ""])
 	var lord_line := LordTalk.job_done(self, job)
+	# The card that says so: what it was, who it was for, and what it paid.
+	var done := {"title": title, "silver": r_silver, "renown": r_renown,
+		"place": String(job.get("origin_settlement", job.get("destination_settlement", ""))),
+		"realm": standing_realm if standing_realm != "" else job_realm(job),
+		"standing": r_rel if standing_realm != "" else 0,
+		"text": "Completed: %s.%s" % [title, (" Claimed %s." % " and ".join(paid)) if not paid.is_empty() else ""]}
+	if String(job.get("story_candidate", "")) != "":
+		done["story"] = lord_line
+	elif lord_line != "" and world != null:
+		var giver: Dictionary = world.lord_by_id(int(job.get("for_lord", -1)))
+		if not giver.is_empty():
+			done["lord"] = giver
+			done["regard"] = int(job.get("reward_regard", LordTalk.JOB_REGARD))
+			done["thanks"] = LordVoice.line("thanks", giver)
 	if lord_line != "":
-		_note(lord_line)
+		done["text"] = String(done["text"]) + "\n" + lord_line
+	_contract_card(done)
 	if world != null:
 		world.emit_event({"type": "job_completed", "company": "Your warband", "title": title, "at": world.here()})
 
@@ -1982,6 +1998,16 @@ func _moment(title: String, sub: String, banner: String, falls: bool, sound: Str
 	var scenes := get_node_or_null("/root/Scenes")
 	if scenes != null and scenes.has_method("moment"):
 		scenes.moment(title, sub, banner, falls, sound)
+
+
+## A contract done gets a card of its own (see Scenes.contract_done), once no battle is on
+## screen; with no screen to show it on, it's a line on the map like any other.
+func _contract_card(done: Dictionary) -> void:
+	var scenes := get_node_or_null("/root/Scenes") if is_inside_tree() else null
+	if scenes != null and scenes.has_method("contract_done"):
+		scenes.contract_done(done)
+	else:
+		_note(String(done["text"]))
 
 
 ## A moment worth a stamp drops in as a ribbon, once no battle is on screen.
