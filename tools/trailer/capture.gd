@@ -22,6 +22,7 @@ const Taps = preload("res://tools/trailer/taps.gd")
 
 ## Battles: your people and theirs, the ground (open, hills, woods, river, pass, village),
 ## the hour, companies a side, and the camera (battle_cam.gd). "hud": keep the game's HUD.
+## "advance_at": press Advance all then (for ground where both commanders would wait).
 ## Landscape, a zoom under about 2.7 shows past the field's edges. The ground is drawn as
 ## the foe's land (a Kharzani foe: desert), whatever `biome` says.
 const SHOTS := {
@@ -55,7 +56,8 @@ const SHOTS := {
 	"battle_woods": {"kind": "battle", "culture": "ryumon", "foe": "vardish", "site": "woods",
 		"biome": "ryumon", "hour": 18.0, "seed": 4, "no_title": true, "cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_river": {"kind": "battle", "culture": "vardish", "foe": "ryumon", "site": "river",
-		"biome": "vardmark", "hour": 6.5, "seed": 9, "no_title": true, "cam": {"mode": "clash", "zoom": 2.9}},
+		"biome": "vardmark", "hour": 6.5, "seed": 9, "no_title": true, "advance_at": 2.0,
+		"cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_night": {"kind": "battle", "culture": "ryumon", "foe": "kharzani", "site": "hills",
 		"biome": "ryumon", "hour": 22.0, "seed": 14, "no_title": true, "cam": {"mode": "clash", "zoom": 2.8}},
 	"battle_archers": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open",
@@ -284,6 +286,13 @@ func _battle_ready(screen) -> void:
 		screen._on_fight()
 	else:
 		screen._start_battle()
+	if cfg.has("advance_at"):
+		# As a player would: your commander steps aside and you press Advance all.
+		var go := func():
+			if is_instance_valid(screen):
+				screen.sim.ai[Sim.PLAYER] = null
+				screen._on_advance()
+		create_timer(float(cfg["advance_at"])).timeout.connect(go)
 	if cfg.has("fast_until"):
 		screen.speed = 6.0
 		var until := float(cfg["fast_until"])
