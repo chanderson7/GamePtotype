@@ -278,16 +278,80 @@ too.
 - The trailer recorder (`tools/trailer/`) re-shoots the same seeded battles, for a
   before-and-after you can see.
 
-## 7. Decided, and still open
+## 7. Decided
 
-- **Decided (2026-11-13):** men step out of line to strike, on a tether (section 4).
-- **Open:**
-  1. How many companies may share one face: as many as fit side by side (proposed), or
-     one per face?
-  2. Should there be an explicit free-for-all *Charge* order (Bannerlord's *Charge*, or
-     Total War with guard mode off), or should the tether always hold?
-  3. Phase 2 changes balance. Retune toward today's balance gates, or treat it as a fresh
-     balance pass?
+- **2026-11-13:** men step out of line to strike, on a tether (section 4).
+- **2026-11-13, building it:** companies share a face by standing side by side (two foot to
+  a foe); there is no free-for-all *Charge* order, and the tether always holds except when
+  riding down runners; balance was tuned back to the existing gates (section 8).
+
+## 8. As built (2026-11-13)
+
+All four phases are in, as one change rather than four flagged steps: the old free-for-all
+had nothing left to compare against once each piece landed, so there is no `tethered_melee`
+flag and `formation_melee` is gone. Sieges and riding down men running for it are still
+fought loose, on purpose.
+
+### Numbers
+
+`tools/battle_probe.gd`, averaged over four battles (10 v 10: seeds 40, 8 and 21 on open
+ground, seed 4 in woods), the shipped code against this one:
+
+| | Before | After |
+| --- | --- | --- |
+| Facing flicks per battle | 10,998 | **0** |
+| Most men within 50 units of one point | 35.2 | 26.9 |
+| Companies those men come from | 4.2 | 3.0 |
+| Men nearest a man of another friendly company | 15.5% | 7.8% |
+| Engaged companies fighting loose | 100% | 0% |
+| Battle length | 67 s | 93 s |
+
+Not reached: the phase targets of 22 men from 2.5 companies, under 3% merged, and no man
+beyond his tether and a body (about 18% of men in a big battle are further than that). In a
+1 v 1 fight men keep to their tether (`formation_tests.gd`: 0 to 0.4% strayed). In a
+12-company battle, where several companies meet, the rest comes from two places. Enemies
+stepping out to strike stand in the front rank's places, and that's the press of a fight.
+Men also end up in a company-mate's place after being pushed, and walk round each other.
+Reassigning places to the nearest man once a second made no difference, so it isn't in.
+
+**Balance:** the full `-- --balance` check is running against this code and against the shipped code; its gates are recorded here when it finishes. The regular suite passes, including the counter duels, the braced line (10/12), fords (11/12 dry, 0/12 wet) and the length of AI battles.
+
+### Where it differs from the plan
+
+- **Phase 0, one more source.** Bowmen out of arrows, parked behind their own foot, looked
+  for a foe within a fixed range with no grace. An enemy at the edge of it flipped them in
+  and out of the fight about 1,600 times a battle. Their look-up now has the same grace.
+- **Men turn in the battle, not on the screen.** A man's facing turns at `MAN_TURN`
+  (9 rad/s) in `battle_sim.gd`. The battle never reads a man's facing, so the result is the
+  same, and the probe measures what you see.
+- **Attack positions evolved, not replaced.** They already took a side and kept it. They
+  now also keep the corner they go round (`corner_sign`, `past_corner`), and make for where
+  their front rank meets the foe's edge (`_half_depth`). The cost of each side is still
+  weighed at the foe's edge: weighing it at the set-back spot tipped horse onto the front.
+  Companies already on a face share it by `_make_room` sidestepping, as before. There is no
+  separate face-claim system, and no oriented-rectangle collision. Instead, a closing
+  company stops at any enemy across its front (`_hold_the_line`).
+- **Tethers judged from a man's place.** The old line fight measured a foe from where a man
+  stood. Each step out let him keep a foe further off, and with the flank leash he drifted
+  20 to 40 units from his company. Now a foe must be within reach of his place plus his
+  tether, and only a man who really took a flank target gets the flank leash (`so.wing`).
+- **The second rank fights.** With only the front rank striking, a fight took a third longer
+  and its first seconds landed few blows, so a brace ran out before it counted. The second
+  rank now strikes past the men in front (its reach is a rank longer). This was the
+  supporting-ranks idea from section 3. It brought foot against foot back to the old length
+  (56 s against 57).
+- **Horse don't brace.** With line fights everywhere, the line's brace extras (12 s, a
+  quarter less from the front) reached horse on *Hold*. Spearmen attacking holding horse
+  lost 8 of 8. Bracing is for foot now, and spearmen win that fight 8 of 8 again.
+- **Tethers:** Hold 4, attack `FORMATION_LEASH` 10, horse `CAV_LEASH` 16 (was 22), flank
+  `WING_LEASH` 20 (was 40), schiltron 0, bows `SHOT_LEASH` 30. The shorter horse and flank
+  leashes cut the crowding (26.7 men from 3.0 companies, against 28.8 from 3.6). Bows step
+  up 30 so a company on *Hold* still looses at a mark just out of range, as it did before.
+- **A line caught from the side wheels** to face its foe (`LINE_SQUARE`), at most as fast as
+  its end man can walk round, so it doesn't leave its ends behind.
+- **Decided:** companies share a face by standing side by side, two foot to a foe as before.
+  There is no *Charge* order: the tether always holds, except when riding down runners.
+  Balance was tuned back to the existing gates, not treated as a fresh pass.
 
 [tww-blob]: https://www.gamepressure.com/total-war-warhammer-3/battles/z9f97c
 [bl-charge]: https://www.gamepressure.com/newsroom/bannerlord-difference-between-charge-and-engage-tactical-tips/z74f8e
