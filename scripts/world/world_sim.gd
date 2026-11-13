@@ -190,6 +190,9 @@ var army_outcomes: Dictionary = {}
 var next_army_id := 1
 ## Villages raiders have burned: id → the hour they're rebuilt.
 var burned := {}
+## What sieges have done to walls and not yet mended: {settlement: {gate, cols}} (see
+## SiegeCamp).
+var siege_damage := {}
 ## Your own raid while your men load the carts: {village, until}. The village's lords
 ## ride to it as they would to any raider's.
 var player_raid := {}
@@ -468,7 +471,8 @@ func siege_info(id: String) -> Dictionary:
 		return {"army": int(army["id"]), "realm": String(army["realm"]), "attackers": attackers,
 			"defenders": men_of(garrison_at(id)), "walls": float(Lords.WALLS.get(String(Data.settlement(id)["type"]), 1.0)),
 			"food_hours": maxf(0.0, float(army.get("siege_food_until", hour)) - hour),
-			"assault_hours": maxf(0.0, float(army.get("siege_prep_until", hour)) - hour), "relief": relief}
+			"assault_hours": maxf(0.0, float(army.get("siege_prep_until", hour)) - hour), "relief": relief,
+			"engines": (army.get("engines", ["ladders", "ram"]) as Array).duplicate()}
 	return {}
 
 
@@ -3284,7 +3288,7 @@ func to_dict() -> Dictionary:
 		"garrisons": garrisons.duplicate(true),
 		"campaign_armies": campaign_armies.duplicate(true), "army_ready_at": army_ready_at.duplicate(), "next_army_id": next_army_id,
 		"social": social.to_dict() if social != null else null,
-		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "player_raid": player_raid.duplicate(), "lord_day": _lord_day,
+		"lords": lords.map(func(l): return _lord_for_save(l)), "burned": burned.duplicate(), "siege_damage": siege_damage.duplicate(true), "player_raid": player_raid.duplicate(), "lord_day": _lord_day,
 		"gatherings": gatherings.duplicate(true), "gathering_ended": gathering_ended.duplicate(),
 		"victory_feasts": victory_feasts.duplicate(), "peace_feasts": peace_feasts.duplicate(), "next_gathering_id": _next_gathering_id,
 		"gather_seed": str(gather_rng.seed), "gather_state": str(gather_rng.state),
@@ -3446,6 +3450,7 @@ func from_dict(d: Dictionary) -> void:
 		parties.append(p)
 	burned = {}
 	player_raid = (d.get("player_raid", {}) as Dictionary).duplicate()
+	siege_damage = d.get("siege_damage", {}).duplicate(true) if typeof(d.get("siege_damage")) == TYPE_DICTIONARY else {}
 	var raw_burned = d.get("burned", {})
 	for k in raw_burned:
 		burned[String(k)] = float(raw_burned[k])

@@ -1,7 +1,7 @@
 # Bannerfall: siege engines, for the stormers and the walls
 
 - **Date:** 2026-11-13
-- **Status:** plan, not started.
+- **Status:** built (2026-11-13). Where the build differs from the plan, and the measured balance, are under *As built* at the end.
 - **Goal:** a siege is something you *prepare* and something a town is *built* to
   resist. The attacker builds engines before the assault (a ram, ladders, screens for the
   bows, a tower, stone throwers) and works them in the battle; the walls answer with
@@ -348,3 +348,65 @@ is called done; the balance probe runs after 1, 3, 4 and 8.
 - **Should the player's own fief garrison crew its engines automatically** when an army
   storms it and you're away (auto-resolve already counts them), or only when you're there
   to man the walls?
+
+## As built
+
+Everything above is in, with the two open questions answered as recommended: engines are
+crewed by your own companies (an Engineer role can come later), and throwers in a camp
+bombard the walls each day before any battle. Code: `scripts/battle/siege_works.gd` (the
+field), `scripts/world/siege_camp.gd` (the campaign), hooks in `battle_sim.gd`,
+`commander_ai.gd`, `battle_screen.gd`, `game_state.gd`, `marshal_armies.gd`, the map's siege
+sheet and the fief's Manor card. Tests: `tests/siege_engines_tests.gd`; the balance probe is
+`tests/siege_probe.gd` (not in the default suite).
+
+Where it differs:
+
+- **Engines are on the field, not cards in the tray.** Tap one of yours to pick it up and
+  tap a wall section, the gate, an enemy engine or a company to aim it (tap it again: it
+  chooses for itself). With a company picked, tap your engine to send it to work there,
+  tap an enemy engine with bows to set it alight, or with foot while holding the walls to
+  sally at it by the postern. A tap on an engine during deployment says what it is. The
+  storm plan cycles a company through ladder, ram, tower and the throwers.
+- **Crews.** Anyone can haul on a thrower's ropes, horsemen first (they can't climb and
+  only half batter); the tower needs men on foot. The two throwers stand side by side as a
+  battery one company works, and crews stand behind their engine (`CREW_REACH` 78), so
+  the engine is seen.
+- **A fallen section is rubble along its whole width**, not one cell: a one-man gap was a
+  slaughter, not a breach.
+- **The walls' thrower outranges the stormers'** (840 px to 720, on its platform), so
+  counter-battery happens; at equal range the two never met.
+- **Numbers that moved**: tower hp 2000 (bolts do 80 to an engine, not 260: two bolt
+  throwers would have stopped every tower), stones 100 to a wall section and 40 to a man,
+  scatter 14 + 4% of the range; reloads Vardish 11 s, Kharzani 8 s, Ryumon 7 s.
+- **The AI.** A storming commander with crewed throwers waits for a breach (up to 100 s),
+  sends nobody up ladders once the wall is down anywhere, and drops stones on the
+  garrison's biggest company behind the breach, never within 70 px of its own men. A
+  garrison forms a crescent at every breach, sets the moving tower alight with its nearest
+  bows (not the ram: bows shooting fire at it aren't shooting the men under it, and the
+  stormers did better for it), and sallies at an engine guarded by ten men or fewer.
+- **The end of time**: the walls hold only if the gate stands *and* no section is down.
+- **Damage is kept by column** (sections fall differently with four ladders): a section
+  is as strong as its weakest stretch. It mends at half the gate a day and a quarter of a
+  stretch, unless someone is camped before it; your fief's Manor card has *Mend* (120).
+- **The camp follows the world's clock**, which moves only while you travel or wait.
+
+### Measured
+
+`tests/siege_probe.gd`, AI against AI on a Vardish castle, 16 seeds a case:
+
+| Assault | Attacker wins | Planned |
+| --- | --- | --- |
+| Even, ladders only (off the march) | 0 of 16 | 0% |
+| Half again, ladders only | 3 of 16 | at most 35% |
+| Half again, ram and ladders | 9 of 16 | 55–65% |
+| Even, full train vs bolt throwers and a postern | 1 of 16 | 30–45% |
+| Half again, the same | 15 of 16 | 75–85% |
+| Half again, full train vs full works | 12 of 16 | 50–60% |
+| Twice, ladders only vs full works | 15 of 16 | always |
+
+Preparing a siege and building works both move the odds the way they should, but the
+curve is steeper than planned: an even assault on a castle stays very hard even with a
+full train (the garrison's foot meets the breach braced and the stormers' bows stand just
+out of bowshot of the walk), and half again with engines is close to certain. The knobs,
+if that should change: `STONE_SPLASH`, `TOWER_CLIMB`, the stand-off share, and how long the
+AI waits for a breach.

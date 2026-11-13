@@ -1,6 +1,7 @@
 ## Saved expedition membership. Troops and purses remain owned by each lord's party.
 extends RefCounted
 const Data = preload("res://scripts/world/world_data.gd")
+const SiegeCamp = preload("res://scripts/world/siege_camp.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const Units = preload("res://scripts/data/units.gd")
@@ -115,8 +116,15 @@ static func tick(w, dt: float) -> void:
 					army["state"] = "besieging"
 					army["destination"] = army["target"]
 					army["siege_start"] = w.hour
-					army["siege_prep_until"] = w.hour + Lords.SIEGE_PREP_HOURS
 					var kind := String(Data.settlement(army["target"])["type"])
+					# What they build before they storm, by how many they are: a ram and
+					# ladders always, throwers and a tower for a big army.
+					var men := 0
+					for m in members(w, army):
+						men += w.men_of(m.army)
+					men += w.men_of(p.army) if not members(w, army).has(p) else 0
+					army["engines"] = SiegeCamp.army_kit(men, kind)
+					army["siege_prep_until"] = w.hour + SiegeCamp.army_prep_hours(army["engines"], Data.culture_of(String(army["realm"])), men)
 					army["siege_food_until"] = w.hour + float(Lords.SIEGE_FOOD_DAYS.get(kind, 5.0)) * 24.0
 					w.emit_event({"type": "siege_started", "army": army["id"], "target": army["target"], "realm": army["realm"]})
 		elif army["state"] == "besieging":
@@ -413,7 +421,8 @@ static func assault(w, army: Dictionary) -> void:
 		return
 
 	var kind: String = Data.settlement(target)["type"]
-	var wall_mult: float = float(AutoResolve.WALLS.get(kind, 1.4))
+	var imps: Dictionary = w.game_state.player_fief.get("improvements", {}) if w.game_state != null and w.game_state.is_player_fief(target) else {}
+	var wall_mult: float = SiegeCamp.walls(kind, SiegeCamp.defences(w, target, imps), army.get("engines", SiegeCamp.DEFAULT_ARMY_KIT), SiegeCamp.damage(w, target))
 	var res: Dictionary = AutoResolve.resolve_siege(attacker_squads, garrison, wall_mult, w.rng)
 
 	for sq in garrison:

@@ -77,6 +77,18 @@ var ladder_guard := {}
 ## march there; and whether it has formed up to meet the breach yet.
 var _posted := []
 var _breach_formed := false
+## Breaches in the wall this garrison has formed up to meet (by section index).
+var _breaches_met := {}
+## When this commander last thought about sallying, burning or bombarding.
+var _engine_think := 0.0
+## How long a storming commander with stone throwers at work waits for a breach before it
+## goes anyway.
+const BOMBARD_WAIT := 100.0
+## A garrison sallies by the postern at a stormers' engine with at most this many of them
+## within SALLY_GUARD of it, and no further than SALLY_REACH from the postern.
+const SALLY_GUARD := 10
+const SALLY_GUARD_RANGE := 110.0
+const SALLY_REACH := 420.0
 var _think := 0.0
 
 
@@ -228,6 +240,8 @@ func update(sim, dt: float) -> void:
 			and (not sim.gate_open() or (not _winning(sim) and sim.time - sim.breached_at < BREACH_HOLD)):
 		if not sim.gate_open():
 			_guard_ladders(sim)
+			_meet_breaches(sim)
+			_work_the_walls(sim)
 		elif not _breach_formed:
 			_breach_formed = true
 			_form_breach(sim)
@@ -235,6 +249,8 @@ func update(sim, dt: float) -> void:
 			if allies_only and not sq.is_ally:
 				continue
 			if sq.order == "move" and _posted.has(sq):
+				continue
+			if sq.sally_phase != "" or (sq.crew_of != null and sq.order == "move"):
 				continue
 			if sq.team == team and sq.is_active() and not sq.routing and sq.order != "hold" and not sq.engaged:
 				sim.order_hold(sq)
@@ -255,6 +271,9 @@ func update(sim, dt: float) -> void:
 	# ladders and ram, with the bows standing off to shoot the wall walk.
 	if sim.objective == Sim.OBJECTIVE_SIEGE and team != sim.siege_defender and not allies_only \
 			and not stormed and not sim.gate_open():
+		# With stone throwers at work, let them bring a section down first (a while).
+		if _bombarding(sim) and not _losing(sim):
+			return
 		stormed = true
 		sim.order_storm(team)
 
@@ -277,6 +296,9 @@ func update(sim, dt: float) -> void:
 		# way or someone comes for him.
 		if (sq.is_bodyguard or sq.is_chief) and not sq.engaged \
 				and (not committed or (not _winning(sim) and sim.nearest_enemy_squad(team, sq.avg, CHIEF_GUARD_RANGE) == null)):
+			continue
+		# Engine crews stay at their engines.
+		if sq.crew_of != null and sq.crew_of.working() and not sq.use_tower:
 			continue
 		if sq.type == Troops.CAVALRY and temperament != RECKLESS:
 			_ride(sim, sq)
@@ -310,6 +332,96 @@ func _guard_ladders(sim) -> void:
 			ladder_guard[i] = best
 			_posted.append(best)
 			sim.order_move(best, post)
+
+
+## Whether this storming commander is waiting on its stone throwers: they're working, no
+## section has come down yet, and it hasn't waited BOMBARD_WAIT.
+func _bombarding(sim) -> bool:
+	if sim.works == null or sim.time > BOMBARD_WAIT or sim.works.any_breach():
+		return false
+	for e in sim.works.engines:
+		if e.team == team and e.kind == sim.works.THROWER and e.working() and sim.works.manned(e):
+			return true
+	return false
+
+
+## A section of the wall has come down: free foot form a crescent behind it, as at the gate.
+func _meet_breaches(sim) -> void:
+	if sim.works == null:
+		return
+	for i in sim.works.sections.size():
+		if not sim.works.sections[i]["broken"] or _breaches_met.has(i):
+			continue
+		_breaches_met[i] = true
+		_posted.append_array(sim.form_breach(team, allies_only, sim.works.section_center(i)))
+
+
+## The walls' engines, every few seconds: bows on the walk set the moving tower alight,
+## and a company of foot slips out by the postern at a stone thrower the stormers have left
+## unguarded.
+func _work_the_walls(sim) -> void:
+	if sim.works == null or allies_only:
+		return
+	_engine_think -= 0.5
+	if _engine_think > 0.0:
+		return
+	_engine_think = 3.0
+	var works = sim.works
+	# Fire.
+	# (The ram is left to the oil and stones: bows shooting fire at it aren't shooting
+	# the men under it.)
+	var mark = works.tower_of(1 - team)
+	if mark != null and mark.docked:
+		mark = null
+	var burning_already := false
+	for sq in sim.squads:
+		if sq.team == team and sq.burn_target != null and sq.is_active():
+			burning_already = true
+			if mark == null or sq.burn_target != mark:
+				sim.order_burn(sq, null)
+	if mark != null and not burning_already:
+		var best = null
+		var best_d: float = works.FIRE_RANGE
+		for sq in sim.squads:
+			if sq.team != team or not sq.is_active() or not sq.ranged or sq.arrows == 0:
+				continue
+			var d: float = sq.avg.distance_to(mark.pos)
+			if d < best_d:
+				best_d = d
+				best = sq
+		if best != null:
+			sim.order_burn(best, mark)
+	# A sally.
+	if not works.has_postern():
+		return
+	for sq in sim.squads:
+		if sq.team == team and sq.sally_phase != "":
+			return
+	var door: Vector2 = works.postern_points()[1]
+	var target = null
+	for e in works.engines:
+		if e.team == team or not e.working() or not (e.kind in [works.THROWER, works.TOWER]) or e.pos.distance_to(door) > SALLY_REACH:
+			continue
+		var guards := 0
+		for o in sim.squads:
+			if o.team != team and o.is_active():
+				for so in o.soldiers:
+					if so.alive and so.pos.distance_to(e.pos) < SALLY_GUARD_RANGE:
+						guards += 1
+		if guards <= SALLY_GUARD:
+			target = e
+			break
+	if target == null:
+		return
+	var best_sq = null
+	for sq in sim.squads:
+		if sq.team != team or not sq.is_active() or sq.engaged or sq.ranged or sq.type == Troops.CAVALRY \
+				or sim.on_gate_tower(sq.avg) or ladder_guard.values().has(sq) or sq.crew_of != null:
+			continue
+		if best_sq == null or sq.alive_n > best_sq.alive_n:
+			best_sq = sq
+	if best_sq != null:
+		sim.order_sally(best_sq, target)
 
 
 ## The gate has given: the companies on foot not already fighting fall back to the

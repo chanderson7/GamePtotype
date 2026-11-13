@@ -18,6 +18,7 @@ const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
+const SiegeCamp = preload("res://scripts/world/siege_camp.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
@@ -1190,11 +1191,12 @@ func _show_station_sheet(holding: bool = false) -> void:
 ## the top paints it, in colour once it's built and a grey ghost before.
 func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 	var imps: Dictionary = fief.get("improvements", {})
+	var offered: Array = Fiefs.improvements_for(String(WorldData.settlement(String(fief.get("settlement_id", ""))).get("type", WorldData.VILLAGE)))
 	var count := 0
-	for k in Fiefs.IMPROVEMENT_ORDER:
+	for k in offered:
 		if bool(imps.get(k, false)):
 			count += 1
-	var card := Widgets.card(col, "Manor", "%d of %d built" % [count, Fiefs.IMPROVEMENT_ORDER.size()])
+	var card := Widgets.card(col, "Manor", "%d of %d built" % [count, offered.size()])
 	card.get_parent().name = "ManorCard"
 	if is_b:
 		var rep_row := HBoxContainer.new()
@@ -1215,7 +1217,26 @@ func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 		var rep := Widgets.priced(rep_btn, [["silver", Widgets.thousands(Fiefs.REPAIR_COST), Style.ENEMY_LIGHT if rep_btn.disabled else Style.TEXT]])
 		rep.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		rep_row.add_child(rep)
-	for k in Fiefs.IMPROVEMENT_ORDER:
+	# Walls an assault broke mend on their own over a few days; paying mends them now.
+	var fid := String(fief.get("settlement_id", ""))
+	if GameState.world != null and not SiegeCamp.damage(GameState.world, fid).is_empty():
+		var wall_row := HBoxContainer.new()
+		wall_row.add_theme_constant_override("separation", 12)
+		card.add_child(wall_row)
+		var wall_text := _note("Your walls carry the marks of an assault. They mend over a few days, or now for silver.", Style.ENEMY_LIGHT)
+		wall_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		wall_row.add_child(wall_text)
+		var mend_btn := _button("Mend", func():
+			if GameState.repair_fief_walls().get("ok", false):
+				Sound.play("coins")
+				_build())
+		mend_btn.name = "MendWalls"
+		mend_btn.custom_minimum_size = Vector2(140, Style.TOUCH)
+		mend_btn.disabled = GameState.silver < SiegeCamp.REPAIR_COST
+		var priced := Widgets.priced(mend_btn, [["silver", str(SiegeCamp.REPAIR_COST), Style.ENEMY_LIGHT if mend_btn.disabled else Style.TEXT]])
+		priced.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		wall_row.add_child(priced)
+	for k in offered:
 		card.add_child(_improvement_row(String(k), bool(imps.get(k, false))))
 
 

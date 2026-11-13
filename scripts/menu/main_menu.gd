@@ -875,12 +875,13 @@ func _fief_overview_row() -> Control:
 	var is_b: bool = GameState.world != null and GameState.world.is_burned(fid)
 	var garr: int = GameState.fief_garrison().filter(func(sq): return GameState.is_company_squad(sq)).size()
 	var built := 0
-	for k in Fiefs.IMPROVEMENT_ORDER:
+	var offered: Array = Fiefs.improvements_for(String(WorldData.settlement(fid).get("type", WorldData.VILLAGE))) if WorldData.SETTLEMENTS.has(fid) else Fiefs.IMPROVEMENT_ORDER
+	for k in offered:
 		if bool(f.get("improvements", {}).get(k, false)):
 			built += 1
 	var grid := Widgets.tile_grid([
 		Widgets.tile("company", str(garr), "stationed"),
-		Widgets.tile("keep", "%d/%d" % [built, Fiefs.IMPROVEMENT_ORDER.size()], "built"),
+		Widgets.tile("keep", "%d/%d" % [built, offered.size()], "built"),
 		Widgets.tile("silver", Widgets.thousands(int(f.get("silver", 0))), "waiting"),
 		Widgets.tile("food", Widgets.thousands(int(f.get("food", 0))), "waiting"),
 	], 2)
