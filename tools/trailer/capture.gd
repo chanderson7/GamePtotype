@@ -22,7 +22,8 @@ const Taps = preload("res://tools/trailer/taps.gd")
 
 ## Battles: your people and theirs, the ground (open, hills, woods, river, pass, village),
 ## the hour, companies a side, and the camera (battle_cam.gd). "hud": keep the game's HUD.
-## Landscape, a zoom under about 2.7 shows past the field's edges.
+## Landscape, a zoom under about 2.7 shows past the field's edges. The ground is drawn as
+## the foe's land (a Kharzani foe: desert), whatever `biome` says.
 const SHOTS := {
 	"opening": {"kind": "opening"},
 	"home": {"kind": "home", "culture": "vardish", "hour": 7.0, "silver": 2400, "renown": 340},
@@ -49,8 +50,8 @@ const SHOTS := {
 	"battle_title": {"kind": "battle", "culture": "kharzani", "foe": "vardish", "site": "open",
 		"biome": "kharzan", "hour": 7.0, "seed": 21, "cam": {"mode": "pan", "from": Vector2(420, 900), "to": Vector2(420, 640),
 		"zoom": 2.4, "time": 7.0}},
-	"battle_cavalry": {"kind": "battle", "culture": "kharzani", "foe": "ryumon", "site": "open",
-		"biome": "kharzan", "hour": 15.0, "seed": 8, "no_title": true, "cam": {"mode": "follow", "type": "cavalry", "team": 0, "zoom": 2.7}},
+	"battle_cavalry": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open",
+		"biome": "kharzan", "hour": 15.5, "seed": 8, "no_title": true, "cam": {"mode": "clash", "zoom": 3.0}},
 	"battle_woods": {"kind": "battle", "culture": "ryumon", "foe": "vardish", "site": "woods",
 		"biome": "ryumon", "hour": 18.0, "seed": 4, "no_title": true, "cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_river": {"kind": "battle", "culture": "vardish", "foe": "ryumon", "site": "river",
