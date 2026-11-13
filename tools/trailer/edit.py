@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cuts the YouTube trailer (1920x1080, 30 fps, H.264 + AAC) from the clips record_all.sh made.
 
-    python3 tools/trailer/edit.py            # writes $TRAILER_OUT/bannerfall_trailer.mp4
+    python3 tools/trailer/edit.py            # writes $TRAILER_OUT/bannerfall_trailer.mp4 and a thumbnail
 
 The score is the game's main theme (assets/audio/music/title.ogg, 80 s); the cut follows its
 shape: the quiet open for the Glass Sea, the swell for the title, the climax for the battles,
@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -45,16 +46,18 @@ def bar(k):
 #   frame: for a portrait clip, the part of its 1080x1920 screen to show (x, y, w, h)
 #   cap: (title, line, where) where is "left" (beside a portrait), "low" (lower left), "mid"
 #   fade: (in, out) seconds through black; sfx: gain on the clip's own sound (0 for none)
+#   zoom: for a landscape clip, how far to crop in on its middle
+#   bg_y: for a portrait clip, how far down the shown part its blurred backdrop is taken
 LORDS = ("Win the lords' regard", "Every lord remembers what you did.", "left")
 EDL = [
     {"card": ("Three realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
     {"shot": "map_fly", "at": 0.5, "to": bar(5), "fade": (0.4, 0.0),
      "cap": ("The Glass Sea", "Stone keeps. Desert courts. Island castles.", "low")},
     {"shot": "map_isles", "at": 2.0, "to": bar(8), "fade": (0.0, 0.3)},
-    {"shot": "opening", "at": 0.0, "to": bar(10), "fade": (0.3, 0.0)},
+    {"shot": "opening", "at": 0.3, "to": bar(10), "fade": (0.3, 0.0), "frame": (0, 600, 1080, 960)},
     {"shot": "home", "at": 1.0, "sfx": 0.35, "to": bar(12), "frame": (0, 0, 1080, 1420),
      "cap": ("Raise a warband", "Captains, companies, silver and renown.", "left")},
-    {"shot": "map_ride", "at": 1.5, "sfx": 0.35, "to": bar(14), "frame": (0, 140, 1080, 1780),
+    {"shot": "map_ride", "at": 1.5, "sfx": 0.35, "to": bar(14), "frame": (0, 140, 1080, 1780), "bg_y": 300,
      "cap": ("Ride the roads", "Bandits, raiders and rival lords.", "left")},
     {"shot": "talk_ravensford", "at": 5.2, "sfx": 0.35, "to": bar(15.67), "frame": (0, 0, 1080, 1500), "cap": LORDS},
     {"shot": "talk_qasr", "at": 0.6, "sfx": 0.35, "to": bar(17.33), "frame": (0, 0, 1080, 1500), "cap": LORDS},
@@ -66,14 +69,15 @@ EDL = [
      "cap": ("Lead every company", "Real-time squad battles, sized for your hand.", "low")},
     {"shot": "battle_cavalry", "at": 18.0, "to": bar(26.5), "sfx": 0.4},
     {"shot": "battle_woods", "at": 15.0, "to": bar(28), "sfx": 0.4},
-    {"shot": "battle_hud", "at": 14.5, "to": bar(30), "sfx": 0.35,
+    {"shot": "battle_hud", "at": 14.5, "to": bar(30), "sfx": 0.35, "bg_y": 260,
      "cap": ("Shield walls. Volleys. Charges.", "Read the field and give the order.", "left")},
     {"shot": "battle_river", "at": 8.5, "to": bar(31.5), "sfx": 0.4},
     {"shot": "battle_archers", "at": 10.0, "to": bar(33), "sfx": 0.4},
     {"shot": "battle_night", "at": 18.5, "to": bar(34.5), "sfx": 0.4},
-    {"shot": "battle_win", "at": 20.0, "to": bar(37.5), "sfx": 0.5},
-    {"shot": "battle_wide", "at": 2.0, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
-     "cap": ("Make your name", "", "low")},
+    {"shot": "battle_wide", "at": 11.5, "to": bar(36.5), "sfx": 0.4},
+    {"shot": "battle_win", "at": 4.4, "to": bar(38.5), "sfx": 0.5, "zoom": 1.5},
+    {"shot": "battle_result", "at": 8.6, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
+     "frame": (0, 0, 1080, 1500), "cap": ("Make your name", "Every company's story is told.", "left")},
     {"end": True, "to": 80.0, "fade": (0.8, 1.8)},
 ]
 
@@ -177,7 +181,11 @@ def night_bg():
     ImageDraw.Draw(glow).ellipse([W * 0.18, H * 0.05, W * 0.82, H * 0.95], fill=255)
     glow = glow.filter(ImageFilter.GaussianBlur(220))
     lift = Image.new("RGB", (W, H), (30, 38, 66))
-    return Image.composite(lift, img, glow)
+    img = Image.composite(lift, img, glow)
+    # A little grain, so the glow doesn't fall into bands (here, or after compression).
+    px = np.asarray(img, dtype=np.float32)
+    px += np.random.default_rng(7).normal(0.0, 1.3, px.shape)
+    return Image.fromarray(np.clip(px + 0.5, 0, 255).astype(np.uint8))
 
 
 def card_png(path, title, line):
@@ -237,7 +245,7 @@ def seg_video(i, seg, path):
     if fo > 0:
         fades.append(f"fade=t=out:st={dur - fo:.3f}:d={fo}")
     tail = ("," + ",".join(fades)) if fades else ""
-    enc = ["-c:v", "libx264", "-preset", "slow", "-crf", "15", "-pix_fmt", "yuv420p", "-r", str(FPS),
+    enc = ["-c:v", "libx264", "-preset", "slow", "-crf", "17", "-pix_fmt", "yuv420p", "-r", str(FPS),
            "-frames:v", str(round(dur * FPS)), "-an"]
     if "card" in seg or "end" in seg:
         png = os.path.join(WORK, f"card_{i:02d}.png")
@@ -256,7 +264,9 @@ def seg_video(i, seg, path):
     src = ["-framerate", str(FPS), "-start_number", str(start), "-i", os.path.join(CLIPS, shot, "f%08d.png")]
     inputs, graph = list(src), []
     if shape_of(shot) == "landscape":
-        graph.append(f"[0:v]scale={W}:{H}:flags=lanczos,setsar=1[v]")
+        z = float(seg.get("zoom", 1.0))
+        crop = f"crop=iw/{z}:ih/{z}:(iw-iw/{z})/2:(ih-ih/{z})/2," if z != 1.0 else ""
+        graph.append(f"[0:v]{crop}scale={W}:{H}:flags=lanczos,setsar=1[v]")
     else:
         fx, fy, fw, fh = seg.get("frame", (0, 0, 1080, 1920))
         ph = 1000 if fh > 1600 else 960
@@ -271,7 +281,9 @@ def seg_video(i, seg, path):
         graph.append("[0:v]split[a][b]")
         # The backdrop is the top of the shown part (its art, not its buttons), blurred.
         bh = round(fw * 9 / 16 / 2) * 2
-        graph.append(f"[a]crop={fw}:{bh}:{fx}:{fy},scale={W}:{H},gblur=sigma=40,eq=brightness=-0.2:saturation=0.8[bg]")
+        by = fy + int(seg.get("bg_y", 0))
+        graph.append(f"[a]crop={fw}:{bh}:{fx}:{by},scale={W}:{H},gblur=sigma=40,eq=brightness=-0.26:saturation=0.7,"
+                     f"noise=alls=4[bg]")
         graph.append(f"[b]crop={fw}:{fh}:{fx}:{fy},scale={pw}:{ph}:flags=lanczos[fg]")
         graph.append(f"[bg][1:v]overlay=0:0[bgd]")
         graph.append(f"[bgd][fg]overlay={px}:{py},setsar=1[v]")
@@ -283,8 +295,13 @@ def seg_video(i, seg, path):
         caption_png(cap, title, line, where, seg.get("_panel"))
         inputs += ["-loop", "1", "-i", cap]
         idx = sum(1 for a in inputs if a == "-i") - 1
-        cin, cout = 0.25, min(dur - 0.35, dur - 0.1)
-        graph.append(f"[{idx}:v]format=rgba,fade=t=in:st={cin}:d=0.45:alpha=1,fade=t=out:st={cout - 0.3:.3f}:d=0.35:alpha=1[c]")
+        # The same caption on the shots either side runs on through the cut, unfaded.
+        cf = []
+        if seg.get("_cap_from_prev") is not True:
+            cf.append("fade=t=in:st=0.25:d=0.45:alpha=1")
+        if seg.get("_cap_to_next") is not True:
+            cf.append(f"fade=t=out:st={dur - 0.65:.3f}:d=0.35:alpha=1")
+        graph.append(f"[{idx}:v]format=rgba" + "".join("," + f for f in cf) + "[c]")
         graph.append(f"[{last}][c]overlay=0:0[vc]")
         last = "vc"
     graph.append(f"[{last}]null{tail}[out]")
@@ -298,6 +315,9 @@ def main():
         # Whole frames, so the cuts stay on the bars however the frames round.
         seg["dur"] = round((seg["to"] - t) * FPS) / FPS
         t += seg["dur"]
+    for a, b in zip(EDL, EDL[1:]):
+        if "cap" in a and a.get("cap") == b.get("cap"):
+            a["_cap_to_next"] = b["_cap_from_prev"] = True
     t = 0.0
     for i, seg in enumerate(EDL):
         p = os.path.join(WORK, f"seg_{i:02d}.mp4")
@@ -316,7 +336,7 @@ def main():
 
     # The score, and each clip's field sounds where it plays, then loudness for YouTube.
     ins = ["-i", MUSIC]
-    graph = [f"[0:a]atrim=0:{total},afade=t=out:st={total - 4.5:.2f}:d=4.5,volume=1.0[m]"]
+    graph = [f"[0:a]atrim=0:{total},afade=t=out:st={total - 2.0:.2f}:d=2.0[m]"]
     labels = ["[m]"]
     for k, (wav, at, dur, when, gain) in enumerate(sfx, start=1):
         ins += ["-ss", f"{at}", "-t", f"{dur}", "-i", wav]
@@ -324,13 +344,42 @@ def main():
         graph.append(f"[{k}:a]aresample=48000,aformat=channel_layouts=stereo,afade=t=in:d=0.08,"
                      f"afade=t=out:st={dur - 0.15:.2f}:d=0.15,volume={gain},adelay={ms}|{ms}[s{k}]")
         labels.append(f"[s{k}]")
-    graph.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=first,"
-                 "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
+    graph.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=first[a]")
+    mix = os.path.join(WORK, "mix.wav")
+    run(["ffmpeg", "-y"] + ins + ["-filter_complex", ";".join(graph), "-map", "[a]", "-c:a", "pcm_s24le", mix])
+    # Measured, then turned to -14 LUFS (YouTube's level), peaks held under -1 dB.
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", mix, "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    loud = float([ln for ln in r.stderr.splitlines() if ln.strip().startswith("I:")][-1].split()[1])
+    gain = -14.0 - loud
+    print(f"mix at {loud:.1f} LUFS; {gain:+.1f} dB")
     final = os.path.join(OUT, "bannerfall_trailer.mp4")
-    run(["ffmpeg", "-y"] + ins + ["-i", video, "-filter_complex", ";".join(graph),
-         "-map", f"{len(sfx) + 1}:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k",
+    run(["ffmpeg", "-y", "-i", video, "-i", mix, "-filter_complex",
+         f"[1:a]volume={gain:.2f}dB,alimiter=limit=0.89:attack=2:release=60:level=disabled[a]",
+         "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
          "-movflags", "+faststart", "-t", f"{total}", final])
     print(f"wrote {final} ({total:.1f}s)")
+    thumb = os.path.join(OUT, "bannerfall_thumbnail.jpg")
+    thumbnail(os.path.join(CLIPS, "battle_river", "f%08d.png" % int(10.5 * FPS)), thumb)
+    print(f"wrote {thumb}")
+
+
+def thumbnail(frame, path):
+    """A 1280x720 YouTube thumbnail: a battle with the wordmark over a darkened top."""
+    tw, th = 1280, 720
+    img = np.asarray(Image.open(frame).convert("RGB").resize((tw, th), Image.LANCZOS), dtype=np.float32)
+    shade = np.clip(1 - np.arange(th, dtype=np.float32)[:, None, None] / 330.0, 0, 1) * 0.82
+    img = img * (1 - shade) + np.array(NIGHT, dtype=np.float32) * shade
+    base = Image.fromarray(img.clip(0, 255).astype(np.uint8)).convert("RGBA")
+    mark = Image.open(WORDMARK).convert("RGBA")
+    mw = 1000
+    mark = mark.resize((mw, round(mark.height * mw / mark.width)), Image.LANCZOS)
+    shadow = Image.new("RGBA", mark.size, (0, 0, 0, 0))
+    shadow.putalpha(mark.getchannel("A").filter(ImageFilter.GaussianBlur(8)).point(lambda v: v * 3 // 4))
+    x = (tw - mw) // 2
+    base.alpha_composite(shadow, (x + 3, 22))
+    base.alpha_composite(mark, (x, 16))
+    base.convert("RGB").save(path, quality=92)
 
 
 if __name__ == "__main__":

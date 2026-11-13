@@ -26,7 +26,7 @@ const Taps = preload("res://tools/trailer/taps.gd")
 ## Landscape, a zoom under about 2.7 shows past the field's edges. The ground is drawn as
 ## the foe's land (a Kharzani foe: desert), whatever `biome` says.
 const SHOTS := {
-	"opening": {"kind": "opening"},
+	"opening": {"kind": "opening", "time_scale": 0.55},
 	"home": {"kind": "home", "culture": "vardish", "hour": 7.0, "silver": 2400, "renown": 340},
 	"warband": {"kind": "scene", "scene": "res://scenes/main_menu.tscn", "culture": "vardish"},
 	"map_fly": {"kind": "map", "culture": "vardish", "hour": 5.5, "speed": 2.0, "wait": true,
@@ -104,6 +104,8 @@ func _run() -> void:
 		return
 	gs.rng.seed = int(cfg.get("seed", 1))
 	seed(int(cfg.get("seed", 1)))
+	# Slow motion, rendered frame by frame (Movie Maker's clock is fixed, so nothing stutters).
+	Engine.time_scale = float(cfg.get("time_scale", 1.0))
 	match String(cfg["kind"]):
 		"opening":
 			gs.world = null
