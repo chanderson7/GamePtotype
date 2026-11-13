@@ -188,7 +188,7 @@ const FRONT_CONE := 0.25
 const LANE_WEIGHT := 1.6
 # A front-rank man with no one ahead (where his line overlaps a shorter one) may step this
 # far out of his place to fold in on the enemy's flank.
-const WING_LEASH := 20.0
+const WING_LEASH := 40.0
 ## How fast (radians a second) a fighting squad's line turns to face the squad it fights.
 const LINE_TURN := 0.5
 ## A line in contact stands square to its foe; one whose foe is further round than this

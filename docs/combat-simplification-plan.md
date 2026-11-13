@@ -300,14 +300,14 @@ ground, seed 4 in woods), the shipped code against this one:
 | | Before | After |
 | --- | --- | --- |
 | Facing flicks per battle | 10,998 | **0** |
-| Most men within 50 units of one point | 35.2 | 26.9 |
-| Companies those men come from | 4.2 | 3.0 |
-| Men nearest a man of another friendly company | 15.5% | 7.8% |
+| Most men within 50 units of one point | 35.2 | 28.5 |
+| Companies those men come from | 4.2 | 3.2 |
+| Men nearest a man of another friendly company | 15.5% | 9.0% |
 | Engaged companies fighting loose | 100% | 0% |
-| Battle length | 67 s | 93 s |
+| Battle length | 67 s | 85 s |
 
 Not reached: the phase targets of 22 men from 2.5 companies, under 3% merged, and no man
-beyond his tether and a body (about 18% of men in a big battle are further than that). In a
+beyond his tether and a body (about 17% of men in a big battle are further than that). In a
 1 v 1 fight men keep to their tether (`formation_tests.gd`: 0 to 0.4% strayed). In a
 12-company battle, where several companies meet, the rest comes from two places. Enemies
 stepping out to strike stand in the front rank's places, and that's the press of a fight.
@@ -344,9 +344,12 @@ Reassigning places to the nearest man once a second made no difference, so it is
   quarter less from the front) reached horse on *Hold*. Spearmen attacking holding horse
   lost 8 of 8. Bracing is for foot now, and spearmen win that fight 8 of 8 again.
 - **Tethers:** Hold 4, attack `FORMATION_LEASH` 10, horse `CAV_LEASH` 16 (was 22), flank
-  `WING_LEASH` 20 (was 40), schiltron 0, bows `SHOT_LEASH` 30. The shorter horse and flank
-  leashes cut the crowding (26.7 men from 3.0 companies, against 28.8 from 3.6). Bows step
-  up 30 so a company on *Hold* still looses at a mark just out of range, as it did before.
+  `WING_LEASH` 40, schiltron 0, bows `SHOT_LEASH` 30. A shorter flank leash (20) cut the
+  crowding further (26.9 men from 3.0 companies, 7.8% merged). But a braced line then won
+  the even fight it receives only 5 times in 12, because its end men no longer wrapped the
+  attacker's flank. And full battles cost the loser 54% of its men against auto-resolve's
+  43%. So it stayed at 40. Bows step up 30, so a company on *Hold* still looses at a mark
+  just out of range, as it did before.
 - **A line caught from the side wheels** to face its foe (`LINE_SQUARE`), at most as fast as
   its end man can walk round, so it doesn't leave its ends behind.
 - **Decided:** companies share a face by standing side by side, two foot to a foe as before.
