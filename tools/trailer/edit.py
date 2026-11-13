@@ -59,7 +59,7 @@ EDL = [
     {"shot": "talk_ravensford", "at": 5.2, "to": bar(15.67), "frame": (0, 0, 1080, 1500), "cap": LORDS},
     {"shot": "talk_qasr", "at": 0.6, "to": bar(17.33), "frame": (0, 0, 1080, 1500), "cap": LORDS},
     {"shot": "talk_kitayama", "at": 5.0, "to": bar(19), "frame": (0, 0, 1080, 1500), "cap": LORDS},
-    {"shot": "wedding", "at": 9.0, "to": bar(21), "frame": (0, 0, 1080, 1500),
+    {"shot": "wedding", "at": 14.6, "to": bar(21), "frame": (0, 0, 1080, 1500),
      "cap": ("Marry into a great house", "Feasts, dances, vows and pacts.", "left")},
     {"shot": "battle_title", "at": 5.0, "to": bar(23), "sfx": 0.9},
     {"shot": "battle_open", "at": 10.0, "to": bar(25), "sfx": 0.8,

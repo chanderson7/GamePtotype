@@ -22,6 +22,7 @@ const Taps = preload("res://tools/trailer/taps.gd")
 
 ## Battles: your people and theirs, the ground (open, hills, woods, river, pass, village),
 ## the hour, companies a side, and the camera (battle_cam.gd). "hud": keep the game's HUD.
+## Landscape, a zoom under about 2.7 shows past the field's edges.
 const SHOTS := {
 	"opening": {"kind": "opening"},
 	"home": {"kind": "home", "culture": "vardish", "hour": 7.0, "silver": 2400, "renown": 340},
@@ -51,19 +52,19 @@ const SHOTS := {
 	"battle_cavalry": {"kind": "battle", "culture": "kharzani", "foe": "ryumon", "site": "open",
 		"biome": "kharzan", "hour": 15.0, "seed": 8, "no_title": true, "cam": {"mode": "follow", "type": "cavalry", "team": 0, "zoom": 2.7}},
 	"battle_woods": {"kind": "battle", "culture": "ryumon", "foe": "vardish", "site": "woods",
-		"biome": "ryumon", "hour": 18.0, "seed": 4, "no_title": true, "cam": {"mode": "clash", "zoom": 2.7}},
+		"biome": "ryumon", "hour": 18.0, "seed": 4, "no_title": true, "cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_river": {"kind": "battle", "culture": "vardish", "foe": "ryumon", "site": "river",
-		"biome": "vardmark", "hour": 6.5, "seed": 9, "no_title": true, "cam": {"mode": "clash", "zoom": 2.5}},
+		"biome": "vardmark", "hour": 6.5, "seed": 9, "no_title": true, "cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_night": {"kind": "battle", "culture": "ryumon", "foe": "kharzani", "site": "hills",
 		"biome": "ryumon", "hour": 22.0, "seed": 14, "no_title": true, "cam": {"mode": "clash", "zoom": 2.8}},
 	"battle_archers": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open",
-		"biome": "vardmark", "hour": 16.5, "seed": 30, "no_title": true, "cam": {"mode": "follow", "type": "archers", "team": 1, "zoom": 2.6}},
+		"biome": "vardmark", "hour": 16.5, "seed": 30, "no_title": true, "cam": {"mode": "follow", "type": "archers", "team": 1, "zoom": 2.9}},
 	"battle_win": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open", "companies": 10, "foes": 5,
-		"biome": "vardmark", "hour": 17.5, "seed": 12, "no_title": true, "fast_until": 40.0, "cam": {"mode": "clash", "zoom": 2.2}},
+		"biome": "vardmark", "hour": 17.5, "seed": 12, "no_title": true, "fast_until": 40.0, "cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_result": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open", "companies": 8, "foes": 4,
 		"biome": "vardmark", "hour": 17.5, "seed": 12, "no_title": true, "hud": true, "fast_until": 60.0},
 	"battle_wide": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open", "companies": 12,
-		"biome": "vardmark", "hour": 17.0, "seed": 40, "no_title": true, "cam": {"mode": "clash", "zoom": 1.5, "zoom_to": 2.4, "zoom_time": 14.0}},
+		"biome": "vardmark", "hour": 17.0, "seed": 40, "no_title": true, "cam": {"mode": "clash", "zoom": 2.8, "zoom_to": 3.4, "zoom_time": 14.0}},
 }
 
 var gs
