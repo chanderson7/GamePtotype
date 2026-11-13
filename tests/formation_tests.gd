@@ -2,12 +2,15 @@
 ## A line stays wider than it is deep and doesn't turn round its foe once the lines meet; a
 ## holding company stands its ground; the man behind steps into a fallen man's place; each
 ## man steps out of his place only as far as his company's tether to strike; no more than
-## two men set on one enemy; bows shoot from their ranks; and riding down men running for
-## it, or fighting at a siege's walls, is still a scramble.
+## two men set on one enemy; bows shoot from their ranks; riding down men running for it,
+## or fighting at a siege's walls, is still a scramble; and in a whole battle nobody flicks
+## left and right (a man turning more than 60 degrees and back within 0.2 s).
 extends SceneTree
 
 const Sim = preload("res://scripts/battle/battle_sim.gd")
 const Troops = preload("res://scripts/data/troops.gd")
+const Units = preload("res://scripts/data/units.gd")
+const Commander = preload("res://scripts/battle/commander_ai.gd")
 
 var failures := 0
 
@@ -179,6 +182,46 @@ func _init() -> void:
 	sim.objective = Sim.OBJECTIVE_SIEGE
 	sim.squads[0].engaged = true
 	check(not sim.in_line(sim.squads[0]), "and in a siege, where walls take men one at a time")
+	sim.dispose()
+
+	# ---- a whole battle, the computer on both sides: nobody flicks left and right
+	var army := func(culture: String, base: int, shift: int) -> Array:
+		var out := []
+		for i in 10:
+			var t: String = Troops.ORDER[(i + shift) % 4]
+			var u := Units.recruit(culture, t)
+			out.append({"id": base + i, "type": t, "unit": u, "men": Units.full_size(u), "culture": culture, "xp": 0, "level": 1})
+		return out
+	seed(8)
+	sim = Sim.new()
+	sim.setup(army.call("vardish", 9000, 0), army.call("kharzani", 9100, 1), 8, {"type": "open", "seed": 8, "biome": "kharzan", "fair": true})
+	for team in [Sim.ENEMY, Sim.PLAYER]:
+		sim.ai[team] = Commander.new(team)
+		sim.ai[team].deploy(sim)
+	sim.start_battle()
+	var last := {}
+	var flicks := 0
+	var steps := 0
+	while sim.winner == -1 and steps < 30 * 240:
+		sim.step()
+		steps += 1
+		for sq in sim.squads:
+			if sq.routing:
+				continue
+			for so in sq.soldiers:
+				if not so.alive:
+					continue
+				var ang: float = so.facing.angle()
+				var was: Array = last.get(so, [ang, -999, 0.0])
+				var d := angle_difference(float(was[0]), ang)
+				was[0] = ang
+				if absf(d) > deg_to_rad(60.0):
+					if steps - int(was[1]) <= 6 and signf(d) != float(was[2]):
+						flicks += 1
+					was[1] = steps
+					was[2] = signf(d)
+				last[so] = was
+	check(sim.winner != -1 and flicks < 50, "a whole battle without men flicking left and right (%d flicks, %.0f s)" % [flicks, sim.time])
 	sim.dispose()
 
 	print("FAILURES: %d" % failures)
