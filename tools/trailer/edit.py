@@ -70,7 +70,7 @@ EDL = [
      "cap": ("Shield walls. Volleys. Charges.", "Read the field and give the order.", "left")},
     {"shot": "battle_river", "at": 12.0, "to": bar(31.5), "sfx": 0.4},
     {"shot": "battle_archers", "at": 9.0, "to": bar(33), "sfx": 0.4},
-    {"shot": "battle_night", "at": 14.0, "to": bar(34.5), "sfx": 0.4},
+    {"shot": "battle_night", "at": 18.5, "to": bar(34.5), "sfx": 0.4},
     {"shot": "battle_win", "at": 20.0, "to": bar(37.5), "sfx": 0.5},
     {"shot": "battle_wide", "at": 2.0, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
      "cap": ("Make your name", "", "low")},
