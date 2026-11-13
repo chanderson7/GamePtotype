@@ -391,6 +391,8 @@ var _castle_culture := Cultures.VARDISH
 ## Whose banners fly in a siege: the garrison's realm, and your own side's.
 var _garrison_realm := "vardmark"
 var _my_realm := "vardmark"
+## The realm the enemy fights for in the field ("bandits" for a band), for its banner.
+var _enemy_realm := "bandits"
 var _doodads: Array = []
 ## The land past the field's edge, and marks on the field itself, for looks only: trees
 ## and paddies beyond the edge, a track, crop strips or wind ripples on the ground.
@@ -614,6 +616,10 @@ func _ready() -> void:
 		_biome = _castle_culture
 		if GameState.world != null:
 			_garrison_realm = String(GameState.world.owner_of(siege_at))
+	# A lord's army flies its realm's banner; a band only roams a realm, under its own rag.
+	_enemy_realm = String(pending.get("enemy_faction", "bandits")) if bool(pending.get("is_lord", false)) else "bandits"
+	if not Heraldry.REALM_SIZES.has(_enemy_realm):
+		_enemy_realm = "bandits"
 	_my_realm = Heraldry.realm_of_culture(GameState.culture)
 	if GameState.is_crowned():
 		_my_realm = WorldData.CROWN
@@ -4083,7 +4089,7 @@ func _siege_vignette() -> Control:
 func _field_vignette() -> Control:
 	var c := Control.new()
 	c.name = "FieldVignette"
-	c.custom_minimum_size = Vector2(0, 168)
+	c.custom_minimum_size = Vector2(0, 204)
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	c.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	c.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -4110,14 +4116,20 @@ func _draw_field_vignette(c: Control, won: bool) -> void:
 		c.draw_set_transform(at, rng.randf() * TAU, Vector2(s, s))
 		c.draw_texture(Art.frame("corpse", team, 0, GameState.culture if team == Sim.PLAYER else _enemy_culture), -Art.pivot("corpse"), Color(1, 1, 1, 0.85))
 	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# The winners' standard up, the losers' down.
-	var up_team := Sim.PLAYER if won else Sim.ENEMY
-	var pole := Vector2(size.x * 0.5 + 40.0, size.y - 66.0)
-	c.draw_line(pole, pole - Vector2(0, 92), Color("6b4a2a"), 4.0)
-	_draw_flag(c, pole - Vector2(0, 92), FLAG * 1.6, up_team, Troops.INFANTRY, false, true, 0.0)
-	var down := Vector2(size.x * 0.5 - 90.0, size.y - 74.0)
-	c.draw_line(down, down + Vector2(-60, -14), Color(0.32, 0.22, 0.13, 0.9), 3.0)
-	_draw_flag(c, down + Vector2(-60, -14), FLAG, Sim.ENEMY if won else Sim.PLAYER, Troops.INFANTRY, true, false, deg_to_rad(-76.0))
+	# The winners' banner up and the losers' in the mud: each side's realm banner, as the
+	# map and the siege's picture show them (a band's own rag for bandits).
+	var up_realm := _my_realm if won else _enemy_realm
+	var down_realm := _enemy_realm if won else _my_realm
+	var lie := Transform2D(deg_to_rad(-78.0), Vector2(size.x * 0.5 - 104.0, size.y - 80.0))
+	c.draw_set_transform_matrix(lie)
+	Heraldry.realm_banner(c, down_realm, Rect2(-34.0, -40.0, 68.0, 80.0), true, true, lie)
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Standing: the banner in the upper part, its pole carried on down into the ground.
+	var ground_y := size.y - 52.0
+	var stand := Rect2(size.x * 0.5 + 6.0, 10.0, 120.0, (ground_y - 10.0) * 0.74)
+	var finial := Heraldry.realm_banner(c, up_realm, stand)
+	c.draw_circle(Vector2(finial.x + 3.0, ground_y + 1.0), 7.0, Color(0, 0, 0, 0.3))
+	c.draw_line(Vector2(finial.x, stand.end.y - 2.0), Vector2(finial.x, ground_y), Heraldry.POLE if up_realm != "ryumon" else Color("2a1d14"), 3.0)
 	if _vignette > 0.0:
 		for i in 6:
 			c.draw_rect(frame.grow(-i * 8.0), Color(0.02, 0.03, 0.08, _vignette * 0.12 * (1.0 - i / 6.0)), false, 8.0)
