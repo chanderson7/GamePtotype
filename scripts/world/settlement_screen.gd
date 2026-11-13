@@ -2399,7 +2399,7 @@ func _add_squads(col: VBoxContainer) -> void:
 		for s in GameState.army:
 			card.add_child(_squad_row(s, false))
 		return
-	card.add_child(_note("Fresh men water down experience · training raises wages"))
+	card.add_child(_note("Fresh men water down experience, never a level earned · training raises wages"))
 	var total := 0
 	var cheapest := 0
 	for s in GameState.army:

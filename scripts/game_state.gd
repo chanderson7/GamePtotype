@@ -3562,7 +3562,9 @@ func reinforce_cost(squad: Dictionary) -> int:
 
 
 ## Refill one squad with fresh recruits, in a town, if you can pay. Fresh men water down
-## the squad's experience toward its next level, but never undo training it has paid for.
+## the squad's experience toward its next level, but never a level it has earned (a squad
+## ready to train stays ready, whether you refill it first or train it first), and never
+## undo training it has paid for.
 func reinforce_squad(id: int) -> bool:
 	var s := squad_by_id(id)
 	if s.is_empty() or not in_town():
@@ -3576,7 +3578,8 @@ func reinforce_squad(id: int) -> bool:
 	var dilution_ratio := float(s["men"]) / float(full)
 	if has_specialization(Captains.DRILLMASTER):
 		dilution_ratio = 1.0 - (1.0 - dilution_ratio) * 0.5
-	s["xp"] = int(int(s["xp"]) * dilution_ratio)
+	var earned_floor := (Troops.level_for(int(s["xp"])) - 1) * Troops.XP_PER_LEVEL
+	s["xp"] = maxi(int(int(s["xp"]) * dilution_ratio), earned_floor)
 	s["men"] = full
 	s["wounded"] = 0
 	save_game()
