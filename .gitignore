@@ -21,3 +21,6 @@ __pycache__/
 
 # Session working files: screenshots, logs, mockup scripts
 /scratchpad/
+
+# Window size for trailer recordings (tools/trailer/record.sh writes and removes it)
+/override.cfg

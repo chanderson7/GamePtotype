@@ -1,0 +1,25 @@
+# shot             seconds  shape      (recorded by tools/trailer/record_all.sh)
+opening            8        portrait
+home               6        portrait
+warband            6        portrait
+map_fly            14       landscape
+map_isles          12       landscape
+map_ride           8        portrait
+talk_ravensford    13       portrait
+talk_qasr          13       portrait
+talk_kitayama      13       portrait
+town_highcliff     7        portrait
+town_khalun        7        portrait
+town_kurogane      7        portrait
+wedding            22       portrait
+battle_title       10       landscape
+battle_open        30       landscape
+battle_hud         20       portrait
+battle_cavalry     25       landscape
+battle_woods       25       landscape
+battle_river       25       landscape
+battle_night       25       landscape
+battle_archers     20       landscape
+battle_win         35       landscape
+battle_result      45       portrait
+battle_wide        20       landscape
