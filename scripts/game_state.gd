@@ -2368,10 +2368,9 @@ func lay_siege(id: String) -> Dictionary:
 		return {"ok": false, "reason": "You're camped there already."}
 	if not siege_camp.is_empty():
 		break_siege()
+	# The siege sheet says the rest (what's built, the garrison's food): no notice over it.
 	siege_camp = SiegeCamp.new_camp(id, world.hour)
-	var place: String = WorldData.settlement(id)["name"]
-	_note("You lay siege to %s. Your men lash two ladders together; the garrison has food for %d days." % [
-		place, int(ceil((float(siege_camp["food_until"]) - world.hour) / 24.0))])
+	_siege_hour = world.hour
 	save_game()
 	return {"ok": true, "reason": ""}
 
