@@ -95,6 +95,10 @@ var map_notice := ""
 ## was settled, a crown won or lost; empty for everything else, which the map titles by
 ## where you are.
 var map_notice_title := ""
+## The waiting message follows a battle whose result card was on screen: what's left (a
+## contract done, regard won) passes as a line over the map that fades on its own, not a
+## card to dismiss.
+var map_notice_passing := false
 ## Things of one kind done in a row (captives released, lords sworn), kept apart from the
 ## running notice so the map can show them together, a heading, who, and the totals once,
 ## rather than a sentence each. Each is {kind, name, ...}: "released" carries the realm,
@@ -222,6 +226,7 @@ func new_warband() -> void:
 	contract = {}
 	map_notice = ""
 	map_notice_title = ""
+	map_notice_passing = false
 	map_notice_items = []
 	desertion_warning = ""
 	hired_heroes = []
@@ -532,7 +537,13 @@ func complete_job(job_id: String) -> Dictionary:
 				add_realm_relation(owner_realm, r_rel)
 
 	var title: String = String(job.get("title", "Contract"))
-	_note("Completed: %s. Claimed %d silver and +%d renown." % [title, r_silver, r_renown])
+	# Only what it paid: a job for regard alone doesn't claim "0 silver".
+	var paid: Array = []
+	if r_silver > 0:
+		paid.append("%d silver" % r_silver)
+	if r_renown > 0:
+		paid.append("+%d renown" % r_renown)
+	_note("Completed: %s.%s" % [title, (" Claimed %s." % " and ".join(paid)) if not paid.is_empty() else ""])
 	var lord_line := LordTalk.job_done(self, job)
 	if lord_line != "":
 		_note(lord_line)
@@ -3904,9 +3915,9 @@ func has_notice() -> bool:
 
 
 ## The waiting message, its title and its grouped items, taken off the queue:
-## {text, title, items}.
+## {text, title, items, passing} (passing: see map_notice_passing).
 func take_map_notice() -> Dictionary:
-	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items}
+	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items, "passing": map_notice_passing}
 	clear_notice()
 	return out
 
@@ -3915,6 +3926,7 @@ func take_map_notice() -> Dictionary:
 func clear_notice() -> void:
 	map_notice = ""
 	map_notice_title = ""
+	map_notice_passing = false
 	map_notice_items = []
 
 
@@ -5162,6 +5174,8 @@ func apply_result(result: Dictionary) -> void:
 	if map_notice != "":
 		map_notice = map_notice.replace("  ", " ")
 		map_notice_title = "After the battle"
+		# Its result card has had the battle's say: the rest passes over the map.
+		map_notice_passing = shown
 
 
 ## The warband left the field before the fight: back the way it came with a little

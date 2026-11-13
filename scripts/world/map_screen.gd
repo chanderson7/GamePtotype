@@ -208,11 +208,14 @@ func _ready() -> void:
 		_open_desertion_warning()
 	elif Scenes.map_raid != "" and Scenes.map_raid == world.here():
 		_open_raid(Scenes.map_raid)
-	elif GameState.has_notice():
+	elif GameState.has_notice() and not _notice_passes():
 		var notice: Dictionary = GameState.take_map_notice()
 		_open_notice(notice["text"], notice["title"], notice["items"])
 	elif world.here() != "":
 		_open_here()
+	# Back from a battle whose result card said its piece: what's left passes over the map.
+	if _notice_passes():
+		_toast(GameState.take_map_notice()["text"])
 	Scenes.map_raid = ""
 	# Back from People & Letters with a place to look at (or ride to).
 	if Scenes.map_focus != "":
@@ -357,7 +360,9 @@ func _process(delta: float) -> void:
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
-	if GameState.has_notice() and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
+	if _notice_passes():
+		_toast(GameState.take_map_notice()["text"])
+	elif GameState.has_notice() and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
 		var notice: Dictionary = GameState.take_map_notice()
 		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road", notice["items"])
 		Sound.play("page")
@@ -1407,8 +1412,16 @@ func _pass_line(p) -> String:
 	return lines[absi(int(p.id)) % lines.size()] % p.name
 
 
+## Whether the waiting message only passes over the map (what a battle you watched left to
+## say), rather than coming up on a card: not when it has releases or oaths to group, and
+## not when the warband is gone.
+func _notice_passes() -> bool:
+	return GameState.map_notice_passing and GameState.map_notice != "" and GameState.map_notice_items.is_empty() \
+		and GameState.total_men() > 0 and GameState.desertion_warning == ""
+
+
 ## A short line under the top bar that fades on its own, for something worth seeing that
-## doesn't need an answer.
+## doesn't need an answer. A longer one stays longer.
 func _toast(text: String) -> void:
 	if _toast_panel == null:
 		_toast_panel = PanelContainer.new()
@@ -1441,7 +1454,7 @@ func _toast(text: String) -> void:
 	if _toast_tween != null:
 		_toast_tween.kill()
 	_toast_tween = create_tween()
-	_toast_tween.tween_interval(3.0)
+	_toast_tween.tween_interval(clampf(1.5 + float(text.length()) * 0.035, 3.0, 8.0))
 	_toast_tween.tween_property(_toast_panel, "modulate:a", 0.0, 0.6)
 	_toast_tween.tween_callback(func(): _toast_panel.visible = false)
 
