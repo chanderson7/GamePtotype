@@ -2211,11 +2211,18 @@ func _check_drill() -> void:
 	var s: Dictionary = gs.army[0]
 	var full := Troops.full_size(s["type"])
 	s["men"] = full / 2
-	s["xp"] = Troops.XP_PER_LEVEL
+	s["xp"] = Troops.XP_PER_LEVEL - 4
 	var cost: int = gs.reinforce_cost(s)
 	_expect(cost == Economy.recruit_cost(s["type"], full - full / 2) and gs.reinforce() == cost and gs.silver == 5000 - cost \
-			and int(s["men"]) == full and int(s["xp"]) == Troops.XP_PER_LEVEL / 2,
+			and int(s["men"]) == full and int(s["xp"]) == (Troops.XP_PER_LEVEL - 4) / 2,
 		"reinforcing pays %d silver for %d fresh men, who water down the squad's experience" % [cost, full - full / 2])
+	# A squad with its next level earned keeps it: refilling first doesn't cost the training.
+	s["men"] = full / 2
+	s["xp"] = Troops.XP_PER_LEVEL + 6
+	var ready_before: bool = gs.can_train(s)
+	gs.reinforce()
+	_expect(ready_before and gs.can_train(s) and int(s["men"]) == full and int(s["xp"]) == Troops.XP_PER_LEVEL,
+		"refilling a squad ready to train leaves it ready (its progress past the level is watered down to %d xp)" % int(s["xp"]))
 	s["xp"] = Troops.XP_PER_LEVEL
 	var wage := Economy.daily_wage(s)
 	var branch: String = Units.branches(s["unit"])[0]

@@ -17,6 +17,7 @@ const MapTerrain = preload("res://scripts/world/map_terrain.gd")
 const MapBackdrop = preload("res://scripts/world/map_backdrop.gd")
 const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const SiegeCamp = preload("res://scripts/world/siege_camp.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
@@ -207,11 +208,14 @@ func _ready() -> void:
 		_open_desertion_warning()
 	elif Scenes.map_raid != "" and Scenes.map_raid == world.here():
 		_open_raid(Scenes.map_raid)
-	elif GameState.has_notice():
+	elif GameState.has_notice() and not _notice_passes():
 		var notice: Dictionary = GameState.take_map_notice()
 		_open_notice(notice["text"], notice["title"], notice["items"])
 	elif world.here() != "":
 		_open_here()
+	# Back from a battle whose result card said its piece: what's left passes over the map.
+	if _notice_passes():
+		_toast(GameState.take_map_notice()["text"])
 	Scenes.map_raid = ""
 	# Back from People & Letters with a place to look at (or ride to).
 	if Scenes.map_focus != "":
@@ -356,7 +360,9 @@ func _process(delta: float) -> void:
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
-	if GameState.has_notice() and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
+	if _notice_passes():
+		_toast(GameState.take_map_notice()["text"])
+	elif GameState.has_notice() and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
 		var notice: Dictionary = GameState.take_map_notice()
 		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road", notice["items"])
 		Sound.play("page")
@@ -1141,7 +1147,7 @@ func _open_here() -> void:
 		buttons[0][2] = false
 		buttons.push_front(["Wedding", _on_begin_wedding, true, "rings"])
 	if GameState.siege_check(id)["ok"]:
-		buttons.push_front(["Storm", _open_siege.bind(id), true, "storm"])
+		buttons.push_front(["Siege" if GameState.siege_camp_at(id) else "Storm", _open_siege.bind(id), true, "storm"])
 		buttons[1][2] = false
 	elif GameState.raid_check(id)["ok"]:
 		buttons.push_front(["Raid the village", _open_raid.bind(id), true, "fire"])
@@ -1406,8 +1412,16 @@ func _pass_line(p) -> String:
 	return lines[absi(int(p.id)) % lines.size()] % p.name
 
 
+## Whether the waiting message only passes over the map (what a battle you watched left to
+## say), rather than coming up on a card: not when it has releases or oaths to group, and
+## not when the warband is gone.
+func _notice_passes() -> bool:
+	return GameState.map_notice_passing and GameState.map_notice != "" and GameState.map_notice_items.is_empty() \
+		and GameState.total_men() > 0 and GameState.desertion_warning == ""
+
+
 ## A short line under the top bar that fades on its own, for something worth seeing that
-## doesn't need an answer.
+## doesn't need an answer. A longer one stays longer.
 func _toast(text: String) -> void:
 	if _toast_panel == null:
 		_toast_panel = PanelContainer.new()
@@ -1440,7 +1454,7 @@ func _toast(text: String) -> void:
 	if _toast_tween != null:
 		_toast_tween.kill()
 	_toast_tween = create_tween()
-	_toast_tween.tween_interval(3.0)
+	_toast_tween.tween_interval(clampf(1.5 + float(text.length()) * 0.035, 3.0, 8.0))
 	_toast_tween.tween_property(_toast_panel, "modulate:a", 0.0, 0.6)
 	_toast_tween.tween_callback(func(): _toast_panel.visible = false)
 
@@ -3077,14 +3091,16 @@ func _open_crown(start_tab: String = "realm") -> void:
 		_focus_place(id))
 
 
-## Before an assault: the garrison, the walls, and the odds.
+## Before an assault: the garrison, the walls, and the odds; and the siege itself, if
+## you've laid one: what's built and building, what can be, the garrison's food, the walls'
+## state. You can storm whenever you like, with whatever you have.
 func _open_siege(id: String) -> void:
 	var check: Dictionary = GameState.siege_check(id)
 	if not check["ok"]:
 		_open_notice(String(check["reason"]), "The walls")
 		return
 	var place: String = Data.settlement(id)["name"]
-	var walls: float = float(Lords.WALLS[check["kind"]])
+	var walls: float = GameState.siege_walls(id)
 	var fighters: Array = GameState.army.filter(func(s): return int(s["men"]) > 0)
 	var garrison: Array = world.garrisons.get(id, [])
 	var allies: Array = GameState.siege_allies(id)
@@ -3092,11 +3108,29 @@ func _open_siege(id: String) -> void:
 	for a in allies:
 		ally_men += int(a["men"])
 	fighters = fighters + allies
-	var body := "Batter down the gate under their archers, then rout the garrison. A gate still standing when time runs out means the walls held."
+	var camped: bool = GameState.siege_camp_at(id)
+	var camp: Dictionary = GameState.siege_camp
+	var body := "Two ladders, lashed together where you stand, and axes for the gate. Lay siege to build a ram, a tower and stone throwers first, and to starve them while you do."
+	if camped:
+		var built: Array = SiegeCamp.kit(camp)
+		var names := PackedStringArray()
+		for k in built:
+			if k != "ladders":
+				names.append(SiegeCamp.engine_name(String(k), GameState.culture).to_lower())
+		body = "Camped before the walls. %s" % ("Ready: ladders, %s." % ", ".join(names) if not names.is_empty() else "Ready: two ladders.")
+		if String(camp.get("building", "")) != "":
+			body += " Building: %s, %d hrs more." % [SiegeCamp.engine_name(String(camp["building"]), GameState.culture).to_lower(), int(ceil(float(camp["left"])))]
 	if garrison.is_empty():
 		body = "The walls stand empty. It is yours for the taking."
-	_show_sheet("siege", "Storm %s" % place, body, [["Lead", _on_storm.bind(id), true, "storm"],
-		["Send in", _on_storm_send.bind(id), false, "advance"], ["Back", _open_here, false, "back"]])
+	var buttons := [["Lead", _on_storm.bind(id), true, "storm"], ["Send in", _on_storm_send.bind(id), false, "advance"]]
+	if camped:
+		buttons.append(["Wait %dh" % WAIT_HOURS, _on_siege_wait.bind(id), false, "revert"])
+		buttons.append(["Break camp", _on_break_siege.bind(id), false, "retreat"])
+	elif not garrison.is_empty():
+		buttons.push_front(["Lay siege", _on_lay_siege.bind(id), true, "keep"])
+		buttons[1][2] = false
+	buttons.append(["Back", _open_here, false, "back"])
+	_show_sheet("siege", ("Siege of %s" if camped else "Storm %s") % place, body, buttons)
 	var mine := GameState.total_men() + ally_men
 	var theirs := int(check["men"])
 	var top := float(maxi(1, maxi(mine, theirs)))
@@ -3108,10 +3142,103 @@ func _open_siege(id: String) -> void:
 	if not garrison.is_empty():
 		var odds: Dictionary = AutoResolve.odds(fighters, garrison, null, "rout", walls)
 		chips.append(Widgets.chip("Can succeed" if odds["player_wins"] else "Would fail", Style.MORALE_HIGH if odds["player_wins"] else Style.MORALE_LOW))
+	if SiegeCamp.breached(world, id):
+		chips.append(Widgets.chip("Walls breached", Style.MORALE_HIGH, "", "breach"))
+	elif SiegeCamp.weakest_wall(world, id) < 0.999:
+		chips.append(Widgets.chip("Wall %d%%" % int(SiegeCamp.weakest_wall(world, id) * 100.0), Style.MORALE_MID, "", "walls"))
+	if camped:
+		var food_days := int(ceil(maxf(0.0, float(camp["food_until"]) - world.hour) / 24.0))
+		chips.append(Widgets.chip("Their food: %d day%s" % [food_days, "" if food_days == 1 else "s"], Style.MORALE_HIGH if food_days <= 1 else Style.MORALE_MID, "", "food"))
+	var works: Array = SiegeCamp.defences(world, id, GameState.fief_works(id))
+	var work_words := PackedStringArray()
+	if works.count("bolt") > 0:
+		work_words.append("%d bolt throwers" % works.count("bolt"))
+	if works.has("oil"):
+		work_words.append("oil")
+	if works.has("yard_thrower"):
+		work_words.append("a thrower")
+	if not work_words.is_empty():
+		chips.append(Widgets.chip(", ".join(work_words).capitalize(), Style.MORALE_LOW, "", "keep"))
 	var row := Widgets.chip_row(chips)
 	row.name = "SiegeChips"
 	sheet_extra.add_child(row)
+	if camped:
+		sheet_extra.add_child(_siege_builds(id))
 	sheet_extra.visible = true
+
+
+## The camp's build list: each engine with its hours (for the men you have) and silver, and
+## Build; throwers knocking at the walls each day, or not.
+func _siege_builds(id: String) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.name = "SiegeBuilds"
+	col.add_theme_constant_override("separation", 6)
+	var camp: Dictionary = GameState.siege_camp
+	var built: Array = camp.get("built", [])
+	var men: int = GameState.siege_builders(id)
+	for kind in SiegeCamp.ORDER:
+		var max_n := int(SiegeCamp.BUILD[kind]["max"])
+		var have := built.count(kind)
+		var cost: Dictionary = SiegeCamp.cost(kind, GameState.culture)
+		var hours := SiegeCamp.build_hours(kind, GameState.culture, men)
+		var name := SiegeCamp.engine_name(kind, GameState.culture)
+		var row := HBoxContainer.new()
+		row.name = "Build_%s" % kind
+		row.add_theme_constant_override("separation", 10)
+		var words := Style.label("%s%s" % [name, " (%d/%d)" % [have, max_n] if max_n > 1 else ""], Style.SMALL, Style.TEXT)
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.tooltip_text = String(SiegeCamp.BUILD[kind]["blurb"])
+		row.add_child(words)
+		if have >= max_n:
+			row.add_child(Widgets.chip("Built", Style.MORALE_HIGH, "", "keep"))
+		elif String(camp.get("building", "")) == kind:
+			row.add_child(Widgets.chip("%d hrs" % int(ceil(float(camp["left"]))), Style.MORALE_MID, "", "clock"))
+		else:
+			var can: Dictionary = SiegeCamp.can_build(camp, kind, GameState.culture, GameState.silver)
+			var b := _button("Build · %d hrs" % int(ceil(hours)), _on_siege_build.bind(id, kind))
+			b.disabled = not bool(can["ok"])
+			b.tooltip_text = String(can["reason"]) if b.disabled else String(SiegeCamp.BUILD[kind]["blurb"])
+			row.add_child(Widgets.priced(b, [["silver", str(int(cost["silver"])), Style.ENEMY_LIGHT if GameState.silver < int(cost["silver"]) else Style.TEXT]]) if int(cost["silver"]) > 0 else b)
+		col.add_child(row)
+	if built.has("thrower"):
+		var bomb := _button("Bombarding the walls each day" if bool(camp.get("bombard", true)) else "Not bombarding", func():
+			GameState.siege_toggle_bombard()
+			_open_siege(id))
+		bomb.name = "Bombard"
+		col.add_child(bomb)
+	return col
+
+
+func _on_lay_siege(id: String) -> void:
+	var r: Dictionary = GameState.lay_siege(id)
+	if not bool(r["ok"]):
+		_open_notice(String(r["reason"]), "The walls")
+		return
+	Sound.play("ladders", -4.0)
+	_open_siege(id)
+	_sync_layers()
+
+
+func _on_siege_build(id: String, kind: String) -> void:
+	var r: Dictionary = GameState.siege_build(kind)
+	if not bool(r["ok"]):
+		_open_notice(String(r["reason"]), "The camp")
+		return
+	Sound.play("coins")
+	_refresh_hud()
+	_open_siege(id)
+
+
+func _on_siege_wait(id: String) -> void:
+	if world.wait(float(WAIT_HOURS)):
+		_close_sheet()
+
+
+func _on_break_siege(id: String) -> void:
+	GameState.break_siege()
+	_close_sheet()
+	_refresh_hud()
+	_sync_layers()
 
 
 ## Before a raid: what the village holds, what burning it costs, and whether its militia

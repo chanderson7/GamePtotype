@@ -95,6 +95,25 @@ func _init() -> void:
 		"one settled without the battle screen still tells its losses and spoils on the map")
 	gs.take_map_notice()
 
+	# Fought on the battle screen with something left to say (a contract it finished), the
+	# rest passes over the map as a line that fades: no After the battle card to dismiss.
+	var left_bands: Array = w.bands()
+	w.encounter = left_bands[0].id
+	gs.start_encounter_battle()
+	gs.pending_battle["objective"] = "rout"
+	gs._note("Completed: Clear the Sand Viper raiders.")
+	gs.apply_result({"won": true, "reason": "rout", "lost": 1, "killed": 8, "squads": {}, "shown": true})
+	check(gs.map_notice_passing and gs.map_notice.contains("Sand Viper"), "what a watched battle leaves to say is marked to pass, not to stop you")
+	w.encounter = -1
+	change_scene_to_file("res://scenes/world_map.tscn")
+	await process_frame
+	await process_frame
+	map = current_scene
+	check(map._sheet != "notice" and map._toast_panel != null and map._toast_panel.visible and map._toast_label.text.contains("Sand Viper"),
+		"back on the map it passes as a fading line, with no After the battle card (sheet %s)" % map._sheet)
+	check(not gs.has_notice() and not gs.map_notice_passing, "and is told once")
+	map._close_sheet()
+
 	# Pulling out before the lines meet is riding away: no battle counted, no defeat, no ride home.
 	var fought: int = gs.battles
 	var at_node: String = w.player().node
