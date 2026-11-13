@@ -66,7 +66,7 @@ EDL = [
      "cap": ("Lead every company", "Real-time squad battles, sized for your hand.", "low")},
     {"shot": "battle_cavalry", "at": 8.0, "to": bar(26.5), "sfx": 0.4},
     {"shot": "battle_woods", "at": 12.0, "to": bar(28), "sfx": 0.4},
-    {"shot": "battle_hud", "at": 12.0, "to": bar(30), "sfx": 0.35,
+    {"shot": "battle_hud", "at": 14.5, "to": bar(30), "sfx": 0.35,
      "cap": ("Shield walls. Volleys. Charges.", "Read the field and give the order.", "left")},
     {"shot": "battle_river", "at": 12.0, "to": bar(31.5), "sfx": 0.4},
     {"shot": "battle_archers", "at": 9.0, "to": bar(33), "sfx": 0.4},
