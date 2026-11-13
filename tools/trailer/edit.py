@@ -61,7 +61,7 @@ EDL = [
     {"shot": "talk_kitayama", "at": 5.0, "to": bar(19), "frame": (0, 0, 1080, 1500), "cap": LORDS},
     {"shot": "wedding", "at": 9.0, "to": bar(21), "frame": (0, 0, 1080, 1500),
      "cap": ("Marry into a great house", "Feasts, dances, vows and pacts.", "left")},
-    {"shot": "battle_title", "at": 0.0, "to": bar(23), "sfx": 0.9},
+    {"shot": "battle_title", "at": 5.0, "to": bar(23), "sfx": 0.9},
     {"shot": "battle_open", "at": 10.0, "to": bar(25), "sfx": 0.8,
      "cap": ("Lead every company", "Real-time squad battles, sized for your hand.", "low")},
     {"shot": "battle_cavalry", "at": 8.0, "to": bar(26.5), "sfx": 0.8},
