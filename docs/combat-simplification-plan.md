@@ -5,7 +5,9 @@
 - **Goal:** two things seen in battle footage. First, men who flick left and right many
   times a second while their company moves. Second, attacks that end with four to nine
   companies piled onto one spot as a single mixed blob. The flicker has a small, safe fix.
-  The pile-up needs a simpler melee: the company, not the man, is the thing that fights.
+  The pile-up needs a clearer split of roles: the **company** decides where to fight (a
+  stretch of one side of its foe, never its centre), and each **man** fights from his place
+  in the ranks, stepping out of line to strike and back, on a short tether.
 
 All numbers below come from `tools/battle_probe.gd`, which fights a seeded battle headless
 with the computer on both sides:
@@ -123,79 +125,124 @@ Each piece below is reasonable alone; together they make the scrum.
 | Men standing nearest a man of another friendly company | 11% | 16% |
 | Engaged companies fighting loose | 100% | 75% |
 
-## 3. The simpler model: blocks that meet at a front
+## 3. How other games do it
 
-**The company is what fights; its men are its picture.** A company is a block: a centre,
-a facing, and so many files by so many ranks. It moves, turns at a limited rate, and stops
-when it touches another block. When blocks touch, the combat is worked out along the line
-where they touch, not man by man. Men always stand in their slots. The lunge, flinch,
-shove and fall the screen already draws make them look alive.
+Most games handle automatic melee in one of four ways:
 
-### Approach: a stretch of a face, not the centre
+1. **Every man for himself.** Each soldier goes for the nearest enemy. This is Bannerfall
+   today, and it's what Total War does when a group is ordered onto one target: a
+   Warhammer guide warns that attacking with a hotkey group makes them "converge and blob
+   up on the single target you've selected" ([gamepressure][tww-blob]). Bannerlord's
+   *Charge* is the same: troops advance into melee and break the formation's shape
+   ([gamepressure][bl-charge]).
+2. **A formation with a tether.** Men fight one on one but are held to their place.
+   - Bannerlord splits formation AI from individual AI. A soldier "told to hold in a shield
+     wall formation … should act defensively and try to maintain its position"
+     ([altchar][bl-ai], [gamebanshee][bl-blog]). Its *Engage* order closes with the enemy
+     while keeping the unit's spread ([gamepressure][bl-charge]).
+   - A popular mod adds an aggression setting per formation: aggressive breaks ranks more
+     often, defensive keeps formation ([nexus][bl-mod]).
+   - Total War: Rome II made "guard mode" the default, so units don't chase unless ordered
+     ([forums.totalwar.org][rome2-guard]).
+   - Rome II and Warhammer III Cathay infantry have a *formation attack* toggle that keeps
+     the unit clustered and hard to break ([steam][r2-fa], [steam][tww3-fa]).
+3. **Combat along the front.** Medieval: Total War worked out melee for the men in contact.
+   Each man strikes one adjacent enemy but can be struck by many. A spear unit's rear
+   ranks add defence and charge (two ranks for spears, four for pikes). Each round, a man's
+   chance to kill is about 1.9% × 1.2^(attack − defence) ([MTW wiki][mtw], [totalwar.org
+   guide][mtw-guide], [forum][mtw-forum]). Field of Glory and Ultimate General resolve
+   whole units the same way.
+4. **Attack slots round a target.** Classic RTS melee (Warcraft III-style surrounds): the
+   target has a ring of evenly spaced slots, each attacker takes the nearest free one, and
+   a latecomer with no free slot waits or picks another target. This is common practice
+   rather than anything one game documents; searching found only developers asking for it
+   ([unity][rts-surround], [unreal][ue-block]).
 
-- Every block has four faces (front, two flanks, rear). Each face's width comes from its
+**What Bannerfall takes from them.** Approach 2 for men, so they still step out and
+strike, as you want. Approach 4 at company level, so companies claim a stretch of a
+foe's side instead of its centre. And one idea from approach 3: rear ranks stay back and
+step up, while spears strike from the second rank. The code for approach 2 already exists:
+it's the line fight behind `formation_melee` (`FORMATION_LEASH := 10`, `CAV_LEASH := 22`,
+`WING_LEASH := 40`). It is switched off, though, and even switched on it covers only foot
+fighting foot.
+
+## 4. The model: companies take a side, men fight on a tether
+
+### The company: where to fight
+
+- Every company has four faces (front, two flanks, rear). Each face's width comes from its
   files and ranks.
-- An attacker claims a stretch of one face that is as wide as its own front, on its side
-  of the foe. Its goal is that stretch, set back by its own half-depth. Its goal is never
+- An attacker claims a stretch of one face, as wide as its own front, on its side of the
+  foe. Its goal is that stretch, set back by its own half-depth. Its goal is never
   `foe.avg`.
 - A second attacker on the same face lines up beside the first if there's room. Otherwise
   it takes another face, or another enemy, or waits behind as a reserve (as attack
   positions do today).
-- The claim is made when the target is chosen. It is kept until that face fills up or the
-  foe turns more than 45° (hysteresis built in). Going round a corner is two fixed
-  waypoints, chosen once.
+- The claim is made when the target is chosen and kept until that face fills up or the foe
+  turns more than 45° (hysteresis built in). Going round a corner is two fixed waypoints,
+  chosen once.
+- **Companies don't overlap.** A moving company stops when its front touches another
+  company, friend or foe, and passes a friend beside it (today's `_make_room` idea, at
+  company level).
+- **The centre never follows the men.** The company's place moves only when the company
+  moves. This deletes `sq.center = sq.center.lerp(avg, 0.15)` (`:2408`), the line that
+  drags a company into the press after its own men.
 
-### Contact: blocks don't overlap
+### The man: whom to hit, and how far he may go
 
-- Company-to-company collision uses oriented rectangles. A moving block stops at contact,
-  friend or foe. A friend in the way is passed beside (today's `_make_room` idea, at block
-  level).
-- Contact records which face of the defender was touched, from the attacker's position
-  against the defender's facing (the same rule `_side_of` uses). So flank and rear stay
-  exactly as meaningful as now, and simpler to read.
+- **His place.** Every man has a slot in the ranks (`line_slot`, kept by `_rank_up`). When
+  a front-rank man falls, the man behind steps into his place.
+- **His foe.** He looks for the nearest enemy ahead of his place, favouring his own lane
+  (`_line_target`, today's line-fight rule). This applies to every troop type, against
+  every enemy: foot against horse and bowmen no longer goes loose.
+- **No dogpiles.** At most two men may set on one enemy at a time (a per-man attacker
+  count, like the per-squad `focused_by`). If his first choice is taken, he takes the next.
+- **The tether.** To strike, he may step out of his place by up to the leash, strike
+  (the existing swing, cooldown, lunge and recoil), and walk back once no foe is within
+  reach plus leash. The leash depends on what the company is doing:
 
-### Resolution along the front
+  | Stance | Leash | Notes |
+  | --- | --- | --- |
+  | Hold, braced, shield wall | about 4 | barely a step: the line takes the blow |
+  | Advance or attack | 10 (`FORMATION_LEASH`) | a step and a lunge |
+  | Schiltron | 0 | the ring doesn't open |
+  | Horse | 22 (`CAV_LEASH`) | ride into the press, then *Wheel* out to charge again |
+  | A front man with no foe ahead | 40 (`WING_LEASH`) | folds in on an overlapped flank |
 
-For each pair of blocks in contact, every tick:
+- **Rear ranks** stay in their slots and push up. Spears strike from the second rank
+  where their reach allows.
+- **He turns, he doesn't snap.** His facing turns at a capped rate toward his foe. This is
+  presentation only.
+- Blows, damage, matchups, flank and rear (`_side_of`), brace, shield wall, bonds, fury and
+  captains are all **unchanged**. That keeps the balance shift smaller than replacing them
+  would.
 
-- **Men fighting** = the overlap of the two touching edges ÷ man spacing, capped at the
-  files. Spearmen also strike from the second rank (×1.5): that is the reach advantage,
-  kept simple.
-- **Damage** = men fighting × damage × the matchup bonus (`sq.bonus`). Then multiply in, as
-  today: flank or rear (`FLANK_POWER`, `REAR_POWER`, rear morale shock), brace, shield wall,
-  bonds, fury, captains, terrain (height, wood, ford, by where the block stands).
-- **Casualties come off the back ranks.** The front stays full until the company is thin
-  (`_rank_up` already does the bookkeeping). The screen draws a front-rank man falling and
-  the man behind stepping up.
-- **Ranged:** volleys and arrows as now, loosed from the block. Bowmen caught in contact
-  fight at the front with blades (`SIDEARM`).
-- **Cavalry:** a contact made above charge speed is the charge (impact and shove, as now).
-  After a few seconds in contact the riders wheel out to charge again, which already
-  exists. Horse never become a loose swarm.
-- **Schiltron:** a block with no flanks or rear: every face counts as front.
+### Rejected alternative: front math only
+
+Approach 3 alone (damage worked out from the men in contact, men just a picture) is simpler
+and cheaper. But nobody would step out to strike, and the death roll, kill counts and
+individual blows would lose their footing. Keep it in reserve if phones can't afford
+per-man fighting in the biggest battles.
 
 ### What goes away
 
-- The loose melee: `_pick_target`, `_target_ok`, men walking in a fight, and the centre
-  lerping after them.
-- `_fight_in_line`, `_line_target`, `_wing_target`, the `formation_melee` flag and its
-  grace exceptions.
-- `_steer`'s step-by-step dodging; the side/corner machinery of attack positions
-  (`_side_point`, `_side_cost`, `_reach_out`). Face claims and two-waypoint corners
-  replace all of it.
-- The man-against-man separation solver in fights (keep a cheap one for routers and the
-  dead).
-
-The cost of a fight drops from every man against every nearby man to one calculation per
-pair of touching companies.
+- The loose melee: `_pick_target`'s scramble, `_target_ok`'s "anyone within 50 units",
+  and the centre following the men.
+- The exceptions that send a fight loose (`_keeps_rank`: horse, bowmen and anyone fighting
+  them) and the `formation_melee` flag. Its line fight becomes the only fight.
+- `_steer`'s step-by-step dodging, and attack positions' side and corner machinery
+  (`_side_point`, `_side_cost`, `_reach_out`). Face claims and two-waypoint corners replace
+  them.
 
 ### What stays
 
-All the orders and controls (Advance, Hold, targets, march, lines, slow time), abilities,
-morale and routing, captains, the death roll, bonds, temperaments and the commander AI's
-plans, terrain rules, and every bit of presentation in `combat-feel-plan.md`.
+- All the orders and controls (Advance, Hold, targets, march, lines, slow time).
+- Abilities, morale and routing, captains, the death roll, bonds.
+- Temperaments and the commander AI's plans, and the terrain rules.
+- Every bit of presentation in `combat-feel-plan.md`.
+- Sieges keep their man-by-man fight at the wall for now (see below).
 
-## 4. Phases
+## 5. Phases
 
 Each phase lands behind a flag, the way `formation_melee` did. Tests must be green at
 every phase, and `-- --balance` must pass before a flag's default flips.
@@ -203,15 +250,16 @@ every phase, and `-- --balance` must pass before a flag's default flips.
 | Phase | What | Done when (probe, 12 v 12 seed 40) |
 | --- | --- | --- |
 | **0. Flicker** | Section 1's fix | flicks < 50 (from 9,219) |
-| **1. Faces, not centres** | Approach by claimed face stretch, blocks stop at contact, men stay leashed to their slots in every fight (not only foot against foot) | most men at one point ≤ 22, from ≤ 2.5 companies (from 35 / 4.3); merged < 3% |
-| **2. Front resolution** (`block_melee`) | Block collision and front-based damage. Old per-man melee still there for comparison | balance gates pass; sim cost per tick lower than now on the 12 v 12 |
-| **3. Clean up** | Flip the default, delete what section 3 lists, update the README's battle section | no loose-melee code left outside sieges |
+| **1. Take a side** | Companies claim face stretches, never aim at `foe.avg`, don't overlap, and their centre stops following their men | companies in the busiest spot ≤ 2.5 (from 4.3); merged < 3% (from 11%) |
+| **2. The tether** (`tethered_melee`) | The line fight for every troop type and foe, the two-man cap, leashes by stance, horse on the long leash with *Wheel* | most men at one point ≤ 22 (from 35); no man further from his place than his leash plus a body (a new probe line); balance gates pass |
+| **3. Clean up** | Flip the default, delete what section 4 lists, update the README's battle section | no loose-melee code outside sieges |
 
 **Sieges stay as they are until the end.** The wall, gate, ladders and breach are fought
 man by man on purpose (`siege-defence-plan.md`). Keep that path for `OBJECTIVE_SIEGE`
-through phase 3 and decide separately whether ladder heads and the breach become faces too.
+through phase 3, and decide separately whether ladder heads and the breach become faces
+too.
 
-## 5. Checks
+## 6. Checks
 
 - `godot --headless --script res://tests/run_tests.gd -- --balance` (about an hour). Its
   gates: *Advance all* wins about half at most, the tactician at least 70%, mirrored maps
@@ -220,16 +268,36 @@ through phase 3 and decide separately whether ladder heads and the breach become
   screen.
 - `tests/formation_tests.gd`, `tests/attack_positions_tests.gd`, `tests/collision_tests.gd`:
   each tests behaviour that phases 1 to 3 replace. Rewrite them to the new rules rather
-  than delete them: two companies sent at one foe take two faces, a third waits; a flank
-  hit lands as a flank hit; companies never overlap.
+  than delete them:
+  - two companies sent at one foe take two faces, and a third waits;
+  - a man never strays further than his leash;
+  - no enemy has more than two men on him;
+  - a flank hit lands as a flank hit;
+  - companies never overlap.
 - The trailer recorder (`tools/trailer/`) re-shoots the same seeded battles, for a
   before-and-after you can see.
 
-## 6. Open questions
+## 7. Decided, and still open
 
-1. How many companies may share one face: only as many as fit side by side (proposed), or
-   one per face as the simplest rule?
-2. Should men still visibly step out of the line to strike (a lunge and back), or hold
-   the line exactly?
-3. Phase 2 changes balance. Retune toward today's balance gates, or treat it as a fresh
-   balance pass?
+- **Decided (2026-11-13):** men step out of line to strike, on a tether (section 4).
+- **Open:**
+  1. How many companies may share one face: as many as fit side by side (proposed), or
+     one per face?
+  2. Should there be an explicit free-for-all *Charge* order (Bannerlord's *Charge*, or
+     Total War with guard mode off), or should the tether always hold?
+  3. Phase 2 changes balance. Retune toward today's balance gates, or treat it as a fresh
+     balance pass?
+
+[tww-blob]: https://www.gamepressure.com/total-war-warhammer-3/battles/z9f97c
+[bl-charge]: https://www.gamepressure.com/newsroom/bannerlord-difference-between-charge-and-engage-tactical-tips/z74f8e
+[bl-ai]: https://www.altchar.com/game-news/mount-blade-2-bannerlord-dev-shows-off-ai-melee-combat-overhaul-aFJSl3w4fuLj
+[bl-blog]: https://gamebanshee.com/3ua66
+[bl-mod]: https://nexusmods.com/mountandblade2bannerlord/mods/791
+[rome2-guard]: https://forums.totalwar.org/vb/showthread.php/148720-Help-with-missile-troops
+[r2-fa]: https://steamcommunity.com/sharedfiles/filedetails/comments/196851285
+[tww3-fa]: https://steamcommunity.com/app/1142710/discussions/0/6171701201027827561
+[mtw]: https://forums.totalwar.org/wiki/index.php/MTW_Melee_Combat
+[mtw-guide]: https://totalwar.org/strategy/twug/mtw/C3.html
+[mtw-forum]: https://forums.totalwar.org/vb/archive/index.php/t-87642.html
+[rts-surround]: https://discussions.unity.com/t/how-to-force-units-to-surround-the-enemy/841816
+[ue-block]: https://forums.unrealengine.com/t/ai-enemies-block-each-other-while-attacking-player-help/157178
