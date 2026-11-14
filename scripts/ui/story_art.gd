@@ -6,8 +6,11 @@ const EXPRESSIONS := ["neutral", "amused", "thoughtful", "concerned", "warm"]
 static var _textures: Dictionary = {}
 ## The strip of a painted portrait its eyes and brows are in. tools/portrait_faces.py saves
 ## that strip once per face it makes from each painting, stacked in FRAMES order, and must
-## say the same.
+## say the same. In portrait space: a painting PICTURE in size, or a whole multiple of it
+## (a 768x1024 painting has twice the detail, and its strip is twice the size: face_rect).
 const FACE := Rect2i(106, 104, 104, 72)
+## A painted portrait's size in portrait space, which the life shader and HEADS work in.
+const PICTURE := Vector2i(384, 512)
 const FRAMES := ["shut", "half", "soft", "away", "brow1", "brow2"]
 ## How long a blink keeps the eyes shut.
 const BLINK_TIME := 0.13
@@ -65,18 +68,30 @@ static func _make_frames(path: String) -> Dictionary:
 	var made := {}
 	var whole := _image(path)
 	var atlas := _image("%s/face/%s" % [path.get_base_dir(), path.get_file()])
-	if whole == null or atlas == null or atlas.get_width() != FACE.size.x \
-			or atlas.get_height() != FACE.size.y * FRAMES.size() \
-			or not Rect2i(Vector2i.ZERO, whole.get_size()).encloses(FACE):
+	if whole == null or atlas == null:
+		return made
+	var rect := face_rect(whole.get_size())
+	if rect.size == Vector2i.ZERO or atlas.get_width() != rect.size.x \
+			or atlas.get_height() != rect.size.y * FRAMES.size():
 		return made
 	for i in FRAMES.size():
-		var strip := atlas.get_region(Rect2i(0, FACE.size.y * i, FACE.size.x, FACE.size.y))
+		var strip := atlas.get_region(Rect2i(0, rect.size.y * i, rect.size.x, rect.size.y))
 		if strip.is_invisible():
 			continue                                  # a face that couldn't be made
 		var face := whole.duplicate() as Image
-		face.blit_rect(strip, Rect2i(Vector2i.ZERO, FACE.size), FACE.position)
+		face.blit_rect(strip, Rect2i(Vector2i.ZERO, rect.size), rect.position)
 		made[FRAMES[i]] = ImageTexture.create_from_image(face)
 	return made
+
+
+## Where FACE lies on a painting `size` pixels big: FACE times however many times bigger
+## than PICTURE the painting is. Nothing (a zero rect) for a painting that isn't a whole
+## multiple of PICTURE.
+static func face_rect(size: Vector2i) -> Rect2i:
+	if size.x % PICTURE.x != 0 or size.y % PICTURE.y != 0 or size.x / PICTURE.x != size.y / PICTURE.y or size.x == 0:
+		return Rect2i()
+	var k := size.x / PICTURE.x
+	return Rect2i(FACE.position * k, FACE.size * k)
 
 
 ## Whose painting `tex` is ("edda", "farid", "kaede"), or "".
