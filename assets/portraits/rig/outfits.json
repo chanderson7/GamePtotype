@@ -1,345 +1,107 @@
 {
-	"_style": {
-		"look": "pixel",
-		"grid": [192, 256],
-		"dither": 0.25,
-		"tones": {
-			"skin": 9,
-			"features": 6,
-			"eyes": 5,
-			"hair": 6,
-			"inner": 4,
-			"outer": 5,
-			"accent": 5,
-			"trim": 4,
-			"belt": 4,
-			"metal": 5,
-			"accessory": 4
-		}
-	},
 	"_game": ["everyday", "court", "travel"],
 	"edda": {
-		"everyday": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "linen",
-					"neckline": "round",
-					"depth": 0.5
-				},
-				{
-					"piece": "gown",
-					"fabric": "teal",
-					"neckline": "square",
-					"depth": 0.8,
-					"lacing": "leather",
-					"trim": {
-						"kind": "band",
-						"fabric": "sand"
-					}
-				},
-				{
-					"piece": "belt",
-					"fabric": "leather",
-					"buckle": "bronze"
-				},
-				{
-					"piece": "brooch",
-					"metal": "bronze",
-					"gem": "amber",
-					"at": "chest",
-					"size": 3.0
-				}
-			]
-		},
-		"court": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "white",
-					"neckline": "round"
-				},
-				{
-					"piece": "gown",
-					"fabric": "wine",
-					"neckline": "square",
-					"sleeves": "hanging",
-					"lining": "gold",
-					"pattern": "damask",
-					"trim": {
-						"kind": "dots",
-						"fabric": "gold",
-						"gem": "garnet"
-					}
-				},
-				{
-					"piece": "mantle",
-					"fabric": "forest",
-					"fur": "fur",
-					"clasp": "gold"
-				},
-				{
-					"piece": "necklace",
-					"kind": "chain",
-					"metal": "gold",
-					"gem": "garnet"
-				},
-				{
-					"piece": "circlet",
-					"metal": "gold",
-					"gem": "garnet"
-				},
-				{
-					"piece": "earrings",
-					"metal": "gold",
-					"gem": "garnet"
-				}
-			]
-		},
-		"travel": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "linen",
-					"neckline": "high"
-				},
-				{
-					"piece": "gown",
-					"fabric": "moss",
-					"neckline": "round",
-					"lacing": "leather"
-				},
-				{
-					"piece": "belt",
-					"fabric": "leather",
-					"buckle": "bronze"
-				},
-				{
-					"piece": "cloak",
-					"fabric": "brown",
-					"hood": "down",
-					"lining": "rust",
-					"clasp": "bronze",
-					"gem": "amber"
-				}
-			]
-		},
-		"painted": {},
-		"shawl_example": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "linen",
-					"neckline": "round",
-					"depth": 0.5
-				},
-				{
-					"piece": "gown",
-					"fabric": "teal",
-					"neckline": "round"
-				},
-				{
-					"piece": "layer",
-					"name": "shawl",
-					"dye": "rose"
-				}
-			]
-		}
+		"everyday": {"pieces": [
+			{"piece": "chemise", "cloth": "linen", "neck": "round", "depth": 0.25},
+			{"piece": "kirtle", "cloth": "teal", "neck": "square", "depth": 0.9, "lacing": "leather",
+			 "trim": {"mat": "straw", "pattern": "diamonds", "width": 4.4}},
+			{"piece": "belt", "mat": "leather", "buckle": "bronze"},
+			{"piece": "brooch", "at": "throat", "y": 163, "r": 3.6, "metal": "bronze", "gem": "amber"}
+		]},
+		"court": {"pieces": [
+			{"piece": "chemise", "cloth": "white", "neck": "round", "depth": 0.25},
+			{"piece": "kirtle", "cloth": "wine", "neck": "square", "depth": 0.9, "pattern": "diamond", "sleeves": "hanging",
+			 "lining": "gold", "trim": {"mat": "gold", "pattern": "embroidered", "width": 5, "gems": ["garnet", "pearl"]}},
+			{"piece": "mantle", "cloth": "forest", "fur": "ermine", "metal": "gold", "stone": "garnet"},
+			{"piece": "necklace", "kind": "pearls", "low": 158, "gem": "garnet", "metal": "gold"},
+			{"piece": "circlet", "metal": "gold", "gem": "garnet"},
+			{"piece": "earrings", "metal": "gold", "gem": "garnet"}
+		]},
+		"travel": {"pieces": [
+			{"piece": "chemise", "cloth": "linen", "neck": "high"},
+			{"piece": "kirtle", "cloth": "moss", "neck": "round", "depth": 0.3, "lacing": "leather"},
+			{"piece": "belt", "mat": "leather", "buckle": "bronze"},
+			{"piece": "cloak", "cloth": "brown", "lining": "rust", "fur": "fur", "metal": "bronze", "stone": "amber"}
+		]},
+		"shawl_example": {"pieces": [
+			{"piece": "chemise", "cloth": "linen", "neck": "round", "depth": 0.25},
+			{"piece": "kirtle", "cloth": "deep_teal", "neck": "round", "depth": 0.5},
+			{"piece": "layer", "name": "shawl", "dye": "rose"}
+		]},
+		"wedding": {"hair": "unbound", "blush": true, "pieces": [
+			{"piece": "chemise", "cloth": "white", "neck": "round", "depth": 0.25},
+			{"piece": "kirtle", "cloth": "woad", "neck": "square", "depth": 0.9, "pattern": "lozenge",
+			 "trim": {"mat": "gold", "pattern": "embroidered", "width": 5}, "cuffs": {"mat": "gold", "pattern": "embroidered"}},
+			{"piece": "belt", "mat": "leather", "buckle": "gold"},
+			{"piece": "necklace", "kind": "chain", "low": 160, "gem": "garnet", "metal": "gold"},
+			{"piece": "crown", "metal": "gold", "gems": ["garnet", "pearl"]},
+			{"piece": "earrings", "metal": "gold", "gem": "pearl"}
+		]}
 	},
 	"farid": {
-		"everyday": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "linen",
-					"neckline": "high"
-				},
-				{
-					"piece": "coat",
-					"fabric": "indigo",
-					"open": [14, 22],
-					"trim": {
-						"kind": "diamonds",
-						"fabric": "gold"
-					}
-				},
-				{
-					"piece": "sash",
-					"fabric": "saffron",
-					"width": 14,
-					"pattern": "stripes"
-				},
-				{
-					"piece": "necklace",
-					"kind": "coins",
-					"metal": "gold"
-				},
-				{
-					"piece": "earrings",
-					"metal": "gold",
-					"gem": "turquoise"
-				}
-			]
-		},
-		"court": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "white",
-					"neckline": "high"
-				},
-				{
-					"piece": "coat",
-					"fabric": "crimson",
-					"open": [14, 22],
-					"pattern": "damask",
-					"trim": {
-						"kind": "diamonds",
-						"fabric": "gold"
-					}
-				},
-				{
-					"piece": "sash",
-					"fabric": "gold",
-					"width": 14,
-					"cord": "crimson"
-				},
-				{
-					"piece": "necklace",
-					"kind": "coins",
-					"metal": "gold",
-					"gem": "turquoise"
-				},
-				{
-					"piece": "earrings",
-					"metal": "gold",
-					"gem": "turquoise"
-				},
-				{
-					"piece": "circlet",
-					"metal": "gold",
-					"coins": true,
-					"gem": "turquoise"
-				},
-				{
-					"piece": "veil",
-					"fabric": "white",
-					"trim": {
-						"fabric": "gold"
-					},
-					"alpha": 0.45
-				}
-			]
-		},
-		"travel": {
-			"pieces": [
-				{
-					"piece": "chemise",
-					"fabric": "sand",
-					"neckline": "high"
-				},
-				{
-					"piece": "coat",
-					"fabric": "rust",
-					"open": [16, 26],
-					"trim": {
-						"kind": "band",
-						"fabric": "sand"
-					}
-				},
-				{
-					"piece": "sash",
-					"fabric": "brown",
-					"width": 12
-				},
-				{
-					"piece": "scarf",
-					"fabric": "indigo",
-					"pattern": "dots",
-					"trim": {
-						"kind": "band",
-						"fabric": "gold"
-					}
-				},
-				{
-					"piece": "earrings",
-					"metal": "bronze",
-					"gem": "amber"
-				}
-			]
-		},
-		"painted": {}
+		"everyday": {"pieces": [
+			{"piece": "shirt", "cloth": "linen", "trim": {"mat": "gold", "pattern": "embroidered"}},
+			{"piece": "kaftan", "cloth": "indigo", "open": 15, "trim": {"mat": "gold", "pattern": "diamonds", "width": 6}},
+			{"piece": "sash", "cloth": "saffron", "cord": "maple"},
+			{"piece": "necklace", "kind": "coins", "low": 162, "metal": "gold"},
+			{"piece": "earrings", "metal": "gold", "gem": "turquoise"}
+		]},
+		"court": {"pieces": [
+			{"piece": "veil", "cloth": "sheer", "trim": {"mat": "gold", "pattern": "dotted"}},
+			{"piece": "shirt", "cloth": "white", "trim": {"mat": "gold", "pattern": "embroidered"}},
+			{"piece": "kaftan", "cloth": "crimson", "open": 15, "pattern": "diamond",
+			 "trim": {"mat": "gold", "pattern": "diamonds", "width": 7, "gems": ["turquoise"], "every": 22},
+			 "shoulders": {"mat": "gold", "pattern": "embroidered"}},
+			{"piece": "collar", "metal": "gold", "gems": ["turquoise", "garnet"]},
+			{"piece": "sash", "cloth": "straw", "cord": "crimson"},
+			{"piece": "circlet", "metal": "gold", "gem": "turquoise", "coins": true},
+			{"piece": "earrings", "metal": "gold", "gem": "turquoise"}
+		]},
+		"travel": {"pieces": [
+			{"piece": "shirt", "cloth": "cream", "trim": {"mat": "sand", "pattern": "embroidered"}, "buttons": "bronze"},
+			{"piece": "kaftan", "cloth": "rust", "open": 17, "trim": {"mat": "sand", "pattern": "key", "width": 5}},
+			{"piece": "sash", "cloth": "brown"},
+			{"piece": "scarf", "cloth": "indigo", "pattern": "dot", "trim": {"mat": "gold", "pattern": "dotted"}}
+		]},
+		"wedding": {"blush": true, "pieces": [
+			{"piece": "veil", "cloth": "sheer", "trim": {"mat": "gold", "pattern": "dotted"}},
+			{"piece": "shirt", "cloth": "cream", "trim": {"mat": "gold", "pattern": "embroidered"}},
+			{"piece": "kaftan", "cloth": "crimson", "open": 16, "pattern": {"motif": "lozenge", "mat": "gold", "grid": [15, 13]},
+			 "trim": {"mat": "gold", "pattern": "diamonds", "width": 7}, "cuffs": {"mat": "gold", "pattern": "diamonds"}},
+			{"piece": "sash", "cloth": "straw", "cord": "crimson"},
+			{"piece": "necklace", "kind": "coins", "low": 164, "metal": "gold"},
+			{"piece": "circlet", "metal": "gold", "gem": "garnet", "coins": true},
+			{"piece": "earrings", "metal": "gold", "gem": "garnet"}
+		]}
 	},
 	"kaede": {
-		"everyday": {
-			"pieces": [
-				{
-					"piece": "wrap",
-					"fabric": "charcoal",
-					"collar": ["linen"]
-				},
-				{
-					"piece": "sash",
-					"fabric": "moss",
-					"width": 14,
-					"cord": "maple"
-				},
-				{
-					"piece": "pin",
-					"metal": "bronze",
-					"gem": "jade"
-				}
-			]
-		},
-		"court": {
-			"pieces": [
-				{
-					"piece": "wrap",
-					"fabric": "plum",
-					"pattern": "kiku",
-					"collar": ["white", "maple", "white"]
-				},
-				{
-					"piece": "sash",
-					"fabric": "gold",
-					"width": 16,
-					"pattern": "damask",
-					"cord": "crimson"
-				},
-				{
-					"piece": "pin",
-					"metal": "gold",
-					"gem": "coral",
-					"dangle": "gold"
-				},
-				{
-					"piece": "comb",
-					"metal": "gold"
-				}
-			]
-		},
-		"travel": {
-			"pieces": [
-				{
-					"piece": "wrap",
-					"fabric": "slate",
-					"collar": ["linen"]
-				},
-				{
-					"piece": "jacket",
-					"fabric": "charcoal"
-				},
-				{
-					"piece": "sash",
-					"fabric": "moss",
-					"width": 10
-				},
-				{
-					"piece": "pin",
-					"metal": "bronze"
-				}
-			]
-		},
-		"painted": {}
+		"everyday": {"pieces": [
+			{"piece": "kosode", "cloth": "slate", "collars": ["white"]},
+			{"piece": "overrobe", "cloth": "plum", "sleeves": false, "open": 26, "trim": {"mat": "silver", "pattern": "key"}},
+			{"piece": "obi", "cloth": "navy", "cord": "maple", "clasp": "bronze"},
+			{"piece": "pin", "metal": "wood", "gem": "jade"}
+		]},
+		"court": {"pieces": [
+			{"piece": "kosode", "cloth": "rose", "collars": ["white", "straw"]},
+			{"piece": "overrobe", "cloth": "plum", "open": 24, "lining": "maple",
+			 "pattern": {"motif": "kiku", "mat": "blossom", "core": "gold", "keep": 0.55, "grid": [17, 15]}},
+			{"piece": "obi", "cloth": "straw", "pattern": {"motif": "diamond", "mat": "gold", "grid": [13, 9]}, "cord": "crimson", "clasp": "jade"},
+			{"piece": "comb", "metal": "gold"},
+			{"piece": "flowers", "mat": "blossom", "spray": true},
+			{"piece": "pin", "metal": "gold", "gem": "coral", "dangle": "gold"}
+		]},
+		"travel": {"pieces": [
+			{"piece": "kosode", "cloth": "charcoal", "collars": ["cream"]},
+			{"piece": "overrobe", "cloth": "slate", "open": 25, "ties": "cream", "crests": "white"},
+			{"piece": "obi", "cloth": "moss", "cord": "straw"},
+			{"piece": "pin", "metal": "wood", "gem": "jade"}
+		]},
+		"wedding": {"blush": true, "pieces": [
+			{"piece": "kosode", "cloth": "silk_white", "collars": ["white", "crimson"]},
+			{"piece": "overrobe", "cloth": "silk_white", "open": 25, "lining": "crimson", "crests": "gold"},
+			{"piece": "obi", "cloth": "straw", "pattern": {"motif": "diamond", "mat": "gold", "grid": [13, 9]}, "cord": "crimson", "clasp": "coral"},
+			{"piece": "comb", "metal": "gold"},
+			{"piece": "pin", "metal": "coral", "gem": "gold"}
+		]}
 	}
 }

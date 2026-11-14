@@ -93,7 +93,7 @@ func _run() -> void:
 	for candidate_id in ["edda", "farid", "kaede"]:
 		for expression in Art.EXPRESSIONS:
 			var tex := Art.texture("res://assets/portraits/%s_%s.png" % [candidate_id, expression])
-			# Rendered by tools/portrait_rig.py at twice the paintings' 384x512.
+			# Drawn by tools/portrait_kit on a 192x256 grid, shown four times the size.
 			check(tex != null and tex.get_width() == 768 and tex.get_height() == 1024,
 				"%s %s portrait exported at consistent size" % [candidate_id, expression])
 			if tex != null:

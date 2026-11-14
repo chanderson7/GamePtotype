@@ -102,7 +102,7 @@ func _caption(when: String) -> String:
 	return "%s at %s · %s" % ["Remembered" if not _memory.is_empty() else "Your wedding", _place_name(), when]
 
 
-## Their portrait for the day: dressed for the wedding (tools/portrait_wedding.py) in any
+## Their portrait for the day: dressed for the wedding (her "wedding" outfit, tools/portrait_kit) in any
 ## expression that was dressed, else their warmest dressed one, else as every day.
 func _portrait(expression: String) -> Texture2D:
 	for path in ["res://assets/portraits/%s_wedding_%s.png" % [cand, expression],

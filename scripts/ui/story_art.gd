@@ -5,25 +5,27 @@ const Page = preload("res://scripts/ui/menu_page.gd")
 const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const EXPRESSIONS := ["neutral", "amused", "thoughtful", "concerned", "warm"]
 ## Her outfits besides what she wears every day (assets/portraits/<who>_<outfit>_<expression>.png,
-## drawn by tools/portrait_wardrobe.py).
+## drawn by tools/portrait_kit).
 const OUTFITS := ["court", "travel"]
 static var _textures: Dictionary = {}
-## The strip of a painted portrait its eyes and brows are in. tools/portrait_faces.py saves
-## that strip once per face it makes from each painting, stacked in FRAMES order, and must
-## say the same. In portrait space: a painting PICTURE in size, or a whole multiple of it
-## (a 768x1024 painting has twice the detail, and its strip is twice the size: face_rect).
-const FACE := Rect2i(106, 104, 104, 72)
-## A painted portrait's size in portrait space, which the life shader and HEADS work in.
+## The strip of a romance portrait its eyes and brows are in. tools/portrait_kit/build.py
+## saves that strip once per face it draws for each portrait (FRAMES, stacked in that
+## order), and must say the same (FACE_STRIP there, on its own grid). In portrait space: a
+## picture PICTURE in size, or a whole multiple of it (the portraits are 768x1024, so their
+## strips are twice this: face_rect).
+const FACE := Rect2i(120, 120, 128, 68)
+## A portrait's size in portrait space, which the life shader and HEADS work in.
 const PICTURE := Vector2i(384, 512)
 const FRAMES := ["shut", "half", "soft", "away", "brow1", "brow2"]
 ## How long a blink keeps the eyes shut.
 const BLINK_TIME := 0.13
-## Where each painted character's head sits, for assets/shaders/portrait_life.gdshader:
-## the neck (chin, collar), what the head turns about, and the front of the face.
+## Where each character's head sits, for assets/shaders/portrait_life.gdshader: the neck
+## (chin, collar), what the head turns about, and the front of the face. The three are
+## drawn on one frame (tools/portrait_kit/face.py), so they share it.
 const HEADS := {
-	"edda": {"chin": 226.0, "collar": 260.0, "pivot": Vector2(186, 252), "front": Vector2(150, 172)},
-	"farid": {"chin": 232.0, "collar": 256.0, "pivot": Vector2(190, 250), "front": Vector2(148, 170)},
-	"kaede": {"chin": 230.0, "collar": 252.0, "pivot": Vector2(186, 248), "front": Vector2(148, 168)},
+	"edda": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(176, 188)},
+	"farid": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(176, 188)},
+	"kaede": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(176, 188)},
 }
 const LIFE_SHADER := "res://assets/shaders/portrait_life.gdshader"
 ## Path of each texture handed out, by instance id; and the faces made for a path.
@@ -72,7 +74,7 @@ static func eyes_shut(tex: Texture2D) -> Texture2D:
 
 
 ## Another face of `tex` (a painted portrait from texture()): one of FRAMES, made from the
-## painting by tools/portrait_faces.py. Null if the painting has no such face. The strip
+## portrait by tools/portrait_kit/build.py. Null if the painting has no such face. The strip
 ## (assets/portraits/face/) is laid over the painting the first time it's asked for, so it
 ## sits exactly on it.
 static func face_frame(tex: Texture2D, name: String) -> Texture2D:
@@ -130,9 +132,9 @@ static func painted_who(tex: Texture2D) -> String:
 	return who if HEADS.has(who) else ""
 
 
-## What `tex` is dressed in: "wedding" for a painting dressed for the wedding
-## (tools/portrait_wedding.py), an outfit's name ("court", "travel") for one of her other
-## outfits (tools/portrait_rig.py), "" for every day.
+## What `tex` is dressed in: "wedding" for a portrait dressed for the wedding, an outfit's
+## name ("court", "travel") for one of her other outfits (all drawn by tools/portrait_kit),
+## "" for every day.
 static func painted_dress(tex: Texture2D) -> String:
 	var path := String(_paths.get(tex.get_instance_id(), "")) if tex != null else ""
 	var parts := path.get_file().get_basename().split("_")

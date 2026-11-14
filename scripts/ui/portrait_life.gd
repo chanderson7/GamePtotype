@@ -1,13 +1,13 @@
-## A painted portrait, alive. Edda, Farah and Kaede were painted once per expression, still;
-## tools/portrait_faces.py made each painting's other faces from its own pixels (eyes shut
-## and half shut, a softer look, a glance aside, a brow raised), and
+## A romance portrait, alive. Edda, Farah and Kaede are drawn once per expression, still;
+## tools/portrait_kit draws each one's other faces with it (eyes shut and half shut, a
+## softer look, a glance aside, a brow raised), and
 ## assets/shaders/portrait_life.gdshader moves the head and the loose hair.
 ##
 ## This decides, moment to moment, which face is worn and how the head sits: a breath in
 ## the head and the hair always; a blink now and then, in two steps; a glance aside now
 ## and then; and what a mood calls for (`act`): a brow lifted when amused, a small nod when
-## warm, the lids lowered further and the head tilted when thoughtful (the thoughtful
-## paintings already look down, so they have no glance to give), a soft look when moved. Its state lives in the
+## warm, the lids lowered further and the head tilted when thoughtful, a soft look when
+## moved. Its state lives in the
 ## dictionary a screen keeps for the face (TalkView keeps one per side), so a screen can
 ## hold any number of faces.
 extends RefCounted

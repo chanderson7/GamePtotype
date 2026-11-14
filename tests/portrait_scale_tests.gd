@@ -1,7 +1,8 @@
-## Painted portraits at twice the detail. A portrait may be PICTURE (384x512) or a whole
+## The romance portraits' sizes and outfits. A portrait may be PICTURE (384x512) or a whole
 ## multiple of it: its other faces (assets/portraits/face/) are then that much bigger, and
-## are laid over it at FACE times that much. Checked with today's paintings doubled pixel
-## for pixel: every face comes out as today's, doubled.
+## are laid over it at FACE times that much. Checked with one portrait at 384x512 and
+## doubled pixel for pixel: every face comes out the same, doubled. Then the game's own:
+## every outfit's portraits, and what she wears where.
 extends SceneTree
 
 const StoryArt = preload("res://scripts/ui/story_art.gd")
@@ -26,23 +27,33 @@ func _doubled(img: Image) -> Image:
 	return out
 
 
+func _halved(img: Image) -> Image:
+	var out := img.duplicate() as Image
+	out.resize(img.get_width() / 2, img.get_height() / 2, Image.INTERPOLATE_NEAREST)
+	return out
+
+
 func _run() -> void:
-	check(StoryArt.face_rect(StoryArt.PICTURE) == StoryArt.FACE, "a 384x512 painting's face strip is FACE")
+	check(StoryArt.face_rect(StoryArt.PICTURE) == StoryArt.FACE, "a 384x512 portrait's face strip is FACE")
 	check(StoryArt.face_rect(Vector2i(768, 1024)) == Rect2i(StoryArt.FACE.position * 2, StoryArt.FACE.size * 2),
-		"a 768x1024 painting's is FACE twice over")
+		"a 768x1024 portrait's is FACE twice over")
 	check(StoryArt.face_rect(Vector2i(500, 512)).size == Vector2i.ZERO and StoryArt.face_rect(Vector2i(768, 512)).size == Vector2i.ZERO,
-		"a painting of any other size has none (it shows, without other faces)")
+		"a picture of any other size has none (it shows, without other faces)")
 	var dir := "user://portrait_scale"
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir + "/face"))
-	# The painting the rig works from (tools/portrait_rig.py), at 384x512, with its faces.
-	var here := "res://assets/portraits/source/edda_neutral.png"
-	var one := StoryArt._image(here)
-	var strips := StoryArt._image("res://assets/portraits/source/face/edda_neutral.png")
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir + "/small/face"))
+	# One of the game's portraits (tools/portrait_kit draws them on a 192x256 grid, four
+	# times the size) at 384x512 with its faces, and the same at twice that.
+	var here := dir + "/small/edda_neutral.png"
+	var one := _halved(StoryArt._image("res://assets/portraits/edda_neutral.png"))
+	var strips := _halved(StoryArt._image("res://assets/portraits/face/edda_neutral.png"))
+	one.save_png(here)
+	strips.save_png(dir + "/small/face/edda_neutral.png")
 	_doubled(one).save_png(dir + "/edda_neutral.png")
 	_doubled(strips).save_png(dir + "/face/edda_neutral.png")
 	var small := StoryArt.texture(here)
 	var big := StoryArt.texture(dir + "/edda_neutral.png")
-	check(big != null and big.get_width() == 768 and big.get_height() == 1024, "a 768x1024 painting loads")
+	check(big != null and big.get_width() == 768 and big.get_height() == 1024, "a 768x1024 portrait loads")
 	var same := 0
 	for name in StoryArt.FRAMES:
 		var a: Texture2D = StoryArt.face_frame(small, name)
@@ -53,7 +64,7 @@ func _run() -> void:
 		if a == null or b == null:
 			continue
 		var b_image := b.get_image().duplicate() as Image
-		b_image.clear_mipmaps()   # a painting twice the size carries mipmaps; compare the picture
+		b_image.clear_mipmaps()   # a portrait twice the size carries mipmaps; compare the picture
 		if _doubled(a.get_image()).get_data() == b_image.get_data():
 			same += 1
 	check(same == StoryArt.FRAMES.size(), "and every other face of it is today's face, doubled (%d of %d)" % [same, StoryArt.FRAMES.size()])
@@ -124,7 +135,7 @@ func _run() -> void:
 	check(StoryArt.outfit_for("edda") == "travel", "driven from her seat, she's in travelling clothes")
 	check(StoryArt.outfit_for("edda", null) == StoryArt.outfit_for("edda", w), "the world can be handed in")
 	edda["residence"] = "ravensford"
-	for f in ["edda_neutral.png", "face/edda_neutral.png"]:
+	for f in ["edda_neutral.png", "face/edda_neutral.png", "small/edda_neutral.png", "small/face/edda_neutral.png"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(dir + "/" + f))
 	print("Portrait scale failures: %d" % failures)
 	quit(1 if failures > 0 else 0)
