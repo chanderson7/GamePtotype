@@ -1,6 +1,6 @@
 # Phase 4: A living world
 
-The Glass Sea stops waiting for you. Lords of the three realms ride the roads with warbands
+The Three Realms stop waiting for you. Lords of the three realms ride the roads with warbands
 of their own, hunt bandits, raid each other's villages, gather into armies and besiege
 castles and towns, which change hands. Realms go to war and make peace without you. You can
 stay a free company hunting bandits, or sign on as a mercenary with any realm, fight its

@@ -14,7 +14,7 @@ The story, on the bars of score.py (a bar is two seconds):
     0:22  black                          "Lead them anyway."
     0:24  the name
     0:26  the battles, a bar a shot      real-time battles, sized for your hand; charge, loose, hold; the walls
-    0:42  the world                      three realms, the lords, a wedding, a company to build
+    0:42  the world                      the Three Realms, the lords, a wedding, a company to build
     0:50  the last charge, a beat a shot
     0:58  victory
     1:00  the name, and "Coming to iPhone"
@@ -396,7 +396,7 @@ def picture(t):
     if t < bar(23):
         u = t - bar(22)
         img = wide("sea", 5.3 + u, u=u / 2.0, push=(1.0, 1.04))
-        said(img, t, bar(22) + 0.1, bar(23), [line("Three realms.", 110), line("One sea.", 110, BRASS)], (W / 2, H / 2 + 10), align="centre")
+        said(img, t, bar(22) + 0.1, bar(23), [line("The Three Realms.", 110), line("One crown.", 110, BRASS)], (W / 2, H / 2 + 10), align="centre")
         return img
     if t < bar(24):
         u = t - bar(23)
@@ -505,7 +505,7 @@ CAPTIONS = [
     (12.0, 16.0, "They remember every fight."), (16.2, 21.8, "And any of them can fall."),
     (22.0, 24.0, "Lead them anyway."), (24.0, 26.0, "Bannerfall"), (26.1, 28.0, "Real-time battles"),
     (28.1, 30.0, "Sized for your hand."), (30.0, 31.5, "Charge."), (32.0, 33.5, "Loose."), (34.0, 35.5, "Hold."),
-    (38.1, 42.0, "Take their walls."), (42.1, 44.0, "Three realms. One sea."), (44.0, 46.0, "Win the lords' regard."),
+    (38.1, 42.0, "Take their walls."), (42.1, 44.0, "The Three Realms. One crown."), (44.0, 46.0, "Win the lords' regard."),
     (46.0, 48.0, "Marry into a great house."), (48.0, 50.0, "Build a company worth following."),
     (58.0, 59.6, "Victory."), (60.5, 70.0, "Bannerfall\n" + END_LINE),
 ]

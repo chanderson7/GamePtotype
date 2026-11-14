@@ -1,4 +1,4 @@
-## Unique wandering heroes (companions) available to recruit in taverns across the Glass Sea.
+## Unique wandering heroes (companions) available to recruit in taverns across the Three Realms.
 extends RefCounted
 
 const Cultures = preload("res://scripts/data/cultures.gd")

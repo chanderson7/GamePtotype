@@ -110,7 +110,7 @@ func _ready() -> void:
 	var heading := Style.label("Choose your people", 52, Style.BRASS)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(heading)
-	var intro := Style.label("Three realms share the shores of the Glass Sea. You start at your people's capital and can ride anywhere.", Style.SMALL, Style.MUTED)
+	var intro := Style.label("The Three Realms share one sea. You start at your people's capital and can ride anywhere.", Style.SMALL, Style.MUTED)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(intro)
 	# How the campaign runs: the tutorial first (on for a first campaign on this device),

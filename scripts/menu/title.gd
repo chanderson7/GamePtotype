@@ -1,5 +1,5 @@
 ## Home: your company on a card (where you are, what you have, your captains, and what's
-## waiting for you) over the Glass Sea at dawn, drifting slowly past; or, the first time,
+## waiting for you) over the map at dawn, drifting slowly past; or, the first time,
 ## the three peoples to begin with.
 extends Control
 
@@ -38,7 +38,7 @@ func _ready() -> void:
 		GameState.new_campaign(Cultures.VARDISH)
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn")
 		return
-	# A first visit hears the Glass Sea; with a campaign under way, your own realm's tune by
+	# A first visit hears the main theme, The Three Realms; with a campaign under way, your own realm's tune by
 	# the campfire, the fire crackling under it.
 	if GameState.has_campaign():
 		Sound.play_music("camp_" + GameState.culture)
@@ -102,8 +102,8 @@ func _build() -> void:
 	var title := _title(80 if campaign else 92)
 	col.add_child(title)
 	if title.get_node_or_null("Wordmark") == null:
-		# No wordmark to show: the name in the display face, and the sea under it.
-		var sub := Style.label("The Glass Sea", Style.BODY, Color("d9dcea"))
+		# No wordmark to show: the name in the display face, and the world's under it.
+		var sub := Style.label("The Three Realms", Style.BODY, Color("d9dcea"))
 		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		col.add_child(sub)
 	# No campaign, but the autosave was there and couldn't load, or other saves remain:

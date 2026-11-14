@@ -867,7 +867,7 @@ func _activity_text(event: Dictionary) -> String:
 		"crown_fallen":
 			return "Your crown has fallen: it holds nothing, and its lords have gone back to their old allegiances."
 		"crown_victory":
-			return "%s holds every realm's capital. The Glass Sea has one crown now." % Data.title_case(String(Data.FACTIONS[Data.CROWN]["name"]))
+			return "%s holds every realm's capital. The Three Realms have one crown now." % Data.title_case(String(Data.FACTIONS[Data.CROWN]["name"]))
 		"wedding":
 			return "%s and the captain were married at %s." % [event.get("name", "Someone"), Data.settlement(String(event["settlement"]))["name"]]
 		"gathering":

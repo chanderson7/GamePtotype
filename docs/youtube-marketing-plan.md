@@ -90,7 +90,7 @@ Four kinds of video. Each exists for a different job.
 | Video | Length | When | What it is |
 | --- | --- | --- | --- |
 | **Announcement trailer** | 1:10 | The day the first destination is live | *Captains* (`tools/trailer2/`): it opens on a charge in slow motion, tells the one thing the game does that others don't (every captain has a name, and any of them can fall: the die lands on Rowan of Thornwall), then the name, the battles, the world and victory, to a score written for it. Built already. |
-| **A tour of the game** | 1:20 | A fortnight later, or not at all | The first cut (`tools/trailer/edit.py`): the Glass Sea, the warband, the lords, the wedding, then thirty seconds of battles, to the game's main theme. Slower and fuller: a second video for viewers who want to see more, not the one to lead with. |
+| **A tour of the game** | 1:20 | A fortnight later, or not at all | The first cut (`tools/trailer/edit.py`): the map, the warband, the lords, the wedding, then thirty seconds of battles, to the game's main theme. Slower and fuller: a second video for viewers who want to see more, not the one to lead with. |
 | **Battle trailer** | 0:30 | Two to four weeks later | Battles only, in portrait with the HUD, no cards before the first clash. One recording serves three places: a Short, the default link for creators, and the first **App Store app preview** (Apple allows up to three, 15 to 30 seconds each, of footage from the app itself, at its own preview sizes). |
 | **A realm each** | 0:30 × 3 | Spread through the build-up | Vardmark, Kharzan, Ryumon: its country on the map, its lord's talk, its troops in a fight, its music (`vardish.ogg`, `kharzani.ogg`, `ryumon.ogg`). The Kharzani and Ryumon spots are also the adverts for the paid peoples. |
 | **Launch trailer** | 1:00 | Launch day | The announcement cut again with the newest footage, review quotes if there are any, and "Out now on the App Store" on the end card. |
@@ -167,8 +167,8 @@ Ready to paste once the name and the link are final.
 
   ```
   Every company has a captain. Every captain has a name. Any of them can fall. Lead them
-  anyway: real-time squad battles sized for your hand, in a sandbox campaign across three
-  realms of the Glass Sea. Coming to iPhone.
+  anyway: real-time squad battles sized for your hand, in a sandbox campaign across the
+  Three Realms. Coming to iPhone.
   Pre-order on the App Store: <link>
 
   Three realms share one inland sea: the stone keeps of Vardmark, the desert courts of
@@ -185,7 +185,7 @@ Ready to paste once the name and the link are final.
 
   0:00 The captains
   0:26 The battles
-  0:42 The Glass Sea
+  0:42 The Three Realms
   0:58 Victory
 
   Music: "Who Carries the Banner", composed for this trailer.

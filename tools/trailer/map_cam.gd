@@ -1,5 +1,5 @@
 extends Node
-## A camera for trailer shots of the map: the HUD put away so the Glass Sea fills the frame,
+## A camera for trailer shots of the map: the HUD put away so the map fills the frame,
 ## and the view drifting from `from` to `to` (map units) while it eases from `scale_from` to
 ## `scale_to` (screen pixels per map unit, at the 720-wide canvas) over `time` seconds.
 

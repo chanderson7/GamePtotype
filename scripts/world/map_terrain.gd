@@ -1,4 +1,4 @@
-## The look of the Glass Sea, worked out once from the map data: a small picture of the
+## The look of the map, worked out once from the map data: a small picture of the
 ## land for the map's shaders (where the shore is, softened at three widths, and how high
 ## the ground lies), and where trees, mountains, dunes and fields stand. Only for looks:
 ## the world sim never reads it.

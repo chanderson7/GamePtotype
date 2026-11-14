@@ -4,7 +4,7 @@
     python3 tools/trailer/edit.py            # writes $TRAILER_OUT/bannerfall_trailer.mp4 and a thumbnail
 
 The score is the game's main theme (assets/audio/music/title.ogg, 80 s); the cut follows its
-shape: the quiet open for the Glass Sea, the swell for the title, the climax for the battles,
+shape: the quiet open for the map, the swell for the title, the climax for the battles,
 the tail for the end card. Under it, each clip keeps its own field sounds (recorded with the
 music off). Landscape clips (the battles, the map) fill the frame; portrait clips (the game's
 own screens) stand framed over a blurred copy of themselves, a caption beside them.
@@ -51,9 +51,9 @@ def bar(k):
 END_LINE = "Coming to iPhone"  # the end card's line, under the wordmark
 LORDS = ("Win the lords' regard", "Every lord remembers what you did.", "left")
 EDL = [
-    {"card": ("Three realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
+    {"card": ("The Three Realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
     {"shot": "map_fly", "at": 0.5, "to": bar(5), "fade": (0.4, 0.0),
-     "cap": ("The Glass Sea", "Stone keeps. Desert courts. Island castles.", "low")},
+     "cap": ("Vardmark. Kharzan. Ryumon.", "Stone keeps. Desert courts. Island castles.", "low")},
     {"shot": "map_isles", "at": 2.0, "to": bar(8), "fade": (0.0, 0.3)},
     {"shot": "opening", "at": 0.3, "to": bar(10), "fade": (0.3, 0.0), "frame": (0, 600, 1080, 960)},
     {"shot": "home", "at": 1.0, "sfx": 0.35, "to": bar(12), "frame": (0, 0, 1080, 1420),

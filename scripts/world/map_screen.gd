@@ -1,4 +1,4 @@
-## The world map: draws the Glass Sea and the parties on it, and turns taps into travel.
+## The world map: draws the Three Realms and the parties on them, and turns taps into travel.
 ## All rules live in world_sim.gd; this screen never moves anyone itself.
 ##
 ## Tap a settlement to see it and ride there. Time passes while you ride or wait: one

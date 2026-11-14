@@ -497,7 +497,7 @@ def battles():
 
 
 def the_world():
-    """Bars 22-25: the Glass Sea. Half the pace: strings, harp, a flute; then the last rise."""
+    """Bars 22-25: the Three Realms. Half the pace: strings, harp, a flute; then the last rise."""
     drum("bd", at(22), 0.9)
     strike(T_METAL, CRASH[0], at(22), 0.35, fade=3.0, cut=5.0)
     boom(at(22), 0.6)

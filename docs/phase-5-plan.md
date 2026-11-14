@@ -6,7 +6,7 @@ in the baggage train and mend over days on the road or in camp, saving silver an
 protecting veteran experience. Captains who survive the crucible of battle earn
 reputation and choose a company specialization—Scout, Quartermaster, Drillmaster,
 or Champion. Unique wandering heroes can be found and recruited in taverns across the
-Glass Sea. A dedicated Casual Mode offers an accessible journey where captains are
+Three Realms. A dedicated Casual Mode offers an accessible journey where captains are
 severely wounded rather than permanently slain.
 
 ---
@@ -70,7 +70,7 @@ severely wounded rather than permanently slain.
 ## 5.4 Unique Named Heroes (Companions)
 
 ### Design
-- Three unique legendary wanderers appear in town taverns across the Glass Sea:
+- Three unique legendary wanderers appear in town taverns across the Three Realms:
   1. **Sir Katherine of the Pale** (Vardish Knight, Highcliff): Exiled knight of House Dunmere; *Steadfast*, *Drillmaster*, unique plate armor portrait.
   2. **Tariq Windrunner** (Kharzani Faris, Khalun): Desert scout and outcast; *Lucky*, *Scout*, unique turban and faris mail portrait.
   3. **Mori the Unbroken** (Ryumon Ronin, Kurogane): Masterless swordsman; *Vengeful*, *Champion*, unique scarred hatamoto portrait.
