@@ -43,6 +43,8 @@ const BATTLE_SEEDS := 6
 const BALANCE_SEEDS := 12
 ## Battles of the full sim that auto-resolve is checked against, and scripted campaigns.
 const CALIBRATION_BATTLES := 16
+## Seeds per kind of ground in the fairness check, each fought both ways round.
+const FAIRNESS_SEEDS := 48
 const CAMPAIGN_SEEDS := 6
 const CAMPAIGN_DAYS := 30
 
@@ -172,7 +174,7 @@ func _init() -> void:
 	print("  blue %d, red %d" % [tally[0], tally[1]])
 	_expect(timeouts <= BATTLE_SEEDS / 4, "battles end with an army breaking, not the clock (%d timed out)" % timeouts)
 	var avg_time := total_time / BATTLE_SEEDS
-	_expect(avg_time >= 40.0 and avg_time <= 150.0, "a battle lasts about a minute (%.0fs on average)" % avg_time)
+	_expect(avg_time >= 40.0 and avg_time <= 150.0, "a battle lasts a minute or two (%.0fs on average)" % avg_time)
 
 	if OS.get_cmdline_user_args().has("--balance"):
 		_check_balance()
@@ -2500,7 +2502,7 @@ func _check_balance() -> void:
 	_expect(rates["advance"] <= 0.55, "pressing Advance all and nothing else wins about half the time at most (%.0f%%)" % (rates["advance"] * 100.0))
 	_expect(rates["tactician"] >= 0.7, "a player who uses the tools wins at least 70%% of the time (%.0f%%)" % (rates["tactician"] * 100.0))
 
-	print("Terrain fairness (mirrored maps, AI vs AI, 24 seeds per type, each fought both ways round):")
+	print("Terrain fairness (mirrored maps, AI vs AI, %d seeds per type, each fought both ways round):" % FAIRNESS_SEEDS)
 	_check_terrain_fairness()
 	_check_cultures_balance()
 
@@ -2556,13 +2558,14 @@ func _check_objective_plans() -> void:
 
 
 ## Each map is fought twice, with the armies swapped between the sides, so a stronger army
-## drawn for one side doesn't pass for the ground favoring it. 48 battles leave about 7
-## points of chance either way, so the window is two of those wide: a fair map seldom
-## fails it, and one that tilts the fight (as rivers did, about 30%) still does.
+## drawn for one side doesn't pass for the ground favoring it. 96 battles leave about 5
+## points of chance either way, so the window is three of those wide: a fair map seldom
+## fails it, and one that tilts the fight (as rivers did, about 30%) still does. (With 48,
+## one batch of seeds could land a fair river at 33% while three others gave 50 to 52%.)
 func _check_terrain_fairness() -> void:
 	for site_type in [BattleSite.TYPE_HILLS, BattleSite.TYPE_WOODS, BattleSite.TYPE_RIVER, BattleSite.TYPE_PASS]:
 		var player_wins := 0
-		for s in range(1, 25):
+		for s in range(1, FAIRNESS_SEEDS + 1):
 			var site_obj := BattleSite.generate({"type": site_type, "seed": s, "fair": true})
 			for swap in [false, true]:
 				var sim := Sim.new()
@@ -2578,7 +2581,7 @@ func _check_terrain_fairness() -> void:
 				if sim.winner == Sim.PLAYER:
 					player_wins += 1
 				sim.dispose()
-		var win_pct := float(player_wins) / 48.0
+		var win_pct := float(player_wins) / (FAIRNESS_SEEDS * 2.0)
 		_expect(win_pct >= 0.35 and win_pct <= 0.65,
 			"mirrored %s map is fair (player win rate: %.0f%%)" % [site_type, win_pct * 100.0])
 
