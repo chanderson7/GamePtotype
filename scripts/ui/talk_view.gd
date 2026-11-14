@@ -551,7 +551,9 @@ func set_face(side: String, tex: Texture2D, pixel: bool = false, height: float =
 		stage.move_child(face, 1 if _backdrop != null else 0)
 	var arriving := not _faces.has(side) or face.texture == null
 	face.texture = tex
-	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if pixel else CanvasItem.TEXTURE_FILTER_LINEAR
+	# With mipmaps (the romance portraits are painted at twice the size they're shown), so
+	# a face drawn smaller than its pixels stays clean.
+	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS if pixel else CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	face.modulate = Color(0.5, 0.5, 0.58) if dim else Color.WHITE
 	var known: Dictionary = _faces.get(side, {})
 	known["node"] = face

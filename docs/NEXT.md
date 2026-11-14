@@ -148,6 +148,18 @@ Then, for the App Store:
   screenshots, made by `tools/store/screenshots.sh`; `tools/store/preview.sh` makes the 25 s
   portrait app preview (886x1920, not committed).
 
+**Romance portraits as rigs** (`portrait_scale_tests`, `game_feel_tests`): the game's
+Edda, Farah and Kaede are our own versions of their paintings, 768x1024, rendered by
+`tools/portrait_rig.py` from rigs (`assets/portraits/rig/README.md`): each expression's
+head on the neutral body, a paintable map of parts, outfits as colour ramps per part in
+`outfits.json` (everyday = the painter's colours; wine_silver, forest_gold, flaxen,
+saffron, crimson, autumn, snow to try), and detail at the doubled size (hair strands,
+twill, linen weave, metal rims). The 384x512 paintings and their wedding and face tools
+moved to `assets/portraits/source/`. The game takes any multiple of 384x512
+(`StoryArt.face_rect`); romance portraits carry mipmaps and are drawn with mipmap filters.
+Next: garments as drawn layers (new shapes, not only colours), and the wedding
+paintings mapped too.
+
 Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14), still failing:
 - Kharzani v Ryumon trained armies 29–71 (gate 35–65; it was 38–62 before).
 - Objectives: ambush 46%, village 0% (gate 60%; both failed before too). Objective play

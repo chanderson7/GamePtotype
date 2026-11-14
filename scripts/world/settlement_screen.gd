@@ -2013,7 +2013,7 @@ func _household_row(person: Dictionary) -> Button:
 			Scenes.conversation_return = "res://scenes/settlement.tscn"
 			Scenes.go("res://scenes/conversation.tscn"))
 	var pic := b.get_child(0).get_child(0) as TextureRect
-	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	return b
 
 

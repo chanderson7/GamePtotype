@@ -39,9 +39,27 @@ static func texture(path: String) -> Texture2D:
 		if img != null and not img.is_empty():
 			result = ImageTexture.create_from_image(img)
 	if result != null:
+		result = _with_mipmaps(result)
 		_textures[path] = result
 		_paths[result.get_instance_id()] = path
 	return result
+
+
+## A painting bigger than PICTURE (the romance portraits, painted at twice the size) is
+## drawn smaller than its pixels, so it needs mipmaps, whatever its import settings say
+## (they aren't kept in the repository): made here, once, when it's first loaded.
+static func _with_mipmaps(tex: Texture2D) -> Texture2D:
+	var size := Vector2i(tex.get_size())
+	if face_rect(size).size == Vector2i.ZERO or size == PICTURE:
+		return tex
+	var img := tex.get_image()
+	if img == null or img.is_empty() or img.has_mipmaps():
+		return tex
+	img = img.duplicate() as Image
+	if img.is_compressed() and img.decompress() != OK:
+		return tex
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
 
 
 ## `tex` (a painted portrait from texture()) with its eyes shut, or null if it has none.
@@ -74,12 +92,19 @@ static func _make_frames(path: String) -> Dictionary:
 	if rect.size == Vector2i.ZERO or atlas.get_width() != rect.size.x \
 			or atlas.get_height() != rect.size.y * FRAMES.size():
 		return made
+	# A painting bigger than PICTURE is drawn smaller than its pixels: its other faces
+	# carry mipmaps as it does, so a blink doesn't sharpen it for a moment.
+	var mipmapped := rect.size != FACE.size
+	if whole.has_mipmaps():
+		whole.clear_mipmaps()
 	for i in FRAMES.size():
 		var strip := atlas.get_region(Rect2i(0, rect.size.y * i, rect.size.x, rect.size.y))
 		if strip.is_invisible():
 			continue                                  # a face that couldn't be made
 		var face := whole.duplicate() as Image
 		face.blit_rect(strip, Rect2i(Vector2i.ZERO, rect.size), rect.position)
+		if mipmapped:
+			face.generate_mipmaps()
 		made[FRAMES[i]] = ImageTexture.create_from_image(face)
 	return made
 
@@ -187,7 +212,7 @@ static func candidate_portrait(candidate_id: String, expression: String = "neutr
 	node.custom_minimum_size = Vector2(height * 0.75, height)
 	node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	var safe := expression if EXPRESSIONS.has(expression) else "neutral"
 	node.texture = texture("res://assets/portraits/%s_%s.png" % [candidate_id, safe])
 	if node.texture == null and safe != "neutral":
@@ -203,7 +228,7 @@ static func location(id: String, height: float = 230.0) -> TextureRect:
 	node.custom_minimum_size.y = height
 	node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	if id in ["ravensford", "common_room", "company_camp", "qasr_hamra", "envoy_room", "kitayama", "archive_room"]:
 		node.texture = texture("res://assets/locations/%s.png" % id)
 	node.visible = node.texture != null

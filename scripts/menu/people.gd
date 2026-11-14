@@ -429,7 +429,7 @@ func _card_box(pad: int = 20) -> StyleBoxFlat:
 ## A portrait in an arched brass frame.
 func _framed(cand: String, size: Vector2, dim: bool = false) -> Control:
 	var pic := StoryArt.candidate_portrait(cand, _expression(cand), size.y * 1.15)
-	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	return Widgets.framed(pic, size, dim)
 
 
@@ -689,7 +689,7 @@ func _build_profile(col: VBoxContainer) -> void:
 			var t := float(i) / 23.0
 			hero.draw_rect(Rect2(0, r.size.y * t, r.size.x, r.size.y / 23.0 + 1), Color("2c3a5c").lerp(Style.NIGHT, t)))
 	var pic := StoryArt.candidate_portrait(cand, _expression(cand), 600)
-	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	pic.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hero.add_child(pic)
 	var fade := Control.new()

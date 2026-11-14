@@ -1,0 +1,44 @@
+{
+	"edda": {
+		"everyday": {},
+		"wine_silver": {
+			"outer": ["120a14", "3a0d1e", "6e1a30", "9c2c44", "c65a6a"],
+			"trim": ["3d4048", "8a929c", "d6dde4", "ffffff"],
+			"metal": ["2a2c32", "6d747e", "b9c1ca", "eef3f7"],
+			"belt": ["0e0c0d", "221d1f", "3d3537", "5d5355"]
+		},
+		"forest_gold": {
+			"outer": ["06140c", "123222", "1f5236", "33784e", "5ea377"],
+			"trim": ["4a2c0a", "a8741e", "e8b850", "fff0b0"],
+			"inner": ["5e5648", "a99f8c", "e9e2d2", "fffdf6"],
+			"metal": ["4a2c0a", "a8741e", "e8b850", "fff0b0"]
+		},
+		"flaxen": {
+			"hair": ["2e1a08", "6a4818", "a87c34", "d8b060", "f4dc9c"]
+		}
+	},
+	"farid": {
+		"everyday": {},
+		"saffron": {
+			"outer": ["2a1204", "6a3410", "a65e1c", "d8922e", "f4c46a"],
+			"trim": ["1a1830", "3a3a6e", "6a6aa8", "b4b4e0"],
+			"belt": ["1a1830", "3a3a6e", "6a6aa8", "b4b4e0"]
+		},
+		"crimson": {
+			"outer": ["1e0408", "52101a", "8a1c2a", "b8323c", "dc6a64"],
+			"inner": ["4e4438", "9a8e78", "e2d8c2", "fbf6ea"]
+		}
+	},
+	"kaede": {
+		"everyday": {},
+		"autumn": {
+			"outer": ["160c06", "3e2210", "6a3a1a", "9a5a2a", "c8884a"],
+			"accent": ["0c1a10", "1a3a22", "2e5e38", "4a8a52", "7ab480"],
+			"trim": ["4a2c0a", "a8741e", "e8b850", "fff0b0"]
+		},
+		"snow": {
+			"outer": ["3a4250", "6e7a8c", "a8b4c4", "d8e0ea", "f6f8fb"],
+			"accent": ["1c0a10", "4e1626", "86243c", "b84058", "e07a8a"]
+		}
+	}
+}

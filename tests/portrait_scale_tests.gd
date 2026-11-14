@@ -33,9 +33,10 @@ func _run() -> void:
 		"a painting of any other size has none (it shows, without other faces)")
 	var dir := "user://portrait_scale"
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir + "/face"))
-	var here := "res://assets/portraits/edda_neutral.png"
+	# The painting the rig works from (tools/portrait_rig.py), at 384x512, with its faces.
+	var here := "res://assets/portraits/source/edda_neutral.png"
 	var one := StoryArt._image(here)
-	var strips := StoryArt._image("res://assets/portraits/face/edda_neutral.png")
+	var strips := StoryArt._image("res://assets/portraits/source/face/edda_neutral.png")
 	_doubled(one).save_png(dir + "/edda_neutral.png")
 	_doubled(strips).save_png(dir + "/face/edda_neutral.png")
 	var small := StoryArt.texture(here)
@@ -50,11 +51,22 @@ func _run() -> void:
 			continue
 		if a == null or b == null:
 			continue
-		if _doubled(a.get_image()).get_data() == b.get_image().get_data():
+		var b_image := b.get_image().duplicate() as Image
+		b_image.clear_mipmaps()   # a painting twice the size carries mipmaps; compare the picture
+		if _doubled(a.get_image()).get_data() == b_image.get_data():
 			same += 1
 	check(same == StoryArt.FRAMES.size(), "and every other face of it is today's face, doubled (%d of %d)" % [same, StoryArt.FRAMES.size()])
 	check(StoryArt.painted_who(big) == "edda" and StoryArt.life_material("edda") != null,
 		"it's still Edda, and her head and hair move as before (the shader works in portrait space)")
+	# The game's own: painted by the rig at twice the size, with faces to match.
+	var game: Texture2D = StoryArt.texture("res://assets/portraits/edda_neutral.png")
+	var ready := 0
+	for who in ["edda", "farid", "kaede"]:
+		for expression in StoryArt.EXPRESSIONS + ["wedding_neutral", "wedding_warm", "wedding_amused"]:
+			var t: Texture2D = StoryArt.texture("res://assets/portraits/%s_%s.png" % [who, expression])
+			if t != null and t.get_size() == Vector2(768, 1024) and StoryArt.face_frame(t, "shut") != null:
+				ready += 1
+	check(game != null and ready == 24, "every romance portrait in the game is 768x1024, and blinks (%d of 24)" % ready)
 	for f in ["edda_neutral.png", "face/edda_neutral.png"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(dir + "/" + f))
 	print("Portrait scale failures: %d" % failures)

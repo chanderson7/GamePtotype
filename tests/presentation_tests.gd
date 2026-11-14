@@ -93,7 +93,8 @@ func _run() -> void:
 	for candidate_id in ["edda", "farid", "kaede"]:
 		for expression in Art.EXPRESSIONS:
 			var tex := Art.texture("res://assets/portraits/%s_%s.png" % [candidate_id, expression])
-			check(tex != null and tex.get_width() == 384 and tex.get_height() == 512,
+			# Rendered by tools/portrait_rig.py at twice the paintings' 384x512.
+			check(tex != null and tex.get_width() == 768 and tex.get_height() == 1024,
 				"%s %s portrait exported at consistent size" % [candidate_id, expression])
 			if tex != null:
 				check(tex.get_image().detect_alpha() != Image.ALPHA_NONE,

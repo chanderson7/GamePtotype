@@ -34,7 +34,8 @@ import numpy as np
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PORTRAITS = os.path.join(ROOT, "assets", "portraits")
+# The 384x512 paintings (tools/portrait_rig.py makes the game's own from them).
+PORTRAITS = os.path.join(ROOT, "assets", "portraits", "source")
 WHO = ["edda", "farid", "kaede"]
 EXPRESSIONS = ["neutral", "amused", "thoughtful", "concerned", "warm"]
 # The paintings dressed for the wedding (tools/portrait_wedding.py): the same faces.

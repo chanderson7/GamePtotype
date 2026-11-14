@@ -1,5 +1,10 @@
 # Romance cast asset provenance
 
+The portraits the game shows (`assets/portraits/<who>_<expression>.png`, 768×1024) are our
+own versions of the paintings below, rendered from rigs by `tools/portrait_rig.py`
+(2026-11-14; see `assets/portraits/rig/README.md`). The paintings themselves, 384×512,
+are kept in `assets/portraits/source/`, and the "Game file" paths below are now there.
+
 Created 2026-10-28 through 2026-10-30 with the built-in `image_gen` tool. All outputs are original generated game artwork; no external character art was supplied. Expression edits use each generated neutral portrait as their reference. Original full-size outputs remain in the image generator's archive. Game exports use nearest-neighbor resizing, retaining portrait alpha and common framing.
 
 ## neutral
