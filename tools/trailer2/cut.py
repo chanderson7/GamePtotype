@@ -52,6 +52,13 @@ FELL = os.path.join(ROOT, "assets/fonts/IMFellEnglish-Italic.ttf")
 WORDMARK = os.path.join(ROOT, "assets/branding/wordmark.png")
 NAME = "vaskaria_captains"
 END_LINE = "Coming to iPhone"
+# A second line under it for the day there is somewhere to send people, such as
+# "Join the beta: <address>". Empty: no second line.
+END_ACTION = ""
+# The path to Apple's own pre-order (or download) badge file, for the day the app can be
+# pre-ordered. Apple's rules: their artwork only, unaltered, one per video, never animated,
+# below the main message. When set it replaces END_ACTION.
+STORE_BADGE = None
 
 
 def bar(n, beat=1.0):
@@ -190,16 +197,21 @@ def aside(text, size=44):
 _vignette = None
 
 
-def graded(img, lift=1.0):
-    """A field shot's grade: a touch more contrast, and the corners drawn in."""
+def vignette():
+    """The corners drawn in: a factor per pixel, 1 in the middle of the frame."""
     global _vignette
     if _vignette is None:
         yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
         r = np.sqrt(((xx - W / 2) / (W / 2)) ** 2 + ((yy - H / 2) / (H / 2)) ** 2)
         _vignette = (1.0 - 0.34 * np.clip(r - 0.45, 0, 1) ** 1.6)[..., None]
+    return _vignette
+
+
+def graded(img, lift=1.0):
+    """A field shot's grade: a touch more contrast, and the corners drawn in."""
     px = np.asarray(img, dtype=np.float32) / 255.0
     px = (px - 0.5) * 1.1 + 0.5
-    px = px * _vignette * lift
+    px = px * vignette() * lift
     return Image.fromarray((np.clip(px, 0, 1) * 255).astype(np.uint8))
 
 
@@ -299,6 +311,253 @@ def wordmark(width):
     return _mark[width]
 
 
+# ------------------------------------------------------------------ the cards
+# The name at 0:24 and the end card at 1:00 (docs/trailer-cards-plan.md): the game dimmed
+# behind them, a logo made for a wide frame with letters of lit brass, embers in the air, and
+# a glint that crosses the name on the music.
+
+TITLE_WORD = "VASKARIA"
+TAGLINE = "Squad battles across the Three Realms"
+NAME_PAD = 60  # room round the name's letters for its glow and shadow
+
+
+def _shifted(a, dx, dy):
+    """`a` moved dx right and dy down, the edges it leaves filled with nothing."""
+    out = np.zeros_like(a)
+    h, w = a.shape
+    out[max(0, dy):h + min(0, dy), max(0, dx):w + min(0, dx)] = a[max(0, -dy):h - max(0, dy), max(0, -dx):w - max(0, dx)]
+    return out
+
+
+def _ink(text, face, size, gap, pad, stroke=0):
+    """`text` as a mask (L) with `pad` round its letters; `stroke` thickens them."""
+    f = font(face, size)
+    d = ImageDraw.Draw(Image.new("L", (4, 4)))
+    bb = d.textbbox((0, 0), text, font=f)
+    mask = Image.new("L", (int(tracked_width(text, f, gap)) + 2 * pad, bb[3] - bb[1] + 2 * pad), 0)
+    dm = ImageDraw.Draw(mask)
+    x = pad
+    for ch in text:
+        dm.text((x, pad - bb[1]), ch, font=f, fill=255, stroke_width=stroke, stroke_fill=255)
+        x += dm.textlength(ch, font=f) + gap
+    return mask
+
+
+def _over(base, colour, alpha):
+    """`base` (RGBA) with a flat `colour` laid over it through `alpha` (L)."""
+    layer = Image.new("RGBA", base.size, colour + (0,))
+    layer.putalpha(alpha)
+    return Image.alpha_composite(base, layer)
+
+
+_names = {}
+
+
+def brass_name(size, gap):
+    """The name in lit brass, with NAME_PAD round its letters: (RGBA picture, letters' mask).
+    Brass graded from pale to dark by height, an edge lit from the upper left and shaded at
+    the lower right, a dark outline, a hard shadow under it and a soft glow round it."""
+    key = (size, gap)
+    if key in _names:
+        return _names[key]
+    k = size / 230.0
+    letters = _ink(TITLE_WORD, CINZEL, size, gap, NAME_PAD)
+    edge = _ink(TITLE_WORD, CINZEL, size, gap, NAME_PAD, stroke=max(1, round(3 * k)))
+    m = np.asarray(letters, dtype=np.float32) / 255.0
+    h, w = m.shape
+    rows = np.where(m.max(axis=1) > 0.5)[0]
+    f = np.clip((np.arange(h, dtype=np.float32) - rows.min()) / max(1, rows.max() - rows.min()), 0, 1)
+    stops = [(0.0, (247, 216, 132)), (0.45, (217, 169, 68)), (1.0, (150, 103, 36))]
+    col = np.stack([np.interp(f, [a for a, _ in stops], [c[i] for _, c in stops]) for i in range(3)], axis=1)
+    rgb = np.repeat(col[:, None, :], w, axis=1).astype(np.float32)
+    dx, dy = max(1, round(2 * k)), max(1, round(3 * k))
+    lit = (m * (1.0 - _shifted(m, dx, dy)))[..., None]
+    rgb = rgb * (1.0 - 0.7 * lit) + np.array([255, 240, 190], dtype=np.float32) * 0.7 * lit
+    shade = (m * (1.0 - _shifted(m, -dx, -dy)))[..., None]
+    rgb = rgb * (1.0 - 0.45 * shade)
+    body = Image.fromarray(np.dstack([rgb, m * 255.0]).clip(0, 255).astype(np.uint8), "RGBA")
+    out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    out = _over(out, BRASS, letters.filter(ImageFilter.GaussianBlur(26 * k)).point(lambda v: int(v * 0.22)))
+    drop = Image.new("L", (w, h), 0)
+    drop.paste(edge, (0, round(8 * k)))
+    out = _over(out, (4, 5, 10), drop.point(lambda v: int(v * 0.8)))
+    out = _over(out, (20, 14, 8), edge)
+    out = Image.alpha_composite(out, body)
+    _names[key] = (out, letters)
+    return _names[key]
+
+
+def plain_line(text, face, size, colour, gap=0, pad=40):
+    """A line of type over the same soft dark shadow words() gives type."""
+    mask = _ink(text, face, size, gap, pad)
+    out = Image.new("RGBA", mask.size, (0, 0, 0, 0))
+    for radius, weight in ((14, 1.6), (3, 2.2)):
+        out = _over(out, (2, 3, 8), mask.filter(ImageFilter.GaussianBlur(radius)).point(lambda v, w=weight: min(255, int(v * w))))
+    return _over(out, colour, mask)
+
+
+def ink_rows(mask):
+    """The first and last rows of a mask that have ink in them."""
+    rows = np.where(np.asarray(mask).max(axis=1) > 128)[0]
+    return int(rows.min()), int(rows.max())
+
+
+_lockups = {}
+
+
+def lockup(scale=1.0):
+    """The cards' logo, centred and stacked: the three banners over the name over the tagline.
+    Returns (RGBA picture, the name's letters as a mask in the same place). At 1.0 it is
+    about 1500 wide and 790 tall, the letters of the name about 1400 across."""
+    key = round(scale, 4)
+    if key in _lockups:
+        return _lockups[key]
+    if 1.0 not in _lockups:
+        emblem = Image.open(WORDMARK).convert("RGBA").crop((0, 0, 452, 354)).resize((565, 442), Image.LANCZOS)
+        name, letters = brass_name(230, 30)
+        tag = plain_line(TAGLINE, FELL, 58, (214, 218, 236))
+        name_top, name_bottom = ink_rows(letters)
+        tag_top, _ = ink_rows(_ink(TAGLINE, FELL, 58, 0, 40))
+        w = max(emblem.width, name.width, tag.width)
+        y_emblem = 40
+        y_name = y_emblem + emblem.height + 34 - name_top
+        y_tag = y_name + name_bottom + 26 - tag_top
+        h = y_tag + tag.height
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        img.alpha_composite(emblem, ((w - emblem.width) // 2, y_emblem))
+        img.alpha_composite(name, ((w - name.width) // 2, y_name))
+        img.alpha_composite(tag, ((w - tag.width) // 2, y_tag))
+        mask = Image.new("L", (w, h), 0)
+        mask.paste(letters, ((w - name.width) // 2, y_name))
+        _lockups[1.0] = (img, mask)
+    if key != 1.0:
+        img, mask = _lockups[1.0]
+        size = (max(2, round(img.width * scale)), max(2, round(img.height * scale)))
+        made = (img.resize(size, Image.BILINEAR), mask.resize(size, Image.BILINEAR))
+        if len(_lockups) > 6:  # a creeping scale makes a new size each frame: keep only a few
+            _lockups.pop(next(k for k in _lockups if k != 1.0))
+        _lockups[key] = made
+    return _lockups[key]
+
+
+def glint(canvas, mask, at, progress, strength=0.75):
+    """A bright bar, 150 wide and leaning 20 degrees, crossing the name once as `progress`
+    goes from 0 to 1. It lights only the letters: `mask`, placed on `canvas` at `at`."""
+    m = np.asarray(mask, dtype=np.float32) / 255.0
+    ys, xs = np.where(m > 0.02)
+    if len(xs) == 0:
+        return canvas
+    x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+    # Only the part of the letters that is on the canvas.
+    cx0, cy0 = max(x0, -at[0]), max(y0, -at[1])
+    cx1, cy1 = min(x1, W - at[0]), min(y1, H - at[1])
+    if cx0 >= cx1 or cy0 >= cy1:
+        return canvas
+    yy, xx = np.mgrid[cy0:cy1, cx0:cx1].astype(np.float32)
+    centre = (x0 - 200) + progress * ((x1 + 200) - (x0 - 200))
+    lean = (xx - centre) - (yy - (y0 + y1) / 2) * np.tan(np.radians(20))
+    bar = np.clip(1.0 - np.abs(lean) / 75.0, 0, 1) * m[cy0:cy1, cx0:cx1] * strength
+    box = (at[0] + cx0, at[1] + cy0, at[0] + cx1, at[1] + cy1)
+    px = np.asarray(canvas.crop(box), dtype=np.float32) + bar[..., None] * np.array([255, 246, 214], dtype=np.float32)
+    canvas.paste(Image.fromarray(np.clip(px, 0, 255).astype(np.uint8)), box[:2])
+    return canvas
+
+
+def draw_lockup(canvas, scale, centre, opacity=1.0, shine=None, strength=0.75):
+    """The logo onto `canvas` with its middle at `centre`; `shine` (0 to 1) runs the glint."""
+    img, mask = lockup(scale)
+    at = (int(round(centre[0] - img.width / 2)), int(round(centre[1] - img.height / 2)))
+    if opacity <= 0.003:
+        return canvas
+    if opacity < 0.997:
+        img = img.copy()
+        img.putalpha(img.getchannel("A").point(lambda v: int(v * opacity)))
+    canvas.paste(img, at, img)
+    if shine is not None and 0.0 <= shine <= 1.0:
+        glint(canvas, mask, at, shine, strength * opacity)
+    return canvas
+
+
+_core = None
+
+
+def behind(shot, secs, dim, soften):
+    """A recorded frame as a card's backdrop: softened, darkened, cooled toward the night,
+    the corners drawn in, and a warm glow kept where the logo stands."""
+    global _core
+    if _core is None:
+        core = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(core).ellipse([W / 2 - 550, H / 2 - 310, W / 2 + 550, H / 2 + 310], fill=255)
+        core = np.asarray(core.filter(ImageFilter.GaussianBlur(200)), dtype=np.float32)
+        _core = (core / core.max())[..., None] * np.array([60, 40, 14], dtype=np.float32)
+    small = still(shot, secs).resize((round(W / soften), round(H / soften)), Image.BILINEAR)
+    px = np.asarray(small.filter(ImageFilter.GaussianBlur(2)).resize((W, H), Image.BILINEAR), dtype=np.float32) * dim
+    px = px * np.array([0.80, 0.90, 1.15], dtype=np.float32) + np.array(NIGHT, dtype=np.float32) * 0.6
+    px = px * vignette() + _core
+    return Image.fromarray(np.clip(px, 0, 255).astype(np.uint8))
+
+
+_sparks = None
+
+
+def embers(canvas, t, strength=1.0):
+    """150 square sparks rising through the frame, each fading in and out over its life,
+    sized to sit with the pixel art. Added to the picture, so they glow."""
+    global _sparks
+    if _sparks is None:
+        rng = np.random.default_rng(41)
+        n = 150
+        _sparks = {"x": rng.uniform(0, W, n), "y": rng.uniform(0.45 * H, H + 20, n), "speed": rng.uniform(26, 90, n),
+                   "size": rng.choice([3, 4, 6], n), "phase": rng.uniform(0, 1, n), "sway": rng.uniform(8, 40, n),
+                   "life": rng.uniform(3, 7, n)}
+    s = _sparks
+    age = (t / s["life"] + s["phase"]) % 1.0
+    ys = s["y"] - age * s["life"] * s["speed"]
+    xs = s["x"] + np.sin(t * 1.3 + s["phase"] * 6.28) * s["sway"]
+    light = np.sin(age * np.pi) * strength
+    px = np.asarray(canvas, dtype=np.float32).copy()
+    for x, y, size, glow in zip(xs.astype(int), ys.astype(int), s["size"], light):
+        if x <= -size or y <= -size or x >= W or y >= H:
+            continue
+        k = (size - 3) / 3.0
+        colour = np.array([255, 196 - 76 * k, 96 - 48 * k], dtype=np.float32)
+        px[max(0, y):y + size, max(0, x):x + size] += colour * glow
+    return Image.fromarray(np.clip(px, 0, 255).astype(np.uint8))
+
+
+def ring(canvas, centre, radius, opacity):
+    """A ring of light spreading from the logo as it lands."""
+    m = Image.new("L", (W, H), 0)
+    cx, cy = centre
+    ImageDraw.Draw(m).ellipse([cx - radius, cy - radius, cx + radius, cy + radius], outline=255, width=16)
+    light = np.asarray(m.filter(ImageFilter.GaussianBlur(14)), dtype=np.float32)[..., None] / 255.0
+    px = np.asarray(canvas, dtype=np.float32) + light * np.array([255, 220, 150], dtype=np.float32) * opacity
+    return Image.fromarray(np.clip(px, 0, 255).astype(np.uint8))
+
+
+_cta = None
+
+
+def call_to_action():
+    """The end card's one thing to do, between two short brass rules."""
+    global _cta
+    if _cta is None:
+        text = END_LINE.upper()
+        f = font(CINZEL, 66)
+        tw = tracked_width(text, f, 12)
+        layer = words(((text, CINZEL, 66, BONE, 12),), "centre")
+        w = int(tw + 2 * (40 + 180) + 160)
+        out = Image.new("RGBA", (w, layer.height), (0, 0, 0, 0))
+        out.alpha_composite(layer, ((w - layer.width) // 2, 0))
+        bb = ImageDraw.Draw(Image.new("L", (4, 4))).textbbox((0, 0), text, font=f)
+        mid = 60 + (bb[1] + bb[3]) / 2
+        d = ImageDraw.Draw(out)
+        for x in ((w - tw) / 2 - 40 - 180, (w + tw) / 2 + 40):
+            d.rectangle([x, mid - 1.5, x + 180, mid + 1.5], fill=BRASS + (255,))
+        _cta = out
+    return _cta
+
+
 # ------------------------------------------------------------------ the cut
 
 CHARGE_HIT = mark("charge", "IMPACT") - 2.5   # where the two lines are seen to meet
@@ -368,12 +627,20 @@ def picture(t):
         layer = words((("LEAD THEM ANYWAY.", CINZEL, 104, BONE, 12),), "centre")
         put(img, layer, (W / 2, H / 2), opacity=ease(u / 0.5), scale=0.94 + 0.09 * (u / 2.0))
         return img
-    # ---- bar 13: the name
+    # ---- bar 13: the name, slammed onto the armies as they close, then a glint across it
     if t < bar(14):
         u = t - bar(13)
-        img = night()
-        put(img, wordmark(1500), (W / 2, H / 2), opacity=1.0, scale=1.0 + 0.28 * (1.0 - ease(u / 0.16)) + 0.02 * u)
-        return img
+        # The seconds of the clash just before the next bar cuts to it, so the cut lands on the
+        # same field at full brightness.
+        img = behind("clash", mark("clash", "CLASH") - 2.9 + u, 0.42, 2)
+        centre = (W / 2, H / 2 + 10)
+        if u < 0.5:
+            img = ring(img, centre, 200 + 900 * u / 0.5, 0.5 * (1.0 - u / 0.5))
+        img = embers(img, t, 1.0)
+        scale = 1.30 - 0.30 * ease(u / 0.16) + 0.02 * (u / 2.0)
+        jolt = max(0.0, 1.0 - u / 0.35)
+        at = (centre[0] + np.sin(t * 90) * 14 * jolt, centre[1] + np.cos(t * 70) * 10 * jolt)
+        return draw_lockup(img, scale, at, 1.0, (u - 0.35) / 0.65 if 0.35 <= u <= 1.0 else None)
     # ---- bars 14-21: the battles
     if t < bar(22):
         k = int((t - bar(14)) / 2.0)
@@ -430,18 +697,34 @@ def picture(t):
         img = Image.fromarray((band * (1.0 - 0.72 * rows * ease(u / 0.1))).astype(np.uint8))
         said(img, t, bar(30) + 0.02, bar(30) + 1.6, [("VICTORY.", CINZEL, 210, BRASS, 16)], SLAM_AT, align="centre", slam=True)
         if u > 1.3:
-            img = Image.blend(img, night(), ease((u - 1.3) / 0.7))
+            img = Image.blend(img, behind("dusk", 7.5, 0.26, 5), ease((u - 1.3) / 0.7))
         return img
-    # ---- bars 31-35: the name
+    # ---- bars 31-35: the end card. The logo arrives over the dusk battle, slowed and dark;
+    # the glint crosses the name as the horn enters (62.0) and again, fainter, on the harp (66.0).
     u = t - bar(31)
-    img = night()
-    put(img, wordmark(1320), (W / 2, H / 2 - 70), opacity=ease(u / 1.2), scale=1.0 + 0.012 * u)
-    rows = ((END_LINE.upper(), CINZEL, 46, BONE, 9),)
-    put(img, words(rows, "centre"), (W / 2, H / 2 + 185), opacity=ease((u - 2.0) / 0.9))
+    img = embers(behind("dusk", 7.5 + u * 0.5, 0.26, 5), t, 0.8)
+    if u >= 0.4:
+        arrive = ease((u - 0.4) / 1.2)
+        scale = 0.82 * (1.0 + 0.03 * max(0.0, (u - 1.6) / (LENGTH - bar(31) - 1.6)))
+        shine, strength = None, 0.75
+        if 2.0 <= u <= 2.7:
+            shine = (u - 2.0) / 0.7
+        elif 6.0 <= u <= 6.6:
+            shine, strength = (u - 6.0) / 0.6, 0.375
+        draw_lockup(img, scale, (W / 2, 430 + 30 * (1.0 - arrive)), arrive, shine, strength)
+    put(img, call_to_action(), (W / 2, 860), opacity=ease((u - 2.6) / 0.8))
+    if STORE_BADGE:
+        if u >= 3.4:
+            # Apple's badge as it comes: resized only, a plain cut in, nothing done to it.
+            badge = Image.open(STORE_BADGE).convert("RGBA")
+            badge = badge.resize((round(badge.width * 96 / badge.height), 96), Image.LANCZOS)
+            img.paste(badge, (int(W / 2 - badge.width / 2), 960 - 48), badge)
+    elif END_ACTION:
+        put(img, words(((END_ACTION, FELL, 44, (198, 201, 214), 0),), "centre"), (W / 2, 945), opacity=ease((u - 3.2) / 0.8))
     return img
 
-
-# White for a frame or two on the hits; the first second comes up from black, the last goes down.
+# White for a frame or two on the hits; the first second comes up from black. The last frame
+# is the end card itself, held, because a player that stops on it shows it.
 FLASHES = [(bar(4), 0.85), (bar(13), 1.0), (bar(14), 0.5), (bar(18), 0.35), (bar(22), 0.4), (bar(26), 0.8), (bar(30), 1.0)]
 
 
@@ -452,8 +735,6 @@ def finished(t):
             img = Image.blend(img, Image.new("RGB", (W, H), (255, 250, 238)), strength * (1.0 - (t - when) / 0.2) ** 2)
     if t < 1.2:
         img = Image.blend(Image.new("RGB", (W, H), (0, 0, 0)), img, ease(t / 1.2))
-    if t > LENGTH - 0.9:
-        img = Image.blend(img, Image.new("RGB", (W, H), (0, 0, 0)), ease((t - (LENGTH - 0.9)) / 0.8))
     return img
 
 
@@ -527,8 +808,17 @@ def thumbnail(path):
     fall = np.linspace(0.35, 0.72, W, dtype=np.float32)[::-1][None, :, None]
     px = px * (1.0 - fall) + np.array(NIGHT, dtype=np.float32) * fall
     img = phone("fall", DIE_LANDS + 0.6, zoom=0.84, focus_y=690, cx=1440, behind=Image.fromarray(px.clip(0, 255).astype(np.uint8)))
-    put(img, wordmark(840), (490, 330))
-    put(img, words((("EVERY CAPTAIN", CINZEL, 92, BONE, 4), ("CAN FALL.", CINZEL, 92, EMBER, 4)), "left"), (490, 650))
+    # The name and tagline from the cards' logo (no banners: there is no room), left-aligned
+    # with the two lines under them.
+    name, letters = brass_name(140, 10)  # 150, as planned, ran into the phone
+    top, bottom = ink_rows(letters)
+    left = 80
+    img.paste(name, (left - NAME_PAD, 230 - top), name)
+    tag = plain_line(TAGLINE, FELL, 40, (214, 218, 236))
+    tag_top, _ = ink_rows(_ink(TAGLINE, FELL, 40, 0, 40))
+    img.paste(tag, (left + 4 - 40, 230 + (bottom - top) + 22 - tag_top), tag)
+    lines = words((("EVERY CAPTAIN", CINZEL, 92, BONE, 4), ("CAN FALL.", CINZEL, 92, EMBER, 4)), "left")
+    put(img, lines, (left - 60 + lines.width / 2, 650))
     img.resize((1280, 720), Image.LANCZOS).save(path, quality=92)
 
 

@@ -1,7 +1,11 @@
 # Vaskaria: the trailer's title and end cards
 
 - **Date:** 2026-11-14
-- **Status:** planned, not built. Written to be handed to another (cheaper) model to build.
+- **Status:** packages 1 to 6 built (2026-11-14); package 7 not built, as planned. Built as
+  written, except: the thumbnail's name is size 140 with 10 between letters, not 150 (at 150
+  its last letter ran into the phone). Checks: the seven untouched frames are pixel-identical
+  to before; a full render took 5 min 22 s; the mix reads -14.0 LUFS; the last frame is the
+  end card.
 - **Scope:** the two cards of the *Captains* trailer (`tools/trailer2/cut.py`): the name at
   0:24 and the end card at 1:00. Nothing else in the trailer changes.
 
