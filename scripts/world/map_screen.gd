@@ -76,6 +76,8 @@ var _pinch_from := 0.0
 var _pinch_scale := 1.0
 var _pinching := false
 var _save_clock := 0.0
+## Seconds of riding between saves on the road.
+const AUTOSAVE_EVERY := 30.0
 ## Seconds since the map opened, for anything that moves on its own.
 var _clock := 0.0
 ## Presentation-only contact left by the moving warband: dust, footsteps or wake.
@@ -284,8 +286,11 @@ func _process(delta: float) -> void:
 	# An encounter or a note about the last battle holds the clock until it's answered.
 	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
+		# The campaign is saved as you ride, but not every few seconds: a save is the whole
+		# campaign, written on this thread. It's also saved on arriving, on every encounter,
+		# and whenever the game goes to the background.
 		_save_clock += delta
-		if _save_clock > 5.0:
+		if _save_clock > AUTOSAVE_EVERY:
 			_save_clock = 0.0
 			GameState.save_game()
 	for e in world.events:
@@ -384,6 +389,16 @@ func _process(delta: float) -> void:
 	_refresh_hud()
 	_sync_layers()
 	queue_redraw()
+
+
+## Full frames while time runs (parties move) or the clock sweeps on; otherwise the map
+## may be drawn at fewer frames once nothing has been touched for a while (FramePacer).
+func keeps_full_pace() -> bool:
+	if world == null:
+		return false
+	if world.busy() and not paused:
+		return true
+	return _clock_tween != null and _clock_tween.is_valid() and _clock_tween.is_running()
 
 
 ## The smoke test: ride at the nearest band and fight it, send the men in against the

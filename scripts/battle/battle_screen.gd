@@ -693,6 +693,14 @@ func _ready() -> void:
 	_refresh_hud()
 
 
+## Full frames while the battle moves by itself: fought (not paused), a captain's roll,
+## the title going up, or being fought back after a relaunch (see FramePacer).
+func keeps_full_pace() -> bool:
+	if _resume_to >= 0 or not _roll.is_empty() or not _title.is_empty():
+		return true
+	return sim != null and sim.phase == Sim.PHASE_BATTLE and sim.winner == -1 and not paused
+
+
 ## Whether this battle is kept in the campaign save while it's fought: a campaign's battle,
 ## not the test battle or a smoke test's.
 func _keeps_battle() -> bool:

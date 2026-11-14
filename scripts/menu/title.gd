@@ -661,6 +661,11 @@ func _point_backdrop() -> void:
 	_backdrop.point_camera(center, vs.x / 560.0, vs * 0.5, vs, [_sky])
 
 
+## Full frames while the opening plays over Home (see FramePacer).
+func keeps_full_pace() -> bool:
+	return get_node_or_null("Opening") != null
+
+
 func _on_continue() -> void:
 	# A battle the phone closed mid-fight picks up where it was.
 	Scenes.go("res://scenes/battle.tscn" if GameState.battle_waiting() else "res://scenes/world_map.tscn")

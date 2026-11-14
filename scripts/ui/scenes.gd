@@ -62,6 +62,8 @@ var settlement_arrival_pending := false
 var _veil: ColorRect
 var _busy := false
 
+## Draws fewer frames while nothing is happening (see frame_pacer.gd).
+var pacer: Node
 
 
 ## `-- --autoplay`: the computer plays from the title to a settlement and quits, the
@@ -69,9 +71,13 @@ var _busy := false
 func autoplay() -> bool:
 	return OS.is_debug_build() and OS.get_cmdline_user_args().has("--autoplay")
 
+
 func _ready() -> void:
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	pacer = preload("res://scripts/ui/frame_pacer.gd").new()
+	pacer.name = "FramePacer"
+	add_child(pacer)
 	_veil = ColorRect.new()
 	_veil.color = Color(0.03, 0.04, 0.07, 0.0)
 	_veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
