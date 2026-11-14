@@ -19,8 +19,9 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
   courts and granting crown fiefs are in: `docs/crown-court-and-muster-plan.md`,
   `tests/crown_court_tests.gd`.) (Siege engines are in: `docs/siege-engines-plan.md`.) (The lords' talk was rewritten: every beat in four voices, `scripts/data/lord_lines.gd`.) (Movement cycles
   are in: a four-frame stride; see the end of `game-feel-audit.md`.)
-- Release (iPhone): see the checklist under **Added 2026-11-14**: a TestFlight build, the
-  frame rate on the oldest iPhone to be supported, and a playtest.
+- Release (iPhone): it has run on a real iPhone, and the Apple Developer account is set up.
+  See the checklist under **Added 2026-11-14**: the frame rate measured on the oldest
+  iPhone to be supported, TestFlight, and a playtest.
 - [`playtest-audit.md`](playtest-audit.md), six code-traced passes from different players'
   seats: the default suite and every screen have now run in Godot (no script errors, iPhone
   SE and tall iPhone, 100% and 150% text). Still to confirm: campaign pace (`--autoplay`,
@@ -129,10 +130,14 @@ Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14)
 - The 24-seed river fairness check reads 33% but 192 battles give 47%: the merged test
   fights 96 battles a map.
 
-Still to do for the App Store (needs the Mac and the Apple Developer account):
-- Team ID and signing; a TestFlight build; then the frame rate (60, never under 30, in
-  the biggest battle), memory, heat and touch on the oldest iPhone to be supported (raise
-  the minimum iOS, or require an A12, to match what holds up).
+Still to do for the App Store (the game has run on a real iPhone and the Apple Developer
+account is set up):
+- Measure on the oldest iPhone to be supported: frame rate (60, never under 30, in the
+  biggest battle), memory, heat over 20 minutes, touch. A debug export (Export With Debug)
+  keeps Settings › Developer: *Show performance* puts each battle frame's cost at the foot
+  of the field, and *Test battle: 12 against 12* is the densest fight. Then raise the
+  minimum iOS, or require an A12, to match what holds up.
+- A TestFlight build for playtesters (raise the preset's build number each upload).
 - A battle is not saved: if iOS closes the app in the background mid-battle, the fight
   starts again from the autosave before it. Worth saving or at least warning.
 - The map saves the whole campaign every 5 seconds on the road and redraws every frame:

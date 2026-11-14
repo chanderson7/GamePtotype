@@ -244,4 +244,4 @@ Add `-- --balance` to also fight three scripted players against every kind of co
 - [x] Phase 4, a living world: lords and armies on the map, war and peace, sieges that change who holds what, mercenary contracts, prisoners and ransom (`docs/phase-4-plan.md`)
 - [x] Captains and men: wounded men, captain skills and promotions, heroes, Casual mode (Phase 5)
 - [x] Land of your own and the crown: fiefs, vassalage, playable sieges, the journal, company deeds, your own kingdom and alliances (first slices; see `docs/kingdom-plan.md`)
-- [ ] A second art pass (painted capital plates and battle vignettes; `docs/artwork-roadmap.md`), a TestFlight build on iPhone and a playtest, then the App Store (iPhone only; Android and Steam later)
+- [ ] A second art pass (painted capital plates and battle vignettes; `docs/artwork-roadmap.md`), TestFlight and a playtest (it already runs on a real iPhone), then the App Store (iPhone only; Android and Steam later)
