@@ -314,7 +314,24 @@ stepping out to strike stand in the front rank's places, and that's the press of
 Men also end up in a company-mate's place after being pushed, and walk round each other.
 Reassigning places to the nearest man once a second made no difference, so it isn't in.
 
-**Balance:** the full `-- --balance` check is running against this code and against the shipped code; its gates are recorded here when it finishes. The regular suite passes, including the counter duels, the braced line (10/12), fords (11/12 dry, 0/12 wet) and the length of AI battles.
+**Balance** (`-- --balance` on this code, with the shipped code's result in brackets):
+
+| Gate | Result |
+| --- | --- |
+| *Advance all* and nothing else wins about half at most (≤ 55%) | 36% ✓ (56% ✗) |
+| A player who uses the tools wins at least 70% | 97% ✓ (72% ✓) |
+| Holding all battle (not a gate) | 39% (11%) |
+| Mirrored ground is fair (35–65%), 96 battles each | hills 48%, woods 46%, river 42%, pass 53% ✓ |
+| Vardish v Kharzani trained armies (35–65%) | 56–44 ✓ (54–46) |
+| Kharzani v Ryumon trained armies (35–65%) | **29–71 ✗** (38–62) |
+
+The fairness check fought 48 battles per map. One fixed batch of seeds put a fair river at
+33%, while three other batches gave 50 to 52% (47% over 192 battles), so it now fights 96.
+Ryumon's trained army was already the strongest. It gains the most from fighting in ranks,
+and that needs its own look. The rest of the check (Ryumon v Vardish, attacking into good
+ground, objectives, troop branches) was still running when this was merged. The shipped
+code already failed three of its gates: the ambush (42%) and village (4%) objectives, and
+playing to the objective over *Advance all*.
 
 ### Where it differs from the plan
 
