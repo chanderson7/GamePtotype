@@ -115,6 +115,24 @@ func _run() -> void:
 		"Settings shows which build this is, for a bug report")
 	check((current_scene.find_child("DeveloperToggle", true, false) != null) == OS.is_debug_build(),
 		"the Developer options are there in a debug build only, never in a store build")
+	# Credits and licences: Godot's notice and its parts', the fonts' licence on a tap.
+	(current_scene.find_child("CreditsButton", true, false) as Button).pressed.emit()
+	await transition()
+	check(current_scene.scene_file_path.ends_with("credits.tscn"), "Settings opens Credits & licences")
+	var godot_notice := current_scene.find_child("GodotLicense", true, false) as Label
+	check(godot_notice != null and godot_notice.text.contains("Godot Engine contributors") and godot_notice.text.contains("Permission is hereby granted"),
+		"which carries Godot's licence")
+	var parts := current_scene.find_child("Components", true, false)
+	check(parts != null and parts.get_child_count() > 50, "and names every part of the engine with its licence (%d)" % (parts.get_child_count() if parts != null else 0))
+	var ofl := current_scene.find_child("Licence_OFL", true, false)
+	var ofl_text := ofl.get_node("Text") as Label if ofl != null else null
+	check(ofl_text != null and not ofl_text.visible and ofl_text.text == "", "a licence's words wait until asked for")
+	if ofl != null:
+		(ofl.get_node("Toggle") as Button).button_pressed = true
+	check(ofl_text != null and ofl_text.visible and ofl_text.text.contains("SIL OPEN FONT LICENSE"), "and the fonts' licence opens in full")
+	button("Back").pressed.emit()
+	await transition()
+	check(current_scene.scene_file_path.ends_with("settings.tscn"), "Credits goes back to Settings")
 	button("Open tutorial").pressed.emit()
 	await transition()
 	for step in 5:

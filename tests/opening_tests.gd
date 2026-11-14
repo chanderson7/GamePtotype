@@ -47,6 +47,8 @@ func _run() -> void:
 	check(ios.contains('application/short_version=""'), "and takes its version from the project, the one Settings shows")
 	check(presets.count('exclude_filter="docs/*,tests/*,tools/*"') == presets.count("exclude_filter="),
 		"no build carries the docs, tests or tools")
+	check(presets.count('include_filter="assets/fonts/OFL.txt"') == presets.count("include_filter="),
+		"and every build carries the fonts' licence, which Credits shows")
 	var corner := img.get_pixel(4, 4)
 	check(corner.is_equal_approx(Opening.NIGHT) or corner.to_html(false) == Opening.NIGHT.to_html(false), "the splash's edges are the night, so fitting it leaves no seam")
 

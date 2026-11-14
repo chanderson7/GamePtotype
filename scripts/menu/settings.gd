@@ -87,6 +87,10 @@ func _build() -> void:
 	version.name = "VersionNote"
 	version.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(version)
+	var credits := Page.button("Credits & licences", func(): Scenes.go("res://scenes/credits.tscn"))
+	credits.name = "CreditsButton"
+	credits.icon = Widgets.icon("book")
+	col.add_child(credits)
 	# For whoever is building the game: a debug build only, never in a store build.
 	if OS.is_debug_build():
 		_add_developer(col)
