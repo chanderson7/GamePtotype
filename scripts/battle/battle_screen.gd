@@ -18,6 +18,7 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
+const SiegeArt = preload("res://scripts/art/siege_art.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Units = preload("res://scripts/data/units.gd")
@@ -390,6 +391,8 @@ var _castle_culture := Cultures.VARDISH
 ## Whose banners fly in a siege: the garrison's realm, and your own side's.
 var _garrison_realm := "vardmark"
 var _my_realm := "vardmark"
+## The realm the enemy fights for in the field ("bandits" for a band), for its banner.
+var _enemy_realm := "bandits"
 var _doodads: Array = []
 ## The land past the field's edge, and marks on the field itself, for looks only: trees
 ## and paddies beyond the edge, a track, crop strips or wind ripples on the ground.
@@ -494,6 +497,10 @@ var post_button: Button
 ## The storm plan on show (squad id -> "ladder", "ram" or "bows") before it's given; the
 ## battle waits while it's up. Storm! gives it, Cancel drops it.
 var _storm_plan: Dictionary = {}
+## The engine of yours picked to aim (a stone thrower or a bolt thrower), or null.
+var selected_engine = null
+## Callouts already given for the siege's engines (each once).
+var _engine_said := {}
 var storm_go_button: Button
 var cancel_button: Button
 var objective_chip: PanelContainer
@@ -592,6 +599,7 @@ func _ready() -> void:
 			has_allies = true
 		sim.siege_kind = String(pending.get("siege_kind", "castle"))
 		sim.siege_defender = Sim.PLAYER if bool(pending.get("siege_defend", false)) else Sim.ENEMY
+		sim.siege_engines = (pending.get("siege_engines", {}) as Dictionary).duplicate(true)
 		sim.setup(player_host, pending["enemy"], 0, site, obj)
 		if has_allies:
 			sim.allied_ai = Commander.new(Sim.PLAYER, "", true)
@@ -608,6 +616,10 @@ func _ready() -> void:
 		_biome = _castle_culture
 		if GameState.world != null:
 			_garrison_realm = String(GameState.world.owner_of(siege_at))
+	# A lord's army flies its realm's banner; a band only roams a realm, under its own rag.
+	_enemy_realm = String(pending.get("enemy_faction", "bandits")) if bool(pending.get("is_lord", false)) else "bandits"
+	if not Heraldry.REALM_SIZES.has(_enemy_realm):
+		_enemy_realm = "bandits"
 	_my_realm = Heraldry.realm_of_culture(GameState.culture)
 	if GameState.is_crowned():
 		_my_realm = WorldData.CROWN
@@ -1898,6 +1910,11 @@ func _standard_at(at: Vector2):
 
 func _tap_deploy(p: Vector2, tapped) -> void:
 	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
+	if sim.works != null and selected_id == -1 and mine == null:
+		var eng = _engine_at(p)
+		if eng != null:
+			_hint(_engine_blurb(eng))
+			return
 	if mine != null:
 		if mine.is_ally:
 			_hint("%s are allied troops under their lord's command." % _company_or_type(mine))
@@ -1956,6 +1973,8 @@ func _select_next_card() -> void:
 
 func _tap_battle(p: Vector2, tapped) -> void:
 	var mine = tapped if tapped != null and tapped.team == Sim.PLAYER else sim.squad_at(Sim.PLAYER, p)
+	if sim.works != null and _storm_plan.is_empty() and _tap_engines(p, mine):
+		return
 	if not _storm_plan.is_empty():
 		# While the storm plan is up, a tap on one of your companies swaps its way in.
 		if mine != null and mine.is_active() and not mine.is_ally:
@@ -2082,12 +2101,14 @@ func _on_storm() -> void:
 		return
 	_select(null)
 	_storm_plan = sim.storm_plan(Sim.PLAYER)
-	_hint(_storm_plan_text() + " Tap a card to swap ladder and ram.", "storm_plan")
+	_hint(_storm_plan_text() + (" Tap a company to change its job." if sim.works != null and (sim.works.has("tower", Sim.PLAYER) or sim.works.has("thrower", Sim.PLAYER)) else " Tap a card to swap ladder and ram."), "storm_plan")
 
 
 func _storm_plan_text() -> String:
 	var ladders := PackedStringArray()
 	var ram := PackedStringArray()
+	var tower := PackedStringArray()
+	var crews := PackedStringArray()
 	for sq in sim.squads:
 		if sq.team != Sim.PLAYER or not _storm_plan.has(sq.id) or sq.is_ally:
 			continue
@@ -2096,7 +2117,19 @@ func _storm_plan_text() -> String:
 			ladders.append(who)
 		elif _storm_plan[sq.id] == "ram":
 			ram.append(who)
+		elif _storm_plan[sq.id] == "tower":
+			tower.append(who)
+		elif String(_storm_plan[sq.id]).begins_with("crew"):
+			crews.append(who)
 	var parts := PackedStringArray()
+	if not tower.is_empty():
+		parts.append("%s push%s the tower" % [_and_list(tower), "es" if tower.size() == 1 else ""])
+	if not crews.is_empty():
+		var thrower_name := "stone throwers"
+		var ts: Array = sim.works.crewable(Sim.PLAYER).filter(func(e): return e.kind == "thrower") if sim.works != null else []
+		if not ts.is_empty():
+			thrower_name = sim.works.engine_name(ts[0]) + ("s" if ts.size() > 1 else "")
+		parts.append("%s work%s the %s" % [_and_list(crews), "s" if crews.size() == 1 else "", thrower_name])
 	if not ladders.is_empty():
 		parts.append("%s take%s the ladders" % [_and_list(ladders), "s" if ladders.size() == 1 else ""])
 	if not ram.is_empty():
@@ -2138,12 +2171,29 @@ func _on_storm_cancel() -> void:
 	_hint("Orders go to the whole army.", "army")
 
 
-## On the storm plan, a tapped card swaps its company between ladder and ram.
+## On the storm plan, a tapped card moves its company to its next job: ladder, ram, the
+## siege tower, the stone throwers (the jobs there are for it).
 func _swap_storm(sq) -> void:
-	if not _storm_plan.has(sq.id) or not sim.can_climb(sq):
+	if not _storm_plan.has(sq.id) or String(_storm_plan[sq.id]) == "bows":
+		_hint("%s shoot the walls." % _company_or_type(sq))
+		return
+	var jobs := []
+	if sim.can_climb(sq):
+		jobs.append("ladder")
+	jobs.append("ram")
+	if sim.works != null:
+		var tower = sim.works.tower_of(Sim.PLAYER)
+		if tower != null and not tower.docked and sim.can_climb(sq):
+			jobs.append("tower")
+		var throwers: Array = sim.works.crewable(Sim.PLAYER).filter(func(e): return e.kind == "thrower")
+		if not throwers.is_empty():
+			jobs.append("crew:%d" % throwers[0].id)
+	if jobs.size() <= 1:
 		_hint("%s can't climb a ladder." % _company_or_type(sq))
 		return
-	_storm_plan[sq.id] = "ram" if _storm_plan[sq.id] == "ladder" else "ladder"
+	var now := String(_storm_plan[sq.id])
+	var i := jobs.find(now)
+	_storm_plan[sq.id] = jobs[(i + 1) % jobs.size()]
 	_hint(_storm_plan_text(), "storm_swap")
 
 
@@ -2802,8 +2852,9 @@ func _draw_walls() -> void:
 			var p := foot.lerp(head, t)
 			_c.draw_line(p + Vector2(-7, 0), p + Vector2(7, 0), Color("8a5a2a"), 2.0)
 			t += 0.12
-	# The ram under its roof, swinging while men work it.
-	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0:
+	# The ram under its roof, swinging while men work it (drawn as an engine when the
+	# siege has its engines: see _draw_engines).
+	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0 and sim.works == null:
 		var swing := 4.0 * sin(_clock * 7.0) if not Style.motion_reduced() else 0.0
 		var outside := -inward
 		var shed := Rect2(gate.get_center().x - 18.0, 0, 36.0, 46.0)
@@ -2839,6 +2890,9 @@ func _consume_events() -> void:
 					_tick("Your men are on the ladders!", Style.PLAYER_LIGHT, "ladder")
 			"stones":
 				_drop_stones(e["at"])
+			"engine_throw", "engine_bolt", "stone_lands", "wall_hit", "gate_hit", "wall_breached", "tower_docked", \
+					"engine_burning", "engine_lost", "oil", "fire_arrows", "sally_out", "engine_fire_out", "bolt_miss":
+				_engine_event(e)
 			"siege_moment":
 				var sq = e["squad"]
 				var mine: bool = sq.team == Sim.PLAYER
@@ -3138,6 +3192,372 @@ func _burst(at: Vector2, kind: String, color: Color, life: float) -> void:
 	bursts.append({"pos": at, "kind": kind, "color": color, "age": 0.0, "life": life})
 
 
+# ---------------------------------------------------------------- siege engines
+
+## The shadows engines cast: as the men's, by the hour, but longer for what stands taller.
+const ENGINE_SHADOW := 0.3
+
+## The wall where stones have hit it: cracks as a section weakens, rubble where it fell.
+func _draw_wall_damage() -> void:
+	if sim.works == null:
+		return
+	var st: Dictionary = CASTLE_STYLES.get(_castle_culture, CASTLE_STYLES["vardish"])
+	var cell := Terrain.CELL
+	var top: float = sim.wall_row * cell
+	for i in sim.works.sections.size():
+		var sec: Dictionary = sim.works.sections[i]
+		var cols: Array = sec["cols"]
+		var share: float = float(sec["hp"]) / maxf(1.0, float(sec["hp_max"]))
+		if sec["broken"]:
+			# Fallen stone heaped where the wall stood, in the walls' own stone.
+			var px := SiegeArt.PIXEL
+			var tint: Color = Color(st["stone"]).lightened(0.25)
+			for cx in sec["open"]:
+				_c.draw_rect(Rect2(float(cx) * cell, top - 4.0, cell, cell + 8.0), Color(st["paving"]).darkened(0.35))
+				var tile := SiegeArt.texture("rubble", int(cx) % 3)
+				_c.draw_set_transform(field_origin + Vector2(float(cx) * cell - 1.0, top - 3.0) * field_scale, 0.0, Vector2(px * field_scale, px * field_scale))
+				_c.draw_texture(tile, Vector2.ZERO, tint)
+				_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+		elif share < 0.999:
+			var cracks := 1 + int((1.0 - share) * 5.0)
+			for k in cracks:
+				var x := float(cols[0]) * cell + 5.0 + float((k * 29) % maxi(1, cols.size() * 30 - 10))
+				var a := Vector2(x, top + 2.0)
+				_c.draw_polyline(PackedVector2Array([a, a + Vector2(4, 7), a + Vector2(-2, 15), a + Vector2(3, cell - 3.0)]), Color(0.12, 0.09, 0.08, 0.85), 2.0)
+
+
+## Every engine on the field in its land's pixel art (SiegeArt, drawn like the men), each
+## with a shadow as long as it is tall: stone throwers working their arms, the tower
+## rolling and then its bridge down on the wall, the ram swinging while men work it,
+## mantlets before the bows, bolt throwers on the wall's towers, a courtyard thrower on its
+## platform; fire on what burns, and the charred frames of what has burned.
+func _draw_engines() -> void:
+	if sim.works == null:
+		return
+	for e in sim.works.engines:
+		var land := String(e.land)
+		var up: bool = (sim.inward() < 0.0) == (e.team == sim.works.attacker)
+		match String(e.kind):
+			"thrower", "yard_thrower":
+				if String(e.kind) == "yard_thrower":
+					_engine_sprite("platform", 0, e.pos, up, false)
+				_engine_sprite(land + "/thrower", _thrower_frame(e), e.pos, up, e.burnt, "thrower")
+			"tower":
+				var rolling := 0 if Style.motion_reduced() else int(e.pos.distance_to(e.home) / 6.0) % 2
+				_engine_sprite(land + "/tower", 2 if e.docked else rolling, e.pos, up, e.burnt, "tower")
+			"mantlets":
+				if not e.burnt:
+					_engine_sprite(land + "/mantlet", 0, e.pos, up, false, "mantlet")
+			"bolt":
+				_engine_sprite(land + "/bolt", 0 if e.reload > 0.6 else 1, e.pos, up, e.burnt, "bolt")
+			"ram":
+				# At the gate while men work it (swinging home and back); charred where it burned.
+				if e.burnt or sim.gate_blows > 0.0 or sim.gate_hp <= 0.0:
+					var swing := 0 if Style.motion_reduced() or sim.gate_blows <= 0.0 else int(_clock * 2.4) % 2
+					_engine_sprite(land + "/ram", swing, e.pos, up, e.burnt, "ram")
+		if e.burning > 0.0 and not e.burnt:
+			var at: Vector2 = e.pos
+			var n := 3 if String(e.kind) in ["thrower", "yard_thrower", "tower"] else 1
+			for k in n:
+				var off := Vector2((float(k) - float(n - 1) * 0.5) * 22.0, float(k % 2) * 10.0 - 6.0)
+				_engine_fire(at + off, k)
+		if not e.burnt and String(e.kind) in ["thrower", "yard_thrower", "tower", "bolt"]:
+			_draw_engine_marks(e)
+	for f in sim.works.flames:
+		_engine_fire(f["pos"], int(f["pos"].x) % 4, clampf(float(f["left"]) / 2.0, 0.4, 1.0))
+
+
+## Which frame a thrower shows: thrown for a moment after a stone goes, then swinging back
+## down, then wound and waiting.
+func _thrower_frame(e) -> int:
+	if Style.motion_reduced():
+		return 0
+	var since: float = sim.works.reload_of(e) - e.reload
+	if since < 0.35:
+		return 2
+	if since < 0.9:
+		return 1
+	return 0
+
+
+## Sprite `name` (SiegeArt) standing at field point `at`, facing up the field or down it,
+## charred if `burnt`, with a shadow by its height (`height_key` in SiegeArt.HEIGHT).
+func _engine_sprite(name: String, frame: int, at: Vector2, up: bool, burnt: bool, height_key: String = "platform") -> void:
+	var tex := SiegeArt.texture(name, frame, burnt)
+	if tex == null:
+		return
+	var px := SiegeArt.PIXEL * field_scale
+	var rot := 0.0 if up else PI
+	var piv := SiegeArt.pivot(name)
+	var fall: Vector2 = _shadow_off.normalized() * float(SiegeArt.HEIGHT.get(height_key, 3.0))
+	_c.draw_set_transform(field_origin + (at + fall) * field_scale, rot, Vector2(px, px))
+	_c.draw_texture(SiegeArt.texture(name, frame, false, true), -piv, Color(0, 0, 0, ENGINE_SHADOW))
+	_c.draw_set_transform(field_origin + at * field_scale, rot, Vector2(px, px))
+	_c.draw_texture(tex, -piv)
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+
+
+## A wood fire's tongues licking up at `at` (`phase` staggers the flicker); a steady flame
+## under Reduced motion.
+func _engine_fire(at: Vector2, phase: int, size: float = 1.0) -> void:
+	var frame := 0 if Style.motion_reduced() else (int(_clock * 8.0) + phase) % 4
+	var px := SiegeArt.PIXEL * field_scale * size
+	_c.draw_set_transform(field_origin + at * field_scale, 0.0, Vector2(px, px))
+	_c.draw_texture(SiegeArt.texture("flame", frame), -SiegeArt.pivot("flame"))
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	if not Style.motion_reduced():
+		for k in 2:
+			var rise := fmod(_clock * 16.0 + float(k) * 17.0 + float(phase) * 9.0, 44.0)
+			_dot(at + Vector2(float(k) * 6.0 - 3.0, -26.0 - rise), 4.0 + rise * 0.15, Color(0.22, 0.2, 0.2, 0.32 * (1.0 - rise / 44.0)))
+
+
+## An engine's state when it matters: its wood when hurt, whether it has a crew, and what
+## your picked engine is aimed at.
+func _draw_engine_marks(e) -> void:
+	var share: float = e.hp / maxf(1.0, e.hp_max)
+	var p: Vector2 = e.pos + Vector2(0.0, -34.0)
+	var mine: bool = e.team == Sim.PLAYER
+	if share < 0.999 or e == selected_engine:
+		_c.draw_rect(Rect2(p - Vector2(18, 3), Vector2(36, 6)), Color(0, 0, 0, 0.6))
+		_c.draw_rect(Rect2(p - Vector2(17, 2), Vector2(34.0 * share, 4)), Style.PLAYER_LIGHT if mine else Style.ENEMY_LIGHT)
+	if mine and String(e.kind) != "bolt":
+		_c.draw_circle(p + Vector2(24, 0), 4.0, Color("6fd06a") if e.crewed() else Color(0.6, 0.6, 0.6, 0.8))
+	if e == selected_engine:
+		_c.draw_arc(e.pos, 30.0, 0.0, TAU, 28, Style.BRASS, 3.0)
+		var aim: Dictionary = e.aim
+		var to = null
+		match String(aim.get("kind", "auto")):
+			"section":
+				to = sim.works.section_center(int(aim["ref"]))
+			"gate":
+				to = sim.gate_center
+			"engine":
+				if aim.get("ref") != null:
+					to = aim["ref"].pos
+			"squad":
+				if aim.get("ref") != null and aim["ref"].is_active():
+					to = aim["ref"].avg
+		if to != null:
+			_c.draw_dashed_line(e.pos, to, Color(Style.BRASS, 0.8), 3.0, 14.0)
+			_c.draw_arc(to, 18.0, 0.0, TAU, 24, Style.BRASS, 3.0)
+
+
+## Stones in the air on their arcs, growing as they climb toward you, a shadow on the
+## ground beneath; naphtha pots glowing; bolts along their line.
+func _draw_engine_shots() -> void:
+	if sim.works == null:
+		return
+	for sh in sim.works.shots:
+		var k: float = clampf(float(sh["t"]) / float(sh["flight"]), 0.0, 1.0)
+		var from: Vector2 = sh["from"]
+		var to: Vector2 = sh["to"]
+		var ground := from.lerp(to, k)
+		var px := SiegeArt.PIXEL * field_scale
+		if String(sh["kind"]) == "stone":
+			var arc := minf(160.0, from.distance_to(to) * 0.3)
+			var lift := sin(k * PI) * arc
+			var grow := 1.0 + (lift / arc if arc > 0.0 else 0.0) * 0.8
+			_dot(ground + Vector2(3, 3), 5.0 * (1.2 - lift / maxf(1.0, arc) * 0.5), Color(0, 0, 0, 0.32))
+			var name := "naphtha" if bool(sh.get("naphtha", false)) else "stone"
+			_c.draw_set_transform(field_origin + (ground - Vector2(0, lift)) * field_scale, k * 6.0, Vector2(px * grow, px * grow))
+			_c.draw_texture(SiegeArt.texture(name), -SiegeArt.pivot(name))
+		else:
+			var dir := (to - from).normalized()
+			_c.draw_set_transform(field_origin + ground * field_scale, dir.angle() + PI * 0.5, Vector2(px, px))
+			_c.draw_texture(SiegeArt.texture("bolt_shot"), -SiegeArt.pivot("bolt_shot"))
+		_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+
+
+func _engine_event(e: Dictionary) -> void:
+	var defending: bool = sim.siege_defender == Sim.PLAYER
+	match String(e["type"]):
+		"engine_throw":
+			var en = e["engine"]
+			Sound.play_at("ram", _to_screen(en.pos), -6.0, 0.15, 0.6, 0.7)
+			if not _engine_said.has("throw_%d" % en.team):
+				_engine_said["throw_%d" % en.team] = true
+				var name: String = sim.works.engine_name(en)
+				if en.team == Sim.PLAYER:
+					_tick("Your %s has the range!" % name, Style.PLAYER_LIGHT, "gate")
+				else:
+					_tick("Their %s has the range!" % name, Style.ENEMY_LIGHT, "gate")
+		"engine_bolt":
+			Sound.play_at("crossbow", _to_screen(e["engine"].pos), -4.0, 0.1, 0.4)
+			var en_b = e["engine"]
+			if en_b.team != Sim.PLAYER and not _engine_said.has("bolts_far"):
+				_engine_said["bolts_far"] = true
+				_tick("Their bolt throwers reach the whole field!", Style.ENEMY_LIGHT, "walls")
+		"bolt_miss":
+			_burst(e["at"], "dust", Color("cfc4ac"), 0.5)
+		"stone_lands":
+			_burst(e["at"], "dust", Color("d8cdb4"), 0.7)
+			Sound.play_at("heavy", _to_screen(e["at"]), -6.0, 0.1, 0.3)
+		"wall_hit", "gate_hit":
+			_burst(e["at"], "dust", Color("cfc4ac"), 0.9)
+			Sound.play_at("ram", _to_screen(e["at"]), -3.0, 0.1, 0.3, 0.8)
+		"wall_breached":
+			_burst(e["at"], "rubble", Color("d8cdb4"), 1.6)
+			_kick(9.0)
+			Sound.play_at("gate_break", _to_screen(e["at"]), -2.0)
+			if defending:
+				_tick("They've broken the wall!", Style.ENEMY_LIGHT, "walls")
+			else:
+				_tick("A breach in the wall!", Style.PLAYER_LIGHT, "walls")
+		"tower_docked":
+			Sound.play_at("ladders", _to_screen(e["engine"].pos), 0.0)
+			if e["engine"].team == Sim.PLAYER:
+				_tick("The tower is at the wall!", Style.PLAYER_LIGHT, "walls")
+			else:
+				_tick("Their tower is at the wall!", Style.ENEMY_LIGHT, "walls")
+		"engine_burning":
+			var en2 = e["engine"]
+			var key := "fire_%d" % en2.id
+			if _engine_said.has(key) or String(en2.kind) == "mantlets":
+				return
+			_engine_said[key] = true
+			var name2: String = sim.works.engine_name(en2)
+			if en2.team == Sim.PLAYER:
+				_tick("Your %s is burning!" % name2, Style.ENEMY_LIGHT, "fire")
+			else:
+				_tick("Their %s is burning!" % name2, Style.PLAYER_LIGHT, "fire")
+		"engine_lost":
+			var en3 = e["engine"]
+			_burst(en3.pos, "dust", Color("3a2a1e"), 1.2)
+			if String(en3.kind) in ["thrower", "yard_thrower", "tower", "ram"]:
+				var name3: String = sim.works.engine_name(en3)
+				if en3.team == Sim.PLAYER:
+					_tick("Your %s is lost!" % name3, Style.ENEMY_LIGHT, "fire")
+				else:
+					_tick("Their %s is done for!" % name3, Style.PLAYER_LIGHT, "fire")
+		"oil":
+			for at in (e["at"] as Array).slice(0, 6):
+				_burst(at, "oil", Color(0.1, 0.06, 0.03), 0.9)
+			Sound.play_at("heavy", _to_screen(sim.gate_center), -2.0, 0.1, 0.5, 0.6)
+			if not _engine_said.has("oil"):
+				_engine_said["oil"] = true
+				if defending:
+					_tick("Oil on their ram!", Style.PLAYER_LIGHT, "gate")
+				else:
+					_tick("Oil from the gatehouse!", Style.ENEMY_LIGHT, "gate")
+		"fire_arrows":
+			var sq = e["squad"]
+			var target = e["engine"]
+			for k in 3:
+				bursts.append({"pos": target.pos + Vector2(randf_range(-12, 12), randf_range(-12, 12)),
+					"from": sq.average_pos() + Vector2(randf_range(-20, 20), randf_range(-8, 8)), "kind": "fire_arrow",
+					"color": Color(1.0, 0.6, 0.2), "age": 0.0, "life": 0.7})
+		"sally_out":
+			var sq2 = e["squad"]
+			if sq2.team == Sim.PLAYER:
+				_tick("%s slip out by the postern!" % _company_or_type(sq2), Style.PLAYER_LIGHT, "walls")
+			else:
+				_tick("A sally from the postern!", Style.ENEMY_LIGHT, "walls")
+
+
+## The engine at field point `p` (within reach of a finger), or null.
+func _engine_at(p: Vector2):
+	var best = null
+	var best_d := 40.0
+	for e in sim.works.engines:
+		if e.burnt or String(e.kind) in ["ram", "mantlets"]:
+			continue
+		var d: float = e.pos.distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
+
+
+## What an engine is and what you can do with it, for a tap on it.
+func _engine_blurb(e) -> String:
+	var name: String = sim.works.engine_name(e)
+	var hp := "%d of %d" % [int(e.hp), int(e.hp_max)]
+	if e.team == Sim.PLAYER:
+		match String(e.kind):
+			"thrower", "yard_thrower":
+				return "Your %s (%s). A company standing at it works it; tap it, then tap a wall section, the gate, an enemy engine or a company to aim it." % [name, hp]
+			"tower":
+				return "Your siege tower (%s). Its company pushes it to the wall when you Storm, then goes over its bridge." % hp
+			"bolt":
+				return "Your bolt thrower (%s), worked by whoever holds the walk beside it. Tap it, then tap what to shoot." % hp
+	match String(e.kind):
+		"tower":
+			return "Their siege tower (%s). Pick a company of bows and tap it to set it alight." % hp
+		"thrower", "yard_thrower":
+			if sim.siege_defender == Sim.PLAYER and sim.works.has_postern():
+				return "Their %s (%s). Pick a company on foot and tap it to sally out by the postern and burn it; bows can set it alight from close enough." % [name, hp]
+			return "Their %s (%s). Bows can set it alight from close enough; men who reach it can hack it down." % [name, hp]
+		"bolt":
+			return "Their bolt thrower (%s), on the wall's tower. Men who get over the wall can hack it down." % hp
+	return name
+
+
+## A tap during the battle, on or about an engine. Returns whether the tap was taken.
+func _tap_engines(p: Vector2, mine) -> bool:
+	var eng = _engine_at(p)
+	# Aiming the picked engine.
+	if selected_engine != null:
+		var e = selected_engine
+		selected_engine = null
+		if eng == e:
+			e.aim = {"kind": "auto"}
+			_hint("%s chooses its own marks." % sim.works.engine_name(e).capitalize())
+			return true
+		var aim := {}
+		if eng != null and eng.team != e.team:
+			aim = {"kind": "engine", "ref": eng}
+		elif absf(p.y - sim.wall_y) < 30.0 and String(e.kind) in ["thrower"]:
+			var cx := int(p.x / Terrain.CELL)
+			if Sim.GATE_COLS.has(cx):
+				aim = {"kind": "gate"}
+			elif sim.works.section_at(cx) >= 0:
+				aim = {"kind": "section", "ref": sim.works.section_at(cx)}
+		if aim.is_empty():
+			var foe = sim.squad_at(Sim.ENEMY, p, 52.0)
+			if foe != null:
+				aim = {"kind": "squad", "ref": foe}
+		if aim.is_empty():
+			_hint("Nothing to aim at there. Tap the %s again to pick it up." % sim.works.engine_name(e))
+			return true
+		e.aim = aim
+		Sound.play("click", -6.0)
+		_hint("%s: aimed." % sim.works.engine_name(e).capitalize())
+		return true
+	if eng == null:
+		return false
+	# Your engine: a company picked goes to work it; otherwise pick it up to aim.
+	if eng.team == Sim.PLAYER:
+		if selected_squad != null and String(eng.kind) in ["thrower", "yard_thrower", "tower"]:
+			sim.order_crew(selected_squad, eng)
+			_mark_ordered(selected_squad)
+			_hint("%s go to the %s." % [_company_or_type(selected_squad), sim.works.engine_name(eng)])
+			return true
+		if String(eng.kind) in ["thrower", "yard_thrower", "bolt"]:
+			_select(null)
+			selected_engine = eng
+			_hint(_engine_blurb(eng))
+			return true
+		_hint(_engine_blurb(eng))
+		return true
+	# Theirs: bows set it alight, foot sally at it (holding the walls) or go for it.
+	if selected_squad != null and selected_squad.is_active():
+		var sq = selected_squad
+		if sq.ranged:
+			sim.order_burn(sq, eng)
+			_mark_ordered(sq)
+			_hint("%s shoot fire at their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
+			return true
+		if sim.siege_defender == Sim.PLAYER and sim.gate_hp > 0.0 and sim.works.has_postern():
+			if sim.order_sally(sq, eng):
+				_mark_ordered(sq)
+				_hint("%s go out by the postern for their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
+				return true
+		_order_move(sq, eng.pos)
+		return true
+	_hint(_engine_blurb(eng))
+	return true
+
+
 ## Stones falling from the gate tower onto the men at the ram: a few of the volley drawn,
 ## each a grey dot dropping from the wall top and a puff where it lands.
 func _drop_stones(hits: Array) -> void:
@@ -3325,6 +3745,16 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		var defending: bool = sim.siege_defender == Sim.PLAYER
 		tally.append(Widgets.tile("ladder", str(sim.climbed), "came over" if defending else "went up"))
 		tally.append(Widgets.tile("ram", str(int(sim.gate_max - sim.gate_hp)), "blows on the gate" if defending else "ram blows"))
+		if sim.works != null:
+			var att: int = sim.works.attacker
+			if int(sim.works.stones[att]) > 0:
+				tally.append(Widgets.tile("walls", str(sim.works.stones[att]), "their stones" if defending else "stones thrown"))
+			if sim.works.sections_broken > 0:
+				tally.append(Widgets.tile("breach", str(sim.works.sections_broken), "walls broken"))
+			var lost_engines := int(sim.works.burned[Sim.PLAYER])
+			var took_engines := int(sim.works.burned[Sim.ENEMY])
+			if lost_engines + took_engines > 0:
+				tally.append(Widgets.tile("fire", "%d · %d" % [took_engines, lost_engines], "engines burned, theirs · yours"))
 	var tally_grid := Widgets.tile_grid(tally, 3)
 	tally_grid.name = "Tally"
 	result_content.add_child(tally_grid)
@@ -3592,6 +4022,16 @@ func _siege_timeline() -> Control:
 			"thrown_down":
 				var by := who if defending else "The garrison"
 				rows.append([e["t"], "ladder", "%s threw a man off a ladder (%d in all)" % [by, sim.thrown_down], Color("b8f5b0")])
+			"section":
+				var thrower: String = sim.works.engine_name(sim.works.engines.filter(func(x): return x.kind == "thrower")[0]) if sim.works != null and sim.works.has("thrower") else "stones"
+				rows.append([e["t"], "breach", ("Their %s broke the wall" if defending else "Your %s broke the wall") % thrower, Color("ffc06a")])
+			"tower":
+				rows.append([e["t"], "walls", "Their tower reached the wall" if defending else "The tower reached the wall", Color("ffe08a")])
+			"oil":
+				rows.append([e["t"], "gate", "Oil poured on the ram (%d times)" % (sim.works.pours if sim.works != null else 1), Color("e8a03c")])
+			"engine_lost_0", "engine_lost_1":
+				var ours: bool = String(e["kind"]) == "engine_lost_%d" % Sim.PLAYER
+				rows.append([e["t"], "fire", "One of your engines burned" if ours else "One of their engines burned", Style.ENEMY_LIGHT if ours else Color("b8f5b0")])
 	var attacker_won: bool = sim.winner != sim.siege_defender
 	var end_line := "The garrison broke and ran" if attacker_won else "The walls held"
 	if defending:
@@ -3649,7 +4089,7 @@ func _siege_vignette() -> Control:
 func _field_vignette() -> Control:
 	var c := Control.new()
 	c.name = "FieldVignette"
-	c.custom_minimum_size = Vector2(0, 168)
+	c.custom_minimum_size = Vector2(0, 204)
 	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	c.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	c.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -3676,14 +4116,20 @@ func _draw_field_vignette(c: Control, won: bool) -> void:
 		c.draw_set_transform(at, rng.randf() * TAU, Vector2(s, s))
 		c.draw_texture(Art.frame("corpse", team, 0, GameState.culture if team == Sim.PLAYER else _enemy_culture), -Art.pivot("corpse"), Color(1, 1, 1, 0.85))
 	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-	# The winners' standard up, the losers' down.
-	var up_team := Sim.PLAYER if won else Sim.ENEMY
-	var pole := Vector2(size.x * 0.5 + 40.0, size.y - 66.0)
-	c.draw_line(pole, pole - Vector2(0, 92), Color("6b4a2a"), 4.0)
-	_draw_flag(c, pole - Vector2(0, 92), FLAG * 1.6, up_team, Troops.INFANTRY, false, true, 0.0)
-	var down := Vector2(size.x * 0.5 - 90.0, size.y - 74.0)
-	c.draw_line(down, down + Vector2(-60, -14), Color(0.32, 0.22, 0.13, 0.9), 3.0)
-	_draw_flag(c, down + Vector2(-60, -14), FLAG, Sim.ENEMY if won else Sim.PLAYER, Troops.INFANTRY, true, false, deg_to_rad(-76.0))
+	# The winners' banner up and the losers' in the mud: each side's realm banner, as the
+	# map and the siege's picture show them (a band's own rag for bandits).
+	var up_realm := _my_realm if won else _enemy_realm
+	var down_realm := _enemy_realm if won else _my_realm
+	var lie := Transform2D(deg_to_rad(-78.0), Vector2(size.x * 0.5 - 104.0, size.y - 80.0))
+	c.draw_set_transform_matrix(lie)
+	Heraldry.realm_banner(c, down_realm, Rect2(-34.0, -40.0, 68.0, 80.0), true, true, lie)
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# Standing: the banner in the upper part, its pole carried on down into the ground.
+	var ground_y := size.y - 52.0
+	var stand := Rect2(size.x * 0.5 + 6.0, 10.0, 120.0, (ground_y - 10.0) * 0.74)
+	var finial := Heraldry.realm_banner(c, up_realm, stand)
+	c.draw_circle(Vector2(finial.x + 3.0, ground_y + 1.0), 7.0, Color(0, 0, 0, 0.3))
+	c.draw_line(Vector2(finial.x, stand.end.y - 2.0), Vector2(finial.x, ground_y), Heraldry.POLE if up_realm != "ryumon" else Color("2a1d14"), 3.0)
 	if _vignette > 0.0:
 		for i in 6:
 			c.draw_rect(frame.grow(-i * 8.0), Color(0.02, 0.03, 0.08, _vignette * 0.12 * (1.0 - i / 6.0)), false, 8.0)
@@ -5244,6 +5690,11 @@ func _draw_above() -> void:
 	_draw_sparks()
 	_draw_settled()
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
+		_draw_engines()
+		_draw_engine_shots()
+		# The reach labels go over the engines standing in the field.
+		for l in _reach_labels:
+			_field_label(l[0], l[1], l[2], l[3], l[4])
 		_draw_storm_plan()
 		_draw_gate_marker()
 	_draw_hour_air()
@@ -5671,6 +6122,7 @@ func _draw_objectives() -> void:
 		return
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_walls()
+		_draw_wall_damage()
 		_draw_siege_reach()
 		_draw_garrison_posts()
 	if sim.objective == Sim.OBJECTIVE_VILLAGE:
@@ -5839,6 +6291,28 @@ func _draw_bursts() -> void:
 					for i in 4:
 						var d := Vector2.from_angle(float(i) / 4.0 * TAU + 0.4)
 						_dot(pos + d * (4.0 + 10.0 * k2), 4.0 + 3.0 * k2, Color("d8cdb4", 0.6 * (1.0 - k2)))
+			"rubble":
+				for i in 9:
+					var d := Vector2.from_angle(float(i) / 9.0 * TAU + 0.3)
+					_dot(pos + d * (10.0 + 34.0 * t), 9.0 + 9.0 * t, Color(color, color.a * 0.6))
+				for i in 6:
+					var d2 := Vector2.from_angle(float(i) / 6.0 * TAU + 1.1)
+					_c.draw_rect(Rect2(pos + d2 * (6.0 + 26.0 * t) - Vector2(3, 3), Vector2(6, 5)), Color("8a8d94", 1.0 - t))
+			"oil":
+				for i in 7:
+					var d := Vector2.from_angle(float(i) / 7.0 * TAU + 0.2)
+					_dot(pos + d * (4.0 + 12.0 * t), 6.0 + 3.0 * t, Color(0.12, 0.08, 0.04, 0.75 * (1.0 - t)))
+				_dot(pos, 5.0 + 8.0 * t, Color(1.0, 0.75, 0.3, 0.35 * (1.0 - t)))
+			"fire_arrow":
+				var from2: Vector2 = burst.get("from", pos)
+				if t < 0.6:
+					var k3 := t / 0.6
+					var at2 := from2.lerp(pos, k3) - Vector2(0.0, sin(k3 * PI) * 30.0)
+					var dir2 := (pos - from2).normalized()
+					_c.draw_line(at2 - dir2 * 9.0, at2, Color(0.35, 0.25, 0.15, 0.9), 1.5)
+					_dot(at2, 2.6, Color(1.0, 0.65, 0.2, 1.0))
+				else:
+					_dot(pos, 4.0 * (1.0 - t), Color(1.0, 0.55, 0.15, 0.8))
 			"fall":
 				_c.draw_arc(pos, 14.0 + 30.0 * t, 0.0, TAU, 30, color, 3.0)
 				_c.draw_line(pos + Vector2(-8, -8), pos + Vector2(8, 8), color, 2.0)
@@ -6818,9 +7292,14 @@ func _field_label(text: String, at: Vector2, fg: Color, bg: Color, edge: Color) 
 	_c.draw_string(font, Vector2(r.position.x + pad, r.position.y + pad * 0.5 + font.get_ascent(fs)), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)
 
 
+## The reach overlay's labels, drawn after the engines so none stands over them.
+var _reach_labels: Array = []
+
+
 ## Planning an assault: where the garrison's bows on the wall can reach (red), the cover
 ## under the ram's roof (blue), and the two ladders.
 func _draw_siege_reach() -> void:
+	_reach_labels.clear()
 	if not _deploying() or sim.siege_defender != Sim.ENEMY:
 		return
 	var w: float = Sim.ARENA.x
@@ -6857,7 +7336,23 @@ func _draw_siege_reach() -> void:
 				continue
 			_c.draw_dashed_line(a2, b2, Color("ff8a6a"), 2.5, 10.0)
 	if not zone.is_empty():
-		_field_label("Wall bows reach here", Vector2(label_x, minf(deepest + 20.0, Sim.ARENA.y - 20.0)), Color("ffb3a0"), Color(Style.NIGHT, 0.9), Color("a14a3c"))
+		_reach_labels.append(["Wall bows reach here", Vector2(label_x, minf(deepest + 20.0, Sim.ARENA.y - 20.0)), Color("ffb3a0"), Color(Style.NIGHT, 0.9), Color("a14a3c")])
+	# The walls' engines reach further: where their bolts still hit for sure, and how far
+	# they carry at all (the courtyard thrower's reach, the whole field).
+	if sim.works != null:
+		var bolt_n := 0
+		for e in sim.works.engines:
+			if e.team != Sim.ENEMY or not e.working():
+				continue
+			if String(e.kind) == "bolt":
+				bolt_n += 1
+				_c.draw_arc(e.pos, sim.works.BOLT_SURE, 0.15 * PI, 0.85 * PI, 40, Color("ffb070", 0.75), 2.5)
+				_c.draw_arc(e.pos, sim.works.BOLT_RANGE, 0.22 * PI, 0.78 * PI, 48, Color("ffb070", 0.45), 2.0)
+		if bolt_n > 0:
+			# Beside the wall bows' label, not in the middle where the engines stand.
+			var bolt_y := maxf(sim.wall_y + sim.works.BOLT_SURE + 40.0, deepest + 64.0)
+			_reach_labels.append(["Bolts sure here, and reach your whole camp", Vector2(label_x, minf(bolt_y, Sim.ARENA.y - 60.0)),
+				Color("ffd0a0"), Color(Style.NIGHT, 0.9), Color("a1643c")])
 	# The ram's roof.
 	var roof := PackedVector2Array()
 	for i in 48:

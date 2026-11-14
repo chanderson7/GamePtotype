@@ -21,6 +21,7 @@ const Commander = preload("res://scripts/battle/commander_ai.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const SiegeCamp = preload("res://scripts/world/siege_camp.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
@@ -83,12 +84,21 @@ var world = null:
 ## The fight the map has set up for the battle screen: {enemy, culture, temperament,
 ## name}. Empty when the battle screen should make up its own enemy.
 var pending_battle := {}
+## The company's camp before enemy walls (SiegeCamp.new_camp), or {}.
+var siege_camp: Dictionary = {}
+## The world's hour when sieges were last stepped (they follow the world's clock, which
+## moves only while you travel or wait).
+var _siege_hour := -1.0
 ## What the map should tell the player when they get back from a battle, or "".
 var map_notice := ""
 ## What the waiting message is about, as its card's title: "After the battle" when a fight
 ## was settled, a crown won or lost; empty for everything else, which the map titles by
 ## where you are.
 var map_notice_title := ""
+## The waiting message follows a battle whose result card was on screen: what's left (a
+## contract done, regard won) passes as a line over the map that fades on its own, not a
+## card to dismiss.
+var map_notice_passing := false
 ## Things of one kind done in a row (captives released, lords sworn), kept apart from the
 ## running notice so the map can show them together, a heading, who, and the totals once,
 ## rather than a sentence each. Each is {kind, name, ...}: "released" carries the realm,
@@ -177,6 +187,8 @@ func new_campaign(culture_id: String) -> void:
 	culture = culture_id if Cultures.has(culture_id) else Cultures.VARDISH
 	world = null
 	pending_battle = {}
+	siege_camp = {}
+	_siege_hour = -1.0
 	gathering_log = {}
 	hosted = {}
 	host_ready_at = 0.0
@@ -214,6 +226,7 @@ func new_warband() -> void:
 	contract = {}
 	map_notice = ""
 	map_notice_title = ""
+	map_notice_passing = false
 	map_notice_items = []
 	desertion_warning = ""
 	hired_heroes = []
@@ -516,18 +529,40 @@ func complete_job(job_id: String) -> Dictionary:
 			var v_id := String(job.get("origin_settlement", ""))
 			world.offers[v_id] = world._new_offers(v_id)
 
+	var standing_realm := ""
 	if world != null and r_rel > 0:
 		var target_settlement: String = String(job.get("destination_settlement", job.get("origin_settlement", "")))
 		if target_settlement != "":
 			var owner_realm: String = world.owner_of(target_settlement)
 			if owner_realm != "" and owner_realm != WorldData.BANDITS:
 				add_realm_relation(owner_realm, r_rel)
+				standing_realm = owner_realm
 
 	var title: String = String(job.get("title", "Contract"))
-	_note("Completed: %s. Claimed %d silver and +%d renown." % [title, r_silver, r_renown])
+	# Only what it paid: a job for regard alone doesn't claim "0 silver".
+	var paid: Array = []
+	if r_silver > 0:
+		paid.append("%d silver" % r_silver)
+	if r_renown > 0:
+		paid.append("+%d renown" % r_renown)
 	var lord_line := LordTalk.job_done(self, job)
+	# The card that says so: what it was, who it was for, and what it paid.
+	var done := {"title": title, "silver": r_silver, "renown": r_renown,
+		"place": String(job.get("origin_settlement", job.get("destination_settlement", ""))),
+		"realm": standing_realm if standing_realm != "" else job_realm(job),
+		"standing": r_rel if standing_realm != "" else 0,
+		"text": "Completed: %s.%s" % [title, (" Claimed %s." % " and ".join(paid)) if not paid.is_empty() else ""]}
+	if String(job.get("story_candidate", "")) != "":
+		done["story"] = lord_line
+	elif lord_line != "" and world != null:
+		var giver: Dictionary = world.lord_by_id(int(job.get("for_lord", -1)))
+		if not giver.is_empty():
+			done["lord"] = giver
+			done["regard"] = int(job.get("reward_regard", LordTalk.JOB_REGARD))
+			done["thanks"] = LordVoice.line("thanks", giver)
 	if lord_line != "":
-		_note(lord_line)
+		done["text"] = String(done["text"]) + "\n" + lord_line
+	_contract_card(done)
 	if world != null:
 		world.emit_event({"type": "job_completed", "company": "Your warband", "title": title, "at": world.here()})
 
@@ -1965,6 +2000,16 @@ func _moment(title: String, sub: String, banner: String, falls: bool, sound: Str
 		scenes.moment(title, sub, banner, falls, sound)
 
 
+## A contract done gets a card of its own (see Scenes.contract_done), once no battle is on
+## screen; with no screen to show it on, it's a line on the map like any other.
+func _contract_card(done: Dictionary) -> void:
+	var scenes := get_node_or_null("/root/Scenes") if is_inside_tree() else null
+	if scenes != null and scenes.has_method("contract_done"):
+		scenes.contract_done(done)
+	else:
+		_note(String(done["text"]))
+
+
 ## A moment worth a stamp drops in as a ribbon, once no battle is on screen.
 func _ribbon(title: String, sub: String, icon_key: String, sound: String) -> void:
 	var scenes := get_node_or_null("/root/Scenes")
@@ -2092,6 +2137,7 @@ func start_siege_battle(id: String) -> void:
 		"temperament": "", "name": "The garrison of %s" % WorldData.settlement(id)["name"],
 		"party_id": -1, "site": null, "objective": "siege", "siege_target": id,
 		"siege_kind": check["kind"], "siege_realm": check["realm"], "enemy_faction": owner, "allies": siege_allies(id),
+		"siege_engines": SiegeCamp.battle_config(world, id, siege_kit(id), culture),
 	}
 
 
@@ -2128,7 +2174,7 @@ func auto_resolve_siege(id: String) -> Dictionary:
 	var fighters := army.filter(func(sq): return int(sq["men"]) > 0)
 	fighters.append_array(pending_battle.get("allies", []))
 	var result := AutoResolve.resolve(fighters, pending_battle["enemy"], rng, false, null, "rout",
-		float(Lords.WALLS[String(pending_battle["siege_kind"])]))
+		siege_walls(id))
 	result["objective"] = "siege"
 	apply_result(result)
 	return result
@@ -2172,8 +2218,11 @@ func answer_assault(fight: bool) -> void:
 	var garrison: Array = WorldSim.clean_army(world.garrisons.get(target, []))
 	var kind := String(WorldData.settlement(target)["type"])
 	var owner: String = world.owner_of(target)
+	var army_kit: Array = army.get("engines", SiegeCamp.DEFAULT_ARMY_KIT)
+	var att_culture := WorldData.culture_of(String(army["realm"]))
 	pending_battle = {"objective": "siege", "siege_target": target, "siege_kind": kind, "site": null,
-		"temperament": "", "party_id": -1, "assault_army": int(army["id"])}
+		"temperament": "", "party_id": -1, "assault_army": int(army["id"]),
+		"siege_engines": SiegeCamp.battle_config(world, target, army_kit, att_culture, fief_works(target))}
 	if role == "lead":
 		for e in lords_squads:
 			e["is_ally"] = true
@@ -2197,6 +2246,7 @@ func _army_assault_outcome(result: Dictionary, how: String) -> void:
 	world.pending_assault = {}
 	var won := bool(result.get("won", false))
 	var defend := bool(pending_battle.get("siege_defend", false))
+	_keep_siege_damage(target, result)
 	var ours: Dictionary = result.get("squads", {})
 	var theirs: Dictionary = result.get("enemy_squads", {})
 	# Garrison survivors: on our side when defending, the enemy's when storming.
@@ -2255,31 +2305,12 @@ func _siege_outcome(result: Dictionary, how: String) -> void:
 	if id == "" or not WorldData.SETTLEMENTS.has(id):
 		return
 	var place: String = WorldData.settlement(id)["name"]
-	var was: String = world.owner_of(id)
+	_keep_siege_damage(id, result)
 	if result.get("won", false):
-		var beside: Array = []
-		for lp in world.lord_parties():
-			if lp.node == id and not lp.moving() and world.relation_to_player(lp.faction) == "friendly" and world.at_war(lp.faction, was):
-				beside.append(lp)
-		world.garrisons[id] = []
-		var stay := 0
-		if realm != "" and world.at_war(realm, was):
-			world.set_owner(id, realm)
-			world.emit_event({"type": "captured", "realm": realm, "settlement": id, "from": was})
-			stay = _hold_taken_walls(id, beside)
-		if stay > 0:
-			how += " %d of your men stay to hold its walls." % stay
-		var got := Economy.spoils(int(result.get("killed", 0)))
-		got["silver"] = int(got["silver"]) + 200
-		got["renown"] = int(got["renown"]) + 30
-		silver += int(got["silver"])
-		food += int(got["food"])
-		renown += int(got["renown"])
-		add_realm_relation(realm, 15)
-		add_realm_relation(was, -20)
-		_note("%s falls to your assault! %s Claimed %d silver and %d renown; %s now flies the banner of %s." % [
-			place, how, got["silver"], got["renown"], place, WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm])
+		_take_walls(id, realm, how, int(result.get("killed", 0)), "%s falls to your assault!" % place)
 	else:
+		if siege_camp_at(id):
+			SiegeCamp.keep_survivors(siege_camp, result.get("siege_works", {}).get("engines_left", {}).get("attacker", []))
 		# What's left of the garrison stays on the walls.
 		var left: Dictionary = result.get("enemy_squads", {})
 		var garrison: Array = world.garrisons.get(id, [])
@@ -2289,6 +2320,281 @@ func _siege_outcome(result: Dictionary, how: String) -> void:
 				sq["men"] = int(after.get("men", sq["men"]))
 		world.garrisons[id] = garrison.filter(func(sq): return int(sq["men"]) > 0)
 		_note("The assault on %s failed. %s The survivors fall back from the walls." % [place, how])
+
+
+## The walls at `id` are yours (stormed, or yielded): the garrison goes, the place flies
+## `realm`'s banner, the lords beside you and some of your men stay to hold it, and the
+## spoils are counted. `opening` starts the note.
+func _take_walls(id: String, realm: String, how: String, killed: int, opening: String) -> void:
+	var place: String = WorldData.settlement(id)["name"]
+	var was: String = world.owner_of(id)
+	var beside: Array = []
+	for lp in world.lord_parties():
+		if lp.node == id and not lp.moving() and world.relation_to_player(lp.faction) == "friendly" and world.at_war(lp.faction, was):
+			beside.append(lp)
+	world.garrisons[id] = []
+	var stay := 0
+	if realm != "" and world.at_war(realm, was):
+		world.set_owner(id, realm)
+		world.emit_event({"type": "captured", "realm": realm, "settlement": id, "from": was})
+		stay = _hold_taken_walls(id, beside)
+	if stay > 0:
+		how += " %d of your men stay to hold its walls." % stay
+	if siege_camp_at(id):
+		siege_camp = {}
+	var got := Economy.spoils(killed)
+	got["silver"] = int(got["silver"]) + 200
+	got["renown"] = int(got["renown"]) + 30
+	silver += int(got["silver"])
+	food += int(got["food"])
+	renown += int(got["renown"])
+	add_realm_relation(realm, 15)
+	add_realm_relation(was, -20)
+	_note("%s %s Claimed %d silver and %d renown; %s now flies the banner of %s." % [
+		opening, how, got["silver"], got["renown"], place, WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm])
+
+
+## Keep what an assault did to `id`'s walls (a fought one says; one sent in doesn't).
+func _keep_siege_damage(id: String, result: Dictionary) -> void:
+	var sw: Dictionary = result.get("siege_works", {})
+	if sw.is_empty() or world == null:
+		return
+	SiegeCamp.set_damage(world, id, float(sw.get("gate", 1.0)), sw.get("cols", {}))
+
+
+# ---------------------------------------------------------------- laying siege
+
+## Whether the company is camped before `id`'s walls.
+func siege_camp_at(id: String) -> bool:
+	return not siege_camp.is_empty() and String(siege_camp.get("place", "")) == id
+
+
+## What the company would storm `id` with: what its camp has built there, or the two
+## ladders it lashes together on arrival.
+func siege_kit(id: String) -> Array:
+	return SiegeCamp.kit(siege_camp) if siege_camp_at(id) else ["ladders"]
+
+
+## The works your fief's walls have bought (none for anyone else's).
+func fief_works(id: String) -> Dictionary:
+	return player_fief.get("improvements", {}) if is_player_fief(id) else {}
+
+
+## The wall multiplier an assault on `id` is settled with now (SiegeCamp.walls).
+func siege_walls(id: String) -> float:
+	var kind := String(WorldData.settlement(id).get("type", "castle"))
+	return SiegeCamp.walls(kind, SiegeCamp.defences(world, id, fief_works(id)), siege_kit(id), SiegeCamp.damage(world, id))
+
+
+## Men building engines before `id`: yours, and friendly lords' camped there.
+func siege_builders(id: String) -> int:
+	var men := total_men()
+	for a in siege_allies(id):
+		men += int(a.get("men", 0))
+	return men
+
+
+## Camp before `id`'s walls: build engines, starve them, bombard them. {ok, reason}.
+func lay_siege(id: String) -> Dictionary:
+	var check := siege_check(id)
+	if not check["ok"]:
+		return {"ok": false, "reason": String(check["reason"])}
+	if world.garrisons.get(id, []).is_empty():
+		return {"ok": false, "reason": "The walls stand empty. Storm them."}
+	if siege_camp_at(id):
+		return {"ok": false, "reason": "You're camped there already."}
+	if not siege_camp.is_empty():
+		break_siege()
+	# The siege sheet says the rest (what's built, the garrison's food): no notice over it.
+	siege_camp = SiegeCamp.new_camp(id, world.hour)
+	_siege_hour = world.hour
+	save_game()
+	return {"ok": true, "reason": ""}
+
+
+## Build `kind` in the camp. {ok, reason, hours}.
+func siege_build(kind: String) -> Dictionary:
+	var c := SiegeCamp.can_build(siege_camp, kind, culture, silver)
+	if not c["ok"]:
+		return c
+	var cost: Dictionary = SiegeCamp.cost(kind, culture)
+	silver -= int(cost["silver"])
+	siege_camp["building"] = kind
+	siege_camp["left"] = SiegeCamp.build_hours(kind, culture, siege_builders(String(siege_camp["place"])))
+	save_game()
+	return {"ok": true, "reason": "", "hours": float(siege_camp["left"])}
+
+
+## Throwers in the camp knock at the walls each day, or not.
+func siege_toggle_bombard() -> void:
+	if not siege_camp.is_empty():
+		siege_camp["bombard"] = not bool(siege_camp.get("bombard", true))
+
+
+## Strike the camp: what was half built is left, and what was built is burned behind you.
+func break_siege(why: String = "") -> void:
+	if siege_camp.is_empty():
+		return
+	var place: String = WorldData.settlement(String(siege_camp["place"]))["name"]
+	var engines := (siege_camp.get("built", []) as Array).filter(func(k): return k != "ladders" and k != "more_ladders")
+	siege_camp = {}
+	_note("%sYou strike your camp before %s.%s" % [why + " " if why != "" else "", place,
+		" Your engines are burned behind you." if not engines.is_empty() else ""])
+
+
+## The camp's hours: building, the daily bombardment and night sally, the garrison's food;
+## and every wall in the world mending where nobody's camped.
+func _step_siege(_hours: float) -> void:
+	if world == null:
+		return
+	if _siege_hour < 0.0 or _siege_hour > world.hour:
+		_siege_hour = maxf(0.0, world.hour - _hours)
+	var hours: float = world.hour - _siege_hour
+	_siege_hour = world.hour
+	if hours <= 0.0:
+		return
+	var besieged: Array = []
+	for a in world.campaign_armies:
+		if String(a.get("state", "")) == "besieging":
+			besieged.append(String(a.get("target", "")))
+			_army_bombards(a)
+	if not siege_camp.is_empty():
+		besieged.append(String(siege_camp["place"]))
+	SiegeCamp.mend(world, hours, besieged)
+	if siege_camp.is_empty():
+		return
+	var id := String(siege_camp["place"])
+	if world.here() != id:
+		break_siege("You ride away from the walls.")
+		return
+	if not siege_check(id)["ok"] or world.garrisons.get(id, []).is_empty():
+		break_siege("The siege is over.")
+		return
+	var place: String = WorldData.settlement(id)["name"]
+	var done := SiegeCamp.build_step(siege_camp, hours)
+	if done != "":
+		_note("Your %s stands ready before %s." % [SiegeCamp.engine_name(done, culture).to_lower(), place])
+	var day := int(world.hour / 24.0)
+	while int(siege_camp.get("day", day)) < day and not siege_camp.is_empty():
+		siege_camp["day"] = int(siege_camp["day"]) + 1
+		_siege_night(id)
+		if siege_camp.is_empty():
+			return
+		_walls_harass(id)
+		var throwers: int = (siege_camp["built"] as Array).count("thrower")
+		if throwers > 0 and bool(siege_camp.get("bombard", true)):
+			var hit := SiegeCamp.bombard(world, id, throwers, rng)
+			if int(hit["kills"]) > 0:
+				_note("Your %s knock at the walls of %s; %d of the garrison fall." % [
+					SiegeCamp.engine_name("thrower", culture).to_lower() + "s", place, int(hit["kills"])])
+	if world.hour >= float(siege_camp["food_until"]):
+		var realm := String(siege_check(id)["realm"])
+		_take_walls(id, realm, "Starved, the garrison opens the gate.", 0, "%s yields!" % place)
+
+
+## A night before the walls: the garrison may sally at the camp. Strong enough, it burns
+## an engine; either way some fall on both sides.
+func _siege_night(id: String) -> void:
+	var garrison: Array = world.garrisons.get(id, [])
+	var theirs: int = world.men_of(garrison)
+	var mine: int = siege_builders(id)
+	if theirs <= 0 or mine <= 0:
+		return
+	var odds := SiegeCamp.NIGHT_SALLY * clampf(float(theirs) / float(mine) * 2.0, 0.5, 2.0)
+	if rng.randf() >= odds:
+		return
+	var place: String = WorldData.settlement(id)["name"]
+	var sally := maxi(1, theirs / 3)
+	var burn := rng.randf() < clampf(float(sally) / (float(sally) + float(mine) * 0.5), 0.1, 0.6)
+	var built: Array = siege_camp["built"]
+	var engines := built.filter(func(k): return k != "ladders" and k != "more_ladders")
+	var lost := ""
+	if burn:
+		if String(siege_camp.get("building", "")) != "":
+			lost = String(siege_camp["building"])
+			siege_camp["left"] = float(siege_camp["left"]) + SiegeCamp.build_hours(lost, culture, mine) * 0.5
+		elif not engines.is_empty():
+			lost = String(engines.back())
+			built.erase(lost)
+	# Some of the sally don't get back in; a few of yours fall in the dark.
+	var dead_theirs := rng.randi_range(1, maxi(1, sally / 4))
+	for sq in garrison:
+		var take := mini(dead_theirs, maxi(0, int(sq["men"]) - 1))
+		sq["men"] = int(sq["men"]) - take
+		dead_theirs -= take
+		if dead_theirs <= 0:
+			break
+	var dead_mine := rng.randi_range(0, maxi(1, sally / 6))
+	for sq in army:
+		if dead_mine <= 0:
+			break
+		var take2 := mini(dead_mine, maxi(0, int(sq["men"]) - 1))
+		sq["men"] = int(sq["men"]) - take2
+		dead_mine -= take2
+	if lost != "":
+		_note("The garrison of %s sallied in the night and set your %s alight." % [place, SiegeCamp.engine_name(lost, culture).to_lower()])
+	else:
+		_note("The garrison of %s sallied in the night; your camp drove them back." % place)
+
+
+## The walls' engines reach the camp: each day the bolt throwers pick off a man or so, and
+## a courtyard thrower may smash an engine (or set back the one being built). Sitting
+## before the walls costs something; it's why you storm.
+func _walls_harass(id: String) -> void:
+	var works: Array = SiegeCamp.defences(world, id, fief_works(id))
+	var place: String = WorldData.settlement(id)["name"]
+	var dead := 0
+	for i in works.count("bolt"):
+		dead += rng.randi_range(0, SiegeCamp.HARASS_PER_BOLT)
+	var left := dead
+	for sq in army:
+		if left <= 0:
+			break
+		var take := mini(left, maxi(0, int(sq["men"]) - 1))
+		sq["men"] = int(sq["men"]) - take
+		left -= take
+	dead -= left
+	var smashed := ""
+	if works.has("yard_thrower") and rng.randf() < SiegeCamp.YARD_SMASH:
+		if String(siege_camp.get("building", "")) != "":
+			smashed = String(siege_camp["building"])
+			siege_camp["left"] = float(siege_camp["left"]) + SiegeCamp.build_hours(smashed, culture, siege_builders(id)) * 0.4
+		else:
+			var engines := (siege_camp["built"] as Array).filter(func(k): return k != "ladders" and k != "more_ladders")
+			if not engines.is_empty():
+				smashed = String(engines.back())
+				(siege_camp["built"] as Array).erase(smashed)
+	if smashed != "":
+		_note("A stone from the courtyard of %s smashed your %s.%s" % [place, SiegeCamp.engine_name(smashed, culture).to_lower(),
+			" Their bolts killed %d in the camp." % dead if dead > 0 else ""])
+	elif dead > 0:
+		_note("Bolts from the walls of %s killed %d of your men in the camp." % [place, dead])
+
+
+## A marshal army's throwers knock at the walls each day it camps.
+func _army_bombards(a: Dictionary) -> void:
+	var throwers: int = (a.get("engines", []) as Array).count("thrower")
+	if throwers <= 0:
+		return
+	var day := int(world.hour / 24.0)
+	if int(a.get("bombard_day", day)) >= day:
+		a["bombard_day"] = int(a.get("bombard_day", day))
+		return
+	a["bombard_day"] = day
+	SiegeCamp.bombard(world, String(a.get("target", "")), throwers, rng)
+
+
+## Pay to mend your fief's walls at once.
+func repair_fief_walls() -> Dictionary:
+	if not has_fief() or world == null or SiegeCamp.damage(world, fief_id()).is_empty():
+		return {"ok": false, "reason": "The walls are whole."}
+	if silver < SiegeCamp.REPAIR_COST:
+		return {"ok": false, "reason": "Needs %d silver." % SiegeCamp.REPAIR_COST}
+	silver -= SiegeCamp.REPAIR_COST
+	world.siege_damage.erase(fief_id())
+	_note("The walls of %s are mended (%d silver)." % [WorldData.settlement(fief_id())["name"], SiegeCamp.REPAIR_COST])
+	save_game()
+	return {"ok": true}
 
 
 # ---------------------------------------------------------------- raids
@@ -2627,6 +2933,8 @@ func accept_fealty_and_fief(settlement_id: String, realm: String) -> bool:
 			Fiefs.IMPROVEMENT_GRANARY: false,
 			Fiefs.IMPROVEMENT_FORTIFICATIONS: false,
 			Fiefs.IMPROVEMENT_MILL: false,
+			Fiefs.IMPROVEMENT_SIEGE_WORKS: false,
+			Fiefs.IMPROVEMENT_TOWER_BOLTS: false,
 		},
 		"garrison": [],
 		"granted_at": world.hour if world != null else 0.0,
@@ -2878,6 +3186,8 @@ func exchange_fief(castle_id: String) -> bool:
 		Fiefs.IMPROVEMENT_GRANARY: false,
 		Fiefs.IMPROVEMENT_FORTIFICATIONS: false,
 		Fiefs.IMPROVEMENT_MILL: false,
+		Fiefs.IMPROVEMENT_SIEGE_WORKS: false,
+		Fiefs.IMPROVEMENT_TOWER_BOLTS: false,
 	}
 	player_fief["food"] = mini(int(player_fief.get("food", 0)), Fiefs.max_food_capacity(player_fief))
 	player_fief["granted_at"] = world.hour
@@ -2894,6 +3204,8 @@ func build_fief_improvement(improvement_key: String) -> Dictionary:
 	if not has_fief() or not Fiefs.IMPROVEMENTS.has(improvement_key):
 		return {"ok": false, "reason": "Invalid improvement"}
 	var imp: Dictionary = Fiefs.IMPROVEMENTS[improvement_key]
+	if not Fiefs.improvements_for(String(WorldData.settlement(fief_id()).get("type", WorldData.VILLAGE))).has(improvement_key):
+		return {"ok": false, "reason": "Not for a place like this"}
 	var cost := int(imp["cost"])
 	if silver < cost:
 		return {"ok": false, "reason": "Insufficient silver (%d needed)" % cost}
@@ -3276,7 +3588,9 @@ func reinforce_cost(squad: Dictionary) -> int:
 
 
 ## Refill one squad with fresh recruits, in a town, if you can pay. Fresh men water down
-## the squad's experience toward its next level, but never undo training it has paid for.
+## the squad's experience toward its next level, but never a level it has earned (a squad
+## ready to train stays ready, whether you refill it first or train it first), and never
+## undo training it has paid for.
 func reinforce_squad(id: int) -> bool:
 	var s := squad_by_id(id)
 	if s.is_empty() or not in_town():
@@ -3290,7 +3604,8 @@ func reinforce_squad(id: int) -> bool:
 	var dilution_ratio := float(s["men"]) / float(full)
 	if has_specialization(Captains.DRILLMASTER):
 		dilution_ratio = 1.0 - (1.0 - dilution_ratio) * 0.5
-	s["xp"] = int(int(s["xp"]) * dilution_ratio)
+	var earned_floor := (Troops.level_for(int(s["xp"])) - 1) * Troops.XP_PER_LEVEL
+	s["xp"] = maxi(int(int(s["xp"]) * dilution_ratio), earned_floor)
 	s["men"] = full
 	s["wounded"] = 0
 	save_game()
@@ -3446,6 +3761,7 @@ func _tick_healing(hours: float) -> void:
 func advance(hours: float) -> void:
 	if world != null:
 		world.step(hours)
+		_step_siege(hours)
 		drain_social_settlements()
 		_check_job_deadlines()
 		settle()
@@ -3628,9 +3944,9 @@ func has_notice() -> bool:
 
 
 ## The waiting message, its title and its grouped items, taken off the queue:
-## {text, title, items}.
+## {text, title, items, passing} (passing: see map_notice_passing).
 func take_map_notice() -> Dictionary:
-	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items}
+	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items, "passing": map_notice_passing}
 	clear_notice()
 	return out
 
@@ -3639,6 +3955,7 @@ func take_map_notice() -> Dictionary:
 func clear_notice() -> void:
 	map_notice = ""
 	map_notice_title = ""
+	map_notice_passing = false
 	map_notice_items = []
 
 
@@ -4886,6 +5203,8 @@ func apply_result(result: Dictionary) -> void:
 	if map_notice != "":
 		map_notice = map_notice.replace("  ", " ")
 		map_notice_title = "After the battle"
+		# Its result card has had the battle's say: the rest passes over the map.
+		map_notice_passing = shown
 
 
 ## The warband left the field before the fight: back the way it came with a little
@@ -5109,6 +5428,7 @@ func to_dict() -> Dictionary:
 		"muster": muster.duplicate(true), "banners": banners.duplicate(true),
 		"invites_seen": invites_seen.duplicate(),
 		"honour_releases": honour_releases.duplicate(), "reparations_at": reparations_at.duplicate(),
+		"siege_camp": siege_camp.duplicate(true),
 		"world": world.to_dict() if world != null else null}
 
 
@@ -5183,6 +5503,7 @@ func from_dict(data: Dictionary) -> bool:
 	if typeof(raw_hr) == TYPE_DICTIONARY:
 		for k in raw_hr:
 			honour_releases[String(k)] = int(raw_hr[k])
+	siege_camp = data.get("siege_camp", {}).duplicate(true) if typeof(data.get("siege_camp")) == TYPE_DICTIONARY else {}
 	reparations_at = {}
 	var raw_ra = data.get("reparations_at", {})
 	if typeof(raw_ra) == TYPE_DICTIONARY:

@@ -79,6 +79,17 @@ func _init() -> void:
 	gs.complete_job(String(job["id"]))
 	check(LordTalk.regard(gs, cato) == r0 + LordTalk.JOB_REGARD and gs.silver == s0 + silver, "done, it pays Regard (+%d) and the silver agreed" % LordTalk.JOB_REGARD)
 	check(int(LordTalk.record(cato)["jobs_done"]) == 1 and String(LordTalk.record(cato)["job"]) == "", "and counts as a job done for them")
+	# It's told on a card of its own, not a line of text: who it was for, their thanks, the pay.
+	var overlay = root.get_node("Scenes")
+	var card: Dictionary = {}
+	for r in overlay.ribbons:
+		if bool(r.get("contract", false)):
+			card = r
+	check(not card.is_empty() and String(card["title"]) == String(job["title"]) and card.get("lord") == cato
+		and int(card["regard"]) == LordTalk.JOB_REGARD and int(card["silver"]) == silver and String(card["thanks"]).contains(String(cato["name"]))
+		and not gs.map_notice.contains("Completed:"),
+		"a contract done comes up on its own card: its name, the lord's face and thanks, and what it paid")
+	overlay.ribbons = overlay.ribbons.filter(func(r): return not bool(r.get("contract", false)))
 
 	# ---- before a crown, the crown lines are locked
 	check(not LordTalk.persuade_check(gs, cato)["ok"] and String(LordTalk.persuade_check(gs, cato)["reason"]).contains("banner"),

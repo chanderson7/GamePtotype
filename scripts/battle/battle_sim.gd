@@ -14,6 +14,7 @@ const Terrain = preload("res://scripts/battle/terrain.gd")
 const TerrainRules = preload("res://scripts/data/terrain_rules.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const Pathing = preload("res://scripts/battle/pathing.gd")
+const SiegeWorks = preload("res://scripts/battle/siege_works.gd")
 const Units = preload("res://scripts/data/units.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Lords = preload("res://scripts/data/lords.gd")
@@ -365,6 +366,17 @@ class Squad:
 	## Bows sent to storm the walls stand off at bow range and shoot the wall walk, rather
 	## than walk up to the wall with everyone else (see BattleSim.order_storm).
 	var stand_off := false
+	## Sent to storm the walls with the siege tower: pushes it, then goes over its bridge.
+	var use_tower := false
+	## The engine this company was told to work (it stands at it), or null.
+	var crew_of = null
+	## Bows told to burn an engine shoot fire at it (SiegeWorks._fire_arrows).
+	var burn_target = null
+	var burn_clock := 0.0
+	## A sally by the postern at an engine: "out", "hit", "back" or "".
+	var sally_target = null
+	var sally_phase := ""
+	var sally_home := Vector2.ZERO
 	var escaped := 0
 	var kills := 0
 	# Copied from the troop stats at spawn, since the hot loops read them every tick.
@@ -562,6 +574,14 @@ var _ram_called := false
 ## "ram", "first_over", "gate" or "courtyard"; and how many men went over by the ladders.
 var siege_log: Array = []
 var climbed := 0
+## What each side brings to the siege, set before setup: {attacker: [...], defender: [...],
+## attacker_land, defender_land, damage: {gate, sections}} (see SiegeWorks). Empty: a ram
+## and two ladders against bare walls, as every siege was before engines.
+var siege_engines: Dictionary = {}
+## The engines and the wall's sections on the field (a SiegeWorks), in a siege.
+var works = null
+## Where wall sections have come down, in order.
+var breaches_at: Array = []
 ## Scheduled reinforcements: [{team, entries, at_time, edge, spawned}].
 var scheduled_reinforcements: Array = []
 ## Battlefield ground: hills, woods, river fords, and rocks.
@@ -626,6 +646,8 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 	_ram_called = false
 	siege_log = []
 	climbed = 0
+	works = null
+	breaches_at = []
 	scheduled_reinforcements.clear()
 	if site_or_terrain is Dictionary:
 		terrain = BattleSite.generate(site_or_terrain)
@@ -676,9 +698,12 @@ func _setup_siege(kind: String = "") -> void:
 	wall_row = WALL_ROW if siege_defender == ENEMY else Terrain.ROWS - 1 - WALL_ROW
 	wall_y = (wall_row + 0.5) * Terrain.CELL
 	gate_center = Vector2(GATE_CENTER.x, wall_y)
+	works = SiegeWorks.new()
+	var cfg := siege_engines.duplicate(true)
 	var t := Terrain.new()
+	var ladders: Array = [4, 8, 19, 23] if (cfg.get("attacker", SiegeWorks.DEFAULT_ATTACK) as Array).has(SiegeWorks.MORE_LADDERS) else LADDER_COLS
 	for cx in Terrain.COLS:
-		if not GATE_COLS.has(cx) and not LADDER_COLS.has(cx):
+		if not GATE_COLS.has(cx) and not ladders.has(cx):
 			t.rock[wall_row * Terrain.COLS + cx] = Terrain.ROCK_BLOCKED
 	# The keep and houses stand in the courtyard, on the garrison's side.
 	castle_buildings = []
@@ -694,7 +719,15 @@ func _setup_siege(kind: String = "") -> void:
 	set_terrain(t)
 	gate_max = float(GATE_HP.get(siege_kind, GATE_HP["castle"]))
 	gate_hp = gate_max
-	_close_gate(true)
+	_foot = terrain.foot_speed.duplicate()
+	_horse = terrain.horse_speed.duplicate()
+	works.setup(self, cfg)
+	ladder_held = []
+	for i in works.ladder_cols.size():
+		ladder_held.append(false)
+	_close_gate(gate_hp > 0.0)
+	if gate_hp <= 0.0:
+		breached_at = 0.0
 
 
 func _close_gate(closed: bool) -> void:
@@ -704,12 +737,16 @@ func _close_gate(closed: bool) -> void:
 		for cx in GATE_COLS:
 			_foot[wall_row * Terrain.COLS + cx] = 0.0
 			_horse[wall_row * Terrain.COLS + cx] = 0.0
-	# Men on foot climb a ladder slowly; a horse can't climb one at all, and no route for
-	# horsemen goes that way.
-	for cx in LADDER_COLS:
-		_foot[wall_row * Terrain.COLS + cx] = LADDER_PACE
-		_horse[wall_row * Terrain.COLS + cx] = 0.0
-		terrain.horse_speed[wall_row * Terrain.COLS + cx] = 0.0
+	# Men on foot climb a ladder slowly (a tower's bridge less so, rubble in between); a
+	# horse can't climb any of them, and no route for horsemen goes that way.
+	var climbs: Dictionary = works.crossing if works != null else {}
+	if works == null:
+		for cx in LADDER_COLS:
+			climbs[cx] = LADDER_PACE
+	for cx in climbs:
+		_foot[wall_row * Terrain.COLS + int(cx)] = float(climbs[cx])
+		_horse[wall_row * Terrain.COLS + int(cx)] = 0.0
+		terrain.horse_speed[wall_row * Terrain.COLS + int(cx)] = 0.0
 
 
 func gate_open() -> bool:
@@ -737,6 +774,13 @@ func _batter_gate(dt: float) -> void:
 				climbed += 1
 				if climbed == 1:
 					_log_siege("first_over", sq)
+	# A ram's blows, or axes on a gate nobody brought a ram to (half the blows while the
+	# ram burns and its men fight the fire).
+	var rammed = works.ram() if works != null else null
+	if works != null and rammed == null:
+		blows *= SiegeWorks.GATE_NO_RAM
+	elif rammed != null and rammed.burning > 0.0:
+		blows *= 0.5
 	gate_blows = blows
 	_hold_ladders()
 	_drop_stones(dt)
@@ -751,12 +795,19 @@ func _batter_gate(dt: float) -> void:
 		return
 	gate_hp = maxf(0.0, gate_hp - blows * dt)
 	if gate_hp <= 0.0:
-		_close_gate(false)
-		breached_at = time
-		for sq in squads:
-			sq.stand_off = false
-		events.append({"type": "gate_breached"})
-		_log_siege("gate", null)
+		_gate_gives()
+
+
+## The gate gives: the way in is open.
+func _gate_gives() -> void:
+	if breached_at >= 0.0:
+		return
+	_close_gate(false)
+	breached_at = time
+	for sq in squads:
+		sq.stand_off = false
+	events.append({"type": "gate_breached"})
+	_log_siege("gate", null)
 
 
 ## Whether each ladder's head is held, and how fast men climb it.
@@ -807,7 +858,7 @@ func _drop_stones(dt: float) -> void:
 		if not victim.alive:
 			continue
 		hits.append(victim.pos)
-		_damage(victim, STONE_DAMAGE * RAM_ROOF * t.squad.power, t.squad, false, t)
+		_damage(victim, STONE_DAMAGE * (RAM_ROOF if works == null or works.ram_roof() else 1.0) * t.squad.power, t.squad, false, t)
 	stones_dropped += hits.size()
 	if stones_dropped == hits.size():
 		_log_siege("stones", throwers[0].squad)
@@ -841,7 +892,7 @@ func _watch_courtyard() -> void:
 ## Where the ladders stand, as points on the wall.
 func ladder_points() -> Array:
 	var out := []
-	for cx in LADDER_COLS:
+	for cx in (works.ladder_cols if works != null else LADDER_COLS):
 		out.append(Vector2((cx + 0.5) * Terrain.CELL, wall_y))
 	return out
 
@@ -897,10 +948,36 @@ func ladder_goal(from: Vector2) -> Vector2:
 	return Vector2(best.x, wall_y + inward * 50.0)
 
 
-## Whether `p` is on a ladder, climbing the wall.
+## Where a man of `sq` on foot may cross the wall while the gate holds, by x: rubble
+## anyone; ladders the companies sent up them; a docked tower's bridge its own company
+## (and ladder men).
+func _crossings_for(sq) -> Array:
+	var out := []
+	if works == null:
+		if sq.use_ladders:
+			for lp in ladder_points():
+				out.append(lp.x)
+		return out
+	var tower_x: Array = works.tower_bridge_x()
+	for cx in works.crossing:
+		var x := (float(cx) + 0.5) * Terrain.CELL
+		var pace: float = works.crossing[cx]
+		if pace == SiegeWorks.RUBBLE_PACE:
+			out.append(x)
+		elif tower_x.has(x):
+			if sq.use_tower or sq.use_ladders:
+				out.append(x)
+		elif sq.use_ladders:
+			out.append(x)
+	return out
+
+
+## Whether `p` is on a ladder (or a tower's bridge, or rubble), climbing the wall.
 func on_ladder(p: Vector2) -> bool:
 	if objective != OBJECTIVE_SIEGE or absf(p.y - wall_y) > Terrain.CELL * 0.5:
 		return false
+	if works != null:
+		return works.crossing.has(int(p.x / Terrain.CELL))
 	return LADDER_COLS.has(int(p.x / Terrain.CELL))
 
 
@@ -912,11 +989,22 @@ func on_ladder(p: Vector2) -> bool:
 func order_storm(team: int, plan: Dictionary = {}) -> void:
 	if plan.is_empty():
 		plan = storm_plan(team)
+	var crews := []
 	for sq in squads:
 		if sq.team != team or not sq.is_active() or sq.routing:
 			continue
 		sq.use_ladders = objective == OBJECTIVE_SIEGE and plan.get(sq.id, "") == "ladder"
+		sq.use_tower = objective == OBJECTIVE_SIEGE and plan.get(sq.id, "") == "tower"
+		if String(plan.get(sq.id, "")).begins_with("crew"):
+			crews.append(sq)
 	order_all(team, "advance")
+	if works != null:
+		works.roll_tower(team)
+		# The engines' crews stay at their engines.
+		for sq in crews:
+			var e = works.engine_by_id(int(String(plan[sq.id]).get_slice(":", 1)))
+			if e != null:
+				order_crew(sq, e)
 	for sq in squads:
 		if sq.team == team and sq.is_active() and not sq.routing and not (team == PLAYER and sq.is_ally):
 			sq.stand_off = objective == OBJECTIVE_SIEGE and gate_hp > 0.0 and plan.get(sq.id, "") == "bows"
@@ -928,8 +1016,12 @@ func order_storm(team: int, plan: Dictionary = {}) -> void:
 func storm_plan(team: int) -> Dictionary:
 	var plan := {}
 	var foot := []
+	var jobs := _engine_jobs(team)
 	for sq in squads:
 		if sq.team != team or not sq.is_active() or sq.routing:
+			continue
+		if jobs.has(sq.id):
+			plan[sq.id] = jobs[sq.id]
 			continue
 		if sq.ranged:
 			plan[sq.id] = "bows"
@@ -951,7 +1043,74 @@ func storm_plan(team: int) -> Dictionary:
 			plan[sq.id] = "ram"
 		plan[foot[0].id] = "ladder"
 		plan[foot[foot.size() - 1].id] = "ladder"
+	# The wall is already down somewhere: nobody climbs; everyone goes in by the breach or
+	# the gate, whichever is nearer.
+	if works != null and works.any_breach():
+		for sq in foot:
+			plan[sq.id] = "ram"
 	return plan
+
+
+## The engine jobs in `team`'s storm plan, by squad id: a company standing at (or told to
+## work) a stone thrower keeps working it ("crew:<engine id>"); the tower takes the
+## company told to push it, else the company of shield men (or any foot) nearest it.
+func _engine_jobs(team: int) -> Dictionary:
+	var jobs := {}
+	if works == null or objective != OBJECTIVE_SIEGE:
+		return jobs
+	var mine := squads.filter(func(sq): return sq.team == team and sq.is_active() and not sq.routing)
+	for e in works.crewable(team):
+		if e.kind == SiegeWorks.TOWER:
+			continue
+		for sq in mine:
+			if not jobs.has(sq.id) and (sq.crew_of == e or sq.center.distance_to(works.crew_post(e)) < 60.0):
+				jobs[sq.id] = "crew:%d" % e.id
+				break
+	var tower = works.tower_of(team)
+	if tower != null and not tower.docked:
+		var best = null
+		for sq in mine:
+			if jobs.has(sq.id) or sq.ranged or sq.type == Troops.CAVALRY:
+				continue
+			if sq.crew_of == tower:
+				best = sq
+				break
+			if best == null or (sq.type == Troops.INFANTRY and best.type != Troops.INFANTRY) \
+					or (sq.type == best.type and sq.center.distance_to(tower.pos) < best.center.distance_to(tower.pos)):
+				best = sq
+		if best != null:
+			jobs[best.id] = "tower"
+	return jobs
+
+
+## A company goes to work engine `e`: it marches to the engine and stays there.
+func order_crew(sq, e) -> void:
+	if works == null or e == null or not e.working() or sq.team != e.team:
+		return
+	sq.crew_of = e
+	sq.use_ladders = false
+	sq.use_tower = e.kind == SiegeWorks.TOWER
+	if e.kind == SiegeWorks.TOWER:
+		order_advance(sq)
+	else:
+		order_move(sq, works.crew_post(e))
+
+
+## Bows burn engine `e` with fire arrows (null: back to shooting men).
+func order_burn(sq, e) -> void:
+	if sq == null or not sq.is_active():
+		return
+	if e != null and (not sq.ranged or e.team == sq.team or not e.working()):
+		return
+	sq.burn_target = e
+	sq.burn_clock = 0.0
+
+
+## A company of the garrison sallies by the postern at engine `e`.
+func order_sally(sq, e) -> bool:
+	if works == null or sq == null or not sq.is_active():
+		return false
+	return works.order_sally(sq, e)
 
 
 ## Whether a squad could be sent up a ladder instead of to the gate (men on foot only).
@@ -1307,6 +1466,51 @@ func auto_deploy(team: int, jitter: float = 0.0) -> void:
 			x += rng.randf_range(-jitter, jitter)
 		var y := MID_Y + depth if team == PLAYER else MID_Y - depth
 		place(team, s[0]["roster_id"], Vector2(x, y))
+	if objective == OBJECTIVE_SIEGE and works != null and team != siege_defender:
+		post_crews(team)
+
+
+## The stormers' engines get crews: horse first (they can't climb and only half batter),
+## then companies on foot while two are left for the ladders and the ram; the tower takes
+## the company of shield men (or any foot) nearest it. Each crew stands at its engine.
+func post_crews(team: int) -> void:
+	var horse := []
+	var foot := []
+	for sq in squads:
+		if sq.team != team or not sq.is_active() or (team == PLAYER and sq.is_ally) or sq.ranged:
+			continue
+		if sq.type == Troops.CAVALRY:
+			horse.append(sq)
+		else:
+			foot.append(sq)
+	var tower = works.tower_of(team)
+	if tower != null and not foot.is_empty():
+		var best = foot[0]
+		for sq in foot:
+			if sq.type == Troops.INFANTRY and best.type != Troops.INFANTRY:
+				best = sq
+			elif sq.type == best.type and sq.center.distance_to(tower.pos) < best.center.distance_to(tower.pos):
+				best = sq
+		foot.erase(best)
+		best.crew_of = tower
+		best.use_tower = true
+		place(team, best.roster_id, works.crew_post(tower))
+	var throwers: Array = works.crewable(team).filter(func(e): return e.kind == SiegeWorks.THROWER)
+	if throwers.is_empty():
+		return
+	var bows := squads.filter(func(sq): return sq.team == team and sq.is_active() and sq.ranged and not (team == PLAYER and sq.is_ally))
+	var crew = null
+	if not horse.is_empty():
+		crew = horse.pop_front()
+	elif foot.size() > 3:
+		crew = foot.pop_back()
+	elif bows.size() > 1:
+		crew = bows.pop_back()
+	if crew == null:
+		return
+	# One company works the whole battery.
+	crew.crew_of = throwers[0]
+	place(team, crew.roster_id, works.crew_post(throwers[0]))
 
 
 ## Which way is into the courtyard from the wall: -1 (up the field) when the enemy holds
@@ -1343,7 +1547,9 @@ func ladder_threat(i: int) -> int:
 
 ## Where the garrison's foot stands to meet the breach: `n` posts on a crescent behind the
 ## gate, the middle first, facing it.
-func breach_posts(n: int) -> Array:
+func breach_posts(n: int, at: Vector2 = Vector2.INF) -> Array:
+	if at == Vector2.INF:
+		at = gate_center
 	var out := []
 	var angles := [0.0]
 	if n == 2:
@@ -1352,7 +1558,7 @@ func breach_posts(n: int) -> Array:
 		angles = [0.0, -BREACH_SPREAD, BREACH_SPREAD]
 	for a in angles:
 		var r := deg_to_rad(a)
-		out.append(gate_center + Vector2(sin(r) * BREACH_RADIUS, cos(r) * BREACH_RADIUS * inward()))
+		out.append(at + Vector2(sin(r) * BREACH_RADIUS, cos(r) * BREACH_RADIUS * inward()))
 	return out
 
 
@@ -1405,6 +1611,17 @@ func garrison_plan(items: Array) -> Dictionary:
 				break
 		foot.erase(tower)
 		plan[tower["key"]] = {"at": Vector2(gate_center.x, wall_y + inward() * WALK_DEPTH), "walk": false, "tower": true}
+	# The courtyard's stone thrower takes the horse if there is any (they'd wait in the
+	# courtyard anyway), else a company of foot once the crescent has its three.
+	if works != null and works.has(SiegeWorks.YARD, siege_defender):
+		var yard = works.engines.filter(func(e): return e.kind == SiegeWorks.YARD and e.working())[0]
+		var crew = null
+		if not horse.is_empty():
+			crew = horse.pop_front()
+		elif foot.size() >= 4:
+			crew = foot.pop_back()
+		if crew != null:
+			plan[crew["key"]] = {"at": works.crew_post(yard), "walk": false, "crew": yard.id}
 	var crescent := breach_posts(mini(3, foot.size()))
 	for i in foot.size():
 		if i < crescent.size():
@@ -1437,6 +1654,8 @@ func _auto_deploy_garrison(team: int, jitter: float = 0.0) -> void:
 		elif post.get("tower", false):
 			_reform(sq, 7)
 			place(team, e["roster_id"], at)
+		if post.has("crew") and works != null:
+			sq.crew_of = works.engine_by_id(int(post["crew"]))
 	# Anything that found no post forms up in the courtyard.
 	for e in reserves[team].duplicate():
 		place(team, e["roster_id"], gate_center + Vector2(0.0, inward() * 260.0))
@@ -1467,7 +1686,7 @@ func man_the_walls(team: int) -> int:
 ## Hold the breach: the garrison's companies on foot that aren't fighting already (and not
 ## the one on the gate tower, which holds the gate mouth where it stands) form a crescent
 ## behind the gate. Returns the companies sent.
-func form_breach(team: int, allies_only: bool = false) -> Array:
+func form_breach(team: int, allies_only: bool = false, at: Vector2 = Vector2.INF) -> Array:
 	var free := []
 	for sq in squads:
 		if sq.team != team or not sq.is_active() or sq.routing or sq.engaged or bool(sq.stats["ranged"]) \
@@ -1477,7 +1696,7 @@ func form_breach(team: int, allies_only: bool = false) -> Array:
 			continue
 		free.append(sq)
 	var sent := []
-	for post in breach_posts(mini(3, free.size())):
+	for post in breach_posts(mini(3, free.size()), at):
 		var best = null
 		var best_d := INF
 		for sq in free:
@@ -1607,6 +1826,8 @@ func start_battle() -> void:
 			if a.team == b.team and a != b and not a.info.is_empty() and not b.info.is_empty():
 				var points := float(a.info.get("bonds", {}).get(str(b.info["id"]), 0.0))
 				_ranks[_bond_key(a, b)] = Captains.rank_for(points)
+	if works != null:
+		works.on_spawned()
 	phase = PHASE_BATTLE
 
 
@@ -1909,6 +2130,8 @@ func order_advance(sq) -> void:
 func order_move(sq, point: Vector2) -> void:
 	if sq == null or not sq.is_active():
 		return
+	if sq.crew_of != null and works != null and point.distance_to(works.crew_post(sq.crew_of)) > 2.0:
+		sq.crew_of = null
 	_break_off(sq)
 	if sq.order != "move" or sq.order_point.distance_to(_clamp_to_arena(point)) > 1.0:
 		sq.arrived = false
@@ -2277,6 +2500,8 @@ func step(dt: float = STEP) -> void:
 			_batter_gate(dt)
 		else:
 			_watch_courtyard()
+		if works != null:
+			works.step(dt)
 	_check_end()
 
 
@@ -2373,6 +2598,12 @@ func _update_squad(sq, dt: float) -> void:
 					foe = sq.struck_by
 			_:
 				foe = null # marching to a point ignores enemies until it arrives
+	# Bows burning an engine shoot fire at it, not at men.
+	if sq.burn_target != null:
+		if sq.burn_target.working() and sq.ranged:
+			foe = null
+		else:
+			sq.burn_target = null
 	# An enemy running for its edge after a withdrawal it was cut off from making is fair
 	# game: anyone with nobody else to fight goes after the nearest of them.
 	var pursuing := false
@@ -2414,6 +2645,19 @@ func _update_squad(sq, dt: float) -> void:
 	if sq.use_ladders and objective == OBJECTIVE_SIEGE and gate_hp > 0.0 and sq.type != Troops.CAVALRY \
 			and sq.order == "advance" and not inside_walls(sq.center):
 		sq.goal = ladder_goal(sq.center)
+	# The tower's company pushes it to the wall, then goes over its bridge.
+	if sq.use_tower and works != null and gate_hp > 0.0 and sq.order == "advance" and not inside_walls(sq.center):
+		var tower = works.tower_of(sq.team)
+		if tower == null:
+			sq.use_tower = false
+		elif not tower.docked:
+			sq.goal = works.crew_post(tower)
+			foe = null
+			sq.focus = null
+		else:
+			var bx: Array = works.tower_bridge_x()
+			if not bx.is_empty():
+				sq.goal = Vector2(float(bx[0]) + Terrain.CELL * 0.5, wall_y + inward() * 50.0)
 
 	# Skirmishing: horse archers and kiting desert archers keep distance from approaching foot
 	# Their riding clear has a budget (KITE_SECONDS): once it's spent they stand and shoot.
@@ -2501,7 +2745,7 @@ func _update_squad(sq, dt: float) -> void:
 			# Standing off: bows walk straight toward their mark only until it's in range;
 			# arrows go over a wall, men don't need to.
 			to = foe.avg - sq.center
-			stop = reach * 0.85
+			stop = reach * (0.85 if works == null else works.stand_off_share())
 	var dist := to.length()
 	# Once there it stays there until the goal has really moved on (ARRIVE_SLACK): an
 	# enemy's edge shifts a little every tick, and chasing each shift turns it on the spot.
@@ -3305,10 +3549,10 @@ func _walk(so, dest: Vector2, speed: float, dt: float) -> float:
 		var side := 1.0 if before.y > wall_y else -1.0
 		var cross := gate_center.x
 		var width := 30.0
-		if so.squad.use_ladders and so.squad.type != Troops.CAVALRY:
-			for lp in ladder_points():
-				if absf(before.x - lp.x) < absf(before.x - cross):
-					cross = lp.x
+		if so.squad.type != Troops.CAVALRY:
+			for x in _crossings_for(so.squad):
+				if absf(before.x - x) < absf(before.x - cross):
+					cross = x
 					width = 8.0
 		if cross == gate_center.x:
 			dest = Vector2(clampf(before.x, cross - width, cross + width), gate_center.y + side * 20.0)
@@ -3499,7 +3743,7 @@ func _strike(so, sq, target, gap: float) -> void:
 		if on_ladder(so.pos):
 			dmg *= LADDER_TOP_POWER
 		if sq.team == siege_defender and on_ladder(target.pos):
-			dmg *= THROWN_DOWN
+			dmg *= THROWN_DOWN if works == null else works.thrown_down()
 			off_ladder = true
 	_struck(target, sq)
 	_damage(target, dmg, sq, charge, so, side)
@@ -3615,11 +3859,14 @@ func _update_projectiles(dt: float) -> void:
 			# Defenders behind their wall
 			if objective == OBJECTIVE_SIEGE and vs.team == siege_defender and inside_walls(p.target.pos) \
 					and absf(p.target.pos.y - wall_y) < WALL_COVER:
-				dmg *= WALL_ARROWS
-			# Attackers working the ram are under its roof
+				dmg *= WALL_ARROWS if works == null else works.walk_arrows()
+			# Attackers working the ram are under its roof (if they brought one)
 			if objective == OBJECTIVE_SIEGE and vs.team != siege_defender and gate_hp > 0.0 \
-					and p.target.pos.distance_to(gate_center) <= GATE_REACH + 14.0:
+					and p.target.pos.distance_to(gate_center) <= GATE_REACH + 14.0 and (works == null or works.ram_roof()):
 				dmg *= RAM_ROOF
+			# Behind a mantlet, inside the tower, at an engine's timbers
+			if works != null:
+				dmg *= works.arrow_cover(p.target)
 			# Armor on target
 			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
 			dmg *= (1.0 - minf(0.8, eff_armor))
@@ -4101,8 +4348,9 @@ func _check_end() -> void:
 			return
 		_finish(1 - withdrawing, "retreat")
 		return
-	# A gate still standing when time runs out: the walls held.
-	if objective == OBJECTIVE_SIEGE and time >= TIME_LIMIT and gate_hp > 0.0 and has_active(siege_defender):
+	# A gate still standing when time runs out, and no stretch of wall down: the walls held.
+	if objective == OBJECTIVE_SIEGE and time >= TIME_LIMIT and gate_hp > 0.0 and has_active(siege_defender) \
+			and (works == null or not works.any_breach()):
 		_finish(siege_defender, "walls_held")
 		return
 	if objective == OBJECTIVE_VILLAGE and time >= VILLAGE_DURATION:
@@ -4305,5 +4553,6 @@ func result_for(team: int) -> Dictionary:
 	return {"won": winner == team, "reason": end_reason, "before_fight": left_before_fight and team == PLAYER, "squads": by_id, "lost": lost, "killed": killed, "time": time, "bonds": bonds,
 		"objective": objective, "chief_killed": chief_killed, "chief_escaped": chief_escaped,
 		"gate_breached": objective == OBJECTIVE_SIEGE and gate_hp <= 0.0,
+		"siege_works": works.result() if works != null else {},
 		"is_lord": is_lord, "lord_captured": lord_captured, "lord_killed": lord_killed, "lord_escaped": lord_escaped,
 		"enemy_lord_id": enemy_lord_id, "enemy_lord_name": enemy_lord_name}

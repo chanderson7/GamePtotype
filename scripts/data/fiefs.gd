@@ -26,6 +26,10 @@ const GRANARY_MAX_STORAGE_FOOD := 250
 const IMPROVEMENT_GRANARY := "granary"
 const IMPROVEMENT_FORTIFICATIONS := "fortifications"
 const IMPROVEMENT_MILL := "mill"
+## A castle's or town's: siege works (oil over the gate, a stone thrower in the
+## courtyard) and a third bolt thrower on the towers.
+const IMPROVEMENT_SIEGE_WORKS := "siege_works"
+const IMPROVEMENT_TOWER_BOLTS := "tower_bolts"
 
 const IMPROVEMENTS := {
 	IMPROVEMENT_GRANARY: {
@@ -50,10 +54,31 @@ const IMPROVEMENTS := {
 		"effects": ["+30 silver a day in taxes"],
 		"description": "A bustling mill and covered market stalls stimulate local trade, yielding +30 silver in daily taxes.",
 	},
+	IMPROVEMENT_SIEGE_WORKS: {
+		"name": "Siege Works",
+		"cost": 500,
+		"walled": true,
+		"effects": ["Oil over the gate", "A stone thrower in the courtyard"],
+		"description": "Cauldrons over the gate and a stone thrower on a platform in the courtyard that outranges any besieger's.",
+	},
+	IMPROVEMENT_TOWER_BOLTS: {
+		"name": "Tower Bolts",
+		"cost": 300,
+		"walled": true,
+		"effects": ["A third bolt thrower", "Bolts loosed faster"],
+		"description": "A third bolt thrower over the gate, and crews drilled to load all three faster.",
+	},
 }
 
 ## The order the Manor card lists them in.
-const IMPROVEMENT_ORDER := [IMPROVEMENT_GRANARY, IMPROVEMENT_FORTIFICATIONS, IMPROVEMENT_MILL]
+const IMPROVEMENT_ORDER := [IMPROVEMENT_GRANARY, IMPROVEMENT_FORTIFICATIONS, IMPROVEMENT_MILL, IMPROVEMENT_SIEGE_WORKS, IMPROVEMENT_TOWER_BOLTS]
+
+
+## The improvements a holding of `kind` can have: a palisade for a village, siege works
+## and tower bolts for walls.
+static func improvements_for(kind: String) -> Array:
+	var walled := kind == WorldData.CASTLE or kind == WorldData.TOWN
+	return IMPROVEMENT_ORDER.filter(func(k): return (k != IMPROVEMENT_FORTIFICATIONS or not walled) and (not bool(IMPROVEMENTS[k].get("walled", false)) or walled))
 
 const REPAIR_COST := 200
 
