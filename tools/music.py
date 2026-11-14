@@ -1,4 +1,4 @@
-"""Composes and renders Bannerfall's music and sound effects.
+"""Composes and renders Vaskaria's music and sound effects.
 
 Everything is synthesized here from nothing but numpy: plucked strings, winds, drones,
 drums, brass and bells, played from the scores below, then written to WAV and encoded

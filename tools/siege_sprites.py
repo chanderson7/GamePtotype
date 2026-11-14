@@ -1,4 +1,4 @@
-"""Authoring tool for Bannerfall's siege engines in pixel art.
+"""Authoring tool for Vaskaria's siege engines in pixel art.
 
 Drawn like the men (tools/unit_sprites.py): top-down, facing up (toward the wall),
 lit from the upper left, outlined in the same ink and at the same pixel size, so a

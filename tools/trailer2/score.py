@@ -34,7 +34,7 @@ from scipy.signal import butter, fftconvolve, sosfilt
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VSCO = os.environ.get("VSCO_DIR", os.path.join(ROOT, "tools", "samples", "vsco"))
-OUT = os.environ.get("TRAILER_OUT", "/tmp/bannerfall-trailer2")
+OUT = os.environ.get("TRAILER_OUT", "/tmp/vaskaria-trailer2")
 SR = 48000
 BEAT = 0.5
 LENGTH = 70.0

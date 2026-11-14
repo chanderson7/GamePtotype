@@ -1,4 +1,4 @@
-# Bannerfall: fixing the flicker, and a simpler melee
+# Vaskaria: fixing the flicker, and a simpler melee
 
 - **Date:** 2026-11-13
 - **Status:** built (2026-11-13). What was built, the numbers, and where it differs from
@@ -130,7 +130,7 @@ Each piece below is reasonable alone; together they make the scrum.
 
 Most games handle automatic melee in one of four ways:
 
-1. **Every man for himself.** Each soldier goes for the nearest enemy. This is Bannerfall
+1. **Every man for himself.** Each soldier goes for the nearest enemy. This is Vaskaria
    today, and it's what Total War does when a group is ordered onto one target: a
    Warhammer guide warns that attacking with a hotkey group makes them "converge and blob
    up on the single target you've selected" ([gamepressure][tww-blob]). Bannerlord's
@@ -159,7 +159,7 @@ Most games handle automatic melee in one of four ways:
    rather than anything one game documents; searching found only developers asking for it
    ([unity][rts-surround], [unreal][ue-block]).
 
-**What Bannerfall takes from them.** Approach 2 for men, so they still step out and
+**What Vaskaria takes from them.** Approach 2 for men, so they still step out and
 strike, as you want. Approach 4 at company level, so companies claim a stretch of a
 foe's side instead of its centre. And one idea from approach 3: rear ranks stay back and
 step up, while spears strike from the second rank. The code for approach 2 already exists:

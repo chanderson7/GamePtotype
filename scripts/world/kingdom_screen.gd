@@ -386,7 +386,7 @@ func _realm() -> void:
 	g.add_child(Widgets.meter(float(have) / maxf(1.0, caps.size()), Data.crown_color, 12.0))
 	g.add_child(Widgets.chip_row(caps.map(func(id): return Widgets.chip(_place_name(id), Style.MORALE_HIGH if held.has(id) else Style.MUTED,
 		"▲" if held.has(id) else "◆", "", held.has(id)))))
-	g.add_child(_note("The Three Realms have one crown." if gs.crown_won else "Hold all three and the Three Realms are yours. Hold nothing for %d days and your crown falls." % gs.CROWN_FALL_DAYS))
+	g.add_child(_note("Vaskaria has one crown." if gs.crown_won else "Hold all three and Vaskaria is yours. Hold nothing for %d days and your crown falls." % gs.CROWN_FALL_DAYS))
 	# Name and colour.
 	var n := _row_panel()
 	n.add_child(Style.label("Name and colours", Style.BODY, Style.TEXT))

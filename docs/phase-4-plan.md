@@ -7,7 +7,7 @@ stay a free company hunting bandits, or sign on as a mercenary with any realm, f
 wars for pay, ride with its armies, and take enemy lords for ransom. A lord whose men killed
 one of your captains remembers you, and you him.
 
-This is the phase that makes Bannerfall a Mount & Blade-like rather than a battle game with
+This is the phase that makes Vaskaria a Mount & Blade-like rather than a battle game with
 a map. It comes after Phase 3 because lords' armies are built from the culture troop trees,
 and their fights are fought on Phase 3's ground with its objectives.
 

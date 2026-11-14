@@ -10,11 +10,11 @@ trailer has just shown talking at the fire. Then: *Lead them anyway*, the name, 
 the world, the last charge, victory.
 
 ```sh
-export TRAILER_OUT=/tmp/bannerfall-trailer2
+export TRAILER_OUT=/tmp/vaskaria-trailer2
 tools/trailer2/shoot.sh all          # record the 20 shots (about 25 minutes, four at a time)
 tools/trailer2/samples.sh            # once: the orchestra's recordings, 1.9 GB, CC0
 python3 tools/trailer2/score.py      # -> $TRAILER_OUT/score.wav
-python3 tools/trailer2/cut.py        # -> $TRAILER_OUT/bannerfall_captains.mp4, .srt, _thumbnail.jpg
+python3 tools/trailer2/cut.py        # -> $TRAILER_OUT/vaskaria_captains.mp4, .srt, _thumbnail.jpg
 ```
 
 Needs Godot 4.7 as `godot`, `ffmpeg`, `xvfb-run` where there is no display, and Python 3

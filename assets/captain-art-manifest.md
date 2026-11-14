@@ -8,7 +8,7 @@ The following exact block preceded each of the six character-specific blocks bel
 
 ```text
 Use case: stylized-concept
-Asset type: reusable captain dialogue portrait for the Bannerfall mobile strategy game
+Asset type: reusable captain dialogue portrait for the Vaskaria mobile strategy game
 Scene/backdrop: genuinely transparent background, with no scenery, no frame, and no shadow rectangle
 Style/medium: original chunky pixel-painted game illustration; deliberate large pixel clusters, crisp hard edges, restrained detail, readable at 48 pixels tall; grounded low-fantasy clothing
 Composition/framing: exactly one adult, waist-up bust, centered, facing slightly toward the viewer, head and both shoulders fully inside frame, hands and weapons out of frame, straight lower bust crop, portrait 3:4
@@ -71,7 +71,7 @@ Character accents: moss green, charcoal, muted burgundy
 
 ```text
 Use case: stylized-concept
-Asset type: fallback captain portrait for the Bannerfall mobile strategy game
+Asset type: fallback captain portrait for the Vaskaria mobile strategy game
 Primary request: a simple anonymous captain bust silhouette that can represent any culture or gender
 Scene/backdrop: genuinely transparent background
 Subject: one faceless head-and-shoulders silhouette in deep navy, with a restrained warm-brass rim light and a simple travel cloak; no visible facial traits
@@ -84,7 +84,7 @@ Constraints: true alpha transparency; exactly one silhouette; no text, logo, wat
 
 ```text
 Use case: stylized-concept
-Asset type: reusable header and home-card environment illustration for the Bannerfall mobile strategy game
+Asset type: reusable header and home-card environment illustration for the Vaskaria mobile strategy game
 Primary request: a quiet mercenary company camp at blue hour, between marches
 Scene/backdrop: a small low-fantasy roadside camp with three modest canvas tents, a low ember fire, cooking pot, supply chest, folded blankets, hitching rail, and distant dark hills; no people
 Style/medium: original chunky pixel-painted game illustration; deliberate large pixel clusters, crisp hard edges, restrained detail, grounded historical-fantasy materials

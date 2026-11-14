@@ -1,4 +1,4 @@
-# Bannerfall future plans
+# Vaskaria future plans
 
 **Updated:** 2026-10-30  
 **Current baseline:** Romance cast complete; Experience Packages A and B complete.

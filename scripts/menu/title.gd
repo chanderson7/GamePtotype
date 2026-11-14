@@ -158,11 +158,11 @@ func _build() -> void:
 		opening.setup(title)
 
 
-## The title: the wordmark, painted, over the word "Bannerfall" set clear. The opening
+## The title: the wordmark, painted, over the word "Vaskaria" set clear. The opening
 ## raises a copy of this label (wordmark and all) into its place, so the hand-over is
 ## the same picture. With no wordmark file, the word itself shows in the display face.
 func _title(size: int) -> Label:
-	var title := Style.label("Bannerfall", size, Style.BRASS)
+	var title := Style.label("Vaskaria", size, Style.BRASS)
 	title.name = "HomeTitle"
 	# The name is the game's mark, not text to read: it keeps its size whatever the text
 	# setting, so the painted wordmark (a little wider than the word) stays on the screen.
@@ -540,7 +540,7 @@ func _stranded_card(saves_left: bool) -> PanelContainer:
 		body = "It's kept on this device as campaign.json.bad. " + ("Your other saves are safe: load one to carry on." if saves_left else "Begin a new campaign below.")
 	elif GameState.load_problem == "newer":
 		title = "Your autosave is from a newer version"
-		body = "It was made with a newer version of Bannerfall and is left as it is. Update the game to carry on" + (", or load another save." if saves_left else ".")
+		body = "It was made with a newer version of Vaskaria and is left as it is. Update the game to carry on" + (", or load another save." if saves_left else ".")
 	var t := Style.label(title, Style.LARGE, Style.TEXT)
 	t.name = "StrandedTitle"
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -582,7 +582,7 @@ func _build_first_time(col: VBoxContainer) -> void:
 	var lv := VBoxContainer.new()
 	lv.add_theme_constant_override("separation", 10)
 	learn.add_child(lv)
-	var new_here := Style.label("New to Bannerfall? Six short lessons show how to ride, pay your men and fight.", Style.SMALL, Style.TEXT)
+	var new_here := Style.label("New to Vaskaria? Six short lessons show how to ride, pay your men and fight.", Style.SMALL, Style.TEXT)
 	new_here.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	lv.add_child(new_here)
 	var learn_button := Page.button("Learn to play", _on_learn)

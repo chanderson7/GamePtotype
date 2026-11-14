@@ -1,4 +1,4 @@
-# Bannerfall: game feel, art and player experience
+# Vaskaria: game feel, art and player experience
 
 **Date:** 2026-10-28
 
@@ -53,7 +53,7 @@ campaign surfaces. The sections below retain the remaining wider implementation 
 
 ## 1. Recommended direction
 
-Make Bannerfall feel like **leading a recognizable company through a lived-in world**.
+Make Vaskaria feel like **leading a recognizable company through a lived-in world**.
 The highest-value improvements are faces, places, clear orders and memorable aftermaths.
 
 Start with four connected upgrades:
@@ -101,17 +101,17 @@ presentation. More pauses and shake would not automatically improve either momen
 
 ## 3. Reference lessons worth adapting
 
-The following are observations from the named games. The proposed Bannerfall treatments
+The following are observations from the named games. The proposed Vaskaria treatments
 are design recommendations, not claims that those games implement the same treatment.
 
-| Reference observation | Lesson for Bannerfall |
+| Reference observation | Lesson for Vaskaria |
 | --- | --- |
 | TaleWorlds' audio director describes sound as a way to convey physical action and discusses the cost of many individual sounds. [Bannerlord audio development blog](https://www.taleworlds.com/en/Games/Bannerlord/Blog/95) | Prioritize audible meaning and use bounded sound groups for a busy battle. |
 | Bannerlord's soundtrack distinguishes campaign/combat music and culture-related tavern material. [Official soundtrack release](https://www.taleworlds.com/en/News/538) | Let a place sound different from the road and the battle; build on the cultural tracks already present. |
 | Three Houses combines social exploration and support scenes with battlefield preparation, threat information and predictions. [Nintendo's Three Houses guide](https://www.nintendo.com/au/news-and-articles/fire-emblem-three-houses-101/) | Pair attachment to characters with clear tactical information and a quiet place to see them between fights. |
 | Engage's developers discuss distinctive character colors, expressions and movement, including the appeal of earlier pixel-art battle animation. [Nintendo developer interview](https://www.nintendo.com/us/whatsnew/ask-the-developer-vol-8-fire-emblem-engage-part-2/) | Give characters readable silhouettes and expressions; use a few strong animation poses instead of adding indiscriminate motion. |
 
-For Bannerfall's real-time squad scale, adapt these principles to compact portraits,
+For Vaskaria's real-time squad scale, adapt these principles to compact portraits,
 short expressive moments and tactical overlays. A large walkable monastery, a fully voiced
 cast or frequent individual combat cutaways would carry a much larger cost. Use original
 characters, art, dialogue and music throughout.

@@ -20,7 +20,7 @@ func _home_title(scene) -> Label:
 	var layer: Node = scene.get_node_or_null("Opening")
 	for n in scene.find_children("*", "Label", true, false):
 		var l := n as Label
-		if l.text == "Bannerfall" and (layer == null or not layer.is_ancestor_of(l)):
+		if l.text == "Vaskaria" and (layer == null or not layer.is_ancestor_of(l)):
 			return l
 	return null
 

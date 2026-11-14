@@ -1763,7 +1763,7 @@ func _crown_fate() -> bool:
 		renown += 100
 		world.emit_event({"type": "crown_victory"})
 		map_notice_title = "One crown"
-		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Three Realms have one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like. Hold every castle and town on the map at once, and the company is remembered as Keepers of the Three Realms." % WorldData.title_case(crown_title())
+		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: Vaskaria has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like. Hold every castle and town on the map at once, and the company is remembered as Keepers of the Three Realms." % WorldData.title_case(crown_title())
 	return false
 
 

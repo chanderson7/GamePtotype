@@ -1,4 +1,4 @@
-# Bannerfall: the paid features plan
+# Vaskaria: the paid features plan
 
 - **Date:** 2026-11-04
 - **Status:** proposed. Nothing here is built.
@@ -9,7 +9,7 @@
 
 ## Why this model fits this game
 
-Bannerfall's identity is consequence: captains who can die, men who desert when unpaid, a
+Vaskaria's identity is consequence: captains who can die, men who desert when unpaid, a
 company that carries its losses. Any purchase that softens that (a revive, a purse of silver,
 a stronger squad) sells the thing the game is about. So the only honest things to sell are
 **more of the game** (another people to begin as, with its own opening and cast) and

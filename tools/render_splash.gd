@@ -16,7 +16,7 @@ func _init() -> void:
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(bg)
 	# Home's title as the opening finds it: the display face, brass, with its outline.
-	var stand_in := Style.label("Bannerfall", Opening.SPLASH_TITLE, Style.BRASS)
+	var stand_in := Style.label("Vaskaria", Opening.SPLASH_TITLE, Style.BRASS)
 	stand_in.add_theme_constant_override("outline_size", 10)
 	stand_in.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.55))
 	stand_in.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

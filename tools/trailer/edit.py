@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cuts the YouTube trailer (1920x1080, 30 fps, H.264 + AAC) from the clips record_all.sh made.
 
-    python3 tools/trailer/edit.py            # writes $TRAILER_OUT/bannerfall_trailer.mp4 and a thumbnail
+    python3 tools/trailer/edit.py            # writes $TRAILER_OUT/vaskaria_trailer.mp4 and a thumbnail
 
 The score is the game's main theme (assets/audio/music/title.ogg, 80 s); the cut follows its
 shape: the quiet open for the map, the swell for the title, the climax for the battles,
@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUT = os.environ.get("TRAILER_OUT", "/tmp/bannerfall-trailer")
+OUT = os.environ.get("TRAILER_OUT", "/tmp/vaskaria-trailer")
 CLIPS = os.path.join(OUT, "clips")
 WORK = os.path.join(OUT, "edit")
 W, H, FPS = 1920, 1080, 30
@@ -362,16 +362,16 @@ def main():
     loud = float([ln for ln in r.stderr.splitlines() if ln.strip().startswith("I:")][-1].split()[1])
     gain = -14.0 - loud
     print(f"mix at {loud:.1f} LUFS; {gain:+.1f} dB")
-    final = os.path.join(OUT, "bannerfall_trailer.mp4")
+    final = os.path.join(OUT, "vaskaria_trailer.mp4")
     run(["ffmpeg", "-y", "-i", video, "-i", mix, "-filter_complex",
          f"[1:a]volume={gain:.2f}dB,alimiter=limit=0.89:attack=2:release=60:level=disabled[a]",
          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
          "-movflags", "+faststart", "-t", f"{total}", final])
     print(f"wrote {final} ({total:.1f}s)")
-    subs = os.path.join(OUT, "bannerfall_trailer.srt")
+    subs = os.path.join(OUT, "vaskaria_trailer.srt")
     subtitles(subs)
     print(f"wrote {subs}")
-    thumb = os.path.join(OUT, "bannerfall_thumbnail.jpg")
+    thumb = os.path.join(OUT, "vaskaria_thumbnail.jpg")
     thumbnail(os.path.join(CLIPS, "battle_river", "f%08d.png" % int(10.5 * FPS)), thumb)
     print(f"wrote {thumb}")
 
@@ -386,7 +386,7 @@ def subtitles(path):
     rows, t = [], 0.0
     for seg in EDL:
         if "end" in seg:
-            words = ("Bannerfall", END_LINE)
+            words = ("Vaskaria", END_LINE)
         else:
             words = (seg.get("card") or seg.get("cap") or (None,))[:2]
         if words[0]:

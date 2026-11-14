@@ -348,7 +348,7 @@ temperament and quirk get their icons beside the names.
 
 ### Home, Saves, Settings, New campaign, Tutorial (`menu/title.gd`, `saves.gd`, `settings.gd`, `new_campaign.gd`, `tutorial.gd`)
 
-1. **Brand.** Home draws "Bannerfall" as Cinzel text and the export icon slots are empty. The
+1. **Brand.** Home draws "Vaskaria" as Cinzel text and the export icon slots are empty. The
    `app-logo` branch has the icon and wordmark; adopt one and use the wordmark here, with the
    opening animation lifting into it.
 2. **The campaign card shows the real place.** Home paints the generic camp; Saves already

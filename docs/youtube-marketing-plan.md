@@ -1,4 +1,4 @@
-# Bannerfall: the YouTube marketing plan
+# Vaskaria: the YouTube marketing plan
 
 - **Date:** 2026-11-14
 - **Status:** proposed. Nothing here is published; the channel does not exist yet.
@@ -12,22 +12,17 @@
 
 These come first because each one wastes the trailer if it is skipped.
 
-1. **The name is shared.** Another game called *Bannerfall* has a page on Steam
-   ([app 3198250](https://store.steampowered.com/app/3198250/Bannerfall/)): a single-player
-   roguelike RTS about squads carrying banners, by Chris Popieluch, published by Duckloud
-   Studio, release date to be announced, with an X account under the same name. It is a PC
-   game and this one is for iPhone, so the two are not in the same shop. They are in the
-   same search results, though: on YouTube our trailer would sit beside theirs under the
-   exact title, in a neighbouring genre, and a viewer who searches the name after a Short
-   may land on the wrong game. Whether they hold a trademark on the name has not been
-   checked; if they do, a rename could be forced after the name has been spent on. The
-   README already calls *Bannerfall* a working title. **Decide the name before the trailer
-   goes public**: the wordmark, the end card and the thumbnail all carry it, and a renamed
-   video loses the links people have shared. Two checks to make either way: that the name
-   is free on the App Store (app names there must be unique; creating the app's record in
-   App Store Connect reserves it), and a trademark search. A rename is three files
-   (`assets/branding/wordmark.png`, the splash, `project.godot`) and a re-render of the
-   trailer.
+1. **The name: two checks left.** The game is *Vaskaria*, after the land its three realms
+   share. It was *Bannerfall* until a search found a Steam game already using that name
+   ([app 3198250](https://store.steampowered.com/app/3198250/Bannerfall/), a squad-based
+   roguelike RTS), which would have sat beside our trailer in every search. A web search
+   found no game or setting called Vaskaria, but that is not the same as cleared. Before
+   anything is public: confirm the name is free on the App Store (app names there must be
+   unique; creating the app's record in App Store Connect reserves it), and run a trademark
+   search. The wordmark, the end card and the thumbnail all carry the name, and a renamed
+   video loses the links people have shared, so these come before the upload. The app's
+   bundle identifier still reads `com.anderson-sites.bannerfall`: no player sees it, but
+   change it before the first TestFlight build if it should match.
 2. **Somewhere to send people.** A view is only worth something if the viewer can do
    something with it. On iPhone there are three places, in the order they become possible:
    - **An email sign-up page** (a one-page site). Possible today.
@@ -68,7 +63,7 @@ promises their game.
 
 ## The channel
 
-- **Name and handle:** the game's final name. One channel for the game, not a studio
+- **Name and handle:** Vaskaria, once the two checks above are done. One channel for the game, not a studio
   channel, until there is a second game.
 - **Banner and avatar:** the wordmark over the night ridge of the opening
   (`tools/render_splash.gd` renders it); the app icon as the avatar.
@@ -155,20 +150,20 @@ Only once there is a build. See *Creators* below.
 
 ## The trailer's upload
 
-Ready to paste once the name and the link are final.
+Ready to paste once the name's checks are done and the link is final.
 
-- **Title:** `Bannerfall | Announcement Trailer | iPhone`
+- **Title:** `Vaskaria | Announcement Trailer | iPhone`
   (the name first; short enough not to be cut off on a phone).
-- **Thumbnail:** `bannerfall_captains_thumbnail.jpg`, written by `cut.py`: the die landed
+- **Thumbnail:** `vaskaria_captains_thumbnail.jpg`, written by `cut.py`: the die landed
   on a captain, in a phone, with "Every captain can fall" and the name. Upload the first
-  cut's thumbnail too (`bannerfall_thumbnail.jpg`: the fight at the ford under the
+  cut's thumbnail too (`vaskaria_thumbnail.jpg`: the fight at the ford under the
   wordmark) and let YouTube's *Test & compare* pick between them.
 - **Description:**
 
   ```
   Every company has a captain. Every captain has a name. Any of them can fall. Lead them
   anyway: real-time squad battles sized for your hand, in a sandbox campaign across the
-  Three Realms. Coming to iPhone.
+  Three Realms of Vaskaria. Coming to iPhone.
   Pre-order on the App Store: <link>
 
   Three realms share one inland sea: the stone keeps of Vardmark, the desert courts of
@@ -198,7 +193,7 @@ Ready to paste once the name and the link are final.
   `indie game trailer`, `Godot`. Tags matter little; the title, thumbnail and first two
   lines of the description do the work.
 - **Settings:** category Gaming; game title set once YouTube lists the game; not made for
-  kids; captions uploaded (`bannerfall_captains.srt`, written by `cut.py`, so the words on
+  kids; captions uploaded (`vaskaria_captains.srt`, written by `cut.py`, so the words on
   screen are searchable and translatable); added to the *Trailers* playlist.
 - **End screen** over the last ten seconds (the end card holds for ten): a subscribe
   button and one video, *A full battle, explained* once it exists.
@@ -207,7 +202,7 @@ Ready to paste once the name and the link are final.
 - **Upload as Unlisted first**, watch it on a phone with the sound off and on, then
   schedule it as a **Premiere** for the announcement hour so the first viewers arrive
   together.
-- **The file:** `bannerfall_captains.mp4`: 1920×1080, 30 fps, H.264 with AAC at 48 kHz,
+- **The file:** `vaskaria_captains.mp4`: 1920×1080, 30 fps, H.264 with AAC at 48 kHz,
   loudness set to −14 LUFS, as `cut.py` writes it. Nothing to convert.
 - **Listen first.** The score was balanced by measurement (pitch, timing, loudness, the
   level of each section), not by ear. Play it on a phone speaker and on headphones before
@@ -219,7 +214,7 @@ Keyed to milestones, not dates, because the release date isn't set.
 
 | Phase | Starts when | What goes out | Done when |
 | --- | --- | --- | --- |
-| **0. Groundwork** | Now | Nothing public. Settle the name and reserve it in App Store Connect; make the channel and the sign-up page; record the first twelve Shorts and *A full battle, explained*; upload the trailer unlisted | The sign-up page (or TestFlight link) is ready to go live |
+| **0. Groundwork** | Now | Nothing public. Reserve the name in App Store Connect and run the trademark search; make the channel and the sign-up page; record the first twelve Shorts and *A full battle, explained*; upload the trailer unlisted | The sign-up page (or TestFlight link) is ready to go live |
 | **1. Announcement** | A destination is live | Day 0: the trailer as a Premiere. Day 1–7: a Short a day from the first batch. Posts to the communities below, once each, on the day | A week has passed |
 | **2. Build-up** | Week 2 | Two Shorts a week; one long video a month; the battle trailer in week 3; a realm spot every six weeks | The public TestFlight is open |
 | **3. Playable** | TestFlight public link | *The first hour*; the link to creators; a Short for every creator video that lands; every description now says "Play the beta" | The pre-order is live |
@@ -288,7 +283,7 @@ beats ten from one with fifty thousand.
 
 ## What not to do
 
-- Don't publish before the name and a link are settled.
+- Don't publish before the name's checks are done and a link is live.
 - Don't show what isn't built. Every shot in the trailer is recorded from the game; keep
   it that way, and don't promise a date.
 - Don't post the 16:9 trailer as a Short with bars. Cut a vertical one.
@@ -319,7 +314,7 @@ Footage "in a hand" for the long videos is the iPhone's own screen recording.
 
 ## Sources
 
-- The other *Bannerfall*: [Steam page](https://store.steampowered.com/app/3198250/Bannerfall/), [its X account](https://x.com/Bannerfallgame).
+- The game that already holds the old name, *Bannerfall*: [Steam page](https://store.steampowered.com/app/3198250/Bannerfall/), [its X account](https://x.com/Bannerfallgame).
 - App Store pre-orders (2 to 180 days before release): [App Store Connect Help](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/publish-for-pre-order).
 - Trailer length and gameplay-first openings: [steampageanalyzer.com](https://www.steampageanalyzer.com/blog/steam-trailer-best-practices), [gameworldobserver.com](https://gameworldobserver.com/2022/09/22/common-game-trailer-mistkaes-indie-developers-steam), [bugnet.io](https://bugnet.io/blog/what-makes-a-game-trailer-convert). These are marketing blogs written about PC store pages; their numbers are rules of thumb, and the parts used here (gameplay early, 60 to 90 seconds, one call to action) hold on any platform.
 - Shorts for reach and long videos for conversion: [strayspark.studio](https://www.strayspark.studio/blog/devlog-marketing-build-wishlists), [bugnet.io](https://bugnet.io/blog/youtube-shorts-for-indie-game-marketing). Also opinion, not measurement.

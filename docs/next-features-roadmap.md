@@ -1,4 +1,4 @@
-# Bannerfall: recommended next features
+# Vaskaria: recommended next features
 
 **Planning date:** 2026-10-28
 

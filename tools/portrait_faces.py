@@ -1,4 +1,4 @@
-"""Authoring tool: gives Bannerfall's painted portraits the faces they weren't painted with.
+"""Authoring tool: gives Vaskaria's painted portraits the faces they weren't painted with.
 
 Edda, Farah and Kaede are paintings, one per expression. None was painted mid-blink,
 glancing aside or with a lifted brow. This makes those faces from each painting's own

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Cuts the "Captains" trailer: 1920x1080, 30 fps, 70 s, H.264 + AAC, for YouTube.
 
-    python3 tools/trailer2/cut.py           # -> $TRAILER_OUT/bannerfall_captains.mp4, .srt, _thumbnail.jpg
+    python3 tools/trailer2/cut.py           # -> $TRAILER_OUT/vaskaria_captains.mp4, .srt, _thumbnail.jpg
 
 The story, on the bars of score.py (a bar is two seconds):
 
@@ -38,7 +38,7 @@ import soundfile as sf
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUT = os.environ.get("TRAILER_OUT", "/tmp/bannerfall-trailer2")
+OUT = os.environ.get("TRAILER_OUT", "/tmp/vaskaria-trailer2")
 SHOTS = os.path.join(OUT, "shots")
 W, H, FPS, LENGTH = 1920, 1080, 30, 70.0
 SR = 48000
@@ -50,7 +50,7 @@ EMBER = (226, 96, 78)
 CINZEL = os.path.join(ROOT, "assets/fonts/Cinzel-Bold.ttf")
 FELL = os.path.join(ROOT, "assets/fonts/IMFellEnglish-Italic.ttf")
 WORDMARK = os.path.join(ROOT, "assets/branding/wordmark.png")
-NAME = "bannerfall_captains"
+NAME = "vaskaria_captains"
 END_LINE = "Coming to iPhone"
 
 
@@ -503,11 +503,11 @@ def loudness(path):
 CAPTIONS = [
     (2.0, 5.7, "Every company has a captain."), (8.0, 12.0, "Every captain has a name."),
     (12.0, 16.0, "They remember every fight."), (16.2, 21.8, "And any of them can fall."),
-    (22.0, 24.0, "Lead them anyway."), (24.0, 26.0, "Bannerfall"), (26.1, 28.0, "Real-time battles"),
+    (22.0, 24.0, "Lead them anyway."), (24.0, 26.0, "Vaskaria"), (26.1, 28.0, "Real-time battles"),
     (28.1, 30.0, "Sized for your hand."), (30.0, 31.5, "Charge."), (32.0, 33.5, "Loose."), (34.0, 35.5, "Hold."),
     (38.1, 42.0, "Take their walls."), (42.1, 44.0, "The Three Realms. One crown."), (44.0, 46.0, "Win the lords' regard."),
     (46.0, 48.0, "Marry into a great house."), (48.0, 50.0, "Build a company worth following."),
-    (58.0, 59.6, "Victory."), (60.5, 70.0, "Bannerfall\n" + END_LINE),
+    (58.0, 59.6, "Victory."), (60.5, 70.0, "Vaskaria\n" + END_LINE),
 ]
 
 

@@ -1,4 +1,4 @@
-# Bannerfall: game feel and immersion roadmap
+# Vaskaria: game feel and immersion roadmap
 
 - **Date:** 2026-10-30
 - **Status:** Packages A, B, C and first slices of D, E, F and G implemented

@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Bannerfall"
+config/name="Vaskaria"
 config/description="Squad battles for phones in a sandbox campaign across the Three Realms."
 config/version="0.1.0"
 run/main_scene="res://scenes/title.tscn"

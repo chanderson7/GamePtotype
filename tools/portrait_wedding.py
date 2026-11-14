@@ -1,4 +1,4 @@
-"""Authoring tool: dresses Bannerfall's painted romance portraits for their wedding.
+"""Authoring tool: dresses Vaskaria's painted romance portraits for their wedding.
 
 Edda, Farah and Kaede were painted once per expression, in everyday clothes. This paints
 their wedding dress over those same paintings, after what brides of the times their

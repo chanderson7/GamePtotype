@@ -4,11 +4,11 @@
 #   tools/trailer2/shoot.sh <shot> [...]                 record these shots, four at a time
 #   tools/trailer2/shoot.sh all                          record every shot in stage.gd
 #   tools/trailer2/shoot.sh --probe <shot> [k=v;k=v] [seconds]   print what happens and when
-# Output goes to $TRAILER_OUT/shots/<shot>/ (default /tmp/bannerfall-trailer2). Needs Godot
+# Output goes to $TRAILER_OUT/shots/<shot>/ (default /tmp/vaskaria-trailer2). Needs Godot
 # 4.7 as `godot`, and xvfb-run where there is no display.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export TRAILER_OUT="${TRAILER_OUT:-/tmp/bannerfall-trailer2}" TRAILER_TMP="${TRAILER_TMP:-/tmp}"
+export TRAILER_OUT="${TRAILER_OUT:-/tmp/vaskaria-trailer2}" TRAILER_TMP="${TRAILER_TMP:-/tmp}"
 stage=tools/trailer2/stage.gd
 
 if [ "${1:-}" = "--probe" ]; then

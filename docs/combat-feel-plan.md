@@ -1,4 +1,4 @@
-# Bannerfall: the combat feel plan
+# Vaskaria: the combat feel plan
 
 - **Date:** 2026-11-04
 - **Status:** built (2026-11-04). Deviations are listed at the end.
