@@ -1,7 +1,10 @@
 # Where to pick up
 
-For a fresh session: read this. The newest work is under **Added 2026-10-31** below; each
+For a fresh session: read this. The newest work is under **Added 2026-11-14** below; each
 item names its tests. Don't re-read the whole codebase.
+
+**Platform: the first release is iPhone only** (decided 2026-11-14). An iPad runs it in its
+iPhone window; Android and Steam come later, so their presets are kept but not prepared.
 
 Every feature on [`next-features-roadmap.md`](next-features-roadmap.md) now has at least a
 first version, and all seven immersion packages of
@@ -12,14 +15,16 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
 - Painted art: the three capital plates, result/remembrance vignettes and village/castle
   plates ([`artwork-roadmap.md`](artwork-roadmap.md) Packages B and C). They need the external
   illustration workflow the portraits used; the marshal map markers are done in pixel art.
-- Deeper slices: crown courts and granting crown fiefs to lords, rebellion inside a realm;
-  a mix-group sound system for battles. (Siege engines are in: `docs/siege-engines-plan.md`.) (The lords' talk was rewritten: every beat in four voices, `scripts/data/lord_lines.gd`.) (Movement cycles
+- Deeper slices: rebellion inside a realm; a mix-group sound system for battles. (Crown
+  courts and granting crown fiefs are in: `docs/crown-court-and-muster-plan.md`,
+  `tests/crown_court_tests.gd`.) (Siege engines are in: `docs/siege-engines-plan.md`.) (The lords' talk was rewritten: every beat in four voices, `scripts/data/lord_lines.gd`.) (Movement cycles
   are in: a four-frame stride; see the end of `game-feel-audit.md`.)
-- Release: a build on a real phone, a frame-rate check there, and a playtest.
-- Before that playtest: [`playtest-audit.md`](playtest-audit.md), six code-traced passes
-  from different players' seats. **Every item is built but none has run in Godot**; its
-  "As built" section lists the choices made and what the first engine run must confirm
-  (parse, the `--balance` gates, campaign pace, layout at 150% text, touch, saves, exports).
+- Release (iPhone): see the checklist under **Added 2026-11-14**: a TestFlight build, the
+  frame rate on the oldest iPhone to be supported, and a playtest.
+- [`playtest-audit.md`](playtest-audit.md), six code-traced passes from different players'
+  seats: the default suite and every screen have now run in Godot (no script errors, iPhone
+  SE and tall iPhone, 100% and 150% text). Still to confirm: campaign pace (`--autoplay`,
+  `--world`), touch and saves on a device, and the `--balance` failures listed below.
 
 ## State (on `main`)
 
@@ -98,6 +103,46 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
     built. The Fief tab is cards: stores as meters that warn when full, garrison rows with faces
     and wounds, a station sheet instead of a button per squad, Manor rows with a plate of each
     building, and renouncing behind a confirmation. The Warband's fief card shows the place.
+
+## Added 2026-11-14: iPhone-only release prep
+
+Built (tests: `opening_tests`, `menu_tests`, `text_scale_tests`):
+- The iOS preset is iPhone only, takes its version from `project.godot`, answers the
+  encryption question in the Info.plist; no preset exports `docs/`, `tests/` or `tools/`.
+- Settings shows the version at the bottom. Its Developer options and `-- --autoplay`
+  (which starts a new campaign over the saves) exist in debug builds only. The battle times
+  the renderer only for the performance readout.
+- Layout fixes from the screen audit at iPhone sizes: the first-run Begin button stays on
+  screen at the bottom; the battle's hint keeps clear of the slow-time tab and waits behind
+  a ground or objective card; tab words no longer break in two at big text (a long word's
+  tab gets more of the row, "Court · 2" holds together, and `text_scale_tests` now fails a
+  word too wide for its line, with 8 px to spare for a phone's rendering: it catches the
+  old "Companie / s"); map plates by the screen's edge slide into view and step out of each
+  other's way; the map's silver icon keeps its size; the result's captain badge stays on
+  the face.
+
+Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14), still failing:
+- Kharzani v Ryumon trained armies 29–71 (gate 35–65; it was 38–62 before).
+- Objectives: ambush 46%, village 0% (gate 60%; both failed before too). Objective play
+  now beats Advance all by 24 points (that gate passes now).
+- Horse archers win 6 of 16 branch fights (was 8): the branch check fails.
+- The 24-seed river fairness check reads 33% but 192 battles give 47%: the merged test
+  fights 96 battles a map.
+
+Still to do for the App Store (needs the Mac and the Apple Developer account):
+- Team ID and signing; a TestFlight build; then the frame rate (60, never under 30, in
+  the biggest battle), memory, heat and touch on the oldest iPhone to be supported (raise
+  the minimum iOS, or require an A12, to match what holds up).
+- A battle is not saved: if iOS closes the app in the background mid-battle, the fight
+  starts again from the autosave before it. Worth saving or at least warning.
+- The map saves the whole campaign every 5 seconds on the road and redraws every frame:
+  battery and heat on a phone.
+- App Store Connect: privacy-policy page, privacy label (Data Not Collected), age rating,
+  6.9-inch iPhone screenshots, and a portrait App Store preview (the YouTube trailer is
+  16:9). A credits page with Godot's and the fonts' licences (none yet). The app icon is
+  still the placeholder from `icon.svg`.
+- How it's sold: nothing in `docs/paid-features-plan.md` is built; selling upfront needs no
+  code, in-app purchases need a StoreKit plugin.
 
 ## Added 2026-10-31
 

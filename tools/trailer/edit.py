@@ -210,11 +210,12 @@ def end_png(path):
     mark = mark.resize((mw, round(mark.height * mw / mark.width)), Image.LANCZOS)
     img.alpha_composite(mark, ((W - mw) // 2, H // 2 - mark.height // 2 - 70))
     d = ImageDraw.Draw(img)
-    f = font(DISPLAY, 30)
-    for i, (t, col) in enumerate([("Coming to iPhone, Android and Steam", TEXT)]):
-        t = t.upper()
-        tw = spaced_width(d, t, f, 5)
-        spaced(d, ((W - tw) / 2, H // 2 + 170 + i * 50), t, f, col, 5)
+    # In the wordmark's italic, not capitals: "iPhone" keeps its small i (Cinzel's would
+    # read as a 1).
+    f = font(ITALIC, 52)
+    for i, (t, col) in enumerate([("Coming to iPhone", TEXT)]):
+        tw = d.textlength(t, font=f)
+        d.text(((W - tw) / 2, H // 2 + 150 + i * 60), t, font=f, fill=col)
     img.convert("RGB").save(path)
 
 

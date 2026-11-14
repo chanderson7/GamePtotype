@@ -63,6 +63,12 @@ var _veil: ColorRect
 var _busy := false
 
 
+
+## `-- --autoplay`: the computer plays from the title to a settlement and quits, the
+## headless smoke test. Only in a debug build: it starts a new campaign over the saves.
+func autoplay() -> bool:
+	return OS.is_debug_build() and OS.get_cmdline_user_args().has("--autoplay")
+
 func _ready() -> void:
 	layer = 100
 	process_mode = Node.PROCESS_MODE_ALWAYS

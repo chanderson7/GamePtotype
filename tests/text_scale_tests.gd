@@ -62,6 +62,44 @@ func _audit(tag: String, scope: Node = null) -> void:
 		if ctl.size.x < 48.0:
 			squeezed.append("%s \"%s\" (%dpx)" % [ctl.name, words.substr(0, 24), int(ctl.size.x)])
 	check(squeezed.is_empty(), "%s keeps its words across at text %.2fx%s" % [tag, scale, "" if squeezed.is_empty() else ": " + ", ".join(squeezed.slice(0, 4))])
+	# A word wider than the room its label or button gives it breaks in the middle
+	# ("Companie / s"): every word of a wrapping label or button fits its line whole, with
+	# 8 px to spare, since a phone's screen can lay the glyphs out a little wider than here.
+	var broken := []
+	for c in scope.find_children("*", "Control", true, false):
+		var ctl := c as Control
+		if not ctl.is_visible_in_tree() or not (ctl is Label or ctl is Button):
+			continue
+		var wrap_mode: int = int(ctl.get("autowrap_mode"))
+		if wrap_mode != TextServer.AUTOWRAP_WORD_SMART and wrap_mode != TextServer.AUTOWRAP_ARBITRARY:
+			continue
+		var word := _widest_word(ctl)
+		if word != "":
+			broken.append("%s \"%s\"" % [ctl.name, word])
+	check(broken.is_empty(), "%s breaks no word in two at text %.2fx%s" % [tag, scale, "" if broken.is_empty() else ": " + ", ".join(broken.slice(0, 4))])
+
+
+## The first word of a label or button too wide for the line it has, or "".
+func _widest_word(ctl: Control) -> String:
+	var font := ctl.get_theme_font("font")
+	var size := ctl.get_theme_font_size("font_size")
+	if font == null or size <= 0:
+		return ""
+	var sb := ctl.get_theme_stylebox("normal")
+	var room := ctl.size.x - (sb.get_margin(SIDE_LEFT) + sb.get_margin(SIDE_RIGHT) if sb != null else 0.0)
+	if ctl is Button and (ctl as Button).icon != null and (ctl as Button).icon_alignment != HORIZONTAL_ALIGNMENT_CENTER:
+		var icon_w := float((ctl as Button).get_theme_constant("icon_max_width"))
+		if icon_w <= 0.0:
+			icon_w = float((ctl as Button).icon.get_width())
+		room -= icon_w + float((ctl as Button).get_theme_constant("h_separation"))
+	for line in String(ctl.get("text")).split("\n"):
+		for word in line.split(" ", false):
+			# A folder's path is one long "word" that has to break somewhere.
+			if word.contains("/"):
+				continue
+			if font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > room - 8.0:
+				return word
+	return ""
 
 
 func _frames(n := 8) -> void:

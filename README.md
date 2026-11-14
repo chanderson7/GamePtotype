@@ -1,6 +1,6 @@
 # Bannerfall
 
-*Working title.* Real-time squad battles sized for a phone, inside a sandbox campaign in the spirit of Mount & Blade, set in an invented world. Built with **Godot 4.7** in GDScript, targeting iPhone first, with Steam and Android from the same project.
+*Working title.* Real-time squad battles sized for a phone, inside a sandbox campaign in the spirit of Mount & Blade, set in an invented world. Built with **Godot 4.7** in GDScript. The first release is **iPhone only** (an iPad runs it in its iPhone window); the Android and desktop presets stay in the project for later.
 
 This slice is the start of a campaign: pick a people, ride the map of the Glass Sea, and fight the bandits on its roads in real-time battles, or send your men in without you. Your warband carries over between battles and has to be paid and fed: the men you lose stay lost until you pay to reinforce them in a town, bandit bounties and spoils keep the purse full, squads that kill can be trained, and renown lets you lead more squads.
 
@@ -135,7 +135,7 @@ This slice is the start of a campaign: pick a people, ride the map of the Glass 
 
 ## Put it on your iPhone
 
-You need a Mac with Xcode and an Apple ID (a free one works for your own phone).
+You need a Mac with Xcode and an Apple ID (a free one works for your own phone; TestFlight and the App Store need the Apple Developer Program).
 
 1. In Godot: **Editor → Manage Export Templates → Download and Install**.
 2. **Project → Export → iOS** (the preset is already there). Fill in **App Store Team ID** (your team ID from Xcode or developer.apple.com; it is left empty in the repository) and, if it isn't yours, change the **Bundle Identifier** (for example `com.yourname.bannerfall`).
@@ -144,11 +144,20 @@ You need a Mac with Xcode and an Apple ID (a free one works for your own phone).
 
 The project uses the Compatibility renderer, which also runs in the iOS Simulator. Godot's guide: [Exporting for iOS](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_ios.html).
 
-## Other platforms
+What the iOS preset already sets for the App Store:
 
-`export_presets.cfg` also has **Android** (arm64, portrait, the vibrate permission for haptics), **Windows Desktop**, **macOS** and **Linux** presets, all at version 0.1.0. The Android package name `com.bannerfall.game` is a placeholder: confirm it before the first Play Console upload, since a published package name can never change (a Play Store upload also wants a Gradle build exported as an AAB). The app icons are `assets/icon_1024.png` (opaque, on the splash colour), `icon_512`, `icon_192`, `icon_180`, `icon.ico` and the Android adaptive layers, all rendered from `icon.svg`. On a computer F11 or Alt+Enter toggles full screen, and menus keep to a phone-width column in a wide window.
+- **iPhone only** (`targeted_device_family=0`), iOS 15 and up. An iPad still runs it, in its iPhone window.
+- **The version** comes from `application/config/version` in `project.godot` (the preset's own short version is left empty), and Settings shows it at the bottom, for bug reports. Raise the preset's **Version** (the build number) for every upload to TestFlight.
+- **Encryption:** `ITSAppUsesNonExemptEncryption` is false in the Info.plist, so an upload doesn't stop to ask.
+- **Privacy:** the privacy manifest declares no data collected and no tracking (the game has no networking); App Store Connect still wants a privacy-policy page, which can say exactly that.
+- **What ships:** no preset exports `docs/`, `tests/` or `tools/`.
+- **Developer options** (the performance readout and the test battle in Settings) and `-- --autoplay` exist in debug builds only, never in a release export.
 
-**Moving a campaign.** Everything lives in Godot's user folder: `campaign.json` (the autosave), `saves/` (your own and the kept saves, with `saves/index.json`) and `settings.cfg`. On iPhone and iPad the folder shows in the Files app (On My iPhone › Bannerfall); on a computer the Saves screen says where it is. Copy those to the same place on the other device. For Steam, Steam Cloud needs no code: in Steamworks (Cloud › Auto-Cloud) add the user folder's `campaign.json` and `saves/*.json` for each OS.
+## Other platforms (later)
+
+The first release is iPhone only; these presets are kept but not prepared for a store. `export_presets.cfg` also has **Android** (arm64, portrait, the vibrate permission for haptics), **Windows Desktop**, **macOS** and **Linux** presets, all at version 0.1.0. The Android package name `com.bannerfall.game` is a placeholder: confirm it before the first Play Console upload, since a published package name can never change (a Play Store upload also wants a Gradle build exported as an AAB). The app icons are `assets/icon_1024.png` (opaque, on the splash colour), `icon_512`, `icon_192`, `icon_180`, `icon.ico` and the Android adaptive layers, all rendered from `icon.svg`. On a computer F11 or Alt+Enter toggles full screen, and menus keep to a phone-width column in a wide window.
+
+**Moving a campaign.** Everything lives in Godot's user folder: `campaign.json` (the autosave), `saves/` (your own and the kept saves, with `saves/index.json`) and `settings.cfg`. On iPhone and iPad the folder shows in the Files app (On My iPhone › Bannerfall); on a computer the Saves screen says where it is. Copy those to the same place on the other device. (Should a Steam build come later, Steam Cloud needs no code: in Steamworks, Cloud › Auto-Cloud, add the user folder's `campaign.json` and `saves/*.json` for each OS.)
 
 ## How it's built
 
@@ -235,4 +244,4 @@ Add `-- --balance` to also fight three scripted players against every kind of co
 - [x] Phase 4, a living world: lords and armies on the map, war and peace, sieges that change who holds what, mercenary contracts, prisoners and ransom (`docs/phase-4-plan.md`)
 - [x] Captains and men: wounded men, captain skills and promotions, heroes, Casual mode (Phase 5)
 - [x] Land of your own and the crown: fiefs, vassalage, playable sieges, the journal, company deeds, your own kingdom and alliances (first slices; see `docs/kingdom-plan.md`)
-- [ ] A second art pass (painted capital plates and battle vignettes; `docs/artwork-roadmap.md`), a phone build and playtest, then Steam early access and the App Store
+- [ ] A second art pass (painted capital plates and battle vignettes; `docs/artwork-roadmap.md`), a TestFlight build on iPhone and a playtest, then the App Store (iPhone only; Android and Steam later)

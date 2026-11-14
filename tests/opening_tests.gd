@@ -40,6 +40,13 @@ func _run() -> void:
 	check(int(ProjectSettings.get_setting("application/boot_splash/stretch_mode", -1)) == 4, "the splash covers the screen, as the opening covers it with its box")
 	var presets := FileAccess.get_file_as_string("res://export_presets.cfg")
 	check(presets.contains("storyboard/image_scale_mode=3"), "and the iOS launch screen fills it too (aspect fill), not the image's own size")
+	# The first release is iPhone only (an iPad runs it in its iPhone window).
+	var ios := presets.get_slice("[preset.1]", 0)
+	check(ios.contains('platform="iOS"') and ios.contains("application/targeted_device_family=0"), "the iOS build is for iPhone only")
+	check(ios.contains("<key>ITSAppUsesNonExemptEncryption</key><false/>"), "and answers the App Store's encryption question itself")
+	check(ios.contains('application/short_version=""'), "and takes its version from the project, the one Settings shows")
+	check(presets.count('exclude_filter="docs/*,tests/*,tools/*"') == presets.count("exclude_filter="),
+		"no build carries the docs, tests or tools")
 	var corner := img.get_pixel(4, 4)
 	check(corner.is_equal_approx(Opening.NIGHT) or corner.to_html(false) == Opening.NIGHT.to_html(false), "the splash's edges are the night, so fitting it leaves no seam")
 

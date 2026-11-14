@@ -81,7 +81,27 @@ func _build() -> void:
 		Scenes.go("res://scenes/tutorial.tscn"))
 	tut.icon = Widgets.icon("book")
 	col.add_child(tut)
-	# For whoever is building the game, out of the player's way.
+	# Which build this is, for a bug report.
+	var version := Page.note("%s %s" % [ProjectSettings.get_setting("application/config/name", "Bannerfall"),
+		ProjectSettings.get_setting("application/config/version", "")], Style.SMALL)
+	version.name = "VersionNote"
+	version.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(version)
+	# For whoever is building the game: a debug build only, never in a store build.
+	if OS.is_debug_build():
+		_add_developer(col)
+	var bar := Widgets.bottom_bar(Widgets.back_button(_back), insets)
+	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	add_child(bar)
+	heading.focus_mode = Control.FOCUS_ALL
+	# Focus starts at the top for keyboards and screen readers, without a box drawn round the title.
+	heading.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	heading.grab_focus()
+
+
+## The performance readout and the test battle, behind a quiet Developer button.
+func _add_developer(col: Control) -> void:
 	var open := _dev_open or Sound.show_performance
 	var dev := Button.new()
 	dev.name = "DeveloperToggle"
@@ -107,14 +127,6 @@ func _build() -> void:
 					Scenes.go("res://scenes/battle.tscn"))
 			test.name = "TestBattle"
 			col.add_child(test)
-	var bar := Widgets.bottom_bar(Widgets.back_button(_back), insets)
-	bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
-	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	add_child(bar)
-	heading.focus_mode = Control.FOCUS_ALL
-	# Focus starts at the top for keyboards and screen readers, without a box drawn round the title.
-	heading.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	heading.grab_focus()
 
 
 ## A setting with an on/off switch at the right, and a short note under its name. A tap

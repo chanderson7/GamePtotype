@@ -110,6 +110,11 @@ func _run() -> void:
 	check(root.get_node("Sound").music_on, "and another flips it back")
 	var motion_title := current_scene.find_child("Setting_Reducedmotion", true, false).find_children("*", "Label", true, false)[0] as Label
 	check(motion_title.autowrap_mode != TextServer.AUTOWRAP_OFF, "a setting's name wraps at large text")
+	var version := current_scene.find_child("VersionNote", true, false) as Label
+	check(version != null and version.text.ends_with(String(ProjectSettings.get_setting("application/config/version"))),
+		"Settings shows which build this is, for a bug report")
+	check((current_scene.find_child("DeveloperToggle", true, false) != null) == OS.is_debug_build(),
+		"the Developer options are there in a debug build only, never in a store build")
 	button("Open tutorial").pressed.emit()
 	await transition()
 	for step in 5:

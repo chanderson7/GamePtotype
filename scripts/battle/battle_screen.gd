@@ -465,6 +465,8 @@ var _pending_result := {}
 ## A test battle from Settings: twelve companies a side, the computer commanding both, the
 ## readout on; it never touches the campaign.
 var _test := false
+## Whether the renderer is timing each frame for the readout.
+var _measuring := false
 var _retreat_armed := 0.0
 
 var top_panel: PanelContainer
@@ -571,13 +573,15 @@ func _ready() -> void:
 	_c = self
 	_make_layers()
 	font = ThemeDB.fallback_font
-	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+	# The renderer times each frame only for the performance readout (and the test battle).
+	_measuring = Sound.show_performance or bool(GameState.pending_battle.get("test", false))
+	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), _measuring)
 	_perf_reset()
 	# Pixel art: hard edges, and the grass tile repeats.
 	texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
 	# `-- --autoplay` lets the computer fight both sides (used for headless smoke tests).
-	autoplay = OS.get_cmdline_user_args().has("--autoplay")
+	autoplay = Scenes.autoplay()
 	sim = Sim.new()
 	# A fight the map set up (bandits on the road), or one made up on the spot.
 	var pending: Dictionary = GameState.pending_battle
@@ -2428,11 +2432,16 @@ func _hint(text: String, key: String = "", narration: bool = true) -> void:
 ## The hint toast and the enemy readout fade on their own clocks, paused or not.
 func _age_overlays(delta: float) -> void:
 	if hint_toast != null and hint_toast.visible:
-		_hint_age += delta
-		var life := HINT_LIFE + 0.03 * hint_label.text.length()
-		hint_toast.modulate.a = clampf((life - _hint_age) / HINT_FADE, 0.0, 1.0)
-		if _hint_age >= life:
-			hint_toast.visible = false
+		# A ground or objective card over the field holds the line back until it's put away,
+		# so the two never stack; the line then gets its whole time.
+		if terrain_hint_panel != null and terrain_hint_panel.visible:
+			hint_toast.modulate.a = 0.0
+		else:
+			_hint_age += delta
+			var life := HINT_LIFE + 0.03 * hint_label.text.length()
+			hint_toast.modulate.a = clampf((life - _hint_age) / HINT_FADE, 0.0, 1.0)
+			if _hint_age >= life:
+				hint_toast.visible = false
 	if inspect_pill != null and inspect_pill.visible:
 		_inspect_age += delta
 		inspect_pill.modulate.a = clampf((INSPECT_LIFE - _inspect_age) / HINT_FADE, 0.0, 1.0)
@@ -3852,8 +3861,12 @@ func _badged_face(face: Dictionary, badge: String, tint: Color, size: Vector2 = 
 	if badge != "":
 		var dot := PanelContainer.new()
 		dot.name = "Badge"
-		dot.add_theme_stylebox_override("panel", Style.box(Style.NIGHT, tint, 2, 16))
-		dot.position = Vector2(size.x - 22.0, size.y - 26.0)
+		# A round badge just bigger than its icon, on the face's own corner: it never
+		# reaches over the men and count beside the face.
+		var ring := Style.box(Style.NIGHT, tint, 2, 14)
+		ring.set_content_margin_all(4.0)
+		dot.add_theme_stylebox_override("panel", ring)
+		dot.position = Vector2(size.x - 26.0, size.y - 26.0)
 		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var ic := Widgets.icon_rect(badge, 20.0)
 		ic.modulate = tint
@@ -4518,7 +4531,8 @@ func _build_hud() -> void:
 	hint_toast.anchor_top = 1.0
 	hint_toast.anchor_bottom = 1.0
 	hint_toast.offset_left = 20.0
-	hint_toast.offset_right = -20.0
+	# Clear of the slow handle on the field's right edge, which a thumb may be reaching for.
+	hint_toast.offset_right = -(SLOW_HANDLE.x + 16.0)
 	hint_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	hint_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hint_toast.visible = false
@@ -5566,8 +5580,9 @@ func _perf_frame(delta: float) -> void:
 	w["sim_worst"] = maxf(float(w["sim_worst"]), sim_ms)
 	w["draw"] = float(w["draw"]) + draw_ms
 	w["draw_worst"] = maxf(float(w["draw_worst"]), draw_ms)
-	w["render"] = float(w["render"]) + RenderingServer.viewport_get_measured_render_time_cpu(rid)
-	w["gpu"] = float(w["gpu"]) + RenderingServer.viewport_get_measured_render_time_gpu(rid)
+	if _measuring:
+		w["render"] = float(w["render"]) + RenderingServer.viewport_get_measured_render_time_cpu(rid)
+		w["gpu"] = float(w["gpu"]) + RenderingServer.viewport_get_measured_render_time_gpu(rid)
 	if float(w["t"]) < PERF_WINDOW:
 		return
 	var n := float(maxi(1, int(w["frames"])))
