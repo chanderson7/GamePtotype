@@ -66,18 +66,18 @@ EDL = [
     {"shot": "wedding", "at": 14.6, "sfx": 0.35, "to": bar(21), "frame": (0, 0, 1080, 1500),
      "cap": ("Marry into a great house", "Feasts, dances, vows and pacts.", "left")},
     {"shot": "battle_title", "at": 5.0, "to": bar(23), "sfx": 0.45},
-    {"shot": "battle_open", "at": 8.0, "to": bar(25), "sfx": 0.4,
+    {"shot": "battle_open", "at": 12.5, "to": bar(25), "sfx": 0.4,
      "cap": ("Lead every company", "Real-time squad battles, sized for your hand.", "low")},
-    {"shot": "battle_cavalry", "at": 18.0, "to": bar(26.5), "sfx": 0.4},
-    {"shot": "battle_woods", "at": 15.0, "to": bar(28), "sfx": 0.4},
-    {"shot": "battle_hud", "at": 14.5, "to": bar(30), "sfx": 0.35, "bg_y": 260,
+    {"shot": "battle_cavalry", "at": 24.8, "to": bar(26.5), "sfx": 0.4},
+    {"shot": "battle_woods", "at": 15.5, "to": bar(28), "sfx": 0.4},
+    {"shot": "battle_hud", "at": 9.0, "to": bar(30), "sfx": 0.35, "bg_y": 260,
      "cap": ("Shield walls. Volleys. Charges.", "Read the field and give the order.", "left")},
-    {"shot": "battle_river", "at": 8.5, "to": bar(31.5), "sfx": 0.4},
+    {"shot": "battle_river", "at": 9.0, "to": bar(31.5), "sfx": 0.4},
     {"shot": "battle_archers", "at": 10.0, "to": bar(33), "sfx": 0.4},
-    {"shot": "battle_night", "at": 18.5, "to": bar(34.5), "sfx": 0.4},
-    {"shot": "battle_wide", "at": 11.5, "to": bar(36.5), "sfx": 0.4},
-    {"shot": "battle_win", "at": 4.4, "to": bar(38.5), "sfx": 0.5, "zoom": 1.5},
-    {"shot": "battle_result", "at": 8.6, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
+    {"shot": "battle_night", "at": 11.5, "to": bar(34.5), "sfx": 0.4},
+    {"shot": "battle_wide", "at": 10.5, "to": bar(36.5), "sfx": 0.4},
+    {"shot": "battle_win", "at": 24.2, "to": bar(38.5), "sfx": 0.5, "zoom": 1.5},
+    {"shot": "battle_result", "at": 9.2, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
      "frame": (0, 0, 1080, 1500), "cap": ("Make your name", "Every company's story is told.", "left")},
     {"end": True, "to": 80.0, "fade": (0.8, 1.8)},
 ]
@@ -172,6 +172,14 @@ def caption_png(path, title, line, where, panel=None):
         d.line([(x, y + 80), (x + 140, y + 80)], fill=BRASS + (150,), width=2)
         if line:
             d.text((x, y + 96), line, font=fl, fill=TEXT)
+        # Over a field or the map the words need dark under them (brass on sand is lost):
+        # a shade rising from the lower left corner, fading with the caption.
+        down = np.clip((np.arange(H, dtype=np.float32) - (H - 540)) / 540.0, 0, 1)[:, None] ** 1.2
+        across = np.clip((1700.0 - np.arange(W, dtype=np.float32)) / 800.0, 0, 1)[None, :]
+        shade = Image.new("RGBA", (W, H), (6, 8, 16, 0))
+        shade.putalpha(Image.fromarray((down * across * 205).astype(np.uint8)))
+        Image.alpha_composite(shade, shadowed(shadowed(img, 3, 255), 12)).save(path)
+        return
     shadowed(img, 12).save(path)
 
 
@@ -211,11 +219,11 @@ def end_png(path):
     mark = mark.resize((mw, round(mark.height * mw / mark.width)), Image.LANCZOS)
     img.alpha_composite(mark, ((W - mw) // 2, H // 2 - mark.height // 2 - 70))
     d = ImageDraw.Draw(img)
-    f = font(DISPLAY, 30)
+    f = font(DISPLAY, 38)
     for i, (t, col) in enumerate([(END_LINE, TEXT)]):
         t = t.upper()
-        tw = spaced_width(d, t, f, 5)
-        spaced(d, ((W - tw) / 2, H // 2 + 170 + i * 50), t, f, col, 5)
+        tw = spaced_width(d, t, f, 6)
+        spaced(d, ((W - tw) / 2, H // 2 + 165 + i * 60), t, f, col, 6)
     img.convert("RGB").save(path)
 
 
