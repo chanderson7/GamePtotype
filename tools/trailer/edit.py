@@ -48,7 +48,7 @@ def bar(k):
 #   fade: (in, out) seconds through black; sfx: gain on the clip's own sound (0 for none)
 #   zoom: for a landscape clip, how far to crop in on its middle
 #   bg_y: for a portrait clip, how far down the shown part its blurred backdrop is taken
-END_LINE = "Coming to iPhone, Android and Steam"  # the end card's line, under the wordmark
+END_LINE = "Coming to iPhone"  # the end card's line, under the wordmark
 LORDS = ("Win the lords' regard", "Every lord remembers what you did.", "left")
 EDL = [
     {"card": ("Three realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
