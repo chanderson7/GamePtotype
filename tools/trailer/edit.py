@@ -48,6 +48,7 @@ def bar(k):
 #   fade: (in, out) seconds through black; sfx: gain on the clip's own sound (0 for none)
 #   zoom: for a landscape clip, how far to crop in on its middle
 #   bg_y: for a portrait clip, how far down the shown part its blurred backdrop is taken
+END_LINE = "Coming to iPhone, Android and Steam"  # the end card's line, under the wordmark
 LORDS = ("Win the lords' regard", "Every lord remembers what you did.", "left")
 EDL = [
     {"card": ("Three realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
@@ -211,7 +212,7 @@ def end_png(path):
     img.alpha_composite(mark, ((W - mw) // 2, H // 2 - mark.height // 2 - 70))
     d = ImageDraw.Draw(img)
     f = font(DISPLAY, 30)
-    for i, (t, col) in enumerate([("Coming to iPhone, Android and Steam", TEXT)]):
+    for i, (t, col) in enumerate([(END_LINE, TEXT)]):
         t = t.upper()
         tw = spaced_width(d, t, f, 5)
         spaced(d, ((W - tw) / 2, H // 2 + 170 + i * 50), t, f, col, 5)
@@ -359,9 +360,37 @@ def main():
          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
          "-movflags", "+faststart", "-t", f"{total}", final])
     print(f"wrote {final} ({total:.1f}s)")
+    subs = os.path.join(OUT, "bannerfall_trailer.srt")
+    subtitles(subs)
+    print(f"wrote {subs}")
     thumb = os.path.join(OUT, "bannerfall_thumbnail.jpg")
     thumbnail(os.path.join(CLIPS, "battle_river", "f%08d.png" % int(10.5 * FPS)), thumb)
     print(f"wrote {thumb}")
+
+
+def subtitles(path):
+    """The words on screen as an .srt, to upload beside the video: YouTube can then search
+    and translate them. A caption that runs on across a cut is one entry."""
+    def stamp(t):
+        ms = round(t * 1000)
+        return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+    rows, t = [], 0.0
+    for seg in EDL:
+        if "end" in seg:
+            words = ("Bannerfall", END_LINE)
+        else:
+            words = (seg.get("card") or seg.get("cap") or (None,))[:2]
+        if words[0]:
+            text = "\n".join(w for w in words if w)
+            if rows and rows[-1][2] == text and abs(rows[-1][1] - t) < 0.01:
+                rows[-1][1] = t + seg["dur"]
+            else:
+                rows.append([t, t + seg["dur"], text])
+        t += seg["dur"]
+    with open(path, "w") as f:
+        for n, (a, b, text) in enumerate(rows, start=1):
+            f.write(f"{n}\n{stamp(a)} --> {stamp(b)}\n{text}\n\n")
 
 
 def thumbnail(frame, path):
