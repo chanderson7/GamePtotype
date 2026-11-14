@@ -4958,6 +4958,8 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 
 ## Apply a battle result from BattleSim.result_for(PLAYER).
 func apply_result(result: Dictionary) -> void:
+	# A battle's result is in: it's no longer kept to come back to (see battle_resume).
+	battle_resume = {}
 	# Pulling out before the lines met is riding away, as Withdraw on the map is: no battle
 	# fought, no defeat, nobody hurt. A siege's own business is settled the usual way.
 	if bool(result.get("before_fight", false)) and String(pending_battle.get("objective", "rout")) != "siege":

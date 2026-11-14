@@ -152,6 +152,10 @@ What the iOS preset already sets for the App Store:
 - **Privacy:** the privacy manifest declares no data collected and no tracking (the game has no networking); App Store Connect still wants a privacy-policy page, which can say exactly that.
 - **What ships:** no preset exports `docs/`, `tests/` or `tools/`.
 - **Developer options** (the performance readout and the test battle in Settings) and `-- --autoplay` exist in debug builds only, never in a release export.
+- **Licences:** Settings › Credits & licences shows Godot's notice, every engine part's licence and the fonts' (`assets/fonts/OFL.txt`, which every preset ships).
+- **A battle survives the phone closing the game:** a campaign battle is kept in the save as it begins, its orders whenever the game goes to the background; after a relaunch Continue goes back into it, fought back to where it was, paused (`BattleSim.command` and `replay`; `tests/battle_resume_tests.gd`).
+- **Battery:** once nothing has been touched for two seconds, a screen that isn't moving by itself is drawn at 30 frames a second (`scripts/ui/frame_pacer.gd`); the map saves every 30 seconds on the road.
+- **The store listing** (text, privacy policy, age-rating answers, screenshots) is in `store/`; `tools/store/` makes the screenshots and the app preview from the game.
 
 ## Other platforms (later)
 
@@ -165,6 +169,7 @@ The first release is iPhone only; these presets are kept but not prepared for a 
 | --- | --- |
 | `scenes/title.tscn` | Home: your company's card and what's waiting, Continue; or the three peoples to begin with. New campaign, tutorial and Settings. |
 | `scenes/settings.tscn`, `scenes/tutorial.tscn` | Device audio preferences and an optional six-step walkthrough. |
+| `scenes/credits.tscn` | Credits & licences, from Settings: the samples, the fonts and the engine, each with its licence. |
 | `scenes/bond_intro.tscn` | The saved first-rank-C bond introduction. |
 | `scenes/new_campaign.tscn` | Choose your people. |
 | `scenes/world_map.tscn` | The map of the Glass Sea: travel, settlements, encounters. |

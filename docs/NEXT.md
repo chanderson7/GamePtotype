@@ -122,6 +122,32 @@ Built (tests: `opening_tests`, `menu_tests`, `text_scale_tests`):
   other's way; the map's silver icon keeps its size; the result's captain badge stays on
   the face.
 
+Then, for the App Store:
+- **A battle survives the phone closing the game** (`battle_resume_tests`). Every order the
+  battle screen gives goes through `BattleSim.command`, which journals it with its step
+  (squads and engines by id); the battle is seeded, so `BattleSim.replay` fights it again,
+  man for man. `GameState.battle_resume` keeps the battle's setup (packed with
+  `var_to_bytes`, so ints and Vector2s come back exactly) from its start, and its journal
+  whenever the game goes to the background or closes. After a relaunch Home's Continue
+  reads "Back to the battle"; the battle is fought back behind a "Back to the field" cover
+  (about 60 ms of it a frame) and waits, paused. A battle the map sets up since always wins
+  over a kept one (`battle_waiting` needs the pending battle empty, as it is after a
+  load). This also ends the free retry from force-quitting a battle in Ironman.
+- **Credits & licences** in Settings (`menu_tests`): the samples (CC0), the fonts (OFL,
+  `assets/fonts/OFL.txt`, now in every preset's include filter), Godot's notice and every
+  engine part with its licence, from `Engine.get_copyright_info`; a licence's words open on
+  a tap, reflowed for the phone.
+- **Battery** (`frame_pacer_tests`): `scripts/ui/frame_pacer.gd` (under `Scenes`) draws 30
+  frames a second once nothing's been touched for 2 s and the screen isn't moving by itself
+  (`keeps_full_pace()`: the battle fought, the map while time runs, Home's opening). Off
+  headless and under Movie Maker. The map saves every 30 s on the road (was 5 s; a save is
+  about 9 ms here after 40 days), as well as on arriving, encounters and backgrounding.
+- **Store material** (`store/`, ignored by Godot): the listing to paste
+  (`app-store-listing.md`: subtitle, keywords, description, privacy and age-rating answers,
+  review notes), `privacy-policy.html` (fill `SUPPORT_EMAIL`, host it), eight 1290x2796
+  screenshots, made by `tools/store/screenshots.sh`; `tools/store/preview.sh` makes the 25 s
+  portrait app preview (886x1920, not committed).
+
 Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14), still failing:
 - Kharzani v Ryumon trained armies 29–71 (gate 35–65; it was 38–62 before).
 - Objectives: ambush 46%, village 0% (gate 60%; both failed before too). Objective play
@@ -129,6 +155,9 @@ Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14)
 - Horse archers win 6 of 16 branch fights (was 8): the branch check fails.
 - The 24-seed river fairness check reads 33% but 192 battles give 47%: the merged test
   fights 96 battles a map.
+- Passing, but worth a look: attacking good ground with 15% more men wins 20 points less
+  often than on open ground (gate 15), yet on open ground those 15% more men now win 45 of
+  72 (it was 66 of 72): numbers count for less since the tethered melee.
 
 Still to do for the App Store (the game has run on a real iPhone and the Apple Developer
 account is set up):
@@ -136,16 +165,13 @@ account is set up):
   biggest battle), memory, heat over 20 minutes, touch. A debug export (Export With Debug)
   keeps Settings › Developer: *Show performance* puts each battle frame's cost at the foot
   of the field, and *Test battle: 12 against 12* is the densest fight. Then raise the
-  minimum iOS, or require an A12, to match what holds up.
+  minimum iOS, or require an A12, to match what holds up. Also time a battle coming back
+  after a relaunch there (a long 12-a-side battle takes several seconds to fight back).
 - A TestFlight build for playtesters (raise the preset's build number each upload).
-- A battle is not saved: if iOS closes the app in the background mid-battle, the fight
-  starts again from the autosave before it. Worth saving or at least warning.
-- The map saves the whole campaign every 5 seconds on the road and redraws every frame:
-  battery and heat on a phone.
-- App Store Connect: privacy-policy page, privacy label (Data Not Collected), age rating,
-  6.9-inch iPhone screenshots, and a portrait App Store preview (the YouTube trailer is
-  16:9). A credits page with Godot's and the fonts' licences (none yet). The app icon is
-  still the placeholder from `icon.svg`.
+- App Store Connect: host the privacy policy, fill the placeholders in
+  `store/app-store-listing.md`, upload the screenshots and preview. The app icon is still
+  the placeholder from `icon.svg`. The version is 0.1.0: raise `application/config/version`
+  for the first release.
 - How it's sold: nothing in `docs/paid-features-plan.md` is built; selling upfront needs no
   code, in-app purchases need a StoreKit plugin.
 

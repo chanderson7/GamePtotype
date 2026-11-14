@@ -66,6 +66,13 @@ const SHOTS := {
 		"biome": "vardmark", "hour": 17.5, "seed": 12, "no_title": true, "fast_until": 40.0, "cam": {"mode": "clash", "zoom": 2.9}},
 	"battle_result": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open", "companies": 8, "foes": 4,
 		"biome": "vardmark", "hour": 17.5, "seed": 12, "no_title": true, "hud": true, "fast_until": 60.0},
+	# App Store screenshots (tools/store/screenshots.sh): the HUD on, the camera in on the clash.
+	"store_battle": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open", "companies": 10,
+		"biome": "vardmark", "hour": 16.0, "seed": 8, "no_title": true, "hud": true, "advance_at": 1.0,
+		"cam": {"mode": "clash", "zoom": 1.7}},
+	"store_river": {"kind": "battle", "culture": "ryumon", "foe": "vardish", "site": "river", "companies": 10,
+		"biome": "vardmark", "hour": 7.0, "seed": 9, "no_title": true, "hud": true, "advance_at": 2.0,
+		"cam": {"mode": "clash", "zoom": 1.5}},
 	"battle_wide": {"kind": "battle", "culture": "vardish", "foe": "kharzani", "site": "open", "companies": 12,
 		"biome": "vardmark", "hour": 17.0, "seed": 40, "no_title": true, "cam": {"mode": "clash", "zoom": 2.8, "zoom_to": 3.4, "zoom_time": 14.0}},
 }

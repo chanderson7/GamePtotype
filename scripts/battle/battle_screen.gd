@@ -760,6 +760,8 @@ func _begin_resume() -> void:
 	_resume_bar = ProgressBar.new()
 	_resume_bar.show_percentage = false
 	_resume_bar.custom_minimum_size = Vector2(0, 14)
+	_resume_bar.add_theme_stylebox_override("background", Style.box(Style.PANEL, Style.RULE, 1, 7))
+	_resume_bar.add_theme_stylebox_override("fill", Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 7))
 	_resume_bar.max_value = maxf(1.0, float(_resume_to))
 	box.add_child(_resume_bar)
 	var layer := CanvasLayer.new()
