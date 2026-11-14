@@ -367,10 +367,124 @@ def paint(a, lab, outfit, who, cloth=True):
     return big
 
 
+# ---------------------------------------------------------------- the pixel look
+# Ordered dithering, where two tones of a part meet.
+BAYER = np.array([[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]) / 16.0
+
+
+def kmeans(X, k, rounds=20):
+    """`k` colours that stand for the colours in X, darkest first. Starts from evenly spaced
+    brightnesses, so the same painting always gives the same tones."""
+    if len(X) <= k:
+        return X[np.argsort(lum(X))].copy()
+    C = X[np.argsort(lum(X))[np.linspace(0, len(X) - 1, k).astype(int)]].copy()
+    for _ in range(rounds):
+        nearest = ((X[:, None, :] - C[None]) ** 2).sum(-1).argmin(1)
+        for i in range(k):
+            if (nearest == i).any():
+                C[i] = X[nearest == i].mean(0)
+    return C[np.argsort(lum(C))]
+
+
+def shrink(a, lab, size):
+    """The painting on a coarser grid of `size` (w, h): resampled sharply, so eyes and
+    lips survive; its parts by nearest; its silhouette crisp."""
+    img = Image.fromarray(np.clip(np.round(bleed(a)), 0, 255).astype(np.uint8), "RGBA")
+    small = img.resize(size, Image.LANCZOS).filter(ImageFilter.UnsharpMask(radius=0.8, percent=80, threshold=2))
+    out = np.array(small).astype(float)
+    band = img.split()[3]
+    alpha = np.array(band.resize(size, Image.BOX)).astype(float)
+    # Where the painting is see-through (a veil), it stays see-through, in a few steps;
+    # elsewhere the edge is crisp: in or out.
+    densest = np.array(band.filter(ImageFilter.MaxFilter(3)).resize(size, Image.BOX)).astype(float)
+    sheer = (densest < 230) & (alpha >= 40)
+    out[..., 3] = np.where(sheer, np.round(alpha / 64.0) * 64.0, np.where(alpha >= 128, 255.0, 0.0)).clip(0, 255)
+    return out, np.array(Image.fromarray(lab).resize(size, Image.NEAREST))
+
+
+def pixelate(a, lab, outfit, who, style, palettes=None):
+    """`a` (a 384x512 painting) as pixel art on `style`'s grid, drawn at 768x1024: each part
+    in a few flat tones of its own (or of its outfit ramp), dithered where they meet, the
+    face keeping tones for its irises, lips and lashes, hair streaked along its strands, a
+    dark rim round the figure. Returns the picture and the tones used, so its blinks can be
+    drawn in the very same ones (`palettes`)."""
+    small, sl = shrink(a, lab, tuple(style["grid"]))
+    rgb = small[..., :3].copy()
+    L = lum(rgb)
+    H, W = L.shape
+    yy, xx = np.mgrid[0:H, 0:W]
+    bay = BAYER[yy % 4, xx % 4]
+    dither = float(style.get("dither", 0.3))
+    tones = style.get("tones", {})
+    hair = sl == REGIONS.index("hair")
+    if hair.any():
+        streak = strands(L, seed=WHO.index(who) + 1)
+        rgb[hair] = np.clip(rgb[hair] + ((streak - 0.5) * 50)[hair][:, None], 0, 255)
+    out = rgb.copy()
+    made = {} if palettes is None else palettes
+    opaque = small[..., 3] > 0
+    solid = small[..., 3] >= 255
+    for i, name in enumerate(REGIONS):
+        m = (sl == i) & opaque
+        if name == "none" or not m.any():
+            continue
+        spec = outfit.get(name, "keep")
+        if spec != "keep":
+            C = np.array([hexc(c) for c in spec])
+            lo, hi = np.percentile(L[m], 2), np.percentile(L[m], 99)
+            t = np.clip((L - lo) / max(1.0, hi - lo), 0, 1) * (len(C) - 1)
+            out[m] = C[np.clip(np.floor(t + (bay - 0.5) * dither + 0.5).astype(int), 0, len(C) - 1)][m]
+            continue
+        if name not in made:
+            base = kmeans(rgb[m], int(tones.get(name, 5)))
+            extra = np.zeros((0, 3))
+            if name == "skin":
+                # What in the face is far from every skin tone (irises, lips, lashes) keeps
+                # tones of its own.
+                far = np.sqrt(((rgb[m][:, None, :] - base[None]) ** 2).sum(-1)).min(1) > 26
+                if far.sum() > 12:
+                    extra = kmeans(rgb[m][far], int(tones.get("features", 6)))
+            made[name] = (base, extra)
+        base, extra = made[name]
+        C = np.vstack([base, extra])
+        if len(C) == 1:
+            out[m] = C[0]
+            continue
+        d = ((rgb[..., None, :] - C[None, None]) ** 2).sum(-1)
+        o = np.argsort(d, -1)
+        n1, n2 = o[..., 0], o[..., 1]
+        d1 = np.sqrt(np.take_along_axis(d, n1[..., None], -1)[..., 0])
+        d2 = np.sqrt(np.take_along_axis(d, n2[..., None], -1)[..., 0])
+        between = d1 / np.maximum(d1 + d2, 1e-6)               # 0 on a tone, 0.5 halfway
+        flip = (between * 2 * dither > bay * 0.999 + 0.5 - 0.25 * dither) & (n1 < len(base)) & (n2 < len(base))
+        out[m] = C[np.where(flip, n2, n1)][m]
+    rim = solid & ~(np.roll(opaque, 1, 0) & np.roll(opaque, -1, 0) & np.roll(opaque, 1, 1) & np.roll(opaque, -1, 1))
+    out[rim] = out[rim] * 0.45
+    metal = sl == REGIONS.index("metal")
+    Lo = lum(out)
+    lit = metal & (np.roll(Lo, 1, 0) + 20 < Lo) & (np.roll(Lo, 1, 1) + 20 < Lo)
+    out[lit] = np.clip(out[lit] * 1.2 + 25, 0, 255)
+    img = Image.fromarray(np.clip(np.round(np.dstack([out, small[..., 3]])), 0, 255).astype(np.uint8), "RGBA")
+    big = img.resize((a.shape[1] * SCALE, a.shape[0] * SCALE), Image.NEAREST)
+    return np.array(big).astype(float), made
+
+
+def draw(a, lab, outfit, who, style, palettes=None, cloth=True):
+    """The painting in the rig's look (`style["look"]`): "pixel" (pixelate) or "painted"
+    (paint). Returns the picture and, for pixel art, the tones it was drawn in."""
+    if style.get("look", "pixel") == "pixel":
+        return pixelate(a, lab, outfit, who, style, palettes)
+    return paint(a, lab, outfit, who, cloth=cloth), None
+
+
 # ---------------------------------------------------------------- the game's portraits
 def outfits():
     with open(os.path.join(RIG, "outfits.json")) as f:
         return json.load(f)
+
+
+def style():
+    return outfits().get("_style", {"look": "pixel", "grid": [192, 256], "dither": 0.25})
 
 
 def painting(who, expression):
@@ -430,6 +544,7 @@ def make_regions():
 
 def render(outfit_name="everyday"):
     dress = outfits()
+    look = style()
     x, y, w, h = FACE_STRIP
     for who in WHO:
         outfit = dress[who][outfit_name]
@@ -441,7 +556,8 @@ def render(outfit_name="everyday"):
             wedding = expression.startswith("wedding_")
             lab = segment(a, who) if wedding else regions_for(who, expression, a)
             fit = {} if wedding else outfit
-            save(paint(a, lab, fit, who, cloth=not wedding), os.path.join(GAME, "%s_%s.png" % (who, expression)))
+            picture, tones = draw(a, lab, fit, who, look, cloth=not wedding)
+            save(picture, os.path.join(GAME, "%s_%s.png" % (who, expression)))
             # Its other faces, painted the same way and cut from the doubled painting.
             strips_path = os.path.join(SOURCE, "face", "%s_%s.png" % (who, expression))
             if os.path.exists(strips_path):
@@ -457,7 +573,7 @@ def render(outfit_name="everyday"):
                     # map's everywhere else, hand-painted fixes and all.
                     flab = lab.copy()
                     flab[y:y + h, x:x + w] = segment(face, who)[y:y + h, x:x + w]
-                    done = paint(face, flab, fit, who, cloth=not wedding)
+                    done, _ = draw(face, flab, fit, who, look, palettes=tones, cloth=not wedding)
                     out[h * SCALE * i:h * SCALE * (i + 1)] = done[y * SCALE:(y + h) * SCALE, x * SCALE:(x + w) * SCALE]
                 save(out, os.path.join(GAME, "face", "%s_%s.png" % (who, expression)))
             print("painted", who, expression)
@@ -469,11 +585,12 @@ def render(outfit_name="everyday"):
 
 def preview(who, outfit_name, out_dir):
     outfit = outfits()[who][outfit_name]
+    look = style()
     os.makedirs(out_dir, exist_ok=True)
     for expression in EVERYDAY:
         a = painting(who, expression)
         lab = regions_for(who, expression, a)
-        save(paint(a, lab, outfit, who), os.path.join(out_dir, "%s_%s_%s.png" % (who, outfit_name, expression)))
+        save(draw(a, lab, outfit, who, look)[0], os.path.join(out_dir, "%s_%s_%s.png" % (who, outfit_name, expression)))
     print("wrote", out_dir)
 
 

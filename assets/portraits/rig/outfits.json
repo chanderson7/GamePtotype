@@ -1,4 +1,22 @@
 {
+	"_style": {
+		"look": "pixel",
+		"grid": [192, 256],
+		"dither": 0.25,
+		"tones": {
+			"skin": 9,
+			"features": 6,
+			"eyes": 5,
+			"hair": 6,
+			"inner": 4,
+			"outer": 5,
+			"accent": 5,
+			"trim": 4,
+			"belt": 4,
+			"metal": 5,
+			"accessory": 4
+		}
+	},
 	"edda": {
 		"everyday": {},
 		"wine_silver": {

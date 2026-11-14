@@ -153,8 +153,9 @@ Edda, Farah and Kaede are our own versions of their paintings, 768x1024, rendere
 `tools/portrait_rig.py` from rigs (`assets/portraits/rig/README.md`): each expression's
 head on the neutral body, a paintable map of parts, outfits as colour ramps per part in
 `outfits.json` (everyday = the painter's colours; wine_silver, forest_gold, flaxen,
-saffron, crimson, autumn, snow to try), and detail at the doubled size (hair strands,
-twill, linen weave, metal rims). The 384x512 paintings and their wedding and face tools
+saffron, crimson, autumn, snow to try), drawn as pixel art on a 192x256 grid between the
+paintings and the lords (flat tones per part, light dithering, a dark rim; the smooth
+"painted" look is the other `_style`). The 384x512 paintings and their wedding and face tools
 moved to `assets/portraits/source/`. The game takes any multiple of 384x512
 (`StoryArt.face_rect`); romance portraits carry mipmaps and are drawn with mipmap filters.
 Next: garments as drawn layers (new shapes, not only colours), and the wedding
