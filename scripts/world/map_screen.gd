@@ -182,6 +182,10 @@ func _ready() -> void:
 	if world == null:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/title.tscn")
 		return
+	# A battle the phone closed mid-fight comes first (a save loaded from elsewhere has none).
+	if GameState.battle_waiting():
+		get_tree().change_scene_to_file.call_deferred("res://scenes/battle.tscn")
+		return
 	if GameState.bond_intro_pending() and GameState.desertion_warning == "" and not autoplay:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/bond_intro.tscn")
 		return

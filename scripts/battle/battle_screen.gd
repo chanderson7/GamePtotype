@@ -467,6 +467,14 @@ var _pending_result := {}
 var _test := false
 ## Whether the renderer is timing each frame for the readout.
 var _measuring := false
+## A battle the phone closed mid-fight, being fought again to where it was (see
+## _resume_setup): the orders of that sitting and the step it had reached; -1 when not.
+var _resume_journal: Array = []
+var _resume_to := -1
+var _resume_panel: Control
+var _resume_bar: ProgressBar
+## Wall-clock time a frame may spend fighting the battle back (ms), so the bar moves.
+const RESUME_FRAME_MS := 60
 var _retreat_armed := 0.0
 
 var top_panel: PanelContainer
@@ -573,6 +581,11 @@ func _ready() -> void:
 	_c = self
 	_make_layers()
 	font = ThemeDB.fallback_font
+	# A battle the phone closed mid-fight: the same battle again, to be fought back to where
+	# it was.
+	var resume := _resume_setup()
+	if not resume.is_empty():
+		GameState.pending_battle = resume["pending"]
 	# The renderer times each frame only for the performance readout (and the test battle).
 	_measuring = Sound.show_performance or bool(GameState.pending_battle.get("test", false))
 	RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), _measuring)
@@ -601,10 +614,23 @@ func _ready() -> void:
 		if pending.has("allies") and not pending["allies"].is_empty():
 			player_host.append_array(pending["allies"])
 			has_allies = true
+		var seed_value := 0
+		if not resume.is_empty():
+			player_host = resume["host"]
+			seed_value = int(resume["seed"])
+		elif _keeps_battle():
+			# A campaign battle is kept as it begins, before anything can change it, so the
+			# phone closing the game can't lose it (see _keep_battle).
+			while seed_value == 0:
+				seed_value = randi()
+			var kept: Dictionary = pending.duplicate(true)
+			kept["site"] = site
+			GameState.battle_resume = {"setup": GameState.pack({"pending": kept, "host": player_host, "seed": seed_value}),
+				"journal": GameState.pack([]), "ticks": 0}
 		sim.siege_kind = String(pending.get("siege_kind", "castle"))
 		sim.siege_defender = Sim.PLAYER if bool(pending.get("siege_defend", false)) else Sim.ENEMY
 		sim.siege_engines = (pending.get("siege_engines", {}) as Dictionary).duplicate(true)
-		sim.setup(player_host, pending["enemy"], 0, site, obj)
+		sim.setup(player_host, pending["enemy"], seed_value, site, obj)
 		if has_allies:
 			sim.allied_ai = Commander.new(Sim.PLAYER, "", true)
 		if pending.has("chief_name") and pending["chief_name"] != "":
@@ -658,11 +684,118 @@ func _ready() -> void:
 		sim.ai[Sim.PLAYER].deploy(sim)
 		speed = 1.0 if _test else 4.0
 		_start_battle()
+	elif _resume_to >= 0:
+		_begin_resume()
 	else:
 		# The one-shot card about the ground waits for Fight (see _end_title), so it never
 		# lands on the deployment hint.
 		_select_next_card()
 	_refresh_hud()
+
+
+## Whether this battle is kept in the campaign save while it's fought: a campaign's battle,
+## not the test battle or a smoke test's.
+func _keeps_battle() -> bool:
+	return GameState.has_campaign() and not GameState.pending_battle.is_empty() and not _test and not autoplay
+
+
+## The battle a phone closed mid-fight, read back from the save: {pending, host, seed}, with
+## its orders and step in _resume_journal and _resume_to; {} when there's none, or it can't
+## be read (then it's dropped, and the map's own pending battle stands).
+func _resume_setup() -> Dictionary:
+	if not GameState.battle_waiting() or not GameState.has_campaign():
+		return {}
+	var kept: Dictionary = GameState.battle_resume
+	var setup = GameState.unpack(String(kept.get("setup", "")))
+	var journal = GameState.unpack(String(kept.get("journal", "")))
+	if typeof(setup) != TYPE_DICTIONARY or typeof(journal) != TYPE_ARRAY or not setup.has("pending") \
+			or typeof(setup["pending"]) != TYPE_DICTIONARY or typeof(setup.get("host")) != TYPE_ARRAY:
+		GameState.battle_resume = {}
+		return {}
+	_resume_journal = journal
+	_resume_to = maxi(0, int(kept.get("ticks", 0)))
+	return setup
+
+
+## Writes the battle so far into the campaign save, so the phone closing the game while
+## it's in the background finds the same battle when it comes back.
+func _keep_battle() -> void:
+	if GameState.battle_resume.is_empty() or _left_battle or _resume_to >= 0 or sim == null:
+		return
+	GameState.battle_resume["journal"] = GameState.pack(sim.journal)
+	GameState.battle_resume["ticks"] = sim.ticks
+	GameState.save_game()
+
+
+## Coming back to a battle: the field stays covered while the battle is fought again,
+## quickly, to where it was (_resume_frame); then it waits, paused, for you.
+func _begin_resume() -> void:
+	_resume_panel = ColorRect.new()
+	_resume_panel.name = "ResumePanel"
+	(_resume_panel as ColorRect).color = Style.NIGHT
+	_resume_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_resume_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var box := VBoxContainer.new()
+	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	box.grow_vertical = Control.GROW_DIRECTION_BOTH
+	box.custom_minimum_size = Vector2(480, 0)
+	box.add_theme_constant_override("separation", 18)
+	_resume_panel.add_child(box)
+	var title := Style.label("Back to the field", Style.TITLE_SIZE, Style.BRASS)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var note := Style.label("The battle was under way when the game closed. It picks up where it was.", Style.BODY, Style.TEXT)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(note)
+	_resume_bar = ProgressBar.new()
+	_resume_bar.show_percentage = false
+	_resume_bar.custom_minimum_size = Vector2(0, 14)
+	_resume_bar.max_value = maxf(1.0, float(_resume_to))
+	box.add_child(_resume_bar)
+	var layer := CanvasLayer.new()
+	layer.layer = 60
+	layer.name = "ResumeLayer"
+	add_child(layer)
+	layer.add_child(_resume_panel)
+
+
+## One frame of fighting the battle back: as many steps as fit in RESUME_FRAME_MS. What
+## happened on the way (blows, cries, captains' rolls) isn't shown again; the battle's
+## state, and so its result, is the same as it was.
+func _resume_frame() -> void:
+	var start := Time.get_ticks_msec()
+	var there := false
+	while not there and Time.get_ticks_msec() - start < RESUME_FRAME_MS:
+		there = sim.replay(_resume_journal, _resume_to, 15)
+	sim.events.clear()
+	if _resume_bar != null:
+		_resume_bar.value = float(sim.ticks)
+	if there:
+		_finish_resume()
+
+
+func _finish_resume() -> void:
+	_resume_to = -1
+	_resume_journal = []
+	var layer := get_node_or_null("ResumeLayer")
+	if layer != null:
+		layer.queue_free()
+	_resume_panel = null
+	_resume_bar = null
+	if sim.phase == Sim.PHASE_BATTLE:
+		selected_id = -1
+		selected_squad = null
+		_drop_pending()
+		_layout()
+		if sim.winner == -1:
+			_set_paused(true)
+			_hint("Back where you left the battle. Resume when you're ready.")
+	else:
+		_select_next_card()
+	_refresh_hud()
+	_redraw()
 
 
 ## Whether the map said this fight had no way out: an ambush, or a lord whose riders cut
@@ -716,10 +849,14 @@ func _exit_tree() -> void:
 
 
 func _notification(what: int) -> void:
-	# A phone call or a swipe home pauses the battle.
+	# A phone call or a swipe home pauses the battle, and the battle so far goes into the
+	# save: in the background the phone may close the game.
 	if what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
-		if sim != null and sim.phase == Sim.PHASE_BATTLE and sim.winner == -1 and not autoplay:
+		if sim != null and sim.phase == Sim.PHASE_BATTLE and sim.winner == -1 and not autoplay and _resume_to < 0:
 			_set_paused(true)
+		_keep_battle()
+	elif what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_keep_battle()
 
 
 func _layout() -> void:
@@ -1466,6 +1603,9 @@ func _draw_spotlight() -> void:
 # ---------------------------------------------------------------- frame
 
 func _process(delta: float) -> void:
+	if _resume_to >= 0:
+		_resume_frame()
+		return
 	_perf_frame(delta)
 	_clock += delta
 	if not _roll.is_empty():
@@ -1787,7 +1927,7 @@ func _drop_squad(sq, at: Vector2) -> void:
 		if not bool(t["ok"]):
 			_hint("Place your squads in the blue zone, your half of the field.")
 			return
-		if sim.place(Sim.PLAYER, sq.roster_id, t["ground"]) == null:
+		if sim.command("place", [Sim.PLAYER, sq.roster_id, t["ground"]]) == null:
 			_hint("No room there. Try a more open spot.")
 			return
 		_hand_placed[sq.roster_id] = true
@@ -1802,7 +1942,7 @@ func _drop_squad(sq, at: Vector2) -> void:
 
 
 func _order_attack(sq, foe) -> void:
-	sim.order_attack(sq, foe)
+	sim.command("order_attack", [sq, foe])
 	_mark_ordered(sq)
 	_mark_ordered(foe)
 	_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
@@ -1824,7 +1964,7 @@ func _order_move(sq, p: Vector2) -> void:
 	if why != "":
 		_hint(why)
 		return
-	sim.order_move(sq, p)
+	sim.command("order_move", [sq, p])
 	_mark_ordered(sq)
 	_hint("%s march there and hold." % _company_or_type(sq), "move")
 
@@ -1881,7 +2021,7 @@ func _order_line(a: Vector2, b: Vector2, only) -> void:
 		return
 	if sim.phase != Sim.PHASE_BATTLE:
 		only = null
-	var spots := sim.order_line(Sim.PLAYER, a, b, only)
+	var spots: Array = sim.command("order_line", [Sim.PLAYER, a, b, only])
 	if spots.is_empty():
 		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
 		return
@@ -1949,7 +2089,7 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 	if sim.caught_on_march(Sim.PLAYER):
 		_hint("No time to form up: they're on you from both ends. Press Fight.")
 		return
-	if sim.place(Sim.PLAYER, selected_id, p) == null:
+	if sim.command("place", [Sim.PLAYER, selected_id, p]) == null:
 		_hint("No room there. Try a more open spot.")
 		return
 	_hand_placed[selected_id] = true
@@ -2067,7 +2207,7 @@ func _on_chip(index: int) -> void:
 
 
 func _on_auto() -> void:
-	sim.auto_deploy(Sim.PLAYER)
+	sim.command("auto_deploy", [Sim.PLAYER])
 	_select_next_card()
 	if sim.all_placed(Sim.PLAYER):
 		_hint("Your army is in a battle line. Tap any squad to move it, then press Fight.")
@@ -2084,7 +2224,7 @@ func _on_fight() -> void:
 
 
 func _start_battle() -> void:
-	sim.start_battle()
+	sim.command("start_battle")
 	_call("start", Sim.PLAYER)
 	# The horn sounds the advance as the title goes up, and the music answers.
 	Sound.play("horn", 0.0, 0.03)
@@ -2160,7 +2300,7 @@ func _on_storm_go() -> void:
 	if _storm_plan.is_empty() or sim.winner != -1:
 		_storm_plan = {}
 		return
-	sim.order_storm(Sim.PLAYER, _storm_plan)
+	sim.command("order_storm", [Sim.PLAYER, _storm_plan])
 	_storm_plan = {}
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.is_active():
@@ -2206,11 +2346,11 @@ func _on_advance() -> void:
 		return
 	_drop_pending()
 	if selected_squad != null:
-		sim.order_advance(selected_squad)
+		sim.command("order_advance", [selected_squad])
 		_mark_ordered(selected_squad)
 		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad), "advance")
 	else:
-		sim.order_all(Sim.PLAYER, "advance")
+		sim.command("order_all", [Sim.PLAYER, "advance"])
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
@@ -2227,10 +2367,10 @@ func _on_post() -> void:
 		return
 	_select(null)
 	if sim.gate_hp > 0.0:
-		sim.man_the_walls(Sim.PLAYER)
+		sim.command("man_the_walls", [Sim.PLAYER])
 		_hint("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.", "post")
 	else:
-		var sent: Array = sim.form_breach(Sim.PLAYER)
+		var sent: Array = sim.command("form_breach", [Sim.PLAYER])
 		_hint("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])), "post_breach")
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.is_active() and not sq.is_ally:
@@ -2245,11 +2385,11 @@ func _on_hold() -> void:
 	_drop_pending()
 	# The first Hold says what bracing is (the README's rule, in a sentence).
 	if selected_squad != null:
-		sim.order_hold(selected_squad)
+		sim.command("order_hold", [selected_squad])
 		_mark_ordered(selected_squad)
 		_hint("%s hold where they stand. %s" % [_company_or_type(selected_squad), BRACED_WORDS], "hold")
 	else:
-		sim.order_all(Sim.PLAYER, "hold")
+		sim.command("order_all", [Sim.PLAYER, "hold"])
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
@@ -2264,7 +2404,7 @@ func _on_ability() -> void:
 		_volley_all()
 		return
 	var ab := Troops.ability(sq.type)
-	if sim.use_ability(sq):
+	if sim.command("use_ability", [sq]):
 		_hint("%s: %s" % [ab["name"], ab["blurb"]], "ability_%s" % sq.type)
 	elif sq.ability_cd > 0.0:
 		_hint("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
@@ -2277,7 +2417,7 @@ func _volley_all() -> void:
 	var fired := 0
 	var soonest := INF
 	for bow in _player_bows(true):
-		if sim.use_ability(bow):
+		if sim.command("use_ability", [bow]):
 			fired += 1
 			_mark_ordered(bow)
 		elif bow.ability_cd > 0.0:
@@ -2312,13 +2452,13 @@ func _on_hold_fire() -> void:
 			return
 		var hold: bool = not bows.all(func(holder): return holder.hold_fire)
 		for bow in bows:
-			sim.set_hold_fire(bow, hold)
+			sim.command("set_hold_fire", [bow, hold])
 			_mark_ordered(bow)
 		_hint("Every company of bows holds its fire and keeps its arrows." if hold else "Every company of bows looses at will.")
 		return
 	if not sq.ranged:
 		return
-	sim.set_hold_fire(sq, not sq.hold_fire)
+	sim.command("set_hold_fire", [sq, not sq.hold_fire])
 	_mark_ordered(sq)
 	if sq.hold_fire:
 		_hint("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq), "holdfire")
@@ -2393,12 +2533,12 @@ func _on_retreat() -> void:
 	if now < _retreat_armed:
 		_set_paused(false)
 		if not _cut_off:
-			sim.concede(Sim.PLAYER)
+			sim.command("concede", [Sim.PLAYER])
 			return
 		# Cut off: the battle goes on while your men run for it.
 		if sim.phase == Sim.PHASE_DEPLOY:
 			_start_battle()
-		sim.concede(Sim.PLAYER, true)
+		sim.command("concede", [Sim.PLAYER, true])
 		selected_squad = null
 		_drop_pending()
 		_call("retreat", Sim.PLAYER)
@@ -3509,7 +3649,7 @@ func _tap_engines(p: Vector2, mine) -> bool:
 		var e = selected_engine
 		selected_engine = null
 		if eng == e:
-			e.aim = {"kind": "auto"}
+			sim.command("aim_engine", [e, {"kind": "auto"}])
 			_hint("%s chooses its own marks." % sim.works.engine_name(e).capitalize())
 			return true
 		var aim := {}
@@ -3528,7 +3668,7 @@ func _tap_engines(p: Vector2, mine) -> bool:
 		if aim.is_empty():
 			_hint("Nothing to aim at there. Tap the %s again to pick it up." % sim.works.engine_name(e))
 			return true
-		e.aim = aim
+		sim.command("aim_engine", [e, aim])
 		Sound.play("click", -6.0)
 		_hint("%s: aimed." % sim.works.engine_name(e).capitalize())
 		return true
@@ -3537,7 +3677,7 @@ func _tap_engines(p: Vector2, mine) -> bool:
 	# Your engine: a company picked goes to work it; otherwise pick it up to aim.
 	if eng.team == Sim.PLAYER:
 		if selected_squad != null and String(eng.kind) in ["thrower", "yard_thrower", "tower"]:
-			sim.order_crew(selected_squad, eng)
+			sim.command("order_crew", [selected_squad, eng])
 			_mark_ordered(selected_squad)
 			_hint("%s go to the %s." % [_company_or_type(selected_squad), sim.works.engine_name(eng)])
 			return true
@@ -3552,12 +3692,12 @@ func _tap_engines(p: Vector2, mine) -> bool:
 	if selected_squad != null and selected_squad.is_active():
 		var sq = selected_squad
 		if sq.ranged:
-			sim.order_burn(sq, eng)
+			sim.command("order_burn", [sq, eng])
 			_mark_ordered(sq)
 			_hint("%s shoot fire at their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
 			return true
 		if sim.siege_defender == Sim.PLAYER and sim.gate_hp > 0.0 and sim.works.has_postern():
-			if sim.order_sally(sq, eng):
+			if sim.command("order_sally", [sq, eng]):
 				_mark_ordered(sq)
 				_hint("%s go out by the postern for their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
 				return true
@@ -4329,6 +4469,8 @@ func _back_to_camp() -> void:
 		return
 	if _pending_result.is_empty():
 		_pending_result = _result()
+	# The result is in: the battle is no longer kept to come back to.
+	GameState.battle_resume = {}
 	var campaign: bool = GameState.has_campaign() and not GameState.pending_battle.is_empty()
 	# Its result card has been on screen: the map doesn't tell the same numbers again.
 	_pending_result["shown"] = true

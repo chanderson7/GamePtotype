@@ -335,7 +335,7 @@ func _campaign_card() -> PanelContainer:
 			bv.add_child(r)
 	var go := Button.new()
 	go.name = "ContinueButton"
-	go.text = "Continue"
+	go.text = "Back to the battle" if GameState.battle_waiting() else "Continue"
 	go.icon = Widgets.icon("resume")
 	go.custom_minimum_size = Vector2(0, 104)
 	go.add_theme_font_size_override("font_size", 34)
@@ -662,7 +662,8 @@ func _point_backdrop() -> void:
 
 
 func _on_continue() -> void:
-	Scenes.go("res://scenes/world_map.tscn")
+	# A battle the phone closed mid-fight picks up where it was.
+	Scenes.go("res://scenes/battle.tscn" if GameState.battle_waiting() else "res://scenes/world_map.tscn")
 
 
 ## A deliberate confirmation replaces the timed second tap. Starting over deletes every
