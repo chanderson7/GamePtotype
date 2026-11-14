@@ -2,7 +2,11 @@
 extends RefCounted
 const Style = preload("res://scripts/ui/style.gd")
 const Page = preload("res://scripts/ui/menu_page.gd")
+const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const EXPRESSIONS := ["neutral", "amused", "thoughtful", "concerned", "warm"]
+## Her outfits besides what she wears every day (assets/portraits/<who>_<outfit>_<expression>.png,
+## drawn by tools/portrait_wardrobe.py).
+const OUTFITS := ["court", "travel"]
 static var _textures: Dictionary = {}
 ## The strip of a painted portrait its eyes and brows are in. tools/portrait_faces.py saves
 ## that strip once per face it makes from each painting, stacked in FRAMES order, and must
@@ -127,10 +131,55 @@ static func painted_who(tex: Texture2D) -> String:
 
 
 ## What `tex` is dressed in: "wedding" for a painting dressed for the wedding
-## (tools/portrait_wedding.py), "" for every day.
+## (tools/portrait_wedding.py), an outfit's name ("court", "travel") for one of her other
+## outfits (tools/portrait_rig.py), "" for every day.
 static func painted_dress(tex: Texture2D) -> String:
 	var path := String(_paths.get(tex.get_instance_id(), "")) if tex != null else ""
-	return "wedding" if path.get_file().contains("_wedding_") else ""
+	var parts := path.get_file().get_basename().split("_")
+	if parts.has("wedding"):
+		return "wedding"
+	return parts[1] if parts.size() == 3 and OUTFITS.has(parts[1]) else ""
+
+
+## Her portrait in `outfit` ("" for every day, or one of OUTFITS), at `expression`: falls
+## back to every day, then to her neutral face.
+static func outfit_portrait(candidate_id: String, expression: String, outfit: String = "") -> Texture2D:
+	var safe := expression if EXPRESSIONS.has(expression) else "neutral"
+	var paths: Array = []
+	if OUTFITS.has(outfit):
+		paths.append("res://assets/portraits/%s_%s_%s.png" % [candidate_id, outfit, safe])
+	paths.append("res://assets/portraits/%s_%s.png" % [candidate_id, safe])
+	paths.append("res://assets/portraits/%s_neutral.png" % candidate_id)
+	for path in paths:
+		var tex := texture(path)
+		if tex != null:
+			return tex
+	return null
+
+
+## What she's wearing: court dress in the hall of a feast that's on where you are (she's
+## among its guests), travelling clothes once she's been driven from her own seat and
+## lives out of what she carried, and otherwise her everyday clothes (""). The talks are
+## in her own room, so where you are matters only at a feast. `w` is the world (the
+## game's own if left out).
+static func outfit_for(candidate_id: String, w = null) -> String:
+	if w == null:
+		var tree := Engine.get_main_loop() as SceneTree
+		var gs: Node = tree.root.get_node_or_null("GameState") if tree != null else null
+		w = gs.get("world") if gs != null else null
+	if w == null or w.social == null:
+		return ""
+	var person: Dictionary = w.social.get_candidate_person(candidate_id)
+	if person.is_empty():
+		return ""
+	var here := String(w.here())
+	var g: Dictionary = w.gathering_at(here) if here != "" else {}
+	if not g.is_empty() and w.gathering_on(g) \
+			and w.social.attending(here, w.lords_at(here), String(g.get("realm", w.owner_of(here)))).has(person):
+		return "court"
+	var seat := String(RomanceStories.CANDIDATES.get(candidate_id, {}).get("initial_seat", ""))
+	var home := String(person.get("residence", ""))
+	return "travel" if seat != "" and home != "" and home != seat else ""
 
 
 ## A material that lets the head and loose hair of `who`'s painting move
@@ -213,10 +262,7 @@ static func candidate_portrait(candidate_id: String, expression: String = "neutr
 	node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	node.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	node.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	var safe := expression if EXPRESSIONS.has(expression) else "neutral"
-	node.texture = texture("res://assets/portraits/%s_%s.png" % [candidate_id, safe])
-	if node.texture == null and safe != "neutral":
-		node.texture = texture("res://assets/portraits/%s_neutral.png" % candidate_id)
+	node.texture = outfit_portrait(candidate_id, expression, outfit_for(candidate_id))
 	node.visible = node.texture != null
 	blink(node)
 	return node

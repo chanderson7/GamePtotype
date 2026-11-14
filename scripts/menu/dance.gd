@@ -200,14 +200,13 @@ func _seat_name(cid: String) -> String:
 	return String(Data.settlement(seat)["name"]) if Data.SETTLEMENTS.has(seat) else "her seat"
 
 
+## At a dance she's in her court dress.
 func _portrait_face(cand: String, expression: String) -> Texture2D:
-	var tex: Texture2D = StoryArt.texture("res://assets/portraits/%s_%s.png" % [cand, expression])
-	return tex if tex != null else _portrait(cand)
+	return StoryArt.outfit_portrait(cand, expression, "court")
 
 
 func _portrait(cand: String) -> Texture2D:
-	var tex: Texture2D = StoryArt.texture("res://assets/portraits/%s_warm.png" % cand)
-	return tex if tex != null else StoryArt.texture("res://assets/portraits/%s_neutral.png" % cand)
+	return StoryArt.outfit_portrait(cand, "warm", "court")
 
 
 func _on_close() -> void:

@@ -2003,7 +2003,7 @@ func _household_row(person: Dictionary) -> Button:
 		tag = "would like a word · a visit is open"
 	elif letter:
 		tag = "would like a word · a letter unread"
-	var tex := StoryArtHall.texture("res://assets/portraits/%s_neutral.png" % cid)
+	var tex := StoryArtHall.outfit_portrait(cid, "neutral", StoryArtHall.outfit_for(cid))
 	var heart := Widgets.chip(Relationships.status_label(status), Style.ROMANCE, "", "rings" if status in ["engaged", "married"] else "heart")
 	var b := _person_row("Person_%s" % cid, tex, String(person.get("name", "Noble")), String(person.get("role", "")), tag, Style.ROMANCE_LIGHT,
 		heart, func():

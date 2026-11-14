@@ -148,18 +148,33 @@ Then, for the App Store:
   screenshots, made by `tools/store/screenshots.sh`; `tools/store/preview.sh` makes the 25 s
   portrait app preview (886x1920, not committed).
 
-**Romance portraits as rigs** (`portrait_scale_tests`, `game_feel_tests`): the game's
-Edda, Farah and Kaede are our own versions of their paintings, 768x1024, rendered by
-`tools/portrait_rig.py` from rigs (`assets/portraits/rig/README.md`): each expression's
-head on the neutral body, a paintable map of parts, outfits as colour ramps per part in
-`outfits.json` (everyday = the painter's colours; wine_silver, forest_gold, flaxen,
-saffron, crimson, autumn, snow to try), drawn as pixel art on a 192x256 grid between the
-paintings and the lords (flat tones per part, light dithering, a dark rim; the smooth
-"painted" look is the other `_style`). The 384x512 paintings and their wedding and face tools
-moved to `assets/portraits/source/`. The game takes any multiple of 384x512
-(`StoryArt.face_rect`); romance portraits carry mipmaps and are drawn with mipmap filters.
-Next: garments as drawn layers (new shapes, not only colours), and the wedding
-paintings mapped too.
+**Romance portraits as rigs, dressed in our own designs** (`portrait_scale_tests`,
+`game_feel_tests`): the game's Edda, Farah and Kaede are our own versions of their
+paintings, 768x1024 pixel art on a 192x256 grid between the paintings and the lords,
+rendered by `tools/portrait_rig.py` (`assets/portraits/rig/README.md`). From the paintings
+it keeps only each expression's face and hair. Everything they wear is drawn by
+`tools/portrait_wardrobe.py` from lists of pieces in `outfits.json`:
+- garments: chemise, gown, coat, wrap, jacket, mantle, cloak, sash, belt;
+- headwear: scarf, hood, veil;
+- jewellery and hair ornaments: necklace, choker, brooch, earrings, circlet, comb, pin, flowers;
+- options: necklines, sleeves, patterns, trims, linings, fur;
+- hand-drawn layers (`rig/<who>/layers/`, drawn over `rig/<who>/template.png`, dyeable).
+
+Each has everyday, court and travel outfits in her people's style (`"_game"`), with blinks, glances
+and hair maps of their own. `StoryArt.outfit_for` dresses her:
+- court dress in the hall of a feast that's on, where she's a guest (the dance always);
+- travelling clothes once she's been driven from her seat;
+- everyday otherwise.
+
+The talks, People page and hall show it. The 384x512 paintings and their wedding and face tools are in
+`assets/portraits/source/`; the game takes any multiple of 384x512 (`StoryArt.face_rect`), with
+mipmaps.
+
+Next:
+- Farah's travel scarf is bulky, and Kaede's collar V is drawn simply.
+- Edda's square neck reads as a block of linen.
+- More outfits (mourning, a riding habit, a winter cloak with the hood up).
+- The wedding paintings dressed by the wardrobe too.
 
 Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14), still failing:
 - Kharzani v Ryumon trained armies 29–71 (gate 35–65; it was 38–62 before).

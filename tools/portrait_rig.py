@@ -402,7 +402,7 @@ def shrink(a, lab, size):
     return out, np.array(Image.fromarray(lab).resize(size, Image.NEAREST))
 
 
-def pixelate(a, lab, outfit, who, style, palettes=None):
+def pixelate(a, lab, outfit, who, style, palettes=None, on_grid=False):
     """`a` (a 384x512 painting) as pixel art on `style`'s grid, drawn at 768x1024: each part
     in a few flat tones of its own (or of its outfit ramp), dithered where they meet, the
     face keeping tones for its irises, lips and lashes, hair streaked along its strands, a
@@ -465,8 +465,25 @@ def pixelate(a, lab, outfit, who, style, palettes=None):
     lit = metal & (np.roll(Lo, 1, 0) + 20 < Lo) & (np.roll(Lo, 1, 1) + 20 < Lo)
     out[lit] = np.clip(out[lit] * 1.2 + 25, 0, 255)
     img = Image.fromarray(np.clip(np.round(np.dstack([out, small[..., 3]])), 0, 255).astype(np.uint8), "RGBA")
+    if on_grid:
+        return np.array(img).astype(float), made
     big = img.resize((a.shape[1] * SCALE, a.shape[0] * SCALE), Image.NEAREST)
     return np.array(big).astype(float), made
+
+
+def dressed(who, a, lab, pieces, style, palettes=None):
+    """`a` (a 384x512 painting) with only her head kept, dressed in `pieces` by the
+    wardrobe (tools/portrait_wardrobe.py), drawn at 768x1024. Returns the picture and the
+    tones her head was drawn in."""
+    import portrait_wardrobe as wardrobe
+    grid = tuple(style["grid"])
+    if grid != (wardrobe.W, wardrobe.H):
+        raise SystemExit("designed outfits are fitted to a %dx%d grid; the style's is %dx%d" % (wardrobe.W, wardrobe.H, *grid))
+    head, tones = pixelate(a, lab, {}, who, style, palettes, on_grid=True)
+    labels = np.array(Image.fromarray(lab).resize(grid, Image.NEAREST))
+    picture = wardrobe.dress(who, head, labels, None, tones["skin"][0], REGIONS, pieces, os.path.join(RIG, who, "layers"))
+    img = Image.fromarray(np.clip(np.round(picture), 0, 255).astype(np.uint8), "RGBA")
+    return np.array(img.resize((a.shape[1] * SCALE, a.shape[0] * SCALE), Image.NEAREST)).astype(float), tones
 
 
 def draw(a, lab, outfit, who, style, palettes=None, cloth=True):
@@ -542,23 +559,46 @@ def make_regions():
             print("wrote", os.path.relpath(path, ROOT))
 
 
-def render(outfit_name="everyday"):
+def portrait(who, a, lab, outfit, look, palettes=None, wedding=False):
+    """One picture of her: dressed by the wardrobe if the outfit has pieces, else the
+    painting's own clothes (re-dyed by the outfit's ramps, if any)."""
+    if not wedding and "pieces" in outfit:
+        return dressed(who, a, lab, outfit["pieces"], look, palettes)
+    return draw(a, lab, {} if wedding else outfit, who, look, palettes=palettes, cloth=not wedding)
+
+
+def game_name(who, outfit_name, expression):
+    """The game's file for an outfit: `everyday` is <who>_<expression>.png, the rest
+    <who>_<outfit>_<expression>.png."""
+    if outfit_name == "everyday" or expression.startswith("wedding_"):
+        return "%s_%s.png" % (who, expression)
+    return "%s_%s_%s.png" % (who, outfit_name, expression)
+
+
+def render(only=None):
+    """The game's portraits: every outfit in `_game` (everyday, court, travel) for every
+    expression, with their blinks and glances, and the wedding paintings. `only` renders
+    one outfit."""
     dress = outfits()
     look = style()
+    names = dress.get("_game", ["everyday"]) if only is None else [only]
     x, y, w, h = FACE_STRIP
     for who in WHO:
-        outfit = dress[who][outfit_name]
-        for expression in EVERYDAY + WEDDING:
+        jobs = [(n, e) for n in names for e in EVERYDAY]
+        if only is None or only == "everyday":
+            jobs += [("everyday", e) for e in WEDDING]
+        for outfit_name, expression in jobs:
             src = os.path.join(SOURCE, "%s_%s.png" % (who, expression))
             if not os.path.exists(src):
                 continue
             a = painting(who, expression)
             wedding = expression.startswith("wedding_")
             lab = segment(a, who) if wedding else regions_for(who, expression, a)
-            fit = {} if wedding else outfit
-            picture, tones = draw(a, lab, fit, who, look, cloth=not wedding)
-            save(picture, os.path.join(GAME, "%s_%s.png" % (who, expression)))
-            # Its other faces, painted the same way and cut from the doubled painting.
+            outfit = dress[who].get(outfit_name, {})
+            picture, tones = portrait(who, a, lab, outfit, look, wedding=wedding)
+            name = game_name(who, outfit_name, expression)
+            save(picture, os.path.join(GAME, name))
+            # Its other faces, drawn the same way (in the same tones) and cut from it.
             strips_path = os.path.join(SOURCE, "face", "%s_%s.png" % (who, expression))
             if os.path.exists(strips_path):
                 strips = load(strips_path)
@@ -573,14 +613,72 @@ def render(outfit_name="everyday"):
                     # map's everywhere else, hand-painted fixes and all.
                     flab = lab.copy()
                     flab[y:y + h, x:x + w] = segment(face, who)[y:y + h, x:x + w]
-                    done, _ = draw(face, flab, fit, who, look, palettes=tones, cloth=not wedding)
+                    done, _ = portrait(who, face, flab, outfit, look, palettes=tones, wedding=wedding)
                     out[h * SCALE * i:h * SCALE * (i + 1)] = done[y * SCALE:(y + h) * SCALE, x * SCALE:(x + w) * SCALE]
-                save(out, os.path.join(GAME, "face", "%s_%s.png" % (who, expression)))
-            print("painted", who, expression)
+                save(out, os.path.join(GAME, "face", name))
+            print("painted", name)
         for hair in ("%s_hair.png" % who, "%s_wedding_hair.png" % who):
             src = os.path.join(SOURCE, "face", hair)
             if os.path.exists(src):
                 Image.open(src).save(os.path.join(GAME, "face", hair), optimize=True)
+        # Where her hair may swing in each other outfit: as every day, or nowhere under a
+        # scarf, a hood or a veil.
+        base = os.path.join(SOURCE, "face", "%s_hair.png" % who)
+        for outfit_name in names:
+            if outfit_name == "everyday" or not os.path.exists(base):
+                continue
+            pieces = dress[who].get(outfit_name, {}).get("pieces", [])
+            covered = any(p.get("piece") in ("scarf", "hood", "veil") for p in pieces)
+            img = Image.open(base)
+            if covered:
+                img = Image.new(img.mode, img.size, 0)
+            img.save(os.path.join(GAME, "face", "%s_%s_hair.png" % (who, outfit_name)), optimize=True)
+
+
+def template(who):
+    """A picture to draw her own pieces over, in a pixel editor (assets/portraits/rig/<who>/
+    template.png, 192x256): her head as the game draws it, her figure in grey, and marks
+    where the wardrobe fits things: neck (white), shoulders (red), sternum (blue), waist
+    (cyan line), ears (green), hairline (yellow), bun (magenta)."""
+    import portrait_wardrobe as wardrobe
+    look = style()
+    a = painting(who, "neutral")
+    lab = regions_for(who, "neutral", a)
+    head, tones = pixelate(a, lab, {}, who, look, on_grid=True)
+    labels = np.array(Image.fromarray(lab).resize(tuple(look["grid"]), Image.NEAREST))
+    out = wardrobe.template(who, head, labels, tones["skin"][0], REGIONS)
+    path = os.path.join(RIG, who, "template.png")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    Image.fromarray(np.clip(np.round(out), 0, 255).astype(np.uint8), "RGBA").save(path)
+    os.makedirs(os.path.join(RIG, who, "layers"), exist_ok=True)
+    print("wrote", os.path.relpath(path, ROOT))
+
+
+def sheet(out_path, expression="neutral"):
+    """Every outfit of every woman, side by side, at the grid's own size times two."""
+    dress = outfits()
+    look = style()
+    rows = []
+    for who in WHO:
+        a = painting(who, expression)
+        lab = regions_for(who, expression, a)
+        row = []
+        for name, outfit in dress[who].items():
+            picture = (dressed(who, a, lab, outfit["pieces"], look) if "pieces" in outfit else draw(a, lab, outfit, who, look))[0]
+            img = Image.fromarray(np.clip(np.round(picture), 0, 255).astype(np.uint8), "RGBA")
+            bg = Image.new("RGBA", img.size, (22, 29, 51, 255))
+            bg.alpha_composite(img)
+            row.append((name, bg.convert("RGB").resize((384, 512), Image.NEAREST)))
+        rows.append(row)
+    cols = max(len(r) for r in rows)
+    out = Image.new("RGB", (cols * 384, len(rows) * 532), (22, 29, 51))
+    pen = ImageDraw.Draw(out)
+    for j, row in enumerate(rows):
+        for i, (name, img) in enumerate(row):
+            out.paste(img, (i * 384, j * 532))
+            pen.text((i * 384 + 8, j * 532 + 514), "%s: %s" % (WHO[j], name), fill=(236, 229, 211))
+    out.save(out_path)
+    print("wrote", out_path)
 
 
 def preview(who, outfit_name, out_dir):
@@ -590,7 +688,7 @@ def preview(who, outfit_name, out_dir):
     for expression in EVERYDAY:
         a = painting(who, expression)
         lab = regions_for(who, expression, a)
-        save(draw(a, lab, outfit, who, look)[0], os.path.join(out_dir, "%s_%s_%s.png" % (who, outfit_name, expression)))
+        save(portrait(who, a, lab, outfit, look)[0], os.path.join(out_dir, "%s_%s_%s.png" % (who, outfit_name, expression)))
     print("wrote", out_dir)
 
 
@@ -599,7 +697,12 @@ if __name__ == "__main__":
     if what == "regions":
         make_regions()
     elif what == "render":
-        render(sys.argv[2] if len(sys.argv) > 2 else "everyday")
+        render(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif what == "template":
+        for who in (sys.argv[2:] or WHO):
+            template(who)
+    elif what == "sheet":
+        sheet(sys.argv[2] if len(sys.argv) > 2 else "/tmp/bannerfall-outfits.png")
     elif what == "preview":
         preview(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "/tmp/bannerfall-outfits")
     else:

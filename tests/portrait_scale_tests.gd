@@ -5,6 +5,7 @@
 extends SceneTree
 
 const StoryArt = preload("res://scripts/ui/story_art.gd")
+const Cultures = preload("res://scripts/data/cultures.gd")
 
 var failures := 0
 
@@ -67,6 +68,62 @@ func _run() -> void:
 			if t != null and t.get_size() == Vector2(768, 1024) and StoryArt.face_frame(t, "shut") != null:
 				ready += 1
 	check(game != null and ready == 24, "every romance portrait in the game is 768x1024, and blinks (%d of 24)" % ready)
+	# Her other outfits (tools/portrait_wardrobe.py): court and travel, every expression.
+	var dressed := 0
+	var named := 0
+	var swinging := 0
+	for who in ["edda", "farid", "kaede"]:
+		for outfit in StoryArt.OUTFITS:
+			for expression in StoryArt.EXPRESSIONS:
+				var t: Texture2D = StoryArt.outfit_portrait(who, expression, outfit)
+				if t != null and t.get_size() == Vector2(768, 1024) and StoryArt.face_frame(t, "shut") != null:
+					dressed += 1
+				if StoryArt.painted_dress(t) == outfit and StoryArt.painted_who(t) == who:
+					named += 1
+			var m: ShaderMaterial = StoryArt.life_material(who, outfit)
+			if m != null and m.get_shader_parameter("hair") != null:
+				swinging += 1
+	var outfits := StoryArt.OUTFITS.size() * StoryArt.EXPRESSIONS.size() * 3
+	check(dressed == outfits, "every court and travel portrait is 768x1024, and blinks (%d of %d)" % [dressed, outfits])
+	check(named == outfits, "each knows what it's dressed in, and whose it is (%d of %d)" % [named, outfits])
+	check(swinging == StoryArt.OUTFITS.size() * 3, "each outfit has its own loose-hair map (%d)" % swinging)
+	var everyday: Texture2D = StoryArt.outfit_portrait("edda", "warm")
+	check(everyday == StoryArt.texture("res://assets/portraits/edda_warm.png") and StoryArt.painted_dress(everyday) == "",
+		"no outfit is what she wears every day")
+	check(StoryArt.outfit_portrait("kaede", "warm", "ballgown") == StoryArt.texture("res://assets/portraits/kaede_warm.png"),
+		"an outfit she hasn't got falls back to every day")
+	check(StoryArt.outfit_portrait("farid", "sulking", "court") == StoryArt.texture("res://assets/portraits/farid_court_neutral.png"),
+		"and a face she hasn't got, to her neutral one in that outfit")
+	check(StoryArt.painted_dress(StoryArt.texture("res://assets/portraits/edda_wedding_warm.png")) == "wedding",
+		"the wedding is still the wedding")
+	# What she wears: court dress in a feast's hall, travelling clothes driven from home.
+	var gs: Node = root.get_node("GameState")
+	gs.persist = false
+	gs.new_campaign(Cultures.VARDISH)
+	var w = gs.world
+	w.gatherings = []
+	var p = w.player()
+	p.node = "ravensford"
+	p.next = ""
+	p.path = []
+	var edda: Dictionary = w.social.get_candidate_person("edda")
+	check(String(edda.get("residence", "")) == "ravensford", "Edda lives at Ravensford")
+	check(StoryArt.outfit_for("edda") == "" and StoryArt.outfit_for("kaede") == "",
+		"at home (and the talks are in her own room), each is in her everyday clothes")
+	w.gatherings.append({"id": 999, "place": "ravensford", "realm": "vardmark", "state": "on",
+		"starts_hour": w.hour - 1.0, "ends_hour": w.hour + 24.0, "name": "feast"})
+	check(StoryArt.outfit_for("edda") == "court", "at a feast in her own hall, Edda's in court dress")
+	check(StoryArt.outfit_for("kaede") == "", "Kaede, not among its guests, isn't")
+	w.gatherings[0]["starts_hour"] = w.hour + 12.0
+	check(StoryArt.outfit_for("edda") == "", "and not before it starts")
+	w.gatherings[0]["starts_hour"] = w.hour - 1.0
+	p.node = "highcliff"
+	check(StoryArt.outfit_for("edda") == "", "nor when you're at another town")
+	w.gatherings = []
+	edda["residence"] = "highcliff"
+	check(StoryArt.outfit_for("edda") == "travel", "driven from her seat, she's in travelling clothes")
+	check(StoryArt.outfit_for("edda", null) == StoryArt.outfit_for("edda", w), "the world can be handed in")
+	edda["residence"] = "ravensford"
 	for f in ["edda_neutral.png", "face/edda_neutral.png"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(dir + "/" + f))
 	print("Portrait scale failures: %d" % failures)
