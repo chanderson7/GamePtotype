@@ -21,4 +21,4 @@ Needs Godot 4.7 as `godot`, `ffmpeg`, Python 3 with Pillow, and `xvfb-run` when 
 | `record.sh` | Records one shot: `record.sh <shot> <seconds> [portrait\|landscape]`. A temporary `override.cfg` sizes the window. |
 | `edit.py` | The cut (`EDL`, 80 s, cut on the bars of the main theme `title.ogg`): cards, clips, captions in the game's fonts, the clips' own sound under the theme, loudness set for YouTube (-14 LUFS), and a 1280x720 thumbnail. The end card's line ("Coming to iPhone") is `END_LINE`. It also writes the words on screen as `bannerfall_trailer.srt`, to upload beside the video. |
 
-Battles are the computer fighting both sides, so a shot should come out the same each time it is recorded with the same seed; change `seed`, the ground or the hour in `SHOTS` for a different fight.
+Battles are the computer fighting both sides. These shots don't name the fight's seed (`seed` here only picks the ground), so a battle shot differs from one recording to the next and its in-point in `edit.py` has to be looked at again. `tools/trailer2/` names a seed for every fight; its shots repeat.

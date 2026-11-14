@@ -600,7 +600,8 @@ func _ready() -> void:
 		sim.siege_kind = String(pending.get("siege_kind", "castle"))
 		sim.siege_defender = Sim.PLAYER if bool(pending.get("siege_defend", false)) else Sim.ENEMY
 		sim.siege_engines = (pending.get("siege_engines", {}) as Dictionary).duplicate(true)
-		sim.setup(player_host, pending["enemy"], 0, site, obj)
+		# A fight may name its seed (the trailer's recordings do, so a shot repeats); 0 is the clock.
+		sim.setup(player_host, pending["enemy"], int(pending.get("seed", 0)), site, obj)
 		if has_allies:
 			sim.allied_ai = Commander.new(Sim.PLAYER, "", true)
 		if pending.has("chief_name") and pending["chief_name"] != "":

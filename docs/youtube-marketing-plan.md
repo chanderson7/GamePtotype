@@ -89,7 +89,8 @@ Four kinds of video. Each exists for a different job.
 
 | Video | Length | When | What it is |
 | --- | --- | --- | --- |
-| **Announcement trailer** | 1:20 | The day the first destination is live | The cut `tools/trailer/edit.py` makes: the Glass Sea, the warband, the lords, the wedding, then thirty seconds of battles. Built already. |
+| **Announcement trailer** | 1:10 | The day the first destination is live | *Captains* (`tools/trailer2/`): it opens on a charge in slow motion, tells the one thing the game does that others don't (every captain has a name, and any of them can fall: the die lands on Rowan of Thornwall), then the name, the battles, the world and victory, to a score written for it. Built already. |
+| **A tour of the game** | 1:20 | A fortnight later, or not at all | The first cut (`tools/trailer/edit.py`): the Glass Sea, the warband, the lords, the wedding, then thirty seconds of battles, to the game's main theme. Slower and fuller: a second video for viewers who want to see more, not the one to lead with. |
 | **Battle trailer** | 0:30 | Two to four weeks later | Battles only, in portrait with the HUD, no cards before the first clash. One recording serves three places: a Short, the default link for creators, and the first **App Store app preview** (Apple allows up to three, 15 to 30 seconds each, of footage from the app itself, at its own preview sizes). |
 | **A realm each** | 0:30 × 3 | Spread through the build-up | Vardmark, Kharzan, Ryumon: its country on the map, its lord's talk, its troops in a fight, its music (`vardish.ogg`, `kharzani.ogg`, `ryumon.ogg`). The Kharzani and Ryumon spots are also the adverts for the paid peoples. |
 | **Launch trailer** | 1:00 | Launch day | The announcement cut again with the newest footage, review quotes if there are any, and "Out now on the App Store" on the end card. |
@@ -158,14 +159,16 @@ Ready to paste once the name and the link are final.
 
 - **Title:** `Bannerfall | Announcement Trailer | iPhone`
   (the name first; short enough not to be cut off on a phone).
-- **Thumbnail:** `bannerfall_thumbnail.jpg`, written by `edit.py`: a battle with the
-  wordmark across the top. Upload a second one (a close shot of a cavalry charge, no
-  wordmark, three words: "LEAD EVERY COMPANY") and let YouTube's *Test & compare* pick.
+- **Thumbnail:** `bannerfall_captains_thumbnail.jpg`, written by `cut.py`: the die landed
+  on a captain, in a phone, with "Every captain can fall" and the name. Upload the first
+  cut's thumbnail too (`bannerfall_thumbnail.jpg`: the fight at the ford under the
+  wordmark) and let YouTube's *Test & compare* pick between them.
 - **Description:**
 
   ```
-  Raise a warband and lead every company yourself. Real-time squad battles sized for your
-  hand, in a sandbox campaign across three realms of the Glass Sea. Coming to iPhone.
+  Every company has a captain. Every captain has a name. Any of them can fall. Lead them
+  anyway: real-time squad battles sized for your hand, in a sandbox campaign across three
+  realms of the Glass Sea. Coming to iPhone.
   Pre-order on the App Store: <link>
 
   Three realms share one inland sea: the stone keeps of Vardmark, the desert courts of
@@ -180,12 +183,12 @@ Ready to paste once the name and the link are final.
     holds what.
   • No ads, no timers, and nothing sold that wins a battle.
 
-  0:00 The Glass Sea
-  0:17 Your warband and the lords
-  0:35 The battles
-  1:05 Make your name
+  0:00 The captains
+  0:26 The battles
+  0:42 The Glass Sea
+  0:58 Victory
 
-  Music: "The Glass Sea", composed for the game.
+  Music: "Who Carries the Banner", composed for this trailer.
   ```
 
   Until the pre-order exists, the second line is the TestFlight link ("Play the beta") or
@@ -195,17 +198,20 @@ Ready to paste once the name and the link are final.
   `indie game trailer`, `Godot`. Tags matter little; the title, thumbnail and first two
   lines of the description do the work.
 - **Settings:** category Gaming; game title set once YouTube lists the game; not made for
-  kids; captions uploaded (`bannerfall_trailer.srt`, written by `edit.py`, so the words on
+  kids; captions uploaded (`bannerfall_captains.srt`, written by `cut.py`, so the words on
   screen are searchable and translatable); added to the *Trailers* playlist.
-- **End screen** over the last ten seconds (the end card holds for eleven): a subscribe
+- **End screen** over the last ten seconds (the end card holds for ten): a subscribe
   button and one video, *A full battle, explained* once it exists.
 - **Pinned comment:** the link again, and one question that is easy to answer
   ("Which realm would you start in?"). Answer every comment in the first two days.
 - **Upload as Unlisted first**, watch it on a phone with the sound off and on, then
   schedule it as a **Premiere** for the announcement hour so the first viewers arrive
   together.
-- **The file:** 1920×1080, 30 fps, H.264 with AAC at 48 kHz, loudness set to −14 LUFS, as
-  `edit.py` writes it. Nothing to convert.
+- **The file:** `bannerfall_captains.mp4`: 1920×1080, 30 fps, H.264 with AAC at 48 kHz,
+  loudness set to −14 LUFS, as `cut.py` writes it. Nothing to convert.
+- **Listen first.** The score was balanced by measurement (pitch, timing, loudness, the
+  level of each section), not by ear. Play it on a phone speaker and on headphones before
+  it is public; `tools/trailer2/README.md` says where each part of the music is.
 
 ## When
 
@@ -271,7 +277,7 @@ Look once a week, in YouTube Studio and App Store Connect.
 | Number | Where | What it tells us | If it's low |
 | --- | --- | --- | --- |
 | Impressions click-through rate | Studio › Reach | Whether the title and thumbnail earn the click. YouTube's own help page says half of all channels sit between 2% and 10% | Change the thumbnail first, then the title; use *Test & compare* |
-| Audience retention at 0:30, and the shape of the curve | Studio › Engagement | Whether the trailer's first half holds. A cliff before the battles means the opening is too slow | Recut: battles earlier, or use the battle trailer as the channel trailer |
+| Audience retention at 0:30, and the shape of the curve | Studio › Engagement | Whether the captains' story holds a stranger. A cliff in the first ten seconds means the slow-motion opening is too slow; a slide between 0:08 and 0:24 means the screens are | Shorten the opening to one bar, or lead with the battle trailer and keep *Captains* for viewers who already follow |
 | Viewed versus swiped away (Shorts) | Studio › Engagement | Whether the first second works | Start the Short later in the action; put the hook line on frame one |
 | Share of views on iPhone | Studio › Audience (device and operating system) | Whether the viewers can play it at all | More Shorts, fewer desktop-leaning devlogs; pitch iOS channels |
 | Sign-ups, testers and pre-orders per 1,000 views, by video | The sign-up form, TestFlight, App Analytics by campaign | The only number that matters in the end | More of whatever kind of video scores highest; fewer of the rest |
@@ -294,12 +300,22 @@ beats ten from one with fifty thousand.
 
 ## Making the footage
 
-Everything above is cut from the game by the tools in `tools/trailer/` (see its README):
-`record.sh` records a shot in portrait (for Shorts, app previews and framed screens) or
-landscape (for battles and the map, HUD away), `capture.gd` sets up the campaign, hour,
-ground and camera for each shot, and `edit.py` cuts the trailer to the theme and writes the
-thumbnail and the captions. A new Short is a new entry in `SHOTS`; a new trailer is a new
-`EDL`. Footage "in a hand" for the long videos is the iPhone's own screen recording.
+Everything above is cut from the game by two sets of tools, each with a README.
+
+`tools/trailer2/` made *Captains* and is the one to build on. `shoot.sh` records a shot
+tall (the game as it is on a phone: Shorts, app previews, screens shown in a phone) or wide
+(the field or the map filling the frame, HUD away); `stage.gd` stages it, can fast-forward
+a fight to a moment or run it in true slow motion, and names every fight's seed, so a shot
+is the same each time it is recorded; `shoot.sh --probe` finds a moment (who falls, when a
+gate breaks) without recording a frame; `score.py` writes the music; `cut.py` draws the
+trailer, its captions and its thumbnail. Several of the first twelve Shorts are already
+shots there: the death roll (`fall`), the siege (`gate`, `wall`), the wedding (`vows`), a
+lord's talk (`emir`, `daimyo`), a battle with the HUD (`hand`).
+
+`tools/trailer/` made the first cut. Its battles are not seeded, so its shots differ from
+one recording to the next.
+
+Footage "in a hand" for the long videos is the iPhone's own screen recording.
 
 ## Sources
 
