@@ -2340,7 +2340,8 @@ func _deliverable_job_card(job: Dictionary) -> Control:
 
 
 func _job_offer_card(job: Dictionary, index: int, is_capped: bool) -> Control:
-	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - (GameState.world.hour if GameState.world != null else 0.0))
+	# Not taken yet: the time it will give you once you take it.
+	var hrs_left: float = Jobs.time_limit(job, GameState.world)
 	var chips: Array = [Widgets.stat("clock", Style.time_short(hrs_left))]
 	chips.append_array(_job_chips(job))
 	var accept_btn := _button("Accept", func():

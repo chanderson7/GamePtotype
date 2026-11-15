@@ -586,7 +586,12 @@ func _check_job_deadlines() -> void:
 		if world.hour > float(job.get("deadline", INF)):
 			active_jobs.remove_at(i)
 			_end_commitment(String(job.get("id", "")), jtitle, "Expired: the deadline passed before it was done.")
-			_note("Contract expired: The deadline for '%s' has passed.%s" % [jtitle, _job_standing_cost(job_realm(job))])
+			var realm := job_realm(job)
+			var cost := _job_standing_cost(realm)
+			_contract_failed({"title": jtitle, "realm": realm, "standing": Jobs.ABANDON_RELATION if realm != "" else 0,
+				"place": String(job.get("origin_settlement", job.get("destination_settlement", ""))),
+				"words": _failed_words(job),
+				"text": "Contract expired: The deadline for '%s' has passed.%s" % [jtitle, cost]})
 			continue
 		if String(job.get("type", "")) == Jobs.TYPE_HUNT:
 			var party_id := int(job.get("target_party_id", -1))
@@ -2015,6 +2020,33 @@ func _contract_card(done: Dictionary) -> void:
 		scenes.contract_done(done)
 	else:
 		_note(String(done["text"]))
+
+
+## A contract let run out gets a card of its own too (see Scenes.contract_failed): the
+## same card as a contract done, its seal broken and what it cost in red. With no screen to
+## show it on, it is a line on the map like any other.
+func _contract_failed(failed: Dictionary) -> void:
+	var scenes := get_node_or_null("/root/Scenes") if is_inside_tree() else null
+	if scenes != null and scenes.has_method("contract_failed"):
+		scenes.contract_failed(failed)
+	else:
+		_note(String(failed["text"]))
+
+
+## What the people who posted a job say when it was let run out.
+func _failed_words(job: Dictionary) -> String:
+	var name_of := func(id: String) -> String:
+		return String(WorldData.settlement(id)["name"]) if WorldData.SETTLEMENTS.has(id) else "the town"
+	match String(job.get("type", "")):
+		Jobs.TYPE_COURIER:
+			return "The dispatch never reached %s. %s will think twice before trusting your company with another." % [
+				name_of.call(String(job.get("destination_settlement", ""))), name_of.call(String(job.get("origin_settlement", "")))]
+		Jobs.TYPE_HUNT:
+			return "%s still ride free, and %s paid you for nothing." % [String(job.get("target_name", "The raiders")),
+				name_of.call(String(job.get("origin_settlement", "")))]
+		Jobs.TYPE_RELIEF:
+			return "No food came to %s. Its people will remember who promised it." % name_of.call(String(job.get("origin_settlement", "")))
+	return "The deadline passed before it was done."
 
 
 ## A moment worth a stamp drops in as a ribbon, once no battle is on screen.

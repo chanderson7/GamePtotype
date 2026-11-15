@@ -2931,6 +2931,10 @@ func take_job(id: String, index: int) -> Dictionary:
 	list.remove_at(index)
 	if not settlement_jobs_back.has(id):
 		settlement_jobs_back[id] = hour + Jobs.REFRESH_HOURS
+	# The clock starts now: a job can sit on a board for days before it is taken.
+	var limit := Jobs.time_limit(job, self)
+	job["time_limit"] = limit
+	job["deadline"] = hour + limit
 	return job
 
 

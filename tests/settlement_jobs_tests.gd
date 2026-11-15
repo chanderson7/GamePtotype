@@ -34,6 +34,7 @@ func _init() -> void:
 	test_relief_job_completion()
 	test_hunt_bounty_auto_completion()
 	test_fair_cancellation_and_deadlines()
+	test_clock_starts_when_taken()
 	test_recommendation_guidance()
 	test_save_load_persistence()
 
@@ -334,6 +335,36 @@ func test_fair_cancellation_and_deadlines() -> void:
 	gs._check_job_deadlines()
 	assert_eq(gs.active_jobs.size(), 0, "Expired job removed after deadline passes")
 	assert_eq(gs.relation_with_realm("vardmark"), rel_before + Jobs.ABANDON_RELATION, "A job let run out costs a little standing, as abandoning does")
+
+
+func test_clock_starts_when_taken() -> void:
+	print("\n--- A job's clock starts when it is taken ---")
+	var gs = _create_game_state()
+	var w: WorldSim = gs.world
+	w.player().node = "highcliff"
+	w.player().next = ""
+	var board: Array = gs.jobs_at("highcliff")
+	var index := -1
+	for i in board.size():
+		if String(board[i].get("type", "")) == Jobs.TYPE_COURIER:
+			index = i
+	assert_true(index >= 0, "Highcliff's board posts a courier run")
+	var limit: float = Jobs.time_limit(board[index], w)
+	assert_true(limit >= 48.0, "A courier run gives at least two days")
+	# The board is read, then left for a week: the same posting is still up.
+	w.hour += 24.0 * 7.0
+	assert_eq(gs.jobs_at("highcliff").size(), board.size(), "The board keeps its jobs until one is taken")
+	assert_true(gs.accept_job("highcliff", index), "The courier run can be taken a week later")
+	var job: Dictionary = gs.active_jobs.back()
+	assert_true(absf(float(job["deadline"]) - (w.hour + limit)) < 0.01, "Its deadline runs from the hour it was taken")
+	w.hour += 1.0
+	gs._check_job_deadlines()
+	assert_eq(gs.active_jobs.size(), 1, "An hour on the road does not expire it")
+	# A job saved before time_limit existed still gets its full allowance when taken.
+	var old: Dictionary = gs.jobs_at("ravensford")[0].duplicate()
+	old.erase("time_limit")
+	old["deadline"] = 1.0
+	assert_true(Jobs.time_limit(old, w) >= 48.0, "A posting from an older save gets its type's allowance")
 
 
 func test_recommendation_guidance() -> void:
