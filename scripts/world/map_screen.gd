@@ -289,6 +289,11 @@ func _process(delta: float) -> void:
 	if autoplay:
 		_autoplay()
 	_watch_letters(delta)
+	# An encounter waiting with nothing on screen to answer it (a letter or a place looked at
+	# took its sheet, and that was closed) would hold the clock and the road for ever: it
+	# comes back.
+	if _encounter_unanswered():
+		_open_encounter()
 	# An encounter or a note about the last battle holds the clock until it's answered.
 	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
@@ -1223,6 +1228,8 @@ func _on_ride_at(b) -> void:
 	var to: String = b.node
 	if b.moving() and b.next != "" and b.along > world.road_length(b.node, b.next) * 0.5:
 		to = b.next
+	if _blocked_ride():
+		return
 	if world.travel(to) or world.here() == to:
 		_close_sheet()
 
@@ -2259,6 +2266,8 @@ func _hours_text(hours: float) -> String:
 # ---------------------------------------------------------------- actions
 
 func _on_travel(id: String) -> void:
+	if _blocked_ride():
+		return
 	if world.travel(id):
 		_close_sheet()
 		GameState.save_game()
@@ -3214,7 +3223,27 @@ func _open_guest_list(gid: int) -> void:
 	sheet_extra.visible = true
 
 
+## Whether a party has stopped you and nothing on screen lets you answer it.
+func _encounter_unanswered() -> bool:
+	if world.encounter == -1 or world.party(world.encounter) == null:
+		return false
+	if _sheet != "" or _lord_card != null:
+		return false
+	return not ((_talk != null and is_instance_valid(_talk)) or (_kingdom != null and is_instance_valid(_kingdom)))
+
+
+## Riding anywhere waits on whoever has stopped you: say so, and put them back in front of you.
+func _blocked_ride() -> bool:
+	if world.encounter == -1 or world.party(world.encounter) == null:
+		return false
+	_toast("%s is in your way. Fight, talk or withdraw first." % world.party(world.encounter).name)
+	_open_encounter()
+	return true
+
+
 func _on_ride_to(place: String) -> void:
+	if _blocked_ride():
+		return
 	if world.travel(place) or world.here() == place:
 		_close_sheet()
 		_refresh_hud()
