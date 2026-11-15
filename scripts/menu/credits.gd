@@ -18,7 +18,7 @@ func _ready() -> void:
 	var heading := Style.label("Credits & licences", 52, Style.BRASS)
 	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(heading)
-	col.add_child(Page.note("%s %s" % [ProjectSettings.get_setting("application/config/name", "Bannerfall"),
+	col.add_child(Page.note("%s %s" % [ProjectSettings.get_setting("application/config/name", "Vaskaria"),
 		ProjectSettings.get_setting("application/config/version", "")], Style.SMALL))
 
 	col.add_child(Widgets.section("Music and sound"))

@@ -15,10 +15,10 @@ wedding            22       portrait
 battle_title       10       landscape
 battle_open        30       landscape
 battle_hud         20       portrait
-battle_cavalry     25       landscape
+battle_cavalry     30       landscape
 battle_woods       25       landscape
 battle_river       25       landscape
-battle_night       25       landscape
+battle_night       30       landscape
 battle_archers     20       landscape
 battle_win         35       landscape
 battle_result      45       portrait

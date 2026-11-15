@@ -415,7 +415,7 @@ first hour on a phone.
 - **4.7** Reparations: 100 silver plus 10 per point below −20 sets standing to −15, once a
   week per realm. "They declare war upon you" now says what really happens (they count you
   an enemy and bar their gates), with the number.
-- **4.13** The post-crown goal is a deed, *Keepers of the Glass Sea*: every castle and town
+- **4.13** The post-crown goal is a deed, *Keepers of the Three Realms*: every castle and town
   under the crown at once.
 - **5.1** "We'll speak another time" now leaves you acquainted, and the hub offers the
   unspoken intent at the top of every later chapter until one is chosen.

@@ -1,4 +1,4 @@
-"""The orchestral pieces: Home (The Glass Sea and the campfire versions), the battle music
+"""The orchestral pieces: Home (The Three Realms and the campfire versions), the battle music
 in layers, the battle's aftermath and its stingers. Recorded instruments (tools/sampler.py)
 carry the orchestra; the synthesized oud, ney, koto and shakuhachi from music.py keep each
 realm's own voice.
@@ -435,7 +435,7 @@ def deploy(realm):
 # ------------------------------------------------------------------ after the battle
 
 def rest_victory():
-    """Under the results when you've won: the Glass Sea's horn tune in D major, slowly."""
+    """Under the results when you've won: the main theme's horn tune in D major, slowly."""
     bpm = 72
     beat = 60.0 / bpm
     bar = beat * 4
@@ -527,7 +527,7 @@ HORN_2 = [(69, 2), (74, 2), (77, 2), (76, 1), (74, 1), (72, 3), (69, 1), (67, 2)
 
 
 def title():
-    """The Glass Sea, for a first visit to Home. Harp alone, then the horn sings, then the
+    """The Three Realms, for a first visit to Home. Harp alone, then the horn sings, then the
     violins take the tune up high with the whole orchestra under it, then it settles."""
     bpm = 72
     beat = 60.0 / bpm

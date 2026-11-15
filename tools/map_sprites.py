@@ -1,4 +1,4 @@
-"""Authoring tool for Bannerfall's world-map pixel art.
+"""Authoring tool for Vaskaria's world-map pixel art.
 
 Draws the settlements of each culture (town, castle, village) in a three-quarter view,
 the terrain that grows between them (trees, pines, palms, blossom, dunes, mountains,

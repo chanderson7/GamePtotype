@@ -3,7 +3,7 @@
 ## treasury can be drawn on and paid into; lords take orders (ride with you and join your
 ## fights, hold a place) and answer a call to arms you can ride with; you declare war,
 ## rivals declare it on you, and peace carries tribute; the crown has a name and a colour;
-## holding every capital wins the Glass Sea, and holding nothing brings the crown down.
+## holding every capital wins the Three Realms, and holding nothing brings the crown down.
 extends SceneTree
 
 const Cultures = preload("res://scripts/data/cultures.gd")
@@ -275,12 +275,12 @@ func _init() -> void:
 	await process_frame
 	check(map._kingdom == null and map._sheet == "", "and closes back to the map")
 
-	# ---- every capital: the Glass Sea is yours
+	# ---- every capital: the Three Realms are yours
 	for id in gs.crown_capitals():
 		w.set_owner(id, WorldData.CROWN)
 	gs.renown = 0
 	gs._crown_day()
-	check(gs.crown_won and gs.renown >= 100 and gs.map_notice.contains("one crown"), "holding every capital wins the Glass Sea")
+	check(gs.crown_won and gs.renown >= 100 and gs.map_notice.contains("one crown"), "holding every capital wins the Three Realms")
 	gs.map_notice = ""
 
 	# ---- after the crown: every castle and town at once
@@ -293,7 +293,7 @@ func _init() -> void:
 		if String(WorldData.settlement(id)["type"]) != WorldData.VILLAGE:
 			w.set_owner(id, WorldData.CROWN)
 	gs._award_deeds()
-	check(gs.deeds.has("keeper_of_the_sea"), "holding them all makes the company Keepers of the Glass Sea")
+	check(gs.deeds.has("keeper_of_the_sea"), "holding them all makes the company Keepers of the Three Realms")
 	gs.map_notice = ""
 
 	# ---- holding nothing, the crown falls

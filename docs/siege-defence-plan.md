@@ -1,4 +1,4 @@
-# Bannerfall: the siege defence plan
+# Vaskaria: the siege defence plan
 
 - **Date:** 2026-11-05
 - **Status:** built (2026-11-05). Deviations and the measured result are under *As built* at the end. Mockups are in `docs/mockups/`; the deploy before the change is `siege-deploy-today.png`.

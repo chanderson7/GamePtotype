@@ -1,4 +1,4 @@
-"""Composes and renders Bannerfall's music and sound effects.
+"""Composes and renders Vaskaria's music and sound effects.
 
 Everything is synthesized here from nothing but numpy: plucked strings, winds, drones,
 drums, brass and bells, played from the scores below, then written to WAV and encoded
@@ -8,7 +8,7 @@ files.
 Music (the orchestral pieces are in tools/orchestral.py and the lands' themes and feasts in
 tools/realms.py, played by recorded instruments; the synthesized versions below stand in
 when the samples aren't fetched):
-  title       The Glass Sea: horn over harp and strings, D minor.
+  title       The Three Realms: horn over harp and strings, D minor.
   vardish     Vardmark: lute and recorder over a hurdy-gurdy drone, D dorian, in three.
   kharzani    Kharzan: oud and ney over a frame drum's maqsum, D hijaz.
   ryumon      The Ryumon isles: koto and shakuhachi with taiko, E in-scale.
@@ -463,7 +463,7 @@ def ryumon():
 
 
 def title():
-    """The Glass Sea: a horn over harp arpeggios and strings, D minor."""
+    """The Three Realms: a horn over harp arpeggios and strings, D minor."""
     bpm = 72
     beat = 60.0 / bpm
     bar = beat * 4

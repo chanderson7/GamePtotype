@@ -1,4 +1,4 @@
-"""Authoring tool for Bannerfall's unit pixel art.
+"""Authoring tool for Vaskaria's unit pixel art.
 
 Draws each troop type of each culture top-down, facing up, as small palette-indexed
 grids, then writes them to scripts/art/sprite_data.gd (which the game turns into

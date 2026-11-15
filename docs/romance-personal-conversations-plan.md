@@ -87,9 +87,9 @@ intimacy currency, romance skill, or repeatable conversation grind is needed.
 
 Use the game's English support dialogue as a writing reference. The links below are
 transcripts served from game data by the independent FE Datamine archive. The “lesson”
-column is our interpretation; the proposed Bannerfall scenes are original writing.
+column is our interpretation; the proposed Vaskaria scenes are original writing.
 
-| Conversation studied | What the scene does | Writing lesson for Bannerfall |
+| Conversation studied | What the scene does | Writing lesson for Vaskaria |
 |---|---|---|
 | [Ferdinand / Dorothea, A](https://houses.fedatamine.com/en-us/supports/Ferdinand/Dorothea/A) | A remembered childhood encounter explains an existing mistrust, then gains another perspective | Let a later detail change how the player understands an earlier habit; useful for Edda's concern with recognition |
 | [Sylvain / Mercedes, A](https://houses.fedatamine.com/en-us/supports/Sylvain/Mercedes/A) | Flirtation gives way to a conversation about family expectations and being understood | Farah can use social fluency to avoid speaking personally; another person can notice without interrogating her |
@@ -98,7 +98,7 @@ column is our interpretation; the proposed Bannerfall scenes are original writin
 
 Apply these techniques across the cast. Edda is not a renamed Dorothea, Farah is not
 Sylvain with a different title, and Kaede does not inherit Ignatz's family or ambitions.
-Their lives must fit Bannerfall's villages, courts, correspondence, and archives. None
+Their lives must fit Vaskaria's villages, courts, correspondence, and archives. None
 of the sample dialogue below is quoted from Fire Emblem.
 
 ### Shared writing rules
@@ -132,7 +132,7 @@ a short reply. Full authored word counts can be higher because of variants. Neve
 reading speed checks, a real-time delay, or selecting every answer to complete a scene.
 
 Use scene titles rather than C/B/A or support ranks. Those labels already mean battlefield
-bonds in Bannerfall.
+bonds in Vaskaria.
 
 | Slot | Availability | Purpose |
 |---|---|---|

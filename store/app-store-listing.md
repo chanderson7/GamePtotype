@@ -7,8 +7,8 @@ in CAPITALS are yours to fill. Field limits are App Store Connect's; the counts 
 
 | Field | Value |
 | --- | --- |
-| Name (30) | Bannerfall (the working title: change it here and in `project.godot` before the first upload; the bundle ID stays) |
-| Subtitle (30) | Squad battles on the Glass Sea (30) |
+| Name (30) | Vaskaria (as `project.godot` names it; the bundle ID keeps the old working title, which no player sees) |
+| Subtitle (30) | Battles of the Three Realms (27) |
 | Bundle ID | `com.anderson-sites.bannerfall` (the iOS preset) |
 | Primary category | Games › Strategy |
 | Secondary category | Games › Role Playing |
@@ -20,21 +20,21 @@ in CAPITALS are yours to fill. Field limits are App Store Connect's; the counts 
 
 ## Version page
 
-**Promotional text** (170; can change without a new build), 147:
+**Promotional text** (170; can change without a new build), 150:
 
-> Lead a warband across the Glass Sea. Command real-time squad battles with one thumb, keep your captains alive, and carve out a kingdom of your own.
+> Lead a warband across the Three Realms. Command real-time squad battles with one thumb, keep your captains alive, and carve out a kingdom of your own.
 
 **Keywords** (100, commas, no spaces), 100:
 
 > medieval,tactics,strategy,warband,rpg,sandbox,siege,kingdom,knights,army,squad,commander,offline,war
 
-The name and subtitle are indexed already, so their words ("Bannerfall", "battles", "Glass Sea") stay out of the keywords. App Store Review doesn't allow other games' names in metadata, so there is no comparison to other titles here.
+The name and subtitle are indexed already, so their words ("Vaskaria", "battles", "Three Realms") stay out of the keywords. App Store Review doesn't allow other games' names in metadata, so there is no comparison to other titles here.
 
 **Description** (4,000):
 
 > Raise a warband and lead it in battle, on a phone, with one thumb.
 >
-> Bannerfall is a medieval sandbox around the Glass Sea. Pick one of three peoples (the Vardish of the northern keeps, the Kharzani of the desert cities, the Ryumon of the isles), hire your first companies, and ride out. Where you go, whom you serve and whom you fight is up to you.
+> Vaskaria is a medieval sandbox across the Three Realms. Pick one of three peoples (the Vardish of the northern keeps, the Kharzani of the desert cities, the Ryumon of the isles), hire your first companies, and ride out. Where you go, whom you serve and whom you fight is up to you.
 >
 > REAL-TIME SQUAD BATTLES
 > Command your companies on a field you can read at a glance. Shield walls, braced spears, volleys, flank charges: tap a company to order it, drag a line to re-form the army, and hold your thumb on the edge of the field to slow time while you think. Ground matters. Hills, woods, fords and narrow passes change who wins.
@@ -88,4 +88,4 @@ Expect 12+ under the older ratings, which is 13+ under the current ones.
 
 ## Notes for App Review
 
-> Bannerfall is a single-player game that works entirely offline. There is no sign-in, no purchase and no account. To reach a battle quickly: on Home, tap "Begin as the Vardish", then "Lead the Vardish", then "Skip tutorial"; on the map, ride at a bandit band near your town and, when it stops you, choose Fight. In the battle, tap Auto-place, then Fight. Settings › Credits & licences lists the engine's and the fonts' licences.
+> Vaskaria is a single-player game that works entirely offline. There is no sign-in, no purchase and no account. To reach a battle quickly: on Home, tap "Begin as the Vardish", then "Lead the Vardish", then "Skip tutorial"; on the map, ride at a bandit band near your town and, when it stops you, choose Fight. In the battle, tap Auto-place, then Fight. Settings › Credits & licences lists the engine's and the fonts' licences.

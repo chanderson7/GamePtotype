@@ -3,7 +3,7 @@
 #   tools/trailer/record_all.sh [shot ...]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export TRAILER_OUT="${TRAILER_OUT:-/tmp/bannerfall-trailer}" TRAILER_TMP="${TRAILER_TMP:-/tmp}"
+export TRAILER_OUT="${TRAILER_OUT:-/tmp/vaskaria-trailer}" TRAILER_TMP="${TRAILER_TMP:-/tmp}"
 mkdir -p "$TRAILER_OUT/logs"
 grep -v '^#' tools/trailer/shots.txt | awk 'NF' | while read -r shot secs shape; do
 	if [ $# -eq 0 ] || printf '%s\n' "$@" | grep -qx "$shot"; then echo "$shot $secs $shape"; fi

@@ -137,7 +137,7 @@ var camp_seen: Array = []
 var deeds: Dictionary = {}
 var deed_counts: Dictionary = {}
 var company_title := ""
-## Your crown: the name and colour you give it, whether it has won the Glass Sea, and how
+## Your crown: the name and colour you give it, whether it has won the Three Realms, and how
 ## many days it has held nothing (it falls after CROWN_FALL_DAYS).
 var crown_name := ""
 var crown_color := 0
@@ -1744,7 +1744,7 @@ func crown_title() -> String:
 	return String(WorldData.FACTIONS[WorldData.CROWN]["name"])
 
 
-## Every realm's first capital: hold them all and the Glass Sea is yours.
+## Every realm's first capital: hold them all and the Three Realms are yours.
 func crown_capitals() -> Array:
 	var out := []
 	for r in ["vardmark", "kharzan", "ryumon"]:
@@ -1770,7 +1770,7 @@ func _crown_fate() -> bool:
 		renown += 100
 		world.emit_event({"type": "crown_victory"})
 		map_notice_title = "One crown"
-		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: the Glass Sea has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like. Hold every castle and town on the map at once, and the company is remembered as Keepers of the Glass Sea." % WorldData.title_case(crown_title())
+		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: Vaskaria has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like. Hold every castle and town on the map at once, and the company is remembered as Keepers of the Three Realms." % WorldData.title_case(crown_title())
 	return false
 
 

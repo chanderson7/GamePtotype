@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Cuts the YouTube trailer (1920x1080, 30 fps, H.264 + AAC) from the clips record_all.sh made.
 
-    python3 tools/trailer/edit.py            # writes $TRAILER_OUT/bannerfall_trailer.mp4 and a thumbnail
+    python3 tools/trailer/edit.py            # writes $TRAILER_OUT/vaskaria_trailer.mp4 and a thumbnail
 
 The score is the game's main theme (assets/audio/music/title.ogg, 80 s); the cut follows its
-shape: the quiet open for the Glass Sea, the swell for the title, the climax for the battles,
+shape: the quiet open for the map, the swell for the title, the climax for the battles,
 the tail for the end card. Under it, each clip keeps its own field sounds (recorded with the
 music off). Landscape clips (the battles, the map) fill the frame; portrait clips (the game's
 own screens) stand framed over a blurred copy of themselves, a caption beside them.
@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUT = os.environ.get("TRAILER_OUT", "/tmp/bannerfall-trailer")
+OUT = os.environ.get("TRAILER_OUT", "/tmp/vaskaria-trailer")
 CLIPS = os.path.join(OUT, "clips")
 WORK = os.path.join(OUT, "edit")
 W, H, FPS = 1920, 1080, 30
@@ -48,11 +48,12 @@ def bar(k):
 #   fade: (in, out) seconds through black; sfx: gain on the clip's own sound (0 for none)
 #   zoom: for a landscape clip, how far to crop in on its middle
 #   bg_y: for a portrait clip, how far down the shown part its blurred backdrop is taken
+END_LINE = "Coming to iPhone"  # the end card's line, under the wordmark
 LORDS = ("Win the lords' regard", "Every lord remembers what you did.", "left")
 EDL = [
-    {"card": ("Three realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
+    {"card": ("The Three Realms", "share one inland sea"), "to": bar(2), "fade": (1.0, 0.4)},
     {"shot": "map_fly", "at": 0.5, "to": bar(5), "fade": (0.4, 0.0),
-     "cap": ("The Glass Sea", "Stone keeps. Desert courts. Island castles.", "low")},
+     "cap": ("Vardmark. Kharzan. Ryumon.", "Stone keeps. Desert courts. Island castles.", "low")},
     {"shot": "map_isles", "at": 2.0, "to": bar(8), "fade": (0.0, 0.3)},
     {"shot": "opening", "at": 0.3, "to": bar(10), "fade": (0.3, 0.0), "frame": (0, 600, 1080, 960)},
     {"shot": "home", "at": 1.0, "sfx": 0.35, "to": bar(12), "frame": (0, 0, 1080, 1420),
@@ -65,18 +66,18 @@ EDL = [
     {"shot": "wedding", "at": 14.6, "sfx": 0.35, "to": bar(21), "frame": (0, 0, 1080, 1500),
      "cap": ("Marry into a great house", "Feasts, dances, vows and pacts.", "left")},
     {"shot": "battle_title", "at": 5.0, "to": bar(23), "sfx": 0.45},
-    {"shot": "battle_open", "at": 8.0, "to": bar(25), "sfx": 0.4,
+    {"shot": "battle_open", "at": 12.5, "to": bar(25), "sfx": 0.4,
      "cap": ("Lead every company", "Real-time squad battles, sized for your hand.", "low")},
-    {"shot": "battle_cavalry", "at": 18.0, "to": bar(26.5), "sfx": 0.4},
-    {"shot": "battle_woods", "at": 15.0, "to": bar(28), "sfx": 0.4},
-    {"shot": "battle_hud", "at": 14.5, "to": bar(30), "sfx": 0.35, "bg_y": 260,
+    {"shot": "battle_cavalry", "at": 24.8, "to": bar(26.5), "sfx": 0.4},
+    {"shot": "battle_woods", "at": 15.5, "to": bar(28), "sfx": 0.4},
+    {"shot": "battle_hud", "at": 9.0, "to": bar(30), "sfx": 0.35, "bg_y": 260,
      "cap": ("Shield walls. Volleys. Charges.", "Read the field and give the order.", "left")},
-    {"shot": "battle_river", "at": 8.5, "to": bar(31.5), "sfx": 0.4},
+    {"shot": "battle_river", "at": 9.0, "to": bar(31.5), "sfx": 0.4},
     {"shot": "battle_archers", "at": 10.0, "to": bar(33), "sfx": 0.4},
-    {"shot": "battle_night", "at": 18.5, "to": bar(34.5), "sfx": 0.4},
-    {"shot": "battle_wide", "at": 11.5, "to": bar(36.5), "sfx": 0.4},
-    {"shot": "battle_win", "at": 4.4, "to": bar(38.5), "sfx": 0.5, "zoom": 1.5},
-    {"shot": "battle_result", "at": 8.6, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
+    {"shot": "battle_night", "at": 11.5, "to": bar(34.5), "sfx": 0.4},
+    {"shot": "battle_wide", "at": 10.5, "to": bar(36.5), "sfx": 0.4},
+    {"shot": "battle_win", "at": 24.2, "to": bar(38.5), "sfx": 0.5, "zoom": 1.5},
+    {"shot": "battle_result", "at": 9.2, "to": bar(41), "sfx": 0.35, "fade": (0.0, 0.8),
      "frame": (0, 0, 1080, 1500), "cap": ("Make your name", "Every company's story is told.", "left")},
     {"end": True, "to": 80.0, "fade": (0.8, 1.8)},
 ]
@@ -171,6 +172,14 @@ def caption_png(path, title, line, where, panel=None):
         d.line([(x, y + 80), (x + 140, y + 80)], fill=BRASS + (150,), width=2)
         if line:
             d.text((x, y + 96), line, font=fl, fill=TEXT)
+        # Over a field or the map the words need dark under them (brass on sand is lost):
+        # a shade rising from the lower left corner, fading with the caption.
+        down = np.clip((np.arange(H, dtype=np.float32) - (H - 540)) / 540.0, 0, 1)[:, None] ** 1.2
+        across = np.clip((1700.0 - np.arange(W, dtype=np.float32)) / 800.0, 0, 1)[None, :]
+        shade = Image.new("RGBA", (W, H), (6, 8, 16, 0))
+        shade.putalpha(Image.fromarray((down * across * 205).astype(np.uint8)))
+        Image.alpha_composite(shade, shadowed(shadowed(img, 3, 255), 12)).save(path)
+        return
     shadowed(img, 12).save(path)
 
 
@@ -210,12 +219,11 @@ def end_png(path):
     mark = mark.resize((mw, round(mark.height * mw / mark.width)), Image.LANCZOS)
     img.alpha_composite(mark, ((W - mw) // 2, H // 2 - mark.height // 2 - 70))
     d = ImageDraw.Draw(img)
-    # In the wordmark's italic, not capitals: "iPhone" keeps its small i (Cinzel's would
-    # read as a 1).
-    f = font(ITALIC, 52)
-    for i, (t, col) in enumerate([("Coming to iPhone", TEXT)]):
-        tw = d.textlength(t, font=f)
-        d.text(((W - tw) / 2, H // 2 + 150 + i * 60), t, font=f, fill=col)
+    f = font(DISPLAY, 38)
+    for i, (t, col) in enumerate([(END_LINE, TEXT)]):
+        t = t.upper()
+        tw = spaced_width(d, t, f, 6)
+        spaced(d, ((W - tw) / 2, H // 2 + 165 + i * 60), t, f, col, 6)
     img.convert("RGB").save(path)
 
 
@@ -354,15 +362,43 @@ def main():
     loud = float([ln for ln in r.stderr.splitlines() if ln.strip().startswith("I:")][-1].split()[1])
     gain = -14.0 - loud
     print(f"mix at {loud:.1f} LUFS; {gain:+.1f} dB")
-    final = os.path.join(OUT, "bannerfall_trailer.mp4")
+    final = os.path.join(OUT, "vaskaria_trailer.mp4")
     run(["ffmpeg", "-y", "-i", video, "-i", mix, "-filter_complex",
          f"[1:a]volume={gain:.2f}dB,alimiter=limit=0.89:attack=2:release=60:level=disabled[a]",
          "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-ar", "48000",
          "-movflags", "+faststart", "-t", f"{total}", final])
     print(f"wrote {final} ({total:.1f}s)")
-    thumb = os.path.join(OUT, "bannerfall_thumbnail.jpg")
+    subs = os.path.join(OUT, "vaskaria_trailer.srt")
+    subtitles(subs)
+    print(f"wrote {subs}")
+    thumb = os.path.join(OUT, "vaskaria_thumbnail.jpg")
     thumbnail(os.path.join(CLIPS, "battle_river", "f%08d.png" % int(10.5 * FPS)), thumb)
     print(f"wrote {thumb}")
+
+
+def subtitles(path):
+    """The words on screen as an .srt, to upload beside the video: YouTube can then search
+    and translate them. A caption that runs on across a cut is one entry."""
+    def stamp(t):
+        ms = round(t * 1000)
+        return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+    rows, t = [], 0.0
+    for seg in EDL:
+        if "end" in seg:
+            words = ("Vaskaria", END_LINE)
+        else:
+            words = (seg.get("card") or seg.get("cap") or (None,))[:2]
+        if words[0]:
+            text = "\n".join(w for w in words if w)
+            if rows and rows[-1][2] == text and abs(rows[-1][1] - t) < 0.01:
+                rows[-1][1] = t + seg["dur"]
+            else:
+                rows.append([t, t + seg["dur"], text])
+        t += seg["dur"]
+    with open(path, "w") as f:
+        for n, (a, b, text) in enumerate(rows, start=1):
+            f.write(f"{n}\n{stamp(a)} --> {stamp(b)}\n{text}\n\n")
 
 
 def thumbnail(frame, path):

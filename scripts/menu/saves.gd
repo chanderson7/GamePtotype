@@ -18,7 +18,7 @@ const ROW_ICONS := {"Day": "day", "Men": "men", "Silver": "silver", "Renown": "r
 ## Room for the bottom bar under the page, above the safe area.
 const BAR_ROOM := 124.0
 ## Said of a save made by a newer version of the game, which this one won't load.
-const NEWER := "Made with a newer version of Bannerfall. Update the game to load it."
+const NEWER := "Made with a newer version of Vaskaria. Update the game to load it."
 
 var _overlay: Control
 var _delete_armed := false
@@ -78,7 +78,7 @@ func _build() -> void:
 func _where_note() -> Label:
 	var text := "Your saves stay on this device."
 	if OS.has_feature("ios"):
-		text = "Your saves are in the Files app, under On My iPhone › Bannerfall. To move a campaign, copy campaign.json and the saves folder to the same place on the other device."
+		text = "Your saves are in the Files app, under On My iPhone › Vaskaria. To move a campaign, copy campaign.json and the saves folder to the same place on the other device."
 	elif OS.has_feature("pc"):
 		text = "Your saves are in %s. To move a campaign, copy campaign.json and the saves folder to the same place on the other computer." % OS.get_user_data_dir()
 	var l := Page.note(text, Style.SMALL)

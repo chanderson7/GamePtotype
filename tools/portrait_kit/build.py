@@ -311,11 +311,11 @@ if __name__ == "__main__":
     if what == "render":
         render()
     elif what == "sheet":
-        sheet(sys.argv[2] if len(sys.argv) > 2 else "/tmp/bannerfall-outfits.png")
+        sheet(sys.argv[2] if len(sys.argv) > 2 else "/tmp/vaskaria-outfits.png")
     elif what == "template":
         for who in (sys.argv[2:] or WHO):
             template(who)
     elif what == "faces":
-        faces(sys.argv[2] if len(sys.argv) > 2 else "/tmp/bannerfall-faces.png")
+        faces(sys.argv[2] if len(sys.argv) > 2 else "/tmp/vaskaria-faces.png")
     else:
         raise SystemExit(__doc__)

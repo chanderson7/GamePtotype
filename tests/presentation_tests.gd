@@ -41,7 +41,7 @@ func _run() -> void:
 	gs = root.get_node("GameState")
 	sound = root.get_node("Sound")
 	gs.persist = false
-	sound.settings_path = "user://bannerfall-presentation-%d.cfg" % OS.get_process_id()
+	sound.settings_path = "user://vaskaria-presentation-%d.cfg" % OS.get_process_id()
 	sound.set_text_scale(1.0)
 	sound.set_reduced_motion(false)
 	sound.set_illustrations(true)

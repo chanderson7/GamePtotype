@@ -82,7 +82,7 @@ func _build() -> void:
 	tut.icon = Widgets.icon("book")
 	col.add_child(tut)
 	# Which build this is, for a bug report.
-	var version := Page.note("%s %s" % [ProjectSettings.get_setting("application/config/name", "Bannerfall"),
+	var version := Page.note("%s %s" % [ProjectSettings.get_setting("application/config/name", "Vaskaria"),
 		ProjectSettings.get_setting("application/config/version", "")], Style.SMALL)
 	version.name = "VersionNote"
 	version.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

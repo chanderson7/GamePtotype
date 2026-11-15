@@ -1,15 +1,15 @@
-# Bannerfall: the paid features plan
+# Vaskaria: the paid features plan
 
 - **Date:** 2026-11-04
 - **Status:** proposed. Nothing here is built.
 - **Model in one line:** the game is free to download and whole as the Vardish. The Kharzani
-  and the Ryumon are paid peoples, each a different home, cast, army and opening on the same
-  Glass Sea. Everything sold is a one-time purchase that restores on a new phone. Nothing sold
+  and the Ryumon are paid peoples, each a different home, cast, army and opening in the same
+  Three Realms. Everything sold is a one-time purchase that restores on a new phone. Nothing sold
   makes a battle easier, saves a captain, or buys silver.
 
 ## Why this model fits this game
 
-Bannerfall's identity is consequence: captains who can die, men who desert when unpaid, a
+Vaskaria's identity is consequence: captains who can die, men who desert when unpaid, a
 company that carries its losses. Any purchase that softens that (a revive, a purse of silver,
 a stronger squad) sells the thing the game is about. So the only honest things to sell are
 **more of the game** (another people to begin as, with its own opening and cast) and
@@ -45,7 +45,7 @@ asked to pay to *be* them.
 | --- | --- | --- | --- |
 | **The Kharzani** | `.people.kharzan` | $3.99 | Begin as the Kharzani: Khalun, a Kharzani company, the Sultan's lords as kin, the *Debt of Khalun* opening, two people's deeds, the painted Khalun plate. |
 | **The Ryumon** | `.people.ryumon` | $3.99 | Begin as the Ryumon: Kurogane, a Ryumon company, the Shogun's lords as kin, the *Writ Across the Strait* opening, two people's deeds, the painted Kurogane plate. |
-| **Peoples of the Glass Sea** | `.people.all` | $5.99 | Both peoples. The bundle is the product most people should buy; the singles exist so no one has to buy a people they do not want. |
+| **Peoples of the Three Realms** | `.people.all` | $5.99 | Both peoples. The bundle is the product most people should buy; the singles exist so no one has to buy a people they do not want. |
 | **Heraldry & Regalia** | `.regalia` | $1.99 | Six more crown colours, eight banner devices for the company and the crown, captain portrait frames by rank, and a different Home title theme for a crowned company. Cosmetic only. |
 | **Chronicler's Edition** | `.chronicler` | $7.99 | Everything above, plus the Chronicle export (the campaign's chronicle as a shareable image) and a line in the credits roll. For the player who wants to pay once. |
 
@@ -351,7 +351,7 @@ routines, so no external art.
   Today a company flies its realm's banner; the device would sit on it in the crown colour.
 - Captain portrait frames by rank: plain, brass at five battles, laurel at ten (the Old
   Guard). Drawn as a frame around the existing portraits.
-- An alternate title theme for a crowned company (a variation of the Glass Sea theme with
+- An alternate title theme for a crowned company (a variation of the main theme with
   the people's instrument forward; `tools/music.py` renders it).
 
 ## Package F: the Chronicler's Edition

@@ -3,12 +3,12 @@
 # (the shots in tools/trailer/capture.gd). Each shot is recorded with Movie Maker at 10
 # fps (the battle screen steps at most 0.1 s a frame, so it fights at its own pace) into an
 # MJPEG .avi, and the frame at the given second is kept as a PNG.
-#   tools/store/screenshots.sh [out_dir]          (default /tmp/bannerfall-store)
+#   tools/store/screenshots.sh [out_dir]          (default /tmp/vaskaria-store)
 # Needs godot (4.7), ffmpeg and, without a display, xvfb-run. Battles are fought afresh
 # each run, so look over the stills (contact.png) and move a time if a moment misses.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out="${1:-/tmp/bannerfall-store}"
+out="${1:-/tmp/vaskaria-store}"
 mkdir -p "$out/clips"
 export TRAILER_TMP="${TRAILER_TMP:-$out}"
 fps=10

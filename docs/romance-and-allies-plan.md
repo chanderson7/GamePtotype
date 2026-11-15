@@ -1,7 +1,7 @@
 # Romance and allies: implementation plan
 
 **Status:** R0–R3 and the complete three-woman cast are implemented. This remains the design
-record for the system; numbers below are Bannerfall tuning values rather than Warband values.
+record for the system; numbers below are Vaskaria tuning values rather than Warband values.
 Farah uses the legacy internal ID `farid` to preserve existing save compatibility.
 
 ## 1. What we are building
@@ -45,7 +45,7 @@ Warband explicitly presents marriage as both a romantic and political activity, 
 and bravery as ways to court someone. That connection between personal ambition and the
 campaign is the main inspiration. [TaleWorlds' Warband description on Steam](https://store.steampowered.com/app/48700/Mount__Blade_Warband/)
 
-| Warband precedent | Bannerfall adaptation |
+| Warband precedent | Vaskaria adaptation |
 |---|---|
 | Meeting potential partners in noble courts | A visible Court entry at relevant settlements, with named residents |
 | Poems and dedicated tournament victories | Personal conversations, a small optional verse/story scene, and remembered campaign deeds |
@@ -62,7 +62,7 @@ and [Poems reference](https://mountandblade.fandom.com/wiki/Poems).
 These community accounts are useful for the broad Native Warband loop; exact numerical
 requirements vary across accounts and mods. Do not copy thresholds from them. This proposal's
 explicit house pacts, resource accounting, gender-neutral routes, and recovery paths are new
-Bannerfall mechanics, not claims about Warband's implementation. In particular, marriage
+Vaskaria mechanics, not claims about Warband's implementation. In particular, marriage
 should not be represented as a guaranteed kingdom alliance or automatic military obedience.
 
 ### Design lessons

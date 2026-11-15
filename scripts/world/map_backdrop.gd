@@ -1,4 +1,4 @@
-## The Glass Sea itself, for any screen that shows it: the sea (a shader on a
+## The map of the Three Realms, for any screen that shows it: the sea (a shader on a
 ## screen-filling rect), and the land with its shore, fields, roads and terrain (drawn
 ## once, in map units, and moved with the camera). Point it with point_camera().
 extends Node2D

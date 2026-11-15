@@ -11,7 +11,7 @@ cd "$(dirname "$0")/../.."
 shot="$1"
 seconds="${2:-10}"
 shape="${3:-portrait}"
-out="${TRAILER_OUT:-/tmp/bannerfall-trailer}/clips/$shot"
+out="${TRAILER_OUT:-/tmp/vaskaria-trailer}/clips/$shot"
 fps="${FPS:-30}"
 mkdir -p "$out"
 rm -f "$out"/*.png "$out"/*.wav

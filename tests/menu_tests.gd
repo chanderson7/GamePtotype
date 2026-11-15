@@ -26,7 +26,7 @@ func _run() -> void:
 	if scratch == "":
 		scratch = "/tmp"
 	var sound = root.get_node("Sound")
-	sound.settings_path = scratch.path_join("bannerfall-menu-test-%d.cfg" % OS.get_process_id())
+	sound.settings_path = scratch.path_join("vaskaria-menu-test-%d.cfg" % OS.get_process_id())
 	# Saves of the machine's own campaigns must not change what a fresh Home shows.
 	SaveSlots.dir = "user://menu_test_saves_%d" % OS.get_process_id()
 	sound.set_music_on(true)

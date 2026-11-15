@@ -2,12 +2,12 @@
 # The App Store app preview: 25 s, 886x1920 portrait (the 6.9-inch iPhone's), 30 fps,
 # H.264 with AAC stereo, cut from the game itself (the shots in tools/trailer/capture.gd),
 # each with its own sound. Recorded with Movie Maker into MJPEG .avi clips, then cut.
-#   tools/store/preview.sh [out_dir]          (default /tmp/bannerfall-store)
+#   tools/store/preview.sh [out_dir]          (default /tmp/vaskaria-store)
 # Needs godot (4.7), ffmpeg and, without a display, xvfb-run. Battles are fought afresh
 # each run: look the cut over and move a start if a moment misses.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-out="${1:-/tmp/bannerfall-store}"
+out="${1:-/tmp/vaskaria-store}"
 mkdir -p "$out/preview"
 export TRAILER_TMP="${TRAILER_TMP:-$out}"
 fps=30

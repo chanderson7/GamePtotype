@@ -1,4 +1,4 @@
-# Bannerfall artwork roadmap
+# Vaskaria artwork roadmap
 
 **Date:** 2026-10-29
 

@@ -20,12 +20,12 @@ const DEEDS := {
 	"renown": {"title": "the Renowned", "goal": "Reach 300 renown.", "need": 300},
 	# After the crown: every castle and town on the map flying your banner at once. Its
 	# need is the number of walled seats there are (see seats_total()).
-	"keeper_of_the_sea": {"title": "Keepers of the Glass Sea", "goal": "Hold every castle and town on the map under your crown at once.", "need": 9},
+	"keeper_of_the_sea": {"title": "Keepers of the Three Realms", "goal": "Hold every castle and town on the map under your crown at once.", "need": 9},
 }
 const ORDER := ["contract", "jobs", "villages", "chiefs", "lord", "walls", "veteran", "pact", "fief", "renown", "keeper_of_the_sea"]
 
 
-## Every castle and town on the map: the seats a crown must hold to keep the Glass Sea.
+## Every castle and town on the map: the seats a crown must hold to keep the Three Realms.
 static func seats_total() -> int:
 	var n := 0
 	for id in WorldData.SETTLEMENTS:

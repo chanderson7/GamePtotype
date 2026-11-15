@@ -1,4 +1,4 @@
-## The three cultures of the Glass Sea. Pure data: names, colors and the words each
+## The cultures of the Three Realms. Pure data: names, colors and the words each
 ## culture uses for its troops. Every culture fields the same four roles with the same
 ## stats for now; only what they're called and who leads them differs.
 extends RefCounted
@@ -16,7 +16,7 @@ const DATA := {
 	VARDISH: {
 		"realm": "Kingdom of Vardmark", "people": "Vardish", "faction": "vardmark",
 		"color": Color("4a74d1"),
-		"blurb": "A feudal kingdom of stone keeps and armored knights on the northwest shore of the Glass Sea.",
+		"blurb": "A feudal kingdom of stone keeps and armored knights on the northwest shore.",
 		"troops": {"infantry": "Footmen", "spearmen": "Spearmen", "archers": "Bowmen", "cavalry": "Horsemen"},
 		"company": {"infantry": "Shields", "spearmen": "Pikes", "archers": "Bows", "cavalry": "Lances"},
 		"first": [

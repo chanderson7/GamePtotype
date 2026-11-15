@@ -85,7 +85,7 @@ func _init() -> void:
 	gs.world = null
 	change_scene_to_file("res://scenes/title.tscn")
 	await _wait(4)
-	check(sound._track == "title", "a first visit to Home plays the Glass Sea")
+	check(sound._track == "title", "a first visit to Home plays the main theme")
 	gs.new_campaign("kharzani")
 	change_scene_to_file("res://scenes/title.tscn")
 	await _wait(4)

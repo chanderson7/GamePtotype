@@ -614,7 +614,8 @@ func _ready() -> void:
 		if pending.has("allies") and not pending["allies"].is_empty():
 			player_host.append_array(pending["allies"])
 			has_allies = true
-		var seed_value := 0
+		# A fight may name its seed (the trailer's recordings do, so a shot repeats); 0 is the clock.
+		var seed_value := int(pending.get("seed", 0))
 		if not resume.is_empty():
 			player_host = resume["host"]
 			seed_value = int(resume["seed"])

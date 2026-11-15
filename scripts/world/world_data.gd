@@ -1,4 +1,4 @@
-## The Glass Sea: factions, settlements, roads and coastlines, as plain data. The world
+## The Three Realms: factions, settlements, roads and coastlines, as plain data. The world
 ## sim reads this; nothing here changes during a campaign. Who holds each settlement and
 ## who is at war are only where a campaign starts: the world sim keeps them after that.
 ##
