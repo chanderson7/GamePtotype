@@ -5259,6 +5259,8 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		"culture": squad.get("culture", culture),
 		"temperament": c.get("temperament", ""), "quirk": c.get("quirk", ""), "history": c.get("history", {}),
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
+		# When they fell (those you court or befriend wear mourning for a few days: StoryArt.outfit_for).
+		"hour": float(world.hour) if world != null else 0.0,
 		"words": words,
 		"bonds": friends,
 		"bond_points": bond_points,

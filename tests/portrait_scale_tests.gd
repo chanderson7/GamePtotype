@@ -135,6 +135,59 @@ func _run() -> void:
 	check(StoryArt.outfit_for("edda") == "travel", "driven from her seat, she's in travelling clothes")
 	check(StoryArt.outfit_for("edda", null) == StoryArt.outfit_for("edda", w), "the world can be handed in")
 	edda["residence"] = "ravensford"
+	# The year turns: winter is its last quarter, and she dresses for it.
+	check(StoryArt.season(0.0) == "spring" and StoryArt.season(24.0 * 30) == "summer" and StoryArt.season(24.0 * 50) == "autumn"
+		and StoryArt.season(24.0 * 80) == "winter" and StoryArt.season(24.0 * (StoryArt.YEAR_DAYS + 3)) == "spring",
+		"a year is four seasons, beginning with spring")
+	var was_hour: float = w.hour
+	w.hour = 24.0 * 80 + 10.0
+	check(StoryArt.outfit_for("edda") == "winter", "in winter she's in winter clothes")
+	edda["residence"] = "highcliff"
+	check(StoryArt.outfit_for("edda") == "travel", "driven from her seat, travelling clothes even in winter")
+	edda["residence"] = "ravensford"
+	# One of your captains falls: someone who knows you well wears mourning for three days.
+	var rel: Dictionary = w.social.get_relationship("edda")
+	var was_status := String(rel.get("status", ""))
+	var lost := [{"first": "Rowan", "hour": w.hour - 10.0}]
+	check(StoryArt.outfit_for("edda", w, lost) == "winter", "a stranger doesn't mourn your captain")
+	rel["status"] = "courting"
+	check(StoryArt.outfit_for("edda", w, lost) == "mourning", "someone you court wears mourning when a captain of yours falls")
+	check(StoryArt.outfit_for("edda", w, [{"first": "Rowan", "hour": w.hour - StoryArt.MOURNING_HOURS - 1.0}]) == "winter",
+		"for three days, no longer")
+	check(StoryArt.outfit_for("edda", w, [{"first": "Rowan", "battle": 2}]) == "winter", "a memorial from an older save, with no hour, isn't mourned again")
+	rel["status"] = was_status
+	w.hour = was_hour
+	# She speaks: every face has a twin with its mouth open, the same everywhere but her mouth.
+	var spoken := 0
+	var only_mouth := true
+	for who in ["edda", "farid", "kaede"]:
+		for face in [StoryArt.outfit_portrait(who, "neutral"), StoryArt.face_frame(StoryArt.outfit_portrait(who, "warm", "court"), "shut")]:
+			var said: Texture2D = StoryArt.talking(face)
+			if said == null or said == face or said.get_size() != face.get_size():
+				continue
+			spoken += 1
+			var a := (face as Texture2D).get_image().duplicate() as Image
+			var b := said.get_image().duplicate() as Image
+			a.clear_mipmaps()
+			b.clear_mipmaps()
+			var rect := StoryArt._scaled(StoryArt.MOUTH, a.get_size())
+			if a.get_region(rect).get_data() == b.get_region(rect).get_data():
+				only_mouth = false
+			b.blit_rect(a.get_region(rect), Rect2i(Vector2i.ZERO, rect.size), rect.position)
+			if a.get_data() != b.get_data():
+				only_mouth = false
+	check(spoken == 6, "a portrait, and its blinking face, each have a twin with the mouth open (%d of 6)" % spoken)
+	check(only_mouth, "which is the same picture everywhere but her mouth")
+	check(StoryArt.talking(StoryArt.outfit_portrait("edda", "neutral")) == StoryArt.talking(StoryArt.outfit_portrait("edda", "neutral")),
+		"made once and kept")
+	check(StoryArt.talking(ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))) == null, "a picture with no mouth strip has none")
+	var PortraitLife = load("res://scripts/ui/portrait_life.gd")
+	var life := {}
+	check(PortraitLife.attach(life, StoryArt.outfit_portrait("kaede", "neutral")), "a portrait comes alive")
+	var quiet: Dictionary = PortraitLife.step(life, 0.01)
+	var speaking: Dictionary = PortraitLife.step(life, 0.01, true)
+	check(speaking["texture"] != quiet["texture"] and PortraitLife.wears(life, speaking["texture"]),
+		"on a word it wears the open-mouthed twin of whatever face it had, and knows it for its own")
 	for f in ["edda_neutral.png", "face/edda_neutral.png", "small/edda_neutral.png", "small/face/edda_neutral.png"]:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(dir + "/" + f))
 	print("Portrait scale failures: %d" % failures)

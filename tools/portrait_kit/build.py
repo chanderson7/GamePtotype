@@ -38,10 +38,33 @@ WEDDING = ["neutral", "warm", "amused"]
 FRAMES = ["shut", "half", "soft", "away", "brow1", "brow2"]
 # The strip of the face that changes between those: x, y, width, height on the grid.
 # StoryArt.FACE says the same in portrait space (384x512: twice these).
-FACE_STRIP = (60, 60, 64, 34)
-# face.py, hair.py and what garb.py puts on her head are drawn with the chin 17 pixels above
-# the shoulders, as the lords are; a woman's neck is shorter, so her head sits this much lower.
-HEAD_DROP = 4
+FACE_STRIP = (58, 58, 68, 38)
+# The strip her mouth is in, saved once more with her mouth open on a word: StoryArt.MOUTH.
+MOUTH_STRIP = (72, 100, 40, 28)
+# How each holds herself. The head is drawn on one frame for all three (face.py), then set
+# `drop` pixels lower than the lords' (a woman's neck is shorter), leaned on its neck (`lean`:
+# pixels the crown moves to the viewer's left for each hundred of height, minus to the
+# right), and one shoulder is let down by `shoulder` pixels (plus: the near one).
+POSES = {
+    "edda": dict(drop=4, lean=4.5, shoulder=5),        # her head a little to one side, listening
+    "farid": dict(drop=2, lean=-3.0, shoulder=-4),     # upright, her chin lifted
+    "kaede": dict(drop=6, lean=2.0, shoulder=2),       # her head lowered a little, composed
+}
+NECK_Y = 135                                           # what the head leans about (as drawn, before the drop)
+
+
+def head_rows(who):
+    """How far each row of her head slides: nothing below the neck, more toward the crown."""
+    p = POSES[who]
+    return np.array([-int(round(max(0, NECK_Y + p["drop"] - y) * p["lean"] / 100.0)) for y in range(H)])
+
+
+def shoulder_cols(who):
+    """How far each column of her body is let down: nothing at one shoulder, most at the other."""
+    s = POSES[who]["shoulder"]
+    t = np.clip((np.arange(W) - 30) / 132.0, 0, 1)
+    return np.round(abs(s) * (t if s > 0 else 1 - t)).astype(int)
+
 
 PEOPLE = {
     # Each has marks of her own: Edda her freckles, Farah her kohl-lined eyes, Kaede a beauty
@@ -62,6 +85,13 @@ PEOPLE = {
         hair=hx("6e6672", "443c46", "2b252e", "1a161d", "0e0b11", "0a080c"), iris="dark"),
 }
 
+# A hand in the frame for one expression each: what it does, and where in the finished picture.
+HANDS = {
+    "edda": {"thoughtful": ("chin", (107, 131))},
+    "farid": {"warm": ("heart", (99, 190))},
+    "kaede": {"thoughtful": ("brush", (116, 142))},
+}
+
 # What each expression does with her eyes (lid, gaze, cheek), her brows (far, near) and mouth.
 MOODS = {
     "neutral":    dict(lid=0.0, brows=("rest", "rest"), mouth="rest"),
@@ -77,9 +107,9 @@ def outfits():
         return json.load(f)
 
 
-def features(who, mood, frame=None):
+def features(who, mood, frame=None, say=False):
     """Her eyes, brows, nose and mouth for an expression; `frame` is one of FRAMES, or None
-    for the expression as it rests."""
+    for the expression as it rests; `say`: her mouth open on a word."""
     p = PEOPLE[who]
     m = MOODS[mood]
     lid, gaze, cheek = m.get("lid", 0.0), m.get("gaze", (0.0, 0.0)), m.get("cheek", 0.0)
@@ -99,12 +129,29 @@ def features(who, mood, frame=None):
     kohl = p.get("kohl", False)
     made = [F.eye("far", p["eye"], lid, gaze, cheek, kohl), F.eye("near", p["eye"], lid, gaze, cheek, kohl),
             F.brow("far", p["brow"], m["brows"][0], lift), F.brow("near", p["brow"], m["brows"][1], lift),
-            F.nose(p["nose"]), F.mouth(p["mouth"], m["mouth"])]
-    return [cv.moved(HEAD_DROP) for cv in made]
+            F.nose(p["nose"]), F.mouth(p["mouth"], m["mouth"], say)]
+    return [posed_head(who, cv) for cv in made]
 
 
-def lowered(cv):
-    return cv.moved(HEAD_DROP) if cv is not None else None
+def outside(mask):
+    """Everything a shape doesn't enclose: what can be reached from the picture's edge without crossing it."""
+    out = np.zeros((H, W), bool)
+    out[0, :] = out[-1, :] = out[:, 0] = out[:, -1] = True
+    out &= ~mask
+    while True:
+        more = grow(out, 1) & ~mask
+        if (more == out).all():
+            return out
+        out = more
+
+
+def posed_head(who, cv):
+    """A layer drawn on the head's frame, set where she holds her head."""
+    return cv.moved(POSES[who]["drop"]).warped(rows=head_rows(who)) if cv is not None else None
+
+
+def posed_body(who, cv):
+    return cv.warped(cols=shoulder_cols(who)) if cv is not None else None
 
 
 class Figure:
@@ -113,22 +160,31 @@ class Figure:
     def __init__(self, who, outfit):
         p = PEOPLE[who]
         self.who = who
+        self.hands = {}
+        self.bare = not outfit.get("pieces")          # the template: no clothes, no hands
         self.pal = palette(p["skin"], p["hair"], p["iris"])
         self.outfit = G.dress(outfit.get("pieces", []), np.random.default_rng(11), os.path.join(RIG, who, "layers"))
         o = self.outfit
-        back, front, loose = Hr.STYLES[who](np.random.default_rng(7), unbound=outfit.get("hair") == "unbound",
-                                            ribbon=outfit.get("ribbon", "teal"))
+        back, front, loose = Hr.STYLES[who](np.random.default_rng(7), ribbon_cloth=outfit.get("ribbon", "teal"))
         if o.covers_hair:
             back, loose = None, None
+        if o.hooded:
+            back = None
+            if loose is not None:
+                loose.erase(YY < 150)                 # under a hood only what falls below it shows
+            front.erase(outside(o.hat.on))            # and none of her crown shows round it
         pin = None
-        if who == "kaede" and not o.covers_hair:
+        covered = o.covers_hair or o.hooded
+        if who == "kaede" and not covered:
             pin = Hr.pin(*(o.pin or ("wood", "jade", None)))
-        elif o.pin and not o.covers_hair:
+        elif o.pin and not covered:
             pin = Hr.pin(*o.pin)
         blush = 1.0 if outfit.get("blush") else 0.9
-        self.under = [lowered(o.far_back), lowered(back), o.back, F.neck(chin=125 + HEAD_DROP), o.cv,
-                      lowered(F.head(p["head"], freckles=p["freckles"], blush=blush, mole=p.get("mole")))]
-        self.over = [lowered(c) for c in (front, F.ear(p["head"], o.earring), loose, o.hat, pin)]
+        chin = F.rows_of(p["head"])[2]
+        head = F.head(p["head"], freckles=p["freckles"], blush=blush, mole=p.get("mole"))
+        self.under = [posed_head(who, o.far_back), posed_head(who, back), posed_body(who, o.back),
+                      posed_body(who, F.neck(chin=chin + POSES[who]["drop"])), posed_body(who, o.cv), posed_head(who, head)]
+        self.over = [posed_head(who, c) for c in (front, F.ear(p["head"], o.earring), loose, o.hat, pin)]
         # what swings as her head moves: loose strands (their tips most) and a veil's fall
         sway = o.sway.copy()
         if loose is not None:
@@ -136,10 +192,16 @@ class Figure:
             if len(ys):
                 top = ys.min()
                 sway = np.maximum(sway, np.where(loose.on, np.clip((YY - top) / max(30.0, (ys.max() - top) * 0.8), 0.15, 1.0), 0))
-        self.sway = shift(sway, HEAD_DROP, 0, 0.0)
+        self.sway = warp(shift(sway, POSES[who]["drop"], 0, 0.0), rows=head_rows(who), fill=0.0)
 
-    def picture(self, mood, frame=None):
-        out, _ = compose(self.under + features(self.who, mood, frame) + self.over, self.pal)
+    def picture(self, mood, frame=None, say=False):
+        layers = self.under + features(self.who, mood, frame, say) + self.over
+        if mood in HANDS.get(self.who, {}) and not self.bare:
+            if mood not in self.hands:
+                kind, at = HANDS[self.who][mood]
+                self.hands[mood] = G.hand(kind, self.outfit, at)
+            layers = layers + [self.hands[mood]]
+        out, _ = compose(layers, self.pal)
         return out
 
 
@@ -151,11 +213,23 @@ def game_name(who, outfit_name, expression):
     return "%s_%s.png" % (who, expression) if outfit_name == "everyday" else "%s_%s_%s.png" % (who, outfit_name, expression)
 
 
+def strip_of(pic, rest, rect, what):
+    """The part of `pic` inside `rect`; nothing else of it may differ from `rest`."""
+    x, y, w, h = rect
+    outside = np.any(pic != rest, axis=-1)
+    outside[y:y + h, x:x + w] = False
+    if outside.any():
+        ys, xs = np.where(outside)
+        raise SystemExit("%s changes outside its strip, at %d..%d, %d..%d" % (what, xs.min(), xs.max(), ys.min(), ys.max()))
+    return pic[y:y + h, x:x + w]
+
+
 def render():
-    """Every portrait the game shows, its face strips and its sway map."""
+    """Every portrait the game shows, with its face strips, its open mouth and its sway map."""
     data = outfits()
     x, y, w, h = FACE_STRIP
-    os.makedirs(os.path.join(GAME, "face"), exist_ok=True)
+    for sub in ("face", "mouth"):
+        os.makedirs(os.path.join(GAME, sub), exist_ok=True)
     for who in WHO:
         for outfit_name in data["_game"] + ["wedding"]:
             fig = Figure(who, data[who][outfit_name])
@@ -165,15 +239,12 @@ def render():
                 big(rest).save(os.path.join(GAME, name), optimize=True)
                 strips = np.zeros((h * len(FRAMES), w, 4), np.uint8)
                 for i, frame in enumerate(FRAMES):
-                    pic = fig.picture(mood, frame)
-                    changed = np.any(pic != rest, axis=-1)
-                    outside = changed.copy()
-                    outside[y:y + h, x:x + w] = False
-                    if outside.any():
-                        raise SystemExit("%s %s: the %s face changes outside FACE_STRIP" % (name, mood, frame))
-                    strips[h * i:h * (i + 1)] = pic[y:y + h, x:x + w]
+                    strips[h * i:h * (i + 1)] = strip_of(fig.picture(mood, frame), rest, FACE_STRIP, "%s, %s" % (name, frame))
                 Image.fromarray(strips, "RGBA").resize((w * SCALE, h * SCALE * len(FRAMES)), Image.NEAREST).save(
                     os.path.join(GAME, "face", name), optimize=True)
+                said = strip_of(fig.picture(mood, say=True), rest, MOUTH_STRIP, "%s, speaking" % name)
+                Image.fromarray(said, "RGBA").resize((MOUTH_STRIP[2] * SCALE, MOUTH_STRIP[3] * SCALE), Image.NEAREST).save(
+                    os.path.join(GAME, "mouth", name), optimize=True)
                 print("drew", name)
             hair_name = {"everyday": "%s_hair.png" % who}.get(outfit_name, "%s_%s_hair.png" % (who, outfit_name))
             Image.fromarray(np.round(fig.sway * 255).astype(np.uint8), "L").resize((W * 2, H * 2), Image.BILINEAR).save(
@@ -196,15 +267,16 @@ def sheet(path, scale=3, mood="neutral"):
 
 
 def faces(path, scale=3):
-    """Each woman's five expressions, then the six faces of her neutral one."""
+    """Each woman's five expressions, the six faces of her neutral one, then speaking (neutral, warm)."""
     data = outfits()
     crop = (40, 14, 160, 150)
     cw, ch = (crop[2] - crop[0]) * scale, (crop[3] - crop[1]) * scale
-    cols = len(EXPRESSIONS) + len(FRAMES)
+    cols = len(EXPRESSIONS) + len(FRAMES) + 2
     out = Image.new("RGBA", (cols * (cw + 6) + 6, len(WHO) * (ch + 6) + 6), (34, 30, 38, 255))
     for r, who in enumerate(WHO):
         fig = Figure(who, data[who]["everyday"])
-        pics = [fig.picture(m) for m in EXPRESSIONS] + [fig.picture("neutral", f) for f in FRAMES]
+        pics = [fig.picture(m) for m in EXPRESSIONS] + [fig.picture("neutral", f) for f in FRAMES] + \
+            [fig.picture(m, say=True) for m in ("neutral", "warm")]
         for c, pic in enumerate(pics):
             im = Image.fromarray(pic, "RGBA").crop(crop).resize((cw, ch), Image.NEAREST)
             out.alpha_composite(im, (6 + c * (cw + 6), 6 + r * (ch + 6)))
@@ -221,8 +293,8 @@ def template(who):
         (255, 60, 60): [(46, 154), (146, 154), (29, 168), (163, 168)],      # shoulders
         (255, 255, 255): [(80, 142), (112, 142)],                           # the base of the neck
         (60, 140, 255): [(96, 176)],                                        # the breastbone
-        (60, 220, 90): [(133, 99 + HEAD_DROP)],                             # the near ear's lobe
-        (255, 220, 40): [(x, int(round(51 + HEAD_DROP + 0.012 * (x - 97) ** 2))) for x in range(72, 123, 5)],   # the hairline
+        (60, 220, 90): [(133, 99 + POSES[who]["drop"])],                     # the near ear's lobe
+        (255, 220, 40): [(x, int(round(51 + POSES[who]["drop"] + 0.012 * (x - 97) ** 2))) for x in range(72, 123, 5)],   # the hairline
         (0, 220, 220): [(x, 244) for x in range(24, 170, 4)],               # the waist
     }
     for colour, points in marks.items():

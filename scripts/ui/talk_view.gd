@@ -161,7 +161,7 @@ func _live(side: String, delta: float) -> void:
 	var face: TextureRect = f["node"]
 	if face == null or not is_instance_valid(face) or not PortraitLife.wears(f, face.texture):
 		return
-	var now := PortraitLife.step(f, delta)
+	var now := PortraitLife.step(f, delta, _mouth_moves(f, delta))
 	if now["texture"] != null and face.texture != now["texture"]:
 		face.texture = now["texture"]
 	PortraitLife.pose(face, now)

@@ -98,6 +98,16 @@ class Canvas:
         out.lined, out.nparts = dict(self.lined), self.nparts
         return out
 
+    def warped(self, rows=None, cols=None):
+        """This layer with each row slid sideways by rows[y] pixels and each column slid down
+        by cols[x]: whole pixels move together, so nothing is redrawn or blurred. A pose is
+        made of these (a head leaning on its neck, a shoulder let down)."""
+        out = Canvas()
+        out.lined, out.nparts = dict(self.lined), self.nparts
+        for name, fill in (("mat", 0), ("tone", 0), ("flag", 0), ("part", 0), ("on", False)):
+            setattr(out, name, warp(getattr(self, name), rows, cols, fill))
+        return out
+
     def lines(self):
         """Where one part of this layer lies over an earlier part, it takes a line on its own side."""
         line = np.zeros((H, W), bool)
@@ -114,6 +124,33 @@ def shift(a, dy, dx, fill):
     ys = slice(max(dy, 0), h + min(dy, 0)); yd = slice(max(-dy, 0), h + min(-dy, 0))
     xs = slice(max(dx, 0), w + min(dx, 0)); xd = slice(max(-dx, 0), w + min(-dx, 0))
     out[ys, xs] = a[yd, xd]
+    return out
+
+
+def warp(a, rows=None, cols=None, fill=0):
+    """`a` with row y slid right by rows[y] and column x slid down by cols[x] (whole pixels)."""
+    out = a
+    if rows is not None:
+        out = np.full_like(a, fill)
+        for y in range(H):
+            dx = int(rows[y])
+            if dx == 0:
+                out[y] = a[y]
+            elif dx > 0:
+                out[y, dx:] = a[y, :W - dx]
+            else:
+                out[y, :W + dx] = a[y, -dx:]
+        a = out
+    if cols is not None:
+        out = np.full_like(a, fill)
+        for x in range(W):
+            dy = int(cols[x])
+            if dy == 0:
+                out[:, x] = a[:, x]
+            elif dy > 0:
+                out[dy:, x] = a[:H - dy, x]
+            else:
+                out[:H + dy, x] = a[-dy:, x]
     return out
 
 
@@ -151,11 +188,14 @@ def compose(layers, pal, rim=True):
         mat[on] = cv.mat[on]; tone[on] = t[on]; flag[on] = cv.flag[on]; layer[on] = li
     drawn = layer >= 0
     line = np.zeros((H, W), bool)
+    hair = mat_id("hair")
     for dy, dx in ((0, 1), (1, 0), (0, -1), (-1, 0)):
         nl = shift(layer, dy, dx, -1)
         if dy < 0:
             nl[H - 1, :] = layer[H - 1, :]     # the frame's bottom edge cuts the figure; no line there
-        line |= drawn & ((nl < 0) | (nl < layer))
+        # hair lying over hair takes no line: its locks are parted by their own shade
+        on_hair = (mat == hair) & (shift(mat, dy, dx, 0) == hair) & (nl >= 0)
+        line |= drawn & ((nl < 0) | ((nl < layer) & ~on_hair))
     line &= (flag & NO_LINE) == 0
     tone = np.where(line, LINE, tone)
     if rim:

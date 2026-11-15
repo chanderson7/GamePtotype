@@ -17,12 +17,15 @@ MOUTH_X = 90.0
 
 HEADS = {
     # rows: (y, half-width left (far side), half-width right (near side)); chin row last
+    # a longer oval, slim through the jaw
     "oval":  [(27, 14.5, 17.5), (32, 23, 26.5), (38, 28, 31), (45, 30.5, 33.5), (58, 31.5, 34.5), (74, 31.5, 34.5),
-              (86, 30, 33.5), (96, 27, 31), (106, 22.5, 27), (114, 17.5, 21.5), (120, 12.5, 15), (123, 9, 10.5), (125, 5.5, 7)],
+              (86, 29.5, 33), (96, 26, 30), (106, 21, 25.5), (114, 16, 20), (120, 11.5, 14), (124, 7.5, 9), (127, 4, 5.5)],
+    # wide at the cheekbones, a pointed chin
     "heart": [(27, 14.5, 17.5), (32, 23, 26.5), (38, 28, 31), (45, 30.5, 33.5), (58, 31.5, 34.5), (74, 31.5, 34.5),
-              (86, 29.5, 33), (96, 26, 30.5), (106, 21, 25.5), (114, 16, 19.5), (120, 11.5, 13.5), (123, 8, 9.5), (125, 5, 6)],
+              (86, 29, 32.5), (96, 25, 29.5), (106, 19.5, 24), (114, 14, 17.5), (120, 9.5, 11.5), (123, 6.5, 8), (125, 4, 5)],
+    # a fuller face, a broad firm jaw
     "full":  [(27, 14.5, 17.5), (32, 23, 26.5), (38, 28, 31), (45, 30.5, 33.5), (58, 31.5, 34.5), (74, 31.5, 34.5),
-              (86, 30.5, 34), (96, 28.5, 32.5), (106, 24.5, 28.5), (114, 19.5, 23), (120, 14.5, 17), (123, 10.5, 12), (125, 6.5, 8)],
+              (86, 30.5, 34), (96, 29, 33), (106, 25.5, 29.5), (114, 21, 24.5), (120, 16, 18.5), (123, 12, 13.5), (125, 8, 9.5)],
 }
 
 
@@ -417,17 +420,20 @@ MOUTH_MOODS = {
 }
 
 
-def mouth(style, mood="rest"):
+def mouth(style, mood="rest", say=False):
+    """Her mouth in a mood. With `say`, the same mouth open on a word: the lips parted most in
+    the middle, dark between them, her teeth showing if she's smiling."""
     cv = Canvas()
     F = NO_LINE
     m = MOUTHS[style]
     md = MOUTH_MOODS[mood]
     mx, my = int(round(MOUTH_X)), MOUTH_Y
-    hw = int(round(m["hw"] + md.get("wide", 0)))
-    press = md.get("press", 0.0)
+    hw = int(round(m["hw"] + md.get("wide", 0) - (1 if say else 0)))
+    press = 0.0 if say else md.get("press", 0.0)
     up, low = m["up"] * (1 - press * 0.5), m["low"] * (1 - press * 0.35)
     part = md.get("part", 0)
     smile = md.get("curve", 0) < -1.2
+    teeth = md.get("curve", 0) < -0.4 or md.get("near", 0) < -1
 
     def px(x, y, mat, tone):
         cv.px(x, y, mat, tone, flag=F)
@@ -440,9 +446,16 @@ def mouth(style, mood="rest"):
         # a smile dips a little in the middle of the lips
         return my + lift + (0.5 if smile and abs(t) < 0.35 else 0.0)
 
+    def gap(dx):
+        """How far the lips are apart at this column."""
+        if say:
+            return int(round(3.0 * max(0.0, 1 - (abs(dx) / (hw - 1.0)) ** 2.0))) if abs(dx) < hw - 1 else 0
+        return part if abs(dx) < hw - 1 else 0
+
     for dx in range(-hw, hw + 1):
         t = abs(dx) / hw
-        ly = int(round(line_y(dx)))
+        ly = int(round(line_y(dx))) - (1 if say and abs(dx) < hw - 2 else 0)
+        g = gap(dx)
         # upper lip: a bow, dipped in the middle, tapering to the corners; it faces down, so darker
         tu = up * (1 - t ** 1.7)
         if abs(dx) <= 1:
@@ -455,7 +468,7 @@ def mouth(style, mood="rest"):
         # lower lip: fuller in the middle, lit on the far side
         tl = int(round(max(0, low * (1 - t ** 2.4) - (0.6 if t > 0.75 else 0))))
         for k in range(1, tl + 1):
-            yy = ly + part + k
+            yy = ly + g + k
             tone = 2
             if dx > hw * 0.35:
                 tone = 3
@@ -465,19 +478,19 @@ def mouth(style, mood="rest"):
                 tone = min(tone + 1, 3)
             px(mx + dx, yy, "lip", tone)
         # between the lips
-        if part and abs(dx) < hw - 1:
-            for k in range(part):
-                if smile:
+        if g:
+            for k in range(g):
+                if (smile or (say and teeth)) and k == 0:
                     px(mx + dx, ly + k, "white", 1 if dx < hw * 0.3 else 2)
                 else:
                     px(mx + dx, ly + k, "ink", 2)
-            px(mx + dx, ly + part, "lip", 4)
-            if smile:
-                px(mx + dx, ly - 0, "white", 1 if dx < hw * 0.3 else 2)
+            px(mx + dx, ly + g, "lip", 4)
+            if smile and not say:
+                px(mx + dx, ly, "white", 1 if dx < hw * 0.3 else 2)
         else:
             px(mx + dx, ly, "lip", 4)
     # the light on the lower lip
-    hy = int(round(line_y(-2))) + part + 2
+    hy = int(round(line_y(-2))) + gap(-2) + 2
     px(mx - 3, hy, "lip", 0); px(mx - 2, hy, "lip", 0)
     # corners: a dimple of shade, and the cheek's crease in a smile
     for sgn in (-1, 1):
@@ -490,9 +503,9 @@ def mouth(style, mood="rest"):
         if md.get("curve", 0) > 0.5:
             px(mx + sgn * (hw + 1), cy + 1, "skin", 3)
     # the shadow under the lower lip, and the groove above the upper
-    base = int(round(line_y(0))) + part + int(round(low)) + 1
+    base = int(round(line_y(0))) + gap(0) + int(round(low)) + 1
     for dx in range(-4, 5):
         px(mx + dx, base + (0 if abs(dx) < 3 else -1), "skin", 3)
-    top = int(round(line_y(0))) - int(round(up)) - 1
+    top = int(round(line_y(0))) - int(round(up)) - 1 - (1 if say else 0)
     px(mx - 2, top, "skin", 3); px(mx + 2, top, "skin", 3); px(mx - 2, top - 1, "skin", 3); px(mx + 2, top - 1, "skin", 3)
     return cv

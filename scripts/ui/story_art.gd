@@ -6,31 +6,37 @@ const RomanceStories = preload("res://scripts/data/romance_stories.gd")
 const EXPRESSIONS := ["neutral", "amused", "thoughtful", "concerned", "warm"]
 ## Her outfits besides what she wears every day (assets/portraits/<who>_<outfit>_<expression>.png,
 ## drawn by tools/portrait_kit).
-const OUTFITS := ["court", "travel"]
+const OUTFITS := ["court", "travel", "winter", "mourning"]
 static var _textures: Dictionary = {}
 ## The strip of a romance portrait its eyes and brows are in. tools/portrait_kit/build.py
 ## saves that strip once per face it draws for each portrait (FRAMES, stacked in that
 ## order), and must say the same (FACE_STRIP there, on its own grid). In portrait space: a
 ## picture PICTURE in size, or a whole multiple of it (the portraits are 768x1024, so their
 ## strips are twice this: face_rect).
-const FACE := Rect2i(120, 120, 128, 68)
+const FACE := Rect2i(116, 116, 136, 76)
+## The strip her mouth is in: saved once more with her mouth open on a word
+## (assets/portraits/mouth/, MOUTH_STRIP in the kit), for when she speaks (talking).
+const MOUTH := Rect2i(144, 200, 80, 56)
 ## A portrait's size in portrait space, which the life shader and HEADS work in.
 const PICTURE := Vector2i(384, 512)
 const FRAMES := ["shut", "half", "soft", "away", "brow1", "brow2"]
 ## How long a blink keeps the eyes shut.
 const BLINK_TIME := 0.13
 ## Where each character's head sits, for assets/shaders/portrait_life.gdshader: the neck
-## (chin, collar), what the head turns about, and the front of the face. The three are
-## drawn on one frame (tools/portrait_kit/face.py), so they share it.
+## (chin, collar), what the head turns about, and the front of the face. Each holds her
+## head at her own height (POSES in tools/portrait_kit/build.py).
 const HEADS := {
-	"edda": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(176, 188)},
-	"farid": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(176, 188)},
-	"kaede": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(176, 188)},
+	"edda": {"chin": 258.0, "collar": 288.0, "pivot": Vector2(194, 284), "front": Vector2(172, 188)},
+	"farid": {"chin": 254.0, "collar": 286.0, "pivot": Vector2(194, 282), "front": Vector2(178, 184)},
+	"kaede": {"chin": 266.0, "collar": 292.0, "pivot": Vector2(194, 288), "front": Vector2(175, 192)},
 }
 const LIFE_SHADER := "res://assets/shaders/portrait_life.gdshader"
 ## Path of each texture handed out, by instance id; and the faces made for a path.
 static var _paths: Dictionary = {}
 static var _frames: Dictionary = {}
+## The portrait each made face came from, and each face's twin with its mouth open.
+static var _sources: Dictionary = {}
+static var _talking: Dictionary = {}
 
 static func texture(path: String) -> Texture2D:
 	if not Style.illustrations_on() or path.is_empty():
@@ -112,6 +118,38 @@ static func _make_frames(path: String) -> Dictionary:
 		if mipmapped:
 			face.generate_mipmaps()
 		made[FRAMES[i]] = ImageTexture.create_from_image(face)
+		_sources[(made[FRAMES[i]] as Texture2D).get_instance_id()] = path
+	return made
+
+
+## `tex` (a romance portrait from texture(), or one of its faces from face_frame()) with
+## her mouth open on a word, or null if it has none. Made the first time it's asked for:
+## the portrait's mouth strip (assets/portraits/mouth/) laid over that face.
+static func talking(tex: Texture2D) -> Texture2D:
+	if tex == null:
+		return null
+	var id := tex.get_instance_id()
+	if _talking.has(id):
+		return _talking[id]
+	var made: Texture2D = null
+	var path := String(_paths.get(id, _sources.get(id, "")))
+	var img := tex.get_image() if not path.is_empty() else null
+	if img != null and not img.is_empty():
+		var strip := _image("%s/mouth/%s" % [path.get_base_dir(), path.get_file()])
+		var rect := _scaled(MOUTH, img.get_size())
+		if strip != null and rect.size != Vector2i.ZERO and strip.get_size() == rect.size:
+			img = img.duplicate() as Image
+			var mipmapped := img.has_mipmaps()
+			if mipmapped:
+				img.clear_mipmaps()
+			if img.is_compressed():
+				img.decompress()
+			img.convert(Image.FORMAT_RGBA8)
+			img.blit_rect(strip, Rect2i(Vector2i.ZERO, rect.size), rect.position)
+			if mipmapped:
+				img.generate_mipmaps()
+			made = ImageTexture.create_from_image(img)
+	_talking[id] = made
 	return made
 
 
@@ -119,10 +157,16 @@ static func _make_frames(path: String) -> Dictionary:
 ## than PICTURE the painting is. Nothing (a zero rect) for a painting that isn't a whole
 ## multiple of PICTURE.
 static func face_rect(size: Vector2i) -> Rect2i:
+	return _scaled(FACE, size)
+
+
+## `rect` (in portrait space) on a picture `size` pixels big; a zero rect for a picture that
+## isn't a whole multiple of PICTURE.
+static func _scaled(rect: Rect2i, size: Vector2i) -> Rect2i:
 	if size.x % PICTURE.x != 0 or size.y % PICTURE.y != 0 or size.x / PICTURE.x != size.y / PICTURE.y or size.x == 0:
 		return Rect2i()
 	var k := size.x / PICTURE.x
-	return Rect2i(FACE.position * k, FACE.size * k)
+	return Rect2i(rect.position * k, rect.size * k)
 
 
 ## Whose painting `tex` is ("edda", "farid", "kaede"), or "".
@@ -159,16 +203,38 @@ static func outfit_portrait(candidate_id: String, expression: String, outfit: St
 	return null
 
 
-## What she's wearing: court dress in the hall of a feast that's on where you are (she's
-## among its guests), travelling clothes once she's been driven from her own seat and
-## lives out of what she carried, and otherwise her everyday clothes (""). The talks are
-## in her own room, so where you are matters only at a feast. `w` is the world (the
-## game's own if left out).
-static func outfit_for(candidate_id: String, w = null) -> String:
-	if w == null:
+## The year, for what she wears: YEAR_DAYS long, four seasons of equal length beginning
+## with spring on the campaign's first day.
+const YEAR_DAYS := 96
+const SEASONS := ["spring", "summer", "autumn", "winter"]
+## How long she wears mourning after one of your captains falls (hours), and who does:
+## someone who has come to know you.
+const MOURNING_HOURS := 72.0
+const MOURNERS := ["courting", "committed", "engaged", "married", "friendship"]
+
+
+## The season at `hour` of the campaign.
+static func season(hour: float) -> String:
+	var day := int(floor(maxf(hour, 0.0) / 24.0)) % YEAR_DAYS
+	return SEASONS[day * SEASONS.size() / YEAR_DAYS]
+
+
+## What she's wearing, the first of these that holds:
+## - court dress in the hall of a feast that's on where you are (she's among its guests);
+## - mourning for MOURNING_HOURS after one of your captains falls, once she knows you well;
+## - travelling clothes once she's been driven from her own seat;
+## - winter clothes in winter;
+## - otherwise her everyday clothes ("").
+## The talks are in her own room, so where you are matters only at a feast. `w` is the
+## world and `fallen` your memorials (the game's own if left out).
+static func outfit_for(candidate_id: String, w = null, fallen = null) -> String:
+	if w == null or fallen == null:
 		var tree := Engine.get_main_loop() as SceneTree
 		var gs: Node = tree.root.get_node_or_null("GameState") if tree != null else null
-		w = gs.get("world") if gs != null else null
+		if w == null:
+			w = gs.get("world") if gs != null else null
+		if fallen == null:
+			fallen = gs.get("fallen") if gs != null else []
 	if w == null or w.social == null:
 		return ""
 	var person: Dictionary = w.social.get_candidate_person(candidate_id)
@@ -179,9 +245,16 @@ static func outfit_for(candidate_id: String, w = null) -> String:
 	if not g.is_empty() and w.gathering_on(g) \
 			and w.social.attending(here, w.lords_at(here), String(g.get("realm", w.owner_of(here)))).has(person):
 		return "court"
+	if MOURNERS.has(String(w.social.get_relationship(candidate_id).get("status", ""))):
+		for m in (fallen if fallen is Array else []):
+			var at := float((m as Dictionary).get("hour", -1.0)) if m is Dictionary else -1.0
+			if at >= 0.0 and float(w.hour) - at >= 0.0 and float(w.hour) - at < MOURNING_HOURS:
+				return "mourning"
 	var seat := String(RomanceStories.CANDIDATES.get(candidate_id, {}).get("initial_seat", ""))
 	var home := String(person.get("residence", ""))
-	return "travel" if seat != "" and home != "" and home != seat else ""
+	if seat != "" and home != "" and home != seat:
+		return "travel"
+	return "winter" if season(float(w.hour)) == "winter" else ""
 
 
 ## A material that lets the head and loose hair of `who`'s painting move

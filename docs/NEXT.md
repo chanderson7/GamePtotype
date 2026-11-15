@@ -163,19 +163,26 @@ by lock, cloth with folds, patterns and trims.
   tools that worked from them (`portrait_rig`, `portrait_wardrobe`, `portrait_faces`,
   `portrait_wedding`) are gone.
 
-What sets them apart from the lords, in the same style: a second, fainter light from behind
-on the right; marks of their own (Edda's freckles, Farah's kohl, Kaede's beauty mark and red
-lips); glints and loose strands in the hair (Edda's is parted, swept, plaited over the crown
-and knotted with a ribbon); and something of each one's work (keys, a seal, a brush).
+What sets them apart from the lords, in the same style:
+- hair that flows (large tapered locks with sheen; Edda's waves and ribboned plait, Farah's
+  ringlets, Kaede's straight hair under a top knot), and swings with her head;
+- a pose each (head lean and height, a shoulder let down, her own jaw);
+- a hand in frame for one expression each (Edda's at her chin, Farah's at her heart,
+  Kaede holding a brush);
+- mouths that open on the words while a line is written (`StoryArt.talking`, the strips
+  in `assets/portraits/mouth/`);
+- a second, fainter light; marks of their own (freckles, kohl, a beauty mark and red
+  lips); and something of each one's work (keys, a seal, a brush);
+- winter and mourning dress: `StoryArt.outfit_for` now also follows the season
+  (`StoryArt.season`: a 96-day year from the campaign's first day, winter its last quarter)
+  and a captain of yours fallen in the last three days (memorials now keep their hour).
 
-Next, to set them further apart:
-- Mouths that move when they speak, as the lords' do (a mouth strip beside the eye strip).
-- The three share one head pose and outline; give each her own jaw, tilt and shoulders.
-- A hand in frame for one expression each (Edda's at her keys, Kaede's with her brush).
-- Kaede's crossed collars are simple.
-- The trailer and the app preview (neither committed) were cut with the old paintings:
-  record them again (`tools/store/preview.sh`). The store's wedding screenshot is remade.
-- More outfits (mourning, a riding habit, a winter cloak with the hood up).
+Next:
+- Nothing else follows the seasons yet (the map, the rooms, what people say).
+- The pose is made by sliding rows and columns, so a head can lean but not turn; a turned
+  shoulder or a three-quarter body would need the clothes redrawn.
+- The trailer and the app preview (neither committed) were cut with older portraits.
+- More outfits (a riding habit, a festival dress).
 
 Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14), still failing:
 - Kharzani v Ryumon trained armies 29–71 (gate 35–65; it was 38–62 before).
