@@ -353,6 +353,8 @@ static func location(id: String, height: float = 230.0) -> TextureRect:
 	if id in ["ravensford", "common_room", "company_camp", "qasr_hamra", "envoy_room", "kitayama", "archive_room"]:
 		node.texture = texture("res://assets/locations/%s.png" % id)
 	node.visible = node.texture != null
+	if id == "company_camp" and node.texture != null:
+		load("res://scripts/ui/camp_life.gd").over(node)
 	return node
 
 static func identity(candidate_id: String = "edda", expression: String = "neutral") -> HBoxContainer:

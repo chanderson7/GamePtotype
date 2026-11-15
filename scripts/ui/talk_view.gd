@@ -8,6 +8,7 @@ const Style = preload("res://scripts/ui/style.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
 const PortraitLife = preload("res://scripts/ui/portrait_life.gd")
+const CampLife = preload("res://scripts/ui/camp_life.gd")
 
 const STAGE_SHARE := 0.46
 
@@ -443,7 +444,10 @@ static func room(id: String, when: String) -> TextureRect:
 	art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	art.modulate = Color.WHITE if id in DRAWN_AT_NIGHT else \
 		{"night": Color(0.5, 0.54, 0.78), "dusk": Color(1.0, 0.82, 0.68), "morning": Color(1.0, 0.96, 0.92)}.get(when, Color.WHITE)
-	if when in ["dusk", "night"]:
+	# The camp is painted at night by its fire, whatever the hour: the fire always burns.
+	if id == "company_camp":
+		CampLife.over(art)
+	elif when in ["dusk", "night"]:
 		art.add_child(firelight())
 	return art
 

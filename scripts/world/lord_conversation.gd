@@ -20,6 +20,7 @@ const Troops = preload("res://scripts/data/troops.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const HallScene = preload("res://scripts/ui/hall_scene.gd")
+const CampLife = preload("res://scripts/ui/camp_life.gd")
 const TalkView = preload("res://scripts/ui/talk_view.gd")
 const Feeling = preload("res://scripts/data/feeling.gd")
 
@@ -250,9 +251,9 @@ func _build_stage() -> void:
 		art.modulate = Color.WHITE if id in TalkView.DRAWN_AT_NIGHT else \
 			{"night": Color(0.42, 0.47, 0.72), "dusk": Color(1.0, 0.78, 0.62), "morning": Color(1.0, 0.95, 0.9)}.get(when, Color.WHITE)
 		_backdrop = art
-		# The camp's fire after dark.
-		if id == "company_camp" and when in ["dusk", "night"]:
-			art.add_child(TalkView.firelight())
+		# The camp is painted at night by its fire, whatever the hour: the fire always burns.
+		if id == "company_camp":
+			CampLife.over(art)
 	elif Data.SETTLEMENTS.has(id):
 		var p := SettlementScene.params(world, id)
 		p["night"] = when == "night"
