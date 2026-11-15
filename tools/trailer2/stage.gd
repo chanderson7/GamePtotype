@@ -99,6 +99,12 @@ var scenes
 var shot := ""
 var cfg := {}
 var probe := false
+## Recording a wide shot upright (shoot.sh with SHAPE=tall): the cameras zoom so a soldier,
+## or the map, is the same size on screen as in the wide shot. The upright window shows the
+## game's canvas at 1.5 times, the wide one at 0.84; the battle's fit differs too.
+var tall := false
+const TALL_FIELD := 2.0 / 3.0
+const TALL_MAP := 0.75
 
 
 func _init() -> void:
@@ -106,6 +112,8 @@ func _init() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			shot = a.substr(7)
+		elif a == "--tall":
+			tall = true
 		elif a == "--probe":
 			probe = true
 		elif a == "--list":
@@ -171,7 +179,7 @@ func _begin() -> void:
 			map._close_sheet()
 			var chart := Chart.new()
 			chart.screen = map
-			chart.plan = cfg.get("lens", {})
+			chart.plan = _upright((cfg.get("lens", {}) as Dictionary).duplicate(), ["scale", "scale_to"], TALL_MAP)
 			map.add_child(chart)
 		"talk":
 			_campaign()
@@ -333,6 +341,15 @@ func _muster() -> void:
 
 ## The computer commands your side as well as theirs. The battle starts at once; "order_at"
 ## hands the army back and presses Advance all at that second of the fight.
+## A camera's plan with its zoom (or scale) keys multiplied by `k` when recording upright.
+func _upright(plan: Dictionary, keys: Array, k: float) -> Dictionary:
+	if tall:
+		for key in keys:
+			if plan.has(key):
+				plan[key] = float(plan[key]) * k
+	return plan
+
+
 func _fight(screen) -> void:
 	var sim = screen.sim
 	sim.ai[Sim.PLAYER] = Commander.new(Sim.PLAYER, String(cfg.get("ours", "Hammer")))
@@ -342,7 +359,7 @@ func _fight(screen) -> void:
 	if cfg.has("lens") and not bool(cfg.get("hud", false)):
 		lens = Lens.new()
 		lens.screen = screen
-		lens.plan = cfg["lens"]
+		lens.plan = _upright((cfg["lens"] as Dictionary).duplicate(), ["zoom", "zoom_to"], TALL_FIELD)
 		screen.add_child(lens)
 	var pacer := Pacer.new()
 	pacer.screen = screen

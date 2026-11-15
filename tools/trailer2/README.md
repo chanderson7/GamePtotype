@@ -15,6 +15,10 @@ tools/trailer2/shoot.sh all          # record the 20 shots (about 25 minutes, fo
 tools/trailer2/samples.sh            # once: the orchestra's recordings, 1.9 GB, CC0
 python3 tools/trailer2/score.py      # -> $TRAILER_OUT/score.wav
 python3 tools/trailer2/cut.py        # -> $TRAILER_OUT/vaskaria_captains.mp4, .srt, _thumbnail.jpg
+
+# The YouTube Short: 1080x1920, 46 s, from the title card on
+SHAPE=tall tools/trailer2/shoot.sh clash wood bows night ford gate wall sea dusk charge won
+python3 tools/trailer2/short.py      # -> $TRAILER_OUT/vaskaria_short.mp4, .srt, _cover.jpg
 ```
 
 Needs Godot 4.7 as `godot`, `ffmpeg`, `xvfb-run` where there is no display, and Python 3
@@ -27,6 +31,7 @@ with numpy, scipy, soundfile and Pillow.
 | `score.py` | The music, *Who Carries the Banner*: D minor, 120 beats a minute, so a bar is two seconds and every cut can land on a beat. Its docstring maps bars to scenes. It is played by recorded instruments (horn, trumpets, trombones, tuba, strings, harp, flute, kettledrums, bass and tenor drums, cymbals, gong, a bell) from the VS Chamber Orchestra Community Edition, which is CC0. `--stems` also writes each section on its own. |
 | `samples.sh` | Fetches those recordings into `tools/samples/vsco`. |
 | `cut.py` | Draws every frame and pipes it to ffmpeg. The title and end cards (`docs/trailer-cards-plan.md`) stand the logo, stacked and in lit brass, over the game dimmed behind it, with embers and a glint on the music; the end card's call to action is `END_LINE`, with `END_ACTION` for a link and `STORE_BADGE` for Apple's own badge file once there is a pre-order. Otherwise: field shots full frame, the game's own screens in a phone large enough to read with the trailer's words beside them, type that lands on the beats. It lays the shots' own sound under the score, sets the loudness for YouTube (−14 LUFS), and writes the captions and a thumbnail. `cut.py --frame 20.07` draws one frame to look at. |
+| `short.py` | The Short: the trailer from its title card (0:24) to its end, upright at 1080x1920, on the same music from the same bar. The battles and the map are recorded upright for it (`SHAPE=tall`, into `$TRAILER_OUT/tall`), the soldiers the same size as in the wide shots and the same fight to the frame (it checks); the game's own screens fill the frame; the words keep to the part Shorts' buttons and captions leave clear. It draws with `cut.py`'s pieces, so a change to the logo or the cards shows in both. `short.py --frame 1.9` draws one frame. |
 
 ## What makes a shot repeat
 
