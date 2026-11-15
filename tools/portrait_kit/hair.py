@@ -85,6 +85,9 @@ def locks(cv, mask, flow, seeds, width=7.0, light=lit, sheen=None, rng=None, max
         tgt[inside] = v[inside]
     has = (val > -1) & mask
     t = tones(np.clip(val, 0, 1), cuts=(0.92, 0.72, 0.5, 0.3))
+    if sheen is not None:
+        # glints: where the sheen is strongest, a lit lock takes the brightest shade
+        t = np.where((sheen(XX + 0.5, YY + 0.5) > 0.72) & (t == 1), 0, t)
     cv.put(has, mat, t, part)
     return part
 
@@ -186,30 +189,56 @@ def sheen_at(y0, part_x, bend=0.003, soft=3.6):
 
 
 # --------------------------------------------------------------------------- Edda
-def edda(rng, unbound=False):
-    """Chestnut, drawn back from a soft parting under a plait laid over the crown, wound
-    into a low knot behind the near ear; curls loose at the temples. Unbound (a bride's):
-    the plait still crowns it, the rest falls in waves over her shoulders."""
+def edda(rng, unbound=False, ribbon="teal"):
+    """Chestnut and full: parted on her left and swept in waves across the brow, a plait
+    laid over the crown behind them, the rest wound into a plaited knot low behind the
+    near ear and tied with a ribbon; curls loose at the temples and wisps at the nape.
+    Unbound (a bride's): the plait still crowns it, the rest falls in waves over her
+    shoulders."""
     back = Canvas()
-    part_x = AXIS + 9
+    part_x = 106.0
     wave = lambda y: 0.5 * math.sin(y / 9.5)
     if unbound:
         m = poly([(64, 42), (56, 80), (50, 128), (43, 173), (39, 198), (48, 210), (58, 203), (67, 214), (80, 208), (112, 208),
                   (125, 214), (136, 205), (146, 211), (154, 198), (150, 173), (142, 128), (136, 80), (128, 42)])
-        locks(back, m, lambda x, y: (np.sign(x - part_x + 0.01) * 0.15 + wave(y), 1.0), seeds_in(m, 6, rng), width=8.5,
+        locks(back, m, lambda x, y: (np.sign(x - 97 + 0.01) * 0.15 + wave(y), 1.0), seeds_in(m, 6, rng), width=8.5,
               light=lambda x, y: lit(x, y) * 0.6, rng=rng, max_len=130)
     else:
-        knot, kp = coil(back, 139, 101, 13.5, 15, rng)
-        braid(back, [(139 + 8.5 * math.cos(a), 101 + 10 * math.sin(a)) for a in np.linspace(-2.2, 3.6, 30)], 7.5, taper=0.1,
-              period=6.0, part=kp)
+        # the knot: a plait coiled twice round, its end tucked under
+        kx, ky = 141.0, 104.0
+        knot, kp = coil(back, kx, ky, 15.5, 17, rng, width=6.0, lift=0.16)
+        braid(back, [(kx + 11 * math.cos(a), ky + 12.5 * math.sin(a)) for a in np.linspace(-2.4, 3.7, 40)], 8.0, taper=0.05,
+              period=6.4, part=kp)
+        braid(back, [(kx + 4.5 * math.cos(a), ky + 5 * math.sin(a)) for a in np.linspace(-1.0, 4.4, 24)], 6.0, taper=0.2,
+              period=5.4, part=kp)
+        if ribbon:
+            # the ribbon that ties it: a band over the knot's top, two tails falling behind her shoulder
+            rp = back.new_part()
+            for pts, fold in (([(146, 114), (152, 117), (157, 141), (150, 137)], [(150, 117), (154, 139)]),
+                              ([(139, 117), (145, 119), (144, 146), (138, 141)], [(142, 119), (141, 143)])):
+                tail = poly(pts)
+                d, _, side = path_dist(fold)
+                back.put(tail, ribbon, np.where(d < 0.9, 3, np.where(side < 0, 1, 2)), rp)
+            d, along, side = path_dist([(131, 96), (139, 90.5), (150, 92), (156, 100)])
+            back.put((d <= 2.0) & grow(knot, 1), ribbon, np.where(side < 0, 1, 2), rp)
+            back.put(ellipse(147, 113.5, 3.6, 3.0), ribbon, 2, back.new_part())
+            back.px(146, 112.5, ribbon, 0)
     front = Canvas()
-    hl = lambda x: 51.0 + 0.012 * (x - part_x) ** 2 + np.clip(part_x - 6 - x, 0, None) * 0.10
-    cap = outer_cap(vol_top=4.6, vol_side=3.2, bottom=86) & ~face_open(hl, temple=(69, 122), wide=(65.5, 130), side_low=88)
+    # the hairline: high at the parting, dipping where the waves cross the far side of the brow
+    hl = lambda x: 50.0 + 0.0065 * (x - part_x) ** 2 + np.clip(part_x - 6 - x, 0, None) * 0.17
+    # a full, round crown (the cap alone is squarer at the top than hair with this much body)
+    cap = (outer_cap(vol_top=7.0, vol_side=4.6, bottom=89) & ellipse(97.5, 68, 39.5, 49)) \
+        & ~face_open(hl, temple=(69, 122), wide=(65.5, 130.5), side_low=90)
     def flow(x, y):
-        return ((x - part_x) / 30 * 1.2 + 0.18 * math.sin(y / 5.0), -0.62)
-    locks(front, cap, flow, seeds_in(cap, 5, rng), width=7.0, sheen=sheen_at(35, part_x), rng=rng, max_len=64,
-          order=lambda x, y: y)
-    braid(front, spline([(131, 68), (129, 48), (118, 33), (99, 26.5), (80, 29), (67, 41), (62.5, 58)], 6), 12.5, taper=0.12)
+        w = 0.32 * math.sin(y / 5.5 + x / 8.0)
+        if x < part_x:
+            return (-1.0, 0.30 + (y - 30) / 30 + w)      # across the brow and down to the far temple
+        return (0.6, 1.0 + w)                             # back over the near ear
+    locks(front, cap, flow, seeds_in(cap, 5, rng), width=7.6, sheen=sheen_at(37, part_x, bend=0.0035, soft=3.4), rng=rng,
+          max_len=90, order=lambda x, y: -abs(x - part_x) + (0 if x < part_x else 6))
+    # the plait over the crown, set back from the brow so the waves show before it
+    braid(front, spline([(130.5, 64), (128, 46), (117.5, 32.5), (100, 26.5), (82.5, 29.5), (70, 41), (64.5, 58)], 6), 9.5, taper=0.1,
+          period=6.4)
     under_shadow(front)
     loose = Canvas()
     lp = loose.new_part()
@@ -222,9 +251,12 @@ def edda(rng, unbound=False):
         locks(loose, mm, lambda x, y: (wave(y) + (0.12 if x > CX else -0.12), 1.0), seeds_in(mm, 5, rng), width=7.5, rng=rng,
               max_len=160, part=lp, order=lambda x, y: -abs(x - CX))
     else:
-        strand(loose, [(66, 60), (62, 71), (65.5, 82), (61, 93), (64.5, 103), (61, 111)], 3.4, lp)
-        strand(loose, [(68.5, 58), (66.5, 67), (69, 76), (67, 84)], 2.4, lp)
-        strand(loose, [(128, 72), (131.5, 83), (128, 93), (131, 103), (128.5, 110)], 3.0, lp)
+        # a long curl at the far temple with a shorter one beside it, one before the near ear, wisps at the nape
+        strand(loose, [(65, 62), (60.5, 72), (64.5, 83), (59.5, 94), (63.5, 105), (59, 115), (61.5, 122)], 3.8, lp, taper=0.6)
+        strand(loose, [(68.5, 62), (66, 71), (69, 80), (66.5, 88)], 2.6, lp)
+        strand(loose, [(128.5, 72), (132, 83), (128, 94), (131.5, 105), (128.5, 114)], 3.2, lp, taper=0.6)
+        strand(loose, [(131, 118), (134.5, 125), (132, 131)], 2.2, lp)
+        strand(loose, [(127, 120), (125.5, 127), (127.5, 133)], 2.0, lp)
     return back, front, loose
 
 
@@ -246,7 +278,7 @@ def _scallop(mask, rng, r=(3.5, 5.5), every=6, keep=None):
     return out
 
 
-def farah(rng, unbound=False):
+def farah(rng, unbound=False, ribbon=None):
     """Dark curls, parted off-centre and caught loosely behind: full round the head,
     ringlets falling by the face and to the nape."""
     back = Canvas()
@@ -272,7 +304,7 @@ def farah(rng, unbound=False):
 
 
 # --------------------------------------------------------------------------- Kaede
-def kaede(rng, unbound=False):
+def kaede(rng, unbound=False, ribbon=None):
     """Black, parted in the middle and drawn smooth to a knot low behind the near ear, held
     by a wooden pin; two fine strands left to fall by the face."""
     back = Canvas()

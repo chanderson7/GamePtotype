@@ -798,6 +798,57 @@ def scarf(o, p):
     trim(cv, low, p.get("trim", {"mat": "gold", "pattern": "dotted"}), 3.2)
 
 
+# =========================================================================== what each carries
+def keys(o, p):
+    """A steward's keys: a ring hung from a clasp at the breast, the keys falling from it."""
+    cv = o.cv
+    metal = p.get("metal", "bronze")
+    x, y = p.get("x", 122), p.get("y", 183)
+    part = cv.new_part(False)
+    for k in range(3, 9):
+        cv.px(x, y + k, metal, 1 if k % 2 else 3, part)
+    ry = y + 12.5
+    for a in np.linspace(0, math.pi * 2, 22, endpoint=False):
+        cv.px(x + 4.2 * math.cos(a), ry + 4.2 * math.sin(a), metal, 1 if math.cos(a) < 0.2 else 3, part)
+    for dx, lean, length in ((-3, -0.22, 13), (0, 0.02, 16), (3, 0.2, 12)):
+        top = ry + 4
+        for k in range(length):
+            cv.px(x + dx + lean * k, top + k, metal, 1 if k < length - 4 else 2, part)
+            if k in (length - 2, length - 4):
+                cv.px(x + dx + lean * k + 1, top + k, metal, 3, part)
+                cv.px(x + dx + lean * k + 2, top + k, metal, 3, part)
+        cv.put(ellipse(x + dx + 0.5, top + 0.5, 1.6, 1.6), metal, 2, part)
+        cv.px(x + dx, top, metal, 0, part)
+    medallion(cv, x, y, r=3.6, stone=p.get("gem"), mat=metal)
+
+
+def seal(o, p):
+    """An envoy's seal: a signet worn on a ribbon at the breast."""
+    cv = o.cv
+    metal = p.get("metal", "gold")
+    y = p.get("y", 190)
+    for sx in (-1, 1):
+        band(cv, [(MID + sx * 13, 149), (MID + sx * 6, 170), (MID, y - 5)], 2.8, p.get("ribbon", "crimson"),
+             pattern=PATTERNS["edge"], line=True)
+    medallion(cv, MID, y, r=6.2, stone=None, mat=metal)
+    sp = cv.new_part(False)
+    for a in np.linspace(0, math.pi * 2, 5, endpoint=False):
+        cv.px(MID + 2.4 * math.sin(a), y - 2.4 * math.cos(a), metal, 0, sp)
+
+
+def brush(o, p):
+    """An archivist's writing brush, tucked through the knot of her hair beside the pin."""
+    cv = o.hat
+    part = cv.new_part()
+    d, along, side = path_dist([(137.5, 107), (151, 80)])
+    shown = along > 0.34                                   # its end is in the knot
+    cv.put((d <= 1.2) & shown & (along <= 0.72), p.get("wood", "wood"), np.where(side < 0, 1, 3), part)
+    cv.put((d <= 1.6) & (along > 0.72) & (along <= 0.80), p.get("metal", "gold"), np.where(side < 0, 1, 3), part)
+    tuft = (d <= 0.6 + 2.2 * np.sin(np.clip((along - 0.80) / 0.2, 0, 1) * math.pi) ** 0.7) & (along > 0.80)
+    cv.put(tuft, "linen", np.where(side < 0, 1, 2), part)
+    cv.put(tuft & (along > 0.93), "black", 1, part)
+
+
 def layer(o, p):
     """A hand-drawn piece: assets/portraits/rig/<who>/layers/<name>.png, 192x256, drawn over
     her template (build.py template). With `dye` its greys become that cloth's shades, light
@@ -824,6 +875,7 @@ PIECES = {
     "kosode": kosode, "overrobe": overrobe, "obi": obi,
     "necklace": necklace, "brooch": brooch, "earrings": earrings,
     "circlet": circlet, "crown": crown, "comb": comb, "pin": pin, "flowers": flowers, "veil": veil, "scarf": scarf,
+    "keys": keys, "seal": seal, "brush": brush,
     "layer": layer,
 }
 

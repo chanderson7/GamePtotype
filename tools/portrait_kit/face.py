@@ -40,7 +40,7 @@ def head_mask(head):
     return m
 
 
-def head(shape, freckles=0, rng=None, blush=0.9):
+def head(shape, freckles=0, rng=None, blush=0.9, mole=None):
     """Face and skull, shaded as a rounded form turned to the viewer's left."""
     cv = Canvas()
     p = cv.new_part()
@@ -90,6 +90,8 @@ def head(shape, freckles=0, rng=None, blush=0.9):
             cv.tone[y, x] = min(4, cv.tone[y, x] + 1)
             taken |= ellipse(x + 0.5, y + 0.5, 2.6, 2.6)
             freckles -= 1
+    if mole:
+        cv.px(mole[0], mole[1], "ink", 2, flag=NO_LINE)
     return cv
 
 
@@ -151,9 +153,10 @@ EYES = {
     "round":  dict(w=17, up=3.9, low=2.4, tilt=0.6, peak=0.95, iris=3.9),
     "long":   dict(w=18, up=3.1, low=1.9, tilt=1.5, peak=1.15, iris=3.6),
 }
-def eye(which, shape, lid=0.0, gaze=(0.0, 0.0), cheek=0.0):
+def eye(which, shape, lid=0.0, gaze=(0.0, 0.0), cheek=0.0, kohl=False):
     """One eye. `lid`: how far the upper lid is down (0 open, 1 shut; under 0, wide); `gaze`:
-    where the iris sits from its rest (pixels); `cheek`: how far a smile lifts the lower lid."""
+    where the iris sits from its rest (pixels); `cheek`: how far a smile lifts the lower lid;
+    `kohl`: the eye is lined, the lower lid too."""
     cv = Canvas()
     F = NO_LINE
     e = EYES[shape]
@@ -249,8 +252,8 @@ def eye(which, shape, lid=0.0, gaze=(0.0, 0.0), cheek=0.0):
         t = tt(x)
         ly = min(tops[x], bots[x]) - 1
         px(x, ly, "ink", 0)
-        if t > 0.5:
-            px(x, ly - 1, "ink", 0 if t > 0.78 else 2)
+        if t > (0.25 if kohl else 0.5):
+            px(x, ly - 1, "ink", 0 if t > (0.6 if kohl else 0.78) else 2)
         if t < 0.08:
             px(x, ly, "ink", 2)
     oy = min(tops[outer_x], bots[outer_x]) - 1
@@ -272,9 +275,12 @@ def eye(which, shape, lid=0.0, gaze=(0.0, 0.0), cheek=0.0):
     for x in range(x0, x1 + 1):
         t = tt(x)
         if 0.3 <= t <= 0.94:
-            px(x, bots[x] + 1, "skin", 4)
+            if kohl:
+                px(x, bots[x] + 1, "ink", 2 if t < 0.6 else 0)
+            else:
+                px(x, bots[x] + 1, "skin", 4)
         elif 0.1 < t < 0.3:
-            px(x, bots[x] + 1, "skin", 3)
+            px(x, bots[x] + 1, "skin", 4 if kohl else 3)
     if cheek:
         for x in range(x0 + 2, x1 - 1):
             px(x, bots[x] + 2, "skin", 3)

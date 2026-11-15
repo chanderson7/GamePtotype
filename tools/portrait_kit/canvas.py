@@ -135,10 +135,12 @@ def rgb(h):
     return np.array([int(h[i:i + 2], 16) for i in (0, 2, 4)], np.uint8)
 
 
-def compose(layers, pal):
+def compose(layers, pal, rim=True):
     """layers: canvases back to front; pal: material -> six hex shades. Each layer is outlined
-    where it meets nothing or a layer behind it. Returns (rgba H x W x 4, which layer shows
-    at each pixel)."""
+    where it meets nothing or a layer behind it. With `rim`, a second, fainter light comes
+    from behind her on the right: just inside each layer's outline on that side, what's in
+    shade is lifted (the lords have only the one light). Returns (rgba H x W x 4, which layer
+    shows at each pixel)."""
     mat = np.zeros((H, W), np.int16); tone = np.zeros((H, W), np.uint8)
     flag = np.zeros((H, W), np.uint8); layer = np.full((H, W), -1, np.int32)
     for li, cv in enumerate(layers):
@@ -156,6 +158,11 @@ def compose(layers, pal):
         line |= drawn & ((nl < 0) | (nl < layer))
     line &= (flag & NO_LINE) == 0
     tone = np.where(line, LINE, tone)
+    if rim:
+        # the outline's pixels that face right, and the pixel just inside each
+        faces_right = line & (shift(layer, 0, -1, -1) < layer)
+        inside = drawn & ~line & shift(faces_right, 0, -1, False) & (shift(layer, 0, -1, -1) == layer) & ((flag & NO_LINE) == 0)
+        tone = np.where(inside & (tone >= 2) & (tone < LINE), np.maximum(tone.astype(int) - 2, 1), tone).astype(np.uint8)
     out = np.zeros((H, W, 4), np.uint8)
     for mi in np.unique(mat[drawn]):
         name = mat_name(int(mi))

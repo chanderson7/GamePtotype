@@ -163,9 +163,16 @@ by lock, cloth with folds, patterns and trims.
   tools that worked from them (`portrait_rig`, `portrait_wardrobe`, `portrait_faces`,
   `portrait_wedding`) are gone.
 
-Next:
-- The three share one head pose and outline; give each her own jaw and tilt.
-- Edda's braided crown reads a little like a cap; Kaede's crossed collars are simple.
+What sets them apart from the lords, in the same style: a second, fainter light from behind
+on the right; marks of their own (Edda's freckles, Farah's kohl, Kaede's beauty mark and red
+lips); glints and loose strands in the hair (Edda's is parted, swept, plaited over the crown
+and knotted with a ribbon); and something of each one's work (keys, a seal, a brush).
+
+Next, to set them further apart:
+- Mouths that move when they speak, as the lords' do (a mouth strip beside the eye strip).
+- The three share one head pose and outline; give each her own jaw, tilt and shoulders.
+- A hand in frame for one expression each (Edda's at her keys, Kaede's with her brush).
+- Kaede's crossed collars are simple.
 - The trailer and the app preview (neither committed) were cut with the old paintings:
   record them again (`tools/store/preview.sh`). The store's wedding screenshot is remade.
 - More outfits (mourning, a riding habit, a winter cloak with the hood up).

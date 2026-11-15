@@ -44,17 +44,21 @@ FACE_STRIP = (60, 60, 64, 34)
 HEAD_DROP = 4
 
 PEOPLE = {
+    # Each has marks of her own: Edda her freckles, Farah her kohl-lined eyes, Kaede a beauty
+    # mark under her eye and reddened lips.
     "edda": dict(
         head="heart", eye="almond", brow="soft", nose="fine", mouth="bow", freckles=14, skin="fair",
         hair=hx("d9925a", "b0683a", "864624", "5e2c16", "36180c", "281008"),
         iris=hx("a4b99a", "7d967c", "5d7662", "465a4c", "2c3a30", "1a1214")),
     "farid": dict(
-        head="full", eye="round", brow="strong", nose="straight", mouth="full", freckles=0,
+        head="full", eye="round", brow="strong", nose="straight", mouth="full", freckles=0, kohl=True,
         skin={"skin": hx("e3b48a", "c99267", "ab714c", "865139", "5c352d", "361c1e"),
               "lip_f": hx("d98a80", "b85e58", "8f3e42", "662a32", "4a1c24", "361c1e")},
         hair=hx("806454", "58402f", "3c291f", "261914", "150d0b", "100908"), iris="brown"),
     "kaede": dict(
-        head="oval", eye="long", brow="fine", nose="soft", mouth="fine", freckles=0, skin="warm",
+        head="oval", eye="long", brow="fine", nose="soft", mouth="fine", freckles=0, mole=(114, 90),
+        skin={"skin": hx("f4d2ae", "e5b089", "c98d68", "a5684f", "774440", "45242a"),
+              "lip_f": hx("ee9488", "d4504c", "ac323a", "7e2230", "5a1822", "45242a")},
         hair=hx("6e6672", "443c46", "2b252e", "1a161d", "0e0b11", "0a080c"), iris="dark"),
 }
 
@@ -92,7 +96,8 @@ def features(who, mood, frame=None):
         lift = 1.3
     elif frame == "brow2":
         lift = 2.6
-    made = [F.eye("far", p["eye"], lid, gaze, cheek), F.eye("near", p["eye"], lid, gaze, cheek),
+    kohl = p.get("kohl", False)
+    made = [F.eye("far", p["eye"], lid, gaze, cheek, kohl), F.eye("near", p["eye"], lid, gaze, cheek, kohl),
             F.brow("far", p["brow"], m["brows"][0], lift), F.brow("near", p["brow"], m["brows"][1], lift),
             F.nose(p["nose"]), F.mouth(p["mouth"], m["mouth"])]
     return [cv.moved(HEAD_DROP) for cv in made]
@@ -111,7 +116,8 @@ class Figure:
         self.pal = palette(p["skin"], p["hair"], p["iris"])
         self.outfit = G.dress(outfit.get("pieces", []), np.random.default_rng(11), os.path.join(RIG, who, "layers"))
         o = self.outfit
-        back, front, loose = Hr.STYLES[who](np.random.default_rng(7), unbound=outfit.get("hair") == "unbound")
+        back, front, loose = Hr.STYLES[who](np.random.default_rng(7), unbound=outfit.get("hair") == "unbound",
+                                            ribbon=outfit.get("ribbon", "teal"))
         if o.covers_hair:
             back, loose = None, None
         pin = None
@@ -121,7 +127,7 @@ class Figure:
             pin = Hr.pin(*o.pin)
         blush = 1.0 if outfit.get("blush") else 0.9
         self.under = [lowered(o.far_back), lowered(back), o.back, F.neck(chin=125 + HEAD_DROP), o.cv,
-                      lowered(F.head(p["head"], freckles=p["freckles"], blush=blush))]
+                      lowered(F.head(p["head"], freckles=p["freckles"], blush=blush, mole=p.get("mole")))]
         self.over = [lowered(c) for c in (front, F.ear(p["head"], o.earring), loose, o.hat, pin)]
         # what swings as her head moves: loose strands (their tips most) and a veil's fall
         sway = o.sway.copy()

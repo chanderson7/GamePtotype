@@ -6,6 +6,17 @@ outlined where it lies over another. They're drawn on a grid 1.6 times the lords
 (192×256, shown at 768×1024), so there's more in them: lids, lashes and ringed irises,
 shaded lips, hair lock by lock, cloth with folds and patterns.
 
+What sets them apart from the lords, in the same style:
+- **A second light.** A fainter light from behind on the right lifts the shaded edge of
+  her hair, jaw and shoulders (`compose(rim=True)` in `canvas.py`); the lords have one light.
+- **Marks of her own.** Edda's freckles, Farah's kohl-lined eyes, Kaede's beauty mark and
+  reddened lips (`PEOPLE` in `build.py`).
+- **Hair with more in it.** Glints where the sheen is strongest, loose curls and wisps that
+  swing; Edda's is parted, swept across the brow, plaited over the crown and knotted with a
+  ribbon.
+- **Something of her work.** A steward's keys at Edda's breast, an envoy's seal on a ribbon
+  for Farah, an archivist's brush through Kaede's knot.
+
 Godot ignores this folder (`.gdignore`); the game reads only what the kit renders into
 `assets/portraits/`.
 
@@ -27,9 +38,9 @@ Farah's files are `farid_*`.
 
 | | Everyday | Court | Travel | Wedding |
 | --- | --- | --- | --- | --- |
-| **Edda** (Vardish) | teal kirtle, square neck with a woven edge, laced, over a linen shift; belt; amber brooch | wine damask kirtle edged in gold and stones; green mantle with ermine and a gold chain; pearls; gold circlet; earrings | moss kirtle, high-necked shift; brown cloak, hood thrown back, fur at the collar, amber clasp | hair unbound under a gold crown; woad-blue kirtle edged in gold; garnet pendant |
-| **Farah** (Kharzani) | indigo kaftan banded in gold over an embroidered shirt; saffron sash; coin necklace; turquoise earrings | crimson damask kaftan; a jewelled collar with coins; coin circlet; fine veil edged in gold | rust riding coat; indigo scarf over her hair, dotted and edged in gold | crimson kaftan stitched with gold; veil; coin circlet with a garnet |
-| **Kaede** (Ryumon) | slate kosode with a white under-collar; plum vest; navy obi with a maple cord; jade hairpin | rose kosode under a plum robe scattered with chrysanthemums; brocade obi; gold comb; blossoms; coral pin | charcoal kosode; slate haori with crests, tied with a cord; moss obi | white robes lined in crimson, gold crests; brocade obi; gold comb, coral pin |
+| **Edda** (Vardish) | teal kirtle, square neck with a woven edge, laced, over a linen shift; belt; amber brooch; her keys | wine damask kirtle edged in gold and stones; green mantle with ermine and a gold chain; pearls; gold circlet; earrings | moss kirtle, high-necked shift; brown cloak, hood thrown back, fur at the collar, amber clasp | hair unbound under a gold crown; woad-blue kirtle edged in gold; garnet pendant |
+| **Farah** (Kharzani) | indigo kaftan banded in gold over an embroidered shirt; saffron sash; her seal on a crimson ribbon; turquoise earrings | crimson damask kaftan; a jewelled collar with coins; coin circlet; fine veil edged in gold | rust riding coat; indigo scarf over her hair, dotted and edged in gold | crimson kaftan stitched with gold; veil; coin circlet with a garnet |
+| **Kaede** (Ryumon) | slate kosode with a white under-collar; plum vest; navy obi with a maple cord; jade hairpin and her brush | rose kosode under a plum robe scattered with chrysanthemums; brocade obi; gold comb; blossoms; coral pin | charcoal kosode; slate haori with crests, tied with a cord; moss obi | white robes lined in crimson, gold crests; brocade obi; gold comb, coral pin |
 
 Where she wears which (`StoryArt.outfit_for`):
 - **Court** in the hall of a feast that's on, where she's among the guests. Dances are always at a feast.
@@ -70,6 +81,7 @@ The pieces (`PIECES` in `garb.py`, each documented there):
 - **Kharzani:** `shirt`, `kaftan`, `sash`, `collar` (a jewelled one), `scarf`, `veil`.
 - **Ryumon:** `kosode`, `overrobe` (a vest, a haori, an outer robe), `obi`, `comb`, `pin`, `flowers`.
 - **For anyone:** `necklace` (chain, pearls, coins, beads), `brooch`, `earrings`, `circlet`, `crown`, `layer`.
+- **What each carries:** `keys` (Edda), `seal` (Farah), `brush` (Kaede).
 
 What they take:
 - **Cloth** by name (`CLOTHS` and `RAMPS` in `canvas.py`: `teal`, `wine`, `indigo`,
@@ -82,7 +94,7 @@ What they take:
 - **Trim** (`trim`): `{"mat", "width", "pattern", "gems"}`; band patterns are plain,
   embroidered, dotted, braid, diamonds, key.
 - **Metals** gold, silver, bronze; **stones** garnet, jade, pearl, coral, amber, turquoise, sapphire.
-- `"hair": "unbound"` on an outfit lets Edda's hair down.
+- `"hair": "unbound"` on an outfit lets Edda's hair down; `"ribbon": "<cloth>"` is the ribbon that ties her knot (teal unless said).
 
 To put a new outfit in the game: add its name to `"_game"` and to `StoryArt.OUTFITS`
 (`scripts/ui/story_art.gd`), and say where she wears it in `StoryArt.outfit_for`.
@@ -110,8 +122,8 @@ is an example, worn dyed rose by Edda's `shawl_example` outfit (not in the game)
 ## Changing a face
 
 - **Who she is:** `PEOPLE` in `build.py` picks her head shape, eyes, brows, nose and mouth
-  (the shapes are `HEADS`, `EYES`, `BROWS`, `NOSES`, `MOUTHS` in `face.py`), her freckles,
-  and her skin, hair and eye colours.
+  (the shapes are `HEADS`, `EYES`, `BROWS`, `NOSES`, `MOUTHS` in `face.py`), her marks
+  (`freckles`, `kohl`, `mole`), and her skin, lip, hair and eye colours.
 - **Her expressions:** `MOODS` in `build.py` sets, for each of the five, how far her lids
   are down, where she looks, each brow's mood and her mouth's.
 - **Her hair:** one function each in `hair.py`.

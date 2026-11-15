@@ -6,9 +6,10 @@
 			{"piece": "kirtle", "cloth": "teal", "neck": "square", "depth": 0.9, "lacing": "leather",
 			 "trim": {"mat": "straw", "pattern": "diamonds", "width": 4.4}},
 			{"piece": "belt", "mat": "leather", "buckle": "bronze"},
-			{"piece": "brooch", "at": "throat", "y": 163, "r": 3.6, "metal": "bronze", "gem": "amber"}
+			{"piece": "brooch", "at": "throat", "y": 163, "r": 3.6, "metal": "bronze", "gem": "amber"},
+			{"piece": "keys", "metal": "bronze"}
 		]},
-		"court": {"pieces": [
+		"court": {"ribbon": "wine", "pieces": [
 			{"piece": "chemise", "cloth": "white", "neck": "round", "depth": 0.25},
 			{"piece": "kirtle", "cloth": "wine", "neck": "square", "depth": 0.9, "pattern": "diamond", "sleeves": "hanging",
 			 "lining": "gold", "trim": {"mat": "gold", "pattern": "embroidered", "width": 5, "gems": ["garnet", "pearl"]}},
@@ -17,7 +18,7 @@
 			{"piece": "circlet", "metal": "gold", "gem": "garnet"},
 			{"piece": "earrings", "metal": "gold", "gem": "garnet"}
 		]},
-		"travel": {"pieces": [
+		"travel": {"ribbon": "rust", "pieces": [
 			{"piece": "chemise", "cloth": "linen", "neck": "high"},
 			{"piece": "kirtle", "cloth": "moss", "neck": "round", "depth": 0.3, "lacing": "leather"},
 			{"piece": "belt", "mat": "leather", "buckle": "bronze"},
@@ -43,7 +44,7 @@
 			{"piece": "shirt", "cloth": "linen", "trim": {"mat": "gold", "pattern": "embroidered"}},
 			{"piece": "kaftan", "cloth": "indigo", "open": 15, "trim": {"mat": "gold", "pattern": "diamonds", "width": 6}},
 			{"piece": "sash", "cloth": "saffron", "cord": "maple"},
-			{"piece": "necklace", "kind": "coins", "low": 162, "metal": "gold"},
+			{"piece": "seal", "metal": "gold", "ribbon": "crimson"},
 			{"piece": "earrings", "metal": "gold", "gem": "turquoise"}
 		]},
 		"court": {"pieces": [
@@ -79,7 +80,8 @@
 			{"piece": "kosode", "cloth": "slate", "collars": ["white"]},
 			{"piece": "overrobe", "cloth": "plum", "sleeves": false, "open": 26, "trim": {"mat": "silver", "pattern": "key"}},
 			{"piece": "obi", "cloth": "navy", "cord": "maple", "clasp": "bronze"},
-			{"piece": "pin", "metal": "wood", "gem": "jade"}
+			{"piece": "pin", "metal": "wood", "gem": "jade"},
+			{"piece": "brush"}
 		]},
 		"court": {"pieces": [
 			{"piece": "kosode", "cloth": "rose", "collars": ["white", "straw"]},
@@ -94,7 +96,8 @@
 			{"piece": "kosode", "cloth": "charcoal", "collars": ["cream"]},
 			{"piece": "overrobe", "cloth": "slate", "open": 25, "ties": "cream", "crests": "white"},
 			{"piece": "obi", "cloth": "moss", "cord": "straw"},
-			{"piece": "pin", "metal": "wood", "gem": "jade"}
+			{"piece": "pin", "metal": "wood", "gem": "jade"},
+			{"piece": "brush"}
 		]},
 		"wedding": {"blush": true, "pieces": [
 			{"piece": "kosode", "cloth": "silk_white", "collars": ["white", "crimson"]},
