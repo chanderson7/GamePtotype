@@ -1,7 +1,7 @@
 """Hair that flows: each woman's is a mass of hair with large tapered locks laid over it, every
 lock curving along a path, round across its width, with strand lines and a band of sheen
 (`lock`). Edda's falls in long waves with a ribbon-tied plait among them, Farah's in
-ringlets, Kaede's straight and glossy under a pinned top knot. What hangs loose is drawn
+ringlets, Kaede's long, straight and glossy, a small knot behind her crown. What hangs loose is drawn
 on its own layer, and the game swings it when her head moves (StoryArt.life_material).
 The lords' way of drawing hair (`locks`: clumps along a flow) is kept for knots."""
 import math
@@ -365,49 +365,54 @@ def farah(rng, ribbon_cloth=None):
 
 
 # --------------------------------------------------------------------------- Kaede
-KNOT = (126.0, 33.0)
+# The small knot at the back of Kaede's crown, which her pin and brush go through.
+KNOT = (124.0, 31.0)
 
 
 def kaede(rng, ribbon_cloth=None):
-    """Black, straight and glossy: parted in the middle and drawn back behind her ears, the
-    top of it caught up in a knot at the back of her crown (pinned, with her brush through
-    it), the rest falling straight behind her shoulders and over the near one."""
+    """Black and straight, worn down: parted a little off the middle, falling smooth past her
+    temples and over both shoulders in long straight locks of uneven length, the ends
+    turning in a little. Only the top of it is caught back, in a small knot behind her
+    crown that holds her pin and her brush."""
+    kx, ky = KNOT
     back = Canvas()
-    knot, kp = coil(back, KNOT[0], KNOT[1], 11.5, 10.5, rng, width=5.0, lift=0.34)
+    coil(back, kx, ky, 8.5, 7.5, rng, width=4.4, lift=0.36)
     bp = back.new_part()
-    behind = ellipse(97.5, 68, 37.5, 45) | poly([(63, 70), (60, 110), (58, 150), (58, 176), (88, 172), (88, 100)]) \
-        | poly([(131, 70), (135, 110), (138, 150), (139, 178), (108, 172), (108, 100)])
-    mass(back, behind, bp, light=-0.2, flow=lambda x, y: ((x - 97) / 300, 1.0), rng=rng, spacing=6)
+    behind = ellipse(97.5, 67, 39, 45) | poly([(60, 62), (55, 104), (51, 140), (49, 170), (62, 176), (88, 172), (88, 100)]) \
+        | poly([(134, 62), (140, 104), (145, 140), (148, 172), (136, 178), (108, 172), (108, 100)])
+    mass(back, behind, bp, light=-0.2, flow=lambda x, y: ((x - 97) / 260, 1.0), rng=rng, spacing=6)
     front = Canvas()
     fp = front.new_part()
-    part_x = AXIS + 4
-    hl = lambda x: 50.5 + 0.011 * (x - part_x) ** 2
-    cap = (outer_cap(vol_top=4.2, vol_side=2.8, bottom=84) & ellipse(97.5, 68, 37.5, 47)) \
-        & ~face_open(hl, temple=(69.5, 121.5), wide=(65.5, 130), side_low=84)
-    gloss = lambda x, y: np.exp(-(((y - 37 - 0.006 * (x - part_x) ** 2) / 3.2) ** 2)) * (np.abs(x - part_x) > 2.5)
-    mass(front, cap, fp, light=0.12, sheen=gloss)
-    parting = front.new_part(False)
-    for y in range(24, 51):
-        front.px(part_x + (y - 24) * 0.03, y, "hair", 4, parting)
-    # smooth from the parting down each side and back behind the ear; the sheen lies in a band across them
-    for k, (pts, w) in enumerate([([(90, 23), (76, 28), (66.5, 42), (63.5, 60), (64.5, 76)], 12), ([(91, 30), (80, 35), (71, 48), (67.5, 62), (67, 74)], 9)]):
-        lock(front, pts, w, fp, sheen=(0.34,), light=0.12 + 0.03 * k, seed=k, tip=0.3, strands=4, mask=cap)
-    for k, (pts, w) in enumerate([([(93, 23), (110, 26), (123, 39), (129, 56), (130.5, 74)], 12), ([(93.5, 30), (107, 33), (118, 45), (124, 58), (126, 70)], 9)]):
-        lock(front, pts, w, fp, sheen=(0.34,), light=0.06 + 0.03 * k, seed=3 + k, tip=0.3, strands=4, mask=cap)
+    part_x = 100.0
+    hl = lambda x: 50.0 + 0.010 * (x - part_x) ** 2
+    cap = (outer_cap(vol_top=5.2, vol_side=3.8, bottom=89) & ellipse(97.5, 68, 39.5, 48.5)) \
+        & ~face_open(hl, temple=(69.5, 121.5), wide=(65.5, 130), side_low=90)
+    gloss = lambda x, y: np.exp(-(((y - 37 - 0.005 * (x - part_x) ** 2) / 3.0) ** 2)) * (np.abs(x - part_x) > 2.5)
+    mass(front, cap, fp, light=0.00, sheen=gloss, flow=lambda x, y: (np.sign(x - part_x) * 0.9, 1.0), rng=rng, spacing=7)
+    # smooth from the parting past each temple, furthest back first
+    lock(front, [(98, 24), (82, 26), (69, 38), (62, 56), (60, 76)], 13, fp, sheen=(0.32,), light=0.00, seed=1, tip=0.25, strands=4)
+    lock(front, [(99, 31), (86, 33), (74, 43), (66, 58), (63.5, 78)], 11, fp, sheen=(0.32,), light=0.04, seed=2, tip=0.25, strands=4)
+    lock(front, [(99.5, 40), (90, 42), (79, 50), (71, 62), (67.5, 74)], 8, fp, sheen=(0.3,), light=0.08, seed=3, tip=0.35, strands=4)
+    lock(front, [(101, 24), (117, 27), (129, 40), (134, 58), (135.5, 78)], 13, fp, sheen=(0.32,), light=-0.04, seed=4, tip=0.25, strands=4)
+    lock(front, [(101.5, 31), (114, 34), (124.5, 46), (129.5, 62), (131.5, 80)], 11, fp, sheen=(0.32,), light=0.00, seed=5, tip=0.25, strands=4)
+    lock(front, [(102, 40), (110, 43), (118, 52), (123.5, 64)], 7, fp, sheen=(0.3,), light=0.04, seed=6, tip=0.35, strands=4)
     under_shadow(front)
     loose = Canvas()
     lp = loose.new_part()
-    # from behind her ears: a long straight fall over the near shoulder, a slimmer one over the far
-    lock(loose, [(136.5, 80), (141, 124), (143.5, 170), (143, 210), (141, 226)], 12.5, lp, sheen=(0.3, 0.68), light=0.04, seed=7,
-         tip=0.1, root=0.75, strands=4)
-    lock(loose, [(134.5, 98), (138, 140), (138.5, 188), (137, 217)], 8.5, lp, sheen=(0.3, 0.7), light=0.1, seed=8, tip=0.12, root=0.7,
-         strands=4)
-    lock(loose, [(61.5, 82), (57, 126), (54.5, 170), (54, 207)], 10, lp, sheen=(0.3, 0.68), light=0.06, seed=9, tip=0.12, root=0.75,
-         strands=4)
-    # they pass behind her ear and her jaw, not over them
-    from face import ear, head_mask
-    loose.erase(grow(ear("oval").on, 1) | head_mask("oval"))
-    wisps(loose, [[(66.5, 60), (64, 70), (65, 80)], [(127, 58), (129.5, 66), (129, 74)]], tone=3)
+    # over the near shoulder and down her breast: straight, each lock its own length, the ends turning in
+    lock(loose, [(137, 62), (146.5, 96), (151.5, 132), (153.5, 170), (152.5, 204), (149, 226)], 15, lp, sheen=(0.2, 0.58), light=-0.04,
+         seed=7, tip=0.16, root=0.4, strands=4)
+    lock(loose, [(135.5, 66), (142, 100), (145.5, 138), (146.5, 176), (145, 208), (141, 229)], 14, lp, sheen=(0.22, 0.6), light=0.02,
+         seed=8, tip=0.16, root=0.4, strands=4)
+    lock(loose, [(136, 92), (139, 126), (139.5, 162), (138, 194), (134.5, 214)], 10, lp, sheen=(0.24, 0.62), light=0.06, seed=9,
+         tip=0.2, root=0.5, strands=4)
+    # and on the far side, with a slim lock that frames her face
+    lock(loose, [(60.5, 60), (51, 96), (46, 132), (44, 170), (45, 202), (48, 216)], 14, lp, sheen=(0.2, 0.58), light=-0.02, seed=10,
+         tip=0.16, root=0.4, strands=4)
+    lock(loose, [(62, 64), (55, 98), (51, 134), (50, 172), (51.5, 206), (55, 222)], 13, lp, sheen=(0.22, 0.6), light=0.04, seed=11,
+         tip=0.16, root=0.4, strands=4)
+    lock(loose, [(63.5, 80), (61, 104), (61.5, 128), (60, 147)], 6, lp, sheen=(0.4,), light=0.08, seed=12, tip=0.4, root=0.6)
+    wisps(loose, [[(40.5, 204), (38.5, 213), (40.5, 221)], [(157, 202), (159.5, 212), (157.5, 221)]], tone=3)
     return back, front, loose
 
 

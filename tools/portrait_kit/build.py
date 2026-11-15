@@ -82,7 +82,7 @@ PEOPLE = {
         head="oval", eye="long", brow="fine", nose="soft", mouth="fine", freckles=0, mole=(114, 90),
         skin={"skin": hx("f4d2ae", "e5b089", "c98d68", "a5684f", "774440", "45242a"),
               "lip_f": hx("ee9488", "d4504c", "ac323a", "7e2230", "5a1822", "45242a")},
-        hair=hx("6e6672", "443c46", "2b252e", "1a161d", "0e0b11", "0a080c"), iris="dark"),
+        hair=hx("767286", "464052", "2b2635", "1b1723", "100d16", "0a080c"), iris="dark"),
 }
 
 # What each expression does with her eyes (lid, gaze, cheek), her brows (far, near) and mouth.

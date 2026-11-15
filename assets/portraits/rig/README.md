@@ -9,8 +9,9 @@ shaded lips, hair lock by lock, cloth with folds and patterns.
 What sets them apart from the lords, in the same style:
 - **Hair that flows.** Drawn as large tapered locks that curve along a path, each round
   across its width with strand lines and a band of sheen (`lock` in `hair.py`): Edda's long
-  waves with a ribbon-tied plait among them, Farah's ringlets, Kaede's straight glossy hair
-  drawn back behind her ears under a pinned top knot; a few single hairs come loose
+  waves with a ribbon-tied plait among them, Farah's ringlets, Kaede's long straight black
+  hair worn down, with a small knot behind her crown for her pin and brush; a few single
+  hairs come loose
   (`wisps`). What hangs loose swings when her head moves. Nothing covers it: there are
   no hoods or head scarves.
 - **Cloth that hangs.** Shoulders and garments have rounded corners (`spoly`), and folds

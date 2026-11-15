@@ -165,7 +165,8 @@ by lock, cloth with folds, patterns and trims.
 
 What sets them apart from the lords, in the same style:
 - hair that flows (large tapered locks with sheen; Edda's waves and ribboned plait, Farah's
-  ringlets, Kaede's straight hair drawn back under a top knot), and swings with her head;
+  ringlets, Kaede's long straight hair worn down, a small knot behind her crown), and swings
+  with her head;
   nothing covers it (no hoods or head scarves), and cloth hangs in curved folds from
   rounded shoulders;
 - a pose each (head lean and height, a shoulder let down, her own jaw);
