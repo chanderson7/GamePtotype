@@ -92,7 +92,7 @@ stacked and centred:
 | --- | --- | --- |
 | Emblem | crop `(0, 0, 452, 354)` of `wordmark.png` (the three banners and the water) | resized to 565×442 (LANCZOS) |
 | Name | the word `VASKARIA`, Cinzel Bold | size 230, 30 px between letters |
-| Tagline | `Squad battles across the Three Realms`, IM Fell English Italic | size 58, colour (214, 218, 236) |
+| Tagline | `Battles Across the Three Realms`, IM Fell English Italic | size 58, colour (214, 218, 236) |
 
 Vertical gaps: 34 px emblem to name, 26 px name to tagline. Also return (or cache beside
 it) the **name's alpha mask** placed in the lockup's coordinates: package 3 needs it.

@@ -317,7 +317,7 @@ def wordmark(width):
 # a glint that crosses the name on the music.
 
 TITLE_WORD = "VASKARIA"
-TAGLINE = "Squad battles across the Three Realms"
+TAGLINE = "Battles Across the Three Realms"
 NAME_PAD = 60  # room round the name's letters for its glow and shadow
 
 
