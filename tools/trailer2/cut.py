@@ -13,8 +13,8 @@ The story, on the bars of score.py (a bar is two seconds):
     0:20  the die lands
     0:22  black                          "Lead them anyway."
     0:24  the name
-    0:26  the battles, a bar a shot      real-time battles, sized for your hand; charge, loose, hold; the walls
-    0:42  the world                      the Three Realms, the lords, a wedding, a company to build
+    0:26  the battles, a bar a shot      real-time battles, sized for your hand; fight rival lords; besiege their castles
+    0:42  the world                      the Three Realms, the lords, a wedding, a kingdom of your own
     0:50  the last charge, a beat a shot
     0:58  victory
     1:00  the name, and "Coming to iPhone"
@@ -182,6 +182,13 @@ def said(canvas, t, t0, t1, rows, where, align="left", slam=False, hold_out=0.25
     if align == "left":
         x += layer.width / 2 - 60
     put(canvas, layer, (x, y + 26 * (1.0 - rise)), opacity=rise * out)
+
+
+def fit(rows, width):
+    """Rows of type (text, face, size, colour, gap) shrunk together until the widest fits `width`."""
+    widest = max(tracked_width(text, font(face, size), gap) for text, face, size, _, gap in rows)
+    k = min(1.0, width / widest)
+    return [(text, face, max(10, int(size * k)), colour, max(0, int(round(gap * k)))) for text, face, size, colour, gap in rows]
 
 
 def line(text, size=74, colour=BONE, gap=3):
@@ -565,6 +572,18 @@ CHARGE_FULL = mark("charge", "IMPACT")        # where the recording is back at f
 DIE_LANDS = mark("fall", "CAPTAIN") + 1.53    # the roll takes a second and a half
 STAMP = mark("won", "OVER") + 0.13            # VICTORY stamps as the last company breaks
 
+def crown_secs(u):
+    """Which second of the crown shot to show `u` seconds into its bar. The recording: the
+    "Raise your banner" prompt until the tap at 3.05 s, then the banner dropping in and
+    "A crown is raised" fully up by 4.2. Here: the prompt for 0.8 s, the fall at 1.5 times
+    its speed, then the card held at its own pace."""
+    if u < 0.8:
+        return 2.25 + u
+    if u < 0.8 + 1.15 / 1.5:
+        return 3.05 + (u - 0.8) * 1.5
+    return 4.2 + (u - 0.8 - 1.15 / 1.5)
+
+
 TEXT_X = 120
 SLAM_AT = (W / 2, H / 2 + 10)
 
@@ -572,9 +591,9 @@ SLAM_AT = (W / 2, H / 2 + 10)
 BATTLES = [
     ("clash", mark("clash", "CLASH") - 0.9, None),
     ("hand", mark("hand", "CLASH") - 0.4, None),
-    ("wood", mark("wood", "CLASH") - 0.7, "Charge."),
-    ("bows", 5.0, "Loose."),
-    ("night", mark("night", "CLASH") - 1.2, "Hold."),
+    ("wood", mark("wood", "CLASH") - 0.7, "Fight rival lords."),
+    ("bows", 5.0, None),
+    ("night", mark("night", "CLASH") - 1.2, None),
     ("ford", mark("ford", "CLASH") - 1.3, None),
     ("gate", 11.0, None),
     ("wall", 12.0, None),
@@ -654,10 +673,11 @@ def picture(t):
         if k == 0:
             said(img, t, bar(14) + 0.15, bar(15), [("REAL-TIME BATTLES", CINZEL, 118, BONE, 10)], SLAM_AT, align="centre", slam=True)
         if word:
-            said(img, t, bar(14) + 2.0 * k + 0.02, bar(14) + 2.0 * k + 1.5, [(word.upper(), CINZEL, 190, BRASS, 14)], SLAM_AT,
+            said(img, t, bar(14) + 2.0 * k + 0.02, bar(14) + 2.0 * k + 1.9, fit([(word.upper(), CINZEL, 190, BRASS, 14)], 1600),
+                 SLAM_AT, align="centre", slam=True)
+        if shot in ("gate", "wall"):
+            said(img, t, bar(20) + 0.1, bar(22), fit([("BESIEGE THEIR CASTLES.", CINZEL, 118, BONE, 10)], 1600), (W / 2, 880),
                  align="centre", slam=True)
-        if shot == "gate":
-            said(img, t, bar(20) + 0.1, bar(22), [("TAKE THEIR WALLS.", CINZEL, 118, BONE, 10)], (W / 2, 880), align="centre", slam=True)
         return img
     # ---- bars 22-25: the world
     if t < bar(23):
@@ -677,9 +697,10 @@ def picture(t):
         said(img, t, bar(24) + 0.05, bar(25), [line("Marry into"), line("a great house.", colour=BRASS)], (TEXT_X, 500))
         return img
     if t < bar(26):
+        # At its seat the company raises its own crown: the prompt, the tap, the banner dropping in.
         u = t - bar(25)
-        img = phone("town", 1.5 + u, zoom=0.8, focus_y=600 + 50 * ease(u / 2.0))
-        said(img, t, bar(25) + 0.05, bar(26), [line("Build a company", 68), line("worth following.", 68, BRASS)], (TEXT_X, 500))
+        img = phone("crown", crown_secs(u), zoom=0.8, focus_y=900 + 40 * ease(u / 2.0))
+        said(img, t, bar(25) + 0.05, bar(26), [line("Found your own"), line("kingdom.", colour=BRASS)], (TEXT_X, 500))
         return img
     # ---- bars 26-29: the last charge, a beat a shot
     if t < bar(30):
@@ -780,9 +801,9 @@ CAPTIONS = [
     (2.0, 5.7, "Every company has a captain."), (8.0, 12.0, "Every captain has a name."),
     (12.0, 16.0, "They remember every fight."), (16.2, 21.8, "And any of them can fall."),
     (22.0, 24.0, "Lead them anyway."), (24.0, 26.0, "Vaskaria"), (26.1, 28.0, "Real-time battles"),
-    (28.1, 30.0, "Sized for your hand."), (30.0, 31.5, "Charge."), (32.0, 33.5, "Loose."), (34.0, 35.5, "Hold."),
-    (38.1, 42.0, "Take their walls."), (42.1, 44.0, "The Three Realms. One crown."), (44.0, 46.0, "Win the lords' regard."),
-    (46.0, 48.0, "Marry into a great house."), (48.0, 50.0, "Build a company worth following."),
+    (28.1, 30.0, "Sized for your hand."), (30.0, 31.9, "Fight rival lords."),
+    (38.1, 42.0, "Besiege their castles."), (42.1, 44.0, "The Three Realms. One crown."), (44.0, 46.0, "Win the lords' regard."),
+    (46.0, 48.0, "Marry into a great house."), (48.0, 50.0, "Found your own kingdom."),
     (58.0, 59.6, "Victory."), (60.5, 70.0, "Vaskaria\n" + END_LINE),
 ]
 

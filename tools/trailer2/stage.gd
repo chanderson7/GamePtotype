@@ -92,6 +92,9 @@ const SHOTS := {
 		"hour": 8.5, "taps": [[3.5, "story"]]},
 	"vows": {"kind": "wedding", "secs": 16, "shape": "tall", "taps": [[2.0, "begin"], [7.0, "vow_promise"]]},
 	"town": {"kind": "town", "secs": 7, "shape": "tall", "culture": "ryumon", "place": "kurogane", "hour": 19.5},
+	# ---- your own kingdom: at your seat, the banner raised against your old liege
+	"crown": {"kind": "crown", "secs": 10, "shape": "tall", "culture": "vardish", "place": "ravensford", "hour": 16.5,
+		"taps": [[3.0, "Raise crown"]]},
 }
 
 var gs
@@ -194,6 +197,19 @@ func _begin() -> void:
 			await _go("settlement.tscn")
 		"wedding":
 			await _wedding_day()
+		"crown":
+			# A famous company holding a walled fief, free of contracts, at its seat: everything
+			# GameState.crown_check() asks. The map asks whether to raise the crown; a tap says yes.
+			_campaign()
+			gs.renown = 420
+			gs.silver = 2600
+			var seat := String(cfg["place"])
+			gs.player_fief = {"settlement_id": seat, "realm": gs.world.owner_of(seat), "silver": 0, "food": 20,
+				"improvements": {}, "garrison": [], "granted_at": 0.0, "lost": false}
+			_stand_at(seat)
+			await _go("world_map.tscn")
+			current_scene._close_sheet()
+			current_scene._open_raise_crown()
 	if cfg.has("taps"):
 		var hand := Hand.new()
 		hand.tree = self

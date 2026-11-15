@@ -171,11 +171,11 @@ Ready to paste once the name's checks are done and the link is final.
   purse of silver. Ride the roads, take contracts, win the lords' regard, marry into a
   great house, hold a fief, and raise a crown of your own.
 
-  • Real-time battles: shield walls, schiltrons, volleys and cavalry charges, with every
-    company yours to place and order. Hold a thumb to slow time.
+  • Fight rival lords in real-time battles, with every company yours to place and order.
+    Hold a thumb to slow time.
+  • Besiege their castles: rams, ladders and siege towers against the walls.
+  • Found your own kingdom: raise your banner at your seat, and take the three realms.
   • Captains with names, faces and tempers. When one falls, a d100 decides if they live.
-  • A living world: lords and armies on the map, wars and truces, sieges that change who
-    holds what.
   • No ads, no timers, and nothing sold that wins a battle.
 
   0:00 The captains

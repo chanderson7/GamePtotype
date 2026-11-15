@@ -10,7 +10,7 @@ bar, with every picture laid out upright:
 
     0:00  the name slams onto the armies as they close
     0:02  the battles, a bar a shot; "Sized for your hand" over the game as it is on a phone
-    0:18  the realms: the map, the lords, the wedding, a town, each screen filling the frame
+    0:18  the realms: the map, the lords, the wedding, a crown of your own, each filling the frame
     0:26  the last charge, a beat a shot
     0:34  victory
     0:36  the end card
@@ -217,9 +217,12 @@ def picture(T):
         if k == 0:
             slam(img, T, bar(14) + 0.15, bar(15), [("REAL-TIME", CINZEL, 150, BONE, 10), ("BATTLES", CINZEL, 150, BONE, 10)])
         if word:
-            slam(img, T, bar(14) + 2.0 * k + 0.02, bar(14) + 2.0 * k + 1.5, [(word.upper(), CINZEL, 190, BRASS, 14)])
+            # A phrase of three words or more breaks before its last word, to stay large.
+            head, _, tail = word.upper().rpartition(" ")
+            lines = [head, tail] if word.count(" ") >= 2 else [word.upper()]
+            slam(img, T, bar(14) + 2.0 * k + 0.02, bar(14) + 2.0 * k + 1.9, [(ln, CINZEL, 190, BRASS, 14) for ln in lines])
         if shot in ("gate", "wall"):
-            slam(img, T, bar(20) + 0.1, bar(22), [("TAKE THEIR", CINZEL, 130, BONE, 10), ("WALLS.", CINZEL, 130, BONE, 10)],
+            slam(img, T, bar(20) + 0.1, bar(22), [("BESIEGE THEIR", CINZEL, 130, BONE, 10), ("CASTLES.", CINZEL, 130, BONE, 10)],
                  at=(W / 2, 1300))
         return img
     # ---- bars 22-25: the realms
@@ -236,8 +239,12 @@ def picture(T):
         u = T - bar(24)
         return caption(screen("vows", 4.6 + u, u / 2.0), T, bar(24) + 0.05, bar(25), caps("Marry into", "a great house."))
     if T < bar(26):
+        # The crown raised at the company's seat. The game's own card fills the lower middle of
+        # the screen, so the words go above it, over the map.
         u = T - bar(25)
-        return caption(screen("town", 1.5 + u, u / 2.0), T, bar(25) + 0.05, bar(26), caps("Build a company", "worth following."))
+        img = shade(screen("crown", cut.crown_secs(u), u / 2.0), 470, 260, 0.75 * min(1.0, ease(u / 0.3)))
+        said(img, T, bar(25) + 0.05, bar(26), caps("Found your own", "kingdom.", size=110), (W / 2, 470), align="centre")
+        return img
     # ---- bars 26-29: the last charge, a beat a shot
     if T < bar(30):
         k = int(T - bar(26))
