@@ -112,6 +112,11 @@ var map_notice_passing := false
 var map_notice_items: Array = []
 ## Unread desertion warning survives saving until the player acknowledges it.
 var desertion_warning := ""
+## A lord just beaten in the field, for the map's own screen (his face, his fate, what he
+## said, what it paid and cost) rather than lines in a notice: {lord_id, name, realm, fate
+## ("captured", "slain", "escaped"), heir, line, silver, renown, bounty, peace_broken,
+## standing, vengeance}. {} when there is none to show.
+var lord_outcome := {}
 ## Battles the autoplay smoke test has fought this run.
 var autoplay_battles := 0
 ## Casual mode: captains suffer severe wounds instead of permanent death.
@@ -236,6 +241,7 @@ func new_warband() -> void:
 	map_notice_passing = false
 	map_notice_items = []
 	desertion_warning = ""
+	lord_outcome = {}
 	hired_heroes = []
 	active_jobs = []
 	completed_jobs = []
@@ -5129,6 +5135,13 @@ func apply_result(result: Dictionary) -> void:
 			if has_specialization(Captains.QUARTERMASTER):
 				got["silver"] = int(round(got["silver"] * 1.15))
 				got["food"] = int(round(got["food"] * 1.15))
+			# A lord beaten in the open gets the map's own screen: what follows is gathered there.
+			var told: bool = is_lord and enemy_lid >= 0 and not world.lord_by_id(enemy_lid).is_empty()
+			if told:
+				var foe_now: Dictionary = world.lord_by_id(enemy_lid)
+				# As he was before the battle: a lord who falls is replaced under the same id by his heir.
+				lord_outcome = {"lord_id": enemy_lid, "name": String(foe_now.get("name", band)), "realm": enemy_faction,
+					"fate": "escaped", "silver": 0, "renown": 0, "bounty": 0, "lord": foe_now.duplicate(true)}
 			if is_lord:
 				got["silver"] = int(got["silver"]) + 150
 				got["renown"] = int(got["renown"]) + 15
@@ -5138,12 +5151,23 @@ func apply_result(result: Dictionary) -> void:
 					var bonus: int = int(contract.get("bonus_per_lord", 100))
 					got["silver"] = int(got["silver"]) + bonus
 					add_realm_relation(contract_realm(), 5)
-					_note("Contract bounty: +%d silver from %s." % [bonus, WorldData.FACTIONS[contract_realm()]["name"]])
+					if told:
+						lord_outcome["bounty"] = bonus
+						lord_outcome["bounty_realm"] = contract_realm()
+					else:
+						_note("Contract bounty: +%d silver from %s." % [bonus, WorldData.FACTIONS[contract_realm()]["name"]])
 				if not is_at_war_with(enemy_faction) and relation_with_realm(enemy_faction) > HOSTILE_RELATION:
 					add_realm_relation(enemy_faction, -30)
-					_note("You attacked a lord of %s while at peace! They count your company an enemy now and bar their gates to you (standing %d)." % [
-						WorldData.FACTIONS[enemy_faction]["name"], relation_with_realm(enemy_faction)])
-				if not shown:
+					if told:
+						lord_outcome["peace_broken"] = true
+						lord_outcome["standing"] = -30
+					else:
+						_note("You attacked a lord of %s while at peace! They count your company an enemy now and bar their gates to you (standing %d)." % [
+							WorldData.FACTIONS[enemy_faction]["name"], relation_with_realm(enemy_faction)])
+				if told:
+					lord_outcome["silver"] = int(got["silver"])
+					lord_outcome["renown"] = int(got["renown"])
+				elif not shown:
 					_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
 
 				# Vengeance & Lord Fate
@@ -5158,21 +5182,32 @@ func apply_result(result: Dictionary) -> void:
 								var deed := "slain" if result.get("lord_killed", false) else "captured"
 								mem["avenged_words"] = "Avenged: %s was %s." % [elord_name, deed]
 						elord["grudge"] = false
-						_note("Vengeance! %s, who took %s from your company, has been %s!" % [
+						var avenged := "Vengeance! %s, who took %s from your company, has been %s!" % [
 							elord_name,
 							l_cap_name if l_cap_name != "" else "your captain",
 							"slain" if result.get("lord_killed", false) else "brought down"
-						])
+						]
+						if told:
+							lord_outcome["vengeance"] = "%s is avenged." % (l_cap_name if l_cap_name != "" else "Your captain")
+						else:
+							_note(avenged)
 						world.emit_event({"type": "grudge_avenged", "company": "Your warband", "lord": elord_name})
 					if result.get("lord_killed", false):
 						var heir: Dictionary = world.kill_lord(enemy_lid, "Player Warband")
-						_note("%s fell mortally wounded on the field! An heir, %s, takes up their seat." % [elord_name, heir.get("name", "kin")])
+						if told:
+							lord_outcome["fate"] = "slain"
+							lord_outcome["heir"] = String(heir.get("name", ""))
+						else:
+							_note("%s fell mortally wounded on the field! An heir, %s, takes up their seat." % [elord_name, heir.get("name", "kin")])
 						world.emit_event({"type": "lord_slain", "lord": elord_name, "by": "Your warband"})
 					elif result.get("lord_captured", false):
 						world.capture_lord(enemy_lid, "player")
-						_note("%s was taken prisoner and travels in chains with your baggage." % elord_name)
+						if told:
+							lord_outcome["fate"] = "captured"
+						else:
+							_note("%s was taken prisoner and travels in chains with your baggage." % elord_name)
 						world.emit_event({"type": "lord_captured", "lord": elord_name, "captor": "Your warband"})
-					else:
+					elif not told:
 						_note("%s cut through the rout and escaped into the hills." % elord_name)
 						world.emit_event({"type": "player_victory", "company": "Your warband", "enemy": elord_name, "at": world.here()})
 			elif obj == "chief":
@@ -5225,7 +5260,11 @@ func apply_result(result: Dictionary) -> void:
 			var foe: Dictionary = world.lord_by_id(enemy_lid)
 			if not foe.is_empty():
 				foe["met_player"] = int(foe.get("met_player", 0)) + 1
-				_note(LordVoice.line("beaten" if result.get("won", false) else "victor", foe))
+				var said := LordVoice.line("beaten" if result.get("won", false) else "victor", foe)
+				if result.get("won", false) and not lord_outcome.is_empty() and int(lord_outcome.get("lord_id", -1)) == enemy_lid:
+					lord_outcome["line"] = said
+				else:
+					_note(said)
 		# Notable battles leave a mark: a chronicle line, and a few days of aftermath on
 		# the map. Small skirmishes don't.
 		var place: String = world.here() if world.here() != "" else world.nearest_place(world.party_pos(world.player()))
@@ -5466,7 +5505,7 @@ func to_dict() -> Dictionary:
 		"camp_seen": camp_seen.duplicate(),
 		"deeds": deeds.duplicate(true), "deed_counts": deed_counts.duplicate(), "company_title": company_title,
 		"crown_name": crown_name, "crown_color": crown_color, "crown_won": crown_won, "crown_empty_days": crown_empty_days,
-		"desertion_warning": desertion_warning, "last_result": last_result,
+		"desertion_warning": desertion_warning, "last_result": last_result, "lord_outcome": lord_outcome.duplicate(true),
 		"gathering_log": gathering_log.duplicate(true), "hosted": hosted.duplicate(true), "host_ready_at": host_ready_at,
 		"muster": muster.duplicate(true), "banners": banners.duplicate(true),
 		"invites_seen": invites_seen.duplicate(),
@@ -5654,6 +5693,7 @@ func from_dict(data: Dictionary) -> bool:
 	bond_records = data.get("bond_records", {}) if typeof(data.get("bond_records")) == TYPE_DICTIONARY else {}
 	_clean_bond_state()
 	desertion_warning = String(data.get("desertion_warning", ""))
+	lord_outcome = data.get("lord_outcome", {}) if typeof(data.get("lord_outcome")) == TYPE_DICTIONARY else {}
 	# And those saved before they needed feeding start with a new warband's rations.
 	if food < 0:
 		food = Economy.START_FOOD_DAYS * total_men()
