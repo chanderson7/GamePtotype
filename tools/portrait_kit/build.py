@@ -85,13 +85,6 @@ PEOPLE = {
         hair=hx("6e6672", "443c46", "2b252e", "1a161d", "0e0b11", "0a080c"), iris="dark"),
 }
 
-# A hand in the frame for one expression each: what it does, and where in the finished picture.
-HANDS = {
-    "edda": {"thoughtful": ("chin", (107, 131))},
-    "farid": {"warm": ("heart", (99, 190))},
-    "kaede": {"thoughtful": ("brush", (116, 142))},
-}
-
 # What each expression does with her eyes (lid, gaze, cheek), her brows (far, near) and mouth.
 MOODS = {
     "neutral":    dict(lid=0.0, brows=("rest", "rest"), mouth="rest"),
@@ -133,18 +126,6 @@ def features(who, mood, frame=None, say=False):
     return [posed_head(who, cv) for cv in made]
 
 
-def outside(mask):
-    """Everything a shape doesn't enclose: what can be reached from the picture's edge without crossing it."""
-    out = np.zeros((H, W), bool)
-    out[0, :] = out[-1, :] = out[:, 0] = out[:, -1] = True
-    out &= ~mask
-    while True:
-        more = grow(out, 1) & ~mask
-        if (more == out).all():
-            return out
-        out = more
-
-
 def posed_head(who, cv):
     """A layer drawn on the head's frame, set where she holds her head."""
     return cv.moved(POSES[who]["drop"]).warped(rows=head_rows(who)) if cv is not None else None
@@ -160,24 +141,14 @@ class Figure:
     def __init__(self, who, outfit):
         p = PEOPLE[who]
         self.who = who
-        self.hands = {}
-        self.bare = not outfit.get("pieces")          # the template: no clothes, no hands
         self.pal = palette(p["skin"], p["hair"], p["iris"])
         self.outfit = G.dress(outfit.get("pieces", []), np.random.default_rng(11), os.path.join(RIG, who, "layers"))
         o = self.outfit
         back, front, loose = Hr.STYLES[who](np.random.default_rng(7), ribbon_cloth=outfit.get("ribbon", "teal"))
-        if o.covers_hair:
-            back, loose = None, None
-        if o.hooded:
-            back = None
-            if loose is not None:
-                loose.erase(YY < 150)                 # under a hood only what falls below it shows
-            front.erase(outside(o.hat.on))            # and none of her crown shows round it
         pin = None
-        covered = o.covers_hair or o.hooded
-        if who == "kaede" and not covered:
+        if who == "kaede":
             pin = Hr.pin(*(o.pin or ("wood", "jade", None)))
-        elif o.pin and not covered:
+        elif o.pin:
             pin = Hr.pin(*o.pin)
         blush = 1.0 if outfit.get("blush") else 0.9
         chin = F.rows_of(p["head"])[2]
@@ -195,13 +166,7 @@ class Figure:
         self.sway = warp(shift(sway, POSES[who]["drop"], 0, 0.0), rows=head_rows(who), fill=0.0)
 
     def picture(self, mood, frame=None, say=False):
-        layers = self.under + features(self.who, mood, frame, say) + self.over
-        if mood in HANDS.get(self.who, {}) and not self.bare:
-            if mood not in self.hands:
-                kind, at = HANDS[self.who][mood]
-                self.hands[mood] = G.hand(kind, self.outfit, at)
-            layers = layers + [self.hands[mood]]
-        out, _ = compose(layers, self.pal)
+        out, _ = compose(self.under + features(self.who, mood, frame, say) + self.over, self.pal)
         return out
 
 

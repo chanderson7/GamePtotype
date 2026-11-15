@@ -27,8 +27,7 @@
 		"winter": {"ribbon": "rust", "pieces": [
 			{"piece": "chemise", "cloth": "linen", "neck": "high"},
 			{"piece": "kirtle", "cloth": "deep_teal", "neck": "round", "depth": 0.3, "lacing": "leather"},
-			{"piece": "cloak", "cloth": "forest", "lining": "rust", "fur": "fur", "metal": "bronze", "stone": "amber", "hood": "up"},
-			{"piece": "hood", "cloth": "forest", "fur": "fur"}
+			{"piece": "cloak", "cloth": "forest", "lining": "rust", "fur": "fur", "metal": "bronze", "stone": "amber"}
 		]},
 		"mourning": {"ribbon": "black", "pieces": [
 			{"piece": "chemise", "cloth": "linen", "neck": "high"},
@@ -73,7 +72,8 @@
 			{"piece": "shirt", "cloth": "cream", "trim": {"mat": "sand", "pattern": "embroidered"}, "buttons": "bronze"},
 			{"piece": "kaftan", "cloth": "rust", "open": 17, "trim": {"mat": "sand", "pattern": "key", "width": 5}},
 			{"piece": "sash", "cloth": "brown"},
-			{"piece": "scarf", "cloth": "indigo", "pattern": "dot", "trim": {"mat": "gold", "pattern": "dotted"}}
+			{"piece": "neckwrap", "cloth": "indigo", "pattern": "dot"},
+			{"piece": "earrings", "metal": "bronze", "gem": "amber"}
 		]},
 		"winter": {"pieces": [
 			{"piece": "shirt", "cloth": "cream", "trim": {"mat": "gold", "pattern": "embroidered"}},

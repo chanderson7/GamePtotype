@@ -165,10 +165,10 @@ by lock, cloth with folds, patterns and trims.
 
 What sets them apart from the lords, in the same style:
 - hair that flows (large tapered locks with sheen; Edda's waves and ribboned plait, Farah's
-  ringlets, Kaede's straight hair under a top knot), and swings with her head;
+  ringlets, Kaede's straight hair drawn back under a top knot), and swings with her head;
+  nothing covers it (no hoods or head scarves), and cloth hangs in curved folds from
+  rounded shoulders;
 - a pose each (head lean and height, a shoulder let down, her own jaw);
-- a hand in frame for one expression each (Edda's at her chin, Farah's at her heart,
-  Kaede holding a brush);
 - mouths that open on the words while a line is written (`StoryArt.talking`, the strips
   in `assets/portraits/mouth/`);
 - a second, fainter light; marks of their own (freckles, kohl, a beauty mark and red
@@ -179,6 +179,8 @@ What sets them apart from the lords, in the same style:
 
 Next:
 - Nothing else follows the seasons yet (the map, the rooms, what people say).
+- Hands in frame were tried and taken out (they read poorly drawn this way); if wanted,
+  draw them by hand as layers for one expression.
 - The pose is made by sliding rows and columns, so a head can lean but not turn; a turned
   shoulder or a three-quarter body would need the clothes redrawn.
 - The trailer and the app preview (neither committed) were cut with older portraits.

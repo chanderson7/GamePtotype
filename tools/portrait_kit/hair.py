@@ -179,7 +179,7 @@ def lock(cv, pts, width, part, mat="hair", root=0.6, tip=0.3, sheen=(0.3,), ligh
     toward = (vx * -0.72 + vy * -0.69) / np.maximum(d, 1e-3)        # +1 on the side facing the light
     val = 0.50 + 0.25 * toward * a - 0.10 * a * a + light + lit(XX, YY) * 0.28
     for s in sheen:
-        val = val + 0.26 * np.exp(-((along - s) / 0.055) ** 2) * (1 - a ** 1.5) * (0.65 + 0.35 * toward)
+        val = val + 0.32 * np.exp(-((along - s) / 0.055) ** 2) * (1 - a ** 1.5) * (0.65 + 0.35 * toward)
     t = tones(val, cuts=(0.90, 0.70, 0.50, 0.32))
     if strands:
         u = np.round(side * d)
@@ -190,10 +190,12 @@ def lock(cv, pts, width, part, mat="hair", root=0.6, tip=0.3, sheen=(0.3,), ligh
     return m
 
 
-def mass(cv, mask, part, mat="hair", light=0.0, flow=None, rng=None, spacing=5):
+def mass(cv, mask, part, mat="hair", light=0.0, flow=None, rng=None, spacing=5, sheen=None):
     """Hair seen as a whole (what lies under the locks, or behind her): shaded by where the
-    light falls, with a few strands along `flow`."""
+    light falls, with a few strands along `flow`, and a band of gloss where `sheen` is."""
     val = 0.34 + lit(XX, YY) * 0.36 + light
+    if sheen is not None:
+        val = val + 0.34 * sheen(XX + 0.5, YY + 0.5)
     cv.put(mask, mat, tones(val, cuts=(0.90, 0.70, 0.50, 0.32)), part)
     if flow is not None:
         rng = rng or np.random.default_rng(1)
@@ -202,6 +204,14 @@ def mass(cv, mask, part, mat="hair", light=0.0, flow=None, rng=None, spacing=5):
             for x, y in line_pixels(L[::3]) if len(L) > 6 else []:
                 if 0 <= x < W and 0 <= y < H and mask[y, x] and cv.tone[y, x] < 4:
                     cv.tone[y, x] += 1
+
+
+def wisps(cv, paths, tone=3):
+    """Single hairs that have come loose: fine lines, no outline."""
+    part = cv.new_part(False)
+    for k, pts in enumerate(paths):
+        draw_line(cv, spline(pts, 6), "hair", tone if k % 2 == 0 else max(tone - 1, 0), part)
+    return part
 
 
 def coil(cv, cx, cy, rx, ry, rng, width=6.0, part=None, lift=0.12):
@@ -252,7 +262,8 @@ def edda(rng, ribbon_cloth="teal"):
     hl = lambda x: 49.5 + 0.0065 * (x - part_x) ** 2 + np.clip(part_x - 6 - x, 0, None) * 0.16
     cap = (outer_cap(vol_top=6.6, vol_side=5.0, bottom=90) & ellipse(97.5, 68, 40.5, 49.5)) \
         & ~face_open(hl, temple=(69, 122), wide=(65.5, 130.5), side_low=92)
-    mass(front, cap, fp, light=0.02)
+    sweep = lambda x, y: (-1.0, 0.30 + (y - 30) / 30) if x < part_x else (0.6, 1.0)
+    mass(front, cap, fp, light=0.02, flow=sweep, rng=rng, spacing=6)
     # from the parting across the crown and brow to the far temple, furthest back first
     lock(front, [(104, 24.5), (86, 23), (70, 32), (60.5, 50), (57.5, 72)], 14, fp, sheen=(0.32,), light=-0.05, seed=1, tip=0.25)
     lock(front, [(106, 31), (90, 28.5), (75, 37), (65, 53), (61, 76)], 13, fp, sheen=(0.3,), seed=2, tip=0.25)
@@ -289,6 +300,8 @@ def edda(rng, ribbon_cloth="teal"):
         loose.put(poly([(136.5, 189.5), (144.5, 189.5), (144.5, 191), (136.5, 191)]), ribbon_cloth, 1, rp)
         for pts, tone in (([(136.5, 193), (132, 199), (133.5, 206), (137.5, 196)], 2), ([(144.5, 193), (148.5, 200), (146, 207), (143, 196)], 3)):
             loose.put(poly(pts), ribbon_cloth, tone, rp)
+    wisps(loose, [[(40.5, 208), (37, 215), (39, 222)], [(159, 206), (162.5, 214), (160, 222)], [(146, 222), (149, 229), (147, 235)],
+                  [(36.5, 150), (33.5, 158), (35.5, 166)], [(163.5, 150), (166.5, 159), (164.5, 167)]])
     return back, front, loose
 
 
@@ -326,7 +339,7 @@ def farah(rng, ribbon_cloth=None):
     hl = lambda x: 51.0 + 0.010 * (x - part_x) ** 2 + np.clip(part_x - 8 - x, 0, None) * 0.08
     cap = (outer_cap(vol_top=7.5, vol_side=6.0, bottom=90) & ellipse(98, 68, 42, 50)) \
         & ~face_open(hl, temple=(69, 122), wide=(65.5, 130.5), side_low=90)
-    mass(front, cap, fp, light=0.0)
+    mass(front, cap, fp, light=0.0, flow=_curl_flow, rng=rng, spacing=6)
     # waves from the parting over the crown, to the far side and to the near
     lock(front, wavy((102, 23), (56, 66), 3.0, 2.5, 0.4), 13, fp, sheen=(0.2, 0.6), light=-0.05, seed=1, tip=0.2)
     lock(front, wavy((104, 30), (60, 70), 3.0, 2.5, 2.2), 12, fp, sheen=(0.22, 0.62), seed=2, tip=0.2)
@@ -347,6 +360,7 @@ def farah(rng, ribbon_cloth=None):
                                             ((63.5, 80), (60.5, 138), 6.5, 0.05)]):
         lock(loose, wavy(p0, p1, 4.4, 3.5 if k < 2 else 2.5, phase=k * 2.3 + 2.0, grow_=0.25), w, lp, sheen=(0.13, 0.41, 0.69, 0.93),
              light=light, seed=40 + k, tip=0.16, root=0.45)
+    wisps(loose, [wavy((40, 150), (37, 172), 2.2, 1.5), wavy((162, 158), (165, 180), 2.2, 1.5, 1.0), wavy((46, 176), (44, 192), 2.0, 1.2, 2.0)])
     return back, front, loose
 
 
@@ -355,40 +369,45 @@ KNOT = (126.0, 33.0)
 
 
 def kaede(rng, ribbon_cloth=None):
-    """Black, straight and glossy: parted in the middle, the top of it caught up in a knot
-    at the back of her crown (pinned, with her brush through it), the rest falling straight
-    behind her shoulders and over the near one, cut square by her cheeks."""
+    """Black, straight and glossy: parted in the middle and drawn back behind her ears, the
+    top of it caught up in a knot at the back of her crown (pinned, with her brush through
+    it), the rest falling straight behind her shoulders and over the near one."""
     back = Canvas()
     knot, kp = coil(back, KNOT[0], KNOT[1], 11.5, 10.5, rng, width=5.0, lift=0.34)
     bp = back.new_part()
-    behind = ellipse(97.5, 68, 38.5, 45) | poly([(62, 64), (58, 110), (56, 150), (56, 176), (88, 172), (88, 100)]) \
-        | poly([(132, 64), (137, 110), (140, 150), (141, 178), (108, 172), (108, 100)])
+    behind = ellipse(97.5, 68, 37.5, 45) | poly([(63, 70), (60, 110), (58, 150), (58, 176), (88, 172), (88, 100)]) \
+        | poly([(131, 70), (135, 110), (138, 150), (139, 178), (108, 172), (108, 100)])
     mass(back, behind, bp, light=-0.2, flow=lambda x, y: ((x - 97) / 300, 1.0), rng=rng, spacing=6)
     front = Canvas()
     fp = front.new_part()
     part_x = AXIS + 4
     hl = lambda x: 50.5 + 0.011 * (x - part_x) ** 2
-    cap = (outer_cap(vol_top=4.6, vol_side=3.6, bottom=90) & ellipse(97.5, 68, 38.5, 47.5)) \
-        & ~face_open(hl, temple=(69.5, 121.5), wide=(65.5, 130), side_low=92)
-    mass(front, cap, fp, light=0.16)
-    # smooth from the parting down each side; the sheen lies in a band across them
-    for k, pts in enumerate([[(90, 23), (75, 28), (65.5, 44), (62, 64), (61.5, 82)], [(91, 29), (78, 34), (68.5, 48), (64.5, 66), (63.5, 82)],
-                             [(92, 37), (82, 41), (74, 51), (69.5, 62)]]):
-        lock(front, pts, [13, 11, 8][k], fp, sheen=(0.36,), light=0.10 + 0.03 * k, seed=k, tip=0.2, strands=4)
-    for k, pts in enumerate([[(93, 23), (111, 26), (124.5, 40), (131, 60), (132.5, 82)], [(93.5, 29), (109, 32), (121.5, 45), (127.5, 62), (129.5, 82)],
-                             [(94, 37), (105, 40), (114, 49), (120.5, 60)]]):
-        lock(front, pts, [13, 11, 8][k], fp, sheen=(0.36,), light=0.04 + 0.03 * k, seed=3 + k, tip=0.2, strands=4)
+    cap = (outer_cap(vol_top=4.2, vol_side=2.8, bottom=84) & ellipse(97.5, 68, 37.5, 47)) \
+        & ~face_open(hl, temple=(69.5, 121.5), wide=(65.5, 130), side_low=84)
+    gloss = lambda x, y: np.exp(-(((y - 37 - 0.006 * (x - part_x) ** 2) / 3.2) ** 2)) * (np.abs(x - part_x) > 2.5)
+    mass(front, cap, fp, light=0.12, sheen=gloss)
+    parting = front.new_part(False)
+    for y in range(24, 51):
+        front.px(part_x + (y - 24) * 0.03, y, "hair", 4, parting)
+    # smooth from the parting down each side and back behind the ear; the sheen lies in a band across them
+    for k, (pts, w) in enumerate([([(90, 23), (76, 28), (66.5, 42), (63.5, 60), (64.5, 76)], 12), ([(91, 30), (80, 35), (71, 48), (67.5, 62), (67, 74)], 9)]):
+        lock(front, pts, w, fp, sheen=(0.34,), light=0.12 + 0.03 * k, seed=k, tip=0.3, strands=4, mask=cap)
+    for k, (pts, w) in enumerate([([(93, 23), (110, 26), (123, 39), (129, 56), (130.5, 74)], 12), ([(93.5, 30), (107, 33), (118, 45), (124, 58), (126, 70)], 9)]):
+        lock(front, pts, w, fp, sheen=(0.34,), light=0.06 + 0.03 * k, seed=3 + k, tip=0.3, strands=4, mask=cap)
     under_shadow(front)
     loose = Canvas()
     lp = loose.new_part()
-    # straight falls, the near one forward over the shoulder; then the locks cut square by her cheeks
-    lock(loose, [(137, 68), (142.5, 110), (145.5, 160), (145, 206), (143, 224)], 13, lp, sheen=(0.3, 0.7), light=0.02, seed=7, tip=0.08,
-         root=0.4, strands=4)
-    lock(loose, [(135.5, 86), (138, 124), (138.5, 170), (137, 214)], 11, lp, sheen=(0.28, 0.68), light=0.08, seed=8, tip=0.08, root=0.5,
+    # from behind her ears: a long straight fall over the near shoulder, a slimmer one over the far
+    lock(loose, [(136.5, 80), (141, 124), (143.5, 170), (143, 210), (141, 226)], 12.5, lp, sheen=(0.3, 0.68), light=0.04, seed=7,
+         tip=0.1, root=0.75, strands=4)
+    lock(loose, [(134.5, 98), (138, 140), (138.5, 188), (137, 217)], 8.5, lp, sheen=(0.3, 0.7), light=0.1, seed=8, tip=0.12, root=0.7,
          strands=4)
-    lock(loose, [(60.5, 66), (55, 110), (52, 160), (51.5, 204)], 12, lp, sheen=(0.3, 0.7), light=0.04, seed=9, tip=0.08, root=0.4, strands=4)
-    lock(loose, [(64, 62), (62, 92), (62.5, 126)], 7.5, lp, sheen=(0.45,), light=0.16, seed=10, root=0.7, blunt=True, strands=4)
-    lock(loose, [(128.5, 62), (130.5, 92), (130, 128)], 7.5, lp, sheen=(0.45,), light=0.10, seed=11, root=0.7, blunt=True, strands=4)
+    lock(loose, [(61.5, 82), (57, 126), (54.5, 170), (54, 207)], 10, lp, sheen=(0.3, 0.68), light=0.06, seed=9, tip=0.12, root=0.75,
+         strands=4)
+    # they pass behind her ear and her jaw, not over them
+    from face import ear, head_mask
+    loose.erase(grow(ear("oval").on, 1) | head_mask("oval"))
+    wisps(loose, [[(66.5, 60), (64, 70), (65, 80)], [(127, 58), (129.5, 66), (129, 74)]], tone=3)
     return back, front, loose
 
 

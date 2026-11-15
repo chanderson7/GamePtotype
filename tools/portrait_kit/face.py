@@ -74,7 +74,7 @@ def head(shape, freckles=0, rng=None, blush=0.9, mole=None):
     val = val - blob(MOUTH_X, MOUTH_Y + 7, 7, 2.2, 0.16)
     val = val + blob(MOUTH_X - 1.5, chin - 7, 6.5, 3.6, 0.07)
     val = val - blob(CX + 14, chin - 6, 12, 5, 0.08)
-    cv.put(m, "skin", tones(val, dither=0.012), p)
+    cv.put(m, "skin", tones(val, dither=0.03), p)
     # blush on the cheeks and the tip of the nose, dithered in at its edges
     bl = blob(ex0 - 3, NOSE_Y - 2, 8, 5.2) + blob(ex1 + 5, NOSE_Y - 2, 9.5, 5.2) + blob(AXIS, NOSE_Y - 1, 3, 2.2, 0.6)
     bl = np.clip(bl, 0, 1) * blush
@@ -106,7 +106,9 @@ def neck(width=(13, 15), chin=125):
     flare = np.clip(YY - 141, 0, None) * 0.9
     m = (YY >= chin - 19) & (YY <= 162) & (XX >= x0 - flare) & (XX <= x1 + flare)
     # shoulders and chest under what she wears
-    bust = poly([(80, 141), (112, 141), (147, 154), (164, 168), (170, 256), (22, 256), (29, 168), (46, 154)])
+    # (rounded like her clothes and a little inside them, so no skin shows at a sleeve's edge)
+    bust = spoly([(80, 142), (112, 142), (146, 154), (163, 168), (170, 256), (22, 256), (29, 168), (46, 154)])
+    bust &= ~grow(~bust, 2)
     u = (XX - (x0 + x1) / 2) / ((x1 - x0) / 2)
     val = 0.56 - u * 0.24 - np.clip(1 - (YY - chin) / 10, 0, 1) * 0.36
     cv.put(m, "skin", tones(val, dither=0.02), p)
@@ -287,6 +289,11 @@ def eye(which, shape, lid=0.0, gaze=(0.0, 0.0), cheek=0.0, kohl=False):
     if cheek:
         for x in range(x0 + 2, x1 - 1):
             px(x, bots[x] + 2, "skin", 3)
+    elif not kohl:
+        # a few lower lashes toward the outer corner
+        for x in range(x0, x1 + 1):
+            if 0.62 < tt(x) < 0.9 and (x - x0) % 2 == 0:
+                px(x, bots[x] + 2, "skin", 4)
     px(inner_x, bots[inner_x], "blush", 3)
     return cv
 

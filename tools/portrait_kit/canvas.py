@@ -231,6 +231,35 @@ def poly(points):
     return inside
 
 
+def soft(points, radius=9.0):
+    """A polygon's points with its corners rounded off, so cloth and shoulders curve where a
+    plain polygon would turn sharply. A corner on the picture's bottom edge is left square
+    (the frame cuts the figure there)."""
+    pts = [(float(x), float(y)) for x, y in points]
+    out = []
+    n = len(pts)
+    for i in range(n):
+        p0, p1, p2 = np.array(pts[i - 1]), np.array(pts[i]), np.array(pts[(i + 1) % n])
+        if p1[1] >= H - 0.5:
+            out.append(tuple(p1))
+            continue
+        a, b = p0 - p1, p2 - p1
+        la, lb = np.linalg.norm(a), np.linalg.norm(b)
+        if la < 1e-6 or lb < 1e-6:
+            out.append(tuple(p1))
+            continue
+        cut = min(radius, la * 0.45, lb * 0.45)
+        q0, q2 = p1 + a / la * cut, p1 + b / lb * cut
+        for t in (0.0, 0.25, 0.5, 0.75, 1.0):
+            out.append(tuple((1 - t) ** 2 * q0 + 2 * (1 - t) * t * p1 + t ** 2 * q2))
+    return out
+
+
+def spoly(points, radius=9.0):
+    """A filled polygon with rounded corners."""
+    return poly(soft(points, radius))
+
+
 def bezier(*pts, n=40):
     t = np.linspace(0, 1, n)[:, None]
     p = [np.array(q, float) for q in pts]
