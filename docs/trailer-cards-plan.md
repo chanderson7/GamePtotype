@@ -172,7 +172,8 @@ Replace the `# ---- bar 13: the name` block. With `u = t − bar(13)`:
 | 0.35 – 1.00 | The glint crosses the name once (`progress = (u − 0.35) / 0.65`). |
 | whole card | Embers at strength 1.0. |
 
-The white flash at `bar(13)` already exists in `FLASHES`; leave it.
+(The white flashes on the hits, `FLASHES`, were removed afterwards, on 2026-11-15: the screen
+pulsing white on the beat was too much.)
 
 Done when: 24.03 is mid-slam and bright; 24.5 has the glint part-way across; 25.9 is a
 settled, centred logo over the dim armies; 26.03 is unchanged from before.

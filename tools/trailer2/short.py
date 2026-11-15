@@ -278,20 +278,10 @@ def picture(T):
     return img
 
 
-# The trailer's flashes from the title on. The first, on the very first frame, is gentler: it
-# is the first thing a viewer scrolling past sees.
-FLASHES = [(when, 0.6 if when == START else strength) for when, strength in cut.FLASHES if when >= START]
-
-
 def finished(t):
     """The Short's frame at its own second t. No fade at either end: it opens on the slam and
     holds the end card, and a Short plays round again."""
-    T = START + t
-    img = picture(T)
-    for when, strength in FLASHES:
-        if 0.0 <= T - when < 0.2:
-            img = Image.blend(img, Image.new("RGB", (W, H), (255, 250, 238)), strength * (1.0 - (T - when) / 0.2) ** 2)
-    return img
+    return picture(START + t)
 
 
 # ------------------------------------------------------------------ sound, words, cover

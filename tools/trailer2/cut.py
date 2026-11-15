@@ -723,16 +723,11 @@ def picture(t):
         put(img, words(((END_ACTION, FELL, 44, (198, 201, 214), 0),), "centre"), (W / 2, 945), opacity=ease((u - 3.2) / 0.8))
     return img
 
-# White for a frame or two on the hits; the first second comes up from black. The last frame
-# is the end card itself, held, because a player that stops on it shows it.
-FLASHES = [(bar(4), 0.85), (bar(13), 1.0), (bar(14), 0.5), (bar(18), 0.35), (bar(22), 0.4), (bar(26), 0.8), (bar(30), 1.0)]
-
-
+# The first second comes up from black. The last frame is the end card itself, held, because
+# a player that stops on it shows it. No white flashes on the hits: the screen pulsing white
+# on the beat was too much (and hard on eyes that flashing troubles).
 def finished(t):
     img = picture(t)
-    for when, strength in FLASHES:
-        if 0.0 <= t - when < 0.2:
-            img = Image.blend(img, Image.new("RGB", (W, H), (255, 250, 238)), strength * (1.0 - (t - when) / 0.2) ** 2)
     if t < 1.2:
         img = Image.blend(Image.new("RGB", (W, H), (0, 0, 0)), img, ease(t / 1.2))
     return img
