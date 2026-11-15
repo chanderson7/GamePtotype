@@ -37,14 +37,28 @@ class Outfit:
         self.earring = None
         self.pin = None
         self.sway = np.zeros((H, W))  # what swings with her hair (a veil's fall)
-        self.covers_hair = False      # a scarf: none of her hair shows but at her brow
-        self.hooded = False           # a hood up: only what falls below it shows
-        self.sleeve = "linen"         # what her sleeves are made of (a hand in frame wears it)
 
 
 # --------------------------------------------------------------------------- cloth
 def form(spread=184.0, top=144.0):
     return lambda x, y: np.clip(0.58 - (x - MID) / spread - (y - top) / 320.0, 0.1, 0.92)
+
+
+def flowing(path):
+    """A fold's path made to hang as cloth does: smooth through its points, and a straight
+    one bowed a little away from her middle."""
+    pts = [tuple(map(float, q)) for q in path]
+    if len(pts) == 2:
+        (x0, y0), (x1, y1) = pts
+        length = math.hypot(x1 - x0, y1 - y0)
+        if length < 24:
+            return pts
+        nx, ny = -(y1 - y0) / length, (x1 - x0) / length
+        out = 1.0 if ((x0 + x1) / 2 - MID) * nx >= 0 else -1.0
+        bow = min(3.0, length / 30.0) * out
+        pts = [(x0, y0), ((x0 * 2 + x1) / 3 + nx * bow, (y0 * 2 + y1) / 3 + ny * bow),
+               ((x0 + x1 * 2) / 3 + nx * bow * 0.6, (y0 + y1 * 2) / 3 + ny * bow * 0.6), (x1, y1)]
+    return spline(pts, 6)
 
 
 def panel(cv, mask, mat, light=None, folds=(), part=None, dither=0.02, cuts=(0.88, 0.68, 0.46, 0.26), line=True,
@@ -59,7 +73,9 @@ def panel(cv, mask, mat, light=None, folds=(), part=None, dither=0.02, cuts=(0.8
     for x, y, rx, ry, amt in bumps:
         val = val + blob(x, y, rx, ry, amt)
     for path, depth in folds:
-        d, along, side = path_dist(path)
+        if not depth:
+            continue
+        d, along, side = path_dist(flowing(path))
         dep = depth * np.clip(along * 3.2 + 0.12, 0, 1)
         val = val - dep * np.exp(-(d / 1.5) ** 2) * 0.55
         val = val + dep * np.exp(-((d - 3.2) / 1.9) ** 2) * 0.22 * (side < 0)
@@ -271,19 +287,29 @@ def lacing(cv, x, y0, y1, mat="leather", step=7, half=3):
 def sleeved(o, mat, opening=None, folds=1.0, pattern=None, bust=True, cuts=(0.88, 0.68, 0.46, 0.26)):
     """A garment's body and sleeves over her whole figure, less `opening` (her neckline)."""
     cv = o.cv
-    o.sleeve = mat
-    body = poly(BODY)
+    body = spoly(BODY)
     if opening is not None:
         body &= ~opening
-    arm_l, arm_r = poly(ARM_L) & body, poly(ARM_R) & body
+    arm_l, arm_r = spoly(ARM_L) & body, spoly(ARM_R) & body
     torso = body & ~arm_l & ~arm_r
     bumps = [(79, 196, 17, 13, 0.05), (114, 197, 17, 13, 0.035)] if bust else []
-    tp = panel(cv, torso, mat, folds=[([(73, 206), (71, 232), (70, 256)], 0.6 * folds), ([(120, 206), (122, 232), (123, 256)], 0.6 * folds),
-                                      ([(96, 216), (96, 256)], 0.3 * folds)], bumps=bumps, cuts=cuts)
-    panel(cv, arm_l, mat, folds=[([(42, 166), (35, 204), (31, 256)], 0.9 * folds), ([(49, 190), (45, 256)], 0.5 * folds),
-                                 ([(24, 222), (36, 229), (49, 224)], 0.5 * folds)], cuts=cuts)
-    panel(cv, arm_r, mat, folds=[([(150, 166), (157, 204), (161, 256)], 0.9 * folds), ([(143, 190), (147, 256)], 0.5 * folds),
-                                 ([(168, 222), (156, 229), (143, 224)], 0.5 * folds)], cuts=cuts)
+    tp = panel(cv, torso, mat, folds=[([(74, 204), (70.5, 222), (69, 240), (68.5, 256)], 0.6 * folds),
+                                      ([(119, 204), (122.5, 222), (124, 240), (124.5, 256)], 0.6 * folds),
+                                      ([(96, 216), (95, 236), (96.5, 256)], 0.3 * folds),
+                                      ([(60, 172), (62.5, 192), (61, 212), (62, 232)], 0.35 * folds),
+                                      ([(132, 172), (129.5, 192), (131, 212), (130, 232)], 0.35 * folds),
+                                      ([(84, 224), (82, 240), (82.5, 256)], 0.3 * folds), ([(108, 224), (110, 240), (109.5, 256)], 0.3 * folds)],
+               bumps=bumps, cuts=cuts)
+    for arm, s in ((arm_l, -1), (arm_r, 1)):
+        x = lambda v: MID + s * v
+        panel(cv, arm, mat, cuts=cuts, folds=[
+            ([(x(51), 160), (x(56), 180), (x(60), 204), (x(63), 230), (x(65), 256)], 0.9 * folds),      # down the sleeve
+            ([(x(46), 176), (x(48.5), 200), (x(50), 226), (x(51), 256)], 0.5 * folds),
+            ([(x(52), 158), (x(57), 168), (x(63), 174)], 0.45 * folds),                                # gathers at the shoulder
+            ([(x(47), 160), (x(50), 169), (x(55), 176)], 0.35 * folds),
+            ([(x(72), 214), (x(63), 221), (x(54), 219), (x(47), 213)], 0.5 * folds),                   # the bend of the arm
+            ([(x(73), 226), (x(64), 233), (x(55), 231), (x(47), 225)], 0.4 * folds),
+            ([(x(71), 240), (x(62), 245), (x(54), 243)], 0.3 * folds)])
     if pattern:
         apply_pattern(o, body, pattern)
     return body
@@ -376,9 +402,9 @@ def mantle(o, p):
     cv = o.cv
     mat = p.get("cloth", "forest")
     left = [(79, 141), (60, 147), (44, 153), (27, 166), (18, 186), (13, 256), (57, 256), (62, 210), (68, 172), (74, 152)]
-    panel(cv, poly(left), mat, folds=[([(50, 164), (43, 208), (40, 256)], 1.0), ([(31, 178), (25, 216), (22, 256)], 0.9),
+    panel(cv, spoly(left), mat, folds=[([(50, 164), (43, 208), (40, 256)], 1.0), ([(31, 178), (25, 216), (22, 256)], 0.9),
                                       ([(60, 176), (55, 256)], 0.5)])
-    panel(cv, poly(mirror(left)), mat, folds=[([(142, 164), (149, 208), (152, 256)], 1.0), ([(161, 178), (167, 216), (170, 256)], 0.9),
+    panel(cv, spoly(mirror(left)), mat, folds=[([(142, 164), (149, 208), (152, 256)], 1.0), ([(161, 178), (167, 216), (170, 256)], 0.9),
                                               ([(132, 176), (137, 256)], 0.6)])
     if p.get("fur"):
         strip = [(76, 139), (82, 145), (76, 166), (70, 205), (65, 256), (52, 256), (57, 204), (64, 165), (68, 148)]
@@ -399,16 +425,14 @@ def cloak(o, p):
     from the shoulders and pinned at the throat."""
     cv = o.cv
     mat = p.get("cloth", "brown")
-    o.sleeve = mat
     lining = p.get("lining")
-    if p.get("hood", "down") == "down":
-        hood = poly([(64, 149), (70, 132), (84, 126), (MID, 124), (108, 126), (122, 132), (128, 149), (114, 145), (MID, 143), (78, 145)])
-        panel(o.back, hood, lining or mat, light=lambda x, y: np.clip(0.5 - (x - MID) / 120 - (y - 126) / 90, 0.1, 0.9),
-              folds=[([(72, 134), (MID, 130), (120, 134)], 0.5)])
+    hood = poly([(64, 149), (70, 132), (84, 126), (MID, 124), (108, 126), (122, 132), (128, 149), (114, 145), (MID, 143), (78, 145)])
+    panel(o.back, hood, lining or mat, light=lambda x, y: np.clip(0.5 - (x - MID) / 120 - (y - 126) / 90, 0.1, 0.9),
+          folds=[([(72, 134), (MID, 130), (120, 134)], 0.5)])
     left = [(78, 143), (58, 148), (33, 157), (17, 170), (10, 192), (6, 256), (55, 256), (62, 204), (72, 166), (82, 152)]
-    panel(cv, poly(left), mat, folds=[([(46, 164), (38, 208), (34, 256)], 1.0), ([(27, 180), (20, 220), (17, 256)], 0.9),
+    panel(cv, spoly(left), mat, folds=[([(46, 164), (38, 208), (34, 256)], 1.0), ([(27, 180), (20, 220), (17, 256)], 0.9),
                                       ([(60, 176), (54, 256)], 0.7)])
-    panel(cv, poly(mirror(left)), mat, folds=[([(146, 164), (154, 208), (158, 256)], 1.0), ([(165, 180), (172, 220), (175, 256)], 0.9),
+    panel(cv, spoly(mirror(left)), mat, folds=[([(146, 164), (154, 208), (158, 256)], 1.0), ([(165, 180), (172, 220), (175, 256)], 0.9),
                                               ([(132, 176), (138, 256)], 0.7)])
     # the cowl: the hood's edge lying round the neck
     _cowl(cv, mat)
@@ -449,7 +473,7 @@ def belt(o, p):
     cv = o.cv
     mat = p.get("mat", "leather")
     y = p.get("y", 244)
-    part, m = band(cv, [(21, y + 1.5), (60, y), (MID, y - 0.5), (132, y), (171, y + 1.5)], 6.0, mat, line=True, mask=poly(BODY))
+    part, m = band(cv, [(21, y + 1.5), (60, y), (MID, y - 0.5), (132, y), (171, y + 1.5)], 6.0, mat, line=True, mask=spoly(BODY))
     metal = p.get("buckle", "bronze")
     bp = cv.new_part()
     cv.put(poly([(MID - 5, y - 5), (MID + 5, y - 5), (MID + 5, y + 5), (MID - 5, y + 5)]), metal, 2, bp)
@@ -485,19 +509,18 @@ def kaftan(o, p):
     """A long coat worn open over the shirt, its edges banded with braid."""
     cv = o.cv
     mat = p.get("cloth", "indigo")
-    o.sleeve = mat
     gap = p.get("open", 14)
     left = [(80, 142), (64, 147), (46, 154), (29, 168), (22, 256), (MID - gap, 256), (MID - gap + 2, 196), (MID - gap + 5, 164), (84, 150)]
     for pts, arm, fl in ((left, ARM_L, [([(64, 176), (60, 216), (58, 256)], 0.6)]),
                          (mirror(left), ARM_R, [([(128, 176), (132, 216), (134, 256)], 0.7)])):
-        m = poly(pts)
-        a = poly(arm) & m
+        m = spoly(pts)
+        a = spoly(arm) & m
         sgn = -1 if arm is ARM_L else 1
         panel(cv, m & ~a, mat, folds=fl, bumps=[(MID + sgn * 20, 196, 15, 12, 0.04)])
         panel(cv, a, mat, folds=[([(MID + sgn * 54, 166), (MID + sgn * 61, 204), (MID + sgn * 65, 256)], 0.9),
                                  ([(MID + sgn * 47, 190), (MID + sgn * 51, 256)], 0.5),
                                  ([(MID + sgn * 72, 222), (MID + sgn * 60, 229), (MID + sgn * 47, 224)], 0.5)])
-    whole = poly(left) | poly(mirror(left))
+    whole = spoly(left) | spoly(mirror(left))
     if p.get("pattern"):
         apply_pattern(o, whole, p["pattern"])
     edge = [(81, 143), (86, 152), (MID - gap + 5.5, 166), (MID - gap + 2.5, 198), (MID - gap + 0.5, 256)]
@@ -516,7 +539,7 @@ def sash(o, p):
     cv = o.cv
     mat = p.get("cloth", "saffron")
     y0 = p.get("y", 240)
-    m = poly([(20.5, y0), (171.5, y0), (173, 256), (19, 256)]) & poly(BODY)
+    m = poly([(20.5, y0), (171.5, y0), (173, 256), (19, 256)]) & spoly(BODY)
     part = panel(cv, m, mat, light=lambda x, y: np.clip(0.72 - (x - MID) / 260, 0.2, 0.9),
                  folds=[([(22, y0 + 5.5), (170, y0 + 5.5)], 0.6), ([(22, y0 + 11), (170, y0 + 11)], 0.5)])
     if p.get("pattern"):
@@ -606,19 +629,17 @@ def overrobe(o, p):
     gap = p.get("open", 22)
     sleeves = p.get("sleeves", True)
     if sleeves:
-        o.sleeve = mat
-    if sleeves:
         left = [(77, 141), (60, 147), (44, 153), (27, 166), (20, 256), (MID - gap - 2, 256), (MID - gap, 200), (MID - gap + 3, 166), (80, 150)]
     else:
         left = [(77, 141), (60, 147), (48, 152), (46, 168), (48, 256), (MID - gap - 2, 256), (MID - gap, 200), (MID - gap + 3, 166), (80, 150)]
     for pts, sgn in ((left, -1), (mirror(left), 1)):
-        m = poly(pts)
+        m = spoly(pts)
         folds = [([(MID + sgn * 34, 172), (MID + sgn * 36, 256)], 0.6)]
         if sleeves:
             folds += [([(MID + sgn * 54, 166), (MID + sgn * 62, 208), (MID + sgn * 66, 256)], 0.9),
                       ([(MID + sgn * 46, 184), (MID + sgn * 49, 256)], 0.6)]
         panel(cv, m, mat, folds=folds)
-    whole = poly(left) | poly(mirror(left))
+    whole = spoly(left) | spoly(mirror(left))
     if p.get("pattern"):
         apply_pattern(o, whole, p["pattern"])
     edge = [(78, 142), (MID - gap + 3.5, 166), (MID - gap + 0.5, 200), (MID - gap - 1.5, 256)]
@@ -649,7 +670,7 @@ def obi(o, p):
     cv = o.cv
     mat = p.get("cloth", "moss")
     y0 = p.get("y", 230)
-    m = poly([(22, y0), (170, y0), (172, 256), (20, 256)]) & poly(BODY)
+    m = poly([(22, y0), (170, y0), (172, 256), (20, 256)]) & spoly(BODY)
     panel(cv, m, mat, light=lambda x, y: np.clip(0.72 - (x - MID) / 300, 0.2, 0.9),
           folds=[([(22, y0 + 4), (170, y0 + 4)], 0.25)])
     if p.get("pattern"):
@@ -777,160 +798,20 @@ def flowers(o, p):
 
 
 def veil(o, p):
-    """A fine veil pinned at the crown, lying over the back of her hair and falling behind
-    her shoulders, its edge worked in gold."""
+    """A fine veil pinned at the back of her head: it shows behind her hair and falls behind
+    her shoulders, its edge worked in gold. (Nothing of it lies over her hair in front.)"""
     mat = p.get("cloth", "sheer")
-    fall = poly([(60, 44), (51, 80), (41, 120), (30, 160), (22, 214), (172, 214), (163, 160), (152, 120), (142, 80), (134, 44),
-                 (118, 26), (97, 20), (76, 26)])
+    fall = poly([(62, 40), (52, 80), (42, 120), (31, 160), (23, 214), (171, 214), (163, 160), (152, 120), (142, 80), (132, 40),
+                 (116, 24), (97, 19), (78, 24)])
     panel(o.far_back, fall, mat, light=lambda x, y: np.clip(0.6 - (x - MID) / 150 - (y - 60) / 330, 0.1, 0.92),
           folds=[([(56, 80), (44, 140), (36, 214)], 0.8), ([(140, 80), (152, 140), (160, 214)], 0.8), ([(70, 150), (64, 214)], 0.5),
                  ([(128, 150), (134, 214)], 0.5)])
     o.sway = np.maximum(o.sway, np.where(fall, np.clip((YY - 110) / 100.0, 0, 1) * 0.7, 0))
-    front = poly([(58, 62)] + [(97 + 41 * math.cos(a), 52 - 34 * math.sin(a)) for a in np.linspace(math.pi * 0.96, math.pi * 0.04, 18)]
-                 + [(136, 62)] + [(97 + 39 * math.cos(a), 60 - 22 * math.sin(a)) for a in np.linspace(math.pi * 0.04, math.pi * 0.96, 18)])
-    panel(o.hat, front, mat, light=lambda x, y: np.clip(0.85 - (x - 90) / 110 - (y - 20) / 110, 0.1, 0.95),
-          folds=[([(70, 30), (64, 56)], 0.5), ([(124, 30), (131, 56)], 0.5), ([(97, 20), (97, 36)], 0.3)])
-    edge = [(97 + 39.5 * math.cos(a), 60 - 22 * math.sin(a)) for a in np.linspace(math.pi * 0.97, math.pi * 0.03, 24)]
-    trim(o.hat, edge, p.get("trim", {"mat": "gold", "pattern": "dotted"}), 2.6)
     tr = p.get("trim", {"mat": "gold"})
     tmat = tr if isinstance(tr, str) else tr.get("mat", "gold")
-    for pts in ([(51.5, 80), (41.5, 120), (30.5, 160), (22.5, 214)], mirror([(51.5, 80), (41.5, 120), (30.5, 160), (22.5, 214)])):
+    edge = [(52.5, 80), (42.5, 120), (31.5, 160), (23.5, 214)]
+    for pts in (edge, mirror(edge)):
         band(o.far_back, pts, 2.2, tmat, pattern=PATTERNS["dotted"], line=False)
-
-
-def hood(o, p):
-    """A cloak's hood drawn up: it frames her face, fur at its edge if she likes, and her
-    hair falls out below it."""
-    scarf(o, dict(p, _hood=True))
-
-
-def scarf(o, p):
-    """A scarf over the hair, framing the face and falling to the shoulders, its edge banded."""
-    mat = p.get("cloth", "indigo")
-    if p.get("_hood"):
-        o.hooded = True
-    else:
-        o.covers_hair = True
-    bm = poly([(58, 54), (50, 96), (42, 160), (36, 204), (156, 204), (150, 160), (142, 96), (134, 54)])
-    panel(o.far_back, bm, mat, light=lambda x, y: np.clip(0.5 - (x - MID) / 144 - (y - 96) / 320, 0.1, 0.9),
-          folds=[([(54, 112), (45, 204)], 0.8), ([(138, 112), (147, 204)], 0.8)])
-    face = poly([(67.5, 76), (69, 63), (74, 54.5), (84, 50), (97, 49), (110, 51.5), (119, 58), (124, 70), (127.5, 96), (120, 124),
-                 (108, 133), (97, 137), (84, 133), (73, 122), (66, 98)])
-    dome = [(96 + 41 * math.cos(a), 50 - 31 * math.sin(a)) for a in np.linspace(math.pi * 0.98, 0.02, 18)]
-    m = poly([(55, 54)] + dome + [(137.5, 54), (140, 84), (146, 128), (155, 178), (136, 186), (125, 160), (116, 148), (77, 148),
-              (64, 160), (53, 186), (37, 178), (46, 128), (52, 84)]) & ~face
-    cv = o.hat
-    panel(cv, m, mat, light=lambda x, y: np.clip(0.75 - (x - 93) / 112 - (y - 32) / 256, 0.1, 0.95),
-          folds=[([(64, 64), (57, 112), (48, 176)], 0.9), ([(128, 64), (136, 112), (147, 176)], 0.9), ([(90, 15), (77, 32)], 0.4),
-                 ([(110, 18), (120, 36)], 0.4), ([(72, 150), (84, 156), (97, 158), (110, 156), (122, 150)], 0.6)])
-    if p.get("pattern"):
-        saved = o.cv
-        o.cv = cv
-        scatter(cv, m, p["pattern"] if isinstance(p["pattern"], str) else p["pattern"].get("motif", "dot"), (11, 9),
-                None if isinstance(p["pattern"], str) else p["pattern"].get("mat"), rng=o.rng)
-        o.cv = saved
-    rim = [(66, 98), (67.5, 76), (69, 63), (74, 54.5), (84, 50), (97, 49), (110, 51.5), (119, 58), (124, 70), (127.5, 96)]
-    low = [(66, 98), (73, 122), (84, 133), (97, 137), (108, 133), (120, 124), (127.5, 96)]
-    if p.get("fur"):
-        d1, _, _ = path_dist(rim)
-        d2, _, _ = path_dist(low)
-        fur(cv, (np.minimum(d1, d2) <= 3.2) & ~face, o.rng, p["fur"], spots=0)
-    elif p.get("trim", True):
-        t = p.get("trim", {"mat": "gold", "pattern": "dotted"})
-        trim(cv, rim, t, 3.2)
-        trim(cv, low, t, 3.2)
-
-
-# =========================================================================== a hand in frame
-def _forearm(cv, wrist, elbow, w0, w1, mat, cuff=None):
-    """A sleeve from the wrist down out of the frame, a cuff at the wrist."""
-    (wx, wy), (ex, ey) = wrist, elbow
-    d = np.array([ex - wx, ey - wy], float); d /= np.linalg.norm(d)
-    n = np.array([-d[1], d[0]])
-    quad = [(wx - n[0] * w0, wy - n[1] * w0), (wx + n[0] * w0, wy + n[1] * w0), (ex + n[0] * w1, ey + n[1] * w1), (ex - n[0] * w1, ey - n[1] * w1)]
-    mid = [(wx + d[0] * 6, wy + d[1] * 6), (ex, ey)]
-    panel(cv, poly(quad), mat, light=lambda x, y: np.clip(0.62 - ((x - wx) * n[0] + (y - wy) * n[1]) / (w1 * 2.6) * (1 if n[0] > 0 else -1) - (y - wy) / 420, 0.12, 0.9),
-          folds=[(mid, 0.5), ([(wx - n[0] * w0 * 0.8 + d[0] * 9, wy - n[1] * w0 * 0.8 + d[1] * 9), (wx + n[0] * w0 * 0.8 + d[0] * 12, wy + n[1] * w0 * 0.8 + d[1] * 12)], 0.5)])
-    if cuff:
-        band(cv, [(wx - n[0] * w0, wy - n[1] * w0), (wx + n[0] * w0, wy + n[1] * w0)], 4.0, cuff, pattern=PATTERNS["edge"], line=True)
-
-
-HAND = 1.45       # how big a hand is drawn (1: a fist 18 pixels across)
-
-
-def _fist(cv, x, y, s=HAND):
-    """A loosely closed hand seen from its back, the knuckles uppermost, the thumb at its far side."""
-    part = cv.new_part()
-    back = poly([(x - 8 * s, y + 2.5 * s), (x + 7.5 * s, y + 1.5 * s), (x + 10 * s, y + 12 * s), (x + 7.5 * s, y + 17 * s),
-                 (x - 4.5 * s, y + 17.5 * s), (x - 8.5 * s, y + 12 * s)])
-    val = 0.66 - (XX - x) / (34 * s) - (YY - y) / (46 * s)
-    cv.put(back, "skin", tones(val), part)
-    for i, fx in enumerate((-6.2, -2.1, 2.0, 6.0)):
-        f = ellipse(x + fx * s + 0.5, y + (1.0 + (0.8 if i in (0, 3) else 0)) * s, 2.5 * s, 3.8 * s)
-        cv.put(f, "skin", 1 if i < 2 else 2, part)
-        cv.put(f & (YY >= y + 3 * s), "skin", 2 if i < 2 else 3, part)
-    lp = cv.new_part(False)
-    for fx in (-4.1, 0.0, 4.1):
-        for k in range(int(-2 * s), int(5 * s)):
-            cv.px(x + fx * s, y + k, "skin", 4, lp)
-    # the knuckles catch the light
-    for fx in (-6.2, -2.1, 2.0):
-        cv.px(x + fx * s, y - 1.5 * s, "skin", 0, lp)
-    thumb = ellipse(x - 8.6 * s, y + 8 * s, 2.9 * s, 6.4 * s)
-    tp = cv.new_part()
-    cv.put(thumb, "skin", 2, tp)
-    cv.put(thumb & (XX < x - 9 * s), "skin", 1, tp)
-    cv.px(x - 8 * s, y + 3 * s, "skin", 0, tp)
-    return part
-
-
-def _open_hand(cv, x, y, s=HAND):
-    """A hand laid flat, palm down, its fingers pointing up and to the viewer's left."""
-    part = cv.new_part()
-    palm = ellipse(x, y, 9.5 * s, 8.5 * s)
-    val = 0.68 - (XX - x) / (40 * s) - (YY - y) / (40 * s)
-    cv.put(palm, "skin", tones(val), part)
-    lp = cv.new_part(False)
-    for i, (ang, length) in enumerate(((-2.66, 12.5), (-2.38, 14.5), (-2.10, 14.0), (-1.82, 11.5))):
-        bx, by = x + math.cos(ang) * 7.0 * s, y + math.sin(ang) * 6.5 * s
-        tx, ty = bx + math.cos(ang) * length * s, by + math.sin(ang) * length * s
-        d, along, side = path_dist([(bx, by), (tx, ty)])
-        f = d <= 2.1 * s
-        cv.put(f, "skin", np.where(side > 0, 1, 2) if i < 3 else np.where(side > 0, 2, 3), part)
-        edge = (d > 2.1 * s - 1.0) & f & (side < 0) & (along > 0.05)
-        cv.put(edge, "skin", 4, lp)
-        # a knuckle's crease, and the nail's light
-        d2, _, _ = path_dist([(bx + math.cos(ang) * length * s * 0.5 - math.sin(ang) * 2, by + math.sin(ang) * length * s * 0.5 + math.cos(ang) * 2),
-                              (bx + math.cos(ang) * length * s * 0.5 + math.sin(ang) * 2, by + math.sin(ang) * length * s * 0.5 - math.cos(ang) * 2)])
-        cv.put((d2 <= 0.6) & f, "skin", 3, lp)
-        cv.px(tx - math.cos(ang) * 1.5, ty - math.sin(ang) * 1.5, "skin", 0, lp)
-    d, along, side = path_dist([(x + 4 * s, y - 6 * s), (x + 7.5 * s, y - 15 * s)])
-    cv.put(d <= 2.3 * s, "skin", np.where(side > 0, 2, 3), part)
-    return part
-
-
-def hand(kind, o, at):
-    """A hand in the frame, for one of her expressions: "chin" (her knuckles under her chin),
-    "heart" (laid flat on her breast), "brush" (holding a writing brush up by her chin). `at`
-    is where it goes in the finished picture; her sleeve is the outfit's own."""
-    cv = Canvas()
-    x, y = at
-    s = HAND
-    if kind == "heart":
-        _forearm(cv, (x + 9 * s, y + 8 * s), (x + 30 * s, 264), 8.5 * s, 12 * s, o.sleeve)
-        _open_hand(cv, x, y)
-        return cv
-    _forearm(cv, (x + 3 * s, y + 21 * s), (x + 20 * s, 264), 8.0 * s, 12 * s, o.sleeve)
-    if kind == "brush":
-        bp = cv.new_part()
-        d, along, side = path_dist([(x + 7 * s, y + 26 * s), (x - 10 * s, y - 12 * s)])
-        cv.put((d <= 1.4) & (along <= 0.80), "wood", np.where(side < 0, 3, 1), bp)
-        cv.put((d <= 1.9) & (along > 0.80) & (along <= 0.86), "gold", np.where(side < 0, 3, 1), bp)
-        tuft = (d <= 0.6 + 2.4 * np.sin(np.clip((along - 0.86) / 0.14, 0, 1) * math.pi) ** 0.7) & (along > 0.86)
-        cv.put(tuft, "linen", 2, bp)
-        cv.put(tuft & (along > 0.95), "black", 1, bp)
-    _fist(cv, x, y)
-    return cv
 
 
 # =========================================================================== what each carries
@@ -1010,8 +891,8 @@ PIECES = {
     "shirt": shirt, "kaftan": kaftan, "sash": sash, "collar": jewelled_collar,
     "kosode": kosode, "overrobe": overrobe, "obi": obi,
     "necklace": necklace, "brooch": brooch, "earrings": earrings,
-    "circlet": circlet, "crown": crown, "comb": comb, "pin": pin, "flowers": flowers, "veil": veil, "scarf": scarf,
-    "hood": hood, "neckwrap": neckwrap,
+    "circlet": circlet, "crown": crown, "comb": comb, "pin": pin, "flowers": flowers, "veil": veil,
+    "neckwrap": neckwrap,
     "keys": keys, "seal": seal, "brush": brush,
     "layer": layer,
 }
