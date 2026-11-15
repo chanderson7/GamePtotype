@@ -76,6 +76,8 @@ var _pinch_from := 0.0
 var _pinch_scale := 1.0
 var _pinching := false
 var _save_clock := 0.0
+## Seconds of riding between saves on the road.
+const AUTOSAVE_EVERY := 30.0
 ## Seconds since the map opened, for anything that moves on its own.
 var _clock := 0.0
 ## Presentation-only contact left by the moving warband: dust, footsteps or wake.
@@ -177,10 +179,14 @@ var sheet_row: GridContainer
 
 func _ready() -> void:
 	font = ThemeDB.fallback_font
-	autoplay = OS.get_cmdline_user_args().has("--autoplay")
+	autoplay = Scenes.autoplay()
 	world = GameState.world
 	if world == null:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/title.tscn")
+		return
+	# A battle the phone closed mid-fight comes first (a save loaded from elsewhere has none).
+	if GameState.battle_waiting():
+		get_tree().change_scene_to_file.call_deferred("res://scenes/battle.tscn")
 		return
 	if GameState.bond_intro_pending() and GameState.desertion_warning == "" and not autoplay:
 		get_tree().change_scene_to_file.call_deferred("res://scenes/bond_intro.tscn")
@@ -280,8 +286,11 @@ func _process(delta: float) -> void:
 	# An encounter or a note about the last battle holds the clock until it's answered.
 	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
+		# The campaign is saved as you ride, but not every few seconds: a save is the whole
+		# campaign, written on this thread. It's also saved on arriving, on every encounter,
+		# and whenever the game goes to the background.
 		_save_clock += delta
-		if _save_clock > 5.0:
+		if _save_clock > AUTOSAVE_EVERY:
 			_save_clock = 0.0
 			GameState.save_game()
 	for e in world.events:
@@ -380,6 +389,16 @@ func _process(delta: float) -> void:
 	_refresh_hud()
 	_sync_layers()
 	queue_redraw()
+
+
+## Full frames while time runs (parties move) or the clock sweeps on; otherwise the map
+## may be drawn at fewer frames once nothing has been touched for a while (FramePacer).
+func keeps_full_pace() -> bool:
+	if world == null:
+		return false
+	if world.busy() and not paused:
+		return true
+	return _clock_tween != null and _clock_tween.is_valid() and _clock_tween.is_running()
 
 
 ## The smoke test: ride at the nearest band and fight it, send the men in against the
@@ -658,7 +677,9 @@ func _build_hud() -> void:
 		var badge := _button("", _open_resource.bind(key))
 		badge.name = "Pill_%s" % key
 		badge.icon = Widgets.icon(key)
-		badge.expand_icon = true
+		# The icon keeps its size (capped at 26) and the pill grows with bigger text, rather
+		# than the icon being squeezed to a dot beside "400".
+		badge.expand_icon = false
 		badge.add_theme_constant_override("icon_max_width", 26)
 		badge.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		badge.custom_minimum_size = Vector2(92, 64)
@@ -4335,17 +4356,9 @@ func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: 
 		mark = _strength_mark(men)
 		chip_text = "%s %d" % [mark[0], men]
 		chip_w = font.get_string_size(chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size).x + 14.0
-	var rect := Rect2(at + Vector2(-(w + chip_w) * 0.5 - 8.0, 0.0), Vector2(w + chip_w + 16.0 + (6.0 if chip_w > 0.0 else 0.0), size + 8.0))
+	var rect := _on_screen(Rect2(at + Vector2(-(w + chip_w) * 0.5 - 8.0, 0.0), Vector2(w + chip_w + 16.0 + (6.0 if chip_w > 0.0 else 0.0), size + 8.0)))
 	if dodge:
-		for attempt in 4:
-			var hit := false
-			for other in _taken:
-				if other.grow(2.0).intersects(rect):
-					hit = true
-					break
-			if not hit:
-				break
-			rect.position.y -= rect.size.y + 4.0
+		rect = _dodge(rect)
 	_taken.append(rect)
 	if _plate == null:
 		_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
@@ -4359,6 +4372,38 @@ func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: 
 		var chip := Rect2(Vector2(rect.end.x - chip_w - 4.0, rect.position.y + 3.0), Vector2(chip_w, rect.size.y - 6.0))
 		labels.draw_style_box(Style.box(mark[1], Color(0, 0, 0, 0), 0, int(chip.size.y * 0.5)), chip)
 		labels.draw_string(font, chip.position + Vector2(7.0, chip.size.y * 0.5 + chip_size * 0.36), chip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_size, Color("14161f"))
+
+
+## A plate kept whole on the screen: one for a place or party by the edge slides in rather
+## than being cut off. One for something off the screen stays off it.
+func _on_screen(rect: Rect2) -> Rect2:
+	var cx := rect.get_center().x
+	if cx < _view.position.x or cx > _view.end.x:
+		return rect
+	rect.position.x = clampf(rect.position.x, _view.position.x + 4.0, maxf(_view.position.x + 4.0, _view.end.x - rect.size.x - 4.0))
+	return rect
+
+
+## A plate stepped up out of the way of the plates already placed: the first step that's
+## clear, or if none is, the one that covers the least of them (big text makes more of
+## them meet).
+func _dodge(rect: Rect2) -> Rect2:
+	var best := rect
+	var best_cover := INF
+	for step in 6:
+		var r := rect
+		r.position.y -= float(step) * (rect.size.y + 4.0)
+		var cover := 0.0
+		for other in _taken:
+			var g: Rect2 = other.grow(2.0)
+			if g.intersects(r):
+				cover += g.intersection(r).get_area()
+		if cover < best_cover:
+			best_cover = cover
+			best = r
+		if cover <= 0.0:
+			break
+	return best
 
 
 ## A plate of icons and words, centred on `at` (its top edge): `parts` are {"icon": key},
@@ -4377,16 +4422,9 @@ func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bo
 			w += float(int(part["pips"][1])) * 12.0
 		w += gap
 	w -= gap
-	var rect := Rect2(at + Vector2(-w * 0.5 - 8.0, 0.0), Vector2(w + 16.0, size + 8.0))
-	for attempt in (4 if dodge else 0):
-		var hit := false
-		for other in _taken:
-			if other.grow(2.0).intersects(rect):
-				hit = true
-				break
-		if not hit:
-			break
-		rect.position.y -= rect.size.y + 4.0
+	var rect := _on_screen(Rect2(at + Vector2(-w * 0.5 - 8.0, 0.0), Vector2(w + 16.0, size + 8.0)))
+	if dodge:
+		rect = _dodge(rect)
 	_taken.append(rect)
 	Style.box(Color(0.06, 0.07, 0.1, 0.8), edge, 2, 8).draw(labels.get_canvas_item(), rect)
 	var x := rect.position.x + 8.0

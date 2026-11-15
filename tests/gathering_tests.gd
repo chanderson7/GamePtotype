@@ -157,7 +157,7 @@ func _init() -> void:
 	await process_frame
 	var texts := []
 	_texts(page, texts)
-	check(texts.any(func(t): return String(t).begins_with("Feast · ")), "the tab reads Feast · N")
+	check(texts.any(func(t): return String(t).begins_with("Feast\u00a0·\u00a0")), "the tab reads Feast · N (held on one line)")
 	check(texts.any(func(t): return String(t).contains("King Aldwin's peace feast")), "the card names the host's feast")
 	check(texts.any(func(t): return String(t).contains("first word at the table · +2")), "each lord offers a first word at the table")
 	var guest: Dictionary = {}

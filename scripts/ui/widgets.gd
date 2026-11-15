@@ -135,12 +135,22 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 			if String(t["label"]) == "":
 				b.tooltip_text = String(t.get("tip", t["id"]))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		# With the text set bigger, a tab with a long word ("Companies") takes more of the
+		# row than its short neighbours, so the word keeps its size (at the plain size the
+		# tabs are even).
+		var longest := 0
+		for word in String(t["label"]).split(" ", false):
+			longest = maxi(longest, word.length())
+		if Style.text_size(Style.SMALL) > Style.SMALL:
+			b.size_flags_stretch_ratio = 1.0 + 0.15 * maxi(0, longest - 6)
 		b.custom_minimum_size = Vector2(0, Style.TOUCH)
 		# Tabs share one row: the words take the full text size where they fit, shrink no
-		# further than they used to (_fit_tab_words), and then wrap, a long word breaking
-		# rather than pushing the page wider than the screen. Never "…".
+		# further than they used to (_fit_tab_words), and then wrap between words; a word
+		# too long for its tab shrinks as far as the plain text size before it would break.
+		# Never "…".
 		b.set_meta("font_full", Style.text_size(Style.SMALL))
 		b.set_meta("font_least", mini(Style.text_size(Style.SMALL), roundi(Style.SMALL * 1.15)))
+		b.set_meta("font_floor", mini(Style.text_size(Style.SMALL), Style.SMALL))
 		b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		b.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
@@ -166,8 +176,10 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 	return bar
 
 
-## Each tab's words at the biggest size (up to its "font_full") at which its longest word
-## fits the tab, but no smaller than its "font_least"; what still doesn't fit wraps.
+## Each tab's words on one line, at the biggest size (up to its "font_full") that fits,
+## but no smaller than its "font_least". If they can't share a line they wrap between
+## words, each at the biggest size at which every word fits whole, down to "font_floor"
+## (the plain text size); only a word too long even then breaks.
 static func _fit_tab_words(row: HBoxContainer) -> void:
 	if not is_instance_valid(row):
 		return
@@ -178,12 +190,21 @@ static func _fit_tab_words(row: HBoxContainer) -> void:
 		var font := b.get_theme_font("font")
 		var full := int(b.get_meta("font_full", Style.text_size(Style.SMALL)))
 		var least := int(b.get_meta("font_least", full))
-		var room := b.size.x - 28.0 - (38.0 if b.icon != null else 0.0)
+		var floor_size := mini(least, int(b.get_meta("font_floor", least)))
+		# 10 px to spare: on a phone's screen the glyphs can lay out a few pixels wider than
+		# measured here, enough to push a last letter onto a line of its own.
+		var room := b.size.x - 28.0 - (38.0 if b.icon != null else 0.0) - 10.0
 		var fits := full
 		if font != null:
-			for word in b.text.split(" ", false):
-				while fits > least and font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fits).x > room:
-					fits -= 1
+			var line := full
+			while line > least and font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, line).x > room:
+				line -= 1
+			if font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, line).x <= room:
+				fits = line
+			else:
+				for word in b.text.split(" ", false):
+					while fits > floor_size and font.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fits).x > room:
+						fits -= 1
 		if b.get_theme_font_size("font_size") != fits:
 			b.add_theme_font_size_override("font_size", fits)
 

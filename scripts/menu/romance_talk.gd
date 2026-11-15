@@ -168,8 +168,9 @@ func _caption() -> String:
 
 
 func _portrait(expression: String) -> Texture2D:
-	var tex := StoryArt.texture("res://assets/portraits/%s_%s.png" % [cand, expression])
-	return tex if tex != null else StoryArt.texture("res://assets/portraits/%s_neutral.png" % cand)
+	# Dressed for the occasion (StoryArt.outfit_for): court dress at a feast she's a guest
+	# of, travelling clothes once she's been driven from her seat.
+	return StoryArt.outfit_portrait(cand, expression, StoryArt.outfit_for(cand))
 
 
 ## What the plate last showed, so a change in trust or in how things stand is seen.

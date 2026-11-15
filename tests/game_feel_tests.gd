@@ -770,9 +770,8 @@ func _turning_points() -> void:
 # ---- the talks you court and befriend in: faces breathe and gesture, only the new line is
 # said, replies and keepsakes arrive, trust is seen to change, and the People page shows
 # what a visit changed.
-## The painted portraits (Edda, Farah, Kaede) are alive: each painting has other faces made
-## from it (tools/portrait_faces.py): eyes shut and half shut, a softer look, a glance, a
-## brow raised. A talk blinks in two steps, glances, reacts to a mood, and moves the head
+## The romance portraits (Edda, Farah, Kaede) are alive: each is drawn with its other faces
+## (tools/portrait_kit): eyes shut and half shut, a softer look, a glance, a brow raised. A talk blinks in two steps, glances, reacts to a mood, and moves the head
 ## and hair through a shader. A page portrait blinks.
 func _painted_blink() -> void:
 	var StoryArt = load("res://scripts/ui/story_art.gd")
@@ -796,18 +795,13 @@ func _painted_blink() -> void:
 				if a == null or b == null or b.is_empty():
 					continue
 				b.convert(Image.FORMAT_RGBA8)
-				var changed := 0
-				for y in a.get_height():
-					for x in a.get_width():
-						if a.get_pixel(x, y) != b.get_pixel(x, y):
-							changed += 1
-							if not StoryArt.FACE.has_point(Vector2i(x, y)):
-								only_face = false
-				if changed < 20:
+				# Outside the face strip (FACE, or twice it on a portrait twice the size)
+				# the two are the same pixels; inside it, not.
+				var rect: Rect2i = StoryArt.face_rect(a.get_size())
+				if _outside_same(a, b, rect) == false or _region_data(a, rect) == _region_data(b, rect):
 					only_face = false
-	# A glance can't be made from eyes already lowered: the thoughtful paintings have none.
-	check(made == 87 and lacking.all(func(l): return String(l).contains("thoughtful away")),
-		"every painted portrait has its other faces (%d of 90; none for %s)" % [made, ", ".join(lacking)])
+	check(made == 90 and lacking.is_empty(),
+		"every romance portrait has its other faces (%d of 90; none for %s)" % [made, ", ".join(lacking)])
 	check(only_face, "and each is the same painting everywhere but the eyes and brows")
 	check(StoryArt.eyes_shut(ImageTexture.create_from_image(Image.create(8, 8, false, Image.FORMAT_RGBA8))) == null, "a picture with no other faces has none")
 	check(StoryArt.painted_who(StoryArt.texture("res://assets/portraits/farid_warm.png")) == "farid", "a painting knows whose it is")
@@ -1248,3 +1242,21 @@ func _battle_beats() -> void:
 	check(sc._hitstop >= sc.CAPTAIN_HITSTOP - 0.001, "a captain's fall stops the field for a beat")
 	change_scene_to_file("res://scenes/main_menu.tscn")
 	await _frames(4)
+
+
+## The pixels of `img` in `r`, its mipmaps aside.
+func _region_data(img: Image, r: Rect2i) -> PackedByteArray:
+	var base := img.duplicate() as Image
+	base.clear_mipmaps()
+	return base.get_region(r).get_data()
+
+
+## Whether `a` and `b` are the same pixels everywhere outside `r`.
+func _outside_same(a: Image, b: Image, r: Rect2i) -> bool:
+	var w := a.get_width()
+	var h := a.get_height()
+	for band in [Rect2i(0, 0, w, r.position.y), Rect2i(0, r.end.y, w, h - r.end.y),
+			Rect2i(0, r.position.y, r.position.x, r.size.y), Rect2i(r.end.x, r.position.y, w - r.end.x, r.size.y)]:
+		if band.size.x > 0 and band.size.y > 0 and _region_data(a, band) != _region_data(b, band):
+			return false
+	return true

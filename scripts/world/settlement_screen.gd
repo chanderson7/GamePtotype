@@ -67,7 +67,7 @@ var _just_built := ""
 
 func _ready() -> void:
 	theme = Style.make_theme()
-	autoplay = OS.get_cmdline_user_args().has("--autoplay")
+	autoplay = Scenes.autoplay()
 	var w = GameState.world
 	if w == null or w.here() == "":
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn" if w != null else "res://scenes/title.tscn")
@@ -1365,7 +1365,8 @@ func _court_tab() -> Dictionary:
 	var label := "Court"
 	if w.gathering_on(g):
 		label = {Gatherings.DANCE: "Dance", Gatherings.TOURNEY: "Tourney"}.get(String(g["kind"]), "Feast")
-	return {"id": "court", "label": "%s · %d" % [label, count] if count > 0 else label, "badge": 0, "gold": w.gathering_on(g)}
+	# Held together (no-break spaces): at big text the count never wraps onto a line alone.
+	return {"id": "court", "label": "%s\u00a0·\u00a0%d" % [label, count] if count > 0 else label, "badge": 0, "gold": w.gathering_on(g)}
 
 
 ## The hall: during a gathering the feast and what you can do there; then who's in the
@@ -2002,7 +2003,7 @@ func _household_row(person: Dictionary) -> Button:
 		tag = "would like a word · a visit is open"
 	elif letter:
 		tag = "would like a word · a letter unread"
-	var tex := StoryArtHall.texture("res://assets/portraits/%s_neutral.png" % cid)
+	var tex := StoryArtHall.outfit_portrait(cid, "neutral", StoryArtHall.outfit_for(cid))
 	var heart := Widgets.chip(Relationships.status_label(status), Style.ROMANCE, "", "rings" if status in ["engaged", "married"] else "heart")
 	var b := _person_row("Person_%s" % cid, tex, String(person.get("name", "Noble")), String(person.get("role", "")), tag, Style.ROMANCE_LIGHT,
 		heart, func():
@@ -2012,7 +2013,7 @@ func _household_row(person: Dictionary) -> Button:
 			Scenes.conversation_return = "res://scenes/settlement.tscn"
 			Scenes.go("res://scenes/conversation.tscn"))
 	var pic := b.get_child(0).get_child(0) as TextureRect
-	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	return b
 
 

@@ -521,6 +521,14 @@ var ai: Array = [null, null]
 ## AI Commander for allied squads on the player's side.
 var allied_ai: RefCounted = null
 var winner := -1
+## Steps fought since the battle began (see step).
+var ticks := 0
+## The player's orders as given: [step, order, its arguments], squads and siege engines
+## written by id (see command). Fought again from the same seed with these orders, the
+## battle comes back to where it was (replay): for when the phone closed the game mid-battle.
+var journal: Array = []
+## How far into an earlier sitting's journal a replay has got.
+var _replayed := 0
 var end_reason := ""
 ## True when the player pulled out before the lines met: on the map that is riding away,
 ## not a lost battle.
@@ -2423,6 +2431,81 @@ func _end_wheel(sq) -> void:
 
 
 ## "advance" or "hold" for every squad a side still has fighting.
+## Gives one of the player's orders (`name`, one of this sim's order functions) and writes
+## it in the journal at this step. Everything the battle screen does to the battle goes
+## through here, so the journal holds all of it.
+func command(name: String, args: Array = []):
+	journal.append([ticks, name, _to_journal(args)])
+	return callv(name, args)
+
+
+## Aims a siege engine: {"kind": "auto"}, or at an engine, the gate, a wall section or a
+## squad (its "ref").
+func aim_engine(e, aim: Dictionary) -> void:
+	e.aim = aim
+
+
+## Fights the battle again, from the journal of an earlier sitting, up to `to_tick` steps
+## (at most `budget` steps this call); true once it's there, or the battle is decided. The
+## sim must have been set up and deployed as it was then (the same armies, seed, site and
+## commanders). The orders go back into this sim's own journal as they're given again.
+func replay(entries: Array, to_tick: int, budget: int = 1 << 30) -> bool:
+	var steps := 0
+	while true:
+		while _replayed < entries.size() and int(entries[_replayed][0]) <= ticks:
+			var e: Array = entries[_replayed]
+			_replayed += 1
+			command(String(e[1]), _from_journal(e[2]))
+		if ticks >= to_tick or winner != -1:
+			return true
+		if steps >= budget:
+			return false
+		var before := ticks
+		step()
+		steps += 1
+		if ticks == before:
+			# Not fighting (still deploying): nothing further to fight.
+			return true
+	return true
+
+
+func _to_journal(v):
+	if v is Squad:
+		return {"@squad": v.id}
+	if v is Object:
+		if works != null and works.engines.has(v):
+			return {"@engine": works.engines.find(v)}
+		push_error("A battle order took something the journal can't write: %s" % v)
+		return null
+	if v is Array:
+		return v.map(_to_journal)
+	if v is Dictionary:
+		var out := {}
+		for k in v:
+			out[k] = _to_journal(v[k])
+		return out
+	return v
+
+
+func _from_journal(v):
+	if v is Dictionary:
+		if v.has("@squad"):
+			for sq in squads:
+				if sq.id == int(v["@squad"]):
+					return sq
+			return null
+		if v.has("@engine"):
+			var i := int(v["@engine"])
+			return works.engines[i] if works != null and i >= 0 and i < works.engines.size() else null
+		var out := {}
+		for k in v:
+			out[k] = _from_journal(v[k])
+		return out
+	if v is Array:
+		return v.map(_from_journal)
+	return v
+
+
 func order_all(team: int, order: String) -> void:
 	for sq in squads:
 		if sq.team != team or not sq.is_active() or (team == PLAYER and sq.is_ally):
@@ -2458,6 +2541,7 @@ func squad_at(team: int, point: Vector2, radius: float = 40.0):
 func step(dt: float = STEP) -> void:
 	if winner != -1 or phase != PHASE_BATTLE:
 		return
+	ticks += 1
 	time += dt
 	for r in scheduled_reinforcements:
 		if not r.get("spawned", false) and time >= float(r.get("at_time", 0.0)):

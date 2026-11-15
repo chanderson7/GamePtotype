@@ -1,7 +1,10 @@
 # Where to pick up
 
-For a fresh session: read this. The newest work is under **Added 2026-10-31** below; each
+For a fresh session: read this. The newest work is under **Added 2026-11-14** below; each
 item names its tests. Don't re-read the whole codebase.
+
+**Platform: the first release is iPhone only** (decided 2026-11-14). An iPad runs it in its
+iPhone window; Android and Steam come later, so their presets are kept but not prepared.
 
 Every feature on [`next-features-roadmap.md`](next-features-roadmap.md) now has at least a
 first version, and all seven immersion packages of
@@ -12,14 +15,17 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
 - Painted art: the three capital plates, result/remembrance vignettes and village/castle
   plates ([`artwork-roadmap.md`](artwork-roadmap.md) Packages B and C). They need the external
   illustration workflow the portraits used; the marshal map markers are done in pixel art.
-- Deeper slices: crown courts and granting crown fiefs to lords, rebellion inside a realm;
-  a mix-group sound system for battles. (Siege engines are in: `docs/siege-engines-plan.md`.) (The lords' talk was rewritten: every beat in four voices, `scripts/data/lord_lines.gd`.) (Movement cycles
+- Deeper slices: rebellion inside a realm; a mix-group sound system for battles. (Crown
+  courts and granting crown fiefs are in: `docs/crown-court-and-muster-plan.md`,
+  `tests/crown_court_tests.gd`.) (Siege engines are in: `docs/siege-engines-plan.md`.) (The lords' talk was rewritten: every beat in four voices, `scripts/data/lord_lines.gd`.) (Movement cycles
   are in: a four-frame stride; see the end of `game-feel-audit.md`.)
-- Release: a build on a real phone, a frame-rate check there, and a playtest.
-- Before that playtest: [`playtest-audit.md`](playtest-audit.md), six code-traced passes
-  from different players' seats. **Every item is built but none has run in Godot**; its
-  "As built" section lists the choices made and what the first engine run must confirm
-  (parse, the `--balance` gates, campaign pace, layout at 150% text, touch, saves, exports).
+- Release (iPhone): it has run on a real iPhone, and the Apple Developer account is set up.
+  See the checklist under **Added 2026-11-14**: the frame rate measured on the oldest
+  iPhone to be supported, TestFlight, and a playtest.
+- [`playtest-audit.md`](playtest-audit.md), six code-traced passes from different players'
+  seats: the default suite and every screen have now run in Godot (no script errors, iPhone
+  SE and tall iPhone, 100% and 150% text). Still to confirm: campaign pace (`--autoplay`,
+  `--world`), touch and saves on a device, and the `--balance` failures listed below.
 
 ## State (on `main`)
 
@@ -98,6 +104,112 @@ The kingdom has its own plan in [`kingdom-plan.md`](kingdom-plan.md).
     built. The Fief tab is cards: stores as meters that warn when full, garrison rows with faces
     and wounds, a station sheet instead of a button per squad, Manor rows with a plate of each
     building, and renouncing behind a confirmation. The Warband's fief card shows the place.
+
+## Added 2026-11-14: iPhone-only release prep
+
+Built (tests: `opening_tests`, `menu_tests`, `text_scale_tests`):
+- The iOS preset is iPhone only, takes its version from `project.godot`, answers the
+  encryption question in the Info.plist; no preset exports `docs/`, `tests/` or `tools/`.
+- Settings shows the version at the bottom. Its Developer options and `-- --autoplay`
+  (which starts a new campaign over the saves) exist in debug builds only. The battle times
+  the renderer only for the performance readout.
+- Layout fixes from the screen audit at iPhone sizes: the first-run Begin button stays on
+  screen at the bottom; the battle's hint keeps clear of the slow-time tab and waits behind
+  a ground or objective card; tab words no longer break in two at big text (a long word's
+  tab gets more of the row, "Court · 2" holds together, and `text_scale_tests` now fails a
+  word too wide for its line, with 8 px to spare for a phone's rendering: it catches the
+  old "Companie / s"); map plates by the screen's edge slide into view and step out of each
+  other's way; the map's silver icon keeps its size; the result's captain badge stays on
+  the face.
+
+Then, for the App Store:
+- **A battle survives the phone closing the game** (`battle_resume_tests`). Every order the
+  battle screen gives goes through `BattleSim.command`, which journals it with its step
+  (squads and engines by id); the battle is seeded, so `BattleSim.replay` fights it again,
+  man for man. `GameState.battle_resume` keeps the battle's setup (packed with
+  `var_to_bytes`, so ints and Vector2s come back exactly) from its start, and its journal
+  whenever the game goes to the background or closes. After a relaunch Home's Continue
+  reads "Back to the battle"; the battle is fought back behind a "Back to the field" cover
+  (about 60 ms of it a frame) and waits, paused. A battle the map sets up since always wins
+  over a kept one (`battle_waiting` needs the pending battle empty, as it is after a
+  load). This also ends the free retry from force-quitting a battle in Ironman.
+- **Credits & licences** in Settings (`menu_tests`): the samples (CC0), the fonts (OFL,
+  `assets/fonts/OFL.txt`, now in every preset's include filter), Godot's notice and every
+  engine part with its licence, from `Engine.get_copyright_info`; a licence's words open on
+  a tap, reflowed for the phone.
+- **Battery** (`frame_pacer_tests`): `scripts/ui/frame_pacer.gd` (under `Scenes`) draws 30
+  frames a second once nothing's been touched for 2 s and the screen isn't moving by itself
+  (`keeps_full_pace()`: the battle fought, the map while time runs, Home's opening). Off
+  headless and under Movie Maker. The map saves every 30 s on the road (was 5 s; a save is
+  about 9 ms here after 40 days), as well as on arriving, encounters and backgrounding.
+- **Store material** (`store/`, ignored by Godot): the listing to paste
+  (`app-store-listing.md`: subtitle, keywords, description, privacy and age-rating answers,
+  review notes), `privacy-policy.html` (fill `SUPPORT_EMAIL`, host it), eight 1290x2796
+  screenshots, made by `tools/store/screenshots.sh`; `tools/store/preview.sh` makes the 25 s
+  portrait app preview (886x1920, not committed).
+
+**Romance portraits redrawn in the lords' style** (`portrait_scale_tests`,
+`game_feel_tests`): Edda, Farah and Kaede are drawn in code by `tools/portrait_kit/`
+(`assets/portraits/rig/README.md`), the way `tools/pixel_kit/` draws the lords, on a grid
+1.6 times theirs (192x256, shown at 768x1024). So the faces, hair and clothes are one
+style, with more detail than the lords: lids, lashes, ringed irises, shaded lips, hair lock
+by lock, cloth with folds, patterns and trims.
+- Each has five expressions, six blink and glance faces per portrait, and a sway map.
+- Each has everyday, court, travel and wedding outfits, as lists of pieces in
+  `rig/outfits.json`; hand-drawn pieces go in `rig/<who>/layers/` over `rig/<who>/template.png`.
+- `StoryArt.outfit_for` dresses her: court at a feast she's a guest of (the dance always),
+  travel once she's driven from her seat, everyday otherwise.
+- The paintings they replace are kept in `assets/portraits/source/` for reference; the
+  tools that worked from them (`portrait_rig`, `portrait_wardrobe`, `portrait_faces`,
+  `portrait_wedding`) are gone.
+
+What sets them apart from the lords, in the same style:
+- hair that flows (large tapered locks with sheen; Edda's waves and ribboned plait, Farah's
+  ringlets, Kaede's straight hair under a top knot), and swings with her head;
+- a pose each (head lean and height, a shoulder let down, her own jaw);
+- a hand in frame for one expression each (Edda's at her chin, Farah's at her heart,
+  Kaede holding a brush);
+- mouths that open on the words while a line is written (`StoryArt.talking`, the strips
+  in `assets/portraits/mouth/`);
+- a second, fainter light; marks of their own (freckles, kohl, a beauty mark and red
+  lips); and something of each one's work (keys, a seal, a brush);
+- winter and mourning dress: `StoryArt.outfit_for` now also follows the season
+  (`StoryArt.season`: a 96-day year from the campaign's first day, winter its last quarter)
+  and a captain of yours fallen in the last three days (memorials now keep their hour).
+
+Next:
+- Nothing else follows the seasons yet (the map, the rooms, what people say).
+- The pose is made by sliding rows and columns, so a head can lean but not turn; a turned
+  shoulder or a three-quarter body would need the clothes redrawn.
+- The trailer and the app preview (neither committed) were cut with older portraits.
+- More outfits (a riding habit, a festival dress).
+
+Balance after the tethered-melee merge (`run_tests.gd -- --balance`, 2026-11-14), still failing:
+- Kharzani v Ryumon trained armies 29–71 (gate 35–65; it was 38–62 before).
+- Objectives: ambush 46%, village 0% (gate 60%; both failed before too). Objective play
+  now beats Advance all by 24 points (that gate passes now).
+- Horse archers win 6 of 16 branch fights (was 8): the branch check fails.
+- The 24-seed river fairness check reads 33% but 192 battles give 47%: the merged test
+  fights 96 battles a map.
+- Passing, but worth a look: attacking good ground with 15% more men wins 20 points less
+  often than on open ground (gate 15), yet on open ground those 15% more men now win 45 of
+  72 (it was 66 of 72): numbers count for less since the tethered melee.
+
+Still to do for the App Store (the game has run on a real iPhone and the Apple Developer
+account is set up):
+- Measure on the oldest iPhone to be supported: frame rate (60, never under 30, in the
+  biggest battle), memory, heat over 20 minutes, touch. A debug export (Export With Debug)
+  keeps Settings › Developer: *Show performance* puts each battle frame's cost at the foot
+  of the field, and *Test battle: 12 against 12* is the densest fight. Then raise the
+  minimum iOS, or require an A12, to match what holds up. Also time a battle coming back
+  after a relaunch there (a long 12-a-side battle takes several seconds to fight back).
+- A TestFlight build for playtesters (raise the preset's build number each upload).
+- App Store Connect: host the privacy policy, fill the placeholders in
+  `store/app-store-listing.md`, upload the screenshots and preview. The app icon is still
+  the placeholder from `icon.svg`. The version is 0.1.0: raise `application/config/version`
+  for the first release.
+- How it's sold: nothing in `docs/paid-features-plan.md` is built; selling upfront needs no
+  code, in-app purchases need a StoreKit plugin.
 
 ## Added 2026-10-31
 

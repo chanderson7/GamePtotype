@@ -331,6 +331,9 @@ Still as they were, and seen on the way: the Crown page's last tab wraps its lab
 
 ## The painted portraits are alive
 
+(Since 2026-11-14 the three are drawn by `tools/portrait_kit/`, which draws these faces
+with each portrait; what follows describes how they were first made, from paintings.)
+
 Edda, Farah and Kaede are paintings, one per expression, and none was painted blinking,
 glancing aside or with a lifted brow. `tools/portrait_faces.py` makes those faces from
 each painting's own pixels, so they sit exactly on it:
@@ -378,6 +381,9 @@ Seen on a screen in all three talks, at the height of each move; checked by
 `_painted_blink` in `tests/game_feel_tests.gd`.
 
 ## Dressed for the wedding
+
+(Since 2026-11-14 the wedding dress is an outfit like any other, drawn by
+`tools/portrait_kit/`; what follows describes the first version.)
 
 The three were painted in everyday clothes only. `tools/portrait_wedding.py` paints their
 wedding dress over those paintings, after what brides of the times their cultures draw

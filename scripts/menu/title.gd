@@ -34,7 +34,7 @@ var _picked := Cultures.VARDISH
 func _ready() -> void:
 	theme = Style.make_theme()
 	# Headless smoke test: `-- --autoplay` starts a Vardish campaign and rides out.
-	if OS.get_cmdline_user_args().has("--autoplay"):
+	if Scenes.autoplay():
 		GameState.new_campaign(Cultures.VARDISH)
 		get_tree().change_scene_to_file.call_deferred("res://scenes/world_map.tscn")
 		return
@@ -130,7 +130,16 @@ func _build() -> void:
 	var row := HBoxContainer.new()
 	row.name = "MinorButtons"
 	row.add_theme_constant_override("separation", 12)
-	bar.add_child(row)
+	# The first time, the big Begin stands over the row, always on screen whatever the
+	# phone: the peoples' cards above it scroll.
+	if _new_button != null and _new_button.get_parent() == null:
+		var bottom := VBoxContainer.new()
+		bottom.add_theme_constant_override("separation", 12)
+		bar.add_child(bottom)
+		bottom.add_child(_new_button)
+		bottom.add_child(row)
+	else:
+		bar.add_child(row)
 	if campaign or (stranded and saves_left):
 		_new_button = _minor("New campaign", "plus", _on_new)
 		_new_button.add_theme_color_override("font_color", Color("c9a9a2"))
@@ -326,7 +335,7 @@ func _campaign_card() -> PanelContainer:
 			bv.add_child(r)
 	var go := Button.new()
 	go.name = "ContinueButton"
-	go.text = "Continue"
+	go.text = "Back to the battle" if GameState.battle_waiting() else "Continue"
 	go.icon = Widgets.icon("resume")
 	go.custom_minimum_size = Vector2(0, 104)
 	go.add_theme_font_size_override("font_size", 34)
@@ -613,7 +622,7 @@ func _build_first_time(col: VBoxContainer) -> void:
 	_new_button.add_theme_font_size_override("font_size", Style.text_size(Style.LARGE))
 	Style.make_primary(_new_button)
 	_new_button.pressed.connect(_on_new)
-	col.add_child(_new_button)
+	# Not in the column: _build puts it in the bar at the bottom of the screen.
 	_pick_people(_picked)
 	_new_button.grab_focus.call_deferred()
 
@@ -652,8 +661,14 @@ func _point_backdrop() -> void:
 	_backdrop.point_camera(center, vs.x / 560.0, vs * 0.5, vs, [_sky])
 
 
+## Full frames while the opening plays over Home (see FramePacer).
+func keeps_full_pace() -> bool:
+	return get_node_or_null("Opening") != null
+
+
 func _on_continue() -> void:
-	Scenes.go("res://scenes/world_map.tscn")
+	# A battle the phone closed mid-fight picks up where it was.
+	Scenes.go("res://scenes/battle.tscn" if GameState.battle_waiting() else "res://scenes/world_map.tscn")
 
 
 ## A deliberate confirmation replaces the timed second tap. Starting over deletes every

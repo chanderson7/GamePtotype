@@ -84,6 +84,12 @@ var world = null:
 ## The fight the map has set up for the battle screen: {enemy, culture, temperament,
 ## name}. Empty when the battle screen should make up its own enemy.
 var pending_battle := {}
+## A battle under way, kept so that the phone closing the game mid-fight doesn't lose it:
+## {setup: the battle as it began (the pending battle, your host and its seed), journal: the
+## orders given since, ticks: how far it had got}, setup and journal packed (see pack). The
+## battle screen writes it as it starts and whenever the game goes to the background, and
+## empties it once the result is in; while it's there, Continue goes back to that battle.
+var battle_resume := {}
 ## The company's camp before enemy walls (SiegeCamp.new_camp), or {}.
 var siege_camp: Dictionary = {}
 ## The world's hour when sieges were last stepped (they follow the world's clock, which
@@ -187,6 +193,7 @@ func new_campaign(culture_id: String) -> void:
 	culture = culture_id if Cultures.has(culture_id) else Cultures.VARDISH
 	world = null
 	pending_battle = {}
+	battle_resume = {}
 	siege_camp = {}
 	_siege_hour = -1.0
 	gathering_log = {}
@@ -4951,6 +4958,8 @@ func _bond_points(a: Dictionary, b: Dictionary, seconds: float) -> float:
 
 ## Apply a battle result from BattleSim.result_for(PLAYER).
 func apply_result(result: Dictionary) -> void:
+	# A battle's result is in: it's no longer kept to come back to (see battle_resume).
+	battle_resume = {}
 	# Pulling out before the lines met is riding away, as Withdraw on the map is: no battle
 	# fought, no defeat, nobody hurt. A siege's own business is settled the usual way.
 	if bool(result.get("before_fight", false)) and String(pending_battle.get("objective", "rout")) != "siege":
@@ -5250,6 +5259,8 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		"culture": squad.get("culture", culture),
 		"temperament": c.get("temperament", ""), "quirk": c.get("quirk", ""), "history": c.get("history", {}),
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
+		# When they fell (those you court or befriend wear mourning for a few days: StoryArt.outfit_for).
+		"hour": float(world.hour) if world != null else 0.0,
 		"words": words,
 		"bonds": friends,
 		"bond_points": bond_points,
@@ -5429,7 +5440,29 @@ func to_dict() -> Dictionary:
 		"invites_seen": invites_seen.duplicate(),
 		"honour_releases": honour_releases.duplicate(), "reparations_at": reparations_at.duplicate(),
 		"siege_camp": siege_camp.duplicate(true),
+		"battle_resume": battle_resume.duplicate(true),
 		"world": world.to_dict() if world != null else null}
+
+
+## Values packed into a string the save's JSON keeps exactly (ints stay ints, Vector2s stay
+## Vector2s): Godot's binary encoding, without objects, in base64.
+static func pack(value) -> String:
+	return Marshalls.raw_to_base64(var_to_bytes(value))
+
+
+## What pack wrote, or null if it can't be read.
+static func unpack(text: String):
+	if text == "":
+		return null
+	var raw := Marshalls.base64_to_raw(text)
+	return bytes_to_var(raw) if not raw.is_empty() else null
+
+
+## Whether a battle was under way when the game last closed (see battle_resume): one is
+## kept, and none has been set up since (the pending battle isn't saved, so after a launch
+## it's empty).
+func battle_waiting() -> bool:
+	return not battle_resume.is_empty() and pending_battle.is_empty()
 
 
 func load_game() -> bool:
@@ -5468,6 +5501,8 @@ func from_dict(data: Dictionary) -> bool:
 	load_problem = ""
 	_forget_seen()
 	culture = String(data.get("culture", Cultures.VARDISH))
+	var resume = data.get("battle_resume", {})
+	battle_resume = resume if typeof(resume) == TYPE_DICTIONARY and resume.has("setup") else {}
 	world = null
 	if typeof(data.get("world")) == TYPE_DICTIONARY:
 		world = WorldSim.new()
