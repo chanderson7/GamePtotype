@@ -33,6 +33,7 @@ const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
 const Politics = preload("res://scripts/data/politics.gd")
+const MarriedLife = preload("res://scripts/world/married_life.gd")
 const SKY_SHADER = preload("res://shaders/map_sky.gdshader")
 
 const TOP_BAR := 150.0
@@ -1139,6 +1140,19 @@ func _open_preview(id: String) -> void:
 	else:
 		chips.append(Widgets.chip("Quiet roads", Style.MORALE_HIGH))
 	_sheet_header(null, owner, String(Data.settlement(id)["name"]), world.brief(id), chips)
+	# Kaede's records: what the archive knows of any place, before you've been (MarriedLife).
+	if MarriedLife.knows_places(GameState):
+		var rec := VBoxContainer.new()
+		rec.name = "SpouseRecords"
+		rec.add_theme_constant_override("separation", 2)
+		var head := Style.label("%s's records" % MarriedLife.name_of(GameState, MarriedLife.KAEDE), Style.SMALL, Style.ROMANCE_LIGHT)
+		rec.add_child(head)
+		for line in String(world.settlement_intelligence(id)).split("\n", false):
+			var l := Style.label(String(line), Style.SMALL, Style.TEXT)
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			rec.add_child(l)
+		sheet_extra.add_child(rec)
+		sheet_extra.visible = true
 
 
 ## A settlement's danger ("under siege by …; …") as one chip: its icon and the first words.
@@ -1529,6 +1543,11 @@ func _lord_doing(l: Dictionary, lp) -> String:
 			return "Waiting at the muster in %s" % place if not lp.moving() else "Riding to your muster at %s" % place
 		"escort":
 			return "Riding with you under your banners"
+		"guard":
+			var order: Dictionary = l.get("order", {}) if l.get("order") is Dictionary else {}
+			if String(order.get("house", "")) != "":
+				return "Holding %s for the captain" % place if not lp.moving() else "Riding to hold %s for the captain" % place
+			return "Keeping watch over %s" % place if place != "" else "Keeping watch over their lands"
 		"gather":
 			var feast: Dictionary = world.gathering_by_id(int(l.get("gather_id", 0)))
 			if feast.is_empty():
@@ -3834,6 +3853,7 @@ func _draw() -> void:
 	_draw_wedding(px)
 	_draw_gatherings(px)
 	_draw_muster(px)
+	_draw_household(px)
 
 
 ## Your banners gathering: a red ring of spears around the muster.
@@ -3852,6 +3872,42 @@ func _draw_muster(px: float) -> void:
 		var a := TAU * float(i) / 10.0
 		var at := c + Vector2.from_angle(a) * 34.0 * px
 		draw_line(at, at + Vector2.from_angle(a) * (6.0 + pulse * 2.0) * px, Style.ENEMY_LIGHT, 2.0 * px)
+
+
+## Married life on the roads (MarriedLife): her supply cart (a covered wagon behind a
+## horse, waiting with a lantern once it's there) and her envoy (a rider with a pennant),
+## each with her name when the map is close enough to read.
+func _draw_household(px: float) -> void:
+	for c in MarriedLife.convoys(GameState):
+		var at := _to_screen(MarriedLife.convoy_pos(GameState, c))
+		var riding := String(c.get("state", "")) == "riding"
+		var supply := String(c.get("kind", "")) == "supply"
+		var u := 1.5 * px
+		var bob := 0.0 if Style.motion_reduced() or not riding else sin(_clock * 6.0) * 0.6 * px
+		if not riding:
+			at += Vector2(14.0, 6.0) * px
+		draw_circle(at + Vector2(0, 2.5 * u), 5.0 * u, Color(0, 0, 0, 0.28))
+		if supply:
+			# The horse, the wagon and its cover, two wheels.
+			draw_rect(Rect2(at + Vector2(-7.0 * u, -3.0 * u + bob), Vector2(3.0 * u, 2.0 * u)), Color("6b4a2a"))
+			draw_rect(Rect2(at + Vector2(-4.0 * u, -4.0 * u), Vector2(8.0 * u, 3.0 * u)), Color("8a5a2a"))
+			draw_rect(Rect2(at + Vector2(-3.5 * u, -6.5 * u), Vector2(7.0 * u, 2.5 * u)), Color("e9dcc0"))
+			draw_circle(at + Vector2(-2.5 * u, -0.6 * u), 1.2 * u, Color("3b2a1a"))
+			draw_circle(at + Vector2(2.5 * u, -0.6 * u), 1.2 * u, Color("3b2a1a"))
+			if not riding:
+				draw_circle(at + Vector2(4.5 * u, -7.0 * u), 2.2 * u, Color(1.0, 0.75, 0.35, 0.35))
+				draw_rect(Rect2(at + Vector2(4.0 * u, -7.5 * u), Vector2(1.0 * u, 1.2 * u)), Color("ffcf6a"))
+		else:
+			# The horse, its rider, and the envoy's pennant.
+			draw_rect(Rect2(at + Vector2(-4.0 * u, -3.0 * u + bob), Vector2(7.0 * u, 2.5 * u)), Color("7a5a3a"))
+			draw_rect(Rect2(at + Vector2(-3.5 * u, -0.5 * u + bob), Vector2(1.0 * u, 2.0 * u)), Color("4e3216"))
+			draw_rect(Rect2(at + Vector2(1.5 * u, -0.5 * u + bob), Vector2(1.0 * u, 2.0 * u)), Color("4e3216"))
+			draw_rect(Rect2(at + Vector2(-1.0 * u, -6.5 * u + bob), Vector2(2.0 * u, 3.5 * u)), Color("1f7a6e"))
+			draw_line(at + Vector2(1.5 * u, -9.5 * u + bob), at + Vector2(1.5 * u, -3.0 * u + bob), Color("d9a944"), maxf(1.0, 0.5 * u))
+			draw_rect(Rect2(at + Vector2(1.5 * u, -9.5 * u + bob), Vector2(3.0 * u, 1.6 * u)), Color("e88aa0"))
+		if px >= 2.5:
+			var who := MarriedLife.name_of(GameState, String(c.get("cand", "")))
+			_name_plate(at + Vector2(0, 4.0 * u), "%s's %s" % [who, "cart" if supply else "envoy"], Style.SMALL, Style.ROMANCE_LIGHT)
 
 
 ## A gold ring around the place your wedding will be held, while it's planned there.

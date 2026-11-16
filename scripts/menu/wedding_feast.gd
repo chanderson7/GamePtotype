@@ -664,7 +664,7 @@ func _closing_card() -> Control:
 	v.add_child(Widgets.section("The marriage pact"))
 	v.add_child(_icon_line("keep", "%s and your company stand together." % String(house.get("name", "Her house"))))
 	v.add_child(_icon_line("fight", "Attacking %s breaks it." % (" or ".join(sites) if not sites.is_empty() else "her house's lands")))
-	v.add_child(_icon_line("silver", "Ask %s for up to %d every %d days, and for help refilling troops." % [head, Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)]))
+	v.add_child(_icon_line("silver", "Ask %s for up to %d silver every %d days, for men from his garrison, or to hold a place for you." % [head, Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)]))
 	# Who came, in words only for what the guest badges didn't say.
 	var bits := PackedStringArray()
 	var captains: int = _guests.get("guests", []).filter(func(g): return String(g["kind"]) == "captain").size()

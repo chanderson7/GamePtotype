@@ -10,6 +10,9 @@ const Stories = preload("res://scripts/data/personal_conversations.gd")
 const Lines = preload("res://scripts/data/romance_talk_lines.gd")
 const Letters = preload("res://scripts/data/letters.gd")
 const WeddingLines = preload("res://scripts/data/wedding_lines.gd")
+const MarriedLife = preload("res://scripts/world/married_life.gd")
+const MarriedLines = preload("res://scripts/data/married_lines.gd")
+const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 
 ## Where each person is usually found.
@@ -92,13 +95,19 @@ func _ready() -> void:
 	var person: Dictionary = social.get_candidate_person(cand)
 	person_id = String(person.get("id", ""))
 	_name = String(person.get("name", cand.capitalize()))
-	setup(TalkView.room(String(ROOMS.get(cand, "common_room")), TalkView.time_word(GameState.world.hour)), _caption())
+	# On the road with the company, you talk by its fire; otherwise in her own room.
+	var room := "company_camp" if _on_road() else String(ROOMS.get(cand, "common_room"))
+	setup(TalkView.room(room, TalkView.time_word(GameState.world.hour)), _caption())
 	set_face("left", _portrait(_expression()), false, 0.98)
 	_refresh_plate()
 	Sound.set_loop("camp")
 	var facts := _facts()
 	var rel: Dictionary = _rel()
 	_opening = Lines.opening(cand, _status(), facts, int(rel.get("visits", 0)))
+	if _on_road():
+		var road: Array = MarriedLines.ON_ROAD_GREETING.get(cand, [])
+		if not road.is_empty():
+			_opening = String(road[int(rel.get("visits", 0)) % road.size()])
 	_note_visit(Lines.opening_key(cand, facts))
 	_untold = _social().take_untold(cand)
 	# This visit is now the last one, for next time's opening.
@@ -162,9 +171,16 @@ func _chapter() -> int:
 
 
 func _caption() -> String:
+	if _on_road():
+		return "With %s by the company's fire · %s" % [_name, TalkView.time_word(GameState.world.hour)]
 	var res := String(_social().get_candidate_person(cand).get("residence", ""))
 	var place := Letters.place_name(res) if res != "" else ""
 	return "With %s%s · %s" % [_name, (" at %s" % place) if place != "" else "", TalkView.time_word(GameState.world.hour)]
+
+
+## Whether she rides with the company and you're away from her seat: you talk on the road.
+func _on_road() -> bool:
+	return MarriedLife.with_company(GameState) == cand and GameState.world.here() != MarriedLife.home_of(GameState, cand)
 
 
 func _portrait(expression: String) -> Texture2D:
@@ -397,6 +413,19 @@ func _hub(first: bool = false) -> void:
 	# Married or sworn: an evening together is always there to be had.
 	if together:
 		replies.append({"id": "together", "text": Lines.TOGETHER_OPENER, "icon": "cup", "tag": "an evening together", "act": _together})
+	# Her help, and her house's (MarriedLife); and riding with you, or home again.
+	var married := _status() == Relationships.MARRIED
+	if married or MarriedLife.pact_active(GameState, cand):
+		replies.append({"id": "help", "text": MarriedLines.HELP_OPENER, "icon": "keep",
+			"tag": "her own help, or her house's" if married else "her house's help", "act": _help})
+	if married:
+		if MarriedLife.with_company(GameState) == cand:
+			replies.append({"id": "home", "text": MarriedLines.HOME_TEXT, "icon": "home",
+				"tag": MarriedLines.HOME_TAG % Letters.place_name(MarriedLife.home_of(GameState, cand)), "tone": "quiet", "act": _ride_home})
+		else:
+			var join: Dictionary = MarriedLife.join_check(GameState, cand)
+			if bool(join["ok"]):
+				replies.append({"id": "join", "text": MarriedLines.JOIN_TEXT, "icon": "ride", "tag": MarriedLines.JOIN_TAG, "act": _join})
 	# Her house's good word, which a wedding or a pact needs: a muster at its seat.
 	var favour: Dictionary = _social().favour_check(cand, GameState.world.hour)
 	if bool(favour.get("ok", false)) or String(favour.get("reason", "")).begins_with("again in"):
@@ -765,6 +794,178 @@ func _reaction(prev: Dictionary) -> Control:
 
 
 ## The two quiet ways on from the end of something: more talk, or leaving.
+# ---------------------------------------------------------------- her help (MarriedLife)
+
+## What you can ask of her and of her house, each with what it would bring, or why not.
+func _help() -> void:
+	say("you", MarriedLines.HELP_OPENER)
+	add_to_log(note(MarriedLines.HELP_PROMPT, Style.BRASS))
+	var replies := []
+	if _status() == Relationships.MARRIED:
+		var ask: Dictionary = MarriedLines.ASK.get(cand, {})
+		var ready: Dictionary = MarriedLife.supply_check(GameState) if cand == MarriedLife.EDDA else MarriedLife.ask_ready(GameState, cand)
+		var r := {"id": "ask_" + cand, "text": String(ask.get("text", "")), "icon": String(ask.get("icon", "keep"))}
+		if bool(ready["ok"]):
+			r["tag"] = String(ask.get("tag", ""))
+			r["tone"] = "gold"
+			r["act"] = _ask_her
+			if cand == MarriedLife.EDDA:
+				r["fx"] = [["food", "+%d" % int(ready.get("food", 0))], ["silver", "+%d" % int(ready.get("silver", 0))]]
+		else:
+			r["tag"] = String(ready.get("reason", ""))
+			r["tone"] = "locked"
+		replies.append(r)
+	if MarriedLife.pact_active(GameState, cand):
+		var men: Dictionary = MarriedLife.men_check(GameState, cand)
+		replies.append({"id": "house_men", "text": MarriedLines.MEN_TEXT, "icon": "men",
+			"tag": (MarriedLines.MEN_TAG % int(men["men"])) if bool(men["ok"]) else String(men["reason"]),
+			"fx": [["men", "+%d" % int(men["men"])]] if bool(men["ok"]) else [],
+			"tone": "plain" if bool(men["ok"]) else "locked", "act": _house_men})
+		var hold: Dictionary = MarriedLife.hold_check(GameState, cand)
+		var lord: Dictionary = MarriedLife.house_lord(GameState, cand)
+		replies.append({"id": "house_hold", "text": MarriedLines.HOLD_TEXT, "icon": "keep",
+			"tag": (MarriedLines.HOLD_TAG % LordTalk.short_name(lord)) if bool(hold["ok"]) else String(hold["reason"]),
+			"tone": "plain" if bool(hold["ok"]) else "locked", "act": _house_hold})
+	replies.append({"id": "help_back", "text": MarriedLines.HELP_BACK, "tone": "quiet", "act": _hub})
+	set_replies(replies)
+
+
+## Her own ask, then where or what.
+func _ask_her() -> void:
+	say("you", String(MarriedLines.ASK.get(cand, {}).get("text", "")))
+	var replies := []
+	match cand:
+		MarriedLife.EDDA:
+			for p in MarriedLife.near_places(GameState):
+				replies.append({"id": "supply_" + String(p["id"]), "text": "To %s." % String(p["name"]), "bare": true, "icon": "mappin",
+					"tag": "you're here" if float(p["hours"]) < 1.0 else "%s away for you" % Style.time_short(float(p["hours"])),
+					"act": _send_supply.bind(String(p["id"]))})
+		MarriedLife.FARAH:
+			var i := 0
+			for t in MarriedLife.envoy_targets(GameState):
+				var truce := String(t["kind"]) == "truce"
+				replies.append({"id": "envoy_%d" % i, "text": ("Seek a truce with %s." if truce else "Speak well of me to %s.") % String(t["name"]),
+					"icon": "peace" if truce else "talk", "tag": "she rides to %s" % Letters.place_name(String(t["to"])),
+					"act": _send_envoy.bind(t)})
+				i += 1
+		MarriedLife.KAEDE:
+			for p in MarriedLife.lookup_places(GameState):
+				replies.append({"id": "lookup_place_" + String(p["id"]), "text": "What's at %s?" % String(p["name"]), "icon": "book",
+					"act": _look_up.bind("place", String(p["id"]), String(p["name"]))})
+			for l in MarriedLife.lookup_lords(GameState):
+				replies.append({"id": "lookup_lord_%d" % int(l["id"]), "text": "Who is %s, these days?" % String(l["name"]), "icon": "talk",
+					"act": _look_up.bind("lord", str(int(l["id"])), String(l["name"]))})
+	if replies.is_empty():
+		say("them", String(MarriedLines.NOTHING_TO_ASK.get(cand, "")), _name)
+		set_replies([_back_or_leave()])
+		return
+	say("them", String(MarriedLines.ASK_YES.get(cand, "")), _name)
+	add_to_log(note({MarriedLife.EDDA: MarriedLines.SUPPLY_PROMPT, MarriedLife.FARAH: MarriedLines.ENVOY_PROMPT}.get(cand, MarriedLines.LOOKUP_PROMPT), Style.BRASS))
+	replies.append({"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub})
+	set_replies(replies)
+
+
+func _send_supply(to: String) -> void:
+	var r: Dictionary = MarriedLife.send_supply(GameState, to)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")).capitalize() + ".", Style.MORALE_LOW))
+		return
+	var c: Dictionary = r["convoy"]
+	say("you", "To %s." % Letters.place_name(to))
+	say("them", MarriedLines.fill(String(MarriedLines.SUPPLY_SENT.get(cand, "")), {"food": str(int(c["food"])), "silver": str(int(c["silver"])),
+		"place": Letters.place_name(to)}), _name)
+	add_to_log(TalkView.fx_note([["food", "+%d" % int(c["food"])], ["silver", "+%d" % int(c["silver"])]],
+		"A cart sets out for %s. The Journal follows it; bandits on the road would take it." % Letters.place_name(to), Style.MORALE_HIGH))
+	GameState.save_game()
+	set_replies([_back_or_leave()])
+
+
+func _send_envoy(target: Dictionary) -> void:
+	var r: Dictionary = MarriedLife.send_envoy(GameState, target)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")).capitalize() + ".", Style.MORALE_LOW))
+		return
+	say("them", MarriedLines.fill(String(MarriedLines.ENVOY_SENT.get(cand, "")), {"place": Letters.place_name(String(target["to"]))}), _name)
+	add_to_log(TalkView.fx_note([], "%s rides for %s. She'll write what comes of it." % [_name, Letters.place_name(String(target["to"]))], Style.MORALE_HIGH))
+	GameState.save_game()
+	set_replies([_back_or_leave()])
+
+
+func _look_up(kind: String, id: String, subject: String) -> void:
+	var r: Dictionary = MarriedLife.look_up(GameState, kind, id)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")).capitalize() + ".", Style.MORALE_LOW))
+		return
+	var now := MarriedLife.with_company(GameState) == cand
+	say("them", MarriedLines.fill(String((MarriedLines.LOOKUP_NOW if now else MarriedLines.LOOKUP_SENT).get(cand, "")), {"subject": subject}), _name)
+	add_to_log(TalkView.fx_note([], "Her letter is with you." if now else "Her letter will come by tomorrow.", Style.MORALE_HIGH))
+	GameState.save_game()
+	set_replies([_back_or_leave()])
+
+
+func _house_men() -> void:
+	say("you", MarriedLines.MEN_TEXT)
+	var r: Dictionary = MarriedLife.ask_men(GameState, cand)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")).capitalize() + ".", Style.MORALE_LOW))
+		set_replies([_back_or_leave()])
+		return
+	var lord: Dictionary = MarriedLife.house_lord(GameState, cand)
+	say("them", MarriedLines.fill(MarriedLines.MEN_DONE, {"lord": LordTalk.short_name(lord), "men": str(int(r["men"]))}), _name)
+	add_to_log(TalkView.fx_note([["men", "+%d" % int(r["men"])]], "From the garrison of %s, into your squads." % Letters.place_name(MarriedLife.home_of(GameState, cand))))
+	GameState.save_game()
+	set_replies([_back_or_leave()])
+
+
+func _house_hold() -> void:
+	say("you", MarriedLines.HOLD_TEXT)
+	add_to_log(note(MarriedLines.HOLD_PROMPT, Style.BRASS))
+	var replies := []
+	for p in MarriedLife.hold_places(GameState, cand):
+		replies.append({"id": "hold_" + String(p["id"]), "text": "%s." % String(p["name"]), "bare": true, "icon": "keep",
+			"act": _hold.bind(String(p["id"]))})
+	replies.append({"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub})
+	set_replies(replies)
+
+
+func _hold(target: String) -> void:
+	var r: Dictionary = MarriedLife.hold_place(GameState, cand, target)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")).capitalize() + ".", Style.MORALE_LOW))
+		set_replies([_back_or_leave()])
+		return
+	var lord: Dictionary = MarriedLife.house_lord(GameState, cand)
+	say("them", MarriedLines.fill(MarriedLines.HOLD_DONE, {"lord": LordTalk.short_name(lord), "place": Letters.place_name(target)}), _name)
+	add_to_log(TalkView.fx_note([], "%s rides to hold %s for two days. The Journal counts it down." % [LordTalk.short_name(lord), Letters.place_name(target)]))
+	GameState.save_game()
+	set_replies([_back_or_leave()])
+
+
+## She comes with you, in her travelling clothes.
+func _join() -> void:
+	var r: Dictionary = MarriedLife.join(GameState, cand)
+	if not bool(r.get("ok", false)):
+		add_to_log(note(String(r.get("reason", "")).capitalize() + ".", Style.MORALE_LOW))
+		return
+	say("you", MarriedLines.JOIN_TEXT)
+	change_face("left", _portrait("amused"))
+	say("them", String(MarriedLines.JOIN_YES.get(cand, "")), _name)
+	add_to_log(TalkView.fx_note([], "%s rides with the company. Her help comes twice as often; if you lose a fight, she can be taken." % _name, Style.ROMANCE))
+	GameState.save_game()
+	set_replies([_back_or_leave()])
+
+
+func _ride_home() -> void:
+	var r: Dictionary = MarriedLife.send_home(GameState, cand)
+	if not bool(r.get("ok", false)):
+		return
+	say("you", MarriedLines.HOME_TEXT)
+	say("them", String(MarriedLines.HOME_YES.get(cand, "")), _name)
+	add_to_log(TalkView.fx_note([], "%s rides home to %s." % [_name, Letters.place_name(MarriedLife.home_of(GameState, cand))], Style.MUTED))
+	GameState.save_game()
+	set_replies([{"id": "leave", "text": "Until then.", "tone": "quiet", "act": close}])
+
+
 func _back_or_leave() -> Dictionary:
 	return {"row": [{"id": "back", "text": "Something else.", "tone": "quiet", "act": _hub},
 		{"id": "leave", "text": "Another time.", "tone": "quiet", "act": close}]}

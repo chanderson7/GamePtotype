@@ -2285,7 +2285,13 @@ func _follow_order(l: Dictionary, p: Party) -> bool:
 	var order: Dictionary = l.get("order", {}) if l.get("order") is Dictionary else {}
 	if order.is_empty():
 		return false
-	if String(l.get("realm", "")) != Data.CROWN:
+	# A house you're bound to by a pact can be asked to hold a place for a while
+	# (MarriedLife.hold_place): such an order carries its house and when it ends.
+	var for_house := String(order.get("house", "")) != ""
+	if String(l.get("realm", "")) != Data.CROWN and not for_house:
+		l.erase("order")
+		return false
+	if order.has("until") and hour >= float(order["until"]):
 		l.erase("order")
 		return false
 	var men := men_of(p.army)
@@ -2295,7 +2301,8 @@ func _follow_order(l: Dictionary, p: Party) -> bool:
 	match String(order.get("kind", "")):
 		"guard":
 			var at := String(order.get("target", ""))
-			if not Data.SETTLEMENTS.has(at) or owner_of(at) != Data.CROWN:
+			if not Data.SETTLEMENTS.has(at) or (owner_of(at) != Data.CROWN and not for_house) \
+					or (for_house and at_war(owner_of(at), String(l.get("realm", "")))):
 				l.erase("order")
 				return false
 			if p.node == at and not p.moving():

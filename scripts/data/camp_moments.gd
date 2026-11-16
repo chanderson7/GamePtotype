@@ -6,6 +6,7 @@ extends RefCounted
 const Captains = preload("res://scripts/data/captains.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
 const FeastLines = preload("res://scripts/data/wedding_feast_lines.gd")
+const MarriedLines = preload("res://scripts/data/married_lines.gd")
 
 ## Acknowledged keys kept in a save (oldest dropped first).
 const SEEN_KEEP := 40
@@ -176,6 +177,15 @@ static func candidates(gs) -> Array:
 		if teller != null:
 			out.append({"key": "wedding_%d" % int(wed.get("day", 0)), "kind": "wedding", "title": FeastLines.CAMP_TITLE,
 				"text": FeastLines.CAMP_RETELL % _captain_name(teller), "action": "captain", "captain_id": int(teller.get("id", 0))})
+	# The one you married rides with the company: a moment with her at the fire, once
+	# for each fight since she joined you.
+	var household: Dictionary = gs.world.social.household if gs.world != null and gs.world.social != null else {}
+	var with_me := String(household.get("with_company", ""))
+	if with_me != "" and turn > int(household.get("joined_battles", turn)):
+		var fire: Array = MarriedLines.FIRE.get(with_me, [])
+		if not fire.is_empty():
+			out.append({"key": "spouse_%s_%d" % [with_me, turn], "kind": "spouse", "title": MarriedLines.FIRE_TITLE,
+				"text": String(fire[posmod(turn, fire.size())]), "action": "talk", "cand": with_me})
 	# Real shortages.
 	if gs.world != null and (gs.food < gs.total_men() or gs.silver < gs.daily_wages()):
 		var day := int(gs.world.hour / 24.0)

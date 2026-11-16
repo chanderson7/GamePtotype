@@ -254,6 +254,9 @@ static func outfit_for(candidate_id: String, w = null, fallen = null) -> String:
 	var home := String(person.get("residence", ""))
 	if seat != "" and home != "" and home != seat:
 		return "travel"
+	# Riding with your company (married life): dressed for the road.
+	if String(w.social.household.get("with_company", "")) == candidate_id:
+		return "travel"
 	return "winter" if season(float(w.hour)) == "winter" else ""
 
 

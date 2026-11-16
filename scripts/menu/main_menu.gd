@@ -15,6 +15,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Jobs = preload("res://scripts/data/jobs.gd")
 const Fiefs = preload("res://scripts/data/fiefs.gd")
 const CampMoments = preload("res://scripts/data/camp_moments.gd")
+const MarriedLife = preload("res://scripts/world/married_life.gd")
 const Achievements = preload("res://scripts/data/achievements.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
@@ -343,6 +344,23 @@ func _camp_tableau() -> Control:
 			token.modulate = Color(0.75, 0.75, 0.82)
 		token.pressed.connect(_open_captain.bind(int(c.get("id", 0))))
 		flow.add_child(token)
+	# The one you married, riding with the company: her talk, by the fire.
+	var spouse := MarriedLife.with_company(GameState) if GameState.world != null else ""
+	if spouse != "":
+		var who := MarriedLife.name_of(GameState, spouse)
+		var her := Button.new()
+		her.name = "CampSpouse"
+		her.text = "%s · with you" % who
+		her.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
+		her.custom_minimum_size = Vector2(0, Style.TOUCH)
+		her.add_theme_color_override("font_color", Style.ROMANCE_LIGHT)
+		if Style.illustrations_on():
+			her.icon = StoryArt.outfit_portrait(spouse, "warm", "travel")
+			her.add_theme_constant_override("icon_max_width", 48)
+			her.add_theme_constant_override("h_separation", 8)
+		her.pressed.connect(_open_spouse_talk.bind(spouse))
+		flow.add_child(her)
+		flow.move_child(her, 0)
 	var summary := "Around the fire: %d ready%s" % [ready, (", %d resting" % resting) if resting > 0 else ""]
 	if not GameState.fallen.is_empty():
 		summary += " · %d remembered" % GameState.fallen.size()
@@ -365,7 +383,7 @@ func _camp_moment(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	v.add_child(row)
-	var go_text: String = {"captain": "See captain", "bond": "Spend time together", "memorial": "Remember", "map": ""}.get(String(m.get("action", "")), "")
+	var go_text: String = {"captain": "See captain", "bond": "Spend time together", "memorial": "Remember", "map": "", "talk": "Sit with her"}.get(String(m.get("action", "")), "")
 	if go_text != "":
 		var go := Button.new()
 		go.text = go_text
@@ -473,6 +491,18 @@ func _on_moment(m: Dictionary) -> void:
 		"memorial":
 			_build()
 			_jump_to_fallen.call_deferred()
+		"talk":
+			_open_spouse_talk(String(m.get("cand", "")))
+
+
+## Her talk, by the company's fire (she rides with you).
+func _open_spouse_talk(cand: String) -> void:
+	if cand == "":
+		return
+	Scenes.active_candidate_id = cand
+	Scenes.active_person_id = String(MarriedLife.person(GameState, cand).get("id", ""))
+	Scenes.conversation_return = "res://scenes/main_menu.tscn"
+	Scenes.go("res://scenes/conversation.tscn")
 
 
 func _jump_to_fallen() -> void:

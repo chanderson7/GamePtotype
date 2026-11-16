@@ -978,6 +978,380 @@ const CHAPTER_REPLIES := {
 	},
 }
 
+## Married life (MarriedLife): what she writes about what's happening, and what came of
+## what you asked. Only the married wording; render() falls back to it for any other.
+## {near} a place near you, {at} where something happened, {outcome} what came of an
+## envoy's letter, {facts} what the records say, {enemy} a besieging realm, {captor} who held her.
+const MARRIED_LETTERS := {
+	"household_short": {
+		"edda": {
+			"courting": {
+				"subject": "The tallies",
+				"salute": "Captain,",
+				"body": [
+					"The tallies say the company is short: wages due and not enough in the chest to meet them for long. I know, because your quartermaster writes to me now. He thinks I'm frightening. He's right.",
+					"Say the word and a cart leaves {place} at first light with rations and what silver the household can spare. It will meet you at {near}, or wherever is safe.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "Don't argue. You'll lose, and the men will still be hungry.",
+			},
+		},
+	},
+	"supply_lost": {
+		"edda": {
+			"courting": {
+				"subject": "The cart",
+				"salute": "Captain,",
+				"body": [
+					"The supply train never reached you. Bandits took it on the road near {at}. The carter got away on foot and walked into {place} two days later, very sorry and very thin.",
+					"The household will make good the next one, when it can. Keep to roads with walls on them for a while.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+	},
+	"envoy_done": {
+		"farid": {
+			"courting": {
+				"subject": "As promised",
+				"salute": "Captain,",
+				"body": [
+					"{outcome}",
+					"I'll be home at {place}'s pace, which is to say slowly, with souvenirs.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "This letter concerned tariffs.",
+			},
+		},
+	},
+	"envoy_refused": {
+		"farid": {
+			"courting": {
+				"subject": "Not this time",
+				"salute": "Captain,",
+				"body": [
+					"{outcome}",
+					"Nothing is lost but a week of my riding, and I liked the road. I'll be home soon.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+	},
+	"army_warning": {
+		"farid": {
+			"courting": {
+				"subject": "What I heard at supper",
+				"salute": "Captain,",
+				"body": [
+					"{realm}'s marshal is mustering. The talk is that {leader} means to take the army against {target}, and the talk at these suppers is usually a week ahead of the war.",
+					"I can't tell you what to do about it. I can tell you that you heard it first.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "Burn this, or at least don't leave it on a table.",
+			},
+		},
+	},
+	"lookup": {
+		"kaede": {
+			"courting": {
+				"subject": "{subject_name}",
+				"salute": "Captain,",
+				"body": [
+					"You asked about {subject_name}. Here is what the records say, and what I believe of them.",
+					"{facts}",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "The records are as good as the last clerk who copied them. I copied these myself.",
+			},
+		},
+	},
+	"kaede_map": {
+		"kaede": {
+			"courting": {
+				"subject": "A use for the useless map",
+				"salute": "Captain,",
+				"body": [
+					"There's a band on the roads near {near}. I've marked it on the map I'm sending with this, which is the useless one; it turns out it isn't.",
+					"Go around them or go through them. Either way, now you know where they are.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "The smudge in the corner is me. I've decided not to fix it.",
+			},
+		},
+	},
+	"seat_besieged": {
+		"edda": {
+			"courting": {
+				"subject": "{place} is besieged",
+				"salute": "Captain,",
+				"body": [
+					"{enemy}'s army is at the walls of {place}. The household is inside, the granary is full, and I have counted the arrows twice.",
+					"If you can come, come. If you can't, we'll hold. I'd rather you came.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Under the walls",
+				"salute": "Captain,",
+				"body": [
+					"{enemy} has laid siege to {place}. I have offered to negotiate. They have declined, impolitely.",
+					"If your road comes this way, the walls would be glad of you, and so would I.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "A siege, recorded",
+				"salute": "Captain,",
+				"body": [
+					"{enemy} besieges {place}. I am keeping a record of it, because someone should, and because it gives me something to do with my hands.",
+					"Come if you can. I'd like the record to say you did.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"seat_held": {
+		"edda": {
+			"courting": {
+				"subject": "We held",
+				"salute": "Captain,",
+				"body": [
+					"They're gone. The walls held, and you were on them, and the whole household watched you do it.",
+					"The house owes you, and knows it. I've put it in the ledger, in red.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Thanks, unofficially",
+				"salute": "Captain,",
+				"body": [
+					"The besiegers have gone home. The house is grateful, and has asked me to say so formally. This is not that letter.",
+					"This one just says thank you, and come home soon.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "For the record",
+				"salute": "Captain,",
+				"body": [
+					"The siege of {place} is over. The record will say the walls held. It will also say who held them; I wrote that part myself.",
+					"Come home when you can. The archive is untidy and very glad.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"home_again_battle": {
+		"edda": {
+			"courting": {
+				"subject": "Home",
+				"salute": "Captain,",
+				"body": [
+					"You came for me. I knew you would; I'd started counting the days, and then I stopped, because I knew.",
+					"I'm home at {place}. The household fusses. Come and stop them.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Home, and grateful",
+				"salute": "Captain,",
+				"body": [
+					"You came for me through {captor}'s men. I'd composed eleven letters asking for help and sent none of them.",
+					"I'm home at {place}. Come and let me thank you properly.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "Home, recorded",
+				"salute": "Captain,",
+				"body": [
+					"You beat {captor} and brought me out. I've written it down already. The account is very flattering and entirely accurate.",
+					"I'm home at {place}. Come when you can.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"home_again_ransom": {
+		"edda": {
+			"courting": {
+				"subject": "Home",
+				"salute": "Captain,",
+				"body": [
+					"You paid what {captor} asked. I've seen the sum. Don't ever tell me I'm not worth it; I've already decided I am.",
+					"I'm home at {place}, and the household is counting the spoons to check I'm real.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Home, at a price",
+				"salute": "Captain,",
+				"body": [
+					"You paid {captor}. I'd have negotiated them down, but they wouldn't let me near the table.",
+					"I'm home at {place}. Come and see me.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "Home, receipt enclosed",
+				"salute": "Captain,",
+				"body": [
+					"You paid {captor}. I've kept the receipt. It's going in the archive, under things that matter.",
+					"I'm home at {place}.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"home_again_escaped": {
+		"edda": {
+			"courting": {
+				"subject": "Out",
+				"salute": "Captain,",
+				"body": [
+					"When {captor} fell, nobody was watching the door, so I walked through it. I don't recommend it, but it worked.",
+					"I'm home at {place}. Come home too.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Out, quietly",
+				"salute": "Captain,",
+				"body": [
+					"{captor} had troubles of their own, and in the confusion I left. Envoys know where the doors are.",
+					"I'm home at {place}.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "Out, by the back stair",
+				"salute": "Captain,",
+				"body": [
+					"When {captor} fell, I took a map from their table and walked home by it. It was wrong in three places.",
+					"I'm home at {place}.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+	"home_again_house": {
+		"edda": {
+			"courting": {
+				"subject": "Home",
+				"salute": "Captain,",
+				"body": [
+					"The house paid {captor} for me. I'm home, and well, and I've stopped asking where you were. Come and tell me.",
+					"I'm at {place}.",
+				],
+				"sign": "Edda", "sign_title": "of House {house}",
+				"ps": "",
+			},
+		},
+		"farid": {
+			"courting": {
+				"subject": "Home",
+				"salute": "Captain,",
+				"body": [
+					"My house paid {captor}. The house is displeased. I am mostly tired. Come and see me when you can.",
+					"I'm at {place}.",
+				],
+				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
+				"ps": "",
+			},
+		},
+		"kaede": {
+			"courting": {
+				"subject": "Home",
+				"salute": "Captain,",
+				"body": [
+					"The house paid for me. The record says so. I'd rather it had said something else.",
+					"I'm at {place}.",
+				],
+				"sign": "Kaede", "sign_title": "Archivist of Kitayama",
+				"ps": "",
+			},
+		},
+	},
+}
+
+## Answers to married letters. A reply with an "action" does something when sent
+## (MarriedLife.on_reply): Edda's "send the train".
+const WARM_PLAIN := [
+	{"id": "warm", "label": "Thank you", "trust": 2,
+		"courting": ["{name},", "Thank you for writing. I'll be home at {place} as soon as the road allows.", "Yours,"],
+		"friend": ["{name},", "Thank you for writing.", "Yours,"]},
+	{"id": "plain", "label": "A soldier's answer", "trust": 0,
+		"courting": ["{name},", "Received. Thank you.", "Captain,"],
+		"friend": ["{name},", "Received. Thank you.", "Captain,"]},
+]
+const HOME_REPLIES := [
+	{"id": "warm", "label": "I'm coming home", "trust": 3,
+		"courting": ["{name},", "I'm coming to {place}. Don't let anyone fuss you before I get there; that's my job now.", "Until I'm home,"],
+		"friend": ["{name},", "Thank the stars. I'm coming.", "Yours,"]},
+	{"id": "plain", "label": "A soldier's answer", "trust": 0,
+		"courting": ["{name},", "Glad you're home. Coming.", "Captain,"],
+		"friend": ["{name},", "Glad you're home.", "Captain,"]},
+]
+const MARRIED_REPLIES := {
+	"household_short": [
+		{"id": "send", "label": "Send the train", "trust": 1, "action": "supply",
+			"courting": ["{name},", "Send it. I'll make for {near} and look out for the cart. Tell the quartermaster I'm sorry.", "Until I'm home,"],
+			"friend": ["{name},", "Send it. I'll make for {near}.", "Yours,"]},
+		{"id": "plain", "label": "We'll manage", "trust": 0,
+			"courting": ["{name},", "Keep it. We'll manage. We always do, somehow.", "Captain,"],
+			"friend": ["{name},", "We'll manage.", "Captain,"]},
+	],
+	"supply_lost": WARM_PLAIN,
+	"envoy_done": WARM_PLAIN,
+	"envoy_refused": WARM_PLAIN,
+	"army_warning": WARM_PLAIN,
+	"lookup": WARM_PLAIN,
+	"kaede_map": WARM_PLAIN,
+	"seat_besieged": WARM_PLAIN,
+	"seat_held": WARM_PLAIN,
+	"home_again_battle": HOME_REPLIES,
+	"home_again_ransom": HOME_REPLIES,
+	"home_again_escaped": HOME_REPLIES,
+	"home_again_house": HOME_REPLIES,
+}
+
 ## How you sign your own letters.
 const PLAYER_SIGN := "The Captain"
 const PLAYER_SIGN_TITLE := "of the free company"
@@ -990,9 +1364,9 @@ const ORDINALS := ["first", "second", "third", "fourth", "fifth", "sixth", "seve
 ## The letter `key` from `candidate_id`, written as a courtship or a friendship. `ctx`
 ## gives {place, old, hour}. Missing words fall back to a plain note.
 static func render(key: String, candidate_id: String, courting: bool, ctx: Dictionary) -> Dictionary:
-	var by_person: Dictionary = LETTERS.get(key, {})
+	var by_person: Dictionary = LETTERS.get(key, MARRIED_LETTERS.get(key, {}))
 	var versions: Dictionary = by_person.get(candidate_id, {})
-	var t: Dictionary = versions.get("courting" if courting else "friend", versions.get("friend", {}))
+	var t: Dictionary = versions.get("courting" if courting else "friend", versions.get("friend", versions.get("courting", {})))
 	if t.is_empty():
 		t = {"subject": "A letter", "salute": "Captain,",
 			"body": ["I write from {place}, where you will find me if your road comes this way."],
@@ -1026,7 +1400,7 @@ static func replies(key: String, candidate_id: String = "") -> Array:
 		return out
 	if not REPLIES.has(key) and key.ends_with("_invitation"):
 		return REPLIES["ch2_invitation"]
-	return REPLIES.get(key, [])
+	return REPLIES.get(key, MARRIED_REPLIES.get(key, []))
 
 
 static func reply(key: String, reply_id: String, candidate_id: String = "") -> Dictionary:
@@ -1082,10 +1456,15 @@ static func _suffix(n: int) -> String:
 ## battle's place), {captain} (a fallen captain) and {days}.
 static func _fill(text: String, ctx: Dictionary) -> String:
 	var house := String(ctx.get("house", ""))
-	return text.replace("{place}", String(ctx.get("place", ""))).replace("{old}", String(ctx.get("old", "")))\
+	var out := text.replace("{place}", String(ctx.get("place", ""))).replace("{old}", String(ctx.get("old", "")))\
 		.replace("{name}", String(ctx.get("name", ""))).replace("{house}", house if house != "" else "Caldmoor")\
 		.replace("{at}", String(ctx.get("at", "the field"))).replace("{captain}", String(ctx.get("captain", "a captain")))\
 		.replace("{days}", String(ctx.get("days", "Many")))
+	# Anything else the letter carries (married life's {near}, {outcome}, {facts}...).
+	if out.contains("{"):
+		for k in ctx:
+			out = out.replace("{%s}" % str(k), str(ctx[k]))
+	return out
 
 
 ## A settlement's name, or the id itself if it isn't one.

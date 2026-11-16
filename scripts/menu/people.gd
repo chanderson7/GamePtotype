@@ -16,6 +16,8 @@ const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const Lords = preload("res://scripts/data/lords.gd")
+const MarriedLife = preload("res://scripts/world/married_life.gd")
+const MarriedLines = preload("res://scripts/data/married_lines.gd")
 
 const CANDIDATES := [RomanceStories.EDDA, RomanceStories.FARID, RomanceStories.KAEDE]
 const PARCHMENT := Color("ecdcb4")
@@ -347,6 +349,13 @@ func _next_step(cand: String, with_place: bool = true) -> String:
 	var place := Letters.place_name(_residence(cand))
 	var at := (" at %s" % place) if with_place else ""
 	var here: bool = GameState.world.here() == _residence(cand)
+	# Married life: held by whoever took her, or riding with the company.
+	if MarriedLife.is_held(GameState, cand):
+		var held: Dictionary = MarriedLife.captive(GameState)
+		return "%s is held by %s. Ransom her, or beat them: the Journal has A road home." % [name, String(held.get("captor", "her captors"))] \
+			if String(held.get("kind", "")) == "lord" else "%s is held by %s. Beat them: the Journal has A road home." % [name, String(held.get("captor", "bandits"))]
+	if MarriedLife.with_company(GameState) == cand:
+		return "%s rides with the company. Speak with her any time." % name
 	var unread := _unread_from(cand)
 	if not unread.is_empty() and String(unread[0].get("template_key", "")).ends_with("_invitation"):
 		return "%s has invited you%s." % [name, (" to %s" % place) if with_place else ""]
@@ -376,7 +385,20 @@ func _next_step(cand: String, with_place: bool = true) -> String:
 func _main_action(cand: String) -> Button:
 	var p := _candidate_person(cand)
 	var res := _residence(cand)
-	if GameState.world.here() == res:
+	# Held: her ransom, when her captor bargains (MarriedLife).
+	if MarriedLife.is_held(GameState, cand):
+		var check: Dictionary = MarriedLife.ransom_check(GameState)
+		var rb := _button("%s · %d" % [MarriedLines.RANSOM_TEXT, MarriedLife.RANSOM_SILVER], func():
+			var r: Dictionary = MarriedLife.pay_ransom(GameState)
+			_flash = String(r.get("reason", "")) if not bool(r.get("ok", false)) else "Paid. %s rides home." % String(p.get("name", ""))
+			GameState.save_game()
+			_build(), true, "silver")
+		rb.name = "Ransom_%s" % cand
+		rb.disabled = not bool(check["ok"])
+		rb.tooltip_text = String(check.get("reason", ""))
+		return rb
+	# Riding with the company: she's here, wherever here is.
+	if GameState.world.here() == res or MarriedLife.with_company(GameState) == cand:
 		var b := _button("Speak", _speak.bind(cand), true, "talk")
 		b.name = "Speak_%s" % cand
 		b.tooltip_text = "Speak with %s" % p.get("name", "")
@@ -1416,13 +1438,18 @@ func _preview_reply(id: String) -> void:
 func _send_reply() -> void:
 	var l: Dictionary = _social().get_letter(_letter)
 	var who := String(_social().get_person(String(l.get("sender_id", ""))).get("name", "They"))
-	var res: Dictionary = _social().reply_letter(_letter, _reply, GameState.world.here())
+	var res: Dictionary = GameState.reply_letter(_letter, _reply, GameState.world.here())
 	_reply = ""
 	if res.get("ok", false):
 		Sound.play("page", 0.0, 0.05)
 		GameState.save_game()
 		var gain := int(res.get("trust_change", 0))
 		_flash = "Sent. A rider takes it to %s.%s" % [who, (" Trust +%d." % gain) if gain > 0 else ""]
+		# A reply that does something says what came of it (Edda's "send the train").
+		var acted: Dictionary = res.get("action", {})
+		if not acted.is_empty():
+			_flash += (" A supply train sets out for %s." % Letters.place_name(String(acted.get("convoy", {}).get("to", "")))) if bool(acted.get("ok", false)) \
+				else " (%s)" % String(acted.get("reason", ""))
 		_sent_now = true
 	_build()
 	# Down to the reply you just sent.

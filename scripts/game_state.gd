@@ -29,6 +29,8 @@ const Fiefs = preload("res://scripts/data/fiefs.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
+const MarriedLife = preload("res://scripts/world/married_life.gd")
+const Letters = preload("res://scripts/data/letters.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const Politics = preload("res://scripts/data/politics.gd")
@@ -949,6 +951,27 @@ func end_wedding_feast(words: Dictionary = {}) -> Dictionary:
 	world.social.end_wedding_feast(words)
 	save_game()
 	return {"ok": true}
+
+
+## Send a reply to a letter: it warms them (SocialSim.reply_letter), and a reply that does
+## something (Edda's "send the train") does it. {ok, reason, trust_change, action}.
+func reply_letter(letter_id: String, reply_id: String, from_place: String = "") -> Dictionary:
+	if world == null or world.social == null:
+		return {"ok": false, "reason": "No world active."}
+	var l: Dictionary = world.social.get_letter(letter_id)
+	var res: Dictionary = world.social.reply_letter(letter_id, reply_id, from_place)
+	if bool(res.get("ok", false)):
+		var r: Dictionary = Letters.reply(String(l.get("template_key", "")), reply_id, world.social.letter_candidate(l))
+		if r.has("action"):
+			res["action"] = MarriedLife.on_reply(self, l, reply_id)
+		save_game()
+	return res
+
+
+## Whether the call to the walls of `target` comes for you though it isn't your fief: it's
+## the seat of the one you married (MarriedLife).
+func defends_for_her(target: String) -> bool:
+	return MarriedLife.defends_for_her(self, target)
 
 
 ## Private vows: keep the words you said with their memory.
@@ -2459,7 +2482,9 @@ func _army_assault_outcome(result: Dictionary, how: String) -> void:
 		food += int(got["food"])
 		renown += int(got["renown"])
 		if defend:
-			world.emit_event({"type": "fief_defended", "settlement": target, "enemy": String(pending_battle.get("name", "the besiegers"))})
+			if is_player_fief(target):
+				world.emit_event({"type": "fief_defended", "settlement": target, "enemy": String(pending_battle.get("name", "the besiegers"))})
+			MarriedLife.on_seat_defended(self, target)
 			_note("You held the walls of %s! %s The besiegers fall back. +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]])
 		else:
 			add_realm_relation(String(pending_battle.get("siege_realm", "")), 15)
@@ -3002,6 +3027,7 @@ func commitments() -> Array:
 		out.append(wed)
 	out.append_array(gathering_commitments())
 	out.append_array(CrownCourt.commitments(self))
+	out.append_array(MarriedLife.commitments(self))
 	if has_fief():
 		var f_id := fief_id()
 		var lines: PackedStringArray = []
@@ -3169,7 +3195,8 @@ func _fief_day() -> void:
 	if bool(player_fief.get("lost", false)):
 		return
 	var is_b: bool = bool(world.is_burned(fief_id()))
-	var tax := Fiefs.daily_tax(player_fief, is_b)
+	# Edda keeps the fief's accounts: more of its tax reaches you (MarriedLife).
+	var tax := int(round(Fiefs.daily_tax(player_fief, is_b) * MarriedLife.fief_tax_mult(self)))
 	var prov := Fiefs.daily_food(player_fief, is_b)
 	player_fief["silver"] = mini(Fiefs.MAX_STORAGE_SILVER, int(player_fief.get("silver", 0)) + tax)
 	player_fief["food"] = mini(Fiefs.max_food_capacity(player_fief), int(player_fief.get("food", 0)) + prov)
@@ -3914,7 +3941,8 @@ func _tick_healing(hours: float) -> void:
 		if total_wounded() == 0:
 			_heal_clock = 0.0
 		return
-	var speed_mult := 2.0 if is_resting() else 1.0
+	# Resting heals twice as fast, and resting at her seat while she's home faster again.
+	var speed_mult := (2.0 if is_resting() else 1.0) * (MarriedLife.heal_mult(self) if world != null else 1.0)
 	_heal_clock += hours * speed_mult
 	while _heal_clock >= 12.0:
 		_heal_clock -= 12.0
@@ -3942,6 +3970,7 @@ func advance(hours: float) -> void:
 		settle()
 		_step_hosted()
 		CrownCourt.step(self)
+		MarriedLife.step(self)
 	_tick_healing(hours)
 
 
@@ -4033,6 +4062,7 @@ func settle() -> void:
 		_fief_day()
 		_crown_day()
 		_prune_gathering_log()
+		MarriedLife.day(self)
 	_award_deeds()
 
 
@@ -4222,7 +4252,9 @@ func barred_by(realm: String) -> String:
 
 ## What reparations to `realm` would cost now.
 func reparations_cost(realm: String) -> int:
-	return REPARATIONS_BASE + REPARATIONS_PER_POINT * maxi(0, HOSTILE_RELATION - relation_with_realm(realm))
+	var cost := REPARATIONS_BASE + REPARATIONS_PER_POINT * maxi(0, HOSTILE_RELATION - relation_with_realm(realm))
+	# Farah carries them: half the price (MarriedLife).
+	return int(round(cost * MarriedLife.reparations_mult(self))) if world != null else cost
 
 
 ## Whether an envoy can carry reparations to `realm`: it bars you for your standing alone,
@@ -5338,7 +5370,11 @@ func apply_result(result: Dictionary) -> void:
 					if (b_party_id >= 0 and int(job.get("target_party_id", -2)) == b_party_id) or (b_party_name != "" and String(job.get("target_name", "")) == b_party_name):
 						job["status"] = "ready_to_claim"
 						complete_job(String(job.get("id", "")))
+			# Whoever held the one you married is beaten: she's free.
+			MarriedLife.on_battle_won(self, enemy_lid if is_lord else -1, b_party_id)
 		else:
+			# She rode with you, and whoever beat you takes her.
+			MarriedLife.on_battle_lost(self, enemy_lid if is_lord else -1, int(pending_battle.get("party_id", -1)), band)
 			world.hurt_band(result.get("enemy_squads", {}))
 			world.lose_encounter()
 			var home := String(WorldData.settlement(world.here())["name"])
@@ -5458,7 +5494,8 @@ func ransom_offer(lord_id: int) -> int:
 	var l: Dictionary = world.lord_by_id(lord_id)
 	if l.is_empty():
 		return 0
-	return world.ransom_payable(l, int(l.get("ransom_amount", 200)))
+	# Farah's word with the houses: they pay more for their own (MarriedLife).
+	return world.ransom_payable(l, int(round(int(l.get("ransom_amount", 200)) * MarriedLife.ransom_mult(self))))
 
 
 ## Accept ransom offer for a captive lord. His house pays what it has: if that falls

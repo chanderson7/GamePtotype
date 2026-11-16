@@ -45,6 +45,10 @@ var limits: Dictionary = {
 var pending_settlements: Array = []
 ## The public wedding, from the proposal to the day (see plan_wedding): {} when none.
 var wedding: Dictionary = {}
+## Married life (MarriedLife, docs/married-life-plan.md): her cart and envoys on the
+## roads, when her ask is ready, whether she travels with you or is held, the letters
+## she has sent for what's happening. {} until there's any of it.
+var household: Dictionary = {}
 
 var _next_project_id := 1
 var _next_letter_id := 1
@@ -64,6 +68,7 @@ func setup(seed_val: int, lords_list: Array, settlements: Dictionary) -> void:
 	pending_letters.clear()
 	pending_settlements.clear()
 	wedding.clear()
+	household.clear()
 	_next_project_id = 1
 	_next_letter_id = 1
 
@@ -203,6 +208,7 @@ func to_dict() -> Dictionary:
 		"limits": limits,
 		"pending_settlements": pending_settlements,
 		"wedding": wedding,
+		"household": household,
 		"next_project_id": _next_project_id,
 		"next_letter_id": _next_letter_id
 	}
@@ -237,6 +243,28 @@ func from_dict(data: Dictionary) -> void:
 	for k in ["reserved_silver", "reserved_food", "day", "second"]:
 		if wedding.has(k):
 			wedding[k] = int(wedding[k])
+	household = data.get("household", {}).duplicate(true)
+	# JSON reads numbers as floats: the ids that are compared as ints are made ints again.
+	for c in household.get("convoys", []):
+		c["id"] = int(c.get("id", 0))
+		var purpose: Dictionary = c.get("purpose", {})
+		if purpose.has("lord_id"):
+			purpose["lord_id"] = int(purpose["lord_id"])
+		for k in ["food", "silver"]:
+			c[k] = int(c.get(k, 0))
+	var held: Dictionary = household.get("captive", {})
+	for k in ["lord_id", "party_id"]:
+		if held.has(k):
+			held[k] = int(held[k])
+	for k in ["warned_armies", "spoken_well"]:
+		if household.has(k):
+			household[k] = (household[k] as Array).map(func(x): return int(x))
+	var mark: Dictionary = household.get("marked_band", {})
+	if mark.has("party_id"):
+		mark["party_id"] = int(mark["party_id"])
+	var siege: Dictionary = household.get("besieged", {})
+	if siege.has("army_id"):
+		siege["army_id"] = int(siege["army_id"])
 	_next_project_id = int(data.get("next_project_id", 1))
 	_next_letter_id = int(data.get("next_letter_id", 1))
 	# JSON reads all numbers as floats; restore integral identity/progression fields.
@@ -339,13 +367,15 @@ func _relocate_person(person: Dictionary, new_owner: String, world_ref: RefCount
 	var realm: String = house.get("realm", "")
 
 	# Order of relocation:
+	# 0. The one you married comes to your fief, if you hold one and it's safe.
 	# 1. Another holding of the same realm/house
+	var new_seat := _spouse_refuge(person, new_owner, world_ref)
 	var candidates: Array = world_ref.holdings_of(realm)
-	var new_seat := ""
 	for c in candidates:
+		if new_seat != "":
+			break
 		if c != person["residence"]:
 			new_seat = c
-			break
 	if new_seat == "":
 		new_seat = world_ref.capital_of(realm)
 
@@ -369,6 +399,21 @@ func _relocate_person(person: Dictionary, new_owner: String, world_ref: RefCount
 		add_memory(person["id"], "Displaced from %s." % person["residence"], {"kind": "move"})
 
 
+## Where the one you married goes when her seat falls: your fief, if you hold one that
+## isn't the place lost and isn't under siege; or "" to go where her house goes.
+func _spouse_refuge(person: Dictionary, _new_owner: String, world_ref: RefCounted) -> String:
+	var cand := String(person.get("content_id", ""))
+	if cand == "" or String(relationships.get(cand, {}).get("status", "")) != Relationships.MARRIED:
+		return ""
+	var gs = world_ref._active_game_state() if world_ref.has_method("_active_game_state") else null
+	if gs == null or not gs.has_method("wedding_seat"):
+		return ""
+	var seat: String = gs.wedding_seat()
+	if seat == "" or seat == String(person.get("residence", "")) or world_ref.is_sieged(seat):
+		return ""
+	return seat
+
+
 ## Whether `person` would write to you: one of the people you court or befriend (not a
 ## lord), and only once you've met.
 func _writes_to_you(person: Dictionary) -> bool:
@@ -384,9 +429,20 @@ func residents_at(settlement_id: String) -> Array:
 	var list := []
 	for pid in people:
 		var p: Dictionary = people[pid]
-		if p.get("residence", "") == settlement_id and p.get("content_id", "") != "":
+		if p.get("residence", "") == settlement_id and p.get("content_id", "") != "" and not away_from_home(String(p.get("content_id", ""))):
 			list.append(p)
 	return list
+
+
+## Whether `cand` is away from her seat: riding with your company, on the road home from
+## it, or held by whoever took her (MarriedLife).
+func away_from_home(cand: String) -> bool:
+	if cand == "":
+		return false
+	if String(household.get("with_company", "")) == cand or String(household.get("captive", {}).get("cand", "")) == cand:
+		return true
+	var back: Dictionary = household.get("returning", {})
+	return String(back.get("cand", "")) == cand and _hour < float(back.get("until", 0.0))
 
 
 ## The people with a story who are at a gathering at `place`, among `lords_here` (the lords
