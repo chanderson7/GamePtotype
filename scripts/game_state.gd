@@ -866,8 +866,9 @@ func wedding_seconds() -> Array:
 
 
 ## Who can be called on for a toast at the feast, in the order they're offered: your
-## second first, the captain longest with you, a hero companion, the closest-bonded pair
-## (together), the newest, and a captain who lost a bonded friend (who drinks to them).
+## second first, the captain longest with you (once any has fought), a hero companion, the
+## closest-bonded pair (together), the newest, and a captain who lost a bonded friend (who
+## drinks to them). Each captain has one turn at most.
 ## Each is {key, kind (second, longest, hero, pair, newest, mourner), id, name, face,
 ## captain, tag} plus `other` (the pair's second captain) or `fallen` (the friend's name).
 func wedding_toasters(second_id: int = -1) -> Array:
@@ -895,8 +896,9 @@ func wedding_toasters(second_id: int = -1) -> Array:
 	var by_battles := caps.duplicate()
 	by_battles.sort_custom(func(x, y): return int(x.get("battles", 0)) > int(y.get("battles", 0)) or \
 		(int(x.get("battles", 0)) == int(y.get("battles", 0)) and int(x["id"]) < int(y["id"])))
+	# The captain longest with you, once any of them has a battle behind them.
 	for c in by_battles:
-		if not used.has(int(c["id"])):
+		if not used.has(int(c["id"])) and int(c.get("battles", 0)) > 0:
 			out.append(entry.call(c, "longest", _battles_tag(c)))
 			used[int(c["id"])] = true
 			break
@@ -905,16 +907,19 @@ func wedding_toasters(second_id: int = -1) -> Array:
 			out.append(entry.call(c, "hero", String(Heroes.HEROES.get(String(c.get("hero_id", "")), {}).get("byname", "a companion"))))
 			used[int(c["id"])] = true
 			break
+	# The closest-bonded pair in which neither has a turn already: nobody toasts twice.
 	for pair in bonds():
 		var a: Dictionary = pair["a"]
 		var b: Dictionary = pair["b"]
-		if second is Dictionary and (int(a["id"]) == int(second["id"]) or int(b["id"]) == int(second["id"])):
+		if used.has(int(a["id"])) or used.has(int(b["id"])):
 			continue
 		var e: Dictionary = entry.call(a, "pair", "%s and %s · rank %s" % [String(a.get("first", a["name"])), String(b.get("first", b["name"])), String(pair["rank"])])
 		e["key"] = "pair_%d_%d" % [int(a["id"]), int(b["id"])]
 		e["other"] = b
 		e["rank"] = String(pair["rank"])
 		out.append(e)
+		used[int(a["id"])] = true
+		used[int(b["id"])] = true
 		break
 	for i in range(by_battles.size() - 1, -1, -1):
 		var c: Dictionary = by_battles[i]

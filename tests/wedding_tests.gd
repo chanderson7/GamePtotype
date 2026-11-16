@@ -263,8 +263,8 @@ func _init() -> void:
 	for id in ["feast_toasts", "feast_dance", "feast_custom", "feast_tables", "slip"]:
 		check(day.has_reply(id), "the feast offers %s" % id)
 	var toasters: Array = gs.wedding_toasters(int(c1["id"]))
-	var kinds := toasters.map(func(t): return String(t["kind"]))
-	check(kinds[0] == "second" and kinds.has("pair") and kinds.has("newest") and kinds.back() == "mourner", "who can toast: your second, a bonded pair, the newest, a mourner (%s)" % ", ".join(PackedStringArray(kinds)))
+	var toast_kinds := toasters.map(func(t): return String(t["kind"]))
+	check(toast_kinds == ["second", "pair", "newest", "mourner"], "who can toast: your second, a bonded pair, the newest, a mourner, each once (%s)" % ", ".join(PackedStringArray(toast_kinds)))
 	day.choose("feast_toasts")
 	check(day.log_text().contains("%s · your second" % String(c1["first"])) and day.log_text().contains(Feast.SECOND_OPEN[posmod(int(c1["id"]), 2)]),
 		"your second speaks first, unasked, as the one who stood with you")
@@ -437,7 +437,6 @@ func _init() -> void:
 			"the %s rite: steps, a choice, its question and seal" % cul)
 		var prop = Rite.new()
 		prop.culture = cul
-		prop.size = Vector2(720, 590)
 		root.add_child(prop)
 		for i in steps["steps"].size() + 1:
 			prop.advance()

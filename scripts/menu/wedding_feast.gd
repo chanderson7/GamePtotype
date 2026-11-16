@@ -560,8 +560,8 @@ func _slip() -> void:
 	_begin_thing()
 	_set_chips("")
 	say("you", Feast.SLIP_YOU)
-	var room := place == String(GameState.world.social.get_candidate_person(cand).get("residence", ""))
-	if room:
+	var at_home := place == String(GameState.world.social.get_candidate_person(cand).get("residence", ""))
+	if at_home:
 		_to_her_room()
 	else:
 		var d := _dressing()
@@ -571,7 +571,7 @@ func _slip() -> void:
 	if not _second.is_empty():
 		remove_face("right")
 	Sound.play_music("camp_" + culture)
-	say("narration", Feast.SLIP_OUT["room" if room else "place"])
+	say("narration", Feast.SLIP_OUT["room" if at_home else "place"])
 	express("center", _portrait("warm"), "warm")
 	var feast := _feast_state()
 	var done: Array = feast.get("done", [])
