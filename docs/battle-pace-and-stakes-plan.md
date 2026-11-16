@@ -1,7 +1,7 @@
 # Vaskaria: battle pace and stakes
 
 - **Date:** 2026-11-15
-- **Status:** plan. Nothing here is built.
+- **Status:** plan. Only Stage 0 (the probe) is built.
 - **Question:** is a battle too quick for someone playing on a phone, and does it feel
   high-stakes?
 - **Short answer:** the whole battle is short but not the problem: about a minute and a
