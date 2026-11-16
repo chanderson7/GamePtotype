@@ -37,6 +37,8 @@ var _their := {}
 var _vow := ""
 ## Who stands with you: one of GameState.wedding_seconds, or {}.
 var _second := {}
+## What you did on the way here, as her memory book has it (Lines.road).
+var _road := {}
 var _breath := false
 ## The memory being told again, or {} on the day itself.
 var _memory := {}
@@ -180,7 +182,7 @@ func _host_name() -> String:
 
 
 func _fill(text: String) -> String:
-	return Lines.fill(text, {"name": _name, "place": _place_name(), "host": _host_name() if not _host.is_empty() else "The house",
+	return Lines.fill(text, {"name": _name, "place": _place_name(), "host": _host_name() if not _host.is_empty() else "the head of the house",
 		"second": _second_name() if not _second.is_empty() else "your second"})
 
 
@@ -257,7 +259,7 @@ func _feast() -> void:
 		d.set_late(done.size())
 	var night := TalkView.stage_chip(String(Feast.NIGHT[mini(done.size(), Feast.NIGHT.size() - 1)]), Style.MUTED, "moon")
 	night.name = "Night"
-	_set_chips("The feast", [night], "cup")
+	_set_chips(Feast.CHIP, [night], "cup")
 	add_to_log(note(Feast.PROMPT, Style.BRASS))
 	var replies := []
 	for key in Relationships.WEDDING_FEAST_THINGS:
@@ -317,7 +319,7 @@ func _toasts_begin() -> void:
 	_toasters = GameState.wedding_toasters(int(_second.get("id", -1)))
 	_spoken = []
 	_toasts = []
-	say("you", "A toast! Who's first?" if not _toasters.is_empty() else "A toast!")
+	say("you", Feast.TOAST_CALL if not _toasters.is_empty() else Feast.TOAST_CALL_ALONE)
 	for t in _toasters:
 		if String(t["kind"]) == "second":
 			_toast(t)
@@ -345,6 +347,11 @@ func _call_on() -> void:
 	set_replies(replies)
 
 
+## A captain as the one speaking: "Rowan · your second", "Ilse · captain".
+func _speaker(c: Dictionary, kind: String) -> String:
+	return String(Feast.SPEAKER["second" if kind == "second" else "captain"]) % _first(c)
+
+
 ## A captain's toast, in their own words; then you answer it.
 func _toast(t: Dictionary) -> void:
 	_spoken.append(String(t["key"]))
@@ -352,9 +359,9 @@ func _toast(t: Dictionary) -> void:
 	var b: Dictionary = t.get("other", {})
 	var kind := String(t["kind"])
 	var said := []
-	for line in Feast.toast_lines(t):
+	for line in Feast.toast_lines(t, _spoken.size() - 1):
 		var c: Dictionary = a if String(line["who"]) == "a" else b
-		var speaker := "%s · %s" % [_first(c), "your second" if kind == "second" else "captain"]
+		var speaker := _speaker(c, kind)
 		var text := _fill(String(line["text"]))
 		_say_with_face(text, speaker, c)
 		said.append({"speaker": speaker, "text": text})
@@ -376,7 +383,7 @@ func _after_toast(t: Dictionary, how: String) -> void:
 		"heckle":
 			_heckled = true
 			say("you", Feast.fill(String(Feast.HECKLES[posmod(int(a["id"]), Feast.HECKLES.size())]), {"first": _first(a)}))
-			_say_with_face(String(Feast.COMEBACKS.get(String(a.get("temperament", "")), Feast.COMEBACKS[""])), "%s · captain" % _first(a), a)
+			_say_with_face(String(Feast.COMEBACKS.get(String(a.get("temperament", "")), Feast.COMEBACKS[""])), _speaker(a, String(t["kind"])), a)
 			express("center", _portrait("amused"), "amused")
 			say("them", String(Feast.HER_LAUGH.get(cand, Feast.HER_LAUGH["edda"])), _name)
 		"pour":
@@ -391,20 +398,20 @@ func _after_toast(t: Dictionary, how: String) -> void:
 ## The host speaks last of the guests, by bearing; then your cup.
 func _host_toast() -> void:
 	if not _host.is_empty():
-		_say_with_face(Lines.host_toast(String(_host.get("bearing", ""))), "%s · host" % _host_name(), _host["face"])
-	add_to_log(note("Raise your cup", Style.BRASS))
-	var replies := [{"id": "toast_her", "text": _fill(Lines.YOUR_TOASTS["her"]), "tag": "everyone drinks", "act": _raise.bind("her")},
-		{"id": "toast_company", "text": Lines.YOUR_TOASTS["company"], "tag": "your captains will remember it", "act": _raise.bind("company")}]
+		_say_with_face(_fill(Lines.host_toast(String(_host.get("bearing", "")))), Lines.HOST_ROLE % _host_name(), _host["face"])
+	add_to_log(note(Lines.RAISE, Style.BRASS))
+	var replies := [{"id": "toast_her", "text": _fill(Lines.YOUR_TOASTS["her"]), "tag": Lines.YOUR_TOAST_TAGS["her"], "act": _raise.bind("her")},
+		{"id": "toast_company", "text": Lines.YOUR_TOASTS["company"], "tag": Lines.YOUR_TOAST_TAGS["company"], "act": _raise.bind("company")}]
 	var fallen := _fallen_names()
 	if fallen != "":
-		replies.append({"id": "toast_absent", "text": Lines.YOUR_TOASTS["absent"].replace("{fallen}", fallen), "tag": "the captains you lost", "act": _raise.bind("absent")})
+		replies.append({"id": "toast_absent", "text": Lines.YOUR_TOASTS["absent"].replace("{fallen}", fallen), "tag": Lines.YOUR_TOAST_TAGS["absent"], "act": _raise.bind("absent")})
 	set_replies(replies)
 
 
 func _raise(key: String) -> void:
 	var toast := _fill(Lines.YOUR_TOASTS[key]).replace("{fallen}", _fallen_names())
 	say("you", toast)
-	say("them", Lines.AFTER_TOAST[key], _name)
+	say("them", Lines.after_toast(cand, key), _name)
 	GameState.wedding_feast_do("toasts", {"toasts": _toasts.duplicate(true), "toast": toast, "heckle": _heckled or bool(_feast_state().get("heckle", false))})
 	_feast()
 
@@ -469,8 +476,13 @@ func _customed(o: Dictionary) -> void:
 		if d != null:
 			d.release_lantern(0.27)
 			d.release_lantern(0.73)
-		say("narration", _fill(String(Feast.custom(culture).get("after", ""))))
+	# How it ends: what is seen, and what she says of it.
+	var c := Feast.custom(culture)
+	if String(c.get("after", "")) != "":
+		say("narration", _fill(String(c["after"])))
 	express("center", _portrait("amused"), "amused")
+	if String(c.get("after_her", "")) != "":
+		say("them", _fill(String(c["after_her"])), _name)
 	GameState.wedding_feast_do("custom", {"custom": String(o["id"])})
 	_feast()
 
@@ -481,9 +493,9 @@ func _customed(o: Dictionary) -> void:
 func _gifts() -> Array:
 	var out := []
 	if not _host.is_empty():
-		out.append("%s gives you %s." % [_host_name(), String(Feast.HOST_GIFTS.get(culture, Feast.HOST_GIFTS[Cultures.VARDISH]))])
+		out.append(Feast.HOST_GIVES % [_host_name(), String(Feast.HOST_GIFTS.get(culture, Feast.HOST_GIFTS[Cultures.VARDISH]))])
 	if String(_guests.get("gift_from", "")) != "":
-		out.append("%s sent %s." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
+		out.append(Feast.RULER_SENT % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
 	var company := Feast.COMPANY_GIFT
 	for g in _guests.get("guests", []):
 		if String(g["kind"]) == "captain" and String((g["face"] as Dictionary).get("specialization", "")) == Captains.QUARTERMASTER:
@@ -503,11 +515,11 @@ func _tables() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 8)
 	p.add_child(v)
-	v.add_child(Widgets.section("The gifts"))
+	v.add_child(Widgets.section(Feast.GIFTS_TITLE))
 	for line in _gifts():
 		v.add_child(_icon_line("chest", String(line)))
 	for a in _guests.get("absent", []):
-		var l := Style.label("%s stayed away: %s." % [a["name"], a["reason"]], Style.SMALL, Style.MUTED)
+		var l := Style.label(Feast.STAYED_AWAY % [a["name"], a["reason"]], Style.SMALL, Style.MUTED)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(l)
 	add_to_log(p)
@@ -515,21 +527,32 @@ func _tables() -> void:
 	_table_round()
 
 
-## Every guest, by face: a lord, a captain who didn't toast. Each says a word once.
+## Everyone at the tables: the lords by face, her own people (each someone she told you
+## about), and the captains who didn't toast. Each says a word once.
 func _table_round() -> void:
 	var toasted := {}
 	for t in _feast_state().get("toasts", []):
 		for id in t.get("ids", []):
 			toasted[int(id)] = true
-	var replies := []
+	var lords := []
+	var captains := []
 	for g in _guests.get("guests", []):
 		var kind := String(g["kind"])
 		if kind == "captain" and toasted.has(int(g["id"])):
 			continue
 		var key := "table_%s_%d" % [kind, int(g["id"])]
-		replies.append({"id": key, "text": String(g.get("short", g["name"])), "bare": true, "face": CaptainArt.texture(g["face"]),
-			"tag": {"host": "the host", "crown_lord": "your lord", "lord": "a friend of the company", "captain": "captain"}.get(kind, ""),
-			"done": _visited.has(key), "act": _visit_guest.bind(g, key)})
+		var r := {"id": key, "text": String(g.get("short", g["name"])), "bare": true, "face": CaptainArt.texture(g["face"]),
+			"tag": String(Feast.TABLE_TAGS.get(kind, "")), "done": _visited.has(key), "act": _visit_guest.bind(g, key)}
+		if kind == "captain":
+			captains.append(r)
+		else:
+			lords.append(r)
+	var replies := lords
+	for p in Feast.her_people(cand):
+		var key := "table_kin_%s" % String(p["id"])
+		replies.append({"id": key, "text": String(p["name"]), "bare": true, "icon": "men", "tag": String(p["tag"]),
+			"done": _visited.has(key), "act": _visit_kin.bind(p, key)})
+	replies.append_array(captains)
 	replies.append({"id": "tables_back", "text": Feast.TABLES_BACK, "tone": "quiet", "act": _tables_done})
 	set_replies(replies)
 
@@ -540,10 +563,19 @@ func _visit_guest(g: Dictionary, key: String) -> void:
 	var line := ""
 	if kind == "captain":
 		line = Feast.captain_line(String((g["face"] as Dictionary).get("temperament", "")))
+	elif kind == "host":
+		line = _fill(Feast.host_table(String(g.get("bearing", ""))))
 	else:
 		line = Feast.lord_line(String(g.get("bearing", "")), int(g.get("regard", 0)))
-	var role: String = {"host": "host", "crown_lord": "your lord", "captain": "captain"}.get(kind, "guest")
+	var role := String(Feast.TABLE_ROLES.get(kind, Feast.TABLE_ROLES["lord"]))
 	_say_with_face(line, "%s · %s" % [String(g.get("short", g["name"])), role], g["face"])
+	_table_round()
+
+
+## One of her own people has a word for you.
+func _visit_kin(p: Dictionary, key: String) -> void:
+	_visited.append(key)
+	say("them", _fill(String(p["line"])), String(p["name"]))
 	_table_round()
 
 
@@ -611,7 +643,7 @@ func _last(id: String, text: String) -> void:
 	var home := String(GameState.world.social.get_candidate_person(cand).get("residence", place))
 	var home_name := String(Data.settlement(home)["name"]) if Data.SETTLEMENTS.has(home) else _place_name()
 	say("narration", Lines.fill(Lines.AFTER.get(cand, Lines.AFTER["edda"]), {"name": _name, "place": home_name}))
-	set_replies([{"id": "done", "text": "Back to the map", "tone": "gold", "bare": true, "act": close}])
+	set_replies([{"id": "done", "text": Feast.BACK_TO_MAP, "tone": "gold", "bare": true, "act": close}])
 
 
 ## The one closing card: where and when, the memory kept, the night in icons, what the
@@ -651,7 +683,7 @@ func _closing_card() -> Control:
 		ic.modulate = Style.ROMANCE_LIGHT
 		night.add_child(ic)
 	v.add_child(night)
-	v.add_child(_icon_line("rings", "A memory kept. Open it again from %s's page." % _name, Style.ROMANCE_LIGHT))
+	v.add_child(_icon_line("rings", String(Feast.CARD["memory"]) % _name, Style.ROMANCE_LIGHT))
 	# The pact, as three lines: who stands together, what breaks it, what you may ask.
 	var person: Dictionary = GameState.world.social.get_candidate_person(cand)
 	var pact: Dictionary = GameState.world.social.get_pact(String(person.get("house_id", "")))
@@ -660,18 +692,18 @@ func _closing_card() -> Control:
 	for s in pact.get("protected_sites", []):
 		if Data.SETTLEMENTS.has(String(s)):
 			sites.append(String(Data.settlement(String(s))["name"]))
-	var head := _host_name() if not _host.is_empty() else "the head of the house"
-	v.add_child(Widgets.section("The marriage pact"))
-	v.add_child(_icon_line("keep", "%s and your company stand together." % String(house.get("name", "Her house"))))
-	v.add_child(_icon_line("fight", "Attacking %s breaks it." % (" or ".join(sites) if not sites.is_empty() else "her house's lands")))
-	v.add_child(_icon_line("silver", "Ask %s for up to %d silver every %d days, for men from his garrison, or to hold a place for you." % [head, Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)]))
+	var head := _host_name() if not _host.is_empty() else String(Feast.CARD["head"])
+	v.add_child(Widgets.section(String(Feast.CARD["pact"])))
+	v.add_child(_icon_line("keep", String(Feast.CARD["together"]) % String(house.get("name", "Her house"))))
+	v.add_child(_icon_line("fight", String(Feast.CARD["breaks"]) % (" or ".join(sites) if not sites.is_empty() else String(Feast.CARD["lands"]))))
+	v.add_child(_icon_line("silver", String(Feast.CARD["ask"]) % [head, Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)]))
 	# Who came, in words only for what the guest badges didn't say.
 	var bits := PackedStringArray()
 	var captains: int = _guests.get("guests", []).filter(func(g): return String(g["kind"]) == "captain").size()
 	if captains > 0:
-		bits.append("Your %d captain%s drank to you, loudly." % [captains, "" if captains == 1 else "s"])
+		bits.append(String(Feast.CARD["captains"]) % [captains, "" if captains == 1 else "s"])
 	if String(_guests.get("gift_from", "")) != "":
-		bits.append("%s's gift, %s, is in your baggage." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
+		bits.append(String(Feast.CARD["gift"]) % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
 	if not bits.is_empty():
 		v.add_child(_icon_line("company", " ".join(bits)))
 	# The day's cost (set aside when you planned it) and what it earned.
@@ -697,5 +729,5 @@ func _rejoin() -> void:
 		_second_steps_up()
 	express("center", _portrait("amused"), "amused")
 	clear_log()
-	say("narration", "The feast is still going. Someone has saved you both a seat, and most of a pie.")
+	say("narration", Feast.REJOIN)
 	_feast()

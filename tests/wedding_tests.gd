@@ -47,6 +47,9 @@ func _ready_for_ch5() -> void:
 	var person: Dictionary = soc.get_candidate_person("edda")
 	soc.houses[person["house_id"]]["standing"] = 30
 	soc.add_memory(person["id"], "Shared the story of Edda's spare spoon.", {"kind": "visit", "scene_id": "edda_spare_spoon"})
+	# What you did on the way: held the valley, and stood with her against the hall.
+	soc.add_memory(person["id"], "The day the company held the valley.", {"kind": "decision", "chapter": 3, "choice": "defend_district", "candidate": "edda"})
+	soc.add_memory(person["id"], "The day I stood with Edda against the hall.", {"kind": "decision", "chapter": 4, "choice": "support_edda", "candidate": "edda"})
 
 
 func _open_talk() -> void:
@@ -134,7 +137,7 @@ func _init() -> void:
 	var friend: Dictionary = {}
 	var foe: Dictionary = {}
 	for l in gs.world.lords:
-		if friend.is_empty() and String(l["realm"]) == "vardmark" and not bool(l.get("ruler", false)) and String(l.get("state", "")) != "prisoner":
+		if friend.is_empty() and String(l["realm"]) == "vardmark" and not bool(l.get("ruler", false)):
 			var person: Dictionary = soc.get_candidate_person("edda")
 			var host_id := int(soc.get_person(String(soc.get_house(person["house_id"])["head_person_id"])).get("lord_id", -1))
 			if int(l["id"]) != host_id:
@@ -147,6 +150,9 @@ func _init() -> void:
 	var head_lord := int(soc.get_person(String(soc.get_house(head_person["house_id"])["head_person_id"])).get("lord_id", -1))
 	if head_lord >= 0 and String(gs.world.lord_by_id(head_lord).get("state", "")) == "prisoner":
 		gs.world.release_lord(head_lord)
+	# The same for the friend: whoever it is, they're free to come.
+	if String(friend.get("state", "")) == "prisoner":
+		gs.world.release_lord(int(friend["id"]))
 	friend["met_player"] = true
 	gs.add_lord_relation(int(friend["id"]), 60)
 	foe["met_player"] = true
@@ -199,7 +205,9 @@ func _init() -> void:
 	var hair_map = (bride.material as ShaderMaterial).get_shader_parameter("hair") if bride.material is ShaderMaterial else null
 	check(hair_map is Texture2D and (hair_map as Texture2D).resource_path.ends_with("edda_wedding_hair.png"),
 		"her unbound hair is what moves, not the braid she wears every day")
-	check(day.find_child("WhoCame", true, false) != null and day.has_reply("begin") and day.has_reply("later"), "who came, then: take your place, or not yet")
+	check(day.find_child("WhoCame", true, false) != null and day.reply_ids() == ["continue"], "the place, what is set out and who came; a tap goes on")
+	day.choose("continue")
+	check(day.log_text().contains(Lines.STAND["edda"]) and day.has_reply("begin") and day.has_reply("later"), "her first words, then: take your place, or not yet")
 
 	# ---- who stands with you
 	var seconds: Array = gs.wedding_seconds()
@@ -214,15 +222,22 @@ func _init() -> void:
 	check(day.get_node_or_null("Stage/Face_right") != null, "your second stands on the stage")
 
 	# ---- vows
-	check(day.log_text().contains("spare spoon") and day.find_child("Remembers", true, false) != null, "her vow comes from the time you shared")
+	check(day.reply_ids() == ["continue"] and not day.log_text().contains("You held the valley"), "the head of her house first; her vow waits its turn")
+	check(day.log_text().contains("stood against me in my own hall") and day.find_children("SpeakerFace", "", true, false).size() >= 1,
+		"the head of her house speaks of the council you stood in, face beside their name")
+	day.choose("continue")
+	check(day.log_text().contains("You held the valley") and day.reply_ids() == ["continue"], "she says what you did for her people, and then her vow")
+	check(day.log_text().contains(Lines.VOWS["edda_spare_spoon"]) and day.find_child("Remembers", true, false) != null, "her vow comes from the time you shared")
+	day.choose("continue")
 	check(day.has_reply("vow_promise") and day.has_reply("vow_honest") and day.has_reply("vow_laugh"), "three vows of your own")
 	day.choose("vow_promise")
 	check(day.get_node("Stage/Face_center").texture == dressed, "a promise: her face answers warm")
+	check(day.log_text().contains(Lines.VOW_ANSWER["edda"]["promise"]), "and she answers it in words of her own")
 
 	# ---- the rite, by your hand
 	var rite = day.get_node_or_null("Stage/Rite")
 	check(day.log_text().contains("red cord") and rite != null and rite.step == 0, "the Vardish rite: the cord, its prop on the stage")
-	check(day.log_text().contains("%s hands you the cord" % String(c1["first"])), "your second hands you what the rite needs")
+	check(day.log_text().contains("%s takes the cord" % String(c1["first"])), "your second hands you what the rite needs")
 	check(day.has_reply("rite_wrist") and day.reply_ids().size() == 1, "one step at a time")
 	day.choose("rite_wrist")
 	check(rite.step == 1 and day.has_reply("rite_wind") and day.log_text().contains("smoke"), "your wrist, over the fire")
@@ -230,10 +245,11 @@ func _init() -> void:
 	check(rite.step == 2 and day.has_reply("rite_she_ties") and day.has_reply("rite_together"), "then a choice: the knot")
 	check(soc.relationships["edda"]["status"] == Relationships.ENGAGED, "not married yet, all through the rite")
 	day.choose("rite_together")
-	check(rite.step == 3 and day.log_text().contains("Four hands, one knot"), "tied together")
+	check(rite.step == 3 and day.log_text().contains("comes out lopsided") and day.reply_ids() == ["continue"], "tied together")
+	day.choose("continue")
 
 	# ---- the question
-	check(day.log_text().contains("hearth and road") and day.log_text().contains("Write it down before I think of conditions"),
+	check(day.log_text().contains("at the hearth and on the road") and day.log_text().contains(Lines.ANSWER["edda"]),
 		"the question in her people's words, and she answers first")
 	check(day.log_text().contains("under their breath"), "your second says something under their breath first")
 	check(day.find_children("SpeakerFace", "", true, false).size() >= 1, "the host asks it, face beside their name")
@@ -242,7 +258,7 @@ func _init() -> void:
 	check(day.get_node("Stage/Dressing")._hushed, "the place hushes for it")
 	check(soc.relationships["edda"]["status"] == Relationships.ENGAGED and gs.renown == renown0, "still engaged while you're asked")
 	day.choose("breath")
-	check(day.has_reply("i_do") and not day.has_reply("breath") and day.log_text().contains("The words. Any time."),
+	check(day.has_reply("i_do") and not day.has_reply("breath") and day.log_text().contains(Lines.BREATH_SECOND),
 		"a breath: your second mutters, and then only I do is left")
 	day.choose("i_do")
 	check(soc.relationships["edda"]["status"] == Relationships.MARRIED and gs.wedding()["state"] == "feast", "married at I do; the feast begins")
@@ -268,10 +284,10 @@ func _init() -> void:
 	day.choose("feast_toasts")
 	check(day.log_text().contains("%s · your second" % String(c1["first"])) and day.log_text().contains(Feast.SECOND_OPEN[posmod(int(c1["id"]), 2)]),
 		"your second speaks first, unasked, as the one who stood with you")
-	check(day.log_text().contains("through 14 battles"), "and what they know: their fourteen battles")
+	check(day.log_text().contains("into 14 battles"), "and what they have seen: their fourteen battles")
 	check(day.has_reply("drink") and day.has_reply("heckle"), "drink to it, or heckle")
 	day.choose("heckle")
-	check(day.log_text().contains("We'll take it up at drill") and day.log_text().contains("Don't encourage them"), "a heckle gets a comeback, and she laughs")
+	check(day.log_text().contains(Feast.COMEBACKS[Captains.STEADFAST]) and day.log_text().contains(Feast.HER_LAUGH["edda"]), "a heckle gets a comeback, and she laughs")
 	var mourner_key := ""
 	var pair_key := ""
 	for t in toasters:
@@ -285,7 +301,7 @@ func _init() -> void:
 	day.choose("pour")
 	check(day.log_text().contains("sets it at the end of the table"), "a cup poured for the fallen")
 	day.choose("call_" + pair_key)
-	check(day.log_text().contains("We tossed a coin for who'd speak") and day.log_text().contains("And to the captain, who gets much the better of it"),
+	check(day.log_text().contains("We couldn't agree which of us should speak") and day.log_text().contains("So that's two things. To you both."),
 		"the bonded pair toast together, a line each (rank A)")
 	day.choose("drink")
 	check(not day.reply_ids().any(func(id): return String(id).begins_with("call_")) and day.has_reply("toast_absent"),
@@ -297,7 +313,7 @@ func _init() -> void:
 	for m in soc.memory_book(person_e["id"]):
 		if m["kind"] == "ceremony":
 			mem = m
-	check(String(mem.get("vow", "")).begins_with("I'll come home") and String(mem.get("toast", "")).contains("Rowan"), "the memory keeps your vow and toast")
+	check(String(mem.get("vow", "")).begins_with("Wherever the war takes") and String(mem.get("toast", "")).contains("Rowan"), "the memory keeps your vow and toast")
 	check(mem.get("toasts", []).size() == 3 and String(mem.get("rite", "")) == "together" and bool(mem.get("breath", false)) and String(mem.get("second_name", "")) == String(c1["first"]),
 		"and who toasted, the knot, the breath, and who stood with you")
 
@@ -308,7 +324,7 @@ func _init() -> void:
 	day.choose("dance_turn")
 	check(day.has_reply("dance_company") and day.has_reply("dance_ours"), "three steps, each answered")
 	day.choose("dance_company")
-	check(day.log_text().contains("Your sergeant dances like he's fording a river") and day.log_text().contains("reel"), "the company comes in for the round")
+	check(day.log_text().contains("still in column") and day.log_text().contains("reel"), "the company comes in for the round")
 	check(gs.wedding()["feast"]["dance"] == ["lead", "turn", "company"], "the steps are kept")
 
 	# ---- leave in the middle, and come back
@@ -333,16 +349,21 @@ func _init() -> void:
 		"the door toll; your second can arm-wrestle the cook")
 	day.choose("custom_wrestle")
 	check(gs.wedding()["feast"]["custom"] == "wrestle", "the toll paid is kept")
+	check(day.log_text().contains("kisses Edda on the forehead"), "and the cook has the last of it")
 
 	# ---- round the tables
 	day.choose("feast_tables")
-	check(day.find_child("Gifts", true, false) != null and day.log_text().contains("copper kettle") and day.log_text().contains("kept the receipt"),
+	check(day.find_child("Gifts", true, false) != null and day.log_text().contains("copper kettle") and day.log_text().contains("wrote down who gave what"),
 		"the gifts, the company's with the Quartermaster's receipt")
 	var lord_id := "table_lord_%d" % int(friend["id"])
 	check(day.has_reply(lord_id) and day.has_reply("table_host_%d" % int(host["id"])), "every guest by face")
 	check(not day.has_reply("table_captain_%d" % int(c1["id"]), false) and day.has_reply("table_captain_%d" % int(c4["id"])), "captains who toasted aren't asked again")
 	day.choose(lord_id)
 	check(day.has_reply(lord_id, false) and not day.has_reply(lord_id) and day.find_children("SpeakerFace", "", true, false).size() >= 1, "a word from the lord, once")
+	check(day.has_reply("table_kin_cousin") and day.has_reply("table_kin_cook"), "her own people are at the tables too")
+	day.choose("table_kin_cousin")
+	check(day.log_text().contains("I took two") and day.has_reply("table_kin_cousin", false) and not day.has_reply("table_kin_cousin"),
+		"her cousin, who had a speech, has a word once")
 	day.choose("tables_back")
 
 	# ---- slipping away
@@ -381,9 +402,10 @@ func _init() -> void:
 	row.pressed.emit()
 	await _arrive("wedding.tscn")
 	var told: String = current_scene.log_text()
-	check(told.contains("I'll come home") and told.contains("I do.") and told.contains("Four hands") and current_scene.has_reply("finish"),
+	check(told.contains("Wherever the war takes") and told.contains("I do.") and told.contains("lopsided") and current_scene.has_reply("finish"),
 		"Relive tells it again: your vow, the knot, I do")
-	check(told.contains("Rowan had a toast ready") and told.contains("Your sergeant dances") and told.contains("Boots off"),
+	check(told.contains("You held the valley") and told.contains(Lines.VOW_ANSWER["edda"]["promise"]), "what she said of what you did, and her answer to your vow")
+	check(told.contains("Rowan had a toast ready") and told.contains("still in column") and told.contains("I counted myself first"),
 		"the toasts as they were said, the dance, her last words")
 	check(soc.relationships["edda"]["status"] == Relationships.MARRIED, "and changes nothing")
 	# A wedding kept before the day was played by hand is told as it was kept.
@@ -443,18 +465,43 @@ func _init() -> void:
 			await process_frame
 		check(prop.step == steps["steps"].size() + 1, "its prop follows every step")
 		prop.free()
-	check(Lines.ASKED_AGAIN.get(Cultures.KHARZANI, []).size() == 2, "in Qasr Hamra she is asked three times")
+	check(Lines.ASKED_AGAIN.get(Cultures.KHARZANI, []).size() == 2, "among the Kharzani she is asked three times")
+	check(String(Lines.rite_steps(Cultures.KHARZANI).get("after", "")).contains("\"Yes.\""), "and the clause she showed nobody is read out at last")
+
+	# ---- the words: every time you shared has a vow, every vow an answer, every council a word
+	var Stories = load("res://scripts/data/personal_conversations.gd")
+	for scene_id in Stories.SCENES:
+		check(Lines.VOWS.has(scene_id), "a vow from %s" % scene_id)
+	for c in ["edda", "farid", "kaede"]:
+		for v in Lines.yours(c):
+			check(Lines.vow_answer(c, String(v["id"])) != "" and Lines.vow_id(c, String(v["text"])) == String(v["id"]), "%s answers your vow (%s)" % [c, v["id"]])
+		for council in ["negotiate", "support_edda", "repair_promise", ""]:
+			check(Lines.host_word(c, council) != "", "%s's house has a word for the council (%s)" % [c, council])
+		for task in ["fund_muster", "defend_district", "correspondence"]:
+			check(Lines.their_road(c, task) != "", "%s says what you did (%s)" % [c, task])
+		check(Feast.her_people(c).size() == 2, "%s's own people come" % c)
+	var mended: Dictionary = Lines.road([{"kind": "decision", "chapter": 3, "choice": "correspondence"}, {"kind": "decision", "chapter": 4, "choice": "break_promise"},
+		{"kind": "visit", "scene_id": "edda_spare_spoon"}, {"kind": "decision", "chapter": 4, "choice": "repair_promise"}])
+	check(mended["task"] == "correspondence" and mended["council"] == "repair_promise", "the road here: the task you took, and a broken word mended")
+	check(Lines.road([])["council"] == "" and Lines.host_word("edda", "") == Lines.HOST_WORD["edda"][""], "with nothing in the book, the house speaks plainly")
+	# Nobody is bride or groom, and a lord is never he or she.
+	var said := ""
+	for path in ["res://scripts/data/wedding_lines.gd", "res://scripts/data/wedding_feast_lines.gd"]:
+		for line in FileAccess.get_file_as_string(path).split("\n"):
+			if not String(line).strip_edges().begins_with("#"):
+				said += String(line).to_lower() + "\n"
+	check(not said.contains("groom") and not said.contains("bride"), "nobody is called bride or groom")
 
 	# ---- toasts from the record
 	var steady := {"id": 1, "temperament": Captains.STEADFAST, "specialization": Captains.QUARTERMASTER, "culture": Cultures.KHARZANI}
 	var toast := Feast.captain_toast(steady)
-	check(toast.contains("I'll say this plainly") and toast.contains("barrels") and toast.contains("Bread and salt"),
-		"a toast is how they start, what they know, and how their own people raise a cup")
+	check(toast.contains("I'll say what I've seen") and toast.contains("the company's stores") and toast.contains("bread and salt"),
+		"a toast is how they start, what they have seen, and how their own people raise a cup")
 	check(Feast.know({"wounded": 1, "specialization": Captains.SCOUT}) == Feast.WOUNDED, "wounded tonight comes first")
 	check(Feast.know({"battles": 4}).contains("4 battles"), "else their battles")
 	check(Feast.toast_lines({"kind": "hero", "captain": {"is_hero": true, "hero_id": "tariq", "first": "Tariq"}})[0]["text"].contains("waterskin"), "a hero speaks in their own voice")
 	var pair_lines: Array = Feast.toast_lines({"kind": "pair", "rank": "B", "captain": {"first": "Ilse"}, "other": {"first": "Bren"}})
-	check(pair_lines.size() == 5 and pair_lines[1]["who"] == "b" and String(pair_lines[1]["text"]).contains("Ilse"), "a pair takes turns, and names each other")
+	check(pair_lines.size() == 4 and pair_lines[1]["who"] == "b" and String(pair_lines[1]["text"]).contains("Ilse"), "a pair takes turns, and names each other")
 	gs.army = []
 	check(gs.wedding_seconds().is_empty() and gs.wedding_toasters().is_empty(), "with no captains, no one is asked to stand or toast")
 
@@ -502,7 +549,8 @@ func _init() -> void:
 	talk.choose("decide_marry_private")
 	talk.choose("confirm")
 	check(soc.relationships["edda"]["status"] == Relationships.MARRIED and gs.silver == 1000, "private vows: married at once, no cost")
-	check(talk.log_text().contains("one candle") or talk.log_text().contains("A candle"), "by one candle, in her room")
+	check(talk.log_text().contains(Lines.PRIVATE_SCENE), "by one candle, in her room")
+	talk.choose("continue")
 	check(talk.has_reply("vow_honest"), "the same vows to say")
 	talk.choose("vow_honest")
 	check(talk.log_text().contains(Lines.PRIVATE_ASK["edda"]) and talk.has_reply("i_do") and talk.reply_ids().size() == 1, "she asks you herself: I do")

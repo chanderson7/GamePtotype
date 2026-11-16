@@ -49,9 +49,9 @@ const MEN_TEXT := "Ask your house for men."
 const MEN_TAG := "up to %d from the garrison here · their wages are yours"
 const MEN_DONE := "{lord} sends {men} men from the garrison. They'll grumble about your rations for a week, and then they'll be yours."
 const HOLD_TEXT := "Ask your house to hold a place for me."
-const HOLD_TAG := "%s rides there with his men for two days"
-const HOLD_PROMPT := "Where should he hold?"
-const HOLD_DONE := "{lord} will ride for {place} today and hold it two days. He likes being asked. Don't tell him I said so."
+const HOLD_TAG := "%s rides there with the house's men for two days"
+const HOLD_PROMPT := "Where should they hold?"
+const HOLD_DONE := "{lord} will ride for {place} today and hold it two days. They like being asked. Don't say I told you."
 
 ## Coming with you, and going home.
 const JOIN_TEXT := "Come with me for a while."
@@ -116,7 +116,7 @@ const SUPPLY_LOST_NOTE := "Bandits took {name}'s supply train near {at}."
 const TRUCE_GRANTED := "{ruler} received me, after a morning of being kept waiting by people paid to keep envoys waiting. {realm} will let your company pass in peace."
 const TRUCE_REFUSED := "{ruler} would not receive me. {realm} thinks too ill of you just now; I'd let it cool before I try again."
 const TRUCE_NOT_NEEDED := "By the time I arrived, {realm} had already forgiven you. I stayed for supper anyway."
-const WORD_GIVEN := "I spoke well of you to {lord}. He thinks a little better of you now. He also thinks better of me, which was the harder part."
+const WORD_GIVEN := "I spoke well of you to {lord}, who thinks a little better of you now. And better of me, which was the harder part."
 const WORD_MISSED := "{lord} wasn't to be found. I left the letter. I don't know that anyone will read it."
 
 

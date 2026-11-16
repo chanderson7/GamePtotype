@@ -140,6 +140,7 @@ func setup(backdrop: Control, caption: String) -> void:
 ## (PortraitLife): its head and hair move, and it blinks, glances and reacts. Still under
 ## Reduced motion.
 func _process(delta: float) -> void:
+	_chase_end(delta)
 	if _faces.is_empty():
 		return
 	if Style.motion_reduced():
@@ -1338,6 +1339,8 @@ func log_text() -> String:
 
 
 var _glide = null
+## Whether the talk is keeping up with lines still being written (see _chase_end).
+var _chasing := false
 
 
 func _scroll_to_end() -> void:
@@ -1353,6 +1356,23 @@ func _scroll_to_end() -> void:
 		return
 	_glide = create_tween()
 	(_glide as Tween).tween_property(_scroll, "scroll_vertical", end, 0.22).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_chasing = true
+
+
+## A line grows as it's written, so the end measured when it was said isn't the end once
+## it's whole. After a scroll to the end, keep up with the end until the writing is done,
+## so the replies under several new lines are in view and not below the fold.
+func _chase_end(delta: float) -> void:
+	if not _chasing or not is_instance_valid(_scroll):
+		return
+	if _glide is Tween and (_glide as Tween).is_valid() and (_glide as Tween).is_running():
+		return
+	var bar := _scroll.get_v_scroll_bar()
+	var gap := int(bar.max_value - bar.page) - _scroll.scroll_vertical
+	if gap > 0:
+		_scroll.scroll_vertical += maxi(1, int(ceil(float(gap) * minf(1.0, delta * 14.0))))
+	elif not writing():
+		_chasing = false
 
 
 func close() -> void:

@@ -407,3 +407,54 @@ Each is a judgement; say so and it changes.
    becomes a plain gold reply and the hush carries the moment.
 5. **The words are "I do" in all three cultures.** The question changes with her people;
    the answer doesn't.
+
+## The words, rewritten
+
+The day's words were rewritten from the ground up after a read of the first version beside
+the courtship it follows (`romance_stories.gd`, `personal_conversations.gd`, her letters).
+The beats and rules above are unchanged except where noted.
+
+**What was wrong with the first version**
+
+- Every line was a punchline, "I do" included, so nothing in the day landed. The visits
+  earn their plain sentences; the wedding never spent them.
+- Each of them had one trait, repeated: Edda counted, Farah had eleven of something, Kaede
+  wrote it down. "Someone at the back" appeared four times.
+- Nothing recalled what the player did: the valley held, the council, a word broken and
+  mended. Setups in her own letters went unpaid (the clause Farah showed nobody, Edda's
+  cousin's speech, the cook weeping).
+- Some vows contradicted their visits. Kaede's put in the public register a name the
+  visit left hers to tell; Edda's ledger vow missed that a correction stays visible.
+- Captain toasts were three unrelated parts, about the speaker and not about you. The
+  player was "the groom", a host was "he", and there were modern idioms ("kept the
+  receipt", "everyone's a critic").
+
+**What it is now** (the voice notes are at the top of `scripts/data/wedding_lines.gd`)
+
+- *Narration* is second person, present tense, what can be seen and heard; it doesn't joke.
+- *Each of them* is funny once in a beat, and means her vow, her answer and her last words:
+  Edda in one plain sentence she lets stand, Farah in a sentence that gets short, Kaede
+  in a preference stated as a deliberate act.
+- *The road here.* The head of her house speaks first, by what you said in their council
+  (chapter 4: compromise, stood with her, or broke your word and mended it). She then
+  says what you did for her people (chapter 3's task) before her vow. Both come from her
+  memory book (`Lines.road`), and fall back to a plain line when the book no longer says.
+- *Vows.* All eighteen are rewritten to promise what the visit was about. Yours are still
+  three, none wrong, and she now answers in words as well as with her face.
+- *Paid off.* The last clause of Farah's contract is read out ("Yes"); the three askings
+  mean something (her family's, the witnesses', hers); the cook weeps at the fire and has
+  the last of the door toll; the cousin had his speech; Kaede writes your name as though
+  she has practised it; Edda's last words count herself first, and Kaede's lamp may be a
+  symbol tonight.
+- *Toasts* are still an opening, what the captain has seen, and their people's way of
+  raising a cup, but each part is written to follow the last and the middle is about the
+  captain they follow. The ending varies with the order of the toasts, so two captains of
+  one people don't end on the same words.
+- *Her people at the tables.* Two for each of them, each someone her stories told you
+  about (Edda's cousin and the cook, Farah's aunt and the cousin who asked if she was
+  happy, Kaede's teacher and the old ferryman). The host has a word about her, by bearing.
+- *Pacing.* The ceremony is read in shorter beats with *Go on* between (arrival, then her
+  first words; the old words, then her vow, then yours; the rite, then the question), so
+  no choice sits below the fold. The talk view now keeps up with lines as they're written.
+- Nobody is called bride or groom, and a lord is never "he" or "she". Everything said or
+  narrated is in the two line files; only labels (chips, captions, counts) stay in the scenes.

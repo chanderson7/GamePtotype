@@ -19,13 +19,13 @@ var _rite: Rite
 func _ready() -> void:
 	var social = GameState.world.social if GameState.world != null else null
 	if social == null:
-		_nothing("No one is waiting here.")
+		_nothing(Lines.NOTHING["no_one"])
 		return
 	var rejoin := false
 	if Scenes.wedding_replay != "":
 		_memory = _find_memory(social, Scenes.wedding_replay)
 		if _memory.is_empty():
-			_nothing("That memory has faded.")
+			_nothing(Lines.NOTHING["faded"])
 			return
 		cand = String(_memory.get("candidate", ""))
 		place = String(_memory.get("place", ""))
@@ -35,7 +35,7 @@ func _ready() -> void:
 		place = String(GameState.wedding()["place"])
 	else:
 		if not GameState.wedding_can_begin():
-			_nothing("The wedding isn't ready here yet.")
+			_nothing(Lines.NOTHING["not_ready"])
 			return
 		var w: Dictionary = GameState.wedding()
 		cand = String(w["candidate_id"])
@@ -55,6 +55,7 @@ func _ready() -> void:
 	# The ceremony to her people's quiet music; the feast's starts at "I do". Remembered
 	# alone with you, the quiet one.
 	Sound.play_music(("feast_" if rejoin or (not _memory.is_empty() and not alone) else "camp_") + culture)
+	_road = Lines.road(social.memory_book(person_id))
 	if not _memory.is_empty():
 		_tell_again()
 		return
@@ -98,11 +99,17 @@ func _arrive() -> void:
 	var hers := String(GameState.world.social.get_candidate_person(cand).get("residence", ""))
 	var kind := "hers" if place == hers else ("yours" if place == GameState.wedding_seat() else "other")
 	say("narration", _fill(Lines.ARRIVAL[kind]))
+	say("narration", _fill(String(Lines.ARRIVAL_SET.get(culture, Lines.ARRIVAL_SET[Cultures.VARDISH]))))
 	add_to_log(_guest_card())
+	wait_to_continue(_greet, Lines.GO_ON)
+
+
+## Her first words to you, and the day waits on yours.
+func _greet() -> void:
 	say("them", Lines.STAND.get(cand, Lines.STAND["edda"]), _name)
 	set_replies([
-		{"id": "begin", "text": "Take your place beside %s." % _name, "bare": true, "tone": "gold", "tag": "the wedding begins", "act": _seconds},
-		{"id": "later", "text": "Not yet", "tone": "quiet", "tag": "it waits while you're in %s" % _place_name(), "act": close}])
+		{"id": "begin", "text": _fill(Lines.BEGIN), "bare": true, "tone": "gold", "tag": Lines.BEGIN_TAG, "act": _seconds},
+		{"id": "later", "text": Lines.NOT_YET, "tone": "quiet", "tag": _fill(Lines.NOT_YET_TAG), "act": close}])
 
 
 ## Who came: their faces in a row, then who stayed away and who sent a gift.
@@ -144,7 +151,7 @@ func _guest_card() -> Control:
 	if String(_guests.get("gift_from", "")) != "":
 		bits.append("%s sent %s instead." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
 	for a in _guests["absent"]:
-		bits.append("%s stayed away: %s." % [a["name"], a["reason"]])
+		bits.append(Feast.STAYED_AWAY % [a["name"], a["reason"]])
 	if not bits.is_empty():
 		var l := Style.label(" ".join(bits), Style.SMALL, Style.MUTED)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -202,12 +209,27 @@ func _vows() -> void:
 	clear_log()
 	if not _second.is_empty():
 		say("narration", _fill(String(Lines.SECOND_STANDS.get(String(_second.get("why", "")), Lines.SECOND_STANDS["longest"]))))
+	# The head of her house on how you come to be standing here, then the old words.
 	if _host.is_empty():
 		say("narration", _fill(Lines.OFFICIANT))
 	else:
-		say("narration", "%s reads the old words. Then stops, looks at %s, and everyone goes quiet." % [_host_name(), _name])
+		_say_with_face(Lines.host_word(cand, String(_road.get("council", ""))), Lines.HOST_ROLE % _host_name(), _host["face"])
+		say("narration", _fill(Lines.OLD_WORDS))
+	wait_to_continue(_vow_hers, Lines.GO_ON)
+
+
+## What you did for her people, in a line of hers; then her vow.
+func _vow_hers() -> void:
+	var did := Lines.their_road(cand, String(_road.get("task", "")))
+	if did != "":
+		say("them", did, _name)
 	_their_vow(String(_their.get("text", "")), String(_their.get("scene_id", "")), int(_their.get("day", 0)))
-	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
+	wait_to_continue(_vow_yours, Lines.GO_ON)
+
+
+## Then yours: one of three.
+func _vow_yours() -> void:
+	add_to_log(note(Lines.VOW_PROMPT, Style.MUTED))
 	var replies := []
 	for v in Lines.yours(cand):
 		replies.append({"id": "vow_" + String(v["id"]), "text": String(v["text"]), "tag": String(v["tag"]), "act": _said_vow.bind(String(v["id"]), String(v["text"]))})
@@ -226,14 +248,14 @@ func _their_vow(text: String, scene_id: String, day: int) -> void:
 	var i := Widgets.icon_rect("cup", 26)
 	i.modulate = Style.ROMANCE_LIGHT
 	h.add_child(i)
-	h.add_child(Style.label("She remembers: %s" % String(Stories.SCENES[scene_id]["title"]).to_lower(), Style.SMALL, Style.ROMANCE_LIGHT))
+	h.add_child(Style.label(Lines.REMEMBERS % String(Stories.SCENES[scene_id]["title"]).to_lower(), Style.SMALL, Style.ROMANCE_LIGHT))
 	if day > 0:
 		h.add_child(Widgets.icon_value("day", str(day), Style.ROMANCE_LIGHT))
 	v.add_child(h)
 
 
-## Your vow, and her face answering it: warm to a promise, a held beat then warm to
-## honesty, a laugh to the one meant to make her laugh.
+## Your vow, and her answer: her face first (warm to a promise, a held beat then warm to
+## honesty, a laugh to the one meant to make her laugh), then a word of her own.
 func _said_vow(id: String, text: String) -> void:
 	_vow = text
 	say("you", text)
@@ -246,6 +268,9 @@ func _said_vow(id: String, text: String) -> void:
 			var t := create_tween()
 			t.tween_interval(1.1)
 			t.tween_callback(express.bind("center", _portrait("warm"), "warm"))
+	var answer := Lines.vow_answer(cand, id)
+	if answer != "":
+		say("them", answer, _name)
 	_rite_begin()
 
 
@@ -295,47 +320,62 @@ func _chose_rite(ch: Dictionary) -> void:
 		say("you", _fill(String(ch["text"])))
 	_rite.advance()
 	say("narration", _fill(String(ch["line"])))
-	_question()
+	if String(_rite_steps.get("after", "")) != "":
+		say("narration", _fill(String(_rite_steps["after"])))
+	wait_to_continue(_question, Lines.GO_ON)
 
 
 # ---------------------------------------------------------------- the question
 
-## The place goes quiet. The host (or the old priest) asks her in her people's words, and
+## The place goes quiet. The host (or the elder) asks her in her people's words, and
 ## she answers first; then you're asked. "I do" is held (a tap says it too); "Take a
 ## breath" once first, if you like. There is no other answer.
 func _question() -> void:
-	_set_chips("The question")
+	_set_chips(Lines.QUESTION_CHIP)
 	var d := _dressing()
 	if d != null:
 		d.hush(true)
 	Sound.hush_music(true)
 	if not _second.is_empty():
-		say("other", String(Lines.SECOND_WHISPER[posmod(int(_second["id"]), Lines.SECOND_WHISPER.size())]), "%s · under their breath" % _second_name())
+		say("other", Lines.whisper(_second.get("captain", {})), Lines.UNDER_BREATH % _second_name())
 	var q := Lines.question(culture)
 	if _host.is_empty():
-		say("narration", _fill(Lines.PRIEST_ASKS))
+		say("narration", _fill(Lines.ELDER_ASKS))
 	_ask(String(q["her"]))
-	for line in Lines.ASKED_AGAIN.get(culture, []):
-		say("narration", _fill(String(line)))
+	# Where her people ask more than once, the askings she lets pass are a beat of their own.
+	var again: Array = Lines.ASKED_AGAIN.get(culture, [])
+	if again.is_empty():
+		_she_answers()
+		return
+	for i in again.size():
+		say("narration", _fill(String(again[i])))
+		if i < again.size() - 1:
+			_ask(String(q["her"]))
+	wait_to_continue(func():
 		_ask(String(q["her"]))
+		_she_answers(), Lines.GO_ON)
+
+
+## She answers first; then you're asked.
+func _she_answers() -> void:
 	say("them", String(Lines.ANSWER.get(cand, Lines.ANSWER["edda"])), _name)
 	express("center", _portrait("warm"), "warm")
-	_ask(String(q["you"]))
+	_ask(String(Lines.question(culture)["you"]))
 	_answer_replies(true)
 
 
-## The question, asked by the host (face beside the name) or the priest (in the old words).
+## The question, asked by the host (face beside the name) or the elder (in her people's words).
 func _ask(text: String) -> void:
 	if _host.is_empty():
 		say("narration", "\"%s\"" % _fill(text))
 	else:
-		_say_with_face(_fill(text), "%s · host" % _host_name(), _host["face"])
+		_say_with_face(_fill(text), Lines.HOST_ROLE % _host_name(), _host["face"])
 
 
 func _answer_replies(breath_too: bool) -> void:
-	var replies := [{"id": "i_do", "text": "I do.", "tone": "gold", "bare": true, "hold": true, "tag": "hold it, or just say it", "act": _i_do}]
+	var replies := [{"id": "i_do", "text": Lines.I_DO, "tone": "gold", "bare": true, "hold": true, "tag": Lines.I_DO_TAG, "act": _i_do}]
 	if breath_too:
-		replies.append({"id": "breath", "text": "Take a breath.", "tone": "quiet", "act": _take_breath})
+		replies.append({"id": "breath", "text": Lines.BREATHE, "tone": "quiet", "act": _take_breath})
 	set_replies(replies)
 
 
@@ -354,12 +394,12 @@ func _take_breath() -> void:
 ## "I do": married, there and then. The hall erupts, "Married" lands across the stage, the
 ## seal is made, and the feast begins.
 func _i_do() -> void:
-	say("you", "I do.")
+	say("you", Lines.I_DO)
 	var r: Dictionary = GameState.finish_wedding({"vow": _vow, "their_vow": String(_their.get("text", "")),
 		"second": int(_second.get("id", -1)), "rite": _rite_choice, "breath": _breath})
 	if not bool(r.get("ok", false)):
 		add_to_log(note(String(r.get("reason", "Something went wrong.")), Style.MORALE_LOW))
-		set_replies([{"id": "leave", "text": "Back to the map", "tone": "quiet", "act": close}])
+		set_replies([{"id": "leave", "text": Feast.BACK_TO_MAP, "tone": "quiet", "act": close}])
 		return
 	Sound.play("bell", 0.0, 0.0)
 	Sound.play("cheer_1", -4.0, 0.0)
@@ -379,7 +419,7 @@ func _i_do() -> void:
 ## "Married", in brass across the stage, said once: it lands, holds, and fades. Under
 ## Reduced motion it stays until the feast moves on.
 func _land_married() -> void:
-	var l := Style.label("Married", Style.TITLE_SIZE + 12, Style.BRASS)
+	var l := Style.label(Lines.MARRIED, Style.TITLE_SIZE + 12, Style.BRASS)
 	l.name = "MarriedTitle"
 	var font := Style.display_font()
 	if font != null:
@@ -425,34 +465,41 @@ func _rite_away() -> void:
 
 # ---------------------------------------------------------------- remembered
 
-## The day told again, in order, as it was: who stood with you, both vows, the rite and
-## your choice in it, the question and both answers, the toasts as they were said, your
-## toast, the dance, the custom, her last words. A wedding kept before the day was played
-## this way is told as it was kept.
+## The day told again, in order, as it was: who stood with you, what she said of what you
+## did, both vows and her answer, the rite and your choice in it, the question and both
+## answers, the toasts as they were said, your toast, the dance, the custom, her last
+## words. A wedding kept before the day was played this way is told as it was kept.
 func _tell_again() -> void:
-	_set_chips("Remembered")
+	_set_chips(Lines.TOLD["chip"])
 	clear_log()
 	var m := _memory
 	var alone := bool(m.get("private", false))
+	var played := bool(m.get("i_do", false))
+	var second_name := String(m.get("second_name", ""))
+	var vow_id := Lines.vow_id(cand, String(m.get("vow", "")))
 	if alone:
-		say("narration", "No guests, no banners. A candle, the door shut, the household asleep below.")
+		say("narration", Lines.PRIVATE_SCENE)
 		say("them", _fill(Lines.PRIVATE.get(cand, "")), _name)
 	else:
-		say("narration", "Your wedding at %s, day %d." % [_place_name(), int(m.get("day", 1))])
+		say("narration", Lines.TOLD["day"] % [_place_name(), int(m.get("day", 1))])
 		var guests: Array = m.get("guests", [])
 		if not guests.is_empty():
-			say("narration", "Who came: %s." % ", ".join(PackedStringArray(guests)))
-		if String(m.get("second_name", "")) != "":
-			say("narration", "%s stood with you." % String(m["second_name"]))
+			say("narration", Lines.TOLD["guests"] % ", ".join(PackedStringArray(guests)))
+		if second_name != "":
+			say("narration", Lines.TOLD["second"] % second_name)
+		var did := Lines.their_road(cand, String(_road.get("task", "")))
+		if played and did != "":
+			say("them", did, _name)
 	if String(m.get("their_vow", "")) != "":
 		say("them", String(m["their_vow"]), _name)
 	if String(m.get("vow", "")) != "":
 		say("you", String(m["vow"]))
-	var played := bool(m.get("i_do", false))
+		if played and Lines.vow_answer(cand, vow_id) != "":
+			say("them", Lines.vow_answer(cand, vow_id), _name)
 	if alone:
 		if played:
 			say("them", String(Lines.PRIVATE_ASK.get(cand, "")), _name)
-			say("you", "I do.")
+			say("you", Lines.I_DO)
 			say("them", String(Lines.PRIVATE_ANSWER.get(cand, "")), _name)
 	elif played:
 		var steps := Lines.rite_steps(culture)
@@ -460,10 +507,12 @@ func _tell_again() -> void:
 		var ch := Lines.rite_choice(culture, String(m.get("rite", "")))
 		if not ch.is_empty():
 			say("narration", _fill(String(ch["line"])))
+		if String(steps.get("after", "")) != "":
+			say("narration", _fill(String(steps["after"])))
 		say("them", String(Lines.ANSWER.get(cand, "")), _name)
 		if bool(m.get("breath", false)):
-			say("narration", "You took a breath first. %s" % String(Lines.BREATH_HER.get(cand, "")))
-		say("you", "I do.")
+			say("narration", Lines.TOLD["breath"] % String(Lines.BREATH_HER.get(cand, "")))
+		say("you", Lines.I_DO)
 		say("narration", _fill(String(Lines.SEAL.get(culture, ""))))
 		for t in m.get("toasts", []):
 			for line in t.get("lines", []):
@@ -476,13 +525,13 @@ func _tell_again() -> void:
 	for id in m.get("dance", []):
 		say("them", String(Feast.DANCE_ANSWERS.get(cand, {}).get(String(id), "")), _name)
 	if String(m.get("custom", "")) != "":
-		var c := Feast.custom_choice(culture, String(m["custom"]), String(m.get("second_name", "")) != "")
+		var c := Feast.custom_choice(culture, String(m["custom"]), second_name != "")
 		if not c.is_empty():
-			say("narration", Feast.fill(Lines.fill(String(c["line"]), {"name": _name}), {"second": String(m.get("second_name", ""))}))
+			say("narration", Feast.fill(Lines.fill(String(c["line"]), {"name": _name}), {"second": second_name}))
 	if String(m.get("last", "")) != "":
 		say("them", String(Feast.LAST_ANSWER.get(cand, {}).get(String(m["last"]), "")), _name)
 	add_to_log(keepsake(String(m.get("text", "")), "rings"))
-	set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": close}])
+	set_replies([{"id": "finish", "text": Lines.TOLD["close"], "tone": "quiet", "act": close}])
 
 
 func _on_close() -> void:

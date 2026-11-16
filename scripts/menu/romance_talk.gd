@@ -1080,27 +1080,35 @@ func _private_vows() -> void:
 	if _backdrop is TextureRect:
 		(_backdrop as TextureRect).modulate = Color(0.5, 0.54, 0.78)
 	var house: Dictionary = _house()
-	var host := String(GameState.world.social.get_person(String(house.get("head_person_id", ""))).get("name", "The head of the house"))
-	say("narration", "No guests, no banners. A candle, the door shut, the household asleep below.")
+	var host := String(GameState.world.social.get_person(String(house.get("head_person_id", ""))).get("name", "the head of the house"))
+	say("narration", WeddingLines.PRIVATE_SCENE)
 	say("them", WeddingLines.fill(WeddingLines.PRIVATE.get(cand, ""), {"host": host}), _name)
 	var their: Dictionary = WeddingLines.their_vow(cand, _social().memory_book(person_id))
 	say("them", String(their["text"]), _name)
-	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
+	wait_to_continue(_private_vow_yours.bind(their, house), WeddingLines.GO_ON)
+
+
+## Your vow by one candle: the same three as before her house.
+func _private_vow_yours(their: Dictionary, house: Dictionary) -> void:
+	add_to_log(note(WeddingLines.VOW_PROMPT, Style.MUTED))
 	var replies := []
 	for v in WeddingLines.yours(cand):
 		var said := String(v["text"])
+		var answer := WeddingLines.vow_answer(cand, String(v["id"]))
 		replies.append({"id": "vow_" + String(v["id"]), "text": said, "tag": String(v["tag"]), "act": func():
 			say("you", said)
+			if answer != "":
+				say("them", answer, _name)
 			GameState.record_private_vows(cand, said, String(their["text"]))
 			# No one to ask it, so she asks you herself; the same held "I do" as at a wedding.
 			say("them", String(WeddingLines.PRIVATE_ASK.get(cand, "Do you?")), _name)
-			set_replies([{"id": "i_do", "text": "I do.", "tone": "gold", "bare": true, "hold": true, "tag": "hold it, or just say it",
+			set_replies([{"id": "i_do", "text": WeddingLines.I_DO, "tone": "gold", "bare": true, "hold": true, "tag": WeddingLines.I_DO_TAG,
 				"act": _private_i_do.bind(said, String(their["text"]), house)}])})
 	set_replies(replies)
 
 
 func _private_i_do(said: String, their_vow: String, house: Dictionary) -> void:
-	say("you", "I do.")
+	say("you", WeddingLines.I_DO)
 	_face("warm")
 	say("them", String(WeddingLines.PRIVATE_ANSWER.get(cand, "")), _name)
 	GameState.record_private_vows(cand, said, their_vow, true)

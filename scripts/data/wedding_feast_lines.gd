@@ -1,9 +1,11 @@
 ## What is said at the feast after "I do": how the night sets in, the captains' toasts
 ## (put together from each captain's own record, so no two companies hear the same
-## speeches), the first dance, her people's custom, going round the tables, and slipping
-## away. Words only; the rules are in GameState and the social sim. {name} is the one you
-## married, {first} the captain speaking, {other} a second captain, {fallen} a friend who
-## fell, {second} who stood with you.
+## speeches), the first dance, her people's custom, going round the tables (lords, her
+## own people, your captains), and slipping away. Words only; the rules are in GameState
+## and the social sim. {name} is the one you married, {first} the captain speaking,
+## {other} a second captain, {fallen} a friend who fell, {second} who stood with you.
+## Written to the voices set out at the top of wedding_lines.gd; captains speak as
+## soldiers do at the fire (camp_moments.gd): short, plain, about what they've seen.
 extends RefCounted
 
 const Cultures = preload("res://scripts/data/cultures.gd")
@@ -12,18 +14,21 @@ const Lords = preload("res://scripts/data/lords.gd")
 
 ## How the feast sets in, by her people.
 const OPEN := {
-	Cultures.VARDISH: "The benches are dragged back, the second fire is lit, and somebody has found a fiddle. The hall settles in for a long night.",
-	Cultures.KHARZANI: "Lanterns go up along the courtyard walls, the sweets come out on brass trays, and the drummers start before anyone asks them to.",
-	Cultures.RYUMON: "The terrace is hung with paper lanterns. At the far table someone has started a verse-game, and is losing it loudly.",
+	Cultures.VARDISH: "The benches are dragged back, a second fire is lit, and a fiddle starts up before anyone has asked for one.",
+	Cultures.KHARZANI: "The low table is carried out and long ones carried in. The drummers begin. The sweets come out on brass trays and wait under their cloths.",
+	Cultures.RYUMON: "Paper lanterns are lit all along the rail. At the far table a verse-game has started, and somebody is losing it.",
 }
+## Come back to after leaving it.
+const REJOIN := "The feast is still going. Your places have been kept, and so has most of a pie."
+const CHIP := "The feast"
 ## The night moving on, under the plate: one more for each thing done.
-const NIGHT := ["the night is young", "the second cask is open", "the musicians take requests",
-	"someone's under a table", "the lanterns burn low"]
+const NIGHT := ["early yet", "the second cask is open", "the benches are pushed back",
+	"the fire is banked", "the lanterns burn low"]
 const PROMPT := "The night is yours"
 
 ## What the night holds, as replies.
 const THINGS := {
-	"toasts": {"text": "Call for the toasts.", "tag": "your captains have been rehearsing", "icon": "cup"},
+	"toasts": {"text": "Call for the toasts.", "tag": "your captains have something to say", "icon": "cup"},
 	"dance": {"text": "Ask {name} to dance.", "tag": "the first dance", "icon": "dance"},
 	"tables": {"text": "Go round the tables.", "icon": "men"},
 	"slip": {"text": "Slip away with {name}.", "tag": "ends the night"},
@@ -32,9 +37,9 @@ const THINGS := {
 const TOASTS_NO_CAPTAINS := "a few words, and your cup"
 ## Her people's custom, as its reply.
 const CUSTOM_THING := {
-	Cultures.VARDISH: {"text": "Pay the door toll.", "tag": "the door toll"},
-	Cultures.KHARZANI: {"text": "Cap the elder's verse.", "tag": "the couplet"},
-	Cultures.RYUMON: {"text": "Write a wish on a lantern.", "tag": "lantern wishes"},
+	Cultures.VARDISH: {"text": "Pay the door toll.", "tag": "her household's custom"},
+	Cultures.KHARZANI: {"text": "Cap the elder's verse.", "tag": "before the sweets are served"},
+	Cultures.RYUMON: {"text": "Write a wish on a lantern.", "tag": "one each, over the rail"},
 }
 ## A thing done stays in the list, ticked, with what it was.
 const DONE := {"toasts": "the toasts are made", "dance": "you danced", "custom": "done", "tables": "you went round"}
@@ -44,89 +49,105 @@ const ICONS := {"toasts": "cup", "dance": "dance", "custom": "lantern", "tables"
 
 # ---------------------------------------------------------------- the toasts
 
+## You call for them.
+const TOAST_CALL := "Fill your cups. I'm told there are speeches."
+const TOAST_CALL_ALONE := "Fill your cups."
 const CALL := "Who'll speak?"
 const CALL_NEXT := "Who'll speak next?"
 const ENOUGH := "That's enough speeches."
+const SPEAKER := {"second": "%s · your second", "captain": "%s · captain"}
 
-## How a captain starts: as your second, or by temperament (two each, by captain id).
+## A captain's toast is three things said one after another, written to follow on: how
+## they get to their feet (as your second, or by temperament: two each, by captain id),
+## what they have seen of you (the first of `know` that applies), and how they raise the
+## cup to her (the way their own people do).
 const SECOND_OPEN := [
-	"The captain asked me to stand with them today. I said yes before they'd finished asking.",
-	"I was asked to stand up there, so I'm standing up here as well. Briefly.",
+	"The captain asked me to stand up there today. I'd have stood there unasked.",
+	"I stood beside the captain this afternoon and nobody shot at either of us. That was new.",
 ]
 const OPENERS := {
-	Captains.VENGEFUL: ["Anyone who wrongs these two answers to me. I mean that kindly.",
-		"I've a short temper and a short speech. Here's the speech."],
-	Captains.STEADFAST: ["I'm not one for speeches, so I'll say what I know.",
-		"I'll say this plainly, because it's the only way I know how."],
-	Captains.FRAGILE: ["I wrote this down, and now I can't read my own hand. All right. All right.",
-		"Don't all look at me like that. I'll get through it."],
-	"": ["I'll keep it short.", "Right. Cups up. I'll be quick."],
+	Captains.VENGEFUL: ["I'm bad at speeches and worse at weddings. Listen anyway.",
+		"I've a short temper and a shorter speech."],
+	Captains.STEADFAST: ["I'll say this plainly. It's the only way I know.",
+		"I'm not one for speeches. I'll say what I've seen."],
+	Captains.FRAGILE: ["I wrote this down, and now I can't read it. So I'll just say it.",
+		"Give me a moment. All right."],
+	"": ["I'll be short.", "Cups up. I'll be quick."],
 }
-## What they know: the first that applies.
-const WOUNDED := "I've one good arm tonight and it's holding a cup, so nobody start anything."
+## What they have seen of you: the first that applies.
+const WOUNDED := "I was told to stay in my blankets with this. I've followed the captain to worse places than a feast, and in worse shape."
 const SPECIALIZATION := {
-	Captains.SCOUT: "I rode ahead this morning to look the place over. No ambush. Only cake.",
-	Captains.QUARTERMASTER: "I counted the barrels this morning. There are enough. I counted again, in case.",
-	Captains.DRILLMASTER: "I've drilled this company to stand in a line and not flinch. Today I watched the captain do it.",
-	Captains.CHAMPION: "I've stood in front of the captain in every fight we've had. Tonight I'm glad to stand behind.",
+	Captains.SCOUT: "I ride ahead of this company and tell the captain what's over the next hill. I never saw this coming. I'm glad I was wrong.",
+	Captains.QUARTERMASTER: "I keep the company's stores. I know what the captain goes without so the rest of us don't. So tonight the captain eats first.",
+	Captains.DRILLMASTER: "I teach this company to hold a line. I can teach anyone that. What it's held for, they learn from the captain.",
+	Captains.CHAMPION: "I go in first. That's my place. The captain's is to go back for whoever's last, and I've never once seen it left empty.",
 }
 const QUIRK := {
-	Captains.LUCKY: "They call me lucky. Tonight I'd say the captain's luckier.",
-	Captains.MENTOR: "I've taught half this company everything it knows. Nobody taught the captain this. Must come natural.",
-	Captains.BOLD: "I've charged worse odds than a wedding. Not many.",
+	Captains.LUCKY: "They call me lucky. I've walked out of fights I'd no right to. I used to think that was me. It's who I follow.",
+	Captains.MENTOR: "The young ones ask me what makes a captain worth following. I've stopped explaining. I point.",
+	Captains.BOLD: "I've never been afraid of a charge. I was afraid for the captain today, standing up there. I needn't have been.",
 }
-const BATTLES_MANY := "I've stood with the captain through %d battles, and this is the only day I'd do again tomorrow."
-const BATTLES_SOME := "I've had %d battles with this company, and tonight beats every one of them."
-const BATTLES_FEW := "I've not been with the company long, but I know a good thing when it's standing in front of me."
-## How they raise it, the way it's done among their own people.
+const BATTLES_MANY := "I've followed the captain into %d battles and walked out of every one. I don't put that down to my own skill."
+const BATTLES_SOME := "I've had %d battles with this company. Not many. Enough to know who I'd follow into the next."
+const BATTLES_FEW := "I've not been with the company long. Long enough to see how the captain looks at the wounded, and tonight at {name}."
+## How they raise it, the way it's done among their own people: three each, taken in the
+## order the toasts are given, so two captains of one people don't end on the same words.
 const CLOSERS := {
-	Cultures.VARDISH: "To {name} and the captain. Drink!",
-	Cultures.KHARZANI: "Bread and salt to your house, and a long road together. To {name}!",
-	Cultures.RYUMON: "May the register never run short of pages. To {name}, and the captain.",
+	Cultures.VARDISH: ["{name}: you've got the best of us. Hearth and road. Drink!",
+		"{name}: keep the fire in, and we'll keep bringing the captain back to it. Drink!",
+		"To {name} and the captain. Hearth and road!"],
+	Cultures.KHARZANI: ["{name}: bread and salt to your house, and a long road shared. Drink!",
+		"{name}: may your door stand open and your wells stay sweet. To you both.",
+		"To {name} and the captain. Bread, salt, and the road home."],
+	Cultures.RYUMON: ["{name}: may the page stay open and the cups stay full. To you both.",
+		"{name}: I wish you a long record, and an uneventful one. To you both.",
+		"To {name} and the captain. Three cups, and many after."],
 }
 ## A hero companion speaks in their own voice (by hero id).
 const HERO_TOASTS := {
-	"katherine": "I was cast out once for holding a gate against orders. Tonight I'd hold this door against the whole world for these two, and nobody would need to order it. To {name} and the captain!",
-	"tariq": "In the sands we say a marriage is two riders sharing one waterskin. So drink slowly, both of you, and ride far. To {name}!",
-	"mori": "My lord left no heir, and I have served no house since. Tonight I raise my cup to one. To {name}, and the captain.",
+	"katherine": "I was cast out of a house for holding a gate against orders. I have belonged to none since, and did not look to. Then I watched these two today. {name}, captain: whatever door you are behind, I will hold it. Drink.",
+	"tariq": "The sands have no master, and neither do I. But in the dunes two riders who share one waterskin are kin, whatever their names. So drink slowly, both of you, and ride far. To {name}!",
+	"mori": "My lord died at sea and left no heir. I have served no house since. Tonight I am permitted to drink to one. To {name}, and to the captain.",
 }
 ## A bonded pair toasts together, a line each in turn (the first captain first). By bond
 ## rank: "A", or any other.
 const PAIR_TOASTS := {
-	"A": ["We tossed a coin for who'd speak.", "I lost.", "So we're both doing it.",
-		"To {name}, who gets the captain.", "And to the captain, who gets much the better of it."],
-	"": ["We weren't going to say anything.", "Then {first} said we should.", "I said nothing of the sort.",
-		"You said it twice.", "To {name} and the captain!"],
+	"A": ["We couldn't agree which of us should speak.", "We can't agree on much.", "We agree on the captain.",
+		"And we've both seen how the captain looks at {name}.", "So that's two things. To you both."],
+	"": ["We weren't going to say anything.", "{first} said we ought to.", "I said one of us ought to.",
+		"To {name} and the captain. There. That's both of us."],
 }
-const NEWEST := "I've only just joined the company, and I'm already at a wedding. Is it always like this?"
-const MOURNER := "{fallen} had a toast ready for tonight. Never told me what it was. So: to {fallen}'s toast, whatever it was. And to you both."
+const NEWEST := "I joined this company a few weeks back, for the pay. Nobody said there'd be a wedding. If this is what I've joined, I'm staying."
+const MOURNER := "{fallen} had a toast ready for tonight and wouldn't tell me what it was. Said I'd hear it with everyone else. So drink to that one, the one we didn't hear. And to you both."
 
 ## After a toast: drink, heckle, or (after a mourner's) pour one for the fallen.
 const DRINK := "Drink to that."
-const DRANK := ["Cups go up all down the table.", "The table drinks, and bangs its cups down.", "Everyone drinks. Someone drinks twice."]
+const DRANK := ["Cups go up the whole length of the table.", "The table drinks, and the cups come down together.",
+	"Everyone drinks. Somebody starts a song and is hushed."]
 const HECKLE := "Heckle {first}."
-const HECKLES := ["Louder, {first}! The back can't hear you.", "Is that the whole speech, {first}?", "Sit down before you cry, {first}."]
+const HECKLES := ["Louder, {first}. The far tables are missing it.", "{first}, that's more than you said all last season.",
+	"Sit down, {first}, before you start on a second verse."]
 const COMEBACKS := {
-	Captains.VENGEFUL: "Say that again, captain. Outside. Tomorrow. After the cake.",
-	Captains.STEADFAST: "Noted, captain. We'll take it up at drill.",
-	Captains.FRAGILE: "I knew I should have written it smaller.",
-	"": "Everyone's a critic.",
+	Captains.VENGEFUL: "I'll remember that, captain. I've a long memory, and it's a short night.",
+	Captains.STEADFAST: "Noted, captain. I'll take it up with you at drill.",
+	Captains.FRAGILE: "I knew it. I knew I should have let someone else go first.",
+	"": "And that's the thanks I get.",
 }
 const HER_LAUGH := {
-	"edda": "Don't encourage them.",
-	"farid": "In Qasr Hamra heckling is a sign of affection. Barely.",
-	"kaede": "I'm writing that down.",
+	"edda": "Don't. They'll expect it at every supper.",
+	"farid": "Among my people that passes for affection. I see it does among yours.",
+	"kaede": "I am not writing that down. I would like it noted that I was tempted.",
 }
 const POUR := "Pour one for {fallen}."
-const POURED := "{first} fills a cup and sets it at the end of the table. Nobody touches it all night."
+const POURED := "{first} fills a cup and sets it at the end of the table. It stays there, full, for the rest of the night."
 
 # ---------------------------------------------------------------- the first dance
 
 const DANCE_ASK := "Dance with me."
 const DANCE_YES := {
-	"edda": "I warn you, I learned from my cousin, and he learned from a goat.",
-	"farid": "There are eleven forms for this dance. I propose we ignore all of them.",
-	"kaede": "I've read about this. Extensively. Reading turns out not to be the same thing.",
+	"edda": "I should warn you that I learned in a kitchen, between the table and the door. Mind the benches.",
+	"farid": "There is a form for this. There are several. I would like to do none of them correctly.",
+	"kaede": "I have read the steps. I am aware that is not the same as knowing them. Please be patient with the difference.",
 }
 ## Three steps, each a pair of choices.
 const DANCE_STEPS := [
@@ -137,145 +158,183 @@ const DANCE_STEPS := [
 ## What she says to each.
 const DANCE_ANSWERS := {
 	"edda": {
-		"lead": "You lead the way you ride: straight at it. I like that. Mind the bench.",
-		"follow": "Oh, good. I've been wanting to steer you for months.",
-		"turn": "Show-off. Again.",
-		"simple": "Simple's good. Simple is how I'd like the rest of it, mostly.",
-		"company": "There they go. Your sergeant dances like he's fording a river.",
-		"ours": "Just us, then. They can wait one song.",
+		"lead": "You lead the way you march: straight on, and trust the ground. All right. I'll trust it too.",
+		"follow": "I'm to steer? Then we're going round the fire twice, and past my cousin, so he sees.",
+		"turn": "Nobody has spun me since I was nine. Do it again, before I remember I'm the steward.",
+		"simple": "Good. I can't count steps and look at you both. I'd rather look.",
+		"company": "Here they come. Your whole company dances as if it were still in column.",
+		"ours": "Let them wait one song. I've waited on everyone in this hall. They can manage it once.",
 	},
 	"farid": {
-		"lead": "Confidently wrong. It's the best way to lead anything; ask any envoy.",
-		"follow": "You trust me with the steps. That's a larger concession than you know.",
-		"turn": "Ah. You've been practising. Don't deny it; your sergeant told me.",
-		"simple": "Simple. Yes. I've had enough of the elaborate for one lifetime.",
-		"company": "Look at them. Not one of them knows the form. It's perfect.",
-		"ours": "One song that belongs to no treaty. Thank you.",
+		"lead": "You are leading with great confidence and no knowledge. I have built treaties on less. Go on.",
+		"follow": "You would let me, in front of my aunts? Then turn left. They will talk of nothing else for a year.",
+		"turn": "You practised that. No, do not deny it. I am touched, and I am going to tell everyone.",
+		"simple": "Yes. Simply. I have had enough of doing elaborate things well.",
+		"company": "Look at them. Not one of them knows the form. It is the best circle I have ever stood in.",
+		"ours": "One song that is nobody's business but ours. I did not know to ask for that. Thank you.",
 	},
 	"kaede": {
-		"lead": "Left. No, your other left. No, that's fine, we'll make it the right way.",
-		"follow": "I'll count. Out loud, I'm afraid. It's the only way I can.",
-		"turn": "I didn't know you could do that. I'm amending several records.",
-		"simple": "Good. I'd like to remember this one step by step.",
-		"company": "Now it's a mess. A good one. Like the useless map.",
-		"ours": "Just this one. I'll remember all of it.",
+		"lead": "Left. Your other left. No, keep going. I would rather follow you wrong than stop.",
+		"follow": "Then I shall count aloud. It is the only way I know. One. Two. You may smile; I can see that you want to.",
+		"turn": "I did not know that was permitted. Do it again, please. I wish to be sure of what happened.",
+		"simple": "Good. I would like to remember this one step at a time.",
+		"company": "It is a mess now. I find I like it. That is two preferences in one day.",
+		"ours": "Only us, for this one. I would like there to be one thing tonight that has no witnesses.",
 	},
 }
 
 # ---------------------------------------------------------------- her people's custom
 
-## {intro: [narration], prompt, choices: [{id, text, tag, bare, line, needs}]}. A choice that
-## `needs` "second" is offered only with someone beside you; its "alone" variant otherwise.
+## {intro: [narration], prompt, choices: [{id, text, tag, bare, line, needs}], after
+## (narration once it's done), after_her (what she says of it)}. A choice that `needs`
+## "second" is offered only with someone beside you; its "alone" variant otherwise.
 const CUSTOMS := {
 	Cultures.VARDISH: {
-		"intro": ["Her household has barred the hall door with a bench, as they do in the north: nobody takes the bride through it until the toll is paid.",
-			"The cook names it, arms folded."],
+		"intro": ["Her household has barred the hall door with a bench. It is the custom in the north: nobody who marries into the house goes through that door until the toll is paid.",
+			"The cook stands in front of it, red-eyed, arms folded, and names the price."],
 		"prompt": "Pay the toll",
 		"choices": [
 			{"id": "coin", "text": "Pay in coin.", "tag": "a silver penny", "bare": true,
-				"line": "You put a silver penny on the bench. The cook bites it, pockets it, and lifts the bench with one hand. Cheers."},
-			{"id": "song", "text": "Pay with a song.", "tag": "badly", "bare": true,
-				"line": "You sing. It is not good. The household joins in out of pity, then out of joy, and the bench is lifted in the second verse."},
+				"line": "You set a silver penny on the bench. The cook looks at it for a long moment, puts it away somewhere safe, and lifts the bench alone."},
+			{"id": "song", "text": "Pay with a song.", "tag": "you know one verse", "bare": true,
+				"line": "You sing the one verse you know. The household comes in on the second, which you don't, and carries it. The bench is lifted before the end."},
 			{"id": "wrestle", "text": "Send {second} to arm-wrestle the cook.", "tag": "for the company's honour", "bare": true, "needs": "second",
-				"line": "{second} rolls up a sleeve. It takes a long minute. Nobody will say who won, but the bench is moved.",
+				"line": "{second} rolls up a sleeve. It takes a long minute, and the table creaks. Neither will say afterwards who won. The bench is moved.",
 				"alone": {"text": "Arm-wrestle the cook yourself.", "tag": "for your own honour",
-					"line": "You roll up a sleeve. The cook lets you win, slowly enough for everyone to see it, and lifts the bench."}},
+					"line": "You roll up a sleeve. The cook lets you win, slowly enough for everyone to see it being allowed, and lifts the bench."}},
 		],
+		"after": "The cook kisses {name} on the forehead, says nothing to you at all, and goes back to the kitchen.",
 	},
 	Cultures.KHARZANI: {
-		"intro": ["Nobody serves the sweets until the groom caps an elder's verse. The eldest aunt stands, and the courtyard goes quiet.",
+		"intro": ["The sweets stay under their cloths until the one who has married into the house caps an elder's verse. The eldest aunt stands, and the courtyard quiets.",
 			"\"The rose is shy before the dawn, and opens only once...\""],
 		"prompt": "Cap the verse",
 		"choices": [
 			{"id": "good", "text": "...and once is all the garden needs, if the gardener is true.", "tag": "a good line",
-				"line": "A murmur goes round the courtyard. The aunt sits, satisfied, and the trays come out."},
+				"line": "A murmur goes round the courtyard. The aunt inclines her head by a finger's width and sits, and the cloths come off the trays."},
 			{"id": "terrible", "text": "...unlike my horse, who opens every gate he sees.", "tag": "a terrible line",
-				"line": "A silence. Then the aunt laughs so hard she has to be helped to her seat. The trays come out."},
+				"line": "Silence. Then the aunt laughs until she has to be helped to her seat, and the cloths come off the trays."},
 			{"id": "whisper", "text": "Let {second} whisper you the line.", "tag": "{second} has one ready", "bare": true, "needs": "second",
-				"line": "{second} leans in. You repeat it word for word. It is very good, and the aunt looks at {second} with deep suspicion. The trays come out.",
+				"line": "{second} leans in, and you say it word for word. It is very good. The aunt studies {second} for some time, and the cloths come off the trays.",
 				"alone": {"text": "Let {name} whisper you the line.", "tag": "she has one ready",
-					"line": "{name} murmurs it behind her sleeve. The aunt pretends not to have seen. The trays come out."}},
+					"line": "{name} gives it to you behind her sleeve. The aunt chooses not to have seen, and the cloths come off the trays."}},
 		],
+		"after_her": "My aunt approves of you. She will deny it by morning, so remember that you saw it.",
 	},
 	Cultures.RYUMON: {
-		"intro": ["Paper lanterns and brushes come round. Each of you writes a wish, lights it, and lets it go over the terrace rail.",
-			"{name} writes hers quickly, shielding it with her sleeve."],
+		"intro": ["Paper lanterns and brushes are passed along the tables. Each of you writes one wish, lights it, and lets it go over the rail.",
+			"{name} writes hers without stopping to think, and shields it with her sleeve."],
 		"prompt": "What do you wish for?",
 		"choices": [
 			{"id": "her", "text": "For her.", "tag": "you write her name", "bare": true,
-				"line": "You write her name and nothing else. The two lanterns go up together, turning slowly, until they're two more stars."},
+				"line": "You write her name and nothing after it. The two lanterns go up side by side, and keep rising after you can no longer tell which is which."},
 			{"id": "company", "text": "For the company.", "tag": "every one of them home", "bare": true,
-				"line": "You write: every one of them home. The lanterns rise over the terrace, and your captains watch them all the way up."},
-			{"id": "peace", "text": "For an end to the war.", "tag": "the biggest wish", "bare": true,
-				"line": "You write it small, because it's the biggest. The lanterns rise together over the water."},
+				"line": "You write: every one of them home. Your captains watch that lantern until it is gone, and for a while after."},
+			{"id": "peace", "text": "For an end to the war.", "tag": "the largest wish", "bare": true,
+				"line": "You write it small, because it is large. The two lanterns rise together into the dark."},
 		],
-		"after": "{name} won't say what hers was. She looks very pleased with it.",
+		"after_her": "I will not tell you what I wrote. A wish is not a record. It does not have to be shown to be kept.",
 	},
 }
 
 # ---------------------------------------------------------------- round the tables
 
-const TABLES_OPEN := "You go round the tables with a cup that somebody keeps refilling."
+const TABLES_OPEN := "You go round the tables with a cup that is never allowed to stay empty."
 const TABLES_PROMPT := "Who do you stop with?"
 const TABLES_BACK := "Back to the feast."
-## A lord, by bearing: warm when he thinks well of you (Regard of LORD_WARM or more).
+const TABLE_TAGS := {"host": "the host", "crown_lord": "your lord", "lord": "a friend of the company", "captain": "captain"}
+const TABLE_ROLES := {"host": "host", "crown_lord": "your lord", "captain": "captain", "lord": "guest"}
+## A lord, by bearing: warm when they think well of you (Regard of LORD_WARM or more).
 const LORD_WARM := 30
 const LORD_LINES := {
-	Lords.CAUTIOUS: {"warm": "A good match, and a careful one. I approve of both.",
-		"cool": "Congratulations. I'll be watching how the pact holds, mind."},
-	Lords.DARING: {"warm": "Ha! I lost a wager on you two. Best money I ever lost.",
-		"cool": "A fine wedding. Too few horses in it, but fine."},
-	Lords.HONORABLE: {"warm": "You kept faith with her house. I'll remember it when you need a friend.",
-		"cool": "My congratulations, captain. Keep your oaths and we'll get along."},
-	Lords.CRUEL: {"warm": "You've married well. Don't waste it.",
-		"cool": "Enjoy tonight. Nights like this don't last."},
+	Lords.CAUTIOUS: {"warm": "A sound match. I looked for the weakness in it and found none. I looked twice.",
+		"cool": "My congratulations. I shall be watching how the pact holds."},
+	Lords.DARING: {"warm": "I had money on you running for the hills, captain. I have never been so glad to pay.",
+		"cool": "A handsome wedding. Not enough horses in it, but handsome."},
+	Lords.HONORABLE: {"warm": "You kept faith with her house before there was anything in it for you. I'll remember that when you need a friend.",
+		"cool": "My congratulations, captain. Keep your oaths, and you and I will have no quarrel."},
+	Lords.CRUEL: {"warm": "You have married into walls and a garrison. Sensible. I hope you are fond of her as well.",
+		"cool": "Enjoy the night, captain. There are not many like it in a war."},
+}
+## The host, the head of her house, by bearing: a word about her, since they know her.
+const HOST_TABLE := {
+	Lords.CAUTIOUS: "{name} has served this house better than it has served her. I know it. I mean to do better by you both.",
+	Lords.DARING: "I chose your gift myself. {name} would have given you something sensible, and one of us had to be extravagant.",
+	Lords.HONORABLE: "You are of this house now, captain. That is no courtesy. If you are in need, send to me.",
+	Lords.CRUEL: "{name} is the only one of my kin who has never asked me for anything. See that she never has to.",
+}
+## Her own people, who have come to see it: each is someone she told you about. {id, name,
+## tag, line}.
+const HER_PEOPLE := {
+	"edda": [
+		{"id": "cousin", "name": "Edda's cousin", "tag": "the one with the speech",
+			"line": "I had a speech. She allowed me a minute and I took two. I've known her all her life, and that's the first time she has let me. You'll do, captain."},
+		{"id": "cook", "name": "The cook", "tag": "red-eyed",
+			"line": "She has fed this whole house since she was tall enough to see over the table, and never once sat down first. See that she sits down."},
+	],
+	"farid": [
+		{"id": "aunt", "name": "Farah's aunt", "tag": "of Crooked Lantern",
+			"line": "I sent a letter of hers back unopened once. It was addressed like a tax demand. Today she has looked like my niece from morning to night. Keep her that way."},
+		{"id": "cousin", "name": "Farah's cousin", "tag": "who asked if she was happy",
+			"line": "I asked her once if she was happy. She took two pages to tell me the roads were safe. Last month she wrote again. One line. I have it with me."},
+	],
+	"kaede": [
+		{"id": "teacher", "name": "Kaede's teacher", "tag": "who asked who the record was for",
+			"line": "I taught her to leave nothing out of a record. Then I spent ten years teaching her that she was allowed to be in one. Today she is in one. I am content."},
+		{"id": "ferryman", "name": "The old ferryman", "tag": "a witness",
+			"line": "I was asked to witness. I charge for remembering, as a rule. This one I'll remember free."},
+	],
 }
 ## A captain who didn't toast, by temperament.
 const CAPTAIN_LINES := {
-	Captains.VENGEFUL: "Best night this company's had. Nobody ruin it. I'm watching.",
-	Captains.STEADFAST: "Good day, captain. Good day. Now eat something; you're swaying.",
-	Captains.FRAGILE: "I cried at the vows. Don't tell anyone. Everyone saw.",
-	"": "Captain! Congratulations. Have you tried the pies? Try the pies.",
+	Captains.VENGEFUL: "Anyone who spoils tonight answers to me. I've told the whole company. Twice.",
+	Captains.STEADFAST: "A good day, captain. Eat something. You've been on your feet since dawn.",
+	Captains.FRAGILE: "I cried at the vows. I thought nobody saw. Everybody saw.",
+	"": "Congratulations, captain. The company's glad of it. You should hear them at the far table.",
 }
-## The gifts, as words: the host's, by her people, and the company's.
+## The gifts, as words: the host's, by her people, the absent ruler's, and the company's.
+const GIFTS_TITLE := "The gifts"
+const HOST_GIVES := "%s gives you %s."
+const RULER_SENT := "%s sent %s."
+const STAYED_AWAY := "%s stayed away: %s."
 const HOST_GIFTS := {
 	Cultures.VARDISH: "a pair of good grey horses",
 	Cultures.KHARZANI: "a carpet that took two years to weave",
 	Cultures.RYUMON: "a sword rack of black lacquer",
 }
-const COMPANY_GIFT := "The company passed a helmet round and bought you a copper kettle, slightly dented."
-const RECEIPT := "%s kept the receipt."
+const COMPANY_GIFT := "The company passed a helmet round and bought you a copper kettle. It has a dent. They say it came like that."
+const RECEIPT := "%s wrote down who gave what, and how little."
 
 # ---------------------------------------------------------------- slipping away
 
-const SLIP_YOU := "Come on. While they're busy."
+const SLIP_YOU := "Come away. They won't miss us for a while."
 const SLIP_OUT := {
-	"room": "You go up the back stair to her room. Below you the feast doesn't notice for a full quarter of an hour.",
-	"place": "You slip out past the last lanterns. Behind you the feast doesn't notice for a full quarter of an hour.",
+	"room": "You go up the back stair to her room. Below, the feast goes on without you, and does not seem to mind.",
+	"place": "You walk out past the last of the lanterns. Behind you the feast goes on, and does not seem to mind.",
 }
 ## What she recalls of the night: the first of these that you did (see recall).
 const RECALL_ORDER := ["breath", "heckle", "dance", "custom", "vow"]
 const RECALL := {
 	"edda": {
-		"breath": "You took a breath before you said it. A long one. I counted. I'll be telling that one for years.",
-		"heckle": "You heckled your own captain at your own wedding. My cousin says it's the most Vardish thing he's ever seen.",
-		"dance": "You trod on my foot exactly once. I've decided it was on purpose, so I can forgive it.",
-		"custom": "The cook says you paid the toll fairly. From the cook, that's practically a blessing.",
-		"vow": "You said your vow like you meant every word. I'm holding you to all of them.",
+		"breath": "You took a breath before you said it. I watched you take it. I'd have waited longer than that, you know. I've had the practice.",
+		"heckle": "You heckled your own captain at your own wedding, and the whole hall loved you for it. I've been trying to win that hall for ten years.",
+		"dance": "I didn't count the steps. Not one of them. I want that known.",
+		"custom": "The cook let you through. She has turned two of my cousins' suitors back from that bench.",
+		"vow": "I heard every word of your vow. I'm not going to say it back to you. I'm going to keep it.",
 	},
 	"farid": {
-		"breath": "You took a breath. For one moment I thought I'd have to negotiate.",
-		"heckle": "You heckled your own captain. My aunts approved. Nobody has ever made my aunts approve of anything.",
-		"dance": "We ignored all eleven forms. I've never enjoyed a dance more.",
-		"custom": "My aunt has asked who taught you that line. I said I did. Let her wonder.",
-		"vow": "You said your vow plainly, and meant all of it. I heard every word.",
+		"breath": "You took a breath. In the length of it I prepared three replies to a refusal. I am pleased to have wasted the work.",
+		"heckle": "You heckled your own captain, and they adored you for it. I have spent my life choosing words nobody could mind. I should like to learn the other way.",
+		"dance": "We did none of the forms. My feet have never been so badly instructed, or so happy.",
+		"custom": "My aunt has asked three people about you since the verse. She only asks about people she means to keep.",
+		"vow": "I have heard a great many promises read aloud. Yours is the first I did not check for the clause that undoes it.",
 	},
 	"kaede": {
-		"breath": "You paused before you said it. One breath. I noticed. I'll remember it exactly.",
-		"heckle": "You heckled your own captain. I wrote it down. It's going in the register's margin.",
-		"dance": "You turned the wrong way twice. I've decided that's the right way now.",
-		"custom": "I saw your lantern go up. I won't ask what you wrote. I'll ask in ten years.",
-		"vow": "I'll check your vow against the record. I expect it to be right.",
+		"breath": "You paused before you answered. One breath. I did not mind. I would like you always to take the time you need before you say a thing to me.",
+		"heckle": "You shouted at your own captain, and everyone laughed. I have noted that it was affection. I had to ask someone.",
+		"dance": "I lost count at the second turn of the dance, and did not start again. That has not happened before.",
+		"custom": "I watched your lantern longer than my own. I do not know what you wrote. I find I can leave it unknown.",
+		"vow": "I remember your vow word for word. I am not going to write it down. I want to find out whether I can keep a thing without paper.",
 	},
 }
 ## The last choice of the night, and what she says to it.
@@ -284,17 +343,31 @@ const LAST := [
 	{"id": "sleep", "text": "Sleep. The war will keep."},
 ]
 const LAST_ANSWER := {
-	"edda": {"stay": "All of them? There are forty. I counted those too.",
-		"sleep": "Sleep. Yes. Boots off. I'll straighten them in the morning."},
-	"farid": {"stay": "Until the last one. I'll tell you unimportant things until then.",
-		"sleep": "The war will keep. For one night, I'm sure of it."},
-	"kaede": {"stay": "I'll count them as they go. Don't let me lose my place.",
-		"sleep": "Sleep. I'll wake first; I always do. I'll let you sleep."},
+	"edda": {"stay": "All of them? Then sit. I've nothing to see to, and I mean to enjoy that for as long as it lasts.",
+		"sleep": "Sleep, then. I've set two places for the morning. I counted myself first."},
+	"farid": {"stay": "Until the last one. I will tell you unimportant things, and you need not answer any of them.",
+		"sleep": "The war will keep. For one night I am carrying nobody's message. Not even my own."},
+	"kaede": {"stay": "Then I will name them for you as they go out. There are forty-one. I may lose count. I do not mind if I do.",
+		"sleep": "Sleep. I will leave the lamp lit. Tonight it may be a symbol."},
+}
+const BACK_TO_MAP := "Back to the map"
+
+## The closing card.
+const CARD := {
+	"memory": "A memory kept. Open it again from %s's page.",
+	"pact": "The marriage pact",
+	"together": "%s and your company stand together.",
+	"breaks": "Attacking %s breaks it.",
+	"lands": "her house's lands",
+	"ask": "Ask %s for up to %d silver every %d days, for men from the garrison, or to hold a place for you.",
+	"head": "the head of the house",
+	"captains": "Your %d captain%s drank to you, and will say so for a month.",
+	"gift": "%s's gift, %s, is in your baggage.",
 }
 
 ## At the fire, a few nights on.
 const CAMP_TITLE := "Still telling it"
-const CAMP_RETELL := "%s is still telling the wedding toast at the fire. It gets longer every night."
+const CAMP_RETELL := "%s is telling the wedding again at the fire. The toast has grown a verse since last night."
 const CAMP_DAYS := 7
 
 
@@ -306,16 +379,22 @@ static func fill(text: String, ctx: Dictionary) -> String:
 
 
 ## A captain's toast in their own words: how they start (as your second, or by
-## temperament), what they know (wounded tonight, their role, their quirk, their battles),
-## and how they raise it (the way their own people do).
-static func captain_toast(c: Dictionary, as_second: bool = false) -> String:
+## temperament), what they have seen of you (wounded tonight, their role, their quirk,
+## their battles), and how they raise it (the way their own people do; `nth` is how many
+## toasts came before, see CLOSERS).
+static func captain_toast(c: Dictionary, as_second: bool = false, nth: int = 0) -> String:
 	var id := int(c.get("id", 0))
 	var opens: Array = SECOND_OPEN if as_second else OPENERS.get(String(c.get("temperament", "")), OPENERS[""])
-	var close := String(CLOSERS.get(String(c.get("culture", "")), CLOSERS[Cultures.VARDISH]))
-	return "%s %s %s" % [String(opens[posmod(id, opens.size())]), know(c), close]
+	return "%s %s %s" % [String(opens[posmod(id, opens.size())]), know(c), closer(c, nth)]
 
 
-## What a captain knows to say: the first that applies.
+## How a captain raises the cup: their own people's words, the `nth` of them in turn.
+static func closer(c: Dictionary, nth: int = 0) -> String:
+	var lines: Array = CLOSERS.get(String(c.get("culture", "")), CLOSERS[Cultures.VARDISH])
+	return String(lines[posmod(nth, lines.size())])
+
+
+## What a captain has seen of you: the first that applies.
 static func know(c: Dictionary) -> String:
 	if int(c.get("wounded", 0)) > 0:
 		return WOUNDED
@@ -334,16 +413,17 @@ static func know(c: Dictionary) -> String:
 
 
 ## A toast (one of GameState.wedding_toasters) as the lines said: [{who ("a", or "b" for
-## a pair's second captain), text}], before {name} is filled in.
-static func toast_lines(t: Dictionary) -> Array:
+## a pair's second captain), text}], before {name} is filled in. `nth` is how many toasts
+## came before it.
+static func toast_lines(t: Dictionary, nth: int = 0) -> Array:
 	var c: Dictionary = t["captain"]
 	var first := String(c.get("first", c.get("name", "")))
 	var own := String(HERO_TOASTS.get(String(c.get("hero_id", "")), "")) if bool(c.get("is_hero", false)) else ""
 	match String(t.get("kind", "")):
 		"second":
-			return [{"who": "a", "text": own if own != "" else captain_toast(c, true)}]
+			return [{"who": "a", "text": own if own != "" else captain_toast(c, true, nth)}]
 		"hero":
-			return [{"who": "a", "text": own if own != "" else captain_toast(c)}]
+			return [{"who": "a", "text": own if own != "" else captain_toast(c, false, nth)}]
 		"pair":
 			var other: Dictionary = t.get("other", {})
 			var lines: Array = PAIR_TOASTS.get(String(t.get("rank", "")), PAIR_TOASTS[""])
@@ -353,13 +433,18 @@ static func toast_lines(t: Dictionary) -> Array:
 					"text": fill(String(lines[i]), {"first": first, "other": String(other.get("first", other.get("name", "")))})})
 			return out
 		"newest":
-			return [{"who": "a", "text": "%s %s" % [NEWEST, String(CLOSERS.get(String(c.get("culture", "")), CLOSERS[Cultures.VARDISH]))]}]
+			return [{"who": "a", "text": "%s %s" % [NEWEST, closer(c, nth)]}]
 		"mourner":
 			return [{"who": "a", "text": fill(MOURNER, {"fallen": String(t.get("fallen", ""))})}]
-	return [{"who": "a", "text": captain_toast(c)}]
+	return [{"who": "a", "text": captain_toast(c, false, nth)}]
 
 
-## A lord's word at the tables, by bearing and how well he thinks of you.
+## The host's word at the tables, by bearing (before {name} is filled in).
+static func host_table(bearing: String) -> String:
+	return String(HOST_TABLE.get(bearing, HOST_TABLE[Lords.HONORABLE]))
+
+
+## A lord's word at the tables, by bearing and how well they think of you.
 static func lord_line(bearing: String, regard: int) -> String:
 	var lines: Dictionary = LORD_LINES.get(bearing, LORD_LINES[Lords.HONORABLE])
 	return String(lines["warm" if regard >= LORD_WARM else "cool"])
@@ -367,6 +452,11 @@ static func lord_line(bearing: String, regard: int) -> String:
 
 static func captain_line(temperament: String) -> String:
 	return String(CAPTAIN_LINES.get(temperament, CAPTAIN_LINES[""]))
+
+
+## Her own people at the tables (see HER_PEOPLE).
+static func her_people(cand: String) -> Array:
+	return HER_PEOPLE.get(cand, [])
 
 
 static func custom(culture: String) -> Dictionary:
