@@ -10,9 +10,10 @@
 ##
 ## Everything stands on the ground: the meadow slopes down toward you, lit by the moon
 ## from the right; each stone sits on its patch of earth with its shadow and the grass
-## grown up round it, smaller the further up the slope it stands. Beyond the crest the
-## mountains fade into the mist of the valley where the camp's tents glow round their
-## fire. The company's banner hangs at half mast beside the monument. Up to SHOWN stones
+## grown up round it, smaller the further up the slope it stands. Beyond the crest lies
+## each realm's own land (Vardmark's forested hills, a keep and a river; Kharzan's dunes, a
+## mesa and a far city of domes; Ryumon's great snow peak, its mist and a pagoda), and
+## the valley where the camp's tents glow round their fire. The company's banner hangs at half mast beside the monument. Up to SHOWN stones
 ## stand large (newest nearest); older ones stand in rows of small stones near the crest.
 ## The newest, if not yet mourned, is fresh earth with flowers and a stake. Drawn once into
 ## a small image and scaled up with hard pixel edges.
@@ -77,9 +78,9 @@ static func image(culture: String, stones: Array, fresh: bool, when: String, ban
 	rng.seed = hash(culture) + 7
 	var night := when != "dusk"
 	var L := _look(culture, night)
-	_sky(img, rng, night)
-	_mountains(img, night)
-	_valley(img, rng, night)
+	_sky(img, rng, culture, night)
+	_mountains(img, culture, night)
+	_valley(img, rng, culture, night)
 	_meadow(img, rng, L)
 	_path(img, rng, culture, L)
 	# Behind the stones: the wall or fence along the crest, the trees, the monument.
@@ -159,64 +160,249 @@ static func _look(culture: String, night: bool) -> Dictionary:
 
 # ---------------------------------------------------------------- sky, mountains, valley
 
-static func _sky(img: Image, rng: RandomNumberGenerator, night: bool) -> void:
-	var top := Color("0a0f22") if night else Color("2a2448")
-	var low := Color("26304e") if night else Color("c0704e")
+static func _sky(img: Image, rng: RandomNumberGenerator, culture: String, night: bool) -> void:
+	# Each land's night: Vardmark's deep blue, Kharzan's clear indigo thick with stars,
+	# Ryumon's hazier blue under a full moon.
+	var tops := {"kharzani": Color("0a0b24"), "ryumon": Color("0e1428")}
+	var lows := {"kharzani": Color("2a2a52"), "ryumon": Color("2e3a52")}
+	var top: Color = tops.get(culture, Color("0a0f22")) if night else Color("2a2448")
+	var low: Color = lows.get(culture, Color("26304e")) if night else Color("c0704e")
 	for y in 90:
-		var c := top.lerp(low, clampf(float(y) / 80.0, 0.0, 1.0))
-		_rect(img, 0, y, W - 1, y, c)
-	for i in 90:
-		var x := rng.randi_range(0, W - 1)
-		var y := rng.randi_range(0, 46)
-		_dot(img, x, y, Color(1, 1, 0.92).darkened(rng.randf_range(0.0, 0.65)))
-	# A few brighter stars with a cross of light.
+		_rect(img, 0, y, W - 1, y, top.lerp(low, clampf(float(y) / 80.0, 0.0, 1.0)))
+	var stars := 150 if culture == "kharzani" else 90
+	for i in stars:
+		_dot(img, rng.randi_range(0, W - 1), rng.randi_range(0, 50), Color(1, 1, 0.92).darkened(rng.randf_range(0.0, 0.65)))
 	for s in [[38, 12], [92, 6], [128, 20]]:
 		_dot(img, s[0], s[1], Color("fffbe8"))
 		for d in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
 			_dot(img, s[0] + d[0], s[1] + d[1], Color("7a86a8"))
-	# The moon, a waning crescent with a halo.
-	_glow(img, 202, 20, 22, Color("8a96c0"), 0.25)
-	_disc(img, 202, 20, 8, Color("ece6cc"))
-	_disc(img, 205, 18, 7, top.lerp(low, 0.24))
+	match culture:
+		"kharzani":
+			# A sweep of the star river across the sky.
+			for i in 260:
+				var t := rng.randf()
+				var x := int(lerpf(-10.0, 250.0, t))
+				var y := int(4.0 + t * 30.0 + rng.randf_range(-5.0, 5.0))
+				_dot(img, x, y, img.get_pixel(clampi(x, 0, W - 1), clampi(y, 0, H - 1)).lerp(Color("8a8ab8"), 0.35))
+			# A great crescent, low.
+			_glow(img, 196, 26, 26, Color("a09ac0"), 0.25)
+			_disc(img, 196, 26, 10, Color("f2ead0"))
+			_disc(img, 200, 23, 9, top.lerp(low, 0.3))
+		"ryumon":
+			# The full moon, haloed, a wisp of cloud across it.
+			_glow(img, 200, 22, 30, Color("a0aac8"), 0.32)
+			_disc(img, 200, 22, 9, Color("f2eed8"))
+			_dot(img, 197, 20, Color("dcd6c0"))
+			_dot(img, 203, 24, Color("dcd6c0"))
+			_rect(img, 180, 25, 222, 26, Color("5a6480"))
+			_rect(img, 188, 27, 214, 27, Color("4a5470"))
+		_:
+			_glow(img, 202, 20, 22, Color("8a96c0"), 0.25)
+			_disc(img, 202, 20, 8, Color("ece6cc"))
+			_disc(img, 205, 18, 7, top.lerp(low, 0.24))
 
 
-static func _mountains(img: Image, night: bool) -> void:
-	var far := Color("26304a") if night else Color("6a5068")
-	var far_lit := Color("323e5c") if night else Color("7a5e76")
-	var mid := Color("1c2438") if night else Color("54405a")
-	var snow := Color("9aa4c0") if night else Color("e0d0d0")
-	# The far range: peaks, their moonlit faces on the right, snow on the highest.
-	for x in W:
-		var t := fmod(x / 34.0 + 0.35, 1.0)
-		var tri := absf(t - 0.5) * 2.0
-		var y1 := int(36.0 + tri * 20.0 + sin(x * 0.21) * 1.5 + (6.0 if int(x / 34.0) % 2 == 1 else 0.0))
-		var lit_face := t > 0.5
-		for y in range(y1, 90):
-			img.set_pixel(x, y, far_lit if lit_face and y < y1 + 10 else far)
-		if y1 < 44:
-			for k in mini(3, 44 - y1):
-				_dot(img, x, y1 + k, snow.darkened(0.15 * k) if lit_face else snow.darkened(0.35 + 0.1 * k))
-	# The nearer hills, rounder and darker.
-	for x in W:
-		var y2 := int(62 + sin(x * 0.045 + 2.0) * 6 + sin(x * 0.11) * 3)
-		_rect(img, x, y2, x, 89, mid)
-	# Mist lying in the valley.
-	for y in range(68, 84):
-		var a := 0.22 * (1.0 - absf(y - 76.0) / 8.0)
+## The land beyond the crest, in each realm's own shape.
+static func _mountains(img: Image, culture: String, night: bool) -> void:
+	match culture:
+		"kharzani":
+			_desert(img, night)
+		"ryumon":
+			_peaks(img, night)
+		_:
+			_forest_hills(img, night)
+
+
+## Vardmark: rolling hills dark with pine, ridge behind ridge, a keep on the far one with a
+## window lit, and a river catching the moon as it winds through the valley.
+static func _forest_hills(img: Image, night: bool) -> void:
+	var layers := [[50.0, Color("2a3a50"), 0.028, 6.0], [58.0, Color("223044"), 0.041, 5.0], [66.0, Color("1a2636"), 0.055, 4.0]]
+	for li in layers.size():
+		var l: Array = layers[li]
 		for x in W:
-			img.set_pixel(x, y, img.get_pixel(x, y).lerp(Color("5a6688") if night else Color("c8a0a0"), a))
+			var y := int(float(l[0]) + sin(x * float(l[2]) + li * 1.7) * float(l[3]) + sin(x * 0.13 + li) * 1.5)
+			_rect(img, x, y, x, 89, l[1])
+			# Pines along each ridge's top.
+			if (x + li * 2) % 3 == 0:
+				var tall := 2 + (x * 7 + li) % 3
+				for k in tall:
+					_rect(img, x - (tall - k) / 2, y - k, x + (tall - k) / 2, y - k, (l[1] as Color).darkened(0.12))
+	# A keep on the far ridge: its tower and hall, battlements, windows lit, a pennant.
+	var kx := 96
+	var ky := int(50.0 + sin(kx * 0.028) * 6.0 + sin(kx * 0.13) * 1.5) + 1
+	var kc := Color("182232")
+	_rect(img, kx - 4, ky - 16, kx + 4, ky, kc)
+	for t in [-4, -2, 0, 2, 4]:
+		_dot(img, kx + t, ky - 17, kc)
+	_rect(img, kx + 5, ky - 9, kx + 14, ky, kc)
+	for t in [5, 8, 11, 14]:
+		_dot(img, kx + t, ky - 10, kc)
+	_rect(img, kx - 10, ky - 6, kx - 5, ky, kc)
+	_dot(img, kx, ky - 12, Color("ffcf6a"))
+	_dot(img, kx + 9, ky - 5, Color("ffcf6a"))
+	_dot(img, kx + 12, ky - 5, Color("ffb85a"))
+	_rect(img, kx, ky - 23, kx, ky - 17, kc)
+	_rect(img, kx + 1, ky - 23, kx + 4, ky - 22, Color("3a4a7a"))
+	# The valley's mist.
+	_mist(img, 68, 84, Color("5a6688") if night else Color("c8a0a0"), 0.2)
+
+
+## Kharzan: dunes rolling away under the moon, their crests catching the light, a
+## flat-topped mesa, and a far city of domes and a tower with its windows lit.
+static func _desert(img: Image, night: bool) -> void:
+	var far := Color("3a3450") if night else Color("b88a6a")
+	# The mesa, far off on the right, flat-topped with sheer sides.
+	for x in range(150, 214):
+		var y := 46 if x > 158 and x < 206 else (46 + absi(x - (158 if x <= 158 else 206)) * 2)
+		_rect(img, x, y, x, 89, far.darkened(0.1) if x > 196 else far)
+		if x > 158 and x < 206 and x % 3 == 0:
+			_dot(img, x, y + 4 + (x % 2), far.darkened(0.2))
+	var dunes := [[60.0, Color("4a3e4a"), 0.05], [66.0, Color("3e344a"), 0.07], [72.0, Color("342c40"), 0.09]]
+	if not night:
+		dunes = [[60.0, Color("c89a6a"), 0.05], [66.0, Color("b8885a"), 0.07], [72.0, Color("a8784e"), 0.09]]
+	for li in dunes.size():
+		var d: Array = dunes[li]
+		for x in W:
+			var y := int(float(d[0]) + sin(x * float(d[2]) + li * 2.1) * 4.0 + absf(sin(x * float(d[2]) * 0.5 + li)) * 3.0)
+			_rect(img, x, y, x, 89, d[1])
+			var slope := cos(x * float(d[2]) + li * 2.1)
+			if slope > 0.2:
+				_dot(img, x, y, (d[1] as Color).lightened(0.35))
+		if li == 0:
+			_city(img, 104, 60, night)
+	_mist(img, 72, 86, Color("6a6488") if night else Color("e0c0a0"), 0.12)
+
+
+## A far city of the desert on the far dune: its wall, domes, a tall tower, lit windows.
+static func _city(img: Image, cx: int, base: int, night: bool) -> void:
+	var dark := Color("241e38") if night else Color("8a6a5a")
+	var lit := Color("2e2848") if night else Color("9a7a6a")
+	_rect(img, cx - 24, base - 5, cx + 24, base + 2, dark)
+	for t in range(-24, 25, 4):
+		_dot(img, cx + t, base - 6, dark)
+	for d in [[cx - 14, 5], [cx + 2, 7], [cx + 16, 4]]:
+		_rect(img, d[0] - d[1], base - 9, d[0] + d[1], base - 5, dark)
+		_half_disc(img, d[0], base - 9, d[1], dark)
+		_dot(img, d[0] + d[1] - 1, base - 10, lit)
+		_rect(img, d[0], base - 9 - d[1] - 2, d[0], base - 9 - d[1], dark)
+	# The tower, tall and slim, with its gallery.
+	_rect(img, cx + 9, base - 24, cx + 11, base - 5, dark)
+	_rect(img, cx + 8, base - 19, cx + 12, base - 18, dark)
+	_rect(img, cx + 9, base - 27, cx + 11, base - 25, dark)
+	_dot(img, cx + 10, base - 28, dark)
+	for w in [[cx - 20, base - 2], [cx - 12, base - 3], [cx - 3, base - 2], [cx + 5, base - 3], [cx + 10, base - 21], [cx + 19, base - 2], [cx + 2, base - 7]]:
+		_dot(img, w[0], w[1], Color("ffcf6a"))
+	_glow(img, cx, base - 4, 22, Color("ffb347"), 0.12)
+
+
+## Ryumon: a great snow-capped peak and its range, banks of mist across their feet, ridges
+## of pine, and a pagoda on a spur with a lantern lit.
+static func _peaks(img: Image, night: bool) -> void:
+	var far := Color("2a3450") if night else Color("6a6080")
+	var far_lit := Color("3a466a") if night else Color("8a7a96")
+	var snow := Color("c8d0e4") if night else Color("f0e8ec")
+	# The great peak: a steep cone, its snow cap reaching far down, lit on the right.
+	var px := 80
+	for x in W:
+		var y := int(minf(14.0 + absf(x - px) * 1.15, 44.0 + sin(x * 0.07) * 4.0 + absf(sin(x * 0.03)) * 6.0))
+		var lit_face := x > px
+		_rect(img, x, y, x, 89, far_lit if lit_face and absf(x - px) < 34 else far)
+		if absf(x - px) < 22:
+			var cap := int(10.0 - absf(x - px) * 0.3 + (2 if x % 3 == 0 else 0))
+			for k in maxi(0, cap):
+				_dot(img, x, y + k, snow if lit_face else snow.darkened(0.3))
+	# Lesser peaks behind on the right, broad, with their own snow.
+	for x in range(118, W):
+		var t := fmod((x - 118) / 46.0, 1.0)
+		var y := int(30.0 + absf(t - 0.5) * 2.0 * 22.0 + (4 if int((x - 118) / 46.0) % 2 == 1 else 0))
+		var lit_face := t > 0.5
+		_rect(img, x, y, x, 60, (far_lit if lit_face else far).darkened(0.08))
+		if y < 40:
+			for k in mini(4, 40 - y):
+				_dot(img, x, y + k, snow.darkened(0.15 + 0.08 * k) if lit_face else snow.darkened(0.4 + 0.08 * k))
+	# Banks of mist across the mountains' feet.
+	_mist(img, 46, 56, Color("8a96b8") if night else Color("e8e0e8"), 0.3)
+	# Ridges of pine, nearer and darker.
+	var ridges := [[60.0, Color("1e2a38"), 0.06], [67.0, Color("17212e"), 0.08]]
+	for li in ridges.size():
+		var r: Array = ridges[li]
+		for x in W:
+			var y := int(float(r[0]) + sin(x * float(r[2]) + li * 2.5) * 5.0)
+			_rect(img, x, y, x, 89, r[1])
+			if x % 2 == 0:
+				var tall := 2 + (x * 5 + li) % 4
+				for k in tall:
+					_rect(img, x - (tall - k) / 3, y - k, x + (tall - k) / 3, y - k, (r[1] as Color).darkened(0.15))
+	# A pagoda on the spur, three roofs, a lantern lit.
+	var gx := 186
+	var gy := int(60.0 + sin(gx * 0.06) * 5.0)
+	var pd := Color("141a24")
+	for tier in 3:
+		var w := 7 - tier * 2
+		var ty := gy - 4 - tier * 5
+		_rect(img, gx - w, ty, gx + w, ty, pd)
+		_dot(img, gx - w - 1, ty - 1, pd)
+		_dot(img, gx + w + 1, ty - 1, pd)
+		_rect(img, gx - w + 2, ty + 1, gx + w - 2, ty + 4, pd)
+	_rect(img, gx, gy - 21, gx, gy - 18, pd)
+	_dot(img, gx - 1, gy - 2, Color("ffb85a"))
+	_glow(img, gx - 1, gy - 2, 5, Color("ffb347"), 0.3)
+	_mist(img, 70, 84, Color("6a7898") if night else Color("e0d8e0"), 0.22)
+
+
+static func _mist(img: Image, y0: int, y1: int, c: Color, strength: float) -> void:
+	var mid := (y0 + y1) * 0.5
+	var half := maxf(1.0, (y1 - y0) * 0.5)
+	for y in range(y0, y1):
+		var a := strength * (1.0 - absf(y - mid) / half)
+		for x in W:
+			img.set_pixel(x, y, img.get_pixel(x, y).lerp(c, a))
 
 
 ## The valley floor beyond the crest, and the camp on it: tents glowing, the fire, smoke.
-static func _valley(img: Image, rng: RandomNumberGenerator, night: bool) -> void:
-	var floor_c := Color("1e2a26") if night else Color("3e4a36")
+static func _valley(img: Image, rng: RandomNumberGenerator, culture: String, night: bool) -> void:
+	var floors := {"kharzani": Color("2e2838"), "ryumon": Color("1a2428")}
+	var floor_c: Color = floors.get(culture, Color("1e2a26")) if night else Color("3e4a36")
 	for x in W:
 		_rect(img, x, 78, x, 89, floor_c.darkened(0.08 * float(x % 3 == 0)))
-	# A dark line of trees along the valley.
-	for x in range(80, W, 3):
-		var h := 3 + int(absf(sin(x * 0.7)) * 4)
-		_rect(img, x, 78 - h, x + 1, 78, Color("141c1a") if night else Color("2a3428"))
-	# The camp: tents with their doorways lit, the fire between, a thread of smoke.
+	match culture:
+		"kharzani":
+			# Palms at the oasis by the camp, and its water catching the moon.
+			_ellipse(img, 46, 82, 70, 85, Color("2a3a5a"))
+			_rect(img, 52, 83, 62, 83, Color("8a9ac0"))
+			for p in [[58, 82, 12], [66, 83, 9], [8, 82, 10]]:
+				_palm(img, p[0], p[1], p[2])
+		"vardish":
+			# A river winding out of the hills and past the camp, silver under the moon.
+			for x in range(0, 90):
+				var y := int(86.0 + sin(x * 0.07 + 1.0) * 2.5 - (x - 45) * 0.06)
+				_rect(img, x, y, x, y + 1, Color("4a5a80") if night else Color("8a9ab0"))
+				if x % 4 == 0:
+					_dot(img, x, y, Color("aab8e0"))
+			for x in range(80, W, 3):
+				var h := 3 + int(absf(sin(x * 0.7)) * 4)
+				_rect(img, x, 78 - h, x + 1, 78, Color("141c1a") if night else Color("2a3428"))
+		_:
+			for x in range(80, W, 3):
+				var h := 3 + int(absf(sin(x * 0.7)) * 4)
+				_rect(img, x, 78 - h, x + 1, 78, Color("121a1e") if night else Color("2a3428"))
+	_camp(img, night)
+
+
+static func _palm(img: Image, x: int, base: int, tall: int) -> void:
+	var trunk := Color("2a2030")
+	for k in tall:
+		_dot(img, x + int(sin(k * 0.25) * 1.5), base - k, trunk)
+	var tx := x + int(sin(tall * 0.25) * 1.5)
+	var ty := base - tall
+	for f in [[-5, 2], [-3, 3], [3, 3], [5, 2], [0, -2]]:
+		for k in 5:
+			_dot(img, tx + int(f[0] * k / 4.0), ty + int(f[1] * k / 4.0) + (k * k) / 8, Color("1e2a24"))
+
+
+## The camp, small and below: tents with their doorways lit, the fire between, a thread of
+## smoke, figures by the fire.
+static func _camp(img: Image, night: bool) -> void:
 	var tent := Color("8a7a5a") if night else Color("a8946a")
 	for t in [[12, 78], [24, 76], [44, 79], [52, 77]]:
 		var tx: int = t[0]
@@ -230,7 +416,6 @@ static func _valley(img: Image, rng: RandomNumberGenerator, night: bool) -> void
 	_dot(img, int(CAMP_FIRE.x), int(CAMP_FIRE.y) - 1, Color("ffcf6a"))
 	for i in 10:
 		_dot(img, int(CAMP_FIRE.x) + int(sin(i * 0.9) * 2.0), int(CAMP_FIRE.y) - 3 - i * 2, Color(0.55, 0.58, 0.68).darkened(0.05 * i))
-	# Figures by the fire.
 	for f in [[26, 80], [35, 80]]:
 		_rect(img, f[0], f[1] - 3, f[0], f[1], Color("2a2028"))
 
