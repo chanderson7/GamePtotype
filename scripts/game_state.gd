@@ -30,6 +30,7 @@ const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
+const HallMoments = preload("res://scripts/data/hall_moments.gd")
 const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const Politics = preload("res://scripts/data/politics.gd")
 const SAVE_PATH := "user://campaign.json"
@@ -1479,6 +1480,134 @@ func gathering_conviction(l: Dictionary) -> int:
 		return 0
 	# A king who made the case for his war at table convinces more.
 	return Gatherings.HOST_CONVICTION + (Gatherings.SPEECH_CONVICTION if bool(hosted.get("speech_war", false)) else 0)
+
+
+# ---------------------------------------------------------------- in the hall (scenes/feast.tscn)
+
+## Whether the herald has yet to announce you at `g`: only the first time you walk in.
+func feast_needs_herald(g: Dictionary) -> bool:
+	return not bool(gathering_record(g).get("arrived", false))
+
+
+## You've walked in: the herald has spoken, and tonight's tally starts.
+func feast_arrive(g: Dictionary) -> void:
+	gathering_record(g)["arrived"] = true
+	feast_tally_start(g)
+	save_game()
+
+
+## What the herald calls out as you come in.
+func feast_herald(g: Dictionary) -> String:
+	if gathering_is_mine(g):
+		return "All rise for the ruler of %s, whose hall this is!" % crown_title()
+	if not bool(gathering_invite(g)["invited"]):
+		return "The herald runs a finger down the guest list, twice. Your name is not on it."
+	var who := "The captain of the %s warband" % String(Cultures.info(culture)["people"])
+	if company_title != "" and Achievements.DEEDS.has(company_title):
+		who += ", known as %s" % String(Achievements.DEEDS[company_title]["title"])
+	if is_crowned():
+		who = "The ruler of %s" % crown_title()
+	elif has_contract():
+		who += ", in the pay of %s" % realm_word(contract_realm())
+	elif has_fief() and not bool(player_fief.get("lost", false)):
+		who += ", who holds land of %s" % realm_word(fief_realm())
+	return "%s!" % who
+
+
+## Where tonight's summary counts from: Regard with each lord in the hall, renown, silver
+## and rations as the night began (or as you came in).
+func feast_tally_start(g: Dictionary) -> void:
+	var regard := {}
+	for l in gathering_lords(g):
+		regard[str(int(l["id"]))] = LordTalk.regard(self, l)
+	gathering_record(g)["tally"] = {"night": world.gathering_night(g), "regard": regard, "renown": renown, "silver": silver, "food": food}
+
+
+## Tonight's tally, begun now if it's a new night.
+func feast_tally(g: Dictionary) -> Dictionary:
+	var t: Dictionary = gathering_record(g).get("tally", {})
+	if t.is_empty() or int(t.get("night", 0)) != world.gathering_night(g):
+		feast_tally_start(g)
+	return gathering_record(g)["tally"]
+
+
+## What tonight changed: {night, lords: [{id, name, change}], renown, silver, food}.
+func feast_night_summary(g: Dictionary) -> Dictionary:
+	var t := feast_tally(g)
+	var lords := []
+	var was: Dictionary = t.get("regard", {})
+	for l in gathering_lords(g):
+		var key := str(int(l["id"]))
+		if not was.has(key):
+			continue
+		var change := LordTalk.regard(self, l) - int(was[key])
+		if change != 0:
+			lords.append({"id": int(l["id"]), "name": LordTalk.short_name(l), "change": change})
+	return {"night": int(t.get("night", 0)), "lords": lords, "renown": renown - int(t.get("renown", renown)),
+		"silver": silver - int(t.get("silver", silver)), "food": food - int(t.get("food", food))}
+
+
+## Resting until the next night: {ok, reason, last (tonight is the last), hours}.
+func feast_rest_check(g: Dictionary) -> Dictionary:
+	if world == null or not world.gathering_on(g):
+		return {"ok": false, "reason": "it's over", "last": true, "hours": 0.0}
+	var night: int = world.gathering_night(g)
+	if night >= 3:
+		return {"ok": true, "reason": "", "last": true, "hours": 0.0}
+	var next_dusk := float(g["starts_hour"]) + 24.0 * night
+	return {"ok": true, "reason": "", "last": false, "hours": maxf(0.0, next_dusk - world.hour)}
+
+
+## Sleep until the next night's dusk. {ok, night, broken (the gathering broke up while you
+## slept), stopped (something on the road needs you)}.
+func feast_rest(g: Dictionary) -> Dictionary:
+	var check := feast_rest_check(g)
+	if not bool(check["ok"]) or bool(check["last"]):
+		return {"ok": false}
+	var hours := float(check["hours"])
+	if hours > 0.0:
+		if not world.wait(hours):
+			return {"ok": false}
+		advance(hours)
+	var stopped: bool = world.encounter != -1
+	var here := gathering_here()
+	var still := not here.is_empty() and int(here.get("id", -1)) == int(g.get("id", -2))
+	if still:
+		feast_tally_start(g)
+	save_game()
+	return {"ok": true, "night": world.gathering_night(g), "broken": not still, "stopped": stopped}
+
+
+## Something happening in the hall tonight, after you've done something there: a moment
+## (HallMoments.make), or {} (none tonight, there's been one, or nothing fits). At most one
+## a night, never the same twice at one gathering. `roll` and `only` are for tests.
+func hall_moment(g: Dictionary, roll: float = -1.0, only: String = "") -> Dictionary:
+	if world == null or not world.gathering_on(g):
+		return {}
+	var rec := gathering_record(g)
+	var night: int = world.gathering_night(g)
+	var nights: Array = rec.get("moment_nights", [])
+	if nights.has(night):
+		return {}
+	nights.append(night)
+	rec["moment_nights"] = nights
+	if (roll if roll >= 0.0 else randf()) >= Gatherings.MOMENT_CHANCE:
+		return {}
+	var seen: Array = rec.get("moments", [])
+	var open: Array = HallMoments.IDS.filter(func(id): return not seen.has(id) and HallMoments.fits(self, g, id) and (only == "" or id == only))
+	if open.is_empty():
+		return {}
+	var id := String(open[randi() % open.size()])
+	seen.append(id)
+	rec["moments"] = seen
+	return HallMoments.make(self, g, id)
+
+
+## Carry out `choice` of moment `m` (HallMoments.choose).
+func hall_moment_choose(g: Dictionary, m: Dictionary, choice: String, roll: float = -1.0) -> Dictionary:
+	var r: Dictionary = HallMoments.choose(self, g, m, choice, roll)
+	save_game()
+	return r
 
 
 ## Forget what was done at gatherings long over.
@@ -5745,6 +5874,23 @@ func _load_gathering_state(data: Dictionary) -> void:
 				"gossip_nights": (e.get("gossip_nights", []) as Array).map(func(x): return int(x)),
 				"danced_nights": (e.get("danced_nights", []) as Array).map(func(x): return int(x)),
 				"marks": marks}
+			# What the feast hall keeps: the herald done, the moments had, tonight's tally.
+			var rec: Dictionary = gathering_log[str(int(float(key)))]
+			if bool(e.get("arrived", false)):
+				rec["arrived"] = true
+			if e.has("moments"):
+				rec["moments"] = (e.get("moments", []) as Array).map(func(x): return String(x))
+			if e.has("moment_nights"):
+				rec["moment_nights"] = (e.get("moment_nights", []) as Array).map(func(x): return int(x))
+			var tally = e.get("tally", {})
+			if typeof(tally) == TYPE_DICTIONARY and not (tally as Dictionary).is_empty():
+				var regard := {}
+				var raw_regard = tally.get("regard", {})
+				if typeof(raw_regard) == TYPE_DICTIONARY:
+					for lid in raw_regard:
+						regard[str(int(float(lid)))] = int(raw_regard[lid])
+				rec["tally"] = {"night": int(tally.get("night", 0)), "regard": regard, "renown": int(tally.get("renown", 0)),
+					"silver": int(tally.get("silver", 0)), "food": int(tally.get("food", 0))}
 	hosted = {}
 	var raw_hosted = data.get("hosted", {})
 	if typeof(raw_hosted) == TYPE_DICTIONARY and not raw_hosted.is_empty():

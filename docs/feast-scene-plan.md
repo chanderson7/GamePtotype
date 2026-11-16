@@ -11,6 +11,23 @@ The rules stay as they are. Every number (renown, Regard, silver, hours) still c
 
 Mockup (made from the game's own art; not the finished look): `docs/mockups/feast_scene_mock.png`.
 
+## Status: built
+
+Packages 1 to 7 are in: `scripts/ui/hall_life.gd`, `scenes/feast.tscn` + `scripts/menu/feast.gd`,
+`scripts/data/hall_moments.gd`, the hall's GameState functions (`feast_*`, `hall_moment*`), the
+town's *Enter the hall* card, and `tests/feast_scene_tests.gd`. Where it differs from the plan below:
+
+- **Guests** are each lord's own portrait without its backdrop, seated behind two tables (the
+  host's high table at the back, a near table in front), half the guests at each. On a tall
+  phone the hall gets more floor and the near guests sit larger.
+- **The arm-wrestle** is an even chance (there's no Might stat); a loss still earns +1 Regard.
+- **"Too much wine"** became *Another round*: stand the hall a round for 20 silver, +1 Regard
+  with every lord.
+- **Sleeping** to the next dusk runs the world clock like waiting on the map; if something on the
+  road needs you (brigands at the gate), the hall sends you to the map.
+- **Not done:** the map's prompt when you arrive at a town with a feast on (the town's Feast tab
+  is gold and leads in), and a raised-cup pose (guests laugh instead).
+
 ## What's wrong now
 
 1. **No place.** The feast is the same dark panel as the market. `HallScene` already draws a
@@ -91,8 +108,8 @@ steady glow only (as CampLife).
 Each action keeps its `GameState` call; what changes is what you see:
 
 - **Toast** (`raise_toast`): your cup rises at the bottom; the guests' busts tilt up (raised-cup
-  pose); a float *"+2 Regard"* rises from each face that counted; *"+120 renown"* at the top;
-  horn. 1.2 s.
+  pose); a float *"+2 Regard"* rises from each face that counted; horn. (A toast *needs*
+  120 renown; it doesn't give any. The old card's "+120" was misleading.)
 - **Gift** (`bring_gift`): a chest (or sack of food) slides to the host; the host's face changes
   to pleased; *"+5 Regard"* over the host, *"Kharzan +2"* under the title; coins.
 - **Listen** (`hear_gossip`): the two lords marked *"· · ·"* lean together; a speech card rises

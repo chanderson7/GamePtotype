@@ -57,6 +57,21 @@ const GIFT_REGARD := 5
 const GIFT_REALM := 2
 ## Hearing the gossip takes an hour of the evening.
 const GOSSIP_HOURS := 1.0
+
+# ---------------------------------------------------------------- the hall (hall_moments.gd)
+
+## The chance, after your first deed of a night, that something happens in the hall.
+const MOMENT_CHANCE := 0.6
+## The small warmth most moments bring.
+const MOMENT_REGARD := 1
+const BARD_RENOWN := 5
+const CHALLENGE_WIN_CHANCE := 0.5
+const CHALLENGE_WIN_REGARD := 3
+const CHALLENGE_RENOWN := 5
+const INSULT_RENOWN := 5
+const INSULT_REGARD := -3
+const NEWS_REGARD := 2
+const ROUND_SILVER := 20
 const DANCE_LORD := 3
 const DANCE_DARING := 4
 ## A dance with someone you court: trust, kept apart from the visits' own cap, up to

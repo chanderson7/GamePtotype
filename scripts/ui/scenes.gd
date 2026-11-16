@@ -44,6 +44,8 @@ var wedding_return := "res://scenes/world_map.tscn"
 var wedding_replay := ""
 ## Where the dance at a gathering returns to.
 var dance_return := "res://scenes/settlement.tscn"
+## Where the feast hall (scenes/feast.tscn) returns to.
+var feast_return := "res://scenes/settlement.tscn"
 var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1

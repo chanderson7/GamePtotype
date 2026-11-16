@@ -252,7 +252,14 @@ func _init() -> void:
 	var page = current_scene
 	page._on_tab("court")
 	await process_frame
-	check(_find(page, "KingsTable") != null and _find(page, "Feast_Speech") != null and _find(page, "Feast_Toast") == null, "your hall offers the king's table, with a speech for a toast")
+	check(_find(page, "KingsTable") != null and _find(page, "EnterHall") != null, "your hall offers the king's table, and the way into the hall")
+	# In the hall itself, a speech stands where a guest's toast would.
+	var feast = load("res://scripts/menu/feast.gd").new()
+	root.add_child(feast)
+	await process_frame
+	check(feast.find_child("Feast_Speech", true, false) != null and feast.find_child("Feast_Toast", true, false) == null, "and in the hall, a speech for a toast")
+	feast.queue_free()
+	await process_frame
 	check(_find(page, "ListsResult") != null, "and the lists' results")
 	var res := _find(page, "ListsResult")
 	check(res != null and _find(res, "ListsBouts") != null and res.get_child_count() == 2, "the lists show who won, with the bouts folded away")
