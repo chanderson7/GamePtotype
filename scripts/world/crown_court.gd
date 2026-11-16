@@ -12,6 +12,8 @@ const Gatherings = preload("res://scripts/data/gatherings.gd")
 const Captains = preload("res://scripts/data/captains.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const MarshalArmies = preload("res://scripts/world/marshal_armies.gd")
+const Court = preload("res://scripts/data/court_lines.gd")
+const Cultures = preload("res://scripts/data/cultures.gd")
 
 const STORM := "storm"
 const RELIEVE := "relieve"
@@ -284,22 +286,21 @@ static func counsel(gs, l: Dictionary) -> Dictionary:
 			first_storm = String(a["target"])
 		if String(a["aim"]) == RELIEVE and bool(a["ok"]):
 			relieve = String(a["target"])
-	var name := func(id: String) -> String: return String(Data.settlement(id)["name"]) if id != "" else "their walls"
-	var title := "my king"
-	match String(l.get("bearing", "")):
+	var name := func(id: String) -> String: return String(Data.settlement(id)["name"]) if id != "" else Court.THEIR_WALLS
+	var bearing := String(l.get("bearing", ""))
+	var pick := int(l.get("id", 0))
+	var says := func(aim: String, target: String) -> Dictionary:
+		return {"aim": aim, "target": target, "says": Court.fill(Court.counsel(bearing, aim, pick), {"place": name.call(target)})}
+	match bearing:
 		Lords.DARING:
-			return {"aim": STORM, "target": first_storm, "says": "\"%s. Give me the first ladder, %s.\"" % [name.call(first_storm), title]}
+			return says.call(STORM, first_storm)
 		Lords.CAUTIOUS:
-			if relieve != "":
-				return {"aim": RELIEVE, "target": relieve, "says": "\"%s holds out for us. Break the siege before we start one of our own.\"" % name.call(relieve)}
-			return {"aim": MARCH, "target": "", "says": "\"Hold what we have, %s. Ride the border, and let them come to us.\"" % title}
+			return says.call(RELIEVE, relieve) if relieve != "" else says.call(MARCH, "")
 		Lords.CRUEL:
-			return {"aim": RAID, "target": "", "says": "\"Burn their villages and their lords will come out to us. Cheaper than a siege.\""}
+			return says.call(RAID, "")
 		Lords.HONORABLE:
-			if relieve != "":
-				return {"aim": RELIEVE, "target": relieve, "says": "\"Our people at %s are starving behind their walls. We go to them first.\"" % name.call(relieve)}
-			return {"aim": STORM, "target": first_storm, "says": "\"%s's walls are high. High walls fall to patient men. And we burn no farms on the way.\"" % name.call(first_storm)}
-	return {"aim": STORM, "target": "", "says": "\"I'll ride where you ride.\""}
+			return says.call(RELIEVE, relieve) if relieve != "" else says.call(STORM, first_storm)
+	return {"aim": STORM, "target": "", "says": Court.fill(Court.counsel("", STORM, pick), {})}
 
 
 ## Who could lead if you don't: a Daring lord offers; otherwise the most renowned in the hall.
@@ -648,7 +649,7 @@ static func petitions(gs) -> Array:
 		# A band that preys on several lords' lands is one petition, from the first to ask.
 		if String(tr.get("kind", "")) == "bandits" and not bands.has(int(tr["band"])):
 			bands[int(tr["band"])] = true
-			out.append({"lord": l, "kind": "bandits", "text": "%s: %s prey on their lands." % [name, String(tr["name"])],
+			out.append({"lord": l, "kind": "bandits", "band": String(tr["name"]), "text": "%s: %s prey on their lands." % [name, String(tr["name"])],
 				"ask": "%s prey on their lands" % String(tr["name"]),
 				"settle": "Take up the hunt", "verb": "Take the hunt", "cost": 0, "table": "", "refuse": true})
 	return out
@@ -673,7 +674,10 @@ static func answer(gs, p: Dictionary, settle: bool) -> Dictionary:
 		LordTalk.change_regard(gs, l, Gatherings.PETITION_REFUSED)
 		LordTalk.record(l)["petition_at"] = w.hour
 		gs.save_game()
-		return {"ok": true, "text": "You refuse %s%s (%d Regard)." % [name, " before the hall" if table else "", Gatherings.PETITION_REFUSED]}
+		var said := Court.fill(Court.by_bearing(Court.PETITION_REFUSED, String(l.get("bearing", ""))), {"lord": name})
+		if table:
+			said = Court.PETITION_REFUSED_HALL + " " + said
+		return {"ok": true, "text": "You refuse %s. %s (%d Regard)" % [name, said, Gatherings.PETITION_REFUSED]}
 	var gain := Gatherings.PETITION_TABLE if table else Gatherings.PETITION_AFAR
 	var text := ""
 	match String(p["kind"]):
@@ -688,26 +692,27 @@ static func answer(gs, p: Dictionary, settle: bool) -> Dictionary:
 			if not gs.grant_fief(fief, int(l["id"])):
 				return {"ok": false, "reason": String(gs.grant_check(fief, int(l["id"]))["reason"])}
 			gain = 0
-			text = "You grant %s to %s." % [Data.settlement(fief)["name"], name]
+			text = Court.fill(Court.GRANTED_AFAR, {"place": Data.settlement(fief)["name"], "lord": name})
 		"rebuild":
 			if gs.crown_treasury() < 100:
 				return {"ok": false, "reason": "the treasury hasn't 100 silver"}
 			w.realms[Data.CROWN]["treasury"] = gs.crown_treasury() - 100
 			l["silver"] = int(l.get("silver", 0)) + 100
-			text = "100 silver from the treasury to rebuild %s." % Data.settlement(String(p["fief"]))["name"]
+			text = Court.fill(String(Court.PETITION_DONE["rebuild"]), {"place": Data.settlement(String(p["fief"]))["name"]})
 		"heard":
 			if table and w.wait(Gatherings.PETITION_HOURS):
 				gs.advance(Gatherings.PETITION_HOURS)
-			text = "You hear %s out%s." % [name, ", over the length of an evening" if table else ""]
+			text = Court.fill(String(Court.PETITION_DONE["heard_table" if table else "heard"]), {"lord": name})
 		"bandits":
 			var job: Dictionary = LordTalk.take_trouble(gs, l)
 			if job.is_empty():
 				return {"ok": false, "reason": "your journal is full, or the band is gone"}
-			text = "You take up the hunt for %s." % name
+			text = Court.fill(String(Court.PETITION_DONE["bandits"]), {"band": String(p.get("band", "the band"))})
 		_:
 			return {"ok": false, "reason": ""}
 	if gain != 0:
 		LordTalk.change_regard(gs, l, gain)
+		text += " " + Court.fill(Court.by_bearing(Court.PETITION_THANKS, String(l.get("bearing", ""))), {})
 		text += " +%d Regard%s." % [gain, " (heard at your table)" if table else ""]
 	LordTalk.record(l)["petition_at"] = w.hour
 	if table and not gs.hosted.is_empty():
@@ -735,13 +740,20 @@ static func honour(gs, lord_id: int) -> Dictionary:
 	gs.hosted["honoured"] = lord_id
 	LordTalk.change_regard(gs, l, Gatherings.HONOUR_REGARD)
 	var passed := 0
+	var proudest: Dictionary = {}
 	for o in gs.gathering_lords(g):
 		if o != l and int(o.get("renown", 0)) > int(l.get("renown", 0)):
 			LordTalk.change_regard(gs, o, Gatherings.PASSED_OVER_REGARD)
 			passed += 1
+			if proudest.is_empty() or int(o.get("renown", 0)) > int(proudest.get("renown", 0)):
+				proudest = o
 	gs.save_game()
-	return {"ok": true, "text": "%s sits at your right hand (+%d Regard).%s" % [LordTalk.short_name(l), Gatherings.HONOUR_REGARD,
-		(" %d lord%s of more renown feel passed over (%d)." % [passed, "" if passed == 1 else "s", Gatherings.PASSED_OVER_REGARD]) if passed > 0 else ""]}
+	var said := Court.fill(Court.by_bearing(Court.HONOURED, String(l.get("bearing", ""))), {"lord": LordTalk.short_name(l)})
+	var text := "%s (+%d Regard)" % [said, Gatherings.HONOUR_REGARD]
+	if passed > 0:
+		text += " %s %d lord%s of more renown feel passed over (%d)." % [Court.fill(Court.PASSED_OVER, {"lord": LordTalk.short_name(proudest)}),
+			passed, "" if passed == 1 else "s", Gatherings.PASSED_OVER_REGARD]
+	return {"ok": true, "text": text}
 
 
 ## Grant a castle or town before everyone at your table: +30 Regard with the lord rather
@@ -761,8 +773,9 @@ static func public_grant(gs, fief: String, lord_id: int) -> Dictionary:
 			LordTalk.change_regard(gs, o, Gatherings.PUBLIC_GRANT_WITNESS)
 			seen += 1
 	gs.save_game()
-	return {"ok": true, "text": "Before the whole hall you grant %s to %s (+%d Regard). %d lord%s see a king who rewards his own (+%d)." % [
-		Data.settlement(fief)["name"], LordTalk.short_name(l), Gatherings.PUBLIC_GRANT_REGARD, seen, "" if seen == 1 else "s", Gatherings.PUBLIC_GRANT_WITNESS]}
+	var said := Court.fill(Court.by_bearing(Court.GRANTED, String(l.get("bearing", ""))), {"lord": LordTalk.short_name(l), "place": Data.settlement(fief)["name"]})
+	return {"ok": true, "text": "Before the whole hall you grant %s to %s. %s (+%d Regard) %d lord%s see a crown that rewards its own (+%d)." % [
+		Data.settlement(fief)["name"], LordTalk.short_name(l), said, Gatherings.PUBLIC_GRANT_REGARD, seen, "" if seen == 1 else "s", Gatherings.PUBLIC_GRANT_WITNESS]}
 
 
 static func speech_check(gs) -> Dictionary:
@@ -792,10 +805,13 @@ static func speech(gs) -> Dictionary:
 		if at_war and String(l.get("realm", "")) == Data.CROWN:
 			l["rallied_until"] = w.hour + Gatherings.SPEECH_READY_HOURS
 	gs.save_game()
-	var words := "\"We hold what we hold because we hold together. Drink to that, and to the ones who aren't here to.\""
-	if at_war:
-		var foe: String = gs.realm_word(w.crown_enemies()[0])
-		words = "\"%s thinks we are a rebellion. Let us show them what a realm looks like.\"" % foe
+	var key := "war" if at_war else "peace"
+	var ctx := {"lords": n, "holdings": gs.crown_holdings().size(), "foe": gs.realm_word(w.crown_enemies()[0]) if at_war else ""}
+	var words := Court.fill(String(Court.SPEECH[key]), ctx)
+	if not gs.fallen.is_empty() and gs.fallen.back() is Dictionary:
+		var last: Dictionary = gs.fallen.back()
+		words += " " + Court.fill(String(Court.SPEECH["fallen"]), {"fallen": String(last.get("first", last.get("name", "")))})
+	words += " " + String(Court.SPEECH_HEARD[key])
 	return {"ok": true, "text": "%s +%d Regard with %d lord%s.%s" % [words, Gatherings.SPEECH_REGARD, n, "" if n == 1 else "s",
 		" Your sworn lords will ride when called, whatever their strength, for a week." if at_war else ""]}
 
@@ -825,7 +841,8 @@ static func give_gifts(gs) -> Dictionary:
 	for l in lords:
 		LordTalk.change_regard(gs, l, Gatherings.KING_GIFT_REGARD)
 	gs.save_game()
-	return {"ok": true, "text": "A gift for every lord at your table (%d silver): +%d Regard with %d." % [int(check["cost"]), Gatherings.KING_GIFT_REGARD, lords.size()]}
+	var custom := String(Court.KING_GIFTS.get(gs.culture, Court.KING_GIFTS[Cultures.VARDISH]))
+	return {"ok": true, "text": "%s (%d silver: +%d Regard with %d.)" % [custom, int(check["cost"]), Gatherings.KING_GIFT_REGARD, lords.size()]}
 
 
 # ---------------------------------------------------------------- the tourney
@@ -909,18 +926,18 @@ static func entrant_name(e: Dictionary) -> String:
 ## {won, lost, line, hurt, pass}
 static func lists_bout(gs, a: Dictionary, b: Dictionary, a_wins: int = -1, at_pass: int = -1) -> Dictionary:
 	var rng: RandomNumberGenerator = gs.world.gather_rng
-	var passes := ["first", "second", "third"]
 	var wins := (rng.randf() < lists_chance(a, b)) if a_wins < 0 else a_wins == 1
 	var won: Dictionary = a if wins else b
 	var lost: Dictionary = b if wins else a
 	var p := rng.randi_range(0, 2)
 	if at_pass >= 0:
 		p = clampi(at_pass, 0, 2)
-	var line := "%s unhorses %s at the %s pass." % [_entrant_name(won), _entrant_name(lost), passes[p]]
+	var names := {"won": _entrant_name(won), "lost": _entrant_name(lost)}
+	var line := Court.fill(String(Court.BOUT[p]), names)
 	var hurt := false
 	if lost.has("captain") and rng.randf() < Gatherings.TOURNEY_WOUND_CHANCE:
 		lost["captain"]["wounded"] = Captains.WOUND_BATTLES
-		line += " %s is carried from the lists, hurt." % _entrant_name(lost)
+		line += " " + Court.fill(Court.BOUT_HURT, names)
 		hurt = true
 	return {"won": won, "lost": lost, "line": line, "hurt": hurt, "pass": p}
 
@@ -945,14 +962,14 @@ static func lists_finish(gs, winner: Dictionary, lines: Array, mine: Array, lord
 		var hist: Dictionary = c.get("history", {}) if c.get("history") is Dictionary else {}
 		hist["tourneys"] = int(hist.get("tourneys", 0)) + 1
 		c["history"] = hist
-		result = "%s wins the %s: the purse (%d silver) and +%d renown for the company." % [_entrant_name(winner), String(g.get("name", "tourney")),
-			Gatherings.TOURNEY_PURSE, Gatherings.TOURNEY_RENOWN]
+		result = Court.fill(Court.LISTS_YOURS, {"winner": _entrant_name(winner), "name": String(g.get("name", "tourney")),
+			"silver": Gatherings.TOURNEY_PURSE, "renown": Gatherings.TOURNEY_RENOWN})
 	else:
 		var wl: Dictionary = winner["lord"]
 		wl["silver"] = int(wl.get("silver", 0)) + Gatherings.TOURNEY_PURSE
 		LordTalk.change_regard(gs, wl, Gatherings.TOURNEY_WIN_REGARD)
-		result = "%s wins the %s and the purse; %s is delighted (+%d Regard)." % [_entrant_name(winner), String(g.get("name", "tourney")),
-			LordTalk.short_name(wl), Gatherings.TOURNEY_WIN_REGARD]
+		result = Court.fill(Court.LISTS_THEIRS, {"winner": _entrant_name(winner), "name": String(g.get("name", "tourney")),
+			"lord": LordTalk.short_name(wl), "regard": Gatherings.TOURNEY_WIN_REGARD})
 	var all := lines.duplicate()
 	all.append(result)
 	gs.hosted["tourney"] = {"lines": all, "winner": _entrant_name(winner)}

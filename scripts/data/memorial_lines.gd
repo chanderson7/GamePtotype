@@ -14,24 +14,48 @@ const ROLL_FOLD := 12
 const CANDLE_DAYS := 3
 const SHARED_GRIEF := 1.0
 
+## Each people's place for its dead and its rite: what the rise is called and how it looks,
+## the rite and how it is done, the light kept for them (a candle, a lamp, incense), and
+## what it says when there is no one there yet. Narration is plain, as at the wedding: what
+## can be seen and heard.
 const PLACES := {
-	"vardish": {"name": "The Cairn Field", "line": "A rise past the horse lines, where the company leaves its dead a stone each. Someone always keeps a candle going.",
-		"rite": "Raise the cairn", "rite_done": "Stone by stone, the company raises the cairn. The last stone is set, and nobody speaks for a while.",
+	"vardish": {"name": "The Cairn Field", "line": "A rise past the horse lines where the company leaves each of its dead a stone. Someone always keeps a candle going.",
+		"rite": "Raise the cairn",
+		"rite_done": "Each of the company brings a stone from the field and sets it on the pile, the oldest first and the newest last. The last stone goes on top. Nobody speaks for a while, and then somebody does.",
+		"light": "Light a candle", "lit": "A candle burns", "laid": "Laid to rest. A candle is lit at the cairn.",
 		"empty": "No stones yet. Keep it that way."},
-	"kharzani": {"name": "The Garden of Lamps", "line": "A walled patch of ground beside the camp, a cypress at its heart. Each of the company's dead has a white stone and a lamp.",
-		"rite": "Light the lamp", "rite_done": "The lamp is filled and lit. Its small flame steadies, and the company stands until it does.",
+	"kharzani": {"name": "The Garden of Lamps", "line": "A walled patch of ground beside the camp with a cypress at its heart. Each of the company's dead has a white stone and a lamp.",
+		"rite": "Light the lamp",
+		"rite_done": "Water is poured on the stone, and the lamp is filled and lit. The company stands until the flame stops guttering and burns straight, which is how it is known they have gone on.",
+		"light": "Fill the lamp", "lit": "The lamp burns", "laid": "Laid to rest. The lamp is lit in the garden.",
 		"empty": "No lamps lit yet. Keep it that way."},
 	"ryumon": {"name": "The Lantern Grove", "line": "Under a maple at the camp's edge, a stone lantern for each of the company's dead and a tablet with their name.",
-		"rite": "Set the tablet", "rite_done": "The tablet is set in the earth and incense lit before it. The smoke goes straight up; the night is still.",
+		"rite": "Set the tablet",
+		"rite_done": "The tablet is set in the earth and incense lit before it. The company bows together. The smoke goes straight up; the night is still.",
+		"light": "Light incense", "lit": "Incense burns", "laid": "Laid to rest. Incense is lit before the tablet.",
 		"empty": "No lanterns yet. Keep it that way."},
 }
 
 ## The words said over them at a gathering: what you say, and what the epitaph becomes.
+## {place} is where they fell, {friend} the one who loved them most (the "alone" line when
+## there is no one), {lord} who killed them.
 const WORDS := {
-	"honour": {"text": "They held when it mattered.", "tag": "for what they did"},
-	"grief": {"text": "We'll keep their place by the fire.", "tag": "for who they were"},
+	"honour": {"text": "They held at {place}. None of us will forget it.", "tag": "for what they did"},
+	"grief": {"text": "{friend} will keep their place by the fire, and so will we.", "alone": "We'll keep their place by the fire.", "tag": "for who they were"},
 	"vengeance": {"text": "{lord} will answer for this.", "tag": "a vow"},
 }
+
+
+## The words for `key` over a captain who fell at `place`, loved most by `friend`, killed
+## by `lord`.
+static func words(key: String, place_name: String, friend: String, lord: String) -> String:
+	var w: Dictionary = WORDS.get(key, WORDS["honour"])
+	var text := String(w["text"])
+	if friend == "" and w.has("alone"):
+		text = String(w["alone"])
+	return text.replace("{place}", place_name if place_name != "" else "the last fight") \
+		.replace("{friend}", friend).replace("{lord}", lord if lord != "" else "Their killer")
+
 
 ## Epitaphs, by the words said and the captain's temperament. {first} {company} {place}
 ## {lord} {battles} {kills} are filled in.

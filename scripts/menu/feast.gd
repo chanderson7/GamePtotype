@@ -44,11 +44,6 @@ const NEAR_SHOWS := 0.7
 const FAR_SEATS := 4
 const NEAR_SEATS := 4
 
-const NIGHT_LINE := {
-	2: "The second night: fewer speeches, more wine.",
-	3: "The last night. The musicians are tuning up for the dance.",
-}
-
 var g: Dictionary = {}
 var place := ""
 var culture := "vardish"
@@ -278,7 +273,7 @@ func _build() -> void:
 	_leave.pressed.connect(_on_leave)
 	door.add_child(_leave)
 	var night: int = GameState.world.gathering_night(g)
-	_say(String(NIGHT_LINE.get(night, Gatherings.HALL.get(culture, Gatherings.HALL["vardish"]))))
+	_say(Gatherings.night_line(culture, night, String(g.get("reason", ""))))
 	_refresh()
 
 
@@ -754,14 +749,14 @@ func _herald() -> void:
 	# Every head in the hall turns to the door.
 	_react(_guests.keys(), "surprised" if invited else "grim", 1.4)
 	if invited:
-		var sub := Style.label("The hall turns to look. Cups are raised.", Style.BODY, Style.MUTED)
+		var sub := Style.label(Gatherings.HERALD_SEEN, Style.BODY, Style.MUTED)
 		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		o.add_child(sub)
 		o.add_child(_overlay_button("GoIn", "Go in", true, _enter_hall))
 		(_overlay.get_meta("veil") as Control).set_meta("close", _enter_hall)
 	else:
-		var sub := Style.label("Heads turn. A steward waits to see what you'll do. You can still sit, but lower down the table.", Style.BODY, Style.MUTED)
+		var sub := Style.label(Gatherings.HERALD_NOT_SEEN, Style.BODY, Style.MUTED)
 		sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		o.add_child(sub)
@@ -1118,7 +1113,7 @@ func _night_end(go_text: String, go: Callable) -> void:
 	var v := _overlay_panel("NightEnd", "%s · NIGHT %d OF 3" % [GameState.gathering_title(g).to_upper(), maxi(1, night)])
 	var lords: Array = s["lords"]
 	if lords.is_empty() and int(s["renown"]) == 0:
-		var quiet := Style.label("A quiet night. Nobody thinks better or worse of you for it.", Style.BODY, Style.MUTED)
+		var quiet := Style.label(Gatherings.QUIET_NIGHT, Style.BODY, Style.MUTED)
 		quiet.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		quiet.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		v.add_child(quiet)

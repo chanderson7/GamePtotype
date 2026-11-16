@@ -29,6 +29,7 @@ const Fiefs = preload("res://scripts/data/fiefs.gd")
 const SaveSlots = preload("res://scripts/save_slots.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
+const CourtLines = preload("res://scripts/data/court_lines.gd")
 const MarriedLife = preload("res://scripts/world/married_life.gd")
 const Letters = preload("res://scripts/data/letters.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
@@ -1196,8 +1197,7 @@ func raise_toast(g: Dictionary) -> Dictionary:
 			continue
 		LordTalk.change_regard(self, l, Gatherings.TOAST_REGARD)
 		warmed += 1
-	var text := Gatherings.fill(String(Gatherings.TOASTS.get(String(g.get("culture", "")), Gatherings.TOASTS[Cultures.VARDISH])),
-		{"host": gathering_host_name(g)})
+	var text := Gatherings.toast(String(g.get("culture", "")), String(g.get("reason", "")), gathering_host_name(g))
 	save_game()
 	return {"ok": true, "text": text, "lords": warmed}
 
@@ -1230,7 +1230,7 @@ func bring_gift(g: Dictionary) -> Dictionary:
 	LordTalk.change_regard(self, host, Gatherings.GIFT_REGARD)
 	add_realm_relation(String(g["realm"]), Gatherings.GIFT_REALM)
 	save_game()
-	return {"ok": true, "what": check["what"], "text": String(Gatherings.GIFT_THANKS.get(String(host.get("bearing", "")), "\"Thank you.\""))}
+	return {"ok": true, "what": check["what"], "text": Gatherings.gift_thanks(String(host.get("bearing", "")), String(check["what"]))}
 
 
 func gossip_check(g: Dictionary) -> Dictionary:
@@ -1247,17 +1247,18 @@ func sour_reason(l: Dictionary) -> String:
 	if bool(l.get("ruler", false)) or realm == WorldData.CROWN or not world.realms.has(realm):
 		return ""
 	var fief := String(l.get("fief", ""))
+	var ruler := LordTalk.ruler_name(l)
 	if fief == "":
-		return "has no castle of their own"
+		return String(Gatherings.SOUR["landless"])
 	if world.owner_of(fief) != realm:
-		return "lost %s, and blames the crown" % WorldData.settlement(fief)["name"]
+		return Gatherings.fill(String(Gatherings.SOUR["lost"]), {"place": WorldData.settlement(fief)["name"], "ruler": ruler})
 	if world.is_burned(fief):
-		return "watched %s burn" % WorldData.settlement(fief)["name"]
+		return Gatherings.fill(String(Gatherings.SOUR["burned"]), {"place": WorldData.settlement(fief)["name"], "ruler": ruler})
 	for v in world.villages_of(realm):
 		if world.is_burned(v) and String(WorldData.SETTLEMENTS[v].get("bound_to", "")) == fief:
-			return "watched %s burn" % WorldData.settlement(v)["name"]
+			return Gatherings.fill(String(Gatherings.SOUR["burned"]), {"place": WorldData.settlement(v)["name"], "ruler": ruler})
 	if world.weariness_of(realm) >= 40.0:
-		return "is sick of the war"
+		return Gatherings.fill(String(Gatherings.SOUR["weary"]), {"ruler": ruler})
 	return ""
 
 
@@ -1276,7 +1277,7 @@ func hear_gossip(g: Dictionary) -> Dictionary:
 		var why := sour_reason(l)
 		if why != "" and not marks.has(str(int(l["id"]))):
 			var ruler := LordTalk.ruler_name(l)
-			out["text"] = "%s %s, and says so after the second cup. %s may hear you out." % [LordTalk.short_name(l), why, LordTalk.first_name(l)]
+			out["text"] = Gatherings.fill(String(Gatherings.GOSSIP["sour"]), {"lord": LordTalk.short_name(l), "why": why, "first": LordTalk.first_name(l)})
 			out["lord_id"] = int(l["id"])
 			out["hint"] = "sour with %s" % ruler
 			LordTalk.record(l)["doubts_king"] = 1
@@ -1288,7 +1289,7 @@ func hear_gossip(g: Dictionary) -> Dictionary:
 			continue
 		var tr := LordTalk.trouble(self, l)
 		if String(tr.get("kind", "")) == "bandits":
-			out["text"] = "%s is plagued by %s, and would pay to see them gone." % [LordTalk.short_name(l), String(tr["name"])]
+			out["text"] = Gatherings.fill(String(Gatherings.GOSSIP["trouble"]), {"lord": LordTalk.short_name(l), "band": String(tr["name"]), "first": LordTalk.first_name(l)})
 			out["lord_id"] = int(l["id"])
 			out["hint"] = "has a trouble"
 			marks[str(int(l["id"]))] = out["hint"]
@@ -1296,10 +1297,10 @@ func hear_gossip(g: Dictionary) -> Dictionary:
 			return out
 	for e in world.activity_log:
 		if String(e.get("category", "")) in ["war", "siege"] and String(e.get("type", "")) not in ["gathering", "gathering_broken"]:
-			out["text"] = "Talk at the table is all of one thing: %s" % String(e["text"])
+			out["text"] = Gatherings.fill(String(Gatherings.GOSSIP["war"]), {"news": String(e["text"])})
 			save_game()
 			return out
-	out["text"] = "Talk of the harvest, a horse race, and who wore what. Nothing worth the hour, but the wine was good."
+	out["text"] = Gatherings.quiet_gossip(String(g.get("culture", "")))
 	save_game()
 	return out
 
@@ -1699,20 +1700,22 @@ func feast_arrive(g: Dictionary) -> void:
 
 ## What the herald calls out as you come in.
 func feast_herald(g: Dictionary) -> String:
+	var words: Dictionary = Gatherings.HERALD_WHO
 	if gathering_is_mine(g):
-		return "All rise for the ruler of %s, whose hall this is!" % crown_title()
+		return Gatherings.fill(String(words["own"]), {"crown": crown_title()})
 	if not bool(gathering_invite(g)["invited"]):
-		return "The herald runs a finger down the guest list, twice. Your name is not on it."
-	var who := "The captain of the %s warband" % String(Cultures.info(culture)["people"])
+		return Gatherings.HERALD_NOT_ASKED
+	var who := Gatherings.fill(String(words["company"]), {"people": String(Cultures.info(culture)["people"])})
 	if company_title != "" and Achievements.DEEDS.has(company_title):
-		who += ", known as %s" % String(Achievements.DEEDS[company_title]["title"])
+		who += Gatherings.fill(String(words["known"]), {"title": String(Achievements.DEEDS[company_title]["title"])})
 	if is_crowned():
-		who = "The ruler of %s" % crown_title()
+		who = Gatherings.fill(String(words["crown"]), {"crown": crown_title()})
 	elif has_contract():
-		who += ", in the pay of %s" % realm_word(contract_realm())
+		who += Gatherings.fill(String(words["contract"]), {"realm": realm_word(contract_realm())})
 	elif has_fief() and not bool(player_fief.get("lost", false)):
-		who += ", who holds land of %s" % realm_word(fief_realm())
-	return "%s!" % who
+		who += Gatherings.fill(String(words["fief"]), {"realm": realm_word(fief_realm())})
+	var form: String = Gatherings.HERALD.get(String(g.get("culture", "")), Gatherings.HERALD[Cultures.VARDISH])
+	return Gatherings.fill(form, {"who": who})
 
 
 ## Where tonight's summary counts from: Regard with each lord in the hall, renown, silver
@@ -1936,8 +1939,8 @@ func declare_crown() -> bool:
 	player_fief["garrison"] = kept
 	world.player().faction = WorldData.CROWN
 	add_realm_relation(liege, -60)
-	_note("You raise your own banner over %s. %s will not forgive it: it is war." % [
-		WorldData.settlement(seat)["name"], WorldData.FACTIONS[liege]["name"] if WorldData.FACTIONS.has(liege) else "Your liege"], _card_merge(_place_art(seat, WorldData.CROWN, liege), {"kind": "crown_raised", "title": "A crown is raised", "big": true, "tone": "gold", "banners": [WorldData.CROWN, liege], "told": true}))
+	_note(CourtLines.fill(CourtLines.CROWN_RAISED, {"place": WorldData.settlement(seat)["name"],
+		"liege": WorldData.FACTIONS[liege]["name"] if WorldData.FACTIONS.has(liege) else "Your liege"}), _card_merge(_place_art(seat, WorldData.CROWN, liege), {"kind": "crown_raised", "title": "A crown is raised", "big": true, "tone": "gold", "banners": [WorldData.CROWN, liege], "told": true}))
 	# Raised from a menu, it's marked there and then; the map doesn't tell it again.
 	_moment("A crown is raised", "%s is the seat of %s." % [WorldData.settlement(seat)["name"], crown_title()], "crown", false, "")
 	# There is no going back: the moment is marked as one (the horn is the caller's).

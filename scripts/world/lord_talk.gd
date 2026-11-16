@@ -143,8 +143,12 @@ static func short_name(l: Dictionary) -> String:
 	return String(l.get("name", ""))
 
 
+## The name a lord goes by in a sentence: their first name ("Cato"), or for a ruler, their
+## title and name ("King Aldwin"), never the bare title.
 static func first_name(l: Dictionary) -> String:
 	var s := short_name(l).split(" ")
+	if s.size() == 2 and String(s[0]) in ["King", "Queen", "Sultan", "Sultana", "Shogun"]:
+		return short_name(l)
 	return String(s[0]) if not s.is_empty() else String(l.get("name", ""))
 
 

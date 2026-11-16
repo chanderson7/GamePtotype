@@ -12,16 +12,122 @@ const LordTalk = preload("res://scripts/world/lord_talk.gd")
 
 const IDS := ["bard", "challenge", "insult", "news", "aside", "round"]
 
+## The words: written in the register set out at the top of gatherings.gd. The lord in a
+## moment speaks by bearing; what you are (a company, sworn, landed, a crown) is what the
+## insult reaches for. {lord} is the lord's short name, {first} their first name, {host}
+## the host, {wins} and {battles} your company's record.
+
+const TITLES := {
+	"bard": "A song for the company", "challenge": "Arm against arm", "insult": "A word across the table",
+	"news": "The host asks for news", "aside": "A quiet word", "round": "Another round",
+}
+
+## The song made of your deeds: the hall's own singer, and the record it's made from.
 const BARD := {
-	"vardish": "The harper strikes up something new: the deeds of your company, with more dragons in it than you remember.",
-	"kharzani": "A poet rises and recites a qasida on your company's deeds, each verse grander than the last.",
-	"ryumon": "A verse is read for your company: a banner in the rain, a river crossed by night. The hall listens.",
+	"vardish": "The harper strikes up something new: the deeds of your company, {wins} victories in {battles} battles, with more dragons in it than you remember.",
+	"kharzani": "A poet rises and recites a qasida on your company: {wins} victories in {battles} battles, each verse grander than the last and none of them quite true.",
+	"ryumon": "A verse is read for your company: a banner in the rain, a river crossed by night, {wins} victories in {battles} battles. The hall listens without a sound.",
 }
+## Before the company has won anything worth a song.
+const BARD_NEW := {
+	"vardish": "The harper strikes up something new about your company. It is short, because there isn't much to sing yet, and hopeful.",
+	"kharzani": "A poet rises with a qasida on your company. It is mostly about what you will do. The poet is generous with the future.",
+	"ryumon": "A verse is read for your company: a banner nobody knows yet, on a road nobody has mapped. The hall listens politely.",
+}
+const BARD_STAND := "Stand and take the cheers."
+const BARD_PASS := "Raise your cup to the singer instead."
+const BARD_STOOD := "You stand. The hall drums the tables, and the singer adds a verse on the spot."
+const BARD_PASSED := "You raise your cup to the singer, who bows low. Modesty plays well at the high table."
+
+## The challenge, by the challenger's bearing.
+const CHALLENGE := {
+	Lords.DARING: "{lord} plants an elbow on the table and grins. \"Arm against arm, captain. For the hall, and a cask of the host's best.\"",
+	Lords.CAUTIOUS: "{lord} sets a cup aside and rolls back one sleeve, unhurried. \"A friendly match, captain. I'm told you're strong. I'd like to know how strong.\"",
+	Lords.HONORABLE: "{lord} rises and offers an open hand across the table. \"A trial of arms, captain, the friendly kind. The hall would like to see it.\"",
+	Lords.CRUEL: "{lord} leans in on one elbow. \"Arm against arm, captain. Let's see what the hall is paying for.\"",
+}
+const CHALLENGE_ACCEPT := "Roll up your sleeve."
+const CHALLENGE_DECLINE := "Laugh it off."
+const CHALLENGE_WON := {
+	Lords.DARING: "You put {first}'s arm down with a crack of the table. {first} roars with laughter and calls for the cask.",
+	Lords.CAUTIOUS: "You put {first}'s arm down. {first} flexes the hand, considers you, and nods. \"Now I know.\"",
+	Lords.HONORABLE: "You put {first}'s arm down. {first} stands and clasps your hand before the whole hall.",
+	Lords.CRUEL: "You put {first}'s arm down. {first} smiles, and the smile doesn't move. The hall cheers you anyway.",
+}
+const CHALLENGE_LOST := {
+	Lords.DARING: "Your arm goes down. {first} claps you on the back. \"Again next feast! You nearly had me. You didn't, but nearly.\"",
+	Lords.CAUTIOUS: "Your arm goes down. {first} is gracious about it, and fills your cup. A good loser is worth knowing.",
+	Lords.HONORABLE: "Your arm goes down. {first} raises your hand anyway. \"A fair match. The hall will drink to both.\"",
+	Lords.CRUEL: "Your arm goes down. {first} lets go slowly. \"Better than I expected.\" From {first}, it's almost warm.",
+}
+const CHALLENGE_DECLINED := "You raise your cup instead and say the host's table is too good to break. The hall laughs, and moves on."
+
+## The insult: what it reaches for depends on what you are.
+const INSULT := {
+	"company": "{lord} wonders aloud, for the whole table to hear, whether sellswords wash before they sit down with lords.",
+	"contract": "{lord} wonders aloud, for the whole table to hear, how much a captain costs by the week, and whether the price includes manners.",
+	"fief": "{lord} wonders aloud, for the whole table to hear, how a captain comes by a castle, and whether its last lord was asked.",
+	"crown": "{lord} wonders aloud, for the whole table to hear, how long a crown lasts on a head that was selling its sword not long ago.",
+}
+const INSULT_ANSWER := "Answer in kind."
+const INSULT_PASS := "Let it pass."
+const INSULT_ANSWERED := "You answer, not loudly. It gets the bigger laugh, and {first} goes red to the ears. {first} will not forget it."
+const INSULT_PASSED := "You let it go by and reach for the bread. The host has seen, and approves."
+
+## The host asks for news, by bearing.
+const NEWS := {
+	Lords.DARING: "{lord} calls down the table: \"Captain! Tell us about the fighting. The real fighting, not the reports.\"",
+	Lords.CAUTIOUS: "{lord} catches your eye down the table. \"Captain. What are the roads like? I'd value a soldier's account.\"",
+	Lords.HONORABLE: "{lord} raises a hand for quiet. \"Captain, you've come far. Tell the hall what you have seen.\"",
+	Lords.CRUEL: "{lord} calls down the table: \"Captain! What news? Who is losing?\"",
+}
+const NEWS_DEEDS := "Tell of the company's deeds."
+const NEWS_WAR := "Tell what the enemy is about."
+const NEWS_TOLD_DEEDS := "{first} listens to every word, and has your cup filled before you've finished."
+const NEWS_TOLD_WAR := "Heads lean in all down the table. You know things they don't, and they will remember who told them."
+
+## A quiet word, by bearing.
+const ASIDE := {
+	Lords.DARING: "{lord} catches your eye and jerks their head toward the doors to the yard. Something they'd rather not shout.",
+	Lords.CAUTIOUS: "{lord} catches your eye, glances at the high table, and nods toward a quieter corner.",
+	Lords.HONORABLE: "{lord} sends a servant down the table: would the captain spare a moment, away from the noise?",
+	Lords.CRUEL: "{lord} is watching you over a cup, and tips it toward the shadows by the wall.",
+}
+const ASIDE_GO := "Go and sit with {first}."
+const ASIDE_PASS := "Not now."
+const ASIDE_PASSED := "You nod back, and stay where you are. {first} shrugs, and looks for someone else."
+
+## Another round.
 const ROUND := {
-	"vardish": "The ale keeps coming, and the hall looks your way.",
-	"kharzani": "The sherbet gives way to wine, and the courtyard looks your way.",
-	"ryumon": "The cups go round again, and the hall looks your way.",
+	"vardish": "The ale keeps coming. The hall has noticed you haven't stood a round yet.",
+	"kharzani": "The sherbet has given way to wine, and the courtyard has noticed you haven't stood a round yet.",
+	"ryumon": "The cups go round again. The hall has noticed you haven't filled them yet.",
 }
+const ROUND_STAND := "Stand the hall a round."
+const ROUND_PASS := "Water your wine."
+const ROUND_STOOD := "A cheer goes up, and every cup in the hall is raised to you."
+const ROUND_PASSED := "You keep a clear head. Someone has to."
+
+
+static func _by(lines: Dictionary, l: Dictionary) -> String:
+	return String(lines.get(String(l.get("bearing", "")), lines[Lords.HONORABLE]))
+
+
+static func _fill(text: String, l: Dictionary, extra: Dictionary = {}) -> String:
+	var ctx := {"lord": LordTalk.short_name(l) if not l.is_empty() else "", "first": LordTalk.first_name(l) if not l.is_empty() else ""}
+	ctx.merge(extra, true)
+	return Gatherings.fill(text, ctx)
+
+
+## What the insult reaches for: what you are.
+static func _what_you_are(gs) -> String:
+	if gs.is_crowned():
+		return "crown"
+	if gs.has_fief() and not bool(gs.player_fief.get("lost", false)):
+		return "fief"
+	if gs.has_contract():
+		return "contract"
+	return "company"
 
 
 ## Who a moment is about, from the lords in the hall, or {} if no one fits it.
@@ -70,48 +176,42 @@ static func make(gs, g: Dictionary, id: String) -> Dictionary:
 	var culture := String(g.get("culture", "vardish"))
 	var l := _who(gs, g, id)
 	var lord_id := int(l.get("id", -1))
-	var who := LordTalk.short_name(l) if not l.is_empty() else ""
 	var host: String = gs.gathering_host_name(g)
-	var m := {"id": id, "lord_id": lord_id, "choices": []}
+	var m := {"id": id, "lord_id": lord_id, "choices": [], "title": String(TITLES.get(id, ""))}
 	match id:
 		"bard":
-			m["title"] = "A song for the company"
-			m["text"] = String(BARD.get(culture, BARD["vardish"]))
+			var song: Dictionary = BARD if int(gs.wins) >= 3 else BARD_NEW
+			m["text"] = Gatherings.fill(String(song.get(culture, song["vardish"])), {"wins": str(int(gs.wins)), "battles": str(int(gs.battles))})
 			m["choices"] = [
-				{"id": "stand", "text": "Stand and take the cheers.", "tag": "+%d renown" % Gatherings.BARD_RENOWN, "ok": true},
-				{"id": "pass", "text": "Raise your cup to the singer instead.", "tag": "+%d Regard with %s" % [Gatherings.MOMENT_REGARD, host] if host != "you" else "the hall smiles", "ok": true}]
+				{"id": "stand", "text": BARD_STAND, "tag": "+%d renown" % Gatherings.BARD_RENOWN, "ok": true},
+				{"id": "pass", "text": BARD_PASS, "tag": "+%d Regard with %s" % [Gatherings.MOMENT_REGARD, host] if host != "you" else "the hall smiles", "ok": true}]
 		"challenge":
-			m["title"] = "Arm against arm"
-			m["text"] = "%s plants an elbow on the table and grins. \"Arm against arm, captain. For the hall.\"" % who
+			m["text"] = _fill(_by(CHALLENGE, l), l)
 			m["choices"] = [
-				{"id": "accept", "text": "Roll up your sleeve.", "tag": "win: +%d Regard, +%d renown · lose: +%d Regard" % [Gatherings.CHALLENGE_WIN_REGARD, Gatherings.CHALLENGE_RENOWN, Gatherings.MOMENT_REGARD], "ok": true},
-				{"id": "decline", "text": "Laugh it off.", "tag": "nothing", "ok": true}]
+				{"id": "accept", "text": CHALLENGE_ACCEPT, "tag": "win: +%d Regard, +%d renown · lose: +%d Regard" % [Gatherings.CHALLENGE_WIN_REGARD, Gatherings.CHALLENGE_RENOWN, Gatherings.MOMENT_REGARD], "ok": true},
+				{"id": "decline", "text": CHALLENGE_DECLINE, "tag": "nothing", "ok": true}]
 		"insult":
-			m["title"] = "A word across the table"
-			m["text"] = "%s wonders aloud, for the whole table to hear, whether sellswords wash before they sit with lords." % who
+			m["text"] = _fill(String(INSULT[_what_you_are(gs)]), l)
 			m["choices"] = [
-				{"id": "answer", "text": "Answer in kind.", "tag": "the hall laughs: +%d renown · %d Regard with %s" % [Gatherings.INSULT_RENOWN, Gatherings.INSULT_REGARD, LordTalk.first_name(l)], "ok": true},
-				{"id": "pass", "text": "Let it pass.", "tag": "+%d Regard with %s" % [Gatherings.MOMENT_REGARD, host] if host != "you" else "nothing", "ok": true}]
+				{"id": "answer", "text": INSULT_ANSWER, "tag": "the hall laughs: +%d renown · %d Regard with %s" % [Gatherings.INSULT_RENOWN, Gatherings.INSULT_REGARD, LordTalk.first_name(l)], "ok": true},
+				{"id": "pass", "text": INSULT_PASS, "tag": "+%d Regard with %s" % [Gatherings.MOMENT_REGARD, host] if host != "you" else "nothing", "ok": true}]
 		"news":
-			m["title"] = "The host asks for news"
-			m["text"] = "%s calls down the table: \"Captain! What news from the roads?\"" % who
+			m["text"] = _fill(_by(NEWS, l), l)
 			m["choices"] = [
-				{"id": "deeds", "text": "Tell of the company's deeds.", "tag": "+%d Regard with %s" % [Gatherings.NEWS_REGARD, LordTalk.first_name(l)], "ok": true},
-				{"id": "war", "text": "Tell what the enemy is about.", "tag": "+%d Regard with each lord of %s" % [Gatherings.MOMENT_REGARD, gs.realm_word(String(g.get("realm", "")))], "ok": true}]
+				{"id": "deeds", "text": NEWS_DEEDS, "tag": "+%d Regard with %s" % [Gatherings.NEWS_REGARD, LordTalk.first_name(l)], "ok": true},
+				{"id": "war", "text": NEWS_WAR, "tag": "+%d Regard with each lord of %s" % [Gatherings.MOMENT_REGARD, gs.realm_word(String(g.get("realm", "")))], "ok": true}]
 		"aside":
-			m["title"] = "A quiet word"
-			m["text"] = "%s catches your eye and nods toward a quieter corner of the hall." % who
+			m["text"] = _fill(_by(ASIDE, l), l)
 			m["choices"] = [
-				{"id": "go", "text": "Go and sit with %s." % LordTalk.first_name(l), "tag": "talk", "ok": true},
-				{"id": "pass", "text": "Not now.", "tag": "nothing", "ok": true}]
+				{"id": "go", "text": _fill(ASIDE_GO, l), "tag": "talk", "ok": true},
+				{"id": "pass", "text": ASIDE_PASS, "tag": "nothing", "ok": true}]
 		"round":
-			m["title"] = "Another round"
 			m["text"] = String(ROUND.get(culture, ROUND["vardish"]))
 			var can: bool = int(gs.silver) >= Gatherings.ROUND_SILVER
 			m["choices"] = [
-				{"id": "stand", "text": "Stand the hall a round.", "tag": "−%d silver · +%d Regard with every lord" % [Gatherings.ROUND_SILVER, Gatherings.MOMENT_REGARD],
+				{"id": "stand", "text": ROUND_STAND, "tag": "−%d silver · +%d Regard with every lord" % [Gatherings.ROUND_SILVER, Gatherings.MOMENT_REGARD],
 					"ok": can, "why": "" if can else "you haven't %d silver" % Gatherings.ROUND_SILVER},
-				{"id": "pass", "text": "Water your wine.", "tag": "nothing", "ok": true}]
+				{"id": "pass", "text": ROUND_PASS, "tag": "nothing", "ok": true}]
 	return m
 
 
@@ -132,44 +232,44 @@ static func choose(gs, g: Dictionary, m: Dictionary, choice: String, roll: float
 		["bard", "stand"]:
 			gs.renown += Gatherings.BARD_RENOWN
 			out["renown"] = Gatherings.BARD_RENOWN
-			out["text"] = "The hall drums the tables for you."
+			out["text"] = BARD_STOOD
 		["bard", "pass"]:
 			warm.call(host, Gatherings.MOMENT_REGARD)
-			out["text"] = "The singer bows. Modesty plays well at the high table."
+			out["text"] = BARD_PASSED
 		["challenge", "accept"]:
 			var won := (roll if roll >= 0.0 else randf()) < Gatherings.CHALLENGE_WIN_CHANCE
 			if won:
 				warm.call(l, Gatherings.CHALLENGE_WIN_REGARD)
 				gs.renown += Gatherings.CHALLENGE_RENOWN
 				out["renown"] = Gatherings.CHALLENGE_RENOWN
-				out["text"] = "You put %s's arm down with a crack of the table. A roar of laughter, and a call for more wine." % LordTalk.first_name(l)
+				out["text"] = _fill(_by(CHALLENGE_WON, l), l)
 			else:
 				warm.call(l, Gatherings.MOMENT_REGARD)
-				out["text"] = "Your arm goes down. %s claps you on the back: a good loser is worth a cup." % LordTalk.first_name(l)
+				out["text"] = _fill(_by(CHALLENGE_LOST, l), l)
 			out["won"] = won
 		["challenge", "decline"]:
-			out["text"] = "You raise your cup instead. The table moves on."
+			out["text"] = CHALLENGE_DECLINED
 		["insult", "answer"]:
 			warm.call(l, Gatherings.INSULT_REGARD)
 			gs.renown += Gatherings.INSULT_RENOWN
 			out["renown"] = Gatherings.INSULT_RENOWN
-			out["text"] = "Your answer gets the bigger laugh. %s does not forget it." % LordTalk.first_name(l)
+			out["text"] = _fill(INSULT_ANSWERED, l)
 		["insult", "pass"]:
 			warm.call(host, Gatherings.MOMENT_REGARD)
-			out["text"] = "You let it go by. The host notices, and approves."
+			out["text"] = INSULT_PASSED
 		["news", "deeds"]:
 			warm.call(l, Gatherings.NEWS_REGARD)
-			out["text"] = "%s listens to every word, and has your cup filled." % LordTalk.first_name(l)
+			out["text"] = _fill(NEWS_TOLD_DEEDS, l)
 		["news", "war"]:
 			for lord in gs.gathering_lords(g):
 				if String(lord.get("realm", "")) == String(g.get("realm", "")):
 					warm.call(lord, Gatherings.MOMENT_REGARD)
-			out["text"] = "Heads lean in down the table. You know things they don't."
+			out["text"] = NEWS_TOLD_WAR
 		["aside", "go"]:
 			out["talk"] = int(m["lord_id"])
 			out["text"] = ""
 		["aside", "pass"]:
-			out["text"] = "You nod back, and stay where you are."
+			out["text"] = _fill(ASIDE_PASSED, l)
 		["round", "stand"]:
 			if int(gs.silver) < Gatherings.ROUND_SILVER:
 				return {"ok": false, "text": "", "regard": {}, "renown": 0, "silver": 0, "talk": -1}
@@ -177,9 +277,9 @@ static func choose(gs, g: Dictionary, m: Dictionary, choice: String, roll: float
 			out["silver"] = -Gatherings.ROUND_SILVER
 			for lord in gs.gathering_lords(g):
 				warm.call(lord, Gatherings.MOMENT_REGARD)
-			out["text"] = "A cheer goes up, and every cup in the hall is raised to you."
+			out["text"] = ROUND_STOOD
 		["round", "pass"]:
-			out["text"] = "You keep a clear head. Someone has to."
+			out["text"] = ROUND_PASSED
 		_:
 			return {"ok": false, "text": "", "regard": {}, "renown": 0, "silver": 0, "talk": -1}
 	return out

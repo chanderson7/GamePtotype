@@ -114,7 +114,7 @@ func _init() -> void:
 	# ---- the herald, once
 	check(_find(hall, "Herald") != null, "the herald meets you at the door")
 	var line: Label = _find(hall, "HeraldLine")
-	check(line != null and line.text.contains("Vardish warband") and line.text.contains("in the pay of Vardmark"),
+	check(line != null and line.text.contains("Vardish company") and line.text.contains("in the pay of Vardmark"),
 		"and calls out who you are (%s)" % (line.text if line != null else ""))
 	(_find(hall, "GoIn") as Button).pressed.emit()
 	await process_frame

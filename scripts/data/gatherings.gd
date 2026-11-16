@@ -147,52 +147,106 @@ const REST_MAX := 24.0
 
 
 # ---------------------------------------------------------------- words
+##
+## How the gatherings are written, in the same register as the wedding (see the notes at
+## the top of wedding_lines.gd):
+##   Narration is plain: what can be seen and heard. It doesn't joke; the hall does.
+##   Each people keeps its own hall. Vardish: a long hall, benches, a harper, the hearth,
+##     ale, toasts banged on the table. Kharzani: a courtyard, lanterns, brass trays,
+##     sherbet then wine, a poet. Ryumon: a terrace or tatami, cups filled in turn, a verse,
+##     the moon.
+##   Lords speak by bearing. Daring: loud, wagers and horses, short. Cautious: measured,
+##     conditions, counts twice. Honorable: formal, oaths and fairness. Cruel: cold, polite
+##     on the surface, everything a transaction.
+##   You are whatever the game has made you (a sellsword, a lord's vassal, a crown); a
+##     lord is never "he" or "she".
 
 ## What each culture calls them.
 const NAMES := {
 	Cultures.VARDISH: {FEAST: "feast", DANCE: "midsummer dance", TOURNEY: "tourney"},
 	Cultures.KHARZANI: {FEAST: "banquet", DANCE: "lantern night", TOURNEY: "lance games"},
-	Cultures.RYUMON: {FEAST: "moon-viewing", DANCE: "blossom festival", TOURNEY: "archery contest"},
+	Cultures.RYUMON: {FEAST: "moon-viewing", DANCE: "blossom festival", TOURNEY: "lance trials"},
 }
 
-## The hall, as you walk in.
-const HALL := {
-	Cultures.VARDISH: "The long table runs the length of the hall. A harper plays under the din, and every few minutes someone stands to shout a toast.",
-	Cultures.KHARZANI: "Brass trays go round the courtyard under the lanterns, and a poet is losing an argument with the musicians.",
-	Cultures.RYUMON: "Cups are filled in turn down the low tables. Someone reads a verse about the moon, and the hall goes quiet to hear it.",
+## The hall, as you walk in, by people and night (the first, the second, the last).
+const NIGHTS := {
+	Cultures.VARDISH: [
+		"The long table runs the length of the hall, the hearth at one end and the high seat at the other. A harper plays under the din. Every so often someone stands and bangs the table until the hall hears a toast.",
+		"The second night. The benches have been moved closer to the fire, the speeches are shorter, and the harper has been given a stool and a cup.",
+		"The last night. The trestles at the far end have been cleared for dancing, and the fiddlers are tuning by the door.",
+	],
+	Cultures.KHARZANI: [
+		"Lanterns hang over the courtyard on long cords. Brass trays go round with sherbet and dates, and a poet near the fountain is reciting to anyone who will stand still.",
+		"The second night. The sherbet has given way to wine, the poet has found a rival, and the two of them are trading verses across the fountain.",
+		"The last night. The musicians have taken the steps by the arches, and the trays are being carried out of the way.",
+	],
+	Cultures.RYUMON: [
+		"The screens are open to the terrace and the moon. Cups are filled in turn down the low tables, and when someone reads a verse the room goes quiet to hear it.",
+		"The second night. The cups go round faster. Someone has begun a verse-game, each guest adding a line, and the lines are getting worse on purpose.",
+		"The last night. The tatami at the end of the hall has been cleared, and the drummers are kneeling by the screens.",
+	],
 }
+## The first night's hall, as a line under the hall's picture (settlement screen).
+const HALL := {
+	Cultures.VARDISH: "A long table, a harper, the hearth, and a toast every few minutes.",
+	Cultures.KHARZANI: "Lanterns over the courtyard, brass trays, and a poet who will not stop.",
+	Cultures.RYUMON: "Cups filled in turn, the moon through the screens, and a verse now and then.",
+}
+## The first night, by why it's held, after the hall itself.
+const REASON_LINE := {
+	"peace": "It is a peace feast. The talk is careful, and nobody is quite sure yet who may be toasted.",
+	"victory": "It is a victory feast. The spoils are on the walls, and every story told tonight gets a little longer.",
+}
+
+## The herald at the door. {who} is how you are named.
+const HERALD := {
+	Cultures.VARDISH: "{who}!",
+	Cultures.KHARZANI: "Be welcome in this house: {who}!",
+	Cultures.RYUMON: "{who}. The house bids you enter.",
+}
+## How you are named, by what you are: a company, sworn or landed, a crown.
+const HERALD_WHO := {
+	"company": "The captain of the {people} company",
+	"known": ", known as {title}",
+	"contract": ", in the pay of {realm}",
+	"fief": ", who holds land of {realm}",
+	"crown": "The ruler of {crown}",
+	"own": "All rise for the ruler of {crown}, whose hall this is!",
+}
+const HERALD_NOT_ASKED := "The herald runs a finger down the guest list, and then again more slowly. Your name is not on it."
+const HERALD_SEEN := "The hall turns to look. Cups are raised."
+const HERALD_NOT_SEEN := "Heads turn. A steward waits to see what you will do. You may still sit, lower down the table."
 
 ## When the music starts.
 const DANCE_OPEN := {
-	Cultures.VARDISH: "The fiddles strike up the midsummer reel. Couples form down the length of the hall, and the benches are pushed back to the walls.",
-	Cultures.KHARZANI: "The musicians start the slow one. Lanterns sway over the courtyard, and the guests drift in from the arches in pairs.",
-	Cultures.RYUMON: "Blossom drifts in through the open screens. The dancers form two lines on the tatami, fans ready.",
+	Cultures.VARDISH: "The fiddles strike up the midsummer reel. The benches go back against the walls, and couples form down the length of the hall.",
+	Cultures.KHARZANI: "The musicians begin the slow one. The lanterns sway over the courtyard, and guests drift in from under the arches in pairs.",
+	Cultures.RYUMON: "Blossom blows in through the open screens. The dancers form two lines on the tatami, fans ready.",
 }
 
 ## Someone you court, when you ask.
 const DANCE_ROMANCE := {
-	"edda": "Edda looks at your hand, then at the room, then takes it. \"If you step on my feet in front of the whole household, I'm telling everyone it was on purpose.\"",
-	"farid": "Farah has been pretending not to look for you, and doing it badly. \"Finally. I'd run out of people to pretend to listen to.\"",
-	"kaede": "Kaede bows, very correctly, and then laughs at herself. \"I learned this one from a book. Forgive me in advance.\"",
+	"edda": "Edda looks at your hand, then at the room, then takes it. \"The whole household is watching. If you tread on me, I'm telling them you meant it.\"",
+	"farid": "Farah has been not looking for you across the courtyard for some time. \"There you are. I had run out of people to pretend to listen to.\"",
+	"kaede": "Kaede bows, correctly, and takes your hand. \"I have practised since the last time. From a better book. Please don't count.\"",
 }
-
-## The memory it leaves.
+## The memory it leaves (each dance kept as itself below; this is the fallback).
 const DANCE_MEMORY := {
 	"edda": "You danced the midsummer reel with Edda. Nobody's feet were harmed. Mostly.",
 	"farid": "You danced with Farah under the lanterns, and she stopped pretending.",
 	"kaede": "You danced with Kaede on the tatami. The book was wrong about the third step.",
 }
-
-## Each dance kept as itself: the first, the second, the third (then round again).
+## Each dance kept as itself: the first, the second, the third (then round again). What
+## she says of each later is in romance_talk_lines.gd (DANCES), and answers these.
 const DANCE_MEMORIES := {
-	"edda": ["You danced the midsummer reel with Edda. Nobody's feet were harmed. Mostly.",
-		"A second reel with Edda. You had learned the turn; she pretended not to notice.",
+	"edda": ["You danced the midsummer reel with Edda. You trod on her foot once, and apologised for the rest of the reel.",
+		"A second reel with Edda. You had learned the turn, and the whole household saw that you had.",
 		"You danced with Edda until the fiddlers stopped, and the hall went quiet around you."],
-	"farid": ["You danced with Farah under the lanterns, and she stopped pretending.",
+	"farid": ["You found Farah under the lanterns, where she was pretending not to look for you.",
 		"Farah led the slow one under the arches, and you let her.",
 		"The musicians played the slow one twice for you and Farah. Someone had paid them."],
-	"kaede": ["You danced with Kaede on the tatami. The book was wrong about the third step.",
-		"A second dance with Kaede. You bowed correctly; she laughed anyway.",
+	"kaede": ["You danced with Kaede on the tatami. The book was wrong about the third step, and so were you.",
+		"A second dance with Kaede. You bowed correctly, and she almost didn't know you.",
 		"You danced with Kaede, and for once she didn't write it down."],
 }
 
@@ -213,17 +267,17 @@ const KIN_OFFERED := 3
 ## A lord's kinswoman, when you ask, by the lord's bearing. {name} is hers, {lord} the
 ## lord's short name, {relation} what she is to them. (A lord may be a lady: no "his".)
 const DANCE_KIN_LINES := {
-	Lords.CAUTIOUS: "{name} glances at {lord} before she takes your hand, and gets the smallest of nods. She dances carefully, and well, and {lord} watches every turn.",
-	Lords.DARING: "\"At last, someone who isn't a cousin.\" {name} is on the floor before you finish asking. {lord} laughs out loud from the table and bangs a cup for the fiddlers to go faster.",
-	Lords.HONORABLE: "{name} accepts with a curtsey a shade more formal than the room, and leads you through the figure without a fault. At the table {lord} inclines their head to you: their {relation} has been honoured, and so have they.",
-	Lords.CRUEL: "{name} takes your hand as if she expected it. \"Everyone is watching. They always are.\" {lord} smiles thinly from the table, and seems to count it as their own doing.",
+	Lords.CAUTIOUS: "{name} looks to {lord} before she takes your hand, and waits for the smallest of nods. She dances carefully and well. {lord} watches every turn of it.",
+	Lords.DARING: "\"At last, someone who isn't a cousin.\" {name} is on the floor before you have finished asking. At the table {lord} laughs out loud and bangs a cup for the fiddlers to go faster.",
+	Lords.HONORABLE: "{name} accepts with a curtsey a shade more formal than the room, and takes you through the figure without a fault. At the table {lord} inclines their head to you: their {relation} has been honoured, and so have they.",
+	Lords.CRUEL: "{name} gives you her hand as if she had expected to. \"Everyone is watching. They always are.\" {lord} smiles thinly from the table, and seems to count the dance as their own doing.",
 }
 ## The round everyone joins, by culture: Regard with every lord in the hall.
 const DANCE_ROUND_REGARD := 1
 const DANCE_ROUND := {
-	Cultures.VARDISH: "You join the reel where the line breaks, and are passed hand to hand down the whole length of the hall. By the end of it the lords have seen you make a fool of yourself with the rest of them, and like you the better for it.",
-	Cultures.KHARZANI: "You step into the lantern circle and are given a place between an old emir and a girl of nine. The circle turns, and turns, and when the drums stop every face in it is smiling at every other.",
-	Cultures.RYUMON: "You take your place in the second line, a fan pressed into your hand, and follow the figure a half-beat behind everyone else. Nobody says so. Several lords bow to you after, which is the same thing as saying so.",
+	Cultures.VARDISH: "You join the reel where the line breaks, and are passed from hand to hand down the whole length of the hall. By the end of it the lords have watched you make a fool of yourself with everyone else, and like you the better for it.",
+	Cultures.KHARZANI: "You step into the lantern circle and are given a place between an old emir and a girl of nine. The circle turns, and turns again, and when the drums stop every face in it is smiling at every other.",
+	Cultures.RYUMON: "You take a place in the second line, a fan pressed into your hand, and follow the figure half a beat behind everyone else. Nobody says so. Afterwards several lords bow to you, which is the same as saying so.",
 }
 ## Someone you haven't met, across the hall: how she is pointed out, and what passes when
 ## you ask her to dance. Her first word; the story's first audience follows from it.
@@ -233,19 +287,19 @@ const DANCE_SEEN := {
 	"kaede": "Ask the woman reading by the screens to dance.",
 }
 const DANCE_MEET := {
-	"edda": "She has been arguing quietly with an older man about field horses, and loses the thread when you ask. \"I'm Edda. I keep Ravensford's tallies, which is to say I keep Ravensford.\" She dances as if she has counted the steps. \"You lead a company. I've seen what companies cost a village. Come to Ravensford some day, and I'll show you the ledger.\"",
-	"farid": "She looks up from the letter she was pretending not to read under the table. \"Farah. I carry Qasr Hamra's words where they need to go.\" Under the lanterns she dances better than she lets on. \"A captain who asks instead of orders. That's rare enough to be worth a second conversation. Find me at Qasr Hamra.\"",
-	"kaede": "She marks her place in the scroll with a finger before she closes it. \"Kaede, of the Kitayama archive. I know the steps from a book, so forgive what follows.\" She is wrong about the third step and laughs at it. \"You'd be surprised what the old records say about captains like you. Come to Kitayama, and I'll show you.\"",
+	"edda": "She has been arguing quietly with an older man about field horses, and loses the thread when you ask. \"Edda. I keep the tallies at Ravensford.\" She dances as if she has counted the steps beforehand, which she has. \"You lead a company. I know what a company costs a village. Come to Ravensford, and I'll show you the ledger. It's more interesting than it sounds. Slightly.\"",
+	"farid": "She looks up from a letter she was reading under the table. \"Farah. I carry Qasr Hamra's words to wherever they need to go.\" Under the lanterns she dances better than she lets on. \"A captain who asks rather than orders. That is rare enough to deserve a second conversation. Find me at Qasr Hamra.\"",
+	"kaede": "She marks her place in the scroll with one finger before she closes it. \"Kaede, of the Kitayama archive. I know the steps from a book, so forgive what follows.\" She is wrong about the third step, and laughs at herself. \"The old records have a good deal to say about captains like you. Come to Kitayama, and I'll show you which parts are true.\"",
 }
 const DANCE_MEET_MEMORY := {
 	"edda": "The night you met Edda, over a reel at someone else's feast.",
 	"farid": "The night you met Farah, under another house's lanterns.",
-	"kaede": "The night you met Kaede, a half-step behind the music.",
+	"kaede": "The night you met Kaede, half a step behind the music.",
 }
 ## Someone you've met and no more, when you ask.
 const DANCE_ACQUAINTED := {
-	"edda": "Edda considers it a moment longer than is polite. \"One. And you'll hear about it if you tread on me.\" She dances well, and talks of grain prices the whole way through.",
-	"farid": "Farah raises an eyebrow. \"The captain remembers me. Good.\" She lets you lead, and corrects you twice, kindly.",
+	"edda": "Edda considers it a moment longer than is polite. \"One. And I'll hear about it if you tread on me.\" She dances well, and talks about the price of seed corn the whole way through.",
+	"farid": "Farah raises an eyebrow. \"The captain remembers me. Good.\" She lets you lead, and corrects you twice, kindly, without seeming to.",
 	"kaede": "Kaede bows. \"I have been practising, since. From a better book.\" It shows, a little.",
 }
 ## Someone you court who isn't in the hall: where she would be.
@@ -256,22 +310,62 @@ const DANCE_ABSENT := {
 }
 
 ## Watching from the wall.
-const DANCE_WALL := "You keep to the wall with a cup, and listen."
+const DANCE_WALL := "You keep to the wall with a cup, and watch who dances with whom. It tells you more than the table did."
 
-## Your toast, by culture: the hall's way of raising a cup.
+## Your toast, in the hall's own way, by why it's held: a feast like any other, a peace,
+## a victory. {host} is the host.
 const TOASTS := {
-	Cultures.VARDISH: "You stand and bang the table until the hall hears you. \"To {host}, and to the roof over all our heads.\" They drink, and bang the table back.",
-	Cultures.KHARZANI: "You raise your cup when the music rests. \"To {host}'s house: may its courtyard never lack for guests.\" A poet makes a verse of it on the spot.",
-	Cultures.RYUMON: "When the cup comes to you, you offer a verse instead of a toast. It is not a good verse. They are kind about it, and {host} smiles.",
+	Cultures.VARDISH: {
+		"": "You stand and bang the table until the hall hears you. \"To {host}, and the roof over all our heads.\" They drink, and bang the table back.",
+		"peace": "You stand and bang the table until the hall hears you. \"To {host}, and to a winter with nobody on the roads but merchants.\" The hall drinks to that longer than to anything else tonight.",
+		"victory": "You stand and bang the table until the hall hears you. \"To {host}, and to the ones who won it and aren't here to drink.\" The hall stands to drink, and sits in silence a moment after.",
+	},
+	Cultures.KHARZANI: {
+		"": "You raise your cup when the music rests. \"To {host}'s house: may its courtyard never lack for guests.\" The poet makes a verse of it before you've sat down.",
+		"peace": "You raise your cup when the music rests. \"To {host}'s house, and to roads where a caravan fears nothing but the weather.\" The poet makes a verse of it, and for once nobody argues.",
+		"victory": "You raise your cup when the music rests. \"To {host}'s house, whose walls are still standing, and to those who kept them so.\" The poet begins a verse, and stops, and lets it be.",
+	},
+	Cultures.RYUMON: {
+		"": "When the cup comes to you, you offer a verse instead of a toast. It is not a good verse. They are kind about it, and {host} smiles.",
+		"peace": "When the cup comes to you, you offer a verse: a river with no one on the far bank. It is not a good verse, but {host} asks you to say it again.",
+		"victory": "When the cup comes to you, you offer a verse for the dead of both sides. It is plain, and the room is quiet after it. {host} bows to you.",
+	},
 }
 
-## The host's thanks for a gift.
+## The host's thanks for a gift, by bearing and what you brought ("silver" or "food").
 const GIFT_THANKS := {
-	Lords.CAUTIOUS: "\"Generous. Thank you. I'll see it's put to good use.\"",
-	Lords.DARING: "\"A guest who brings something! Sit by me.\"",
-	Lords.HONORABLE: "\"You honour this house. It won't be forgotten.\"",
-	Lords.CRUEL: "\"Hm. Better than most bring.\"",
+	Lords.CAUTIOUS: {"silver": "\"Generous. Thank you. It will go where it's needed, and I'll know where that was.\"",
+		"food": "\"Rations. Sensible. More use than plate in a hard season. Thank you.\""},
+	Lords.DARING: {"silver": "\"A guest who brings something! Sit by me. You can tell me how you came by it.\"",
+		"food": "\"Rations! Well, you know what feeds an army. Sit by me.\""},
+	Lords.HONORABLE: {"silver": "\"You honour this house, captain. It will not be forgotten.\"",
+		"food": "\"Bread for the hall, from someone who knows what it is to go without. You honour this house.\""},
+	Lords.CRUEL: {"silver": "\"Hm. Better than most bring. I'll remember who gave it.\"",
+		"food": "\"Rations. How practical. I'll see the kitchen has them.\""},
 }
+
+## What an hour's listening turns up. {lord} is the lord, {first} their first name,
+## {ruler} whom they serve, {why} what sours them, {band} a band, {news} the latest news.
+const GOSSIP := {
+	"sour": "{lord} {why}, and says so after the second cup, loud enough for the end of the table. {first} might hear you out.",
+	"trouble": "{lord} is plagued by {band}, and keeps coming back to it. {first} would pay to see them gone.",
+	"war": "The talk down the table is all of one thing: {news}",
+	"quiet": {
+		Cultures.VARDISH: "Talk of the harvest, a horse race, and whose cousin is marrying whom. Nothing worth the hour, but the ale was good.",
+		Cultures.KHARZANI: "Talk of the price of pepper, a poet's feud, and whose daughter refused whom. Nothing worth the hour, but the dates were good.",
+		Cultures.RYUMON: "Talk of the moon, a disputed verse, and a ferry that sank with nobody on it. Nothing worth the hour, but the cups were full.",
+	},
+}
+## Why a lord is sour with their ruler, as the gossip puts it.
+const SOUR := {
+	"landless": "has no castle of their own, and has stopped pretending not to mind",
+	"lost": "lost {place}, and blames {ruler} for it",
+	"burned": "watched {place} burn while {ruler} sat at home",
+	"weary": "is weary of the war, and of {ruler} for making it",
+}
+
+## A night with nothing in it, at its end.
+const QUIET_NIGHT := "A quiet night. Nobody thinks better or worse of you for it."
 
 ## An invitation, as the letter reads.
 const INVITE := "{host} holds the {name} at {place}, three nights from {when}. You are invited: {why}."
@@ -300,3 +394,31 @@ static func upper_first(text: String) -> String:
 ## "the first night", "the second night"...
 static func night_word(n: int) -> String:
 	return ["the first night", "the second night", "the third night", "the last night"][clampi(n - 1, 0, 3)]
+
+
+## The hall on night `n` (1 to 3) of a gathering of `culture`, held for `reason`: the
+## hall itself, and on the first night why it's held.
+static func night_line(culture: String, n: int, reason: String = "") -> String:
+	var lines: Array = NIGHTS.get(culture, NIGHTS[Cultures.VARDISH])
+	var out := String(lines[clampi(n - 1, 0, lines.size() - 1)])
+	if n <= 1 and REASON_LINE.has(reason):
+		out += " " + String(REASON_LINE[reason])
+	return out
+
+
+## Your toast in a hall of `culture`, held for `reason`, to `host`.
+static func toast(culture: String, reason: String, host: String) -> String:
+	var by: Dictionary = TOASTS.get(culture, TOASTS[Cultures.VARDISH])
+	return fill(String(by.get(reason, by[""])), {"host": host})
+
+
+## The host's thanks for a gift of `what` ("silver" or "food"), by bearing.
+static func gift_thanks(bearing: String, what: String) -> String:
+	var by: Dictionary = GIFT_THANKS.get(bearing, GIFT_THANKS[Lords.HONORABLE])
+	return String(by.get(what, by["silver"]))
+
+
+## Nothing worth the hour, in a hall of `culture`.
+static func quiet_gossip(culture: String) -> String:
+	var q: Dictionary = GOSSIP["quiet"]
+	return String(q.get(culture, q[Cultures.VARDISH]))

@@ -453,7 +453,8 @@ func _open_page(id: int) -> void:
 	var lit_today: bool = int(m.get("candle_day", -99)) == int(GameState.world.hour / 24.0) if GameState.world != null else false
 	var candle := Button.new()
 	candle.name = "LightCandle"
-	candle.text = "A candle burns" if lit_today else "Light a candle"
+	var keep: Dictionary = MemorialLines.place(GameState.culture)
+	candle.text = String(keep["lit"]) if lit_today else String(keep["light"])
 	candle.disabled = lit_today
 	candle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	candle.custom_minimum_size = Vector2(0, Style.TOUCH)
@@ -651,6 +652,8 @@ func _do_rite(btn: Button) -> void:
 func _words() -> void:
 	var m := GameState.memorial_of(_gather_id)
 	var sl: Dictionary = GameState.memorial_slayer(m)
+	var mourners: Array = GameState.memorial_mourners(m)
+	var friend := String(mourners[0]["captain"].get("first", "")) if not mourners.is_empty() else ""
 	_gather_col.add_child(Widgets.section("Words over them"))
 	for key in ["honour", "grief", "vengeance"]:
 		if key == "vengeance" and sl.is_empty():
@@ -664,7 +667,7 @@ func _words() -> void:
 		v.alignment = BoxContainer.ALIGNMENT_CENTER
 		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		b.add_child(v)
-		var t := Style.label(String(w["text"]).replace("{lord}", String(sl.get("name", "Their killer"))), Style.BODY, Style.TEXT)
+		var t := Style.label(MemorialLines.words(key, GameState.memorial_where(m), friend, String(sl.get("name", ""))), Style.BODY, Style.TEXT)
 		t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		v.add_child(t)
@@ -695,7 +698,7 @@ func say_words(key: String) -> void:
 	# What the gathering did, at the top of their page.
 	var shared: Array = r.get("shared", [])
 	var notes := PackedStringArray()
-	notes.append("Laid to rest. A candle is lit.")
+	notes.append(String(MemorialLines.place(GameState.culture)["laid"]))
 	for pair in shared:
 		notes.append("%s and %s are closer for it." % [String(pair[0]), String(pair[1])])
 	if key == "vengeance":
