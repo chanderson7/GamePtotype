@@ -866,10 +866,9 @@ static func _entrant_name(e: Dictionary) -> String:
 	return "%s's champion" % LordTalk.short_name(e["lord"])
 
 
-## Ride the lists: up to three of your captains (by squad id) and one champion for each
-## lord in the hall, in a bracket of single passes. The winner's purse, renown and Regard;
-## a captain unhorsed is sometimes hurt, never killed. {ok, lines, winner}
-static func ride_tourney(gs, squad_ids: Array) -> Dictionary:
+## The field for the lists: up to three of your captains (by squad id) and one champion
+## for each lord in the hall, shuffled into a bracket. {ok, field, mine, lords}
+static func lists_field(gs, squad_ids: Array) -> Dictionary:
 	if not tourney_check(gs)["ok"]:
 		return {"ok": false}
 	var w = gs.world
@@ -891,28 +890,45 @@ static func ride_tourney(gs, squad_ids: Array) -> Dictionary:
 		var t = field[i]
 		field[i] = field[j]
 		field[j] = t
-	var lines := PackedStringArray()
+	return {"ok": true, "field": field, "mine": mine, "lords": lords}
+
+
+## The chance `a` unhorses `b` in a bout left to the dice.
+static func lists_chance(a: Dictionary, b: Dictionary) -> float:
+	var sa := _skill(a)
+	var sb := _skill(b)
+	return sa / (sa + sb)
+
+
+static func entrant_name(e: Dictionary) -> String:
+	return _entrant_name(e)
+
+
+## One bout: `a` against `b`, to the dice, or as it was ridden (`a_wins` 1 or 0, from the
+## lists scene). A captain unhorsed is sometimes hurt, never killed.
+## {won, lost, line, hurt, pass}
+static func lists_bout(gs, a: Dictionary, b: Dictionary, a_wins: int = -1, at_pass: int = -1) -> Dictionary:
+	var rng: RandomNumberGenerator = gs.world.gather_rng
 	var passes := ["first", "second", "third"]
-	while field.size() > 1:
-		var next := []
-		if field.size() % 2 == 1:
-			next.append(field.pop_back())
-		for k in range(0, field.size(), 2):
-			var a: Dictionary = field[k]
-			var b: Dictionary = field[k + 1]
-			var sa := _skill(a)
-			var sb := _skill(b)
-			var a_wins := rng.randf() < sa / (sa + sb)
-			var won: Dictionary = a if a_wins else b
-			var lost: Dictionary = b if a_wins else a
-			var line := "%s unhorses %s at the %s pass." % [_entrant_name(won), _entrant_name(lost), passes[rng.randi_range(0, 2)]]
-			if lost.has("captain") and rng.randf() < Gatherings.TOURNEY_WOUND_CHANCE:
-				lost["captain"]["wounded"] = Captains.WOUND_BATTLES
-				line += " %s is carried from the lists, hurt." % _entrant_name(lost)
-			lines.append(line)
-			next.append(won)
-		field = next
-	var winner: Dictionary = field[0]
+	var wins := (rng.randf() < lists_chance(a, b)) if a_wins < 0 else a_wins == 1
+	var won: Dictionary = a if wins else b
+	var lost: Dictionary = b if wins else a
+	var p := rng.randi_range(0, 2)
+	if at_pass >= 0:
+		p = clampi(at_pass, 0, 2)
+	var line := "%s unhorses %s at the %s pass." % [_entrant_name(won), _entrant_name(lost), passes[p]]
+	var hurt := false
+	if lost.has("captain") and rng.randf() < Gatherings.TOURNEY_WOUND_CHANCE:
+		lost["captain"]["wounded"] = Captains.WOUND_BATTLES
+		line += " %s is carried from the lists, hurt." % _entrant_name(lost)
+		hurt = true
+	return {"won": won, "lost": lost, "line": line, "hurt": hurt, "pass": p}
+
+
+## The lists are run: the winner's purse and renown (or the winning lord's delight), Regard
+## with every lord for the day, bonds between your riders, and the result kept.
+static func lists_finish(gs, winner: Dictionary, lines: Array, mine: Array, lords: Array) -> Dictionary:
+	var g := table(gs)
 	for l in lords:
 		LordTalk.change_regard(gs, l, Gatherings.TOURNEY_ENTRY_REGARD)
 	var result := ""
@@ -937,7 +953,29 @@ static func ride_tourney(gs, squad_ids: Array) -> Dictionary:
 		LordTalk.change_regard(gs, wl, Gatherings.TOURNEY_WIN_REGARD)
 		result = "%s wins the %s and the purse; %s is delighted (+%d Regard)." % [_entrant_name(winner), String(g.get("name", "tourney")),
 			LordTalk.short_name(wl), Gatherings.TOURNEY_WIN_REGARD]
-	lines.append(result)
-	gs.hosted["tourney"] = {"lines": Array(lines), "winner": _entrant_name(winner)}
+	var all := lines.duplicate()
+	all.append(result)
+	gs.hosted["tourney"] = {"lines": all, "winner": _entrant_name(winner)}
 	gs.save_game()
-	return {"ok": true, "lines": Array(lines), "winner": _entrant_name(winner)}
+	return {"ok": true, "lines": all, "winner": _entrant_name(winner), "result": result}
+
+
+## Ride the lists all at once, every bout to the dice: the bracket of single passes, the
+## winner's purse, renown and Regard. {ok, lines, winner}
+static func ride_tourney(gs, squad_ids: Array) -> Dictionary:
+	var f := lists_field(gs, squad_ids)
+	if not bool(f.get("ok", false)):
+		return {"ok": false}
+	var field: Array = f["field"]
+	var lines := []
+	while field.size() > 1:
+		var next := []
+		if field.size() % 2 == 1:
+			next.append(field.pop_back())
+		for k in range(0, field.size(), 2):
+			var bout := lists_bout(gs, field[k], field[k + 1])
+			lines.append(String(bout["line"]))
+			next.append(bout["won"])
+		field = next
+	var done := lists_finish(gs, field[0], lines, f["mine"], f["lords"])
+	return {"ok": true, "lines": done["lines"], "winner": done["winner"]}

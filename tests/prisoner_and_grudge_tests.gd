@@ -309,6 +309,12 @@ func test_grudge_system_and_memorial_vengeance() -> void:
 	assert_true(mem["avenged_words"] != "", "Memorial contains avenged words: %s" % mem["avenged_words"])
 	assert_true(not enemy_lord["grudge"], "Grudge resolved and cleared upon capture")
 	assert_eq(enemy_lord["state"], "prisoner", "Defeated grudge lord taken into custody")
+	# The map shows the beaten lord on a screen of his own, not as lines in a notice.
+	assert_eq(String(gs.lord_outcome.get("fate", "")), "captured", "The beaten lord's fate waits for the map's own screen")
+	assert_eq(int(gs.lord_outcome.get("lord_id", -1)), enemy_lid, "It names the lord")
+	assert_true(String(gs.lord_outcome.get("vengeance", "")) != "", "It says who was avenged")
+	assert_true(not gs.map_notice.contains("taken prisoner") and not gs.map_notice.contains("Vengeance"),
+		"The notice doesn't repeat what the lord's screen says")
 
 
 func test_grudge_map_seeking_and_dialogue() -> void:

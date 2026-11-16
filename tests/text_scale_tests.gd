@@ -28,6 +28,16 @@ func _arrive(path: String) -> void:
 		await process_frame
 
 
+## Whether `ctl` sits inside a control that clips its contents and itself fits the screen.
+func _clipped_in_view(ctl: Control, vpw: float) -> bool:
+	var p := ctl.get_parent()
+	while p != null:
+		if p is Control and (p as Control).clip_contents:
+			return (p as Control).get_global_rect().end.x <= vpw + 2.0
+		p = p.get_parent()
+	return false
+
+
 ## Nothing visible on `tag`'s screen ends past the right edge; names the worst offenders.
 func _audit(tag: String, scope: Node = null) -> void:
 	if scope == null:
@@ -39,6 +49,10 @@ func _audit(tag: String, scope: Node = null) -> void:
 		if not ctl.is_visible_in_tree() or ctl is ScrollBar:
 			continue
 		if ctl.get_global_rect().end.x <= vpw + 2.0:
+			continue
+		# Inside a frame that clips what it holds (a picture cropped to its box), nothing
+		# shows past the frame: only the frame itself has to fit.
+		if _clipped_in_view(ctl, vpw):
 			continue
 		var child_over := false
 		for k in ctl.get_children():

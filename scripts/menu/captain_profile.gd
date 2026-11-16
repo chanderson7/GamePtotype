@@ -78,6 +78,15 @@ func _build() -> void:
 		_add_living_history(col, captain)
 
 	var buttons: Array = [_back_button()]
+	if fallen:
+		# Their stone on the rise at camp, and their page there.
+		var stone := Page.button("Their stone", func():
+			Scenes.memorial_focus = int(captain.get("id", -1))
+			Scenes.memorial_gather = false
+			Scenes.memorial_return = Scenes.captain_profile_return if Scenes.captain_profile_return != "res://scenes/memorial.tscn" else "res://scenes/main_menu.tscn"
+			Scenes.go("res://scenes/memorial.tscn"), true)
+		stone.name = "TheirStone"
+		buttons.append(stone)
 	if promoting:
 		_promote = Page.button("Choose a role", _confirm_promotion, true)
 		_promote.name = "PromoteButton"

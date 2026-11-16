@@ -44,6 +44,16 @@ var wedding_return := "res://scenes/world_map.tscn"
 var wedding_replay := ""
 ## Where the dance at a gathering returns to.
 var dance_return := "res://scenes/settlement.tscn"
+## Where the feast hall (scenes/feast.tscn) returns to.
+var feast_return := "res://scenes/settlement.tscn"
+## The lists (scenes/lists.tscn): where they return to, and your captains riding (squad ids).
+var lists_return := "res://scenes/settlement.tscn"
+var lists_squads: Array = []
+## The memorial at camp (scenes/memorial.tscn): where it returns to, a fallen captain to open
+## it on (-1 for none), and whether to open on their gathering.
+var memorial_return := "res://scenes/main_menu.tscn"
+var memorial_focus := -1
+var memorial_gather := false
 var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1
@@ -333,6 +343,16 @@ func contract_done(info: Dictionary) -> void:
 	set_process(true)
 
 
+## A contract that ran out: the same card, its seal cracked and grey, CONTRACT FAILED in red,
+## what the town says, and what it cost. info: {title, realm, standing (negative), place, words}.
+func contract_failed(info: Dictionary) -> void:
+	var r := info.duplicate()
+	r["contract"] = true
+	r["failed"] = true
+	ribbons.append(r)
+	set_process(true)
+
+
 ## The contract card: a wax seal, CONTRACT COMPLETE and its name, who it was for (their
 ## face and how they took it, or the town and its banner), what it paid as big figures, and
 ## Carry on. It drops in with the seal, and the figures count up; under Reduced motion it is
@@ -357,7 +377,7 @@ func _show_contract(r: Dictionary) -> void:
 	shade.add_child(center)
 	var card := PanelContainer.new()
 	card.name = "ContractCard"
-	var sb: StyleBoxFlat = Style.box(Style.PANEL, Style.BRASS, 3, 22)
+	var sb: StyleBoxFlat = Style.box(Style.PANEL, Style.ENEMY if bool(r.get("failed", false)) else Style.BRASS, 3, 22)
 	sb.content_margin_left = 26
 	sb.content_margin_right = 26
 	sb.content_margin_top = 22
@@ -376,24 +396,33 @@ func _show_contract(r: Dictionary) -> void:
 	seal.custom_minimum_size = Vector2(96, 96)
 	seal.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	seal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var failed := bool(r.get("failed", false))
 	seal.draw.connect(func():
 		var c := seal.size * 0.5
+		# A broken seal is dull wax, cracked through.
+		var rim := Color("4a3a3a") if failed else Color("8e2a20")
+		var wax := Color("5e4a48") if failed else Color("a8352a")
 		for i in 12:
-			seal.draw_circle(c + Vector2.from_angle(TAU * i / 12.0) * 38.0, 11.0, Color("8e2a20"))
-		seal.draw_circle(c, 42.0, Color("a8352a"))
-		seal.draw_arc(c, 32.0, 0.0, TAU, 40, Color("6e1d16"), 3.0, true)
-		seal.draw_circle(c + Vector2(-12, -14), 9.0, Color(1, 0.75, 0.6, 0.18)))
+			seal.draw_circle(c + Vector2.from_angle(TAU * i / 12.0) * 38.0, 11.0, rim)
+		seal.draw_circle(c, 42.0, wax)
+		seal.draw_arc(c, 32.0, 0.0, TAU, 40, Color("6e1d16") if not failed else Color("2e2424"), 3.0, true)
+		seal.draw_circle(c + Vector2(-12, -14), 9.0, Color(1, 0.75, 0.6, 0.18 if not failed else 0.08))
+		if failed:
+			var crack := PackedVector2Array([c + Vector2(-8, -48), c + Vector2(2, -22), c + Vector2(-6, -4),
+				c + Vector2(8, 16), c + Vector2(0, 30), c + Vector2(10, 50)])
+			seal.draw_polyline(crack, Color("16100f"), 5.0, true))
 	var mark: TextureRect = Widgets.icon_rect("journal", 44.0)
-	mark.modulate = Color("f3d891")
+	mark.modulate = Color("f3d891") if not failed else Color("b9aaa0")
 	mark.position = Vector2(26, 26)
 	mark.size = Vector2(44, 44)
 	seal.add_child(mark)
 	col.add_child(seal)
-	var kicker: Label = Style.label("CONTRACT COMPLETE", Style.SMALL, Style.BRASS)
+	var kicker: Label = Style.label("CONTRACT FAILED" if failed else "CONTRACT COMPLETE", Style.SMALL,
+		Style.ENEMY_LIGHT if failed else Style.BRASS)
 	kicker.name = "ContractKicker"
 	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(kicker)
-	var title: Label = Style.label(String(r.get("title", "Contract")), 40, Color("f3d891"))
+	var title: Label = Style.label(String(r.get("title", "Contract")), 40, Color("e8d6c8") if failed else Color("f3d891"))
 	title.name = "ContractTitle"
 	var display: Font = Style.display_font()
 	if display != null:
@@ -417,8 +446,8 @@ func _show_contract(r: Dictionary) -> void:
 			flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			who.add_child(flag)
 		var place := String(r.get("place", ""))
-		words = String(r.get("story", ""))
-		if words == "" and place != "" and WorldData.SETTLEMENTS.has(place):
+		words = String(r.get("words", "")) if failed else String(r.get("story", ""))
+		if words == "" and not failed and place != "" and WorldData.SETTLEMENTS.has(place):
 			words = "Word goes round %s that your company keeps its word." % String(WorldData.settlement(place)["name"])
 	if words != "":
 		var said: Label = Style.label(words, Style.BODY, Style.TEXT)
@@ -449,8 +478,11 @@ func _show_contract(r: Dictionary) -> void:
 	if int(r.get("standing", 0)) > 0:
 		# Whose standing: the banner beside the words says.
 		paid.append(["bond", int(r["standing"]), "Standing"])
+	if failed and int(r.get("standing", 0)) < 0:
+		paid.append(["bond", int(r["standing"]), "Standing"])
 	var tiles: Array = []
 	var counts: Array = []
+	var tb_edge: Color = Style.ENEMY if failed else Style.RULE
 	if not paid.is_empty():
 		var row := HBoxContainer.new()
 		row.name = "ContractRewards"
@@ -460,7 +492,7 @@ func _show_contract(r: Dictionary) -> void:
 			var tile := PanelContainer.new()
 			tile.name = "Reward_%s" % String(p[2]).replace(" ", "")
 			tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var tb: StyleBoxFlat = Style.box(Style.RAISED, Style.RULE, 2, 16)
+			var tb: StyleBoxFlat = Style.box(Style.RAISED, tb_edge, 2, 16)
 			tb.content_margin_top = 12
 			tb.content_margin_bottom = 12
 			tile.add_theme_stylebox_override("panel", tb)
@@ -471,7 +503,8 @@ func _show_contract(r: Dictionary) -> void:
 			var ic: TextureRect = Widgets.icon_rect(String(p[0]), 40.0)
 			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 			tv.add_child(ic)
-			var n: Label = Style.label("+%s" % Widgets.thousands(int(p[1])), 34, Style.MORALE_HIGH)
+			var n: Label = Style.label(("+%s" if int(p[1]) > 0 else "%s") % Widgets.thousands(int(p[1])), 34,
+				Style.MORALE_HIGH if int(p[1]) > 0 else Style.ENEMY_LIGHT)
 			n.name = "Amount"
 			n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			tv.add_child(n)
@@ -493,7 +526,7 @@ func _show_contract(r: Dictionary) -> void:
 	add_child(shade)
 	move_child(shade, _veil.get_index())
 	_ribbon = shade
-	Sound.play("promotion", 0.0, 0.03)
+	Sound.play("morale_low" if failed else "promotion", 0.0, 0.03)
 	Sound.haptic(true)
 	if still:
 		return
@@ -505,7 +538,7 @@ func _show_contract(r: Dictionary) -> void:
 	for t in tiles:
 		(t as Control).modulate.a = 0.0
 	for c in counts:
-		(c[0] as Label).text = "+0"
+		(c[0] as Label).text = "+0" if int(c[1]) > 0 else "0"
 	await get_tree().process_frame
 	if not is_instance_valid(card):
 		return
@@ -519,13 +552,13 @@ func _show_contract(r: Dictionary) -> void:
 	tw.parallel().tween_property(card, "scale", Vector2.ONE, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.tween_property(seal, "modulate:a", 1.0, 0.08)
 	tw.parallel().tween_property(seal, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_callback(func(): Sound.play("coins" if int(r.get("silver", 0)) > 0 else "page", 0.0, 0.05))
+	tw.tween_callback(func(): Sound.play("coins" if int(r.get("silver", 0)) > 0 and not failed else "page", 0.0, 0.05))
 	for i in tiles.size():
 		var t: Control = tiles[i]
 		var lbl: Label = counts[i][0]
 		var to: int = counts[i][1]
 		tw.tween_property(t, "modulate:a", 1.0, 0.18)
-		tw.parallel().tween_method(func(v: float): lbl.text = "+%s" % Widgets.thousands(roundi(v)), 0.0, float(to), 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tw.parallel().tween_method(func(v: float): lbl.text = ("+%s" if to > 0 else "%s") % Widgets.thousands(roundi(v)), 0.0, float(to), 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 ## Carry on from the contract card: it fades and the next ribbon (if any) takes its turn.

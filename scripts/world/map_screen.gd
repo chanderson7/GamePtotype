@@ -11,6 +11,8 @@ const WorldSim = preload("res://scripts/world/world_sim.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 const Cultures = preload("res://scripts/data/cultures.gd")
 const Style = preload("res://scripts/ui/style.gd")
+const CourtUI = preload("res://scripts/ui/court_ui.gd")
+const EventCards = preload("res://scripts/ui/event_cards.gd")
 const AutoResolve = preload("res://scripts/battle/auto_resolve.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const MapTerrain = preload("res://scripts/world/map_terrain.gd")
@@ -69,6 +71,10 @@ var cam_scale := 1.0
 var _view := Rect2()
 var _selected := ""
 var _sheet := ""
+## The beaten lord's screen while it is up (see _open_lord_outcome).
+var _lord_card: Control = null
+## The news being dealt as cards (EventCards), while it's up.
+var _deck: Control = null
 var _press_at := Vector2.ZERO
 var _press_center := Vector2.ZERO
 var _pressing := false
@@ -213,15 +219,18 @@ func _ready() -> void:
 		_open_assault_call()
 	elif GameState.desertion_warning != "":
 		_open_desertion_warning()
+	elif not GameState.lord_outcome.is_empty():
+		_open_lord_outcome()
 	elif Scenes.map_raid != "" and Scenes.map_raid == world.here():
 		_open_raid(Scenes.map_raid)
 	elif GameState.has_notice() and not _notice_passes():
 		var notice: Dictionary = GameState.take_map_notice()
-		_open_notice(notice["text"], notice["title"], notice["items"])
+		_open_notice(notice["text"], notice["title"], notice["items"], notice["cards"], bool(notice["passing"]))
 	elif world.here() != "":
 		_open_here()
-	# Back from a battle whose result card said its piece: what's left passes over the map.
-	if _notice_passes():
+	# Back from a battle whose result card said its piece: what's left passes over the map
+	# (after the beaten lord's screen, when there is one).
+	if _notice_passes() and _lord_card == null:
 		_toast(GameState.take_map_notice()["text"])
 	Scenes.map_raid = ""
 	# Back from People & Letters with a place to look at (or ride to).
@@ -284,8 +293,13 @@ func _process(delta: float) -> void:
 	if autoplay:
 		_autoplay()
 	_watch_letters(delta)
+	# An encounter waiting with nothing on screen to answer it (a letter or a place looked at
+	# took its sheet, and that was closed) would hold the clock and the road for ever: it
+	# comes back.
+	if _encounter_unanswered():
+		_open_encounter()
 	# An encounter or a note about the last battle holds the clock until it's answered.
-	if world.busy() and not paused and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]:
+	if world.busy() and not paused and _deck == null and _sheet not in ["encounter", "notice", "menu", "warning", "activity", "recommendation", "talk"]:
 		GameState.advance(delta * speed * HOURS_PER_SECOND)
 		# The campaign is saved as you ride, but not every few seconds: a save is the whole
 		# campaign, written on this thread. It's also saved on arriving, on every encounter,
@@ -319,10 +333,12 @@ func _process(delta: float) -> void:
 				GameState.renown += int(e.get("renown", 0))
 				GameState.settle()
 				Sound.play_place_fallen()
-				_open_notice("Assault successful at %s! Claimed %d silver and %d renown." % [
-					Data.settlement(String(e.get("target", "")))["name"],
-					int(e.get("silver", 0)), int(e.get("renown", 0))
-				], "Siege Victory")
+				var won_at := String(e.get("target", ""))
+				var won_text := "Assault successful at %s! Claimed %d silver and %d renown." % [
+					Data.settlement(won_at)["name"], int(e.get("silver", 0)), int(e.get("renown", 0))]
+				_open_notice(won_text, "Siege Victory", [], [{"text": won_text, "kind": "taken", "place": won_at, "big": true, "tone": "good",
+					"title": "%s is taken" % Data.settlement(won_at)["name"], "body": "The army you rode with is over the walls, and the place is yours.",
+					"tiles": [["silver", int(e.get("silver", 0))], ["renown", int(e.get("renown", 0))]]}])
 			"chased":
 				Sound.play("alarm", 0.0, 0.05)
 				# Seen as well as heard: a ribbon says who is riding after you.
@@ -369,12 +385,23 @@ func _process(delta: float) -> void:
 	world.events.clear()
 	if GameState.desertion_warning != "" and _sheet not in ["encounter", "notice", "warning", "menu", "talk"]:
 		_open_desertion_warning()
+	if not GameState.lord_outcome.is_empty() and _lord_card == null and _deck == null and _sheet not in ["encounter", "menu", "warning", "talk"]:
+		_open_lord_outcome()
+	# The Three Realms are one crown: that's told in its own scene, once.
+	if GameState.victory_pending and _lord_card == null and _deck == null and _sheet not in ["encounter", "menu", "warning", "talk"]:
+		GameState.victory_pending = false
+		GameState.clear_notice()
+		GameState.save_game()
+		Scenes.go("res://scenes/victory.tscn")
+		return
 	# Men deserting on the road: say so, and hold the clock while the player reads it.
-	if _notice_passes():
+	if _lord_card != null or _deck != null:
+		pass
+	elif _notice_passes():
 		_toast(GameState.take_map_notice()["text"])
 	elif GameState.has_notice() and _sheet not in ["encounter", "notice", "menu", "warning", "talk"]:
 		var notice: Dictionary = GameState.take_map_notice()
-		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road", notice["items"])
+		_open_notice(notice["text"], notice["title"] if notice["title"] != "" else "On the road", notice["items"], notice["cards"], bool(notice["passing"]))
 		Sound.play("page")
 	_clock += delta
 	_music_clock -= delta
@@ -1230,6 +1257,8 @@ func _on_ride_at(b) -> void:
 	var to: String = b.node
 	if b.moving() and b.next != "" and b.along > world.road_length(b.node, b.next) * 0.5:
 		to = b.next
+	if _blocked_ride():
+		return
 	if world.travel(to) or world.here() == to:
 		_close_sheet()
 
@@ -1455,7 +1484,7 @@ func _pass_line(p) -> String:
 ## not when the warband is gone.
 func _notice_passes() -> bool:
 	return GameState.map_notice_passing and GameState.map_notice != "" and GameState.map_notice_items.is_empty() \
-		and GameState.total_men() > 0 and GameState.desertion_warning == ""
+		and GameState.total_men() > 0 and GameState.desertion_warning == "" and EventCards.split(GameState.map_cards)[0].is_empty()
 
 
 ## A short line under the top bar that fades on its own, for something worth seeing that
@@ -1878,6 +1907,213 @@ func _open_desertion_warning() -> void:
 	Sound.play("alarm")
 
 
+## A lord beaten in the field: his face, what became of him, what he said, what it paid and
+## what it cost, on a screen of its own. A captive can be spoken to from here at once.
+func _open_lord_outcome() -> void:
+	var o: Dictionary = GameState.lord_outcome
+	var lord: Dictionary = world.lord_by_id(int(o.get("lord_id", -1)))
+	# The one who fought you, not the heir who now holds his place.
+	if String(o.get("fate", "")) == "slain" and o.get("lord") is Dictionary and not (o["lord"] as Dictionary).is_empty():
+		lord = o["lord"]
+	if lord.is_empty():
+		GameState.lord_outcome = {}
+		return
+	_close_sheet()
+	_sheet = "talk"
+	bottom_bar.visible = false
+	var fate := String(o.get("fate", "escaped"))
+	var realm := String(o.get("realm", ""))
+	var realm_name: String = String(Data.FACTIONS[realm]["name"]) if Data.FACTIONS.has(realm) else "their realm"
+	var shade := ColorRect.new()
+	shade.name = "LordOutcome"
+	shade.theme = Style.make_theme()
+	shade.color = Color(0.02, 0.03, 0.07, 0.86)
+	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_STOP
+	_hud.add_child(shade)
+	_lord_card = shade
+	var scroll := ScrollContainer.new()
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	shade.add_child(scroll)
+	var vw: float = get_viewport_rect().size.x
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	center.custom_minimum_size = Vector2(vw, get_viewport_rect().size.y)
+	scroll.add_child(center)
+	var card := PanelContainer.new()
+	card.name = "LordOutcomeCard"
+	var sb: StyleBoxFlat = Style.box(Style.PANEL, Style.BRASS, 3, 22)
+	sb.content_margin_left = 24
+	sb.content_margin_right = 24
+	sb.content_margin_top = 22
+	sb.content_margin_bottom = 22
+	sb.shadow_color = Color(0, 0, 0, 0.6)
+	sb.shadow_size = 18
+	card.add_theme_stylebox_override("panel", sb)
+	card.custom_minimum_size.x = minf(vw - 32.0, 640.0)
+	center.add_child(card)
+	var inner: float = card.custom_minimum_size.x - 48.0
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 14)
+	card.add_child(col)
+	# What became of him, as the card's head.
+	var kicker_text: String = {"captured": "TAKEN PRISONER", "slain": "FALLEN ON THE FIELD", "escaped": "ESCAPED"}.get(fate, "DEFEATED")
+	var kicker := Style.label("LORD DEFEATED · %s" % kicker_text, Style.SMALL, Style.ENEMY_LIGHT if fate == "slain" else Style.BRASS)
+	kicker.name = "LordOutcomeKicker"
+	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(kicker)
+	# His face beside his banner; greyed if he fell.
+	var faces := HBoxContainer.new()
+	faces.alignment = BoxContainer.ALIGNMENT_CENTER
+	faces.add_theme_constant_override("separation", 18)
+	if realm != "":
+		var flag: Control = Widgets.banner(realm, Vector2(70, 104))
+		flag.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		faces.add_child(flag)
+	var face: Control = CourtUI.face(lord, 150.0, fate == "slain")
+	face.name = "LordOutcomeFace"
+	faces.add_child(face)
+	col.add_child(faces)
+	var title := Style.label(String(lord.get("name", o.get("name", "The lord"))), 38, Color("f3d891"))
+	title.name = "LordOutcomeName"
+	var display: Font = Style.display_font()
+	if display != null:
+		title.add_theme_font_override("font", display)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.custom_minimum_size.x = inner
+	col.add_child(title)
+	var fate_text := ""
+	match fate:
+		"captured":
+			fate_text = "Your prisoner. They ride in chains with your baggage until you decide what becomes of them."
+		"slain":
+			var heir := String(o.get("heir", ""))
+			fate_text = "Fell mortally wounded on the field." + (" An heir, %s, takes up the seat." % heir if heir != "" else "")
+		_:
+			fate_text = "Cut through the rout and escaped into the hills."
+	var fate_lbl := Style.label(fate_text, Style.BODY, Style.TEXT)
+	fate_lbl.name = "LordOutcomeFate"
+	fate_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fate_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fate_lbl.custom_minimum_size.x = inner
+	col.add_child(fate_lbl)
+	# What he said, as a captive.
+	var line := String(o.get("line", ""))
+	if fate == "captured" and line != "":
+		var said_box := PanelContainer.new()
+		var wb: StyleBoxFlat = Style.box(Style.NIGHT, Style.RULE, 2, 16)
+		wb.content_margin_left = 16
+		wb.content_margin_right = 16
+		wb.content_margin_top = 12
+		wb.content_margin_bottom = 12
+		said_box.add_theme_stylebox_override("panel", wb)
+		var said := Style.label(line, Style.BODY, Color("d9dcea"))
+		said.name = "LordOutcomeWords"
+		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		said.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		said.custom_minimum_size.x = inner - 32.0
+		said_box.add_child(said)
+		col.add_child(said_box)
+	# What it paid, and what it cost.
+	var tiles: Array = []
+	if int(o.get("silver", 0)) > 0:
+		tiles.append(Widgets.tile("silver", "+%s" % Widgets.thousands(int(o["silver"])), "silver", Style.MORALE_HIGH))
+	if int(o.get("renown", 0)) > 0:
+		tiles.append(Widgets.tile("renown", "+%d" % int(o["renown"]), "renown", Style.MORALE_HIGH))
+	if int(o.get("standing", 0)) < 0:
+		tiles.append(Widgets.tile("bond", str(int(o["standing"])), "standing", Style.ENEMY_LIGHT))
+	if not tiles.is_empty():
+		var grid: Control = Widgets.tile_grid(tiles, 3 if vw >= 560.0 else 2)
+		grid.name = "LordOutcomeTiles"
+		col.add_child(grid)
+	# Peace broken: said plainly, in red.
+	if bool(o.get("peace_broken", false)):
+		var war := PanelContainer.new()
+		war.name = "LordOutcomePeaceBroken"
+		var war_sb: StyleBoxFlat = Style.box(Color(0.32, 0.08, 0.07, 0.55), Style.ENEMY, 2, 16)
+		war_sb.content_margin_left = 14
+		war_sb.content_margin_right = 14
+		war_sb.content_margin_top = 10
+		war_sb.content_margin_bottom = 10
+		war.add_theme_stylebox_override("panel", war_sb)
+		var war_lbl := Style.label("You attacked a lord of %s while at peace. They count your company an enemy now and bar their gates to you." % Data.the_realm(realm_name),
+			Style.SMALL, Style.ENEMY_LIGHT)
+		war_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		war_lbl.custom_minimum_size.x = inner - 28.0
+		war.add_child(war_lbl)
+		col.add_child(war)
+	if String(o.get("vengeance", "")) != "":
+		var v_lbl := Style.label("Vengeance. " + String(o["vengeance"]), Style.BODY, Style.BRASS)
+		v_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		col.add_child(v_lbl)
+	# A captive can be spoken to now: ransom, release, keep, or (as a crown) take an oath.
+	var lid := int(o.get("lord_id", -1))
+	if fate == "captured":
+		var talk := Button.new()
+		talk.name = "LordOutcomeTalk"
+		talk.text = "Speak with %s" % LordTalk.short_name(lord)
+		talk.icon = Widgets.icon_rect("talk", 32.0).texture
+		talk.custom_minimum_size = Vector2(0, Style.TOUCH)
+		Style.make_primary(talk)
+		talk.pressed.connect(func():
+			_close_lord_outcome()
+			_open_talk(lid, "captive"))
+		col.add_child(talk)
+	var go := Button.new()
+	go.name = "LordOutcomeCarryOn"
+	go.text = "Later" if fate == "captured" else "Carry on"
+	go.custom_minimum_size = Vector2(0, Style.TOUCH)
+	if fate != "captured":
+		Style.make_primary(go)
+	go.pressed.connect(func():
+		_close_lord_outcome()
+		_after_lord_outcome())
+	col.add_child(go)
+	Sound.play("promotion" if fate != "slain" else "bell", 0.0, 0.03)
+	Sound.haptic(true)
+	if not Style.motion_reduced():
+		shade.modulate.a = 0.0
+		card.modulate.a = 0.0
+		await get_tree().process_frame
+		if not is_instance_valid(card):
+			return
+		card.pivot_offset = card.size * 0.5
+		card.scale = Vector2(0.92, 0.92)
+		var tw := shade.create_tween()
+		tw.tween_property(shade, "modulate:a", 1.0, 0.18)
+		tw.tween_property(card, "modulate:a", 1.0, 0.2)
+		tw.parallel().tween_property(card, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _close_lord_outcome() -> void:
+	GameState.lord_outcome = {}
+	GameState.save_game()
+	if _lord_card != null and is_instance_valid(_lord_card):
+		_lord_card.queue_free()
+	_lord_card = null
+	_sheet = ""
+	bottom_bar.visible = true
+	Sound.play("click", 0.0, 0.05)
+
+
+## After the lord's screen: whatever else the battle left to say, then where you are.
+func _after_lord_outcome() -> void:
+	_refresh_hud()
+	if GameState.has_notice():
+		if _notice_passes():
+			_toast(GameState.take_map_notice()["text"])
+		else:
+			var notice: Dictionary = GameState.take_map_notice()
+			_open_notice(notice["text"], notice["title"], notice["items"], notice["cards"], bool(notice["passing"]))
+			return
+	if world.here() != "":
+		_open_here()
+
+
 func _acknowledge_desertion() -> void:
 	# Remove only the warning's lines; preserve any unrelated battle or travel notice.
 	for line in GameState.desertion_warning.split("\n"):
@@ -1939,9 +2175,31 @@ func _open_resource(key: String) -> void:
 ## A message on a card. With no title, it's titled by where you are: a battle's own
 ## result says "After the battle" itself, so taxes collected at home never do. `items`
 ## are releases and oaths to show grouped (GameState.map_notice_items).
-func _open_notice(text: String, title: String = "", items: Array = []) -> void:
+func _open_notice(text: String, title: String = "", items: Array = [], cards: Array = [], passing: bool = false) -> void:
 	if title == "":
 		title = _notice_place()
+	# News with something to show is dealt as cards first (EventCards); what's left is the
+	# ledger: a line each, with its mark, on this sheet.
+	if not cards.is_empty() and GameState.total_men() > 0:
+		var parts: Array = EventCards.split(cards)
+		var known := {}
+		for c in cards:
+			known[String(c["text"])] = true
+		var ledger: Array = parts[1]
+		for line in text.split("\n", false):
+			if not known.has(line):
+				ledger.append({"text": line, "kind": "note"})
+		if not (parts[0] as Array).is_empty():
+			_deck = EventCards.open(_hud, parts[0])
+			_deck.remember.connect(_remember_fallen.bind(ledger))
+			bottom_bar.visible = false
+			_deck.finished.connect(func():
+				_deck = null
+				bottom_bar.visible = true
+				_after_deck(ledger, title, items, passing))
+			return
+		_open_ledger(ledger, title, items)
+		return
 	if GameState.desertion_warning != "":
 		for line in GameState.desertion_warning.split("\n"):
 			text = text.replace(line, "")
@@ -1962,6 +2220,75 @@ func _open_notice(text: String, title: String = "", items: Array = []) -> void:
 		# The groups sit above any plain notes (the sheet's extra area comes before its body).
 		for group in _notice_groups(items):
 			sheet_extra.add_child(group)
+
+
+## Remember them, from a fallen captain's card: the cards still to come and the ledger go
+## back on the queue (the map deals them on return), and the memorial opens on their page,
+## at their gathering if they've not been laid to rest.
+func _remember_fallen(captain_id: int, ledger: Array) -> void:
+	if _deck != null:
+		for c in _deck.remaining():
+			GameState._note(String(c["text"]), c)
+		# Kept (hidden) until the screen changes, so the map doesn't deal the news again
+		# on its way out.
+		_deck.visible = false
+	for c in ledger:
+		GameState._note(String(c["text"]), c)
+	GameState.save_game()
+	Scenes.memorial_focus = captain_id
+	Scenes.memorial_gather = GameState.unmourned().any(func(m): return int(m.get("id", -1)) == captain_id)
+	Scenes.memorial_return = "res://scenes/world_map.tscn"
+	Scenes.go("res://scenes/memorial.tscn")
+
+
+## The cards are dealt: then the ledger, if there's one (passing over the map as a line
+## that fades, after a battle whose result card was on screen).
+func _after_deck(ledger: Array, title: String, items: Array, passing: bool) -> void:
+	if ledger.is_empty() and items.is_empty():
+		if world.here() != "" and _sheet == "":
+			_open_here()
+		return
+	if passing and items.is_empty():
+		_toast("\n".join(PackedStringArray(ledger.map(func(c): return String(c["text"])))))
+		return
+	_open_ledger(ledger, title, items)
+
+
+## The ledger: the plain news a line each with its mark (silver for taxes, a keep for a
+## building, a bond for new bonds), not one block of text; releases and oaths grouped.
+func _open_ledger(ledger: Array, title: String, items: Array) -> void:
+	var lines := ledger.filter(func(c): return GameState.desertion_warning == "" or not GameState.desertion_warning.contains(String(c["text"])))
+	if lines.is_empty() and items.is_empty():
+		if GameState.desertion_warning != "":
+			_open_desertion_warning()
+		return
+	if lines.is_empty():
+		title = "Your court" if items.any(func(i): return String(i.get("kind", "")) == "sworn") else "Your captives"
+	_show_sheet("notice", title, "", [["Carry on", _on_notice_done, true, "resume"]])
+	sheet_extra.visible = true
+	if not items.is_empty():
+		for group in _notice_groups(items):
+			sheet_extra.add_child(group)
+	if lines.is_empty():
+		return
+	var list := VBoxContainer.new()
+	list.name = "Ledger"
+	list.add_theme_constant_override("separation", 12)
+	sheet_extra.add_child(list)
+	for c in lines:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		var tone := String(c.get("tone", ""))
+		var ic := Widgets.icon_rect(String(c.get("row", "journal")), 34)
+		ic.modulate = Style.ENEMY_LIGHT if tone == "bad" else Style.BRASS
+		ic.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		row.add_child(ic)
+		var l := Style.label(String(c["text"]), Style.BODY, Style.TEXT)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.custom_minimum_size = Vector2(10, 0)
+		row.add_child(l)
+		list.add_child(row)
 
 
 ## Releases and oaths, each kind as one block: a heading with its total, who, and what it
@@ -2064,6 +2391,8 @@ func _hours_text(hours: float) -> String:
 # ---------------------------------------------------------------- actions
 
 func _on_travel(id: String) -> void:
+	if _blocked_ride():
+		return
 	if world.travel(id):
 		_close_sheet()
 		GameState.save_game()
@@ -3019,7 +3348,27 @@ func _open_guest_list(gid: int) -> void:
 	sheet_extra.visible = true
 
 
+## Whether a party has stopped you and nothing on screen lets you answer it.
+func _encounter_unanswered() -> bool:
+	if world.encounter == -1 or world.party(world.encounter) == null:
+		return false
+	if _sheet != "" or _lord_card != null or _deck != null:
+		return false
+	return not ((_talk != null and is_instance_valid(_talk)) or (_kingdom != null and is_instance_valid(_kingdom)))
+
+
+## Riding anywhere waits on whoever has stopped you: say so, and put them back in front of you.
+func _blocked_ride() -> bool:
+	if world.encounter == -1 or world.party(world.encounter) == null:
+		return false
+	_toast("%s is in your way. Fight, talk or withdraw first." % world.party(world.encounter).name)
+	_open_encounter()
+	return true
+
+
 func _on_ride_to(place: String) -> void:
+	if _blocked_ride():
+		return
 	if world.travel(place) or world.here() == place:
 		_close_sheet()
 		_refresh_hud()
@@ -3349,7 +3698,7 @@ func _after_raid(id: String) -> void:
 	_sync_layers()
 	if GameState.has_notice():
 		var notice: Dictionary = GameState.take_map_notice()
-		_open_notice(notice["text"], "The raid", notice["items"])
+		_open_notice(notice["text"], "The raid", notice["items"], notice["cards"])
 
 
 func _on_storm(id: String) -> void:
@@ -3368,7 +3717,7 @@ func _on_storm_send(id: String) -> void:
 	_sync_layers()
 	if GameState.has_notice():
 		var notice: Dictionary = GameState.take_map_notice()
-		_open_notice(notice["text"], "The assault", notice["items"])
+		_open_notice(notice["text"], "The assault", notice["items"], notice["cards"])
 
 
 func _on_fight() -> void:
@@ -3398,7 +3747,7 @@ func _send_in_now() -> void:
 	get_tree().create_timer(1.1).timeout.connect(Sound.play.bind("coins" if won else "bell"))
 	_close_sheet()
 	var notice: Dictionary = GameState.take_map_notice()
-	_open_notice(notice["text"], notice["title"], notice["items"])
+	_open_notice(notice["text"], notice["title"], notice["items"], notice["cards"])
 
 
 func _on_withdraw() -> void:

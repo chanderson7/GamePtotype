@@ -29,6 +29,9 @@ const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const KingdomScreen = preload("res://scripts/world/kingdom_screen.gd")
 const StoryArtHall = preload("res://scripts/ui/story_art.gd")
 const CourtUI = preload("res://scripts/ui/court_ui.gd")
+const HallScene = preload("res://scripts/ui/hall_scene.gd")
+const HallLife = preload("res://scripts/ui/hall_life.gd")
+const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -1525,132 +1528,49 @@ func _add_gathering_card(col: VBoxContainer, g: Dictionary) -> void:
 	if not on:
 		v.add_child(_note("The hall is being made ready. Come back when it begins.", Style.MUTED))
 		return
-	if not mine:
-		var said := Style.label(String(Gatherings.HALL.get(String(g.get("culture", "")), "")), Style.SMALL, Style.MUTED)
-		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		v.add_child(said)
-	var acts := HBoxContainer.new()
-	acts.name = "Actions"
-	acts.add_theme_constant_override("separation", 8)
-	v.add_child(acts)
-	if mine:
-		var sp: Dictionary = CrownCourt.speech_check(GameState)
-		acts.add_child(_feast_action("Speech", "Speech", "crown", [["renown", "+%d" % Gatherings.SPEECH_RENOWN]], String(sp["reason"]),
-			bool(sp["ok"]), func():
-				var r: Dictionary = CrownCourt.speech(GameState)
-				if bool(r.get("ok", false)):
-					Sound.play("horn")
-					_court_note = String(r["text"])
-				_build()))
-		var gc: Dictionary = CrownCourt.gifts_check(GameState)
-		acts.add_child(_feast_action("KingGifts", "Gifts", "chest", [["silver", "−%d" % int(gc.get("cost", 0))]], String(gc["reason"]),
-			bool(gc["ok"]), func():
-				var r: Dictionary = CrownCourt.give_gifts(GameState)
-				if bool(r.get("ok", false)):
-					Sound.play("coins")
-					_court_note = String(r["text"])
-				_build()))
-	else:
-		var toast: Dictionary = GameState.toast_check(g)
-		acts.add_child(_feast_action("Toast", "Toast", "cup", [["renown", "+%d" % Gatherings.TOAST_RENOWN]], String(toast["reason"]),
-			bool(toast["ok"]), func():
-				var r: Dictionary = GameState.raise_toast(g)
-				if bool(r.get("ok", false)):
-					Sound.play("horn")
-					_court_note = "%s +%d Regard with %d lord%s." % [String(r["text"]), Gatherings.TOAST_REGARD, int(r["lords"]), "" if int(r["lords"]) == 1 else "s"]
-				_build()))
-	var gift: Dictionary = GameState.gift_check(g)
-	if not mine:
-		var in_silver := String(gift.get("what", "silver")) == "silver"
-		var gift_cost: Array = [["silver" if in_silver else "food", "−%d" % (Gatherings.GIFT_SILVER if in_silver else Gatherings.GIFT_FOOD)],
-			["bond", "+%d" % Gatherings.GIFT_REGARD]]
-		acts.add_child(_feast_action("Gift", "Gift", "silver" if in_silver else "food", gift_cost, String(gift["reason"]), bool(gift["ok"]), func():
-			var r: Dictionary = GameState.bring_gift(g)
-			if bool(r.get("ok", false)):
-				Sound.play("coins")
-				_court_note = "%s %s +%d Regard; %s +%d." % [String(r["text"]), GameState.gathering_host_name(g), Gatherings.GIFT_REGARD,
-					GameState.realm_word(String(g["realm"])), Gatherings.GIFT_REALM]
-			_build()))
-	var gossip: Dictionary = GameState.gossip_check(g)
-	acts.add_child(_feast_action("Gossip", "Gossip", "talk", [["clock", "1 h"]], String(gossip["reason"]),
-		bool(gossip["ok"]), func():
-			var r: Dictionary = GameState.hear_gossip(g)
-			if bool(r.get("ok", false)):
-				Sound.play("page")
-				_court_note = "Gossip: %s" % String(r["text"])
-			_build()))
+	# The way in: a look at the hall itself, and the door.
+	v.add_child(_hall_peek(g))
+	var said := Style.label(String(Gatherings.HALL.get(String(g.get("culture", "")), "")), Style.SMALL, Style.MUTED)
+	said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(said)
+	var enter := _button("Enter the hall", func():
+		_remember_scroll()
+		Scenes.feast_return = "res://scenes/settlement.tscn"
+		Scenes.go("res://scenes/feast.tscn"))
+	enter.name = "EnterHall"
+	_with_icon(enter, GATHERING_ICONS.get(String(g.get("kind", "")), "cup"))
+	Style.make_primary(enter)
+	v.add_child(enter)
 	if mine and GameState.gathering_here() == g:
 		_add_kings_table(v, g)
-	var dance: Dictionary = GameState.dance_check(g)
-	if bool(dance["ok"]):
-		var db := _button("Dance", func():
-			_remember_scroll()
-			Scenes.dance_return = "res://scenes/settlement.tscn"
-			Scenes.go("res://scenes/dance.tscn"))
-		db.name = "Dance"
-		_with_icon(db, "dance")
-		Style.make_primary(db)
-		v.add_child(db)
-	elif String(dance["reason"]) != "it hasn't begun":
-		v.add_child(_note("Dancing: %s." % String(dance["reason"]), Style.MUTED))
+
+
+## A strip of the hall the feast is held in, with the host's face over it.
+func _hall_peek(g: Dictionary) -> Control:
+	var w = GameState.world
+	var owner: String = w.owner_of(place)
+	var flag := owner if Heraldry.REALM_SIZES.has(owner) else Heraldry.realm_of_culture(WorldData.culture_of(owner))
+	var culture := String(g.get("culture", WorldData.culture_of(owner)))
+	var box := Control.new()
+	box.name = "HallPeek"
+	box.custom_minimum_size = Vector2(0, 200)
+	box.clip_contents = true
+	var art := HallScene.rect(culture, flag, "night", place.hash())
+	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	box.add_child(art)
+	HallLife.over(art, culture)
+	var host_id := int(g.get("host_lord", -1))
+	if host_id >= 0 and not GameState.gathering_is_mine(g):
+		var host: Dictionary = w.lord_by_id(host_id)
+		if not host.is_empty():
+			var f := CourtUI.face(host, 110.0)
+			f.position = Vector2(16, 30)
+			box.add_child(f)
+	return box
 
 
 ## Each kind of gathering's icon.
 const GATHERING_ICONS := {"feast": "cup", "dance": "dance", "tourney": "fight"}
-
-
-## One of the feast's things to do: a tall button with its icon and word, and under them
-## what it costs or brings as icons and numbers, or why not.
-func _feast_action(id: String, text: String, icon_key: String, marks: Array, why_not: String, ok: bool, act: Callable) -> Button:
-	var b := Button.new()
-	b.name = "Feast_" + id
-	b.disabled = not ok
-	b.focus_mode = Control.FOCUS_NONE
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size = Vector2(0, 132)
-	var box := Style.box(Color("2a2010") if ok else Color(Style.NIGHT, 0.5), Color("8a6a2a") if ok else Style.RULE, 2, 14)
-	box.content_margin_left = 8
-	box.content_margin_right = 8
-	for state in ["normal", "hover", "pressed", "disabled", "focus"]:
-		b.add_theme_stylebox_override(state, box)
-	var v := VBoxContainer.new()
-	v.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	v.offset_left = 6
-	v.offset_right = -6
-	v.alignment = BoxContainer.ALIGNMENT_CENTER
-	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_theme_constant_override("separation", 4)
-	var ic := Widgets.icon_rect(icon_key, 32)
-	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	if not ok:
-		ic.modulate = Color(1, 1, 1, 0.4)
-	v.add_child(ic)
-	var t := Style.label(text, Style.SMALL, Style.TEXT if ok else Style.MUTED)
-	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(t)
-	if ok:
-		var row := HFlowContainer.new()
-		row.name = "Marks"
-		row.alignment = FlowContainer.ALIGNMENT_CENTER
-		row.add_theme_constant_override("h_separation", 10)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		for m in marks:
-			row.add_child(Widgets.icon_value(String(m[0]), String(m[1]), Color("cdbf9c")))
-		v.add_child(row)
-	else:
-		var st := Style.label(why_not, Style.SMALL, Style.MUTED)
-		st.name = "WhyNot"
-		st.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		v.add_child(st)
-	b.add_child(v)
-	b.pressed.connect(act)
-	# The thing just done glows on the page that comes back.
-	var tile_name := String(b.name)
-	b.pressed.connect(func(): _flash_named.call_deferred(tile_name))
-	return b
 
 
 ## Your crown's own gathering here: a feast, a dance or a tourney, and who to ask. (The
@@ -1884,16 +1804,12 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	box.add_child(strip)
 	box.add_child(_note("%d of %d ride · tap a face" % [_lists_pick.size(), Gatherings.TOURNEY_CAPTAINS]))
 	var go := _button("Ride the lists", func():
-		var r: Dictionary = CrownCourt.ride_tourney(GameState, _lists_pick)
-		var rode := bool(r.get("ok", false))
-		if rode:
-			Sound.play("horn")
-			_bouts_open = false
-			# How it ended drops in as a ribbon, and the result shows itself on the page.
-			var told: Array = (GameState.hosted.get("tourney", {}) as Dictionary).get("lines", [])
-			if not told.is_empty():
-				Scenes.ribbon("The lists are run", String(told[-1]), "fight", "")
-		_lists_ridden(rode))
+		# To the lists themselves: your captains' bouts are yours to ride.
+		_remember_scroll()
+		_bouts_open = false
+		Scenes.lists_squads = _lists_pick.duplicate()
+		Scenes.lists_return = "res://scenes/settlement.tscn"
+		Scenes.go("res://scenes/lists.tscn"))
 	go.name = "RideLists"
 	go.disabled = not bool(check["ok"]) or _lists_pick.is_empty()
 	if not go.disabled:
@@ -1901,13 +1817,6 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	box.add_child(go)
 	if not bool(check["ok"]):
 		box.add_child(_note(String(check["reason"]), Style.MUTED))
-
-
-## The page after the lists: rebuilt, with their result showing itself if they were ridden.
-func _lists_ridden(rode: bool) -> void:
-	_build()
-	if rode:
-		_flash_named.call_deferred("ListsResult")
 
 
 func _host_row(key: String, text: String, sub: String, on: bool, can_change: bool) -> Control:
@@ -2364,7 +2273,8 @@ func _deliverable_job_card(job: Dictionary) -> Control:
 
 
 func _job_offer_card(job: Dictionary, index: int, is_capped: bool) -> Control:
-	var hrs_left: float = maxf(0.0, float(job.get("deadline", 0.0)) - (GameState.world.hour if GameState.world != null else 0.0))
+	# Not taken yet: the time it will give you once you take it.
+	var hrs_left: float = Jobs.time_limit(job, GameState.world)
 	var chips: Array = [Widgets.stat("clock", Style.time_short(hrs_left))]
 	chips.append_array(_job_chips(job))
 	var accept_btn := _button("Accept", func():

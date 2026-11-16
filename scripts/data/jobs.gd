@@ -87,12 +87,38 @@ static func make_hunt_job(settlement_id: String, world, rng: RandomNumberGenerat
 		"title": "Bounty: Hunt %s" % b_name,
 		"description": "The marauders of %s have ambushed travelers near %s. Hunt down their band and scatter them." % [b_name, s_name],
 		"deadline": world.hour + HUNT_DEADLINE_HOURS,
+		"time_limit": HUNT_DEADLINE_HOURS,
 		"reward_silver": 160,
 		"reward_renown": 5,
 		"reward_relation": 5,
 		"target_party_id": int(best_band.id),
 		"target_name": b_name,
 	}
+
+
+## How long a job gives you once you take it, in hours. A board keeps its jobs until one is
+## taken, which can be days after it was posted, so the clock starts on taking, not posting:
+## `deadline` on a posted job is only where it would end if taken the hour it went up.
+## A job saved before this was kept (no "time_limit") gets its type's own allowance; a
+## courier's is worked out from the road, as when it is posted.
+static func time_limit(job: Dictionary, world = null) -> float:
+	if job.has("time_limit"):
+		return float(job["time_limit"])
+	match String(job.get("type", "")):
+		TYPE_HUNT:
+			return HUNT_DEADLINE_HOURS
+		TYPE_RELIEF:
+			return RELIEF_DEADLINE_HOURS
+		TYPE_COURIER:
+			var travel := 24.0
+			var from := String(job.get("origin_settlement", ""))
+			var to := String(job.get("destination_settlement", ""))
+			if world != null and from != "" and to != "" and world.has_method("path") and world.has_method("route_hours"):
+				var p: Array = world.path(from, to)
+				if not p.is_empty():
+					travel = world.route_hours(from, p)
+			return maxf(48.0, travel * 2.5 + 24.0)
+	return HUNT_DEADLINE_HOURS
 
 
 static func make_courier_job(settlement_id: String, world, rng: RandomNumberGenerator) -> Dictionary:
@@ -139,6 +165,7 @@ static func make_courier_job(settlement_id: String, world, rng: RandomNumberGene
 		"title": "Courier: Dispatch to %s" % dest_name,
 		"description": "Deliver a sealed dispatch to the %s of %s before the deadline." % [recipient_title, dest_name],
 		"deadline": world.hour + deadline_hours,
+		"time_limit": deadline_hours,
 		"reward_silver": 110,
 		"reward_renown": 3,
 		"reward_relation": 5,
@@ -158,6 +185,7 @@ static func make_relief_job(settlement_id: String, world, rng: RandomNumberGener
 		"title": "Relief: Provisions for %s" % s_name,
 		"description": "Granaries at %s are running dry. Deliver %d rations of food to sustain the villagers." % [s_name, food_needed],
 		"deadline": world.hour + RELIEF_DEADLINE_HOURS,
+		"time_limit": RELIEF_DEADLINE_HOURS,
 		"reward_silver": 80,
 		"reward_renown": 5,
 		"reward_relation": 5,

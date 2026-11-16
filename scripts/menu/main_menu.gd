@@ -29,9 +29,6 @@ var _tab := "camp"
 var _shown_silver := -1
 var _fallen_section: Control
 var _flicker: Tween
-## The fallen card shows the five most recent until "All" is tapped.
-var _all_fallen := false
-const FALLEN_SHOWN := 5
 ## Icons for the sort segments, in the order of the sorts.
 const SORT_ICONS := ["company", "shieldwall", "men", "level", "journal"]
 const SORT_TIPS := ["Roster order", "By role", "By strength", "By experience", "By captain"]
@@ -139,21 +136,22 @@ func _build() -> void:
 		var fc := Widgets.card(camp, "The fallen", str(GameState.fallen.size()))
 		_fallen_section = fc.get_parent()
 		_fallen_section.name = "FallenCard"
+		# The rise at the camp's edge, small, with the way to it.
+		fc.add_child(_memorial_strip())
 		var shown := 0
 		for i in range(GameState.fallen.size() - 1, -1, -1):
-			if shown >= FALLEN_SHOWN and not _all_fallen:
+			if shown >= MEMORIAL_ROWS:
 				break
 			fc.add_child(_memorial_row(GameState.fallen[i]))
 			shown += 1
-		if GameState.fallen.size() > FALLEN_SHOWN and not _all_fallen:
-			var all := Button.new()
-			all.name = "AllFallen"
-			all.text = "All %d" % GameState.fallen.size()
-			all.custom_minimum_size.y = Style.TOUCH
-			all.pressed.connect(func():
-				_all_fallen = true
-				_build())
-			fc.add_child(all)
+		var waiting: int = GameState.unmourned().size()
+		var visit := Button.new()
+		visit.name = "VisitMemorial"
+		visit.text = ("Gather the company (%d waiting)" % waiting) if waiting > 0 else "Visit the memorial"
+		visit.custom_minimum_size.y = Style.TOUCH
+		Style.make_primary(visit)
+		visit.pressed.connect(_open_memorial.bind(-1, waiting > 0))
+		fc.add_child(visit)
 
 	# --- Companies: the roster, and refilling it.
 	companies.add_child(_company_summary())
@@ -489,8 +487,7 @@ func _on_moment(m: Dictionary) -> void:
 		"bond":
 			_open_bond(int(m.get("a_id", 0)), int(m.get("b_id", 0)))
 		"memorial":
-			_build()
-			_jump_to_fallen.call_deferred()
+			_open_memorial(int(m.get("captain_id", -1)), true)
 		"talk":
 			_open_spouse_talk(String(m.get("cand", "")))
 
@@ -503,6 +500,55 @@ func _open_spouse_talk(cand: String) -> void:
 	Scenes.active_person_id = String(MarriedLife.person(GameState, cand).get("id", ""))
 	Scenes.conversation_return = "res://scenes/main_menu.tscn"
 	Scenes.go("res://scenes/conversation.tscn")
+
+
+## How many of the fallen the Camp tab names under the memorial's picture.
+const MEMORIAL_ROWS := 3
+
+
+## The memorial at camp, open on `focus` (a fallen captain's id, or -1), at their gathering
+## when `gather`.
+func _open_memorial(focus: int = -1, gather: bool = false) -> void:
+	Scenes.warband_scroll = _scroll.scroll_vertical if _scroll != null else 0
+	if focus < 0 and gather and not GameState.unmourned().is_empty():
+		focus = int(GameState.unmourned()[0].get("id", -1))
+	Scenes.memorial_focus = focus
+	Scenes.memorial_gather = gather
+	Scenes.memorial_return = "res://scenes/main_menu.tscn"
+	Scenes.go("res://scenes/memorial.tscn")
+
+
+## The memorial's picture, small: the rise and its stones.
+func _memorial_strip() -> Control:
+	var MemorialScene = load("res://scripts/ui/memorial_scene.gd")
+	var box := Control.new()
+	box.name = "MemorialStrip"
+	box.custom_minimum_size = Vector2(0, 160)
+	box.clip_contents = true
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var marks := []
+	for i in range(GameState.fallen.size() - 1, -1, -1):
+		var m = GameState.fallen[i]
+		if m is Dictionary:
+			marks.append({"culture": String(m.get("culture", GameState.culture)), "hero": bool(m.get("is_hero", false))})
+	var realm := WorldData.CROWN if GameState.is_crowned() else String(WorldData.realm_of_culture(GameState.culture))
+	var HallScene = load("res://scripts/ui/hall_scene.gd")
+	var art := TextureRect.new()
+	art.texture = MemorialScene.texture(GameState.culture, marks, not GameState.unmourned().is_empty(), "night", HallScene.BANNERS.get(realm, HallScene.BANNERS["vardmark"]))
+	art.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(art)
+	var name_l := Style.label(String(load("res://scripts/data/memorial_lines.gd").place(GameState.culture)["name"]), Style.BODY, Color("f3d891"))
+	if Style.display_font() != null:
+		name_l.add_theme_font_override("font", Style.display_font())
+	name_l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	name_l.add_theme_constant_override("outline_size", 6)
+	name_l.position = Vector2(12, 116)
+	box.add_child(name_l)
+	return box
 
 
 func _jump_to_fallen() -> void:
