@@ -4986,23 +4986,22 @@ func describe_result_cards(result: Dictionary) -> Array:
 		var cr: Dictionary = r["captain"]
 		var face := {"captain": Captains.face_record(c), "captain_name": String(c["name"]), "company": String(s.get("name", "")),
 			"battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0))}
-		var die := "The die showed %d; %d was needed." % [int(cr["roll"]), int(cr["needed"])]
 		match String(cr["fate"]):
 			"killed":
 				if casual_mode:
 					lines.append({"text": "%s was grievously wounded (rolled %d, needed %d) and will sit out %d battles." % [
 						c["name"], cr["roll"], cr["needed"], Captains.CASUAL_WOUND_BATTLES],
 						"card": _card_merge(face, {"kind": "captain_wounded", "title": "%s is badly hurt" % String(c.get("first", c["name"])), "tone": "bad",
-							"aside": die})})
+							"aside": "Sits out %d battles" % Captains.CASUAL_WOUND_BATTLES})})
 				else:
 					lines.append({"text": "%s fell. Rolled %d, needed %d to live." % [c["name"], cr["roll"], cr["needed"]],
 						"card": _card_merge(face, {"kind": "captain_fallen", "title": String(c["name"]), "big": true, "tone": "bad",
-							"body": "Fell leading %s, and won't ride with the company again." % String(s.get("name", "the company")), "aside": die})})
+							"body": "Fell leading %s, and won't ride with the company again." % String(s.get("name", "the company"))})})
 			"wounded":
 				lines.append({"text": "%s was wounded (rolled %d, needed %d) and will sit out %d battles." % [
 					c["name"], cr["roll"], cr["needed"], Captains.WOUND_BATTLES],
 					"card": _card_merge(face, {"kind": "captain_wounded", "title": "%s is wounded" % String(c.get("first", c["name"])), "tone": "bad",
-						"aside": "Sits out %d battles · %s" % [Captains.WOUND_BATTLES, die]})})
+						"aside": "Sits out %d battles" % Captains.WOUND_BATTLES})})
 	# Bonds on one line, so a first battle that bonds half the army doesn't fill the screen.
 	var pairs := PackedStringArray()
 	for change in _bond_changes(result):

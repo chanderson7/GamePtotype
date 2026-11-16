@@ -194,7 +194,15 @@ func _show(c: Dictionary) -> void:
 	var col := VBoxContainer.new()
 	col.name = "Words"
 	col.position = Vector2(28, art_h - 34)
-	col.size = Vector2(_view.x - 56, _view.y - art_h + 34 - float(insets.get("bottom", 0.0)) - 24)
+	col.size = Vector2(_view.x - 56, 0)
+	# Wrapped words measure tall until they know their width: settle the column's height
+	# (never its width) whenever what it holds is measured again.
+	var w := _view.x - 56
+	var settle := func():
+		if is_instance_valid(col):
+			col.size = Vector2(w, 0)
+	col.minimum_size_changed.connect(settle.call_deferred)
+	settle.call_deferred()
 	col.add_theme_constant_override("separation", 14)
 	_page.add_child(col)
 	var tone: Color = TONES.get(String(c.get("tone", "")), TONES[""])
@@ -255,12 +263,20 @@ func _show(c: Dictionary) -> void:
 			h.add_child(n)
 			h.add_child(Widgets.effect("bond", int(r[1])))
 			col.add_child(h)
-	var gap := Control.new()
-	gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	col.add_child(gap)
+	# The buttons keep to the foot of the screen, whatever the words above them do.
 	var foot := HBoxContainer.new()
+	foot.name = "CardFoot"
 	foot.add_theme_constant_override("separation", 12)
-	col.add_child(foot)
+	foot.anchor_left = 0.0
+	foot.anchor_right = 1.0
+	foot.anchor_top = 1.0
+	foot.anchor_bottom = 1.0
+	foot.offset_left = 28.0
+	foot.offset_right = -28.0
+	foot.offset_bottom = -float(insets.get("bottom", 0.0)) - 24.0
+	foot.offset_top = foot.offset_bottom - Style.TOUCH
+	foot.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_page.add_child(foot)
 	if deck.size() > 2 and _i < deck.size() - 1:
 		var skip := Button.new()
 		skip.name = "SkipAll"

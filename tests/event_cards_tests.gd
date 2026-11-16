@@ -137,7 +137,7 @@ func _init() -> void:
 	var fallen_card: Dictionary = cards[0]["card"] if not cards.is_empty() else {}
 	check(String(fallen_card.get("kind", "")) == "captain_fallen" and bool(fallen_card.get("big", false)) and (fallen_card.get("captain", {}) as Dictionary).size() > 0,
 		"a fallen captain is a big memorial card with their face")
-	check(String(cards[0]["text"]).contains("Rolled 6") and String(fallen_card.get("aside", "")).contains("6"), "the die is a quiet line under it")
+	check(not fallen_card.has("aside") and not String(fallen_card.get("body", "")).contains("6"), "the card doesn't tell the dice")
 	check(gs.describe_result({"squads": {int(sq["id"]): {"men": 10, "kills": 3, "captain": {"fate": "killed", "roll": 6, "needed": 16, "kills": 1}}}})[0] == cards[0]["text"],
 		"describe_result still gives the words")
 
@@ -156,6 +156,12 @@ func _init() -> void:
 	check(art != null and art.find_child("SettlementVista", true, false) != null, "painted as the place itself")
 	check(art != null and art.find_child("NewBanner", true, false) != null and art.find_child("OldBanner", true, false) != null, "its old banner and the new")
 	check(map._deck != null and map._deck.find_child("CardTiles", true, false) != null, "the spoils as tiles")
+	await process_frame
+	await process_frame
+	var nxt: Control = map._deck.find_child("CardNext", true, false) if map._deck != null else null
+	var vp: Vector2 = root.get_visible_rect().size
+	check(nxt != null and nxt.is_visible_in_tree() and nxt.get_global_rect().end.y <= vp.y + 1.0 and nxt.get_global_rect().position.y > vp.y * 0.5,
+		"its button is on the screen, at the foot of the card")
 	if map._deck != null:
 		map._deck.next_card()
 	await process_frame
