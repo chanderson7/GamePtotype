@@ -25,6 +25,9 @@ const Dressing = preload("res://scripts/ui/wedding_dressing.gd")
 const PAINTED := ["ravensford", "qasr_hamra", "kitayama"]
 ## Each one's own room, for slipping away at her seat (and the private vows told again).
 const ROOMS := {"edda": "common_room", "farid": "envoy_room", "kaede": "archive_room"}
+## What each room sounds like: Edda's fire; the courtyard under Farah's window; the water
+## and the woodworkers outside Kaede's archive (no fire among the paper).
+const ROOM_SOUNDS := {"edda": "hearth", "farid": "settlement_kharzani", "kaede": "settlement_ryumon"}
 
 var cand := ""
 var person_id := ""
@@ -382,14 +385,17 @@ func _after_toast(t: Dictionary, how: String) -> void:
 	match how:
 		"heckle":
 			_heckled = true
+			Sound.play("laugh")
 			say("you", Feast.fill(String(Feast.HECKLES[posmod(int(a["id"]), Feast.HECKLES.size())]), {"first": _first(a)}))
 			_say_with_face(String(Feast.COMEBACKS.get(String(a.get("temperament", "")), Feast.COMEBACKS[""])), _speaker(a, String(t["kind"])), a)
 			express("center", _portrait("amused"), "amused")
 			say("them", String(Feast.HER_LAUGH.get(cand, Feast.HER_LAUGH["edda"])), _name)
 		"pour":
+			Sound.play("pour")
 			say("you", Feast.fill(Feast.POUR, {"fallen": String(t.get("fallen", ""))}))
 			say("narration", Feast.fill(Feast.POURED, {"first": _first(a)}))
 		_:
+			Sound.play("cups", 0.0, 0.05)
 			say("you", Feast.DRINK)
 			say("narration", String(Feast.DRANK[posmod(_spoken.size() - 1, Feast.DRANK.size())]))
 	_call_on()
@@ -410,6 +416,9 @@ func _host_toast() -> void:
 
 func _raise(key: String) -> void:
 	var toast := _fill(Lines.YOUR_TOASTS[key]).replace("{fallen}", _fallen_names())
+	Sound.play("cups", 0.0, 0.05)
+	if key != "absent":
+		Sound.play("cheer", -7.0)
 	say("you", toast)
 	say("them", Lines.after_toast(cand, key), _name)
 	GameState.wedding_feast_do("toasts", {"toasts": _toasts.duplicate(true), "toast": toast, "heckle": _heckled or bool(_feast_state().get("heckle", false))})
@@ -423,6 +432,7 @@ func _dance_begin() -> void:
 	_dance_steps = []
 	say("you", Feast.DANCE_ASK)
 	say("them", String(Feast.DANCE_YES.get(cand, Feast.DANCE_YES["edda"])), _name)
+	Sound.play("applause", -4.0)
 	sway("center")
 	_dance_step(0)
 
@@ -444,6 +454,7 @@ func _dance_step(i: int) -> void:
 func _danced(i: int, id: String) -> void:
 	_dance_steps.append(id)
 	if id == "company":
+		Sound.play("cheer", -6.0)
 		say("narration", String(Gatherings.DANCE_ROUND.get(culture, Gatherings.DANCE_ROUND[Cultures.VARDISH])))
 	var mood: String = {"turn": "amused", "company": "amused", "follow": "amused"}.get(id, "warm")
 	express("center", _portrait(mood), mood)
@@ -452,6 +463,11 @@ func _danced(i: int, id: String) -> void:
 
 
 # ---------------------------------------------------------------- her people's custom
+
+## How each custom ends, to the ear: by the choice's id (the lantern for every wish).
+const CUSTOM_SOUNDS := {"coin": "coins", "song": "laugh", "wrestle": "cheer", "good": "applause", "terrible": "laugh",
+	"whisper": "applause", "her": "lantern", "company": "lantern", "peace": "lantern"}
+
 
 func _custom_begin() -> void:
 	_begin_thing()
@@ -471,6 +487,7 @@ func _customed(o: Dictionary) -> void:
 	if not bool(o.get("bare", false)):
 		say("you", _fill(String(o["text"])))
 	say("narration", _fill(String(o["line"])))
+	Sound.play(String(CUSTOM_SOUNDS.get(String(o["id"]), "applause")))
 	if culture == Cultures.RYUMON:
 		var d := _dressing()
 		if d != null:
@@ -592,6 +609,9 @@ func _slip() -> void:
 	_begin_thing()
 	_set_chips("")
 	say("you", Feast.SLIP_YOU)
+	# The door shuts on the feast: its noise goes, and her people's wedding music comes back.
+	Sound.play("door")
+	Sound.set_loop("")
 	var at_home := place == String(GameState.world.social.get_candidate_person(cand).get("residence", ""))
 	if at_home:
 		_to_her_room()
@@ -602,7 +622,9 @@ func _slip() -> void:
 			d.set_late(4)
 	if not _second.is_empty():
 		remove_face("right")
-	Sound.play_music("camp_" + culture)
+	Sound.play_music("wedding_" + culture)
+	if at_home:
+		Sound.set_room_loop(String(ROOM_SOUNDS.get(cand, "hearth")))
 	say("narration", Feast.SLIP_OUT["room" if at_home else "place"])
 	express("center", _portrait("warm"), "warm")
 	var feast := _feast_state()

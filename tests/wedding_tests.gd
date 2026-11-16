@@ -206,6 +206,9 @@ func _init() -> void:
 	check(hair_map is Texture2D and (hair_map as Texture2D).resource_path.ends_with("edda_wedding_hair.png"),
 		"her unbound hair is what moves, not the braid she wears every day")
 	check(day.find_child("WhoCame", true, false) != null and day.reply_ids() == ["continue"], "the place, what is set out and who came; a tap goes on")
+	var sound = root.get_node("Sound")
+	check(sound._track == "wedding_vardish" and sound._loop_name == "murmur", "her people's wedding music, and the guests talking low")
+	check(String(sound._movement_loop.get_meta("name", "")) == "hearth", "the hearth-fire can be heard")
 	day.choose("continue")
 	check(day.log_text().contains(Lines.STAND["edda"]) and day.has_reply("begin") and day.has_reply("later"), "her first words, then: take your place, or not yet")
 
@@ -241,12 +244,15 @@ func _init() -> void:
 	check(day.has_reply("rite_wrist") and day.reply_ids().size() == 1, "one step at a time")
 	day.choose("rite_wrist")
 	check(rite.step == 1 and day.has_reply("rite_wind") and day.log_text().contains("smoke"), "your wrist, over the fire")
+	check(sound._last.has("cord"), "and the cord is heard through the smoke")
 	day.choose("rite_wind")
 	check(rite.step == 2 and day.has_reply("rite_she_ties") and day.has_reply("rite_together"), "then a choice: the knot")
 	check(soc.relationships["edda"]["status"] == Relationships.ENGAGED, "not married yet, all through the rite")
 	day.choose("rite_together")
 	check(rite.step == 3 and day.log_text().contains("comes out lopsided") and day.reply_ids() == ["continue"], "tied together")
+	check(sound._last.has("knot"), "the knot is heard pulled tight")
 	day.choose("continue")
+	check(sound._loop_name == "" and sound._last.has("heartbeat"), "the guests fall silent for the question: only your heart")
 
 	# ---- the question
 	check(day.log_text().contains("at the hearth and on the road") and day.log_text().contains(Lines.ANSWER["edda"]),
@@ -262,6 +268,8 @@ func _init() -> void:
 		"a breath: your second mutters, and then only I do is left")
 	day.choose("i_do")
 	check(soc.relationships["edda"]["status"] == Relationships.MARRIED and gs.wedding()["state"] == "feast", "married at I do; the feast begins")
+	check(sound._last.has("married") and sound._last.has("applause") and sound._track == "feast_vardish" and sound._loop_name == "feast_din",
+		"the harp and the bells, the hands, then the feast's music and its din")
 	check(day.get_node_or_null("Stage/MarriedTitle") != null and not day.get_node("Stage/Dressing")._hushed, "Married lands across the stage, and the hush lifts")
 	check(day.find_children("Keepsake", "", true, false).is_empty() and day.find_child("ClosingCard", true, false) == null, "and is said once: no card yet")
 	check(gs.renown == renown0 + Relationships.WEDDING_RENOWN, "renown for a public wedding, at I do")
@@ -371,6 +379,9 @@ func _init() -> void:
 	day.choose("slip")
 	await process_frame
 	check(day.get_node_or_null("Stage/Dressing") == null and day.get_node_or_null("Stage/Face_right") == null, "away to her room: no banners, no guests")
+	check(sound._last.has("door") and sound._loop_name == "" and sound._track == "wedding_vardish" and String(sound._movement_loop.get_meta("name", "")) == "hearth",
+		"the door shuts on the din: her fire, and the wedding music again")
+	check(sound._last.has("cups") and sound._last.has("laugh"), "the table was heard: cups for a toast, a laugh for a heckle")
 	check(day.log_text().contains(Feast.RECALL["edda"]["breath"]), "she recalls the breath you took")
 	check(day.has_reply("last_stay") and day.has_reply("last_sleep"), "one last choice")
 	day.choose("last_sleep")
@@ -484,6 +495,17 @@ func _init() -> void:
 		{"kind": "visit", "scene_id": "edda_spare_spoon"}, {"kind": "decision", "chapter": 4, "choice": "repair_promise"}])
 	check(mended["task"] == "correspondence" and mended["council"] == "repair_promise", "the road here: the task you took, and a broken word mended")
 	check(Lines.road([])["council"] == "" and Lines.host_word("edda", "") == Lines.HOST_WORD["edda"][""], "with nothing in the book, the house speaks plainly")
+	# Every sound the day asks for is there to be played, and every people has its music.
+	var asked := {}
+	for v in current_scene.RITE_SOUNDS.values() if current_scene != null and current_scene.get("RITE_SOUNDS") != null else []:
+		asked[String(v)] = true
+	for nm in ["cord", "knot", "bread", "salt", "quill", "pour", "cup_down", "brush", "seal", "married", "heartbeat", "hearth", "murmur",
+			"feast_din", "laugh", "applause", "cups", "lantern", "door"]:
+		asked[nm] = true
+	for nm in asked:
+		check(FileAccess.file_exists("res://assets/audio/sfx/%s.ogg" % nm), "the sound %s exists" % nm)
+	for cul in [Cultures.VARDISH, Cultures.KHARZANI, Cultures.RYUMON]:
+		check(FileAccess.file_exists("res://assets/audio/music/wedding_%s.ogg" % cul), "the %s wedding has its music" % cul)
 	# Nobody is bride or groom, and a lord is never he or she.
 	var said := ""
 	for path in ["res://scripts/data/wedding_lines.gd", "res://scripts/data/wedding_feast_lines.gd"]:

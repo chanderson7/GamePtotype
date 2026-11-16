@@ -35,6 +35,7 @@ func _ready() -> void:
 	var hall := HallScene.rect(Data.culture_of(Data.settlement(place)["faction"]), flag, "night" if when == "night" else "dusk", place.hash())
 	setup(hall, "%s at %s · %s" % [Gatherings.upper_first(String(g["name"])), Data.settlement(place)["name"], when])
 	Sound.play_music("feast_" + String(g.get("culture", Data.culture_of(owner))))
+	Sound.set_loop("feast_din")
 	var check: Dictionary = GameState.dance_check(g)
 	var guests := TalkView.stage_chip(str(GameState.gathering_lords(g).size()), Style.TEXT, "men")
 	guests.tooltip_text = "guests"
@@ -98,6 +99,8 @@ func _dance(kind: String, id: String) -> void:
 		_ask()
 		return
 	Sound.play("page", 0.0, 0.05)
+	if kind in ["romance", "kin", "round"]:
+		Sound.play("applause", -5.0)
 	match kind:
 		"romance":
 			var person: Dictionary = GameState.world.social.get_candidate_person(id)
@@ -212,3 +215,7 @@ func _portrait(cand: String) -> Texture2D:
 func _on_close() -> void:
 	GameState.save_game()
 	Scenes.go(Scenes.dance_return)
+
+
+func _exit_tree() -> void:
+	Sound.set_loop("")

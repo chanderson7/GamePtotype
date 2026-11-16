@@ -36,6 +36,11 @@ const SFX_DB := {
 	"cav_impact": -6.0, "brace": -9.0, "captain_down": -6.0,
 	"ram": -7.0, "gate_break": -4.0, "ladders": -9.0,
 	"call_start": -5.0, "call_charge": -7.0, "call_retreat": -7.0, "reinforce": -8.0,
+	# Ceremonies (tools/ceremony.py): the moment, the rooms and crowds, the table, the rites.
+	"married": -5.0, "heartbeat": -7.0, "hearth": -21.0, "murmur": -24.0, "feast_din": -21.0,
+	"laugh": -11.0, "applause": -11.0, "cups": -9.0, "pour": -12.0, "cup_down": -12.0,
+	"cord": -11.0, "knot": -11.0, "bread": -9.0, "salt": -10.0, "quill": -12.0, "brush": -12.0,
+	"seal": -10.0, "lantern": -9.0, "door": -9.0,
 }
 ## How loud each battle sound peaks in play: its loudest tenth of a second, in dBFS, before
 ## where it is on the field and how far out the view is. Each file is trimmed to this from
@@ -490,6 +495,12 @@ func set_loop(name: String) -> void:
 ## Battle movement gets its own channel, so footsteps or hooves can sit over terrain
 ## ambience without either loop cutting the other off.
 func set_movement_loop(name: String) -> void:
+	_set_named_loop(_movement_loop, name)
+
+
+## A second ambience over the first: the fire in a room, under the guests' talk. It shares
+## the movement loop's channel (nothing walks or rides while you're in a room).
+func set_room_loop(name: String) -> void:
 	_set_named_loop(_movement_loop, name)
 
 

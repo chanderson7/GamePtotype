@@ -26,6 +26,7 @@ what rings across its ends is what rings across them when it loops.
     python3 tools/music.py vardish    # one piece
     python3 tools/music.py 'base_*'   # every piece whose name starts with base_
     python3 tools/music.py battle_sfx # the battle sounds built on recorded hits (tools/battle_sfx.py)
+    python3 tools/music.py ceremony   # the ceremonies' sounds (tools/ceremony.py)
 """
 import os
 import shutil
@@ -1051,7 +1052,19 @@ def _orchestral():
     import realms
     pieces = dict(orchestral.MUSIC)
     pieces.update(realms.MUSIC)       # the lands' themes and their feasts (tools/realms.py)
+    import ceremony
+    pieces.update(ceremony.MUSIC)     # the wedding's own themes (tools/ceremony.py)
     return pieces
+
+
+def _ceremony_sfx():
+    """The ceremonies' sounds (tools/ceremony.py): the wedding's rites, its guests and its
+    feast. They use the recorded harp, strings and bells, so they need the samples too."""
+    import sampler
+    if not sampler.available():
+        return {}
+    import ceremony
+    return ceremony.SFX
 
 
 def _battle_sfx():
@@ -1070,11 +1083,14 @@ def main(which):
     sounds = dict(SFX)
     recorded = _battle_sfx()
     sounds.update(recorded)
+    ceremonies = _ceremony_sfx()
+    sounds.update(ceremonies)
     for name, fn in pieces.items():
         if which in ("all", "music", name) or (which.endswith("*") and name.startswith(which[:-1])):
             write(os.path.join(OUT, "music", name + ".ogg"), fn(), quality=3)
     for name, fn in sounds.items():
         if which in ("all", "sfx", name) or (which == "battle_sfx" and name in recorded) \
+                or (which == "ceremony" and name in ceremonies) \
                 or (which.endswith("*") and name.startswith(which[:-1])):
             x = fn()
             x = x / (np.max(np.abs(x)) + 1e-9) * 0.89

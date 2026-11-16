@@ -10,6 +10,13 @@ extends "res://scripts/menu/wedding_feast.gd"
 const Stories = preload("res://scripts/data/personal_conversations.gd")
 const Rite = preload("res://scripts/ui/wedding_rite.gd")
 
+## What each step of a rite sounds like, by its id in Lines.RITE_STEPS.
+const RITE_SOUNDS := {
+	"wrist": "cord", "wind": "cord", "she_ties": "knot", "together": "knot",
+	"bread": "bread", "salt": "salt", "door": "quill", "letters": "quill", "supper": "quill",
+	"cup1": "pour", "cup2": "pour", "cup3": "pour", "plain": "brush", "company": "brush", "her": "brush",
+}
+
 ## The rite as it's done today (Lines.RITE_STEPS for her people) and what you chose in it.
 var _rite_steps := {}
 var _rite_choice := ""
@@ -52,9 +59,16 @@ func _ready() -> void:
 	if not alone:
 		_dress(when)
 	set_face("center", _portrait("amused" if rejoin else "warm"), false, 0.9)
-	# The ceremony to her people's quiet music; the feast's starts at "I do". Remembered
-	# alone with you, the quiet one.
-	Sound.play_music(("feast_" if rejoin or (not _memory.is_empty() and not alone) else "camp_") + culture)
+	# The ceremony to her people's wedding music; the feast's starts at "I do". Remembered,
+	# it's the wedding music again.
+	Sound.play_music(("feast_" if rejoin else "wedding_") + culture)
+	if _memory.is_empty():
+		# The guests, talking low until it begins (or loud, at the feast), and the fire.
+		Sound.set_loop("feast_din" if rejoin else "murmur")
+		if culture == Cultures.VARDISH and not rejoin:
+			Sound.set_room_loop("hearth")
+	elif alone:
+		Sound.set_room_loop(String(ROOM_SOUNDS.get(cand, "hearth")))
 	_road = Lines.road(social.memory_book(person_id))
 	if not _memory.is_empty():
 		_tell_again()
@@ -292,6 +306,11 @@ func _rite_begin() -> void:
 	_rite_step(0)
 
 
+func _rite_sound(id: String) -> void:
+	if RITE_SOUNDS.has(id):
+		Sound.play(String(RITE_SOUNDS[id]), 0.0, 0.04)
+
+
 ## The rite's next step as one gold reply; after its plain steps, its choice.
 func _rite_step(i: int) -> void:
 	var steps: Array = _rite_steps["steps"]
@@ -309,6 +328,7 @@ func _rite_step(i: int) -> void:
 
 
 func _did_rite(i: int) -> void:
+	_rite_sound(String(_rite_steps["steps"][i]["id"]))
 	_rite.advance()
 	say("narration", _fill(String(_rite_steps["steps"][i]["line"])))
 	_rite_step(i + 1)
@@ -319,6 +339,10 @@ func _chose_rite(ch: Dictionary) -> void:
 	if not bool(ch.get("bare", false)):
 		say("you", _fill(String(ch["text"])))
 	_rite.choice = _rite_choice
+	_rite_sound(_rite_choice)
+	if culture == Cultures.RYUMON:
+		# The third cup is set down before the brush is taken up.
+		Sound.play("cup_down", -2.0)
 	_rite.advance()
 	say("narration", _fill(String(ch["line"])))
 	if String(_rite_steps.get("after", "")) != "":
@@ -337,6 +361,7 @@ func _question() -> void:
 	if d != null:
 		d.hush(true)
 	Sound.hush_music(true)
+	Sound.set_loop("")
 	if not _second.is_empty():
 		say("other", Lines.whisper(_second.get("captain", {})), Lines.UNDER_BREATH % _second_name())
 	var q := Lines.question(culture)
@@ -362,6 +387,8 @@ func _she_answers() -> void:
 	say("them", String(Lines.ANSWER.get(cand, Lines.ANSWER["edda"])), _name)
 	express("center", _portrait("warm"), "warm")
 	_ask(String(Lines.question(culture)["you"]))
+	# Everyone waits on you: nothing to hear but your own heart.
+	Sound.play("heartbeat")
 	_answer_replies(true)
 
 
@@ -382,6 +409,7 @@ func _answer_replies(breath_too: bool) -> void:
 
 func _take_breath() -> void:
 	_breath = true
+	Sound.play("heartbeat", 2.0)
 	say("narration", Lines.BREATH)
 	if not _second.is_empty():
 		say("other", Lines.BREATH_SECOND, _second_name())
@@ -402,8 +430,13 @@ func _i_do() -> void:
 		add_to_log(note(String(r.get("reason", "Something went wrong.")), Style.MORALE_LOW))
 		set_replies([{"id": "leave", "text": Feast.BACK_TO_MAP, "tone": "quiet", "act": close}])
 		return
-	Sound.play("bell", 0.0, 0.0)
+	if culture == Cultures.KHARZANI:
+		Sound.play("seal")
+	Sound.play("married")
+	Sound.play("bell", -3.0, 0.0)
 	Sound.play("cheer_1", -4.0, 0.0)
+	Sound.play("applause", -2.0)
+	Sound.set_loop("feast_din")
 	var d := _dressing()
 	if d != null:
 		d.hush(false)
@@ -537,6 +570,8 @@ func _tell_again() -> void:
 
 func _on_close() -> void:
 	Sound.hush_music(false)
+	Sound.set_loop("")
+	Sound.set_room_loop("")
 	Scenes.wedding_replay = ""
 	GameState.save_game()
 	Scenes.go(Scenes.wedding_return)

@@ -17,6 +17,8 @@ const Data = preload("res://scripts/world/world_data.gd")
 
 ## Where each person is usually found.
 const ROOMS := {"edda": "common_room", "farid": "envoy_room", "kaede": "archive_room"}
+## What each room sounds like (the same rooms as the wedding's: see wedding_feast.gd).
+const ROOM_SOUNDS := {"edda": "hearth", "farid": "settlement_kharzani", "kaede": "settlement_ryumon"}
 const CHAPTERS := 5
 
 ## How this screen was opened: "audience" (the story first) or "visits" (time together).
@@ -100,7 +102,8 @@ func _ready() -> void:
 	setup(TalkView.room(room, TalkView.time_word(GameState.world.hour)), _caption())
 	set_face("left", _portrait(_expression()), false, 0.98)
 	_refresh_plate()
-	Sound.set_loop("camp")
+	# The company's fire on the road (wind, the night); the fire in her own room otherwise.
+	Sound.set_loop("camp" if _on_road() else String(ROOM_SOUNDS.get(cand, "hearth")))
 	var facts := _facts()
 	var rel: Dictionary = _rel()
 	_opening = Lines.opening(cand, _status(), facts, int(rel.get("visits", 0)))
@@ -1081,6 +1084,7 @@ func _private_vows() -> void:
 		(_backdrop as TextureRect).modulate = Color(0.5, 0.54, 0.78)
 	var house: Dictionary = _house()
 	var host := String(GameState.world.social.get_person(String(house.get("head_person_id", ""))).get("name", "the head of the house"))
+	Sound.play_music("wedding_" + String(_social().get_candidate_person(cand).get("culture", "vardish")))
 	say("narration", WeddingLines.PRIVATE_SCENE)
 	say("them", WeddingLines.fill(WeddingLines.PRIVATE.get(cand, ""), {"host": host}), _name)
 	var their: Dictionary = WeddingLines.their_vow(cand, _social().memory_book(person_id))
@@ -1109,6 +1113,7 @@ func _private_vow_yours(their: Dictionary, house: Dictionary) -> void:
 
 func _private_i_do(said: String, their_vow: String, house: Dictionary) -> void:
 	say("you", WeddingLines.I_DO)
+	Sound.play("bell", -5.0)
 	_face("warm")
 	say("them", String(WeddingLines.PRIVATE_ANSWER.get(cand, "")), _name)
 	GameState.record_private_vows(cand, said, their_vow, true)

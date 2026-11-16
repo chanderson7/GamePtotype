@@ -82,6 +82,7 @@ func _ready() -> void:
 	place = String(g["place"])
 	culture = String(g.get("culture", Data.culture_of(String(Data.settlement(place)["faction"]))))
 	Sound.play_music("feast_" + culture)
+	Sound.set_loop("feast_din")
 	_build()
 	if GameState.feast_needs_herald(g):
 		_herald()
@@ -888,7 +889,7 @@ func _toast() -> void:
 	if not bool(r.get("ok", false)):
 		_refresh()
 		return
-	Sound.play("horn")
+	Sound.play("cups")
 	Sound.play("cheer", -6.0)
 	_react(_guests.keys(), "laugh", 1.8)
 	_cup_rises("cup")
@@ -1057,6 +1058,11 @@ func choose_moment(choice: String) -> void:
 		_float_at(Vector2(_stage.size.x * 0.5, _stage.size.y * 0.62), "%+d renown" % int(r["renown"]), Color("f3d891"))
 	if int(r.get("silver", 0)) != 0:
 		Sound.play("coins")
+	# What the hall does: laughs at an answer, claps a song or a match, knocks its cups.
+	var heard := String({"insult/answer": "laugh", "bard/stand": "applause", "bard/pass": "applause", "round/stand": "cups",
+		"challenge/accept": "applause", "challenge/decline": "laugh"}.get("%s/%s" % [String(m["id"]), choice], ""))
+	if heard != "":
+		Sound.play(heard)
 	if String(m["id"]) == "challenge" and choice == "accept":
 		_react([lid], "laugh" if bool(r.get("won", false)) else "proud", 2.0)
 	_show_changes(before)
@@ -1166,3 +1172,7 @@ func act(id: String) -> bool:
 
 func moment() -> Dictionary:
 	return _moment
+
+
+func _exit_tree() -> void:
+	Sound.set_loop("")
