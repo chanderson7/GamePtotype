@@ -1780,16 +1780,12 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	box.add_child(strip)
 	box.add_child(_note("%d of %d ride · tap a face" % [_lists_pick.size(), Gatherings.TOURNEY_CAPTAINS]))
 	var go := _button("Ride the lists", func():
-		var r: Dictionary = CrownCourt.ride_tourney(GameState, _lists_pick)
-		var rode := bool(r.get("ok", false))
-		if rode:
-			Sound.play("horn")
-			_bouts_open = false
-			# How it ended drops in as a ribbon, and the result shows itself on the page.
-			var told: Array = (GameState.hosted.get("tourney", {}) as Dictionary).get("lines", [])
-			if not told.is_empty():
-				Scenes.ribbon("The lists are run", String(told[-1]), "fight", "")
-		_lists_ridden(rode))
+		# To the lists themselves: your captains' bouts are yours to ride.
+		_remember_scroll()
+		_bouts_open = false
+		Scenes.lists_squads = _lists_pick.duplicate()
+		Scenes.lists_return = "res://scenes/settlement.tscn"
+		Scenes.go("res://scenes/lists.tscn"))
 	go.name = "RideLists"
 	go.disabled = not bool(check["ok"]) or _lists_pick.is_empty()
 	if not go.disabled:
@@ -1797,13 +1793,6 @@ func _add_lists(box: VBoxContainer, g: Dictionary) -> void:
 	box.add_child(go)
 	if not bool(check["ok"]):
 		box.add_child(_note(String(check["reason"]), Style.MUTED))
-
-
-## The page after the lists: rebuilt, with their result showing itself if they were ridden.
-func _lists_ridden(rode: bool) -> void:
-	_build()
-	if rode:
-		_flash_named.call_deferred("ListsResult")
 
 
 func _host_row(key: String, text: String, sub: String, on: bool, can_change: bool) -> Control:

@@ -46,6 +46,9 @@ var wedding_replay := ""
 var dance_return := "res://scenes/settlement.tscn"
 ## Where the feast hall (scenes/feast.tscn) returns to.
 var feast_return := "res://scenes/settlement.tscn"
+## The lists (scenes/lists.tscn): where they return to, and your captains riding (squad ids).
+var lists_return := "res://scenes/settlement.tscn"
+var lists_squads: Array = []
 var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1

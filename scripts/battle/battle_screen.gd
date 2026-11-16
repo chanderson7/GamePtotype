@@ -30,6 +30,8 @@ const Terrain = preload("res://scripts/battle/terrain.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
+const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 
 const TOP_BAR := 96.0
 const CHIP_H := 84.0
@@ -3891,6 +3893,10 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 		result_content.add_child(_field_vignette())
 	result_body.text = why
 	result_content.add_child(result_body)
+	# What it was for: the village, the walls, the chief.
+	var stakes: Dictionary = GameState.battle_stakes(_pending_result)
+	if not stakes.is_empty():
+		result_content.add_child(_stakes_panel(stakes))
 
 	# The tally as tiles: your slain and wounded, theirs down. (The report's story sentence
 	# said the same in words; the hardest fighting is a star on that captain's face below.)
@@ -3943,6 +3949,77 @@ func _rebuild_result(report: Dictionary, why: String) -> void:
 
 	_result_companies(report)
 	_result_bonds(report.get("bonds", []), report.get("memorials", []))
+
+
+## What the battle was for and what came of it, on the result card: the place painted as
+## it now stands (saved, burning, flying a new banner) or the chief's mark, the headline,
+## a line, and what it brings.
+func _stakes_panel(st: Dictionary) -> PanelContainer:
+	var good := String(st.get("tone", "")) == "good"
+	var panel := PanelContainer.new()
+	panel.name = "Stakes"
+	var sb := Style.box(Color("1d1a10") if good else Color("221212"), Style.BRASS if good else Style.ENEMY, 2, 16)
+	sb.content_margin_left = 0
+	sb.content_margin_right = 0
+	sb.content_margin_top = 0
+	sb.content_margin_bottom = 14
+	panel.add_theme_stylebox_override("panel", sb)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	var place := String(st.get("place", ""))
+	if place != "" and WorldData.SETTLEMENTS.has(place) and Style.illustrations_on():
+		var params: Dictionary = SettlementScene.params(GameState.world, place)
+		var owner := String(st.get("owner", ""))
+		if owner != "" and SettlementScene.BANNER.has(owner):
+			params["owner"] = owner
+		match String(st.get("cond", "")):
+			"burning":
+				params["condition"] = "raided" if String(params["kind"]) == WorldData.VILLAGE else "healthy"
+			"besieged":
+				params["condition"] = "besieged"
+		params["player"] = ""
+		var vista = SettlementVista.from_preset(params, 150)
+		vista.name = "StakesPlace"
+		vista.fade = true
+		v.add_child(vista)
+	var words := MarginContainer.new()
+	for side in ["left", "right"]:
+		words.add_theme_constant_override("margin_" + side, 18)
+	words.add_theme_constant_override("margin_top", 0 if place != "" else 14)
+	v.add_child(words)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	words.add_child(col)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	if place == "":
+		var ic := Widgets.icon_rect(String(st.get("icon", "fight")), 40)
+		ic.modulate = Style.BRASS if good else Style.ENEMY_LIGHT
+		head.add_child(ic)
+	var title := Style.label(String(st.get("title", "")), Style.LARGE, Color("f3d891") if good else Style.ENEMY_LIGHT)
+	title.name = "StakesTitle"
+	if Style.display_font() != null:
+		title.add_theme_font_override("font", Style.display_font())
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	col.add_child(head)
+	var body := Style.label(String(st.get("body", "")), Style.BODY, Style.TEXT)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(body)
+	var tiles: Array = st.get("tiles", [])
+	if not tiles.is_empty() or String(st.get("aside", "")) != "":
+		var row := HFlowContainer.new()
+		row.add_theme_constant_override("h_separation", 10)
+		for t in tiles:
+			row.add_child(Widgets.effect(String(t[0]), int(t[1])))
+		if String(st.get("aside", "")) != "":
+			var a := Style.label(String(st["aside"]), Style.SMALL, Style.MUTED)
+			a.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(a)
+		col.add_child(row)
+	return panel
 
 
 ## Only the companies with something to tell: a captain fallen or wounded, men lost,

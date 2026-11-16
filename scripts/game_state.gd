@@ -111,6 +111,13 @@ var map_notice_passing := false
 ## rather than a sentence each. Each is {kind, name, ...}: "released" carries the realm,
 ## "sworn" the seat they'll hold ("" for none).
 var map_notice_items: Array = []
+## Each note in map_notice, as the card it's told on (EventCards draws them): {text, kind,
+## and what to draw it with: title, big, tone, place/owner/was/cond, face/face_name,
+## captain, banners, tiles}. A note with no card of its own is kind "note", a line in the
+## ledger. "told" marks one a battle's result card has already said.
+var map_cards: Array = []
+## The Three Realms are one crown: the map hands over to the victory scene, once.
+var victory_pending := false
 ## Unread desertion warning survives saving until the player acknowledges it.
 var desertion_warning := ""
 ## A lord just beaten in the field, for the map's own screen (his face, his fate, what he
@@ -241,6 +248,8 @@ func new_warband() -> void:
 	map_notice_title = ""
 	map_notice_passing = false
 	map_notice_items = []
+	map_cards = []
+	victory_pending = false
 	desertion_warning = ""
 	lord_outcome = {}
 	hired_heroes = []
@@ -348,7 +357,7 @@ func specialize_captain(captain_id: int, spec: String) -> bool:
 	if c == null or not Captains.can_specialize(c):
 		return false
 	c["specialization"] = spec
-	_note("%s has specialized as %s (%s)." % [c["name"], spec, Captains.SPECIALIZATION_TITLES.get(spec, "")])
+	_note("%s has specialized as %s (%s)." % [c["name"], spec, Captains.SPECIALIZATION_TITLES.get(spec, "")], {"kind": "ledger", "row": "company"})
 	save_game()
 	return true
 
@@ -401,7 +410,7 @@ func recruit_hero(hero_id: String) -> bool:
 	}
 	_next_id += 1
 	army.append(squad)
-	_note("Recruited %s to your company." % String(h.get("name", "Hero")))
+	_note("Recruited %s to your company." % String(h.get("name", "Hero")), {"kind": "ledger", "row": "company"})
 	save_game()
 	return true
 
@@ -434,7 +443,7 @@ func accept_job(settlement_id: String, index: int) -> bool:
 	if job.is_empty():
 		return false
 	active_jobs.append(job)
-	_note("Accepted contract: '%s'." % String(job.get("title", "Contract")))
+	_note("Accepted contract: '%s'." % String(job.get("title", "Contract")), {"kind": "ledger", "row": "journal"})
 	save_game()
 	return true
 
@@ -445,7 +454,7 @@ func abandon_job(job_id: String) -> bool:
 			var title := String(active_jobs[i].get("title", "Contract"))
 			var realm := job_realm(active_jobs[i])
 			active_jobs.remove_at(i)
-			_note("Abandoned contract: '%s'.%s" % [title, _job_standing_cost(realm)])
+			_note("Abandoned contract: '%s'.%s" % [title, _job_standing_cost(realm)], {"kind": "ledger", "row": "cancel", "tone": "bad"})
 			save_game()
 			return true
 	return false
@@ -605,7 +614,7 @@ func _check_job_deadlines() -> void:
 			if party_id >= 0 and world.party(party_id) == null and String(job.get("status", "")) != "ready_to_claim":
 				active_jobs.remove_at(i)
 				_end_commitment(String(job.get("id", "")), jtitle, "Cancelled: another force scattered the band first.")
-				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle)
+				_note("Contract canceled: The marauders of '%s' were dispersed by another force." % jtitle, {"kind": "ledger", "row": "cancel"})
 
 
 # ---------------------------------------------------------------- the wedding
@@ -1467,7 +1476,7 @@ func _step_hosted() -> void:
 				LordTalk.change_regard(self, l, Gatherings.ABSENT_KING_REGARD)
 				sore += 1
 		_note("Your lords drank at %s without you on the first night.%s" % [WorldData.settlement(String(g["place"]))["name"],
-			(" The %d you were winning over noticed (%d Regard)." % [sore, Gatherings.ABSENT_KING_REGARD]) if sore > 0 else ""])
+			(" The %d you were winning over noticed (%d Regard)." % [sore, Gatherings.ABSENT_KING_REGARD]) if sore > 0 else ""], {"kind": "ledger", "row": "cup", "tone": "bad"})
 
 
 ## The warmth your own gathering adds to a lord's conviction while it lasts and a few days after.
@@ -1736,9 +1745,10 @@ func declare_crown() -> bool:
 	world.player().faction = WorldData.CROWN
 	add_realm_relation(liege, -60)
 	_note("You raise your own banner over %s. %s will not forgive it: it is war." % [
-		WorldData.settlement(seat)["name"], WorldData.FACTIONS[liege]["name"] if WorldData.FACTIONS.has(liege) else "Your liege"])
-	# There is no going back: the moment is marked as one (the horn is the caller's).
+		WorldData.settlement(seat)["name"], WorldData.FACTIONS[liege]["name"] if WorldData.FACTIONS.has(liege) else "Your liege"], _card_merge(_place_art(seat, WorldData.CROWN, liege), {"kind": "crown_raised", "title": "A crown is raised", "big": true, "tone": "gold", "banners": [WorldData.CROWN, liege], "told": true}))
+	# Raised from a menu, it's marked there and then; the map doesn't tell it again.
 	_moment("A crown is raised", "%s is the seat of %s." % [WorldData.settlement(seat)["name"], crown_title()], "crown", false, "")
+	# There is no going back: the moment is marked as one (the horn is the caller's).
 	save_game()
 	return true
 
@@ -1756,7 +1766,7 @@ func _crown_day() -> void:
 	if _crown_fate():
 		return
 	for name in LordTalk.bought_lords_day(self):
-		_note("%s thinks too little of you now to stay bought, and rides back to their old allegiance, castle and all." % name)
+		_note("%s thinks too little of you now to stay bought, and rides back to their old allegiance, castle and all." % name, {"kind": "deserted", "title": "%s rides away" % name, "tone": "bad", "banners": [WorldData.CROWN]})
 	var dues := 0
 	for id in crown_holdings():
 		if id == fief_id() or world.is_burned(id):
@@ -1828,7 +1838,7 @@ func propose_alliance(realm: String) -> bool:
 	if not is_crowned() or not world.ally_crown(realm):
 		return false
 	add_realm_relation(realm, 20)
-	_note("%s agrees to an alliance against your common enemies." % WorldData.FACTIONS[realm]["name"])
+	_note("%s agrees to an alliance against your common enemies." % WorldData.FACTIONS[realm]["name"], {"kind": "alliance", "title": "An alliance with %s" % WorldData.FACTIONS[realm]["name"], "tone": "good", "banners": [WorldData.CROWN, realm], "tiles": [["bond", 20, " " + realm_word(realm)]]})
 	save_game()
 	return true
 
@@ -1856,7 +1866,7 @@ func sue_for_peace(realm: String) -> bool:
 	if int(terms["daily"]) > 0:
 		t = " They pay you %d silver a day for %d days." % [int(terms["daily"]), int(terms["days"])] if terms["to"] == WorldData.CROWN \
 			else " Your treasury pays them %d silver a day for %d days." % [int(terms["daily"]), int(terms["days"])]
-	_note("%s accepts peace with your crown. A truce holds.%s" % [WorldData.FACTIONS[realm]["name"], t])
+	_note("%s accepts peace with your crown. A truce holds.%s" % [WorldData.FACTIONS[realm]["name"], t], {"kind": "peace", "title": "Peace with %s" % WorldData.FACTIONS[realm]["name"], "tone": "good", "banners": [WorldData.CROWN, realm], "tiles": [["bond", 30, " " + realm_word(realm)]]})
 	save_game()
 	return true
 
@@ -1902,13 +1912,14 @@ func _crown_fate() -> bool:
 			fall_crown()
 			return true
 		_note("Your crown holds nothing. Take back a castle or a town within %d day%s, or it falls." % [
-			CROWN_FALL_DAYS - crown_empty_days, "" if CROWN_FALL_DAYS - crown_empty_days == 1 else "s"])
+			CROWN_FALL_DAYS - crown_empty_days, "" if CROWN_FALL_DAYS - crown_empty_days == 1 else "s"], {"kind": "crown_risk", "title": "Your crown holds nothing", "big": true, "tone": "bad", "banners": [WorldData.CROWN], "aside": "%d day%s left" % [CROWN_FALL_DAYS - crown_empty_days, "" if CROWN_FALL_DAYS - crown_empty_days == 1 else "s"]})
 		return false
 	crown_empty_days = 0
 	if not crown_won and crown_capitals().all(func(id): return held.has(id)):
 		crown_won = true
 		renown += 100
 		world.emit_event({"type": "crown_victory"})
+		victory_pending = true
 		map_notice_title = "One crown"
 		map_notice = "%s holds Highcliff, Khalun and Kurogane. Every realm's capital flies your banner: Vaskaria has one crown now. (+100 renown)\n\nThe campaign carries on for as long as you like. Hold every castle and town on the map at once, and the company is remembered as Keepers of the Three Realms." % WorldData.title_case(crown_title())
 	return false
@@ -1924,10 +1935,11 @@ func fall_crown() -> void:
 	world.player().faction = ""
 	crown_won = false
 	crown_empty_days = 0
-	_moment("Your crown has fallen", "The company rides free again.", "crown", true, "bell")
 	map_notice_title = "The crown falls"
 	map_notice = "Your crown has fallen. It held nothing, and %s. The company rides free again; hold a castle or a town and you may raise a banner anew." % (
 		"its lords have gone back to their old allegiances" if not gone.is_empty() else "no lord was left to serve it")
+	map_cards = [{"text": map_notice, "kind": "crown_fallen", "title": "Your crown has fallen", "big": true, "tone": "bad",
+		"banners": [WorldData.CROWN], "aside": "The company rides free again."}]
 	save_game()
 
 
@@ -1968,7 +1980,7 @@ func grant_fief(id: String, lord_id: int, regard: int = GRANT_REGARD) -> bool:
 	l["fief"] = id
 	add_lord_relation(lord_id, regard)
 	world.emit_event({"type": "fief_given", "lord": String(l["name"]), "settlement": id})
-	_note("You grant %s to %s (+%d Regard)." % [WorldData.settlement(id)["name"], l["name"], regard])
+	_note("You grant %s to %s (+%d Regard)." % [WorldData.settlement(id)["name"], l["name"], regard], _card_merge(_card_merge(_place_art(id, WorldData.CROWN), _lord_art(l, "warm")), {"kind": "grant", "title": "%s for %s" % [WorldData.settlement(id)["name"], LordTalk.short_name(l)], "tone": "good", "tiles": [["bond", regard]]}))
 	save_game()
 	return true
 
@@ -1980,7 +1992,7 @@ func revoke_fief(lord_id: int) -> bool:
 	var was := String(l["fief"])
 	l["fief"] = ""
 	add_lord_relation(lord_id, REVOKE_REGARD)
-	_note("You take %s back from %s (%d Regard)." % [WorldData.settlement(was)["name"], l["name"], REVOKE_REGARD])
+	_note("You take %s back from %s (%d Regard)." % [WorldData.settlement(was)["name"], l["name"], REVOKE_REGARD], _card_merge(_card_merge(_place_art(was), _lord_art(l, "angry")), {"kind": "grant", "title": "%s taken back" % WorldData.settlement(was)["name"], "tone": "bad", "tiles": [["bond", REVOKE_REGARD]]}))
 	save_game()
 	return true
 
@@ -2007,7 +2019,7 @@ func draw_treasury(amount: int) -> bool:
 	silver += amount
 	for l in crown_lords():
 		add_lord_relation(int(l["id"]), DRAW_REGARD)
-	_note("You draw %d silver from the treasury. Your lords notice (%d Regard each)." % [amount, DRAW_REGARD])
+	_note("You draw %d silver from the treasury. Your lords notice (%d Regard each)." % [amount, DRAW_REGARD], {"kind": "ledger", "row": "crown"})
 	save_game()
 	return true
 
@@ -2036,7 +2048,7 @@ func station_in_holding(squad_id: int) -> bool:
 	var g: Array = world.garrisons.get(id, [])
 	g.append(sq)
 	world.garrisons[id] = g
-	_note("%s stands with the garrison of %s." % [String(sq.get("name", "The squad")), WorldData.settlement(id)["name"]])
+	_note("%s stands with the garrison of %s." % [String(sq.get("name", "The squad")), WorldData.settlement(id)["name"]], {"kind": "ledger", "row": "walls"})
 	save_game()
 	return true
 
@@ -2096,7 +2108,7 @@ func call_to_arms(target: String) -> bool:
 	if not MarshalArmies.create(world, WorldData.CROWN, target):
 		return false
 	_note("Your lords gather at %s to march on %s. Ride with them from the army's sheet." % [
-		WorldData.settlement(world.capital_of(WorldData.CROWN))["name"], WorldData.settlement(target)["name"]])
+		WorldData.settlement(world.capital_of(WorldData.CROWN))["name"], WorldData.settlement(target)["name"]], _card_merge(_place_art(target), {"kind": "muster", "title": "The banners are called", "tone": "gold", "banners": [WorldData.CROWN, world.owner_of(target)]}))
 	save_game()
 	return true
 
@@ -2129,7 +2141,7 @@ func declare_crown_war(realm: String) -> bool:
 			honorable += 1
 	var foe := String(WorldData.FACTIONS[realm]["name"])
 	var breach := (" Your Honorable lords call it a breach of the peace (%d Regard each)." % DECLARE_HONOR_REGARD) if honorable > 0 else ""
-	_note("Your crown declares war on %s.%s" % [foe, breach])
+	_note("Your crown declares war on %s.%s" % [foe, breach], {"kind": "war", "title": "War with %s" % foe, "big": true, "tone": "bad", "banners": [WorldData.CROWN, realm], "tiles": [["bond", DECLARE_HONOR_REGARD, " each Honorable lord"]] if honorable > 0 else []})
 	save_game()
 	return true
 
@@ -2195,8 +2207,7 @@ func _ribbon(title: String, sub: String, icon_key: String, sound: String) -> voi
 func _award_deeds() -> void:
 	for id in Achievements.check(self):
 		var d: Dictionary = Achievements.DEEDS[id]
-		_note("A deed to remember: the company is now known as %s." % d["title"])
-		_ribbon("A deed to remember", "The company is now known as %s." % d["title"], "renown", "promotion")
+		_note("A deed to remember: the company is now known as %s." % d["title"], {"kind": "deed", "title": WorldData.title_case(String(d["title"])), "big": true, "tone": "gold", "aside": String(d["goal"])})
 		if world != null:
 			world.emit_event({"type": "achievement", "title": String(d["title"]), "text": String(d["goal"])})
 
@@ -2417,6 +2428,7 @@ func _army_assault_outcome(result: Dictionary, how: String) -> void:
 	var army := _assault_army()
 	var target := String(pending_battle.get("siege_target", ""))
 	var place: String = WorldData.settlement(target)["name"]
+	var was_owner: String = world.owner_of(target)
 	world.pending_assault = {}
 	var won := bool(result.get("won", false))
 	var defend := bool(pending_battle.get("siege_defend", false))
@@ -2459,15 +2471,19 @@ func _army_assault_outcome(result: Dictionary, how: String) -> void:
 		renown += int(got["renown"])
 		if defend:
 			world.emit_event({"type": "fief_defended", "settlement": target, "enemy": String(pending_battle.get("name", "the besiegers"))})
-			_note("You held the walls of %s! %s The besiegers fall back. +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]])
+			_note("You held the walls of %s! %s The besiegers fall back. +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]],
+				_card_merge(_place_art(target), {"kind": "walls_held", "title": "%s holds" % place, "big": true, "tone": "good", "tiles": _spoils_tiles(got)}))
 		else:
 			add_realm_relation(String(pending_battle.get("siege_realm", "")), 15)
-			_note("%s falls to the assault you led! %s +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]])
+			_note("%s falls to the assault you led! %s +%d silver, +%d renown." % [place, how, got["silver"], got["renown"]],
+				_card_merge(_place_art(target, world.owner_of(target), was_owner), {"kind": "taken", "title": "%s is taken" % place, "big": true, "tone": "good", "tiles": _spoils_tiles(got)}))
 	else:
 		if defend:
-			_note("%s fell. %s The besiegers hold the walls now." % [place, how])
+			_note("%s fell. %s The besiegers hold the walls now." % [place, how],
+				_card_merge(_place_art(target, world.owner_of(target), was_owner), {"kind": "place_lost", "title": "%s has fallen" % place, "big": true, "tone": "bad"}))
 		else:
-			_note("The assault on %s failed. %s The army falls back." % [place, how])
+			_note("The assault on %s failed. %s The army falls back." % [place, how],
+				_card_merge(_place_art(target, "", "", "besieged"), {"kind": "assault_failed", "title": "The walls of %s held" % place, "tone": "bad"}))
 
 
 func _siege_outcome(result: Dictionary, how: String) -> void:
@@ -2493,7 +2509,8 @@ func _siege_outcome(result: Dictionary, how: String) -> void:
 			if after != null:
 				sq["men"] = int(after.get("men", sq["men"]))
 		world.garrisons[id] = garrison.filter(func(sq): return int(sq["men"]) > 0)
-		_note("The assault on %s failed. %s The survivors fall back from the walls." % [place, how])
+		_note("The assault on %s failed. %s The survivors fall back from the walls." % [place, how],
+			_card_merge(_place_art(id, "", "", "besieged"), {"kind": "assault_failed", "title": "The walls of %s held" % place, "tone": "bad"}))
 
 
 ## The walls at `id` are yours (stormed, or yielded): the garrison goes, the place flies
@@ -2525,7 +2542,9 @@ func _take_walls(id: String, realm: String, how: String, killed: int, opening: S
 	add_realm_relation(realm, 15)
 	add_realm_relation(was, -20)
 	_note("%s %s Claimed %d silver and %d renown; %s now flies the banner of %s." % [
-		opening, how, got["silver"], got["renown"], place, WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm])
+		opening, how, got["silver"], got["renown"], place, WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm],
+		_card_merge(_place_art(id, world.owner_of(id), was), {"kind": "taken", "title": ("%s yields" % place) if opening.ends_with("yields!") else ("%s is taken" % place),
+			"big": true, "tone": "good", "tiles": _spoils_tiles(got)}))
 
 
 ## Keep what an assault did to `id`'s walls (a fought one says; one sent in doesn't).
@@ -2609,11 +2628,13 @@ func siege_toggle_bombard() -> void:
 func break_siege(why: String = "") -> void:
 	if siege_camp.is_empty():
 		return
-	var place: String = WorldData.settlement(String(siege_camp["place"]))["name"]
+	var camp_at := String(siege_camp["place"])
+	var place: String = WorldData.settlement(camp_at)["name"]
 	var engines := (siege_camp.get("built", []) as Array).filter(func(k): return k != "ladders" and k != "more_ladders")
 	siege_camp = {}
 	_note("%sYou strike your camp before %s.%s" % [why + " " if why != "" else "", place,
-		" Your engines are burned behind you." if not engines.is_empty() else ""])
+		" Your engines are burned behind you." if not engines.is_empty() else ""],
+		_card_merge(_place_art(camp_at), {"kind": "siege", "row": "retreat", "title": "Before the walls of %s" % place}))
 
 
 ## The camp's hours: building, the daily bombardment and night sally, the garrison's food;
@@ -2647,7 +2668,8 @@ func _step_siege(_hours: float) -> void:
 	var place: String = WorldData.settlement(id)["name"]
 	var done := SiegeCamp.build_step(siege_camp, hours)
 	if done != "":
-		_note("Your %s stands ready before %s." % [SiegeCamp.engine_name(done, culture).to_lower(), place])
+		_note("Your %s stands ready before %s." % [SiegeCamp.engine_name(done, culture).to_lower(), place],
+			_card_merge(_place_art(id, "", "", "besieged"), {"kind": "siege", "row": "ram" if done == "ram" else ("ladder" if done.contains("ladder") else "walls"), "title": "Before the walls of %s" % place, "tone": "good"}))
 	var day := int(world.hour / 24.0)
 	while int(siege_camp.get("day", day)) < day and not siege_camp.is_empty():
 		siege_camp["day"] = int(siege_camp["day"]) + 1
@@ -2659,6 +2681,7 @@ func _step_siege(_hours: float) -> void:
 		if throwers > 0 and bool(siege_camp.get("bombard", true)):
 			var hit := SiegeCamp.bombard(world, id, throwers, rng)
 			if int(hit["kills"]) > 0:
+				_note_siege(id, "walls", "good")
 				_note("Your %s knock at the walls of %s; %d of the garrison fall." % [
 					SiegeCamp.engine_name("thrower", culture).to_lower() + "s", place, int(hit["kills"])])
 	if world.hour >= float(siege_camp["food_until"]):
@@ -2706,8 +2729,10 @@ func _siege_night(id: String) -> void:
 		sq["men"] = int(sq["men"]) - take2
 		dead_mine -= take2
 	if lost != "":
+		_note_siege(id, "fire", "bad")
 		_note("The garrison of %s sallied in the night and set your %s alight." % [place, SiegeCamp.engine_name(lost, culture).to_lower()])
 	else:
+		_note_siege(id, "fight", "good")
 		_note("The garrison of %s sallied in the night; your camp drove them back." % place)
 
 
@@ -2739,9 +2764,11 @@ func _walls_harass(id: String) -> void:
 				smashed = String(engines.back())
 				(siege_camp["built"] as Array).erase(smashed)
 	if smashed != "":
+		_note_siege(id, "breach", "bad")
 		_note("A stone from the courtyard of %s smashed your %s.%s" % [place, SiegeCamp.engine_name(smashed, culture).to_lower(),
 			" Their bolts killed %d in the camp." % dead if dead > 0 else ""])
 	elif dead > 0:
+		_note_siege(id, "skull", "bad")
 		_note("Bolts from the walls of %s killed %d of your men in the camp." % [place, dead])
 
 
@@ -2766,7 +2793,7 @@ func repair_fief_walls() -> Dictionary:
 		return {"ok": false, "reason": "Needs %d silver." % SiegeCamp.REPAIR_COST}
 	silver -= SiegeCamp.REPAIR_COST
 	world.siege_damage.erase(fief_id())
-	_note("The walls of %s are mended (%d silver)." % [WorldData.settlement(fief_id())["name"], SiegeCamp.REPAIR_COST])
+	_note("The walls of %s are mended (%d silver)." % [WorldData.settlement(fief_id())["name"], SiegeCamp.REPAIR_COST], {"kind": "ledger", "row": "walls"})
 	save_game()
 	return {"ok": true}
 
@@ -2826,7 +2853,7 @@ func raid_village(id: String) -> Dictionary:
 		return {}
 	var got := _pillage(id)
 	var place: String = WorldData.settlement(id)["name"]
-	_note("The militia of %s scatter before your warband. %s" % [place, String(got["text"])])
+	_note("The militia of %s scatter before your warband. %s" % [place, String(got["text"])], got["card"])
 	save_game()
 	return got
 
@@ -2865,13 +2892,14 @@ func _raid_outcome(result: Dictionary, how: String) -> void:
 		return
 	var place: String = WorldData.settlement(id)["name"]
 	if not bool(result.get("won", false)):
-		_note("The militia of %s held their homes. %s Your men fall back from the village." % [place, how])
+		_note("The militia of %s held their homes. %s Your men fall back from the village." % [place, how],
+			_card_merge(_place_art(id), {"kind": "raid", "title": "%s holds" % place, "tone": "bad"}))
 		return
 	var spoils := Economy.spoils(int(result.get("killed", 0)))
 	silver += int(spoils["silver"])
 	food += int(spoils["food"])
 	var got := _pillage(id)
-	_note("The militia of %s broke. %s %s" % [place, how, String(got["text"])])
+	_note("The militia of %s broke. %s %s" % [place, how, String(got["text"])], got["card"])
 
 
 ## Burn `id` and take what it has. The village pays nothing and offers no recruits for
@@ -2912,6 +2940,14 @@ func _pillage(id: String) -> Dictionary:
 	got["text"] = text
 	got["liked"] = liked
 	got["shamed"] = shamed
+	var reactions := []
+	for n in shamed:
+		reactions.append([n, Lords.RAID_HONORABLE_REGARD])
+	for n in liked:
+		reactions.append([n, Lords.RAID_CRUEL_REGARD])
+	got["card"] = _card_merge(_place_art(id, "", "", "burning"), {"kind": "raid", "title": "%s burns" % place, "tone": "bad",
+		"tiles": [["silver", int(got["silver"])], ["food", int(got["food"])], ["bond", Lords.PLAYER_RAID_REALM, " " + realm_word(owner)]],
+		"reactions": reactions, "aside": "%d hours to load the carts" % int(Lords.RAID_HOURS)})
 	world.player_raid = {"village": id, "until": world.hour + Lords.RAID_HOURS}
 	world.wait(Lords.RAID_HOURS)
 	_count_deed("raids")
@@ -3129,7 +3165,7 @@ func accept_fealty_and_fief(settlement_id: String, realm: String) -> bool:
 		var title := Fiefs.title_for(cult)
 		_note("Swore fealty to the %s! Granted lordship of %s as %s of %s." % [
 			r_name, s_name, title, s_name
-		])
+		], _card_merge(_card_merge(_place_art(settlement_id, realm), _lord_art(_ruler(realm), "proud")), {"kind": "fealty", "title": "Sworn to %s" % r_name, "big": true, "tone": "gold", "banners": [realm], "aside": "%s of %s" % [title, s_name]}))
 		world.emit_event({
 			"type": "fief_granted",
 			"company": "Your warband",
@@ -3146,6 +3182,7 @@ func renounce_fief() -> void:
 		return
 	var s_name := String(WorldData.settlement(fief_id())["name"])
 	var r := fief_realm()
+	var renounced_at := fief_id()
 	# Your own squads ride out with you; the liege's guards stay.
 	var g := fief_garrison()
 	for sq in g.filter(func(x): return is_company_squad(x)):
@@ -3158,7 +3195,7 @@ func renounce_fief() -> void:
 	add_realm_relation(r, -25)
 	_note("You renounced your fealty to the %s, forfeiting %s." % [
 		WorldData.FACTIONS.get(r, {}).get("name", "crown"), s_name
-	])
+	], _card_merge(_place_art(renounced_at, r), {"kind": "renounce", "title": "Oath broken", "tone": "bad", "banners": [r], "tiles": [["bond", -25, " " + realm_word(r)]]}))
 	save_game()
 
 
@@ -3187,7 +3224,7 @@ func collect_fief_taxes() -> int:
 	var collected := int(player_fief.get("silver", 0))
 	player_fief["silver"] = 0
 	silver += collected
-	_note("Collected %d silver from estate taxes at %s." % [collected, WorldData.settlement(fief_id())["name"]])
+	_note("Collected %d silver from estate taxes at %s." % [collected, WorldData.settlement(fief_id())["name"]], {"kind": "ledger", "row": "silver"})
 	save_game()
 	return collected
 
@@ -3199,7 +3236,7 @@ func collect_fief_food(amount: int = -1) -> int:
 	var take := available if amount <= 0 else mini(amount, available)
 	player_fief["food"] = available - take
 	food += take
-	_note("Collected %d food rations from estate granaries at %s." % [take, WorldData.settlement(fief_id())["name"]])
+	_note("Collected %d food rations from estate granaries at %s." % [take, WorldData.settlement(fief_id())["name"]], {"kind": "ledger", "row": "food"})
 	save_game()
 	return take
 
@@ -3281,7 +3318,7 @@ func station_squad_in_fief(squad_id: int) -> bool:
 	army.remove_at(s_idx)
 	squad["stationed_by_company"] = true
 	fief_garrison().append(squad)
-	_note("Stationed %s in the garrison of %s." % [String(squad.get("name", "Squad")), WorldData.settlement(fief_id())["name"]])
+	_note("Stationed %s in the garrison of %s." % [String(squad.get("name", "Squad")), WorldData.settlement(fief_id())["name"]], {"kind": "ledger", "row": "walls"})
 	save_game()
 	return true
 
@@ -3302,7 +3339,7 @@ func withdraw_squad_from_fief(garrison_index: int) -> bool:
 	g.remove_at(garrison_index)
 	_unstation(squad)
 	army.append(squad)
-	_note("Withdrew %s from the garrison into the active warband." % String(squad.get("name", "Squad")))
+	_note("Withdrew %s from the garrison into the active warband." % String(squad.get("name", "Squad")), {"kind": "ledger", "row": "company"})
 	save_game()
 	return true
 
@@ -3368,7 +3405,7 @@ func exchange_fief(castle_id: String) -> bool:
 	var realm := fief_realm()
 	var title := Fiefs.title_for(String(WorldData.FACTIONS[realm]["culture"]))
 	_note("%s grants you %s for %s. You are its %s now; the village and its buildings go back to the realm." % [
-		WorldData.FACTIONS[realm]["name"], WorldData.settlement(castle_id)["name"], WorldData.settlement(old)["name"], title.to_lower()])
+		WorldData.FACTIONS[realm]["name"], WorldData.settlement(castle_id)["name"], WorldData.settlement(old)["name"], title.to_lower()], _card_merge(_place_art(castle_id, realm), {"kind": "fealty", "title": "%s is yours" % WorldData.settlement(castle_id)["name"], "big": true, "tone": "gold", "banners": [realm], "aside": title}))
 	world.emit_event({"type": "fief_granted", "company": "Your warband", "settlement": castle_id, "realm": realm})
 	save_game()
 	return true
@@ -3389,7 +3426,7 @@ func build_fief_improvement(improvement_key: String) -> Dictionary:
 	silver -= cost
 	imps[improvement_key] = true
 	player_fief["improvements"] = imps
-	_note("Constructed %s at %s (%d silver)." % [imp["name"], WorldData.settlement(fief_id())["name"], cost])
+	_note("Constructed %s at %s (%d silver)." % [imp["name"], WorldData.settlement(fief_id())["name"], cost], {"kind": "ledger", "row": "keep"})
 	save_game()
 	return {"ok": true}
 
@@ -3401,7 +3438,7 @@ func repair_fief() -> Dictionary:
 		return {"ok": false, "reason": "Insufficient silver (%d needed)" % Fiefs.REPAIR_COST}
 	silver -= Fiefs.REPAIR_COST
 	world.burned.erase(fief_id())
-	_note("Repaired village and granaries at %s (%d silver)." % [WorldData.settlement(fief_id())["name"], Fiefs.REPAIR_COST])
+	_note("Repaired village and granaries at %s (%d silver)." % [WorldData.settlement(fief_id())["name"], Fiefs.REPAIR_COST], {"kind": "ledger", "row": "keep"})
 	save_game()
 	return {"ok": true}
 
@@ -3417,11 +3454,11 @@ func _on_fief_transferred(id: String, realm: String, was: String) -> void:
 		var gone: int = (player_fief.get("garrison", []) as Array).filter(func(x): return is_company_squad(x) and int(x.get("men", 0)) > 0).size()
 		fief_garrison()
 		_note("Catastrophe! Your fief of %s has fallen to the %s!%s" % [s_name, captor_name,
-			(" The %d squad%s you stationed there are lost with it." % [gone, "" if gone == 1 else "s"]) if gone > 0 else ""])
+			(" The %d squad%s you stationed there are lost with it." % [gone, "" if gone == 1 else "s"]) if gone > 0 else ""], _card_merge(_place_art(id, realm, was), {"kind": "fief_lost", "title": "%s has fallen" % s_name, "big": true, "tone": "bad"}))
 		world.emit_event({"type": "fief_lost", "company": "Your warband", "settlement": id, "by": captor_name})
 	elif bool(player_fief.get("lost", false)):
 		player_fief["lost"] = false
-		_note("Rejoice! Your fief of %s has been liberated and returned to your governance!" % s_name)
+		_note("Rejoice! Your fief of %s has been liberated and returned to your governance!" % s_name, _card_merge(_place_art(id, realm, was), {"kind": "fief_freed", "title": "%s is free" % s_name, "big": true, "tone": "good"}))
 	save_game()
 
 
@@ -3431,7 +3468,7 @@ func _on_fief_burned(raider: String) -> void:
 	var cur_silver := int(player_fief.get("silver", 0))
 	player_fief["silver"] = int(cur_silver * 0.5)
 	var s_name := String(WorldData.settlement(fief_id())["name"])
-	_note("Disaster! Raiders led by %s burned your fief of %s and looted the estate treasury!" % [raider, s_name])
+	_note("Disaster! Raiders led by %s burned your fief of %s and looted the estate treasury!" % [raider, s_name], _card_merge(_place_art(fief_id(), "", "", "burning"), {"kind": "fief_burned", "title": "%s burns" % s_name, "big": true, "tone": "bad", "tiles": [["silver", int(player_fief.get("silver", 0)) - cur_silver, " from the estate"]]}))
 	save_game()
 
 
@@ -3951,10 +3988,10 @@ func drain_social_settlements() -> void:
 		match String(item.get("type", "")):
 			"refund_silver":
 				silver += int(item.get("amount", 0))
-				_note("Refunded %d silver (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))])
+				_note("Refunded %d silver (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))], {"kind": "ledger", "row": "silver"})
 			"refund_food":
 				food += int(item.get("amount", 0))
-				_note("Refunded %d rations (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))])
+				_note("Refunded %d rations (%s)." % [int(item.get("amount", 0)), String(item.get("reason", ""))], {"kind": "ledger", "row": "food"})
 
 
 func _social_context() -> Dictionary:
@@ -4058,7 +4095,7 @@ func _upkeep() -> void:
 			if world != null and world.player() != null:
 				world.player().faction = ""
 			var r_name: String = WorldData.FACTIONS[realm]["name"] if WorldData.FACTIONS.has(realm) else realm
-			_note("Your mercenary contract with %s has concluded in good standing." % r_name)
+			_note("Your mercenary contract with %s has concluded in good standing." % r_name, {"kind": "contract", "title": "Contract served", "tone": "good", "banners": [realm], "tiles": [["bond", 10, " " + r_name]]})
 			if world != null:
 				world.emit_event({"type": "contract_ended", "company": "Your warband", "realm": realm})
 	var food_needed := head
@@ -4103,8 +4140,73 @@ func _upkeep() -> void:
 	_note(message)
 
 
-func _note(text: String) -> void:
+func _note(text: String, card: Dictionary = {}) -> void:
 	map_notice = text if map_notice == "" else map_notice + "\n" + text
+	var c := card.duplicate(true)
+	if c.is_empty() and not _next_card.is_empty():
+		c = _next_card
+	_next_card = {}
+	c["text"] = text
+	if not c.has("kind"):
+		c["kind"] = "note"
+	map_cards.append(c)
+
+
+# ---------------------------------------------------------------- what a card is drawn with
+
+## A place on a card: as it stands, or flying `owner`'s banner, or `was`'s before it
+## changed hands; `cond` "besieged", "raided" or "burning".
+func _place_art(id: String, owner: String = "", was: String = "", cond: String = "") -> Dictionary:
+	var out := {"place": id}
+	if owner != "":
+		out["owner"] = owner
+	if was != "":
+		out["was"] = was
+	if cond != "":
+		out["cond"] = cond
+	return out
+
+
+## A lord's face on a card, kept as it is now (the lord may be gone by the time it's read).
+func _lord_art(l: Dictionary, mood: String = "") -> Dictionary:
+	if l.is_empty():
+		return {}
+	return {"face": LordVoice.portrait_record(l), "face_name": String(l.get("name", "")), "mood": mood,
+		"realm": String(l.get("realm", ""))}
+
+
+## The ruler of `realm` (their king, sultan or shogun), or {}.
+func _ruler(realm: String) -> Dictionary:
+	if world == null:
+		return {}
+	for l in world.lords:
+		if String(l.get("realm", "")) == realm and bool(l.get("ruler", false)):
+			return l
+	return {}
+
+
+## Silver, rations and renown as a card's tiles.
+func _spoils_tiles(got: Dictionary) -> Array:
+	var out := []
+	for k in ["silver", "food", "renown"]:
+		if int(got.get(k, 0)) != 0:
+			out.append([k, int(got[k])])
+	return out
+
+
+## The next note is a night at the siege of `id`: its row's icon and whether it went well.
+var _next_card: Dictionary = {}
+
+
+func _note_siege(id: String, row: String, tone: String) -> void:
+	_next_card = _card_merge(_place_art(id, "", "", "besieged"), {"kind": "siege", "row": row, "tone": tone,
+		"title": "Before the walls of %s" % WorldData.settlement(id)["name"]})
+
+
+func _card_merge(a: Dictionary, b: Dictionary) -> Dictionary:
+	var out := a.duplicate(true)
+	out.merge(b, true)
+	return out
 
 
 ## A notice item to show grouped with others of its kind (see map_notice_items).
@@ -4120,7 +4222,7 @@ func has_notice() -> bool:
 ## The waiting message, its title and its grouped items, taken off the queue:
 ## {text, title, items, passing} (passing: see map_notice_passing).
 func take_map_notice() -> Dictionary:
-	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items, "passing": map_notice_passing}
+	var out := {"text": map_notice, "title": map_notice_title, "items": map_notice_items, "passing": map_notice_passing, "cards": map_cards}
 	clear_notice()
 	return out
 
@@ -4131,6 +4233,7 @@ func clear_notice() -> void:
 	map_notice_title = ""
 	map_notice_passing = false
 	map_notice_items = []
+	map_cards = []
 
 
 func relation_with_realm(realm: String) -> int:
@@ -4267,7 +4370,7 @@ func pay_reparations(realm: String) -> bool:
 	realm_relations[realm] = REPARATIONS_RELATION
 	reparations_at[realm] = world.hour
 	_note("Your envoy pays %s %d silver in reparations. Their gates open to you again (standing %d)." % [
-		WorldData.FACTIONS[realm]["name"], cost, REPARATIONS_RELATION])
+		WorldData.FACTIONS[realm]["name"], cost, REPARATIONS_RELATION], {"kind": "contract", "title": "Reparations paid", "tone": "good", "banners": [realm], "tiles": [["silver", -cost]]})
 	save_game()
 	return true
 
@@ -4294,7 +4397,7 @@ func sign_contract(realm: String) -> void:
 				add_realm_relation(f, -15)
 	_note("Signed a %d-day mercenary contract with the %s (%d silver/day)." % [
 		CONTRACT_DAYS, WorldData.FACTIONS[realm]["name"], daily
-	])
+	], _card_merge(_lord_art(_ruler(realm), "proud"), {"kind": "contract", "title": "In the pay of %s" % WorldData.FACTIONS[realm]["name"], "tone": "gold", "banners": [realm], "tiles": [["silver", daily, " a day"]], "aside": "%d days" % CONTRACT_DAYS}))
 	if world != null:
 		world.emit_event({"type": "contract_signed", "company": "Your warband", "realm": realm})
 	save_game()
@@ -4308,7 +4411,7 @@ func break_contract() -> void:
 	if world != null and world.player() != null:
 		world.player().faction = ""
 	add_realm_relation(realm, -25)
-	_note("You broke your contract with the %s, suffering a loss of honor." % WorldData.FACTIONS[realm]["name"])
+	_note("You broke your contract with the %s, suffering a loss of honor." % WorldData.FACTIONS[realm]["name"], {"kind": "contract", "title": "Contract broken", "tone": "bad", "banners": [realm], "tiles": [["bond", -25, " " + realm_word(realm)]]})
 	save_game()
 
 
@@ -4867,6 +4970,12 @@ func enemy_army() -> Array:
 
 ## What happened to the captains, in words, for the result screen. Doesn't change anything.
 func describe_result(result: Dictionary) -> Array:
+	return describe_result_cards(result).map(func(f): return String(f["text"]))
+
+
+## describe_result, each line with the card it's told on: a fallen captain's memorial, a
+## wounded one's face, the bonds made.
+func describe_result_cards(result: Dictionary) -> Array:
 	var lines := []
 	var by_id: Dictionary = result.get("squads", {})
 	for s in army:
@@ -4875,25 +4984,91 @@ func describe_result(result: Dictionary) -> Array:
 		if r == null or c == null or not r.has("captain"):
 			continue
 		var cr: Dictionary = r["captain"]
+		var face := {"captain": Captains.face_record(c), "captain_name": String(c["name"]), "company": String(s.get("name", "")),
+			"battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0))}
+		var die := "The die showed %d; %d was needed." % [int(cr["roll"]), int(cr["needed"])]
 		match String(cr["fate"]):
 			"killed":
 				if casual_mode:
-					lines.append("%s was grievously wounded (rolled %d, needed %d) and will sit out %d battles." % [
-						c["name"], cr["roll"], cr["needed"], Captains.CASUAL_WOUND_BATTLES])
+					lines.append({"text": "%s was grievously wounded (rolled %d, needed %d) and will sit out %d battles." % [
+						c["name"], cr["roll"], cr["needed"], Captains.CASUAL_WOUND_BATTLES],
+						"card": _card_merge(face, {"kind": "captain_wounded", "title": "%s is badly hurt" % String(c.get("first", c["name"])), "tone": "bad",
+							"aside": die})})
 				else:
-					lines.append("%s fell. Rolled %d, needed %d to live." % [c["name"], cr["roll"], cr["needed"]])
+					lines.append({"text": "%s fell. Rolled %d, needed %d to live." % [c["name"], cr["roll"], cr["needed"]],
+						"card": _card_merge(face, {"kind": "captain_fallen", "title": String(c["name"]), "big": true, "tone": "bad",
+							"body": "Fell leading %s, and won't ride with the company again." % String(s.get("name", "the company")), "aside": die})})
 			"wounded":
-				lines.append("%s was wounded (rolled %d, needed %d) and will sit out %d battles." % [
-					c["name"], cr["roll"], cr["needed"], Captains.WOUND_BATTLES])
+				lines.append({"text": "%s was wounded (rolled %d, needed %d) and will sit out %d battles." % [
+					c["name"], cr["roll"], cr["needed"], Captains.WOUND_BATTLES],
+					"card": _card_merge(face, {"kind": "captain_wounded", "title": "%s is wounded" % String(c.get("first", c["name"])), "tone": "bad",
+						"aside": "Sits out %d battles · %s" % [Captains.WOUND_BATTLES, die]})})
 	# Bonds on one line, so a first battle that bonds half the army doesn't fill the screen.
 	var pairs := PackedStringArray()
 	for change in _bond_changes(result):
 		pairs.append("%s & %s (%s)" % [change["a"]["first"], change["b"]["first"], change["rank"]])
 	if pairs.size() > 3:
-		lines.append("New bonds: %s and %d more." % [", ".join(pairs.slice(0, 3)), pairs.size() - 3])
+		lines.append({"text": "New bonds: %s and %d more." % [", ".join(pairs.slice(0, 3)), pairs.size() - 3], "card": {"kind": "ledger", "row": "bond"}})
 	elif not pairs.is_empty():
-		lines.append("New bonds: %s." % ", ".join(pairs))
+		lines.append({"text": "New bonds: %s." % ", ".join(pairs), "card": {"kind": "ledger", "row": "bond"}})
 	return lines
+
+
+## What a battle was for and what came of it, for its result card (before the result is
+## kept): a bandit chief slain or got away, a village saved or lost, walls taken, held or
+## lost, a village burned. {kind, title, body, tone, tiles, and place/owner/was/cond to
+## paint it}; {} for a plain fight (and a lord beaten has his own screen).
+func battle_stakes(result: Dictionary) -> Dictionary:
+	if pending_battle.is_empty() or world == null:
+		return {}
+	var won := bool(result.get("won", false))
+	var obj := String(result.get("objective", pending_battle.get("objective", "rout")))
+	match obj:
+		"chief":
+			var who := String(pending_battle.get("chief_name", "The chief"))
+			if bool(result.get("chief_killed", false)):
+				return {"kind": "chief", "title": "%s is dead" % who, "tone": "good", "icon": "skull",
+					"body": "The bandit chief fell in the fighting. The bounty is paid twice over.", "tiles": [["renown", 10]], "aside": "a double bounty"}
+			if bool(result.get("chief_escaped", false)) or won:
+				return {"kind": "chief", "title": "%s got away" % who, "tone": "bad", "icon": "retreat",
+					"body": "The chief slipped off the field with a few riders. You'll meet again, and they'll remember."}
+		"village":
+			var v := String(pending_battle.get("raid_village", ""))
+			if v != "" and WorldData.SETTLEMENTS.has(v):
+				var v_name := String(WorldData.settlement(v)["name"])
+				if won:
+					return {"kind": "village_saved", "title": "%s is saved" % v_name, "tone": "good", "place": v,
+						"body": "The villagers come out with bread and ale, and their young men ask to ride with you.", "tiles": [["food", 15]], "aside": "fresh recruits offered"}
+				return {"kind": "village_lost", "title": "%s is lost" % v_name, "tone": "bad", "place": v, "cond": "burning",
+					"body": "The raiders hold the square. The village will burn."}
+		"siege":
+			var target := String(pending_battle.get("siege_target", ""))
+			if target == "" or not WorldData.SETTLEMENTS.has(target):
+				return {}
+			var t_name := String(WorldData.settlement(target)["name"])
+			var owner: String = world.owner_of(target)
+			if bool(pending_battle.get("siege_defend", false)):
+				if won:
+					return {"kind": "walls_held", "title": "%s holds" % t_name, "tone": "good", "place": target,
+						"body": "The besiegers fall back from the walls. Its banner still flies."}
+				return {"kind": "place_lost", "title": "%s has fallen" % t_name, "tone": "bad", "place": target,
+					"owner": String(pending_battle.get("enemy_faction", "")), "was": owner, "body": "The besiegers are over the walls."}
+			var realm := String(pending_battle.get("siege_realm", ""))
+			if won:
+				return {"kind": "taken", "title": "%s is taken" % t_name, "tone": "good", "place": target, "owner": realm if realm != "" else owner,
+					"was": owner, "body": "The gate is yours, and the walls. Its banner comes down."}
+			return {"kind": "assault_failed", "title": "The walls held", "tone": "bad", "place": target, "cond": "besieged",
+				"body": "%s still flies its own banner. The survivors fall back to the camp." % t_name}
+		"raid":
+			var r := String(pending_battle.get("raid_target", ""))
+			if r != "" and WorldData.SETTLEMENTS.has(r):
+				var r_name := String(WorldData.settlement(r)["name"])
+				if won:
+					return {"kind": "raid", "title": "%s burns" % r_name, "tone": "bad", "place": r, "cond": "burning",
+						"body": "The militia broke. Your men go house to house with torches and carts."}
+				return {"kind": "raid", "title": "%s holds" % r_name, "tone": "bad", "place": r,
+					"body": "The militia held their homes, and your men fall back from the village."}
+	return {}
 
 
 ## A complete, read-only account of a battle while the old roster is still intact.
@@ -5139,7 +5314,7 @@ func apply_result(result: Dictionary) -> void:
 	# without leading the men has no other report, so the map tells all of it.
 	var shown := bool(result.get("shown", false))
 	# What became of each captain, in words, while the roster still names them.
-	var fates: Array = [] if shown else describe_result(result)
+	var fates: Array = [] if shown else describe_result_cards(result)
 	var rank_events := _bond_rank_events(result)
 	var report := battle_report(result)
 	battles += 1
@@ -5211,7 +5386,7 @@ func apply_result(result: Dictionary) -> void:
 					if not shown:
 						_note("%s suffered a grievous wound in battle %d, but survived (sits out %d battles)." % [
 							c["name"], battles, Captains.CASUAL_WOUND_BATTLES
-						])
+						], {"kind": "captain_wounded", "title": "%s is badly hurt" % String(c.get("first", c["name"])), "tone": "bad", "captain": Captains.face_record(c), "captain_name": String(c["name"])})
 				else:
 					dead_ids.append(int(c["id"]))
 					fallen_captains.append(c)
@@ -5284,7 +5459,7 @@ func apply_result(result: Dictionary) -> void:
 						lord_outcome["bounty"] = bonus
 						lord_outcome["bounty_realm"] = contract_realm()
 					else:
-						_note("Contract bounty: +%d silver from %s." % [bonus, WorldData.FACTIONS[contract_realm()]["name"]])
+						_note("Contract bounty: +%d silver from %s." % [bonus, WorldData.FACTIONS[contract_realm()]["name"]], {"kind": "ledger", "row": "silver"})
 				if not is_at_war_with(enemy_faction) and relation_with_realm(enemy_faction) > HOSTILE_RELATION:
 					add_realm_relation(enemy_faction, -30)
 					if told:
@@ -5292,12 +5467,12 @@ func apply_result(result: Dictionary) -> void:
 						lord_outcome["standing"] = -30
 					else:
 						_note("You attacked a lord of %s while at peace! They count your company an enemy now and bar their gates to you (standing %d)." % [
-							WorldData.FACTIONS[enemy_faction]["name"], relation_with_realm(enemy_faction)])
+							WorldData.FACTIONS[enemy_faction]["name"], relation_with_realm(enemy_faction)], {"kind": "peace_broken", "title": "The peace is broken", "tone": "bad", "banners": [enemy_faction], "tiles": [["bond", -30, " " + realm_word(enemy_faction)]]})
 				if told:
 					lord_outcome["silver"] = int(got["silver"])
 					lord_outcome["renown"] = int(got["renown"])
 				elif not shown:
-					_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]])
+					_note("%s was defeated! Claimed %d silver and %d renown." % [band, got["silver"], got["renown"]], {"kind": "ledger", "row": "fight"})
 
 				# Vengeance & Lord Fate
 				if enemy_lid >= 0 and world != null:
@@ -5343,16 +5518,16 @@ func apply_result(result: Dictionary) -> void:
 				if result.get("chief_killed", false):
 					got["silver"] = int(got["silver"]) * 2
 					got["renown"] = int(got["renown"]) + 10
-					_note("The bandit chief %s was slain! Claimed a double bounty and +10 renown." % c_name)
+					_note("The bandit chief %s was slain! Claimed a double bounty and +10 renown." % c_name, {"kind": "chief", "title": "%s is slain" % c_name, "tone": "good", "told": shown, "tiles": [["renown", 10]], "aside": "a double bounty"})
 				elif result.get("chief_escaped", false):
 					world.escaped_chiefs.append({"name": c_name, "culture": pending_battle.get("culture", Cultures.VARDISH), "grudge": 1, "escaped_at": world.hour, "times_beaten": 1})
-					_note("The bandit chief %s escaped into the hills!" % c_name)
+					_note("The bandit chief %s escaped into the hills!" % c_name, {"kind": "chief", "title": "%s got away" % c_name, "tone": "bad", "told": shown, "aside": "and will be back"})
 			elif obj == "village" and r_village != "":
 				var v_name := String(WorldData.settlement(r_village)["name"])
 				got["food"] = int(got["food"]) + 15
 				world.saved_villages[r_village] = int(world.saved_villages.get(r_village, 0)) + 1
 				world.offers[r_village] = world._new_offers(r_village)
-				_note("%s was saved from the raid! The villagers gave 15 rations and offered fresh recruits." % v_name)
+				_note("%s was saved from the raid! The villagers gave 15 rations and offered fresh recruits." % v_name, _card_merge(_place_art(r_village), {"kind": "village_saved", "title": "%s is saved" % v_name, "tone": "good", "told": shown, "tiles": [["food", 15]], "aside": "fresh recruits offered"}))
 			silver += int(got["silver"])
 			food += int(got["food"])
 			renown += int(got["renown"])
@@ -5371,7 +5546,7 @@ func apply_result(result: Dictionary) -> void:
 			world.lose_encounter()
 			var home := String(WorldData.settlement(world.here())["name"])
 			if total_men() > 0:
-				_note("%s beat you. %s The survivors regroup at %s, half a day later." % [band, how, home])
+				_note("%s beat you. %s The survivors regroup at %s, half a day later." % [band, how, home], _card_merge(_place_art(world.here()), {"kind": "beaten", "title": "%s beat you" % band, "tone": "bad", "aside": "you regroup at %s" % home}))
 			else:
 				_note("%s cut down your whole warband." % band)
 		if result.get("won", false):
@@ -5393,7 +5568,8 @@ func apply_result(result: Dictionary) -> void:
 				if result.get("won", false) and not lord_outcome.is_empty() and int(lord_outcome.get("lord_id", -1)) == enemy_lid:
 					lord_outcome["line"] = said
 				else:
-					_note(said)
+					_note(said, _card_merge(_lord_art(foe, "proud" if not result.get("won", false) else "grim"), {"kind": "lord_said",
+						"title": LordTalk.short_name(foe), "tone": "", "banners": [String(foe.get("realm", ""))]}))
 		# Notable battles leave a mark: a chronicle line, and a few days of aftermath on
 		# the map. Small skirmishes don't.
 		var place: String = world.here() if world.here() != "" else world.nearest_place(world.party_pos(world.player()))
@@ -5401,8 +5577,8 @@ func apply_result(result: Dictionary) -> void:
 		if int(result.get("killed", 0)) + int(result.get("lost", 0)) >= 30 or obj in ["siege", "village", "chief", "raid"] or is_lord:
 			world.emit_event({"type": "battle_fought", "at": place, "won": bool(result.get("won", false)),
 				"killed": int(result.get("killed", 0)), "lost": int(result.get("lost", 0))})
-		for line in fates:
-			_note(line)
+		for f in fates:
+			_note(String(f["text"]), f["card"])
 		settle()
 	pending_battle = {}
 	last_result = report
@@ -5411,6 +5587,8 @@ func apply_result(result: Dictionary) -> void:
 	# numbers taken out, a sentence may have kept the space they stood in).
 	if map_notice != "":
 		map_notice = map_notice.replace("  ", " ")
+		for c in map_cards:
+			c["text"] = String(c["text"]).replace("  ", " ")
 		map_notice_title = "After the battle"
 		# Its result card has had the battle's say: the rest passes over the map.
 		map_notice_passing = shown
@@ -5423,7 +5601,7 @@ func _ride_away_before_fight() -> void:
 	if world != null and not pending_battle.is_empty():
 		world.withdraw()
 		settle()
-		_note("You rode away from %s before the lines met." % foe)
+		_note("You rode away from %s before the lines met." % foe, {"kind": "ledger", "row": "retreat"})
 	pending_battle = {}
 	save_game()
 
@@ -5510,9 +5688,9 @@ func accept_lord_ransom(lord_id: int) -> bool:
 	var realm_name: String = String(WorldData.FACTIONS.get(realm, {}).get("name", realm))
 	var lname := String(l["name"])
 	if paid < amount:
-		_note("%s was ransomed back to %s, whose treasury could raise only %d of the %d silver asked." % [lname, realm_name, paid, amount])
+		_note("%s was ransomed back to %s, whose treasury could raise only %d of the %d silver asked." % [lname, realm_name, paid, amount], _card_merge(_lord_art(l, "grim"), {"kind": "ransom", "title": "%s goes home" % LordTalk.short_name(l), "tone": "gold", "banners": [realm], "tiles": [["silver", paid]]}))
 	else:
-		_note("%s was ransomed back to %s for %d silver." % [lname, realm_name, paid])
+		_note("%s was ransomed back to %s for %d silver." % [lname, realm_name, paid], _card_merge(_lord_art(l, "grim"), {"kind": "ransom", "title": "%s goes home" % LordTalk.short_name(l), "tone": "gold", "banners": [realm], "tiles": [["silver", paid]]}))
 	world.emit_event({"type": "ransom_paid", "lord": l["name"], "from": "Your warband", "amount": paid})
 	save_game()
 	return true
@@ -5533,7 +5711,7 @@ func deliver_lord_to_employer(lord_id: int) -> bool:
 	l["ransom_at"] = world.hour + Lords.AI_RANSOM_HOURS
 	_note("Delivered %s into custody of your employer, %s, claiming %d silver bounty." % [
 		l["name"], WorldData.FACTIONS.get(emp, {}).get("name", emp), bonus
-	])
+	], _card_merge(_lord_art(l, "grim"), {"kind": "ransom", "title": "%s handed over" % LordTalk.short_name(l), "tone": "gold", "banners": [emp], "tiles": [["silver", bonus], ["bond", 10, " " + realm_word(emp)]]}))
 	save_game()
 	return true
 
@@ -5633,7 +5811,7 @@ func to_dict() -> Dictionary:
 		"pinned_commitment": pinned_commitment, "ended_commitments": ended_commitments.duplicate(true),
 		"camp_seen": camp_seen.duplicate(),
 		"deeds": deeds.duplicate(true), "deed_counts": deed_counts.duplicate(), "company_title": company_title,
-		"crown_name": crown_name, "crown_color": crown_color, "crown_won": crown_won, "crown_empty_days": crown_empty_days,
+		"crown_name": crown_name, "crown_color": crown_color, "crown_won": crown_won, "victory_pending": victory_pending, "crown_empty_days": crown_empty_days,
 		"desertion_warning": desertion_warning, "last_result": last_result, "lord_outcome": lord_outcome.duplicate(true),
 		"gathering_log": gathering_log.duplicate(true), "hosted": hosted.duplicate(true), "host_ready_at": host_ready_at,
 		"muster": muster.duplicate(true), "banners": banners.duplicate(true),
@@ -5719,6 +5897,7 @@ func from_dict(data: Dictionary) -> bool:
 	crown_name = String(data.get("crown_name", ""))
 	crown_color = int(data.get("crown_color", 0))
 	crown_won = bool(data.get("crown_won", false))
+	victory_pending = bool(data.get("victory_pending", false))
 	crown_empty_days = int(data.get("crown_empty_days", 0))
 	WorldData.set_crown(crown_name, crown_color)
 	_fix_marriage_pacts()
