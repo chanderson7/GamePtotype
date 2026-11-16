@@ -560,7 +560,10 @@ static func place_facts(gs, id: String) -> String:
 	if w.is_sieged(id):
 		var army: Dictionary = w.sieging_army(id)
 		bits.append("Under siege by %s." % String(WorldData.FACTIONS.get(String(army.get("realm", "")), {}).get("name", "an army")))
-	return ". ".join(bits).replace("..", ".") + "."
+	var text := ". ".join(bits) + "."
+	while text.contains(".."):
+		text = text.replace("..", ".")
+	return text
 
 
 ## What her records say of a lord, as she'd write it.
@@ -1044,6 +1047,12 @@ static func step(gs) -> void:
 	var r: Dictionary = h["returning"]
 	if not r.is_empty() and w.hour >= float(r.get("until", 0.0)):
 		h["returning"] = {}
+	# A house's lord holding a place for you stops when his time is up, or if he's taken,
+	# whether or not he has stopped to think since.
+	for l in w.lords:
+		var order: Dictionary = l.get("order", {}) if l.get("order") is Dictionary else {}
+		if String(order.get("house", "")) != "" and (w.hour >= float(order.get("until", 0.0)) or String(l.get("state", "")) == "prisoner"):
+			l.erase("order")
 	if cand != "":
 		_check_seat(gs, cand)
 		if not captive(gs).is_empty():

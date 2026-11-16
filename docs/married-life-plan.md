@@ -1,7 +1,21 @@
 # Married life: her hand in your affairs
 
-**Status: planned.** Builds on the wedding (`docs/wedding-plan.md`, `docs/wedding-festivities-plan.md`)
-and the house pacts of `docs/romance-and-allies-plan.md`.
+**Status: built.** Builds on the wedding (`docs/wedding-plan.md`, `docs/wedding-festivities-plan.md`)
+and the house pacts of `docs/romance-and-allies-plan.md`. Rules in `scripts/world/married_life.gd`,
+words in `scripts/data/married_lines.gd` and `letters.gd` (`MARRIED_LETTERS`), tests in
+`tests/married_life_tests.gd`. Where the build differs from the plan below:
+
+- **A truce is refused only for the ruler's Regard.** The "fought them in the last 3 days" rule
+  needs a record the game doesn't keep.
+- **Good words** are offered to the four lords you've met who think least of you.
+- **With her in the company, Kaede answers a lookup at once**, not twelve hours later.
+- **When her seat falls she comes to your fief** whenever it isn't under siege. Excluding a fief
+  held by a realm at war with her captor would almost always exclude it, since the captor is at
+  war with her own realm.
+- **A house's lord holding a place** stops when his time is up or if he's taken, checked every
+  step rather than only when he next thinks.
+- **Letters fill any placeholder they carry** (`Letters._fill`), so a married letter can say
+  `{outcome}`, `{facts}`, `{near}`.
 
 ## What marriage gives today
 

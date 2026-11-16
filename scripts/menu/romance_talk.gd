@@ -810,14 +810,16 @@ func _help() -> void:
 			r["tone"] = "gold"
 			r["act"] = _ask_her
 			if cand == MarriedLife.EDDA:
+				# What it brings, as chips; they say what it is, so no icon besides.
 				r["fx"] = [["food", "+%d" % int(ready.get("food", 0))], ["silver", "+%d" % int(ready.get("silver", 0))]]
+				r.erase("icon")
 		else:
 			r["tag"] = String(ready.get("reason", ""))
 			r["tone"] = "locked"
 		replies.append(r)
 	if MarriedLife.pact_active(GameState, cand):
 		var men: Dictionary = MarriedLife.men_check(GameState, cand)
-		replies.append({"id": "house_men", "text": MarriedLines.MEN_TEXT, "icon": "men",
+		replies.append({"id": "house_men", "text": MarriedLines.MEN_TEXT, "icon": "" if bool(men["ok"]) else "men",
 			"tag": (MarriedLines.MEN_TAG % int(men["men"])) if bool(men["ok"]) else String(men["reason"]),
 			"fx": [["men", "+%d" % int(men["men"])]] if bool(men["ok"]) else [],
 			"tone": "plain" if bool(men["ok"]) else "locked", "act": _house_men})
@@ -850,11 +852,12 @@ func _ask_her() -> void:
 				i += 1
 		MarriedLife.KAEDE:
 			for p in MarriedLife.lookup_places(GameState):
-				replies.append({"id": "lookup_place_" + String(p["id"]), "text": "What's at %s?" % String(p["name"]), "icon": "book",
-					"act": _look_up.bind("place", String(p["id"]), String(p["name"]))})
+				var kind := String(Data.settlement(String(p["id"]))["type"])
+				replies.append({"id": "lookup_place_" + String(p["id"]), "text": "What's at %s?" % String(p["name"]), "icon": "keep",
+					"tag": "a %s · its walls, garrison and roads" % kind, "act": _look_up.bind("place", String(p["id"]), String(p["name"]))})
 			for l in MarriedLife.lookup_lords(GameState):
 				replies.append({"id": "lookup_lord_%d" % int(l["id"]), "text": "Who is %s, these days?" % String(l["name"]), "icon": "talk",
-					"act": _look_up.bind("lord", str(int(l["id"])), String(l["name"]))})
+					"tag": "where he is, and what he thinks of you", "act": _look_up.bind("lord", str(int(l["id"])), String(l["name"]))})
 	if replies.is_empty():
 		say("them", String(MarriedLines.NOTHING_TO_ASK.get(cand, "")), _name)
 		set_replies([_back_or_leave()])

@@ -1018,7 +1018,7 @@ const MARRIED_LETTERS := {
 				"salute": "Captain,",
 				"body": [
 					"{outcome}",
-					"I'll be home at {place}'s pace, which is to say slowly, with souvenirs.",
+					"I'll ride home slowly, by way of every market on the road. Expect souvenirs.",
 				],
 				"sign": "Farah", "sign_title": "Envoy of Qasr Hamra",
 				"ps": "This letter concerned tariffs.",

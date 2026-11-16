@@ -93,6 +93,14 @@ func _lord_in_field(cand: String) -> Dictionary:
 	return lord
 
 
+## A lord free to fight you, not of the realm the campaign begins with.
+func _a_foe() -> Dictionary:
+	for l in gs.world.lords:
+		if String(l.get("state", "")) != "prisoner" and String(l.get("realm", "")) != "vardmark":
+			return l
+	return gs.world.lords[0]
+
+
 func _letters(key: String) -> Array:
 	return gs.world.social.letters.filter(func(l): return String(l.get("template_key", "")) == key)
 
@@ -430,11 +438,7 @@ func _travel() -> void:
 	# Taken by a lord, ransomed.
 	w.player().node = "kitayama"
 	MarriedLife.join(gs, "kaede")
-	var foe: Dictionary = {}
-	for l in w.lords:
-		if String(l.get("state", "")) != "prisoner" and String(l.get("realm", "")) == "kharzan":
-			foe = l
-			break
+	var foe: Dictionary = _a_foe()
 	MarriedLife.on_battle_lost(gs, int(foe["id"]), -1, String(foe["name"]))
 	check(MarriedLife.is_held(gs, "kaede") and MarriedLife.with_company(gs) == "" and not _entry("household_road_home").is_empty(),
 		"you lose: she's taken, and A road home is in the Journal")
@@ -537,11 +541,7 @@ func _screens() -> void:
 	await process_frame
 	check(current_scene.find_child("Speak_edda", true, false) != null, "her page says you can speak with her: she's here")
 	# Taken: her page offers the ransom.
-	var foe: Dictionary = {}
-	for l in gs.world.lords:
-		if String(l.get("realm", "")) == "kharzan" and String(l.get("state", "")) != "prisoner":
-			foe = l
-			break
+	var foe: Dictionary = _a_foe()
 	MarriedLife.on_battle_lost(gs, int(foe["id"]), -1, String(foe["name"]))
 	current_scene._build()
 	await process_frame

@@ -3875,8 +3875,8 @@ func _draw_muster(px: float) -> void:
 
 
 ## Married life on the roads (MarriedLife): her supply cart (a covered wagon behind a
-## horse, waiting with a lantern once it's there) and her envoy (a rider with a pennant),
-## each with her name when the map is close enough to read.
+## horse, waiting with a lantern once it's there) and her envoy (a rider with a pennant).
+## Their names are on the labels layer (_label_household).
 func _draw_household(px: float) -> void:
 	for c in MarriedLife.convoys(GameState):
 		var at := _to_screen(MarriedLife.convoy_pos(GameState, c))
@@ -3905,9 +3905,6 @@ func _draw_household(px: float) -> void:
 			draw_rect(Rect2(at + Vector2(-1.0 * u, -6.5 * u + bob), Vector2(2.0 * u, 3.5 * u)), Color("1f7a6e"))
 			draw_line(at + Vector2(1.5 * u, -9.5 * u + bob), at + Vector2(1.5 * u, -3.0 * u + bob), Color("d9a944"), maxf(1.0, 0.5 * u))
 			draw_rect(Rect2(at + Vector2(1.5 * u, -9.5 * u + bob), Vector2(3.0 * u, 1.6 * u)), Color("e88aa0"))
-		if px >= 2.5:
-			var who := MarriedLife.name_of(GameState, String(c.get("cand", "")))
-			_name_plate(at + Vector2(0, 4.0 * u), "%s's %s" % [who, "cart" if supply else "envoy"], Style.SMALL, Style.ROMANCE_LIGHT)
 
 
 ## A gold ring around the place your wedding will be held, while it's planned there.
@@ -4380,6 +4377,20 @@ func _draw_labels() -> void:
 					var placed: Rect2 = _taken[_taken.size() - 1]
 					_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), [{"icon": "ride"}, {"icon": "crown"}],
 						Color("f3b0a0"), Style.ENEMY, false)
+	_label_household(px)
+
+
+## Her cart's and envoy's names, under them, when the map is close enough to read names.
+func _label_household(px: float) -> void:
+	if px < 2.5:
+		return
+	for c in MarriedLife.convoys(GameState):
+		var at := _to_screen(MarriedLife.convoy_pos(GameState, c))
+		if String(c.get("state", "")) != "riding":
+			at += Vector2(14.0, 6.0) * px
+		var who := MarriedLife.name_of(GameState, String(c.get("cand", "")))
+		_name_plate(at + Vector2(0, 5.0 * px), "%s's %s" % [who, "cart" if String(c.get("kind", "")) == "supply" else "envoy"],
+			PARTY_PLATE, Style.ROMANCE_LIGHT, Style.ROMANCE, -1, true)
 
 
 ## Text size of a party's name plate: the same as a village's name.

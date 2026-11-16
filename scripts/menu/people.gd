@@ -352,7 +352,7 @@ func _next_step(cand: String, with_place: bool = true) -> String:
 	# Married life: held by whoever took her, or riding with the company.
 	if MarriedLife.is_held(GameState, cand):
 		var held: Dictionary = MarriedLife.captive(GameState)
-		return "%s is held by %s. Ransom her, or beat them: the Journal has A road home." % [name, String(held.get("captor", "her captors"))] \
+		return "%s is held by %s. Ransom her (%d silver), or beat them: the Journal has A road home." % [name, String(held.get("captor", "her captors")), MarriedLife.RANSOM_SILVER] \
 			if String(held.get("kind", "")) == "lord" else "%s is held by %s. Beat them: the Journal has A road home." % [name, String(held.get("captor", "bandits"))]
 	if MarriedLife.with_company(GameState) == cand:
 		return "%s rides with the company. Speak with her any time." % name
@@ -388,7 +388,7 @@ func _main_action(cand: String) -> Button:
 	# Held: her ransom, when her captor bargains (MarriedLife).
 	if MarriedLife.is_held(GameState, cand):
 		var check: Dictionary = MarriedLife.ransom_check(GameState)
-		var rb := _button("%s · %d" % [MarriedLines.RANSOM_TEXT, MarriedLife.RANSOM_SILVER], func():
+		var rb := _button(MarriedLines.RANSOM_TEXT, func():
 			var r: Dictionary = MarriedLife.pay_ransom(GameState)
 			_flash = String(r.get("reason", "")) if not bool(r.get("ok", false)) else "Paid. %s rides home." % String(p.get("name", ""))
 			GameState.save_game()
