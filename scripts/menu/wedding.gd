@@ -318,6 +318,7 @@ func _chose_rite(ch: Dictionary) -> void:
 	_rite_choice = String(ch["id"])
 	if not bool(ch.get("bare", false)):
 		say("you", _fill(String(ch["text"])))
+	_rite.choice = _rite_choice
 	_rite.advance()
 	say("narration", _fill(String(ch["line"])))
 	if String(_rite_steps.get("after", "")) != "":
