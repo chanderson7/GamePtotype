@@ -4,54 +4,65 @@
 - **Status:** plan. Nothing here is built.
 - **Question:** is a battle too quick for someone playing on a phone, and does it feel
   high-stakes?
-- **Short answer:** the whole battle is not much too short. The time you have to *decide*
-  is. The lines meet about five seconds after *Fight*, a melee shows nothing for twenty
-  seconds and then drops a third of a company at once, and "wavering" comes one man's
-  fall before "broken". The stakes are real (captains die, a wiped warband ends the
-  campaign) but the battle never shows them until they have already been settled.
+- **Short answer:** the whole battle is short but not the problem: about a minute and a
+  half. The time you have to *decide* is the problem. The lines meet a second and a half
+  after you press *Advance*, a company gives one second's warning before it breaks, and
+  nothing you can do stops it breaking. The stakes are real (a third of your men dead in
+  an even fight, captains who die, a wiped warband ends the campaign) but the battle
+  never shows them until they are settled.
 
-**Not run.** Godot isn't installed in the session that wrote this, so nothing below was
-measured by it. Each number is marked: *(repo)* is a measurement already written down in
-this repository, *(rules)* is worked from the constants in the code, *(model)* is a
-40-line stand-in for one melee built from those constants. Stage 0 replaces the last two
-with real measurements before anything is tuned.
+**Measured** on 2026-11-16 with `tools/pace_probe.gd` (Stage 0, now built), Godot 4.7,
+headless: eighteen seeded battles (ten, six and four companies a side, every company led
+by a captain as in a campaign, the computer on both sides or a player who presses
+*Advance all* at once) and twenty-four duels. Run it again with:
+
+```sh
+godot --headless --path . -s tools/pace_probe.gd -- set
+```
 
 ## 1. Where a battle's time goes today
 
-| Beat | Today | Why |
-| --- | --- | --- |
-| Deploy | untimed | Time stands still until *Fight*. This part is right for a phone. |
-| Approach | about 3 to 8 s *(rules)* | *Auto-place* stands each front 120 from the midline, so the lines start 240 apart (`battle_sim.gd:1464`). Marching is 38 a second. Reckless commits after 3 to 8 s, Hammer after 2 to 4 (`commander_ai.gd:124`). |
-| Melee | 56 s foot against foot *(repo)* | 600 hit points against 13 a blow, two men at most on one. |
-| After the first break | the rest | A whole battle is 85 s for ten companies a side *(repo, `combat-simplification-plan.md` §8)*; the test allows 40 to 150 s (`run_tests.gd:177`). |
+| | Measured |
+| --- | --- |
+| A whole battle | median 86 s; 61 to 111 s. Four a side: 61 to 107 s. At 2× all of it halves. |
+| *Fight* to the lines meeting | 1.4 to 1.8 s if you press *Advance all*; 3.6 to 7.9 s if both sides are the computer |
+| First man down | 2.5 to 9 s |
+| First company breaks | median 25 s in (13 to 36 s) |
+| The battle after that | 58 s more (median). The lead changed hands in 9 of 18 |
+| Warning before a company breaks (wavering to broken) | **median 1.0 s; under 2 s in 76% of 181 breaks; under 8 s in 96%** |
+| Longest stretch with no man down anywhere | median 6.7 s |
+| Men dead (not counting those who ran) | about a third of each side in an even fight; the winner loses nearly as many as the loser |
+| One company against one (swords): first man down | 24 s after contact; the seventh at 27 s; it breaks at 62 s |
 
-At 2× all of it halves.
+### What the numbers say
 
-### Three things that make it feel quicker than it is
-
-1. **There is no approach.** You see their line while you deploy, but you never see what
-   it *does* before it reaches you. Bows get a volley or two off. The Patient commander is
-   the only one who gives you time to look.
-2. **A melee is silent, then sudden.** Every man of a kind has the same hit points and
-   takes nearly the same blows, so the men of a front rank fall together. In an even
-   fight of swords the first man falls at about 23 s and the seventh at about 24 s; the
-   next seven fall around 46 s *(model)*. Morale moves only when a man dies or a shock
-   lands (`_damage`, `battle_sim.gd:3975`), so the bar on the standard is flat, drops a
-   third, is flat again. For most of a melee there is nothing on screen that says who is
-   winning it.
-3. **The break gives no warning and no answer.**
+1. **There is no approach.** *Auto-place* stands each front 120 from the midline
+   (`battle_sim.gd:1464`), marching is 38 a second and a charge starts 180 out, so the
+   lines are in contact a second and a half after *Advance*. Reckless and Hammer commit
+   after 2 to 8 s (`commander_ai.gd:124`). You see their line while you deploy, but
+   never what it does before it reaches you.
+2. **The middle of a battle is alive. This part works.** The first break comes a third
+   of the way in and the battle runs on for another minute; the lead changes hands in
+   half of them. (An earlier draft of this plan guessed the first break decided the
+   battle. It doesn't.)
+3. **A company's own fight is silent, then sudden.** Every man of a kind has the same
+   hit points and takes nearly the same blows, so a front rank falls together: nobody
+   for 24 s, then seven men in three. Morale moves only when a man dies or a shock lands
+   (`_damage`, `battle_sim.gd:3975`), so the bar on that company's standard is flat,
+   drops a third, is flat again. Across a whole field men fall steadily (arrows, charges
+   and bad matchups fill the gaps), but no single fight tells you who is winning it.
+4. **The break gives no warning and no answer.**
    - *Wavering* is morale 35 and *broken* is 30 (`battle_screen.gd:225`,
-     `battle_sim.gd:34`). A man's fall costs a led company 4.8, so the warning is one
-     fall ahead of the rout *(rules)*.
+     `battle_sim.gd:34`); one man's fall costs a led company 4.8. Measured, the warning
+     is a second.
    - The ticker says "Pull them back or send help", but nothing raises morale except a
-     bond and a Steadfast captain's grief. Pulling back saves nobody's nerve.
+     bond and a Steadfast captain's grief.
    - A rout is for good. Broken companies run off the edge and are not chased (only a
-     side that was cut off as it withdrew is ridden down, `battle_sim.gd:2693`).
-   - So the first break usually decides the battle, and what follows is mopping up.
+     side cut off as it withdrew is ridden down, `battle_sim.gd:2693`).
 
-Put together: one real decision (how you deploy and your opening orders), then ability
-timings. On a phone, where a thumb covers the squad it is ordering, that is over before
-the player has found their feet.
+So the battle has plenty happening in it and almost no moment where the player is asked
+anything. On a phone, where a thumb covers the squad it is ordering, the two moments
+that matter (the opening, and each break) are over before a hand can get there.
 
 ### Why it doesn't feel high-stakes
 
@@ -59,47 +70,43 @@ the player has found their feet.
   points, so he falls late, and the first the player hears of his odds is the die
   already rolling. The odds depend on things the player controls (his company still at
   half strength, a friendly company within 160) and nothing says so beforehand.
+- **The cost is hidden too.** An even battle kills a third of your men, win or lose, and
+  the player learns it on the result card.
 - **Nothing is ever committed.** There is no order that can't be taken back and nothing
   that can be spent once. Stakes come from commitments.
-- **A loss is cheap.** Half of every man lost comes back as wounded, win or lose
-  (`game_state.gd:5005`). A defeat puts you at your capital twelve hours later with your
-  silver and food untouched (`world_sim.gd:3239`). Outside Ironman the game keeps a save
-  from just before the battle, so any result can be undone.
+- **A loss is cheap next to a win.** Half of every man lost comes back as wounded, win
+  or lose (`game_state.gd:5005`). A defeat puts you at your capital twelve hours later
+  with your silver and food untouched (`world_sim.gd:3239`). Outside Ironman the game
+  keeps a save from just before the battle, so any result can be undone.
 
 ## 2. What to aim for
 
-| | Today | Aim |
+| | Today (measured) | Aim |
 | --- | --- | --- |
-| A full battle (10 a side, 1×) | 85 s *(repo)* | 2.5 to 3 minutes |
-| An early skirmish (4 a side) | not measured | about 90 s |
-| *Fight* to first contact | 3 to 8 s | 14 to 20 s |
-| A melee with nothing to read | about 20 s before the first man falls, then 20 s more | never: the fight's bar moves from the first blow (1A); the first man falls by about 13 s and others every few seconds after (2B) |
-| Warning before one of yours breaks | about one man's fall | at least 8 s, with something to do about it |
-| Times the lead changes hands | not measured | once or more in a third of even battles |
-| Decisions after *Fight* (windows of 8 s or more where an order changes the result) | about one | four or more |
+| A full battle (10 a side, 1×) | 64 to 111 s | 2 to 3 minutes |
+| A skirmish (4 a side) | 61 to 107 s | about the same as today |
+| *Advance* to the lines meeting | 1.5 s | 8 to 12 s |
+| One company's fight with nothing to read | 24 s before its first man falls | never: the fight's bar moves from the first blow (1A), and the first man falls by about 14 s (2B) |
+| Warning before one of yours breaks | 1 s | at least 8 s, with something to do about it |
+| Battles where the lead changes hands | half | keep it at half or more |
+| Decisions after *Fight* (windows of 8 s or more where an order changes the result) | the opening, if you are quick | four or more |
 
-Three minutes is still a phone-sized battle. The time added goes to the approach and to
-the break, where there is something to decide, and none of it to the grind.
+Two to three minutes is still a phone-sized battle. The time added goes to the approach
+and to the break, where there is something to decide, and none of it to the grind.
 
 ## 3. The plan, in five stages
 
 Each stage stands on its own and ships with its tests. Stage 1 changes no rule, so it
 can't move balance and can go first.
 
-### Stage 0: measure (half a day)
+### Stage 0: measure (built)
 
-Add to `tools/battle_probe.gd`, and print for the four battles the simplification plan
-used (seeds 40, 8, 21 open; seed 4 woods) plus a 4-a-side:
-
-- seconds from start to first contact, to the first break, and from the first break to
-  the end;
-- men down in each 5 s of the battle, and the longest stretch with none;
-- for each company that breaks: seconds between morale 35 and the rout;
-- how often the stronger side (by `strength()`) changes;
-- companies that never fought.
-
-These are the numbers in the table above. If the model in section 1 is wrong about the
-waves, Stage 2B goes away.
+`tools/pace_probe.gd` prints, for a seeded battle or the standard set: seconds to first
+contact, to the first man down, to the first break and from it to the end; men down in
+each 5 s and the longest stretch with none; the seconds between wavering and the rout
+for every company that breaks; how often the lead changes; companies that never fought;
+and, for duels, when each of the loser's men fell. Its numbers are in section 1. Run it
+before and after every stage below.
 
 ### Stage 1: show the stakes (screen only, no rule changes)
 
@@ -133,26 +140,30 @@ no blows and full one way in a one-sided fight; the odds on the card equal the r
 
 ### Stage 2: give the battle a shape (small rule changes)
 
-- **2A. An approach.** *Auto-place* fronts at about 190 from the midline, not 120, so the
-  lines start 380 apart, and Reckless and Hammer wait six seconds longer before they
-  commit. Bows get to matter before the lines meet, horse have room to be seen going for
-  a wing, and the player gets one look at what their commander is doing. Check twelve
-  companies still fit the zone.
+- **2A. An approach.** *Auto-place* fronts further from the midline and Reckless and
+  Hammer slower to commit. **Tried** (then reverted): fronts at 240, not 120, and six
+  seconds more patience. The lines then meet 8 s after *Advance all* (from 1.5 s) and 12
+  to 21 s in when both sides are the computer; the battle's median goes from 86 to 90 s.
+  Bows get to matter before the lines meet, horse have room to be seen going for a wing,
+  and the player gets one look at what their commander is doing. Check twelve companies
+  still fit the zone on a siege and an ambush.
 - **2B. Men fall one at a time.** Each man's hit points are drawn at spawn from 40% to
   160% of his kind's (captains keep theirs), from the sim's own RNG. The average is the
-  same. In the model the first man falls near 13 s, not 23, the rest follow every few
-  seconds with no waves, and the fight runs about a sixth longer because the hardier men
-  hold the front *(model)*. Morale then falls steadily too, which is what makes 1A, the
-  wavering warning and the music's "who is winning" worth watching. A narrower spread
-  (60% to 140%) still leaves 16 s before the first fall.
+  same. **Tried** (then reverted): in a duel of swords the first man falls at 14 s, not
+  24, and the rest follow one at a time (13, 14, 20, 27, 28, 29, 32, 36… against seven
+  at once), the company breaks at 60 s as before, and whole battles run about as long
+  (median 77 s against 86, within the noise of eighteen). Morale then falls steadily
+  too, which is what makes 1A, the wavering warning and the music's "who is winning"
+  worth watching.
 - **2C. Wavering means something.** Wavering starts at morale 50, about four falls ahead
   of the break, and the ticker's advice changes to what Stage 3 makes true.
 
 Both 2A and 2B change every seeded battle, so: `-- --balance` (the best part of an
 hour), the auto-resolve agreement check (`auto_resolve.gd` is fitted to the sim), and a
 version stamp on a battle kept for resume so an older one isn't replayed under new rules.
-The length test's window moves from 40–150 s to about 100–240 s and `TIME_LIMIT` from 300
-to 420.
+Neither trial was run through the balance gates. Stage 2 alone barely moves the length;
+it is Stage 3 that adds the minute, and then the length test's window moves from
+40–150 s to about 90–210 s and `TIME_LIMIT` from 300 to 420.
 
 ### Stage 3: a break you can fight (new rules)
 
@@ -206,16 +217,16 @@ screen, where the choice is made.
 
 | # | Stage | Size | Risk to balance | Do it when |
 | --- | --- | --- | --- | --- |
-| 0 | Measure | S | none | first |
+| 0 | Measure | S | none | done |
 | 1 | Show the stakes | M | none | next; it helps even if nothing else is done |
-| 2 | A shape | S to M | some: every seeded battle changes | after 0 confirms the waves and the short approach |
+| 2 | A shape | S to M | some: every seeded battle changes | both trials worked; needs the balance run |
 | 3A–C | Fight the break | M to L | real: new rules, AI, auto-resolve | after a playtest of 1 and 2 on a phone |
 | 4A–B | The price | M | campaign economy (`Plans.campaign`) | alongside or after 3 |
 | 3D, 4C | Rally at the edge; captains taken | L | real | second pass |
 
 ## 5. Files
 
-- `tools/battle_probe.gd`: Stage 0.
+- `tools/pace_probe.gd`: Stage 0 (built).
 - `scripts/battle/battle_screen.gd`: 1A to 1E; the ring, the Rally button and the tap on
   runners for Stage 3.
 - `scripts/menu/settings.gd`, `scripts/audio/sound.gd`: the crisis and 2× settings.
@@ -233,9 +244,9 @@ screen, where the choice is made.
 
 ## 6. Decisions to make
 
-1. **The length.** 2.5 to 3 minutes for a full battle, 90 s for a skirmish, is the
-   recommendation. If a battle must stay under two minutes, do Stages 1, 2B and 2C and
-   3A to 3C with a four-second ring, and skip 2A and 3D.
+1. **The length.** Two to three minutes for a full battle, with skirmishes left about
+   where they are, is the recommendation. If a battle must stay under two minutes, do
+   Stages 1 and 2 and 3A to 3C with a four-second ring, and skip 3D.
 2. **New rules in the battle.** Stage 3 costs a balance pass and a refit of auto-resolve.
    Stages 0 to 2 are worth doing whatever is decided here.
 3. **How much a loss should hurt.** 4A and 4B as written, or milder; and whether Casual
