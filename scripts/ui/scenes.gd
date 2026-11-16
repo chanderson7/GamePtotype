@@ -49,6 +49,11 @@ var feast_return := "res://scenes/settlement.tscn"
 ## The lists (scenes/lists.tscn): where they return to, and your captains riding (squad ids).
 var lists_return := "res://scenes/settlement.tscn"
 var lists_squads: Array = []
+## The memorial at camp (scenes/memorial.tscn): where it returns to, a fallen captain to open
+## it on (-1 for none), and whether to open on their gathering.
+var memorial_return := "res://scenes/main_menu.tscn"
+var memorial_focus := -1
+var memorial_gather := false
 var active_captain_id := -1
 var active_bond_a_id := -1
 var active_bond_b_id := -1

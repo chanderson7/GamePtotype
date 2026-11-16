@@ -10,6 +10,22 @@ Mockup (made from the game's own pieces, not the finished look):
 `docs/mockups/memorial_mock.png`. Left: the memorial with the roll, the newest not yet
 mourned. Right: one captain's page.
 
+## Status: built
+
+All seven packages are in: `scripts/data/memorial_lines.gd`, `scripts/ui/memorial_scene.gd`,
+`scripts/ui/memorial_life.gd`, `scenes/memorial.tscn` + `scripts/menu/memorial.gd`, the
+GameState functions (`memorial_of`, `unmourned`, `memorial_where`, `memorial_day`,
+`memorial_slayer`, `memorial_epitaph`, `memorial_mourners`, `memorial_gather`,
+`light_candle`, `candle_lit`), the vow in the journal, the five ways in, and
+`tests/memorial_tests.gd`. Where it differs from the plan below:
+
+- A death whose camp moment was already dismissed counts as mourned at the fire, so an old
+  save doesn't greet you with a gathering for everyone who ever fell. Asked for directly
+  (the camp moment, the map's card), a gathering opens for anyone not yet laid to rest.
+- The map card's **Remember** puts the cards still to come back on the queue, so nothing is
+  lost on the way to the memorial.
+- The constants live in `memorial_lines.gd` with the words.
+
 ## What we have to build on
 
 - `GameState.fallen`: a record per dead captain (`_memorial`): name, first, company, type,

@@ -312,7 +312,23 @@ func _fallen() -> Control:
 	var newest := dead.slice(maxi(0, dead.size() - 8))
 	newest.reverse()
 	for m in newest:
-		row.add_child(_face(m, String(m.get("first", m.get("name", ""))), true, "/shut"))
+		var cell := _face(m, String(m.get("first", m.get("name", ""))), true, "/shut")
+		var tap := Button.new()
+		tap.name = "Remember_%d" % int(m.get("id", 0))
+		tap.flat = true
+		tap.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var none := StyleBoxEmpty.new()
+		for st in ["normal", "hover", "pressed", "focus"]:
+			tap.add_theme_stylebox_override(st, none)
+		var mid := int(m.get("id", -1))
+		tap.pressed.connect(func():
+			GameState.save_game()
+			Scenes.memorial_focus = mid
+			Scenes.memorial_gather = false
+			Scenes.memorial_return = "res://scenes/world_map.tscn"
+			Scenes.go("res://scenes/memorial.tscn"))
+		cell.add_child(tap)
+		row.add_child(cell)
 	if dead.size() > 8:
 		var more := Style.label("and %d more" % (dead.size() - 8), Style.SMALL, Style.MUTED)
 		more.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

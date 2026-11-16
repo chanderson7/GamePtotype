@@ -18,6 +18,8 @@ extends Control
 ## squad stationed) isn't dealt here: the map lists it on its own sheet afterwards.
 
 signal finished
+## Remember them: a fallen captain's card asks to open their stone at camp (by id).
+signal remember(captain_id: int)
 
 const Style = preload("res://scripts/ui/style.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
@@ -157,6 +159,11 @@ func next_card() -> void:
 	_show(deck[_i])
 
 
+## The cards not yet dealt (after the one on show).
+func remaining() -> Array:
+	return deck.slice(_i + 1)
+
+
 func skip_all() -> void:
 	_i = deck.size() - 1
 	next_card()
@@ -290,6 +297,13 @@ func _show(c: Dictionary) -> void:
 	_counter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_counter.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	foot.add_child(_counter)
+	if String(c.get("kind", "")) == "captain_fallen" and int(c.get("id", -1)) >= 0:
+		var rem := Button.new()
+		rem.name = "RememberThem"
+		rem.text = "Remember"
+		rem.custom_minimum_size = Vector2(170, Style.TOUCH)
+		rem.pressed.connect(func(): remember.emit(int(c["id"])))
+		foot.add_child(rem)
 	_next = Button.new()
 	_next.name = "CardNext"
 	_next.text = "Next" if _i < deck.size() - 1 else "Carry on"

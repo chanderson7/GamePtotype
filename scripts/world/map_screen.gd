@@ -2169,6 +2169,7 @@ func _open_notice(text: String, title: String = "", items: Array = [], cards: Ar
 				ledger.append({"text": line, "kind": "note"})
 		if not (parts[0] as Array).is_empty():
 			_deck = EventCards.open(_hud, parts[0])
+			_deck.remember.connect(_remember_fallen.bind(ledger))
 			bottom_bar.visible = false
 			_deck.finished.connect(func():
 				_deck = null
@@ -2197,6 +2198,25 @@ func _open_notice(text: String, title: String = "", items: Array = [], cards: Ar
 		# The groups sit above any plain notes (the sheet's extra area comes before its body).
 		for group in _notice_groups(items):
 			sheet_extra.add_child(group)
+
+
+## Remember them, from a fallen captain's card: the cards still to come and the ledger go
+## back on the queue (the map deals them on return), and the memorial opens on their page,
+## at their gathering if they've not been laid to rest.
+func _remember_fallen(captain_id: int, ledger: Array) -> void:
+	if _deck != null:
+		for c in _deck.remaining():
+			GameState._note(String(c["text"]), c)
+		# Kept (hidden) until the screen changes, so the map doesn't deal the news again
+		# on its way out.
+		_deck.visible = false
+	for c in ledger:
+		GameState._note(String(c["text"]), c)
+	GameState.save_game()
+	Scenes.memorial_focus = captain_id
+	Scenes.memorial_gather = GameState.unmourned().any(func(m): return int(m.get("id", -1)) == captain_id)
+	Scenes.memorial_return = "res://scenes/world_map.tscn"
+	Scenes.go("res://scenes/memorial.tscn")
 
 
 ## The cards are dealt: then the ledger, if there's one (passing over the map as a line

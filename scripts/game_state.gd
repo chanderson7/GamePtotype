@@ -31,6 +31,7 @@ const LordTalk = preload("res://scripts/world/lord_talk.gd")
 const Relationships = preload("res://scripts/data/relationships.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const HallMoments = preload("res://scripts/data/hall_moments.gd")
+const MemorialLines = preload("res://scripts/data/memorial_lines.gd")
 const CrownCourt = preload("res://scripts/world/crown_court.gd")
 const Politics = preload("res://scripts/data/politics.gd")
 const SAVE_PATH := "user://campaign.json"
@@ -3032,6 +3033,16 @@ func commitments() -> Array:
 			"objective": "Hold them until their realm's envoy offers ransom, then decide their fate.", "place": "",
 			"reward": "%d silver ransom" % int(l.get("ransom_amount", Lords.ransom_for(int(l.get("renown", 0))))),
 			"cost": "", "hours_left": -1.0, "blocked": ""})
+	# Vows made over a stone: bring down the lord who killed them.
+	for m in fallen:
+		if typeof(m) != TYPE_DICTIONARY or String(m.get("words_said", "")) != "vengeance" or bool(m.get("avenged", false)):
+			continue
+		var sl := memorial_slayer(m)
+		if String(sl.get("state", "")) != "rides":
+			continue
+		out.append({"id": "avenge_%d" % int(m.get("id", 0)), "kind": "vow", "title": "Avenge %s" % String(m.get("first", m.get("name", ""))),
+			"objective": "Bring down %s, who killed %s." % [String(sl["name"]), String(m.get("first", m.get("name", "")))],
+			"place": String(sl.get("place", "")), "reward": "%s avenged" % String(m.get("first", "")), "cost": "", "hours_left": -1.0, "blocked": ""})
 	var wed := wedding_commitment()
 	if not wed.is_empty():
 		out.append(wed)
@@ -4984,7 +4995,7 @@ func describe_result_cards(result: Dictionary) -> Array:
 		if r == null or c == null or not r.has("captain"):
 			continue
 		var cr: Dictionary = r["captain"]
-		var face := {"captain": Captains.face_record(c), "captain_name": String(c["name"]), "company": String(s.get("name", "")),
+		var face := {"id": int(c.get("id", -1)), "captain": Captains.face_record(c), "captain_name": String(c["name"]), "company": String(s.get("name", "")),
 			"battles": int(c.get("battles", 0)), "kills": int(c.get("kills", 0))}
 		match String(cr["fate"]):
 			"killed":
@@ -5638,6 +5649,8 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		"battles": int(c["battles"]), "kills": int(c["kills"]), "battle": battles,
 		# When they fell (those you court or befriend wear mourning for a few days: StoryArt.outfit_for).
 		"hour": float(world.hour) if world != null else 0.0,
+		# Where they fell, for their stone.
+		"place": (world.here() if world.here() != "" else world.nearest_place(world.party_pos(world.player()))) if world != null and world.player() != null else "",
 		"words": words,
 		"bonds": friends,
 		"bond_points": bond_points,
@@ -5650,6 +5663,144 @@ func _memorial(squad: Dictionary, c: Dictionary, words: String, killed_by_lid: i
 		"avenged": false,
 		"avenged_words": "",
 	}
+
+
+# ---------------------------------------------------------------- the fallen remembered (scenes/memorial.tscn)
+
+## A fallen captain's record by id, or {}.
+func memorial_of(id: int) -> Dictionary:
+	for m in fallen:
+		if typeof(m) == TYPE_DICTIONARY and int(m.get("id", -1)) == id:
+			return m
+	return {}
+
+
+## The fallen not yet laid to rest (a gathering waits for them), newest first.
+func unmourned() -> Array:
+	# One whose empty place was already seen at the fire (dismissed) has been mourned there.
+	var out := []
+	for m in fallen:
+		if typeof(m) == TYPE_DICTIONARY and m.has("mourned") and not bool(m["mourned"]) and not camp_seen.has("fallen_%d" % int(m.get("id", 0))):
+			out.push_front(m)
+	return out
+
+
+## The day they fell (from the hour kept), or 0 when it wasn't kept.
+func memorial_day(m: Dictionary) -> int:
+	return int(float(m["hour"]) / 24.0) + 1 if m.has("hour") else 0
+
+
+## Where they fell, by name: "Ashby", or "somewhere on the road" for records kept before
+## the place was.
+func memorial_where(m: Dictionary) -> String:
+	var at := String(m.get("place", ""))
+	return String(WorldData.settlement(at)["name"]) if WorldData.SETTLEMENTS.has(at) else "somewhere on the road"
+
+
+## Who struck them down, and what became of them: {name, realm, state ("rides", "captive",
+## "taken", "slain"), avenged, place (where their party is, while they ride)}; {} for a
+## death in a fight with no lord.
+func memorial_slayer(m: Dictionary) -> Dictionary:
+	var lid := int(m.get("killed_by_lord_id", -1))
+	var lname := String(m.get("killed_by_lord_name", ""))
+	if lid < 0 and lname == "":
+		return {}
+	var out := {"name": lname, "realm": "", "state": "slain", "avenged": bool(m.get("avenged", false)), "place": "", "id": lid}
+	var l: Dictionary = world.lord_by_id(lid) if world != null and lid >= 0 else {}
+	# An heir takes the same seat (and id): it's still him only while the name is his.
+	if l.is_empty() or (lname != "" and String(l.get("name", "")) != lname):
+		return out
+	out["realm"] = String(l.get("realm", ""))
+	var captor := String(l.get("captive_of", ""))
+	if captor == "player":
+		out["state"] = "captive"
+	elif captor != "":
+		out["state"] = "taken"
+	else:
+		out["state"] = "rides"
+		var p = world.party(int(l.get("party", -1)))
+		if p != null:
+			out["place"] = String(p.node) if String(p.node) != "" else world.nearest_place(world.party_pos(p))
+	return out
+
+
+## The epitaph on their stone: the words said at their gathering, or (for anyone mourned
+## before there was a gathering) made from their deeds.
+func memorial_epitaph(m: Dictionary) -> String:
+	if String(m.get("epitaph", "")) != "":
+		return String(m["epitaph"])
+	var sl := memorial_slayer(m)
+	return MemorialLines.epitaph(m, "honour", memorial_where(m), String(sl.get("name", "")))
+
+
+## The bonded survivors who mourn them: [{captain, rank}], the closest first.
+func memorial_mourners(m: Dictionary) -> Array:
+	var out := []
+	for sq in army:
+		var c = sq.get("captain")
+		if not (c is Dictionary):
+			continue
+		var rank := Captains.rank_letter(_memorial_points(m, c))
+		if rank != "":
+			out.append({"captain": c, "rank": rank, "points": _memorial_points(m, c)})
+	out.sort_custom(func(a, b): return float(a["points"]) > float(b["points"]))
+	return out
+
+
+## Lay `id` to rest with the company gathered: the rite, the words said ("honour", "grief",
+## or "vengeance" when a lord killed them), the epitaph those make, a candle lit, and a
+## little bond between each two survivors who both loved them. Once.
+## {ok, epitaph, shared: [[a first, b first]], speaker (the closest mourner, or {}), said}
+func memorial_gather(id: int, words: String) -> Dictionary:
+	var m := memorial_of(id)
+	if m.is_empty() or (m.has("mourned") and bool(m["mourned"]) and String(m.get("words_said", "")) != ""):
+		return {"ok": false}
+	var sl := memorial_slayer(m)
+	if words == "vengeance" and sl.is_empty():
+		words = "honour"
+	if not MemorialLines.WORDS.has(words):
+		words = "honour"
+	m["mourned"] = true
+	m["words_said"] = words
+	m["rite"] = String(MemorialLines.place(culture)["rite"])
+	m["epitaph"] = MemorialLines.epitaph(m, words, memorial_where(m), String(sl.get("name", "")))
+	m["candle_day"] = int(world.hour / 24.0) if world != null else 0
+	var mourners := memorial_mourners(m)
+	var shared := []
+	for i in mourners.size():
+		for j in range(i + 1, mourners.size()):
+			var a: Dictionary = mourners[i]["captain"]
+			var b: Dictionary = mourners[j]["captain"]
+			var ka := str(int(a["id"]))
+			var kb := str(int(b["id"]))
+			a["bonds"][kb] = float(a["bonds"].get(kb, 0.0)) + MemorialLines.SHARED_GRIEF
+			b["bonds"][ka] = float(b["bonds"].get(ka, 0.0)) + MemorialLines.SHARED_GRIEF
+			shared.append([String(a.get("first", "")), String(b.get("first", ""))])
+	if not camp_seen.has("fallen_%d" % id):
+		camp_seen.append("fallen_%d" % id)
+	save_game()
+	var speaker: Dictionary = mourners[0]["captain"] if not mourners.is_empty() else {}
+	return {"ok": true, "epitaph": m["epitaph"], "shared": shared, "speaker": speaker, "words": words}
+
+
+## Light a candle on their stone: once a day. False if one was lit today.
+func light_candle(id: int) -> bool:
+	var m := memorial_of(id)
+	if m.is_empty() or world == null:
+		return false
+	var today := int(world.hour / 24.0)
+	if int(m.get("candle_day", -99)) == today:
+		return false
+	m["candle_day"] = today
+	save_game()
+	return true
+
+
+## Whether a candle burns on their stone (lit within the last few days).
+func candle_lit(m: Dictionary) -> bool:
+	if world == null or not m.has("candle_day"):
+		return false
+	return int(world.hour / 24.0) - int(m["candle_day"]) < MemorialLines.CANDLE_DAYS
 
 
 ## Lords currently held as prisoners by the player
