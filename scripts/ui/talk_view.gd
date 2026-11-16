@@ -389,6 +389,16 @@ func sway(side: String, amount: float = 0.035) -> void:
 		face.set_meta("sway", amount)
 
 
+## Whoever is on `side` leaves the stage; the rest keep their places.
+func remove_face(side: String) -> void:
+	var face := face_node(side)
+	_faces.erase(side)
+	if face != null and is_instance_valid(face):
+		face.queue_free()
+	for s in _faces:
+		_place_face(s)
+
+
 ## Someone new takes the place on `side`: they step in as a first arrival does.
 func replace_face(side: String, tex: Texture2D, pixel: bool = false, height: float = 0.92) -> void:
 	var face := face_node(side)
@@ -733,6 +743,8 @@ static func marks(r: Dictionary, tone: String) -> Control:
 	var key := String(r.get("icon", ""))
 	var fx: Array = r.get("fx", [])
 	var locked := tone == "locked"
+	# Done (a thing already done tonight): shut like a locked one, but showing its own icon.
+	var done := bool(r.get("done", false))
 	if tag == "" and key == "" and fx.is_empty() and not locked:
 		return null
 	var row := HFlowContainer.new()
@@ -742,7 +754,7 @@ static func marks(r: Dictionary, tone: String) -> Control:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var ink: Color = Style.BRASS if tone == "gold" else (Style.ENEMY_LIGHT if tone == "red" else Style.MUTED)
 	if locked or key != "":
-		var ic := Widgets.icon_rect("lock" if locked else key, 26.0)
+		var ic := Widgets.icon_rect("lock" if locked and not (done and key != "") else key, 26.0)
 		ic.name = "Kind"
 		ic.modulate = ink
 		row.add_child(ic)
@@ -1085,7 +1097,10 @@ static func land(p: Control, glint: Color = Color(1.4, 1.25, 0.8)) -> void:
 
 
 ## Replies you can give: {id, text, tag, tone ("plain", "gold", "red", "locked", "quiet"),
-## act, extra}. A reply with only `act` and "Continue" text is the tap-to-continue.
+## act, extra, face, hold, done}. `face` (a Texture2D) is a small face beside the words;
+## `hold` makes it a reply said by holding it (see _holdable); `done` shuts it, keeping its
+## icon, for something already done. A reply with only `act` and "Continue" text is the
+## tap-to-continue.
 func set_replies(replies: Array) -> void:
 	for c in _replies.get_children():
 		_replies.remove_child(c)
@@ -1158,7 +1173,7 @@ func _tap(event: InputEvent) -> void:
 
 
 func reply_button(r: Dictionary) -> Control:
-	var tone := String(r.get("tone", "plain"))
+	var tone := "locked" if bool(r.get("done", false)) else String(r.get("tone", "plain"))
 	var locked := tone == "locked"
 	var quiet := tone == "quiet"
 	# "primary": the way on or out of a talk, full width in brass, not a line anyone says.
@@ -1196,7 +1211,30 @@ func reply_button(r: Dictionary) -> Control:
 	text.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if quiet or primary:
 		text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(text)
+	if r.get("face") is Texture2D:
+		# Who it is, beside the words: a small face (a captain to call on, a guest to visit).
+		var line := HBoxContainer.new()
+		line.name = "WithFace"
+		line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.add_theme_constant_override("separation", 12)
+		var face := TextureRect.new()
+		face.name = "Face"
+		face.texture = r["face"]
+		face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+		face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		face.custom_minimum_size = Vector2(42, 56)
+		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		if locked:
+			face.modulate = Color(0.6, 0.6, 0.66)
+		line.add_child(face)
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		line.add_child(text)
+		box.add_child(line)
+	else:
+		box.add_child(text)
 	var tag_row := marks(r, tone)
 	if tag_row != null:
 		box.add_child(tag_row)
@@ -1209,10 +1247,63 @@ func reply_button(r: Dictionary) -> Control:
 	b.custom_minimum_size.y = floor_y
 	if not locked and r.has("act"):
 		var act: Callable = r["act"]
-		b.pressed.connect(func():
-			Sound.play("page", 0.0, 0.05)
-			act.call())
+		if bool(r.get("hold", false)):
+			_holdable(b, act)
+		else:
+			b.pressed.connect(func():
+				Sound.play("page", 0.0, 0.05)
+				act.call())
 	return b
+
+
+## How long a held reply takes to fill.
+const HOLD_TIME := 1.0
+
+
+## A reply said by holding it: press, and a ring fills on it for HOLD_TIME while everyone
+## waits; when it's full, or as soon as it's let go, it is said, once. A tap (or choose())
+## says it too, so nothing hangs on the hold. No ring under Reduced motion.
+func _holdable(b: Button, act: Callable) -> void:
+	var ring := HoldRing.new()
+	ring.name = "HoldRing"
+	b.add_child(ring)
+	var said := [false]
+	var say_it := func() -> void:
+		if said[0]:
+			return
+		said[0] = true
+		var t = ring.get_meta("fill_tween") if ring.has_meta("fill_tween") else null
+		if t is Tween and (t as Tween).is_valid():
+			(t as Tween).kill()
+		Sound.play("page", 0.0, 0.05)
+		act.call()
+	b.button_down.connect(func():
+		if said[0] or Style.motion_reduced() or not ring.is_inside_tree():
+			return
+		var t := ring.create_tween()
+		ring.set_meta("fill_tween", t)
+		t.tween_property(ring, "fill", 1.0, HOLD_TIME).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+		t.tween_callback(say_it))
+	b.pressed.connect(say_it)
+
+
+## The ring on a held reply, filling clockwise from the top as it's held.
+class HoldRing extends Control:
+	var fill := 0.0:
+		set(v):
+			fill = v
+			queue_redraw()
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	func _draw() -> void:
+		var r := minf(size.y * 0.3, 24.0)
+		var c := Vector2(size.x - r - 24.0, size.y * 0.5)
+		draw_arc(c, r, 0.0, TAU, 40, Color(0.85, 0.66, 0.27, 0.35), 3.0, true)
+		if fill > 0.0:
+			draw_arc(c, r, -PI * 0.5, -PI * 0.5 + TAU * fill, 40, Color("f3d27a"), 5.0, true)
 
 
 ## The reply button with this id, wherever it sits in the column.

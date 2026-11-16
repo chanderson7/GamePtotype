@@ -1,8 +1,20 @@
 # The wedding day: your hand in it, the "I do", and the feast
 
-**Status: planned.** Builds on the wedding in `docs/wedding-plan.md`, which is built. Nothing
+**Status: built.** Builds on the wedding in `docs/wedding-plan.md`, which is built. Nothing
 before the day changes (the proposal, the place, the days of waiting, postponement, calling it
-off). This plan is about the scene you open with *Begin the wedding*.
+off). This plan is about the scene you open with *Begin the wedding*. Where the build differs
+from the plan below:
+
+- **The question doesn't clear the talk.** The rite's last line stays on screen above it, so
+  it can be read; the hush is in the place (the dressing stills, the music drops).
+- **Ryumon's rite has three plain steps** (the three cups), then the choice of how you sign;
+  the Vardish and Kharzani rites have two, then their choice.
+- **Round the tables** offers each guest as a reply with their face (so autoplay and the
+  tests can tap them); the *Who came* card on arriving stays as it was.
+- **The custom's choice needing your second** has its own version when no one stands with
+  you (arm-wrestle the cook yourself; let her whisper you the line).
+- **Tests and build checks** were written without a Godot binary in the session that built
+  this: run `tests/wedding_tests.gd` before relying on it.
 
 ## What's wrong now
 

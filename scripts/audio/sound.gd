@@ -748,6 +748,20 @@ func haptic(strong: bool = false) -> void:
 	Input.vibrate_handheld(90 if strong else 15)
 
 
+## How far the music drops for a hushed moment (hush_music).
+const HUSH_DB := 14.0
+
+
+## The music drops low and holds there, for a hushed moment (the question at a wedding),
+## or comes back up. Playing a new piece brings it back up too.
+func hush_music(on: bool) -> void:
+	if _music.is_empty():
+		return
+	var p := _music[_current]
+	if p.playing:
+		_fade(p, MUSIC_DB - HUSH_DB if on else MUSIC_DB, 0.8)
+
+
 ## Quiet routine contact sounds for a moment, so a critical cue is heard over the press.
 func duck(seconds: float = 0.8) -> void:
 	_duck_until = Time.get_ticks_msec() / 1000.0 + seconds

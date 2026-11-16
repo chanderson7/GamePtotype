@@ -888,11 +888,22 @@ func _private_vows() -> void:
 		replies.append({"id": "vow_" + String(v["id"]), "text": said, "tag": String(v["tag"]), "act": func():
 			say("you", said)
 			GameState.record_private_vows(cand, said, String(their["text"]))
-			add_to_log(keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
-			add_to_log(TalkView.fx_note([["keep", Relationships.STANDING_PRIVATE_VOWS_PENALTY]],
-				"%s wasn't asked: no marriage pact yet. Their good word can still be earned." % String(house.get("name", "Her house")), Style.MORALE_LOW))
-			set_replies([_back_or_leave()])})
+			# No one to ask it, so she asks you herself; the same held "I do" as at a wedding.
+			say("them", String(WeddingLines.PRIVATE_ASK.get(cand, "Do you?")), _name)
+			set_replies([{"id": "i_do", "text": "I do.", "tone": "gold", "bare": true, "hold": true, "tag": "hold it, or just say it",
+				"act": _private_i_do.bind(said, String(their["text"]), house)}])})
 	set_replies(replies)
+
+
+func _private_i_do(said: String, their_vow: String, house: Dictionary) -> void:
+	say("you", "I do.")
+	_face("warm")
+	say("them", String(WeddingLines.PRIVATE_ANSWER.get(cand, "")), _name)
+	GameState.record_private_vows(cand, said, their_vow, true)
+	add_to_log(keepsake("A memory kept: vows in %s's room at %s, by one candle." % [_name, Letters.place_name(String(_social().get_candidate_person(cand).get("residence", "")))], "rings"))
+	add_to_log(TalkView.fx_note([["keep", Relationships.STANDING_PRIVATE_VOWS_PENALTY]],
+		"%s wasn't asked: no marriage pact yet. Their good word can still be earned." % String(house.get("name", "Her house")), Style.MORALE_LOW))
+	set_replies([_back_or_leave()])
 
 
 # ---------------------------------------------------------------- time together

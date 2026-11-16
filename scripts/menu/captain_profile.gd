@@ -495,10 +495,15 @@ func _add_living_history(col: VBoxContainer, captain: Dictionary) -> void:
 	var history: Dictionary = captain.get("history", {})
 	var friends: Array = history.get("fallen_friends", [])
 	var scars: Array = history.get("scars", [])
-	if friends.is_empty() and scars.is_empty():
+	var wedding: Dictionary = history.get("wedding", {}) if history.get("wedding") is Dictionary else {}
+	if friends.is_empty() and scars.is_empty() and wedding.is_empty():
 		return
 	var v := Widgets.card(col, "History")
 	v.get_parent().name = "HistoryCard"
+	if not wedding.is_empty():
+		var at_wedding := _detail("Your wedding", "Stood with you at your wedding to %s, day %d." % [String(wedding.get("with", "")), int(wedding.get("day", 1))], "rings")
+		at_wedding.name = "StoodAtWedding"
+		v.add_child(at_wedding)
 	if not friends.is_empty():
 		v.add_child(_detail("Fallen friends", "Carries the memory of %s" % ", ".join(PackedStringArray(friends))))
 	if not scars.is_empty():

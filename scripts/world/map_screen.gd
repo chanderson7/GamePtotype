@@ -1164,9 +1164,10 @@ func _open_here() -> void:
 	_selected = id
 	var buttons := [["Enter", _on_enter, true, "inside"], ["Wait %dh" % WAIT_HOURS, _on_wait, false, "revert"], ["Warband", _on_warband, false, "company"], ["Close", _close_sheet]]
 	var wedding_here := GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == id
-	if wedding_here:
+	var feast_here := GameState.wedding_feast_here() and String(GameState.wedding()["place"]) == id
+	if wedding_here or feast_here:
 		buttons[0][2] = false
-		buttons.push_front(["Wedding", _on_begin_wedding, true, "rings"])
+		buttons.push_front(["Feast" if feast_here else "Wedding", _on_begin_wedding, true, "cup" if feast_here else "rings"])
 	if GameState.siege_check(id)["ok"]:
 		buttons.push_front(["Siege" if GameState.siege_camp_at(id) else "Storm", _open_siege.bind(id), true, "storm"])
 		buttons[1][2] = false
@@ -1181,6 +1182,8 @@ func _open_here() -> void:
 	if wedding_here:
 		var who := String(world.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
 		body = "Your wedding is ready. %s is waiting for you; there's no hurry while you're in town." % who
+	elif feast_here:
+		body = "Your wedding feast is still going. Rejoin it any time before dawn; ride away and it ends."
 	_show_sheet("here", String(Data.settlement(id)["name"]), body, buttons, world.brief(id))
 	var chips := []
 	var danger: String = world.settlement_danger(id)

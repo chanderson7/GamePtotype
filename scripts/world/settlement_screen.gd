@@ -1354,7 +1354,7 @@ func _has_court() -> bool:
 		return true
 	if w.social != null and not w.social.residents_at(place).is_empty():
 		return true
-	return GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == place
+	return (GameState.wedding_can_begin() or GameState.wedding_feast_here()) and String(GameState.wedding()["place"]) == place
 
 
 ## "Court · 3", or "Feast · 6" in brass while a gathering is on.
@@ -1399,6 +1399,30 @@ func _add_court(col: VBoxContainer) -> void:
 		wb.name = "BeginWedding"
 		Style.make_primary(wb)
 		wv.add_child(wb)
+	# Married, and the feast still going: go back to it, until dawn or until you ride away.
+	if GameState.wedding_feast_here() and String(GameState.wedding()["place"]) == place:
+		var fv := Widgets.card(col, "The feast is still going", "until dawn", Style.BRASS, true)
+		fv.get_parent().name = "FeastCard"
+		var fl := HBoxContainer.new()
+		fl.add_theme_constant_override("separation", 12)
+		var cup := Widgets.icon_rect("cup", 40)
+		cup.modulate = Style.ROMANCE
+		fl.add_child(cup)
+		var fw := String(w.social.get_candidate_person(String(GameState.wedding()["candidate_id"])).get("name", ""))
+		var fn := Style.label("%s, and a seat kept for you" % fw, Style.BODY, Style.ROMANCE_LIGHT)
+		fn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		fn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		fn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		fl.add_child(fn)
+		fv.add_child(fl)
+		var fb := _button("Rejoin", func():
+			_remember_scroll()
+			Scenes.wedding_replay = ""
+			Scenes.wedding_return = "res://scenes/settlement.tscn"
+			Scenes.go("res://scenes/wedding.tscn"))
+		fb.name = "RejoinFeast"
+		Style.make_primary(fb)
+		fv.add_child(fb)
 	if not GameState.muster.is_empty() and String(GameState.muster["place"]) == place:
 		_add_muster_card(col)
 	var g: Dictionary = w.gathering_at(place)

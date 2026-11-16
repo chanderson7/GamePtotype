@@ -234,7 +234,7 @@ func from_dict(data: Dictionary) -> void:
 			"place": String(old_ceremony.get("settlement_id", "")), "chosen_hour": float(old_ceremony.get("scheduled_at_hour", 0.0)),
 			"ready_hour": float(old_ceremony.get("scheduled_at_hour", 0.0)), "reserved_silver": int(old_ceremony.get("cost_silver", 0)),
 			"reserved_food": int(old_ceremony.get("cost_food", 0)), "postponed_reason": ""}
-	for k in ["reserved_silver", "reserved_food", "day"]:
+	for k in ["reserved_silver", "reserved_food", "day", "second"]:
 		if wedding.has(k):
 			wedding[k] = int(wedding[k])
 	_next_project_id = int(data.get("next_project_id", 1))
@@ -1386,6 +1386,20 @@ func wedding_active(candidate_id: String = "") -> bool:
 	return candidate_id == "" or String(wedding.get("candidate_id", "")) == candidate_id
 
 
+## Whether you're married and the feast after it is still going (until dawn, or until you
+## ride away): you can go back to it.
+func wedding_feast_open() -> bool:
+	return String(wedding.get("state", "")) == "feast"
+
+
+## The first dawn at least WEDDING_FEAST_MIN_HOURS after `hour`: when a feast begun then ends.
+static func wedding_feast_end_hour(hour: float) -> float:
+	var dawn := floorf(hour / 24.0) * 24.0 + Relationships.WEDDING_FEAST_DAWN_HOUR
+	while dawn < hour + Relationships.WEDDING_FEAST_MIN_HOURS:
+		dawn += 24.0
+	return dawn
+
+
 ## The first dusk at least a day after `hour`: when a wedding chosen then is ready.
 static func wedding_ready_hour(hour: float) -> float:
 	var day_start := floorf(hour / 24.0) * 24.0
@@ -1411,6 +1425,12 @@ func plan_wedding(place: String, cur_hour: float) -> Dictionary:
 
 
 func _step_wedding(cur_hour: float, world_ref: RefCounted) -> void:
+	# The feast ends quietly at dawn, or once you ride away: what happened is kept.
+	if wedding_feast_open():
+		var left: bool = world_ref != null and world_ref.has_method("here") and world_ref.here() != String(wedding.get("place", ""))
+		if left or cur_hour >= float(wedding.get("feast_ends_hour", 0.0)):
+			end_wedding_feast()
+		return
 	if not wedding_active():
 		return
 	var state := String(wedding["state"])
@@ -1431,8 +1451,11 @@ func _step_wedding(cur_hour: float, world_ref: RefCounted) -> void:
 			add_letter(String(wedding["person_id"]), "wedding_ready", "", cur_hour, place)
 
 
-## The wedding is held: married, remembered with your words, and (publicly) a pact.
-## `info` = {vow, their_vow, toast, guests (names), seat (your seat, or "")}.
+## "I do": married, remembered with your words, and (publicly) a pact. The feast follows,
+## until dawn or until you leave (end_wedding_feast); what you do at it is added to the
+## same memory (wedding_feast_record).
+## `info` = {vow, their_vow, guests (names), seat (your seat, or ""), second (a captain id,
+## or -1), second_name, rite (the rite's choice), breath (you took a breath first)}.
 func finish_wedding(info: Dictionary, cur_hour: float) -> Dictionary:
 	if not wedding_active():
 		return {"ok": false, "reason": "No wedding is planned."}
@@ -1444,13 +1467,21 @@ func finish_wedding(info: Dictionary, cur_hour: float) -> Dictionary:
 	limits["current_partner_id"] = cand_id
 	var place := String(wedding["place"])
 	var place_name := String(WorldData.settlement(place)["name"]) if WorldData.SETTLEMENTS.has(place) else place
-	wedding["state"] = "done"
+	wedding["state"] = "feast"
 	wedding["day"] = int(cur_hour / 24.0) + 1
-	for k in ["vow", "their_vow", "toast"]:
+	wedding["feast_ends_hour"] = wedding_feast_end_hour(cur_hour)
+	wedding["feast"] = {"done": [], "toasts": [], "toast": "", "dance": [], "custom": "", "tables": [], "last": ""}
+	for k in ["vow", "their_vow", "toast", "second_name", "rite"]:
 		wedding[k] = String(info.get(k, ""))
+	wedding["second"] = int(info.get("second", -1))
+	wedding["breath"] = bool(info.get("breath", false))
 	add_memory(String(person["id"]), "Married %s at %s." % [person.get("name", ""), place_name],
 		{"kind": "ceremony", "scene_id": "wedding", "place": place, "candidate": cand_id, "vow": String(info.get("vow", "")),
-		"their_vow": String(info.get("their_vow", "")), "toast": String(info.get("toast", "")), "guests": info.get("guests", []).duplicate()})
+		"their_vow": String(info.get("their_vow", "")), "toast": String(info.get("toast", "")), "guests": info.get("guests", []).duplicate(),
+		"second_name": String(info.get("second_name", "")), "rite": String(info.get("rite", "")), "breath": bool(info.get("breath", false)),
+		"i_do": true})
+	var log: Array = people.get(String(person["id"]), {}).get("memory_log", [])
+	wedding["memory_id"] = String((log.back() as Dictionary).get("id", "")) if not log.is_empty() else ""
 	var sites := [String(person.get("residence", ""))]
 	var seat := String(info.get("seat", ""))
 	if seat != "" and not sites.has(seat):
@@ -1460,6 +1491,47 @@ func finish_wedding(info: Dictionary, cur_hour: float) -> Dictionary:
 	if not wq.is_empty():
 		wq["post_opens_hour"] = cur_hour + Relationships.CHAPTER_GAP_HOURS
 	return {"ok": true, "wedding": wedding}
+
+
+## Something done at the feast (one of Relationships.WEDDING_FEAST_THINGS), with what was
+## said or chosen (`words`: toasts, toast, dance, custom, tables, last), kept with the day
+## and in its memory. False when no feast is going.
+func wedding_feast_record(key: String, words: Dictionary = {}) -> bool:
+	if not wedding_feast_open():
+		return false
+	var feast: Dictionary = wedding.get("feast", {})
+	var done: Array = feast.get("done", [])
+	if key != "" and not done.has(key):
+		done.append(key)
+	feast["done"] = done
+	for k in words:
+		feast[k] = words[k]
+	wedding["feast"] = feast
+	if words.has("toast"):
+		wedding["toast"] = String(words["toast"])
+	_merge_wedding_memory(words)
+	return true
+
+
+## The night ends: you slipped away with her (`words` = {last}), dawn came, or you left.
+## The day is done; the memory keeps what happened.
+func end_wedding_feast(words: Dictionary = {}) -> bool:
+	if not wedding_feast_open():
+		return false
+	wedding_feast_record("", words)
+	wedding["state"] = "done"
+	return true
+
+
+## Add `words` to the wedding's own memory.
+func _merge_wedding_memory(words: Dictionary) -> void:
+	var log: Array = people.get(String(wedding.get("person_id", "")), {}).get("memory_log", [])
+	var id := String(wedding.get("memory_id", ""))
+	for i in range(log.size() - 1, -1, -1):
+		var m: Dictionary = log[i]
+		if (id != "" and String(m.get("id", "")) == id) or (id == "" and String(m.get("kind", "")) == "ceremony"):
+			m.merge(words.duplicate(true), true)
+			return
 
 
 ## Call the wedding off: back to committed, and what was set aside comes back.

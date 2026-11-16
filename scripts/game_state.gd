@@ -683,7 +683,7 @@ func wedding_can_begin() -> bool:
 ## face (a record CaptainArt draws), regard}], absent: [{name, reason}], gift_from}.
 func wedding_guests() -> Dictionary:
 	var out := {"guests": [], "absent": [], "gift_from": ""}
-	if not wedding_active() and String(wedding().get("state", "")) != "done":
+	if not wedding_active() and not (String(wedding().get("state", "")) in ["feast", "done"]):
 		return out
 	var w := wedding()
 	var place := String(w.get("place", ""))
@@ -758,8 +758,10 @@ func _wedding_lord_guest(l: Dictionary, kind: String) -> Dictionary:
 		"realm": String(l.get("realm", ""))}
 
 
-## Hold the wedding: married, Regard for the lords who came, renown, the pact, the news.
-## `words` = {vow, their_vow, toast}. Returns {ok, guests, regard: [{name, amount}], renown, pact}.
+## "I do": married, Regard for the lords who came, renown, the pact, the news, a save. The
+## feast follows (wedding_feast_do, end_wedding_feast). `words` = {vow, their_vow, second
+## (a captain id or -1), rite, breath}. Returns {ok, guests, regard: [{name, amount}],
+## renown, pact}.
 func finish_wedding(words: Dictionary) -> Dictionary:
 	if not wedding_active():
 		return {"ok": false, "reason": "No wedding is planned."}
@@ -776,9 +778,18 @@ func finish_wedding(words: Dictionary) -> Dictionary:
 	var info := words.duplicate()
 	info["guests"] = g["guests"].map(func(x): return String(x["name"]))
 	info["seat"] = wedding_seat()
+	var second = captain_by_id(int(words.get("second", -1))) if int(words.get("second", -1)) >= 0 else null
+	info["second"] = int(second["id"]) if second is Dictionary else -1
+	info["second_name"] = String(second.get("first", second["name"])) if second is Dictionary else ""
 	var r: Dictionary = world.social.finish_wedding(info, world.hour)
 	if not bool(r.get("ok", false)):
 		return r
+	# Whoever stood with you remembers it (their profile says so).
+	if second is Dictionary:
+		var history: Dictionary = second.get("history", {})
+		history["wedding"] = {"day": int(world.hour / 24.0) + 1,
+			"with": String(world.social.get_candidate_person(String(w["candidate_id"])).get("name", ""))}
+		second["history"] = history
 	renown += Relationships.WEDDING_RENOWN
 	var person: Dictionary = world.social.get_candidate_person(String(w["candidate_id"]))
 	world.emit_event({"type": "wedding", "name": String(person.get("name", "")), "settlement": String(w["place"])})
@@ -787,12 +798,164 @@ func finish_wedding(words: Dictionary) -> Dictionary:
 		"pact": world.social.get_pact(String(person.get("house_id", "")))}
 
 
+## Whether the feast after your wedding is still going (see SocialSim.wedding_feast_open).
+func wedding_feast_open() -> bool:
+	return world != null and world.social != null and world.social.wedding_feast_open()
+
+
+## Whether you can go back to the feast: it's still going and you're at its place.
+func wedding_feast_here() -> bool:
+	return wedding_feast_open() and world.here() == String(wedding().get("place", ""))
+
+
+## The living captains, each once.
+func _wedding_captains() -> Array:
+	var out := []
+	for sq in army:
+		var c = sq.get("captain")
+		if c is Dictionary:
+			out.append(c)
+	return out
+
+
+## A captain as someone at the wedding: {id, name (first), face (a record CaptainArt
+## draws), captain (the record), why, tag}.
+func _wedding_captain(c: Dictionary, why: String, tag: String) -> Dictionary:
+	return {"id": int(c["id"]), "name": String(c.get("first", c["name"])), "face": c, "captain": c, "why": why, "tag": tag}
+
+
+## How long a captain has been with you, for a tag: "longest with you · 14 battles".
+static func _battles_tag(c: Dictionary) -> String:
+	var n := int(c.get("battles", 0))
+	if n <= 0:
+		return "with you from the start"
+	return "longest with you · %d battle%s" % [n, "" if n == 1 else "s"]
+
+
+## Who could stand with you, at most Relationships.WEDDING_SECONDS_OFFERED: the captain
+## longest with you, a hero companion, one of the closest-bonded pair, the newest. [] with
+## no captains. Each is _wedding_captain's record; `why` is longest, hero, bonded or newest.
+func wedding_seconds() -> Array:
+	var caps := _wedding_captains()
+	var out := []
+	if caps.is_empty():
+		return out
+	var add := func(c, why: String, tag: String) -> void:
+		if c is Dictionary and out.size() < Relationships.WEDDING_SECONDS_OFFERED and not out.any(func(e): return int(e["id"]) == int(c["id"])):
+			out.append(_wedding_captain(c, why, tag))
+	var by_battles := caps.duplicate()
+	by_battles.sort_custom(func(x, y): return int(x.get("battles", 0)) > int(y.get("battles", 0)) or \
+		(int(x.get("battles", 0)) == int(y.get("battles", 0)) and int(x["id"]) < int(y["id"])))
+	var longest: Dictionary = by_battles[0]
+	add.call(longest, "longest", _battles_tag(longest))
+	for c in caps:
+		if bool(c.get("is_hero", false)):
+			add.call(c, "hero", String(Heroes.HEROES.get(String(c.get("hero_id", "")), {}).get("byname", "a companion")))
+			break
+	for pair in bonds():
+		var a: Dictionary = pair["a"]
+		var b: Dictionary = pair["b"]
+		var pick := a if not out.any(func(e): return int(e["id"]) == int(a["id"])) else b
+		var other := b if pick == a else a
+		add.call(pick, "bonded", "bonded with %s" % String(other.get("first", other["name"])))
+		break
+	var newest: Dictionary = by_battles.back()
+	if int(newest["id"]) != int(longest["id"]):
+		add.call(newest, "newest", "newest · hasn't slept" if int(newest.get("battles", 0)) < 2 else "newest · %d battles" % int(newest.get("battles", 0)))
+	return out
+
+
+## Who can be called on for a toast at the feast, in the order they're offered: your
+## second first, the captain longest with you, a hero companion, the closest-bonded pair
+## (together), the newest, and a captain who lost a bonded friend (who drinks to them).
+## Each is {key, kind (second, longest, hero, pair, newest, mourner), id, name, face,
+## captain, tag} plus `other` (the pair's second captain) or `fallen` (the friend's name).
+func wedding_toasters(second_id: int = -1) -> Array:
+	var out := []
+	var used := {}
+	var caps := _wedding_captains()
+	var entry := func(c: Dictionary, kind: String, tag: String) -> Dictionary:
+		var e := _wedding_captain(c, kind, tag)
+		e["kind"] = kind
+		e["key"] = "%s_%d" % [kind, int(c["id"])]
+		return e
+	var second = captain_by_id(second_id) if second_id >= 0 else null
+	if second is Dictionary:
+		out.append(entry.call(second, "second", "your second · speaks first"))
+		used[int(second["id"])] = true
+	# A mourner is kept for last, but nobody else takes their turn.
+	var mourner := {}
+	for rb in remembered_bonds():
+		var a: Dictionary = rb["a"]
+		if not used.has(int(a["id"])):
+			mourner = entry.call(a, "mourner", "for %s" % String(rb["b"].get("first", rb["b"].get("name", ""))))
+			mourner["fallen"] = String(rb["b"].get("first", rb["b"].get("name", "")))
+			used[int(a["id"])] = true
+			break
+	var by_battles := caps.duplicate()
+	by_battles.sort_custom(func(x, y): return int(x.get("battles", 0)) > int(y.get("battles", 0)) or \
+		(int(x.get("battles", 0)) == int(y.get("battles", 0)) and int(x["id"]) < int(y["id"])))
+	for c in by_battles:
+		if not used.has(int(c["id"])):
+			out.append(entry.call(c, "longest", _battles_tag(c)))
+			used[int(c["id"])] = true
+			break
+	for c in caps:
+		if bool(c.get("is_hero", false)) and not used.has(int(c["id"])):
+			out.append(entry.call(c, "hero", String(Heroes.HEROES.get(String(c.get("hero_id", "")), {}).get("byname", "a companion"))))
+			used[int(c["id"])] = true
+			break
+	for pair in bonds():
+		var a: Dictionary = pair["a"]
+		var b: Dictionary = pair["b"]
+		if second is Dictionary and (int(a["id"]) == int(second["id"]) or int(b["id"]) == int(second["id"])):
+			continue
+		var e: Dictionary = entry.call(a, "pair", "%s and %s · rank %s" % [String(a.get("first", a["name"])), String(b.get("first", b["name"])), String(pair["rank"])])
+		e["key"] = "pair_%d_%d" % [int(a["id"]), int(b["id"])]
+		e["other"] = b
+		e["rank"] = String(pair["rank"])
+		out.append(e)
+		break
+	for i in range(by_battles.size() - 1, -1, -1):
+		var c: Dictionary = by_battles[i]
+		if int(c.get("battles", 0)) < 2 and not used.has(int(c["id"])):
+			out.append(entry.call(c, "newest", "newest · hasn't slept"))
+			used[int(c["id"])] = true
+			break
+	if not mourner.is_empty():
+		out.append(mourner)
+	return out
+
+
+## Something done at the feast (Relationships.WEDDING_FEAST_THINGS), with what was said
+## or chosen, kept with the day and in its memory. {ok, reason}.
+func wedding_feast_do(key: String, words: Dictionary = {}) -> Dictionary:
+	if not wedding_feast_open():
+		return {"ok": false, "reason": "The feast is over."}
+	world.social.wedding_feast_record(key, words)
+	save_game()
+	return {"ok": true}
+
+
+## The night ends: you slip away with her (`words` = {last}). {ok, reason}.
+func end_wedding_feast(words: Dictionary = {}) -> Dictionary:
+	if not wedding_feast_open():
+		return {"ok": false, "reason": "The feast is over."}
+	world.social.end_wedding_feast(words)
+	save_game()
+	return {"ok": true}
+
+
 ## Private vows: keep the words you said with their memory.
-func record_private_vows(cand: String, vow: String, their_vow: String) -> void:
+## `i_do`: the question was asked and answered, too.
+func record_private_vows(cand: String, vow: String, their_vow: String, i_do: bool = false) -> void:
 	if world == null or world.social == null:
 		return
 	var person: Dictionary = world.social.get_candidate_person(cand)
-	world.social.set_memory_words(String(person.get("id", "")), {"vow": vow, "their_vow": their_vow})
+	var words := {"vow": vow, "their_vow": their_vow}
+	if i_do:
+		words["i_do"] = true
+	world.social.set_memory_words(String(person.get("id", "")), words)
 	save_game()
 
 
@@ -5703,6 +5866,10 @@ func _clean_captain(c: Dictionary, type: String) -> Dictionary:
 		history["wounds"] = int(c["history"].get("wounds", 0))
 		history["fallen_friends"] = c["history"].get("fallen_friends", []) if typeof(c["history"].get("fallen_friends")) == TYPE_ARRAY else []
 		history["scars"] = c["history"].get("scars", []) if typeof(c["history"].get("scars")) == TYPE_ARRAY else []
+		# Who stood with you at your wedding keeps it (see finish_wedding).
+		if typeof(c["history"].get("wedding")) == TYPE_DICTIONARY:
+			var wed: Dictionary = c["history"]["wedding"]
+			history["wedding"] = {"day": int(wed.get("day", 1)), "with": String(wed.get("with", ""))}
 	var clean := {
 		"id": int(c.get("id", 0)), "name": String(c.get("name", "Nameless")), "first": String(c.get("first", "Nameless")),
 		"culture": String(c.get("culture", Cultures.VARDISH)), "type": type, "temperament": String(c.get("temperament", Captains.STEADFAST)), "quirk": String(c.get("quirk", "")),

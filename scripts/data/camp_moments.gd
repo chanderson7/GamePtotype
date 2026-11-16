@@ -5,6 +5,7 @@ extends RefCounted
 
 const Captains = preload("res://scripts/data/captains.gd")
 const Heroes = preload("res://scripts/data/heroes.gd")
+const FeastLines = preload("res://scripts/data/wedding_feast_lines.gd")
 
 ## Acknowledged keys kept in a save (oldest dropped first).
 const SEEN_KEEP := 40
@@ -164,6 +165,17 @@ static func candidates(gs) -> Array:
 				"kind": "bond", "title": "A bond grows", "text": "%s have grown closer: rank %s." % [String(e.get("pair", "Two captains")), String(e.get("rank", ""))],
 				"action": "bond", "a_id": int(e.get("a_id", 0)), "b_id": int(e.get("b_id", 0))})
 			break
+	# A few nights after your wedding: the first captain who toasted is still telling it.
+	var wed: Dictionary = gs.wedding() if gs.has_method("wedding") else {}
+	var feast: Dictionary = wed.get("feast", {}) if wed.get("feast") is Dictionary else {}
+	var toasts: Array = feast.get("toasts", [])
+	if String(wed.get("state", "")) in ["feast", "done"] and not toasts.is_empty() and gs.world != null \
+			and int(gs.world.hour / 24.0) + 1 - int(wed.get("day", 0)) <= FeastLines.CAMP_DAYS:
+		var ids: Array = toasts[0].get("ids", []) if toasts[0] is Dictionary else []
+		var teller = _living(gs, int(ids[0])) if not ids.is_empty() else null
+		if teller != null:
+			out.append({"key": "wedding_%d" % int(wed.get("day", 0)), "kind": "wedding", "title": FeastLines.CAMP_TITLE,
+				"text": FeastLines.CAMP_RETELL % _captain_name(teller), "action": "captain", "captain_id": int(teller.get("id", 0))})
 	# Real shortages.
 	if gs.world != null and (gs.food < gs.total_men() or gs.silver < gs.daily_wages()):
 		var day := int(gs.world.hour / 24.0)

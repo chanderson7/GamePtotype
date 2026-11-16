@@ -1,35 +1,19 @@
-## The wedding, on the day: the place dressed for it, who came, her vow and yours, the
-## rite of her people, the toasts, and one closing card with what it all means. Opened
-## from the memory book (Scenes.wedding_replay), it tells the day again as it was and
-## changes nothing. Built on talk_view.gd; the rules are in GameState and the social sim.
-extends "res://scripts/ui/talk_view.gd"
+## The wedding, on the day. The ceremony, a beat at a time and by your hand: who came, who
+## stands with you, her vow and yours (her face answers it), her people's rite done step
+## by step, and the question, asked of her and then of you, answered "I do": that is the
+## moment you're married. Then the feast (wedding_feast.gd), until you slip away with her.
+## Opened while the feast is still going, it goes back to it. Opened from the memory book
+## (Scenes.wedding_replay), it tells the day again as it was and changes nothing. The
+## rules are in GameState and the social sim.
+extends "res://scripts/menu/wedding_feast.gd"
 
-const TalkView = preload("res://scripts/ui/talk_view.gd")
-const Data = preload("res://scripts/world/world_data.gd")
-const Relationships = preload("res://scripts/data/relationships.gd")
 const Stories = preload("res://scripts/data/personal_conversations.gd")
-const Lines = preload("res://scripts/data/wedding_lines.gd")
-const CaptainArt = preload("res://scripts/ui/captain_art.gd")
-const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
-const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
-const Dressing = preload("res://scripts/ui/wedding_dressing.gd")
+const Rite = preload("res://scripts/ui/wedding_rite.gd")
 
-## Places with a painting of their own.
-const PAINTED := ["ravensford", "qasr_hamra", "kitayama"]
-
-var cand := ""
-var person_id := ""
-var place := ""
-var culture := ""
-var _name := ""
-var _guests := {}
-var _host := {}
-var _their := {}
-var _vow := ""
-var _toast := ""
-## The memory being told again, or {} on the day itself.
-var _memory := {}
-var _banners: Control
+## The rite as it's done today (Lines.RITE_STEPS for her people) and what you chose in it.
+var _rite_steps := {}
+var _rite_choice := ""
+var _rite: Rite
 
 
 func _ready() -> void:
@@ -37,6 +21,7 @@ func _ready() -> void:
 	if social == null:
 		_nothing("No one is waiting here.")
 		return
+	var rejoin := false
 	if Scenes.wedding_replay != "":
 		_memory = _find_memory(social, Scenes.wedding_replay)
 		if _memory.is_empty():
@@ -44,6 +29,10 @@ func _ready() -> void:
 			return
 		cand = String(_memory.get("candidate", ""))
 		place = String(_memory.get("place", ""))
+	elif GameState.wedding_feast_here():
+		rejoin = true
+		cand = String(GameState.wedding()["candidate_id"])
+		place = String(GameState.wedding()["place"])
 	else:
 		if not GameState.wedding_can_begin():
 			_nothing("The wedding isn't ready here yet.")
@@ -55,15 +44,17 @@ func _ready() -> void:
 	person_id = String(person.get("id", ""))
 	_name = String(person.get("name", ""))
 	culture = String(person.get("culture", ""))
+	var alone := bool(_memory.get("private", false))
 	var when := TalkView.time_word(GameState.world.hour) if _memory.is_empty() else "dusk"
-	if bool(_memory.get("private", false)):
+	if alone:
 		when = "night"
-	setup(_make_backdrop(when), _caption(when))
-	if not bool(_memory.get("private", false)):
+	setup(TalkView.room(String(ROOMS.get(cand, "common_room")), "night") if alone else _make_backdrop(when), _caption(when, rejoin))
+	if not alone:
 		_dress(when)
-	set_face("center", _portrait("warm"), false, 0.9)
-	# The feast's music, unless she remembers it alone with you: then the quiet one.
-	Sound.play_music(("camp_" if bool(_memory.get("private", false)) else "feast_") + culture)
+	set_face("center", _portrait("amused" if rejoin else "warm"), false, 0.9)
+	# The ceremony to her people's quiet music; the feast's starts at "I do". Remembered
+	# alone with you, the quiet one.
+	Sound.play_music(("feast_" if rejoin or (not _memory.is_empty() and not alone) else "camp_") + culture)
 	if not _memory.is_empty():
 		_tell_again()
 		return
@@ -71,14 +62,11 @@ func _ready() -> void:
 	for g in _guests["guests"]:
 		if String(g["kind"]) == "host":
 			_host = g
+	if rejoin:
+		_rejoin()
+		return
 	_their = Lines.their_vow(cand, social.memory_book(person_id))
 	_arrive()
-
-
-func _nothing(text: String) -> void:
-	setup(null, "")
-	say("narration", text)
-	set_replies([{"id": "leave", "text": "Back", "tone": "quiet", "act": close}])
 
 
 static func _find_memory(social, id: String) -> Dictionary:
@@ -92,122 +80,14 @@ static func _find_memory(social, id: String) -> Dictionary:
 	return {}
 
 
-func _place_name() -> String:
-	return String(Data.settlement(place)["name"]) if Data.SETTLEMENTS.has(place) else "the hall"
-
-
-func _caption(when: String) -> String:
+func _caption(when: String, rejoin: bool = false) -> String:
 	if bool(_memory.get("private", false)):
 		return "%s's room at %s · night" % [_name, _place_name()]
-	return "%s at %s · %s" % ["Remembered" if not _memory.is_empty() else "Your wedding", _place_name(), when]
+	var what := "Remembered" if not _memory.is_empty() else ("The feast" if rejoin else "Your wedding")
+	return "%s at %s · %s" % [what, _place_name(), when]
 
 
-## Their portrait for the day: dressed for the wedding (her "wedding" outfit, tools/portrait_kit) in any
-## expression that was dressed, else their warmest dressed one, else as every day.
-func _portrait(expression: String) -> Texture2D:
-	for path in ["res://assets/portraits/%s_wedding_%s.png" % [cand, expression],
-			"res://assets/portraits/%s_wedding_warm.png" % cand,
-			"res://assets/portraits/%s_%s.png" % [cand, expression],
-			"res://assets/portraits/%s_neutral.png" % cand]:
-		var tex := StoryArt.texture(path)
-		if tex != null:
-			return tex
-	return null
-
-
-## The place's painting, or the settlement as the game paints it, at the hour.
-func _make_backdrop(when: String) -> Control:
-	if bool(_memory.get("private", false)):
-		return TalkView.room(String({"edda": "common_room", "farid": "envoy_room", "kaede": "archive_room"}.get(cand, "common_room")), "night")
-	if place in PAINTED:
-		return TalkView.room(place, when)
-	var holder := Control.new()
-	holder.name = "Room"
-	holder.clip_contents = true
-	if not Data.SETTLEMENTS.has(place):
-		return holder
-	var p := SettlementScene.params(GameState.world, place)
-	p["night"] = when == "night"
-	var sky := ColorRect.new()
-	sky.color = Color("1b2440") if p["night"] else Color("8fb6dc")
-	holder.add_child(sky)
-	var vista := SettlementVista.from_preset(p, 400.0)
-	holder.add_child(vista)
-	if when == "dusk":
-		vista.modulate = Color(1.0, 0.82, 0.68)
-		sky.modulate = vista.modulate
-	holder.resized.connect(func():
-		var s := holder.size
-		var w := s.x
-		var h := w * float(SettlementScene.H) / float(SettlementScene.W)
-		if h < s.y * 0.72:
-			h = s.y * 0.72
-			w = h * float(SettlementScene.W) / float(SettlementScene.H)
-		vista.custom_minimum_size = Vector2.ZERO
-		vista.position = Vector2((s.x - w) * 0.5, s.y - h)
-		vista.size = Vector2(w, h)
-		sky.size = Vector2(s.x, s.y - h + 2.0))
-	return holder
-
-
-## Bunting, lanterns, petals and both banners.
-func _dress(when: String) -> void:
-	var d := Dressing.new()
-	d.name = "Dressing"
-	d.culture = culture
-	d.when = when
-	stage.add_child(d)
-	stage.move_child(d, 1)
-	_banners = Control.new()
-	_banners.name = "Banners"
-	_banners.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_banners.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	stage.add_child(_banners)
-	stage.move_child(_banners, 2)
-	var host_realm: String = GameState.world.owner_of(place) if Data.SETTLEMENTS.has(place) else ""
-	var theirs := Widgets.banner(host_realm, Vector2(70, 104))
-	theirs.name = "TheirBanner"
-	_banners.add_child(theirs)
-	var yours: Control
-	if GameState.is_crowned():
-		yours = Widgets.banner("crown", Vector2(70, 104))
-	else:
-		yours = PanelContainer.new()
-		yours.add_theme_stylebox_override("panel", Style.box(Color(Style.NIGHT, 0.8), Style.BRASS, 3, 6))
-		yours.add_child(Widgets.icon_rect("company", 56))
-	yours.name = "YourBanner"
-	_banners.add_child(yours)
-	stage.resized.connect(_place_banners)
-	_place_banners.call_deferred()
-
-
-func _place_banners() -> void:
-	if _banners == null:
-		return
-	var s := stage.size
-	_banners.position = Vector2.ZERO
-	_banners.size = s
-	var theirs := _banners.get_node("TheirBanner") as Control
-	var yours := _banners.get_node("YourBanner") as Control
-	theirs.position = Vector2(s.x * 0.05, s.y * 0.48)
-	yours.position = Vector2(s.x * 0.95 - maxf(80.0, yours.get_combined_minimum_size().x), s.y * 0.48)
-
-
-func _set_chips(chip: String, extra: Array = []) -> void:
-	var chips := [TalkView.stage_chip(chip, Style.ROMANCE, "rings")] if chip != "" else []
-	chips.append_array(extra)
-	set_plate(_name, chips)
-
-
-func _host_name() -> String:
-	return String(_host.get("short", _host.get("name", "")))
-
-
-func _fill(text: String) -> String:
-	return Lines.fill(text, {"name": _name, "place": _place_name(), "host": _host_name() if not _host.is_empty() else "The house"})
-
-
-# ---------------------------------------------------------------- the day
+# ---------------------------------------------------------------- arriving
 
 func _arrive() -> void:
 	var lords: int = _guests["guests"].size()
@@ -221,7 +101,7 @@ func _arrive() -> void:
 	add_to_log(_guest_card())
 	say("them", Lines.STAND.get(cand, Lines.STAND["edda"]), _name)
 	set_replies([
-		{"id": "begin", "text": "Take your place beside %s." % _name, "bare": true, "tone": "gold", "tag": "the wedding begins", "act": _vows},
+		{"id": "begin", "text": "Take your place beside %s." % _name, "bare": true, "tone": "gold", "tag": "the wedding begins", "act": _seconds},
 		{"id": "later", "text": "Not yet", "tone": "quiet", "tag": "it waits while you're in %s" % _place_name(), "act": close}])
 
 
@@ -289,10 +169,39 @@ func _role_badge(g: Dictionary) -> Control:
 	return badge
 
 
+# ---------------------------------------------------------------- who stands with you
+
+## Who stands with you: a captain from your company, by what they are to you, or no one.
+## With no captain left, nobody is asked.
+func _seconds() -> void:
+	var offered: Array = GameState.wedding_seconds()
+	if offered.is_empty():
+		_vows()
+		return
+	clear_log()
+	add_to_log(note(Lines.SECOND_PROMPT, Style.BRASS))
+	var replies := []
+	for s in offered:
+		replies.append({"id": "second_%d" % int(s["id"]), "text": String(s["name"]), "bare": true, "tag": String(s["tag"]),
+			"face": CaptainArt.texture(s["face"]), "act": _stand.bind(s)})
+	replies.append({"id": "second_none", "text": Lines.SECOND_NONE, "tone": "quiet", "act": _stand.bind({})})
+	set_replies(replies)
+
+
+func _stand(s: Dictionary) -> void:
+	_second = s
+	_second_steps_up()
+	_vows()
+
+
+# ---------------------------------------------------------------- vows
+
 func _vows() -> void:
 	Sound.play("bell", 0.0, 0.0)
 	_set_chips("Wedding day")
 	clear_log()
+	if not _second.is_empty():
+		say("narration", _fill(String(Lines.SECOND_STANDS.get(String(_second.get("why", "")), Lines.SECOND_STANDS["longest"]))))
 	if _host.is_empty():
 		say("narration", _fill(Lines.OFFICIANT))
 	else:
@@ -301,7 +210,7 @@ func _vows() -> void:
 	add_to_log(note("Your vow. No wrong answers.", Style.MUTED))
 	var replies := []
 	for v in Lines.yours(cand):
-		replies.append({"id": "vow_" + String(v["id"]), "text": String(v["text"]), "tag": String(v["tag"]), "act": _said_vow.bind(String(v["text"]))})
+		replies.append({"id": "vow_" + String(v["id"]), "text": String(v["text"]), "tag": String(v["tag"]), "act": _said_vow.bind(String(v["id"]), String(v["text"]))})
 	set_replies(replies)
 
 
@@ -323,183 +232,209 @@ func _their_vow(text: String, scene_id: String, day: int) -> void:
 	v.add_child(h)
 
 
-func _said_vow(text: String) -> void:
+## Your vow, and her face answering it: warm to a promise, a held beat then warm to
+## honesty, a laugh to the one meant to make her laugh.
+func _said_vow(id: String, text: String) -> void:
 	_vow = text
 	say("you", text)
-	_rite()
+	var mood := String(Lines.VOW_FACE.get(id, "warm"))
+	express("center", _portrait(mood), mood)
+	if mood == "neutral":
+		if Style.motion_reduced():
+			express("center", _portrait("warm"), "warm")
+		else:
+			var t := create_tween()
+			t.tween_interval(1.1)
+			t.tween_callback(express.bind("center", _portrait("warm"), "warm"))
+	_rite_begin()
 
 
-func _rite() -> void:
-	# The rite is told a line at a time; a tap brings the rest at once.
-	var n := 0
-	for line in Lines.rite(culture):
-		var told := say("narration", _fill(String(line)))
-		if not Style.motion_reduced() and not bool(Sound.instant_text):
-			told.modulate.a = 0.0
-			var t := told.create_tween()
-			t.tween_interval(0.5 * n)
-			t.tween_property(told, "modulate:a", 1.0, 0.3)
-			_writing.append(t)
-		n += 1
-	var captain := {}
-	for g in _guests["guests"]:
-		if String(g["kind"]) == "captain" and (captain.is_empty() or int(g.get("battles", 0)) > int(captain.get("battles", 0))):
-			captain = g
-	if not captain.is_empty():
-		_say_with_face(_fill(Lines.captain_toast(int(captain["id"]))), "%s · captain" % String(captain["name"]), captain["face"])
-	if not _host.is_empty():
-		_say_with_face(Lines.host_toast(String(_host.get("bearing", ""))), "%s · host" % _host_name(), _host["face"])
-	add_to_log(note("Raise your cup", Style.BRASS))
-	var replies := [{"id": "toast_her", "text": _fill(Lines.YOUR_TOASTS["her"]), "tag": "everyone drinks", "act": _raise.bind("her")},
-		{"id": "toast_company", "text": Lines.YOUR_TOASTS["company"], "tag": "your captains will remember it", "act": _raise.bind("company")}]
-	var fallen := _fallen_names()
-	if fallen != "":
-		replies.append({"id": "toast_absent", "text": Lines.YOUR_TOASTS["absent"].replace("{fallen}", fallen), "tag": "the captains you lost", "act": _raise.bind("absent")})
+# ---------------------------------------------------------------- the rite, by your hand
+
+func _rite_begin() -> void:
+	_rite_steps = Lines.rite_steps(culture)
+	_rite = Rite.new()
+	_rite.name = "Rite"
+	_rite.culture = culture
+	stage.add_child(_rite)
+	# Over the couple and the fade, under the caption and the nameplate.
+	var fade := stage.get_node_or_null("Fade")
+	if fade != null:
+		stage.move_child(_rite, fade.get_index() + 1)
+	say("narration", _fill(String(_rite_steps["intro"])))
+	if not _second.is_empty():
+		say("narration", _fill(String(Lines.SECOND_HANDS.get(culture, Lines.SECOND_HANDS[Cultures.VARDISH]))))
+	_rite_step(0)
+
+
+## The rite's next step as one gold reply; after its plain steps, its choice.
+func _rite_step(i: int) -> void:
+	var steps: Array = _rite_steps["steps"]
+	if i < steps.size():
+		var st: Dictionary = steps[i]
+		set_replies([{"id": "rite_" + String(st["id"]), "text": _fill(String(st["text"])), "tag": String(st["tag"]), "tone": "gold", "bare": true,
+			"act": _did_rite.bind(i)}])
+		return
+	add_to_log(note(_fill(String(_rite_steps["prompt"])), Style.BRASS))
+	var replies := []
+	for ch in _rite_steps["choices"]:
+		replies.append({"id": "rite_" + String(ch["id"]), "text": _fill(String(ch["text"])), "tag": String(ch["tag"]),
+			"bare": bool(ch.get("bare", false)), "act": _chose_rite.bind(ch)})
 	set_replies(replies)
 
 
-## Up to the last two captains who fell in your service: "Rowan, and Ilse".
-func _fallen_names() -> String:
-	var names := []
-	for m in GameState.fallen:
-		var n := String((m as Dictionary).get("first", ""))
-		if n != "" and not names.has(n):
-			names.append(n)
-	names = names.slice(maxi(0, names.size() - 2))
-	return ", and ".join(names)
+func _did_rite(i: int) -> void:
+	_rite.advance()
+	say("narration", _fill(String(_rite_steps["steps"][i]["line"])))
+	_rite_step(i + 1)
 
 
-## A guest's line with their small face beside their name.
-func _say_with_face(text: String, speaker: String, face_record: Dictionary) -> void:
-	var holder := say("them", text, speaker)
-	var v := (holder.get_child(0) as Control).get_child(0) as VBoxContainer
-	var label := v.get_child(0)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 8)
-	var face := TextureRect.new()
-	face.name = "SpeakerFace"
-	face.texture = CaptainArt.texture(face_record)
-	face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	face.custom_minimum_size = Vector2(36, 48)
-	v.remove_child(label)
-	h.add_child(face)
-	label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	h.add_child(label)
-	v.add_child(h)
-	v.move_child(h, 0)
+func _chose_rite(ch: Dictionary) -> void:
+	_rite_choice = String(ch["id"])
+	if not bool(ch.get("bare", false)):
+		say("you", _fill(String(ch["text"])))
+	_rite.advance()
+	say("narration", _fill(String(ch["line"])))
+	_question()
 
 
-func _raise(key: String) -> void:
-	_toast = _fill(Lines.YOUR_TOASTS[key]).replace("{fallen}", _fallen_names())
-	say("you", _toast)
-	say("them", Lines.AFTER_TOAST[key], _name)
-	_finish()
+# ---------------------------------------------------------------- the question
+
+## The place goes quiet. The host (or the old priest) asks her in her people's words, and
+## she answers first; then you're asked. "I do" is held (a tap says it too); "Take a
+## breath" once first, if you like. There is no other answer.
+func _question() -> void:
+	_set_chips("The question")
+	var d := _dressing()
+	if d != null:
+		d.hush(true)
+	Sound.hush_music(true)
+	if not _second.is_empty():
+		say("other", String(Lines.SECOND_WHISPER[posmod(int(_second["id"]), Lines.SECOND_WHISPER.size())]), "%s · under their breath" % _second_name())
+	var q := Lines.question(culture)
+	if _host.is_empty():
+		say("narration", _fill(Lines.PRIEST_ASKS))
+	_ask(String(q["her"]))
+	for line in Lines.ASKED_AGAIN.get(culture, []):
+		say("narration", _fill(String(line)))
+		_ask(String(q["her"]))
+	say("them", String(Lines.ANSWER.get(cand, Lines.ANSWER["edda"])), _name)
+	express("center", _portrait("warm"), "warm")
+	_ask(String(q["you"]))
+	_answer_replies(true)
 
 
-func _finish() -> void:
-	var r: Dictionary = GameState.finish_wedding({"vow": _vow, "their_vow": String(_their.get("text", "")), "toast": _toast})
+## The question, asked by the host (face beside the name) or the priest (in the old words).
+func _ask(text: String) -> void:
+	if _host.is_empty():
+		say("narration", "\"%s\"" % _fill(text))
+	else:
+		_say_with_face(_fill(text), "%s · host" % _host_name(), _host["face"])
+
+
+func _answer_replies(breath_too: bool) -> void:
+	var replies := [{"id": "i_do", "text": "I do.", "tone": "gold", "bare": true, "hold": true, "tag": "hold it, or just say it", "act": _i_do}]
+	if breath_too:
+		replies.append({"id": "breath", "text": "Take a breath.", "tone": "quiet", "act": _take_breath})
+	set_replies(replies)
+
+
+func _take_breath() -> void:
+	_breath = true
+	say("narration", Lines.BREATH)
+	if not _second.is_empty():
+		say("other", Lines.BREATH_SECOND, _second_name())
+	else:
+		say("narration", Lines.BREATH_ALONE)
+	say("narration", String(Lines.BREATH_HER.get(cand, Lines.BREATH_HER["edda"])))
+	express("center", _portrait("neutral"), "neutral")
+	_answer_replies(false)
+
+
+## "I do": married, there and then. The hall erupts, "Married" lands across the stage, the
+## seal is made, and the feast begins.
+func _i_do() -> void:
+	say("you", "I do.")
+	var r: Dictionary = GameState.finish_wedding({"vow": _vow, "their_vow": String(_their.get("text", "")),
+		"second": int(_second.get("id", -1)), "rite": _rite_choice, "breath": _breath})
 	if not bool(r.get("ok", false)):
 		add_to_log(note(String(r.get("reason", "Something went wrong.")), Style.MORALE_LOW))
 		set_replies([{"id": "leave", "text": "Back to the map", "tone": "quiet", "act": close}])
 		return
 	Sound.play("bell", 0.0, 0.0)
-	# "Married" is said once, on the closing card; the plate keeps only her name.
-	_set_chips("")
+	Sound.play("cheer_1", -4.0, 0.0)
+	var d := _dressing()
+	if d != null:
+		d.hush(false)
+		d.burst()
 	express("center", _portrait("amused"), "amused")
-	var dressing := stage.get_node_or_null("Dressing")
-	if dressing != null:
-		dressing.burst()
-	add_to_log(_closing_card(r))
-	var home := String(GameState.world.social.get_candidate_person(cand).get("residence", place))
-	var home_name := String(Data.settlement(home)["name"]) if Data.SETTLEMENTS.has(home) else _place_name()
-	say("narration", Lines.fill(Lines.AFTER.get(cand, Lines.AFTER["edda"]), {"name": _name, "place": home_name}))
-	set_replies([{"id": "done", "text": "Back to the map", "tone": "gold", "bare": true, "act": close}])
+	_land_married()
+	say("narration", _fill(String(Lines.SEAL.get(culture, Lines.SEAL[Cultures.VARDISH]))))
+	_rite_away()
+	Sound.play_music("feast_" + culture)
+	say("narration", String(Feast.OPEN.get(culture, Feast.OPEN[Cultures.VARDISH])))
+	_feast()
 
 
-## The one closing card: Married, where and when, the memory kept, what the marriage pact
-## gives, and what the day cost and earned. Your vow and toast are just above it in the
-## talk and Regard was on the guests' badges, so neither is said again here.
-func _closing_card(r: Dictionary) -> Control:
-	var p := PanelContainer.new()
-	p.name = "ClosingCard"
-	var sb := Style.box(Color("2a1f26"), Style.ROMANCE, 2, 18)
-	sb.content_margin_left = 20
-	sb.content_margin_right = 20
-	sb.content_margin_top = 16
-	sb.content_margin_bottom = 18
-	p.add_theme_stylebox_override("panel", sb)
-	var v := VBoxContainer.new()
-	v.add_theme_constant_override("separation", 10)
-	p.add_child(v)
-	var title := Style.label("Married", Style.TITLE_SIZE, Style.BRASS)
-	title.name = "MarriedTitle"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	v.add_child(title)
-	var where := HBoxContainer.new()
-	where.alignment = BoxContainer.ALIGNMENT_CENTER
-	where.add_theme_constant_override("separation", 18)
-	where.add_child(Widgets.icon_value("mappin", _place_name()))
-	where.add_child(Widgets.icon_value("day", str(int(GameState.world.hour / 24.0) + 1)))
-	v.add_child(where)
-	v.add_child(_icon_line("rings", "A memory kept. Open it again from %s's page." % _name, Style.ROMANCE_LIGHT))
-	# The pact, as three lines: who stands together, what breaks it, what you may ask.
-	var pact: Dictionary = r.get("pact", {})
-	var house: Dictionary = GameState.world.social.get_house(String(pact.get("house_id", "")))
-	var sites := PackedStringArray()
-	for s in pact.get("protected_sites", []):
-		if Data.SETTLEMENTS.has(String(s)):
-			sites.append(String(Data.settlement(String(s))["name"]))
-	var head := _host_name() if not _host.is_empty() else "the head of the house"
-	v.add_child(Widgets.section("The marriage pact"))
-	v.add_child(_icon_line("keep", "%s and your company stand together." % String(house.get("name", "Her house"))))
-	v.add_child(_icon_line("fight", "Attacking %s breaks it." % (" or ".join(sites) if not sites.is_empty() else "her house's lands")))
-	var ask := _icon_line("silver", "Ask %s for up to %d every %d days, and for help refilling troops." % [head, Relationships.GRANT_MAX_SILVER, int(Relationships.GRANT_COOLDOWN_DAYS)])
-	v.add_child(ask)
-	# Who came, in words only for what the guest badges didn't say.
-	var bits := PackedStringArray()
-	var captains: int = r.get("guests", []).filter(func(g): return String(g["kind"]) == "captain").size()
-	if captains > 0:
-		bits.append("Your %d captain%s drank to you, loudly." % [captains, "" if captains == 1 else "s"])
-	if String(_guests.get("gift_from", "")) != "":
-		bits.append("%s's gift, %s, is in your baggage." % [_guests["gift_from"], Lines.GIFTS.get(culture, "a gift")])
-	if not bits.is_empty():
-		v.add_child(_icon_line("company", " ".join(bits)))
-	# The day's cost (set aside when you planned it) and what it earned.
-	var w: Dictionary = GameState.wedding()
-	var fx := [["silver", Widgets.thousands(int(w.get("reserved_silver", 0)))], ["food", Widgets.thousands(int(w.get("reserved_food", 0)))]]
-	if int(r.get("renown", 0)) != 0:
-		fx.append(["renown", int(r["renown"])])
-	var cost := Widgets.chip_row(TalkView.fx_chips(fx))
-	cost.name = "DayCost"
-	cost.alignment = FlowContainer.ALIGNMENT_CENTER
-	v.add_child(cost)
-	TalkView.land(p, Color(1.5, 1.15, 1.3))
-	return p
+## "Married", in brass across the stage, said once: it lands, holds, and fades. Under
+## Reduced motion it stays until the feast moves on.
+func _land_married() -> void:
+	var l := Style.label("Married", Style.TITLE_SIZE + 12, Style.BRASS)
+	l.name = "MarriedTitle"
+	var font := Style.display_font()
+	if font != null:
+		l.add_theme_font_override("font", font)
+	l.add_theme_constant_override("outline_size", 12)
+	l.add_theme_color_override("font_outline_color", Color(0.05, 0.04, 0.08, 0.85))
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.anchor_right = 1.0
+	l.anchor_top = 0.2
+	l.anchor_bottom = 0.46
+	stage.add_child(l)
+	var fade := stage.get_node_or_null("Fade")
+	if fade != null:
+		stage.move_child(l, fade.get_index() + 1)
+	if Style.motion_reduced():
+		return
+	l.modulate.a = 0.0
+	l.offset_top = 24.0
+	l.offset_bottom = 24.0
+	var t := l.create_tween()
+	t.set_parallel()
+	t.tween_property(l, "modulate:a", 1.0, 0.35)
+	t.tween_property(l, "offset_top", 0.0, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.tween_property(l, "offset_bottom", 0.0, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	t.chain().tween_interval(2.6)
+	t.chain().tween_property(l, "modulate:a", 0.0, 0.7)
+	t.chain().tween_callback(func(): l.visible = false)
 
 
-## An icon and a line of words beside it, for a card.
-func _icon_line(key: String, text: String, tone: Color = Style.TEXT) -> HBoxContainer:
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 12)
-	var i := Widgets.icon_rect(key, 30)
-	i.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	h.add_child(i)
-	var l := Style.label(text, Style.SMALL, tone)
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	h.add_child(l)
-	return h
+## The rite's prop goes, its work done.
+func _rite_away() -> void:
+	if _rite == null or not is_instance_valid(_rite):
+		return
+	if Style.motion_reduced():
+		_rite.queue_free()
+		return
+	var t := _rite.create_tween()
+	t.tween_property(_rite, "modulate:a", 0.0, 1.2).set_delay(1.4)
+	t.tween_callback(_rite.queue_free)
 
 
 # ---------------------------------------------------------------- remembered
 
+## The day told again, in order, as it was: who stood with you, both vows, the rite and
+## your choice in it, the question and both answers, the toasts as they were said, your
+## toast, the dance, the custom, her last words. A wedding kept before the day was played
+## this way is told as it was kept.
 func _tell_again() -> void:
 	_set_chips("Remembered")
 	clear_log()
 	var m := _memory
-	if bool(m.get("private", false)):
+	var alone := bool(m.get("private", false))
+	if alone:
 		say("narration", "No guests, no banners. A candle, the door shut, the household asleep below.")
 		say("them", _fill(Lines.PRIVATE.get(cand, "")), _name)
 	else:
@@ -507,19 +442,51 @@ func _tell_again() -> void:
 		var guests: Array = m.get("guests", [])
 		if not guests.is_empty():
 			say("narration", "Who came: %s." % ", ".join(PackedStringArray(guests)))
+		if String(m.get("second_name", "")) != "":
+			say("narration", "%s stood with you." % String(m["second_name"]))
 	if String(m.get("their_vow", "")) != "":
 		say("them", String(m["their_vow"]), _name)
 	if String(m.get("vow", "")) != "":
 		say("you", String(m["vow"]))
-	if not bool(m.get("private", false)):
+	var played := bool(m.get("i_do", false))
+	if alone:
+		if played:
+			say("them", String(Lines.PRIVATE_ASK.get(cand, "")), _name)
+			say("you", "I do.")
+			say("them", String(Lines.PRIVATE_ANSWER.get(cand, "")), _name)
+	elif played:
+		var steps := Lines.rite_steps(culture)
+		say("narration", _fill(String(steps["intro"])))
+		var ch := Lines.rite_choice(culture, String(m.get("rite", "")))
+		if not ch.is_empty():
+			say("narration", _fill(String(ch["line"])))
+		say("them", String(Lines.ANSWER.get(cand, "")), _name)
+		if bool(m.get("breath", false)):
+			say("narration", "You took a breath first. %s" % String(Lines.BREATH_HER.get(cand, "")))
+		say("you", "I do.")
+		say("narration", _fill(String(Lines.SEAL.get(culture, ""))))
+		for t in m.get("toasts", []):
+			for line in t.get("lines", []):
+				say("them", String(line.get("text", "")), String(line.get("speaker", "")))
+	else:
 		for line in Lines.rite(culture):
 			say("narration", _fill(String(line)))
 	if String(m.get("toast", "")) != "":
 		say("you", String(m["toast"]))
+	for id in m.get("dance", []):
+		say("them", String(Feast.DANCE_ANSWERS.get(cand, {}).get(String(id), "")), _name)
+	if String(m.get("custom", "")) != "":
+		var c := Feast.custom_choice(culture, String(m["custom"]), String(m.get("second_name", "")) != "")
+		if not c.is_empty():
+			say("narration", Feast.fill(Lines.fill(String(c["line"]), {"name": _name}), {"second": String(m.get("second_name", ""))}))
+	if String(m.get("last", "")) != "":
+		say("them", String(Feast.LAST_ANSWER.get(cand, {}).get(String(m["last"]), "")), _name)
 	add_to_log(keepsake(String(m.get("text", "")), "rings"))
 	set_replies([{"id": "finish", "text": "Close the memory", "tone": "quiet", "act": close}])
 
 
 func _on_close() -> void:
+	Sound.hush_music(false)
 	Scenes.wedding_replay = ""
+	GameState.save_game()
 	Scenes.go(Scenes.wedding_return)

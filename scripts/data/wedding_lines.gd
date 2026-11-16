@@ -1,8 +1,9 @@
-## What is said at a wedding: how the day opens at the place, her vow (from a time you
-## shared, when there is one), the vows you can say, each culture's rite, the toasts, and
-## the private vows by one candle. Words only; the rules are in the social sim and GameState.
-## {name} is the one you marry, {place} the place, {host} who hosts, {captain} the captain
-## who toasts.
+## What is said at the ceremony: how the day opens at the place, who stands with you, her
+## vow (from a time you shared, when there is one), the vows you can say, each culture's
+## rite a step at a time, the question and both answers, and the private vows by one
+## candle. The feast after is in wedding_feast_lines.gd. Words only; the rules are in the
+## social sim and GameState. {name} is the one you marry, {place} the place, {host} who
+## hosts, {second} who stands with you.
 extends RefCounted
 
 const Cultures = preload("res://scripts/data/cultures.gd")
@@ -24,6 +25,142 @@ const STAND := {
 
 ## Who reads the old words, when no lord hosts.
 const OFFICIANT := "An old priest of {place} reads the old words. Then the square goes quiet."
+
+## Asked who stands with you.
+const SECOND_PROMPT := "Who stands with you?"
+const SECOND_NONE := "No one. Just the two of us."
+## Your second takes their place, by what they are to you.
+const SECOND_STANDS := {
+	"longest": "{second} steps up beside you, as they have in every line you've ever stood in.",
+	"hero": "{second} takes the place at your shoulder as if it had always been theirs.",
+	"bonded": "{second} steps up beside you, and glances back once at the friend they left in the crowd.",
+	"newest": "{second} steps up beside you, white to the ears, and stands very straight.",
+}
+## Who hands you what the rite needs.
+const SECOND_HANDS := {
+	"vardish": "{second} hands you the cord, warm from the fire.",
+	"kharzani": "{second} hands you the bread, and holds the salt as if it might run off.",
+	"ryumon": "{second} sets the three cups in a row and steps back.",
+}
+## What your second says under their breath, before the question.
+const SECOND_WHISPER := [
+	"Breathe, captain. It's only the rest of your life.",
+	"Don't lock your knees. I've seen men fall over at these.",
+	"I've got the ring. I mean, there's no ring. I've got the cord. It's fine.",
+	"Whatever you say next, say it loud. The back row's betting.",
+]
+
+## Her face answers the vow you say (by its id in YOURS).
+const VOW_FACE := {"promise": "warm", "honest": "neutral", "laugh": "amused"}
+
+## Each culture's rite, a step at a time: plain steps you do, then a choice that is kept.
+## {intro, steps: [{id, text, tag, line}], prompt, choices: [{id, text, tag, bare, line}]}.
+const RITE_STEPS := {
+	Cultures.VARDISH: {
+		"intro": "By Vardish custom a red cord is wound once around both your wrists, over the hearth-fire carried out from the hall.",
+		"steps": [
+			{"id": "wrist", "text": "Hold out your wrist.", "tag": "over the hearth-fire",
+				"line": "The cord is passed once through the fire's smoke and laid across your wrist. It smells of pine."},
+			{"id": "wind", "text": "Wind it once.", "tag": "around both your wrists",
+				"line": "You wind it once around both your wrists. Hers is warm, and perfectly steady. Yours less so."},
+		],
+		"prompt": "The knot",
+		"choices": [
+			{"id": "she_ties", "text": "Hold still while she ties it.", "tag": "her knot", "bare": true,
+				"line": "{name} ties the knot herself. Of course she does. It holds."},
+			{"id": "together", "text": "Tie it together.", "tag": "four hands, one knot", "bare": true,
+				"line": "Four hands, one knot, and a great deal of advice from the front row. It holds."},
+		],
+	},
+	Cultures.KHARZANI: {
+		"intro": "By Kharzani custom you share bread and salt before witnesses from both houses, and the marriage contract is read aloud.",
+		"steps": [
+			{"id": "bread", "text": "Break the bread.", "tag": "before both houses",
+				"line": "The loaf breaks clean in two. The old women along the wall nod at each other: a good sign, apparently."},
+			{"id": "salt", "text": "Salt it, and give her the first piece.", "tag": "the first piece is hers",
+				"line": "You salt it and give her the first piece. She eats it solemnly, and then not solemnly at all."},
+		],
+		"prompt": "The contract is read aloud. One clause is yours to add.",
+		"choices": [
+			{"id": "door", "text": "The door is never barred to the other, whatever the hour.", "tag": "a clause for home",
+				"line": "{name} writes it in herself, in a clean hand, and signs beside it before the ink is dry."},
+			{"id": "letters", "text": "Every letter is answered within the month, wherever the war is.", "tag": "a clause for the road",
+				"line": "{name} reads it twice, underlines \"every\", and signs."},
+			{"id": "lentils", "text": "Neither shall be made to eat the other's lentils.", "tag": "the lentil clause",
+				"line": "{name} wrote the rest of it. It is very good. Someone at the back cries at the clause about lentils."},
+		],
+	},
+	Cultures.RYUMON: {
+		"intro": "By Ryumon custom there are three small cups, and three sips from each, and then your names are written in the register.",
+		"steps": [
+			{"id": "cup1", "text": "The first cup: for what was.", "tag": "three sips",
+				"line": "Three sips. It is sharp, and then it is warm."},
+			{"id": "cup2", "text": "The second: for what is.", "tag": "three sips",
+				"line": "Three sips. Across the cups {name} is trying not to smile, and failing."},
+			{"id": "cup3", "text": "The third: for what will be.", "tag": "three sips",
+				"line": "Three sips. The cups are turned down, and the register is opened to a clean page."},
+		],
+		"prompt": "How do you sign the register?",
+		"choices": [
+			{"id": "plain", "text": "Plainly.", "tag": "your name, nothing more", "bare": true,
+				"line": "Your name, plainly. {name} writes hers beside it and will not let anyone check the spelling."},
+			{"id": "company", "text": "With the company's name under it.", "tag": "the company signs too", "bare": true,
+				"line": "Your name, and the company's under it. The archivist sighs at the irregularity, and lets it stand."},
+			{"id": "her", "text": "Let her write it.", "tag": "her hand, your name", "bare": true,
+				"line": "{name} writes yours herself, and will not let anyone check it."},
+		],
+	},
+}
+
+## The question, in her people's words: asked of her, then of you.
+const QUESTION := {
+	Cultures.VARDISH: {"her": "{name}, will you have this one, hearth and road?",
+		"you": "And you, captain. Will you have {name}, hearth and road?"},
+	Cultures.KHARZANI: {"her": "Before these witnesses, and by this contract: {name}, do you consent?",
+		"you": "Before these witnesses, and by this contract: captain, do you consent?"},
+	Cultures.RYUMON: {"her": "{name}: is it your will that these names stand together in the register?",
+		"you": "Captain: is it your will that these names stand together in the register?"},
+}
+## In Qasr Hamra the bride is asked three times and answers on the third: the form matters.
+const ASKED_AGAIN := {
+	Cultures.KHARZANI: ["{name} says nothing. The form matters.",
+		"Still nothing. Someone at the back is counting on their fingers."],
+}
+## When no lord hosts, the old priest asks it.
+const PRIEST_ASKS := "The old priest turns to {name}, and asks it in the old words."
+## Her answer, in her own voice.
+const ANSWER := {
+	"edda": "I do. Write it down before I think of conditions.",
+	"farid": "I do. I'd have said so the first time.",
+	"kaede": "I do. It's the first thing I've said in years that I didn't want to check.",
+}
+## "Take a breath": nobody moves. Your second mutters (or, with no one beside you, the
+## hall waits), and she raises an eyebrow in her own way.
+const BREATH := "Nobody moves."
+const BREATH_SECOND := "Captain. The words. Any time."
+const BREATH_ALONE := "Somewhere at the back a cup is set down, very carefully."
+const BREATH_HER := {
+	"edda": "Edda raises one eyebrow: the look she keeps for late deliveries.",
+	"farid": "Farah raises an eyebrow, very slightly. In Qasr Hamra that is a whole speech.",
+	"kaede": "Kaede raises an eyebrow and, without looking down, uncaps her brush.",
+}
+## The moment it's said: the seal, in one line.
+const SEAL := {
+	Cultures.VARDISH: "The knot holds. Someone cuts the cord's ends with a flourish, and the hall roars.",
+	Cultures.KHARZANI: "The contract is signed, both names, and sanded dry. The courtyard roars.",
+	Cultures.RYUMON: "The ink is dry. Your names stand together in the register, and the terrace erupts.",
+}
+## Asked in her room, with no one to ask it: she asks you herself.
+const PRIVATE_ASK := {
+	"edda": "Well? Do you?",
+	"farid": "There's no one here to ask it properly, so I will. Do you?",
+	"kaede": "There's no register tonight. So I'll ask, and I'll remember. Do you?",
+}
+const PRIVATE_ANSWER := {
+	"edda": "Then so do I. There. Done. Don't tell my cousin how easy it was.",
+	"farid": "And I do. No witnesses. I find I don't need any.",
+	"kaede": "So do I. I'll remember it exactly. I won't need to write it down.",
+}
 
 ## Her vow, from a time you shared (by visit scene).
 const VOWS := {
@@ -88,16 +225,6 @@ const RITES := {
 		"{name} writes yours herself and will not let anyone check it.",
 	],
 }
-
-## Your longest-serving captain's toast (one, by the captain's id).
-const CAPTAIN_TOASTS := [
-	"Captain's never asked me for a toast, so I'll keep it short. To {name}, the one person who can make the captain sit still.",
-	"I've followed the captain through mud, rivers and one very bad inn. Never thought I'd follow them here. To the two of you.",
-	"To {name}. Look after the captain; we've had the job long enough and we'd like a rest.",
-	"I had a speech. The lads drank it. To {name}, and the captain, and no battles for at least a week.",
-	"We've buried friends and won fights we shouldn't have. Tonight we get to cheer for once. To {name}!",
-	"The captain told me not to say anything embarrassing. So: to {name}, who could do better, and chose not to.",
-]
 
 ## The host's toast, by bearing.
 const HOST_TOASTS := {
@@ -168,8 +295,21 @@ static func rite(culture: String) -> Array:
 	return RITES.get(culture, RITES[Cultures.VARDISH])
 
 
-static func captain_toast(captain_id: int) -> String:
-	return CAPTAIN_TOASTS[posmod(captain_id, CAPTAIN_TOASTS.size())]
+## The rite's steps for `culture` (see RITE_STEPS).
+static func rite_steps(culture: String) -> Dictionary:
+	return RITE_STEPS.get(culture, RITE_STEPS[Cultures.VARDISH])
+
+
+## The rite's choice with `id`, or {}.
+static func rite_choice(culture: String, id: String) -> Dictionary:
+	for c in rite_steps(culture)["choices"]:
+		if String(c["id"]) == id:
+			return c
+	return {}
+
+
+static func question(culture: String) -> Dictionary:
+	return QUESTION.get(culture, QUESTION[Cultures.VARDISH])
 
 
 static func host_toast(bearing: String) -> String:

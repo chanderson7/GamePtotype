@@ -69,6 +69,15 @@ const WEDDING_GUEST_REGARD := 5
 ## Lords who think this well of you come (up to WEDDING_LORD_GUESTS of them).
 const WEDDING_MIN_REGARD := 20
 const WEDDING_LORD_GUESTS := 3
+## After "I do" the feast runs until the first dawn (this hour) at least this long after,
+## or until you ride away: until then you can go back to it.
+const WEDDING_FEAST_DAWN_HOUR := 6.0
+const WEDDING_FEAST_MIN_HOURS := 4.0
+## Who may stand with you (at most this many offered), and who may toast (at most this many speak).
+const WEDDING_SECONDS_OFFERED := 4
+const WEDDING_TOASTS_MAX := 3
+## The things to do at the feast, each once, in any order.
+const WEDDING_FEAST_THINGS := ["toasts", "dance", "custom", "tables"]
 
 ## Escrow & Support Projects.
 const MAX_ESCROW_SPONSOR := 300

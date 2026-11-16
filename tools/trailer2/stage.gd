@@ -90,7 +90,7 @@ const SHOTS := {
 		"hour": 17.5, "taps": [[3.5, "story"]]},
 	"daimyo": {"kind": "talk", "secs": 11, "shape": "tall", "culture": "ryumon", "place": "kitayama", "realm": "ryumon",
 		"hour": 8.5, "taps": [[3.5, "story"]]},
-	"vows": {"kind": "wedding", "secs": 16, "shape": "tall", "taps": [[2.0, "begin"], [7.0, "vow_promise"]]},
+	"vows": {"kind": "wedding", "secs": 16, "shape": "tall", "taps": [[2.0, "begin"], [4.0, "second_"], [7.0, "vow_promise"]]},
 	"town": {"kind": "town", "secs": 7, "shape": "tall", "culture": "ryumon", "place": "kurogane", "hour": 19.5},
 	# ---- your own kingdom: at your seat, the banner raised against your old liege
 	"crown": {"kind": "crown", "secs": 10, "shape": "tall", "culture": "vardish", "place": "ravensford", "hour": 16.5,
