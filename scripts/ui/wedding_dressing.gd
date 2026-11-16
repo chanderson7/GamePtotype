@@ -118,7 +118,7 @@ func _draw() -> void:
 	if lit:
 		# More are lit as the feast goes on, filling the gaps along the string.
 		var spots: Array = [0.12, 0.3, 0.7, 0.88]
-		spots.append_array(([0.5, 0.21, 0.79, 0.04] as Array).slice(0, late))
+		spots.append_array(([0.21, 0.79, 0.04, 0.96] as Array).slice(0, late))
 		for t: float in spots:
 			var y := s.y * 0.12 + s.y * 0.07 * 4.0 * t * (1.0 - t) + px * 9.0
 			var c := Vector2(s.x * t, y)
@@ -166,16 +166,24 @@ func _draw() -> void:
 	# climbs, smaller as it goes, until it's a speck among the stars.
 	for r in _risers:
 		var k := float(r["t"]) / RISE_TIME
-		var grow := 1.0 - 0.7 * k
+		var grow := 1.0 - 0.75 * k
 		var x := s.x * float(r["x"]) + sin(float(r["t"]) * 1.3 + float(r["wob"])) * px * 6.0
-		var y := lerpf(s.y * 0.82, -s.y * 0.1, k)
-		var w := px * 5.0 * grow
-		var h := px * 6.0 * grow
+		var y := lerpf(s.y * 0.7, -s.y * 0.1, _ease_out(k))
+		var w := roundf(px * 9.0 * grow / px) * px
+		var h := roundf(px * 11.0 * grow / px) * px
 		var fade := 1.0 if k < 0.8 else (1.0 - k) / 0.2
-		for g in 3:
-			draw_circle(Vector2(x, y), w * (1.6 + g * 0.6), Color(1.0, 0.7, 0.3, 0.07 * fade))
-		draw_rect(Rect2(Vector2(x - w * 0.5, y - h * 0.5), Vector2(w, h)), Color(1.0, 0.86, 0.6, 0.95 * fade))
-		draw_rect(Rect2(Vector2(x - w * 0.2, y), Vector2(w * 0.4, h * 0.3)), Color(1.0, 0.55, 0.2, fade))
+		for g in 4:
+			draw_circle(Vector2(x, y), w * (1.2 + g * 0.5), Color(1.0, 0.68, 0.28, 0.09 * fade))
+		# Paper, its top and bottom rims, its ribs, and the flame showing through.
+		draw_rect(Rect2(Vector2(x - w * 0.5, y - h * 0.5), Vector2(w, h)), Color(1.0, 0.84, 0.55, 0.95 * fade))
+		draw_rect(Rect2(Vector2(x - w * 0.5, y - h * 0.5), Vector2(w, maxf(1.0, px * grow))), Color(0.75, 0.32, 0.18, fade))
+		draw_rect(Rect2(Vector2(x - w * 0.5, y + h * 0.5 - maxf(1.0, px * grow)), Vector2(w, maxf(1.0, px * grow))), Color(0.75, 0.32, 0.18, fade))
+		draw_rect(Rect2(Vector2(x - px * 0.5 * grow, y - h * 0.5), Vector2(maxf(1.0, px * grow), h)), Color(0.95, 0.7, 0.4, 0.8 * fade))
+		draw_rect(Rect2(Vector2(x - w * 0.22, y + h * 0.05), Vector2(w * 0.44, h * 0.3)), Color(1.0, 0.98, 0.8, fade))
+
+
+static func _ease_out(t: float) -> float:
+	return 1.0 - pow(1.0 - clampf(t, 0.0, 1.0), 1.6)
 
 
 func _pennant(top: Vector2, half: float, depth: float, c: Color, px: float) -> void:

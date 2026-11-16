@@ -18,7 +18,7 @@ const OPEN := {
 }
 ## The night moving on, under the plate: one more for each thing done.
 const NIGHT := ["the night is young", "the second cask is open", "the musicians take requests",
-	"someone is asleep under the long table", "the lanterns are burning low"]
+	"someone's under a table", "the lanterns burn low"]
 const PROMPT := "The night is yours"
 
 ## What the night holds, as replies.
@@ -38,6 +38,7 @@ const CUSTOM_THING := {
 }
 ## A thing done stays in the list, ticked, with what it was.
 const DONE := {"toasts": "the toasts are made", "dance": "you danced", "custom": "done", "tables": "you went round"}
+const CUSTOM_DONE := {Cultures.VARDISH: "the toll is paid", Cultures.KHARZANI: "the verse is capped", Cultures.RYUMON: "the lanterns are up"}
 ## The night's icons, for the closing card.
 const ICONS := {"toasts": "cup", "dance": "dance", "custom": "lantern", "tables": "men"}
 
@@ -74,8 +75,8 @@ const QUIRK := {
 	Captains.MENTOR: "I've taught half this company everything it knows. Nobody taught the captain this. Must come natural.",
 	Captains.BOLD: "I've charged worse odds than a wedding. Not many.",
 }
-const BATTLES_MANY := "%d battles I've stood with the captain, and this is the only day I'd do again tomorrow."
-const BATTLES_SOME := "%d battles with this company, and tonight beats every one of them."
+const BATTLES_MANY := "I've stood with the captain through %d battles, and this is the only day I'd do again tomorrow."
+const BATTLES_SOME := "I've had %d battles with this company, and tonight beats every one of them."
 const BATTLES_FEW := "I've not been with the company long, but I know a good thing when it's standing in front of me."
 ## How they raise it, the way it's done among their own people.
 const CLOSERS := {

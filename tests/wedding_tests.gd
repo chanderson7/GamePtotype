@@ -268,7 +268,7 @@ func _init() -> void:
 	day.choose("feast_toasts")
 	check(day.log_text().contains("%s · your second" % String(c1["first"])) and day.log_text().contains(Feast.SECOND_OPEN[posmod(int(c1["id"]), 2)]),
 		"your second speaks first, unasked, as the one who stood with you")
-	check(day.log_text().contains("battles I've stood with the captain"), "and what they know: their fourteen battles")
+	check(day.log_text().contains("through 14 battles"), "and what they know: their fourteen battles")
 	check(day.has_reply("drink") and day.has_reply("heckle"), "drink to it, or heckle")
 	day.choose("heckle")
 	check(day.log_text().contains("We'll take it up at drill") and day.log_text().contains("Don't encourage them"), "a heckle gets a comeback, and she laughs")
@@ -451,7 +451,7 @@ func _init() -> void:
 	check(toast.contains("I'll say this plainly") and toast.contains("barrels") and toast.contains("Bread and salt"),
 		"a toast is how they start, what they know, and how their own people raise a cup")
 	check(Feast.know({"wounded": 1, "specialization": Captains.SCOUT}) == Feast.WOUNDED, "wounded tonight comes first")
-	check(Feast.know({"battles": 4}).begins_with("4 battles"), "else their battles")
+	check(Feast.know({"battles": 4}).contains("4 battles"), "else their battles")
 	check(Feast.toast_lines({"kind": "hero", "captain": {"is_hero": true, "hero_id": "tariq", "first": "Tariq"}})[0]["text"].contains("waterskin"), "a hero speaks in their own voice")
 	var pair_lines: Array = Feast.toast_lines({"kind": "pair", "rank": "B", "captain": {"first": "Ilse"}, "other": {"first": "Bren"}})
 	check(pair_lines.size() == 5 and pair_lines[1]["who"] == "b" and String(pair_lines[1]["text"]).contains("Ilse"), "a pair takes turns, and names each other")

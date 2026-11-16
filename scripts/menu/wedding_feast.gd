@@ -296,7 +296,7 @@ func _thing_reply(key: String, done: bool) -> Dictionary:
 			r["act"] = _tables
 	if done:
 		r["done"] = true
-		r["tag"] = String(Feast.DONE.get(key, "done"))
+		r["tag"] = String(Feast.CUSTOM_DONE.get(culture, "done")) if key == "custom" else String(Feast.DONE.get(key, "done"))
 	return r
 
 
@@ -429,7 +429,7 @@ func _dance_step(i: int) -> void:
 		return
 	var replies := []
 	for ch in Feast.DANCE_STEPS[i]:
-		replies.append({"id": "dance_" + String(ch["id"]), "text": String(ch["text"]), "bare": true, "icon": "dance",
+		replies.append({"id": "dance_" + String(ch["id"]), "text": String(ch["text"]), "bare": true,
 			"act": _danced.bind(i, String(ch["id"]))})
 	set_replies(replies)
 
@@ -467,8 +467,8 @@ func _customed(o: Dictionary) -> void:
 	if culture == Cultures.RYUMON:
 		var d := _dressing()
 		if d != null:
-			d.release_lantern(0.42)
-			d.release_lantern(0.58)
+			d.release_lantern(0.27)
+			d.release_lantern(0.73)
 		say("narration", _fill(String(Feast.custom(culture).get("after", ""))))
 	express("center", _portrait("amused"), "amused")
 	GameState.wedding_feast_do("custom", {"custom": String(o["id"])})

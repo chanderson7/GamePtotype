@@ -913,7 +913,7 @@ func wedding_toasters(second_id: int = -1) -> Array:
 		var b: Dictionary = pair["b"]
 		if used.has(int(a["id"])) or used.has(int(b["id"])):
 			continue
-		var e: Dictionary = entry.call(a, "pair", "%s and %s · rank %s" % [String(a.get("first", a["name"])), String(b.get("first", b["name"])), String(pair["rank"])])
+		var e: Dictionary = entry.call(a, "pair", "bonded · rank %s · together" % String(pair["rank"]))
 		e["key"] = "pair_%d_%d" % [int(a["id"]), int(b["id"])]
 		e["other"] = b
 		e["rank"] = String(pair["rank"])
