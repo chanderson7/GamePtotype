@@ -89,12 +89,15 @@ func _draw() -> void:
 	# The far camp fire.
 	var f := MemorialScene.CAMP_FIRE
 	draw_circle(_to(f), (4.0 + sin(_t * 7.0)) * k, Color(1.0, 0.6, 0.25, 0.12))
-	# Mist drifting along the hill.
+	# Mist drifting through the valley beyond the crest, and a thin fog low on the meadow.
 	for m in 4:
-		var y := 104.0 + m * 9.0
-		var x := fmod(_t * (3.0 + m) + m * 60.0, ART.x + 80.0) - 80.0
-		draw_rect(Rect2(_to(Vector2(x, y)), Vector2(80, 3) * k), Color(0.75, 0.8, 0.95, 0.05))
-		draw_rect(Rect2(_to(Vector2(x - 160.0, y + 2.0)), Vector2(60, 2) * k), Color(0.75, 0.8, 0.95, 0.04))
+		var y := 68.0 + m * 4.0
+		var x := fmod(_t * (2.0 + m) + m * 60.0, ART.x + 80.0) - 80.0
+		draw_rect(Rect2(_to(Vector2(x, y)), Vector2(90, 3) * k), Color(0.75, 0.8, 0.95, 0.06))
+		draw_rect(Rect2(_to(Vector2(x - 160.0, y + 2.0)), Vector2(70, 2) * k), Color(0.75, 0.8, 0.95, 0.05))
+	for m in 2:
+		var x := fmod(_t * (1.5 + m) + m * 110.0, ART.x + 100.0) - 100.0
+		draw_rect(Rect2(_to(Vector2(x, 138.0 + m * 5.0)), Vector2(100, 3) * k), Color(0.75, 0.8, 0.95, 0.035))
 	# Stars twinkling.
 	for i in 14:
 		var tw := 0.5 + 0.5 * sin(_t * (1.0 + 0.3 * i) + i * 2.3)
