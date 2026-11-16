@@ -9,12 +9,16 @@ shaded lips, hair lock by lock, cloth with folds and patterns.
 What sets them apart from the lords, in the same style:
 - **Hair that flows.** Drawn as large tapered locks that curve along a path, each round
   across its width with strand lines and a band of sheen (`lock` in `hair.py`): Edda's long
-  waves with a ribbon-tied plait among them, Farah's ringlets, Kaede's straight glossy hair
-  under a pinned top knot. What hangs loose swings when her head moves.
+  waves with a ribbon-tied plait among them, Farah's ringlets, Kaede's long straight black
+  hair worn down, with a small knot behind her crown for her pin and brush; a few single
+  hairs come loose
+  (`wisps`). What hangs loose swings when her head moves. Nothing covers it: there are
+  no hoods or head scarves.
+- **Cloth that hangs.** Shoulders and garments have rounded corners (`spoly`), and folds
+  curve as they fall (`flowing` in `garb.py`): gathers at the shoulder, creases in the
+  bend of the arm.
 - **A pose of her own.** Edda's head a little to one side, Farah upright with her chin
   lifted, Kaede's head lowered; one shoulder let down; a jaw of her own (`POSES` in `build.py`).
-- **A hand in frame** for one expression each (`HANDS`): Edda's knuckles under her chin and
-  Kaede holding a brush when thoughtful, Farah's hand at her breast when warm.
 - **She speaks.** Her mouth opens on the words while her line is written out.
 - **A second light.** A fainter light from behind on the right lifts the shaded edge of
   her hair, jaw and shoulders (`compose(rim=True)` in `canvas.py`); the lords have one light.
@@ -45,8 +49,8 @@ Farah's files are `farid_*`.
 
 | | Everyday | Court | Travel | Winter | Mourning | Wedding |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Edda** (Vardish) | teal kirtle, square neck with a woven edge, laced, over a linen shift; belt; amber brooch; her keys | wine damask kirtle edged in gold and stones; green mantle with ermine and a gold chain; pearls; gold circlet; earrings | moss kirtle, high-necked shift; brown cloak, hood thrown back, fur at the collar, amber clasp | green cloak with its fur-edged hood up, her hair falling below it; deep teal kirtle | charcoal kirtle, plain; a black ribbon | a gold crown; woad-blue kirtle edged in gold; garnet pendant |
-| **Farah** (Kharzani) | indigo kaftan banded in gold over an embroidered shirt; saffron sash; her seal on a crimson ribbon; turquoise earrings | crimson damask kaftan; a jewelled collar with coins; coin circlet; fine veil edged in gold | rust riding coat; indigo scarf over her hair, dotted and edged in gold | quilted plum kaftan under a brown mantle edged with sable; her seal | black kaftan edged in silver over white; a white veil | crimson kaftan stitched with gold; veil; coin circlet with a garnet |
+| **Edda** (Vardish) | teal kirtle, square neck with a woven edge, laced, over a linen shift; belt; amber brooch; her keys | wine damask kirtle edged in gold and stones; green mantle with ermine and a gold chain; pearls; gold circlet; earrings | moss kirtle, high-necked shift; brown cloak, hood thrown back, fur at the collar, amber clasp | green cloak with fur at the collar and a rust lining, over a deep teal kirtle | charcoal kirtle, plain; a black ribbon | a gold crown; woad-blue kirtle edged in gold; garnet pendant |
+| **Farah** (Kharzani) | indigo kaftan banded in gold over an embroidered shirt; saffron sash; her seal on a crimson ribbon; turquoise earrings | crimson damask kaftan; a jewelled collar with coins; coin circlet; fine veil edged in gold | rust riding coat; an indigo scarf wound at her neck; amber earrings | quilted plum kaftan under a brown mantle edged with sable; her seal | black kaftan edged in silver over white; a white veil | crimson kaftan stitched with gold; veil; coin circlet with a garnet |
 | **Kaede** (Ryumon) | slate kosode with a white under-collar; plum vest; navy obi with a maple cord; jade hairpin and her brush | rose kosode under a plum robe scattered with chrysanthemums; brocade obi; gold comb; blossoms; coral pin | charcoal kosode; slate haori with crests, tied with a cord; moss obi | quilted rust robe over navy; a cream scarf wound at her neck | black kosode with white crests and collar | white robes lined in crimson, gold crests; brocade obi; gold comb, coral pin |
 
 Where she wears which (`StoryArt.outfit_for`), the first that holds:
@@ -90,8 +94,8 @@ An outfit is a list of pieces, drawn first to last (a shift first, a cloak late)
 ```
 
 The pieces (`PIECES` in `garb.py`, each documented there):
-- **Vardish:** `chemise`, `kirtle`, `mantle`, `cloak` (with `"hood": "up"`, add a `hood`), `belt`.
-- **Kharzani:** `shirt`, `kaftan`, `sash`, `collar` (a jewelled one), `scarf`, `veil`.
+- **Vardish:** `chemise`, `kirtle`, `mantle`, `cloak` (its hood thrown back), `belt`.
+- **Kharzani:** `shirt`, `kaftan`, `sash`, `collar` (a jewelled one), `veil` (worn at the back of her head: nothing covers her hair).
 - **Ryumon:** `kosode`, `overrobe` (a vest, a haori, an outer robe), `obi`, `neckwrap`, `comb`, `pin`, `flowers`.
 - **For anyone:** `necklace` (chain, pearls, coins, beads), `brooch`, `earrings`, `circlet`, `crown`, `layer`.
 - **What each carries:** `keys` (Edda), `seal` (Farah), `brush` (Kaede).
@@ -144,8 +148,6 @@ is an example, worn dyed rose by Edda's `shawl_example` outfit (not in the game)
 - **How she holds herself:** `POSES` in `build.py` (how low her head sits, how far it
   leans, which shoulder is let down). Clothes and layers are drawn on the unposed figure
   (the template shows it) and move with the pose.
-- **Her hands:** `HANDS` in `build.py` says which expression has one, what it does
-  (`chin`, `heart`, `brush`) and where; `garb.py` draws them, in the outfit's own sleeve.
 - Every head shares where the features sit. If you move them, the face strip must still
   hold everything that changes in a blink, and the mouth strip everything that changes
   when she speaks: `build.py` stops if they don't (`FACE_STRIP` and `MOUTH_STRIP` there,
