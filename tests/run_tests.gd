@@ -210,8 +210,8 @@ func _check_deployment() -> void:
 	_expect(first != null and second != null, "two squads placed on the same spot both go down")
 	_expect(first != null and second != null and not _touching(sim, first, second), "the second one is nudged clear of the first")
 
-	sim.place(Sim.PLAYER, 1, Vector2(200, 950))
-	_expect(first.center.distance_to(Vector2(200, 950)) < 1.0 and sim.reserves[Sim.PLAYER].size() == 5,
+	sim.place(Sim.PLAYER, 1, Vector2(160, 1040))
+	_expect(first.center.distance_to(Vector2(160, 1040)) < 1.0 and sim.reserves[Sim.PLAYER].size() == 5,
 		"tapping a placed squad's id again moves it")
 
 	sim.auto_deploy(Sim.PLAYER)
@@ -473,15 +473,18 @@ func _check_lines() -> void:
 	_expect(formed, "the squads march to their places on it and hold there, facing the enemy across it")
 	var inf = sim.placed_squad(Sim.PLAYER, 1)
 	var spacing: float = inf.radius * 2.0 + 5.0
-	var wide := sim.line_spots([inf], Vector2(100, 800), Vector2(280, 800))
+	var usual := sim._files(20)
+	var usual_files: int = usual
+	# A line long enough for two files more than the usual, whatever room a man takes.
+	var wide_len: float = (usual_files + 2) * spacing
+	var wide := sim.line_spots([inf], Vector2(100, 800), Vector2(100 + wide_len, 800))
 	var deep := sim.line_spots([inf], Vector2(100, 800), Vector2(125, 800))
 	var longest := sim.line_spots([inf], Vector2(0, 800), Vector2(800, 800))
-	var usual := sim._files(20)
-	_expect(int(wide[0]["files"]) > usual and absf(Vector2(wide[0]["half"]).x * 2.0 - 180.0) < spacing
+	_expect(int(wide[0]["files"]) > usual and absf(Vector2(wide[0]["half"]).x * 2.0 - wide_len) < spacing
 			and int(deep[0]["files"]) < usual and int(deep[0]["files"]) >= 2 and int(longest[0]["files"]) == 10,
 		"one squad alone fills the line: %d men wide for a long one, %d for a short one (usually %d), never under two ranks" % [
 			int(wide[0]["files"]), int(deep[0]["files"]), usual])
-	sim.order_line(Sim.PLAYER, Vector2(100, 800), Vector2(280, 800), inf)
+	sim.order_line(Sim.PLAYER, Vector2(100, 800), Vector2(100 + wide_len, 800), inf)
 	var spread := 0.0
 	for so in inf.soldiers:
 		if so.alive:

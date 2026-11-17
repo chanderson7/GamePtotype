@@ -20,10 +20,11 @@ const Cultures = preload("res://scripts/data/cultures.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 
 const ARENA := Vector2(840.0, 1260.0)
-## Men of opposite sides keep this much more between them than men of one side do: a
-## weapon's length, so the two lines of a fight stay two lines and nobody stands in a
-## foe's place. Every melee reach is measured from the body's edge and is longer than this.
-const FOE_GAP := 5.0
+## Men of opposite sides keep this much more between them than men of one side do, so
+## the two lines of a fight stay two lines. Kept small on purpose: at 5 a braced line
+## held only 5 fights in 12 where it had held 11, and standing in a ford stopped
+## mattering; at 3 both are as they were.
+const FOE_GAP := 3.0
 const MID_Y := 630.0
 const PLAYER := 0
 const ENEMY := 1
