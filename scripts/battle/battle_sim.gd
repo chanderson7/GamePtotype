@@ -20,11 +20,6 @@ const Cultures = preload("res://scripts/data/cultures.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 
 const ARENA := Vector2(840.0, 1260.0)
-## Men of opposite sides keep this much more between them than men of one side do, so
-## the two lines of a fight stay two lines. Kept small on purpose: at 5 a braced line
-## held only 5 fights in 12 where it had held 11, and standing in a ford stopped
-## mattering; at 3 both are as they were.
-const FOE_GAP := 3.0
 const MID_Y := 630.0
 const PLAYER := 0
 const ENEMY := 1
@@ -4275,7 +4270,6 @@ func _separate_pass() -> bool:
 	var men: Array = []
 	var pos := PackedVector2Array()
 	var rad := PackedFloat64Array()
-	var side := PackedInt32Array()
 	if _cell_start.size() != _cells.size():
 		_cell_start.resize(_cells.size())
 		_cell_count.resize(_cells.size())
@@ -4288,7 +4282,6 @@ func _separate_pass() -> bool:
 			men.append(so)
 			pos.append(so.pos)
 			rad.append(so.radius)
-			side.append(so.squad.team)
 	var push := PackedVector2Array()
 	push.resize(men.size())
 	var later := PackedInt32Array()
@@ -4307,10 +4300,9 @@ func _separate_pass() -> bool:
 		for ia in range(first, stop):
 			var ap: Vector2 = pos[ia]
 			var ar: float = rad[ia]
-			var at: int = side[ia]
 			for ib in range(ia + 1, stop):
 				var diff: Vector2 = ap - pos[ib]
-				var min_d: float = ar + rad[ib] + (FOE_GAP if side[ib] != at else 0.0)
+				var min_d: float = ar + rad[ib]
 				var d2 := diff.length_squared()
 				if d2 < (min_d - 0.1) * (min_d - 0.1):
 					crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
@@ -4325,7 +4317,7 @@ func _separate_pass() -> bool:
 				var n_stop: int = n_first + _cell_count[nc]
 				for ib in range(n_first, n_stop):
 					var diff: Vector2 = ap - pos[ib]
-					var min_d: float = ar + rad[ib] + (FOE_GAP if side[ib] != at else 0.0)
+					var min_d: float = ar + rad[ib]
 					var d2 := diff.length_squared()
 					if d2 < (min_d - 0.1) * (min_d - 0.1):
 						crowded = crowded or d2 < (min_d - 1.0) * (min_d - 1.0)
