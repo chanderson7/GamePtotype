@@ -581,31 +581,55 @@ func _lamp(x: float) -> void:
 	_flame(x, -3.0)
 
 
-## One half of the loaf, or the whole of it: a domed flatbread, golden on top, darker
-## under, scored and seeded. `cut` is the side the pale crumb shows on (-1, 1, or 0).
-func _loaf(cx: float, rx: float, cut: float) -> void:
+## The loaf, or the part of it on one side of a tear: a domed flatbread centred on `cx`,
+## golden on top, darker under, scored and seeded. `keep` is which side of `tear` is
+## drawn (-1 left of it, 1 right, 0 the whole loaf). The torn face follows the dome, pale
+## crumb with a ragged edge, so a half looks pulled apart, not sawn.
+const RAGGED := [0.0, 1.0, 0.0, -1.0, -1.0, 0.0, 1.0, 1.0, 0.0, -1.0, 0.0, 1.0]
+
+func _loaf(cx: float, rx: float, keep: float = 0.0, tear: float = 0.0) -> void:
 	var crust := Color("8a5a24")
 	var loaf := Color("c98a3c")
-	var x0 := cx - rx
-	_f(x0 + 1, 5, rx * 2 - 2, 1, Color(0.1, 0.07, 0.05, 0.35))
-	_oval(cx, 5.0, rx, 12.0, crust, 0.0, 0.5)
-	_oval(cx, 4.0, rx - 1.0, 11.0, loaf, 0.0, 0.5)
-	_oval(cx, 1.0, rx - 4.0, 8.0, loaf.lightened(0.16), 0.0, 0.42)
-	_oval(cx - rx * 0.2, -1.0, rx * 0.45, 5.0, loaf.lightened(0.3), 0.0, 0.4)
+	var crumb := Color("f2d9a6")
+	for r in 12:
+		var y := -7.0 + r
+		var half := rx * sqrt(maxf(0.0, 1.0 - pow((11.5 - r) / 12.0, 2.0)))
+		var x0 := cx - half
+		var x1 := cx + half
+		var edge: float = tear + float(RAGGED[r])
+		if keep < 0.0:
+			x1 = minf(x1, edge)
+		elif keep > 0.0:
+			x0 = maxf(x0, edge)
+		if x1 - x0 < 1.0:
+			continue
+		_f(x0, y, x1 - x0, 1, crust)
+		var in0 := maxf(x0, cx - half + 1.0)
+		var in1 := minf(x1, cx + half - 1.0)
+		if r >= 1 and r <= 10 and in1 > in0:
+			_f(in0, y, in1 - in0, 1, loaf if r > 6 else loaf.lightened(0.14))
+		var top0 := maxf(x0, cx - half * 0.55)
+		var top1 := minf(x1, cx + half * 0.2)
+		if r >= 1 and r <= 3 and top1 > top0:
+			_f(top0, y, top1 - top0, 1, loaf.lightened(0.3))
+		# The torn face: crumb three deep along the tear, under a line of crust.
+		if keep != 0.0 and r >= 1:
+			var f0 := x1 - 3.0 if keep < 0.0 else x0
+			var fw := minf(3.0, x1 - x0)
+			_f(f0 if keep > 0.0 else x1 - fw, y, fw, 1, crumb if r > 1 else loaf)
+			if r % 3 == 2:
+				_f((x0 + 1.0) if keep > 0.0 else (x1 - 2.0), y, 1, 1, Color("d9bd84"))
+	# Scoring and seeds, where there is loaf to carry them.
 	for i in int(rx / 4.0):
 		var sx := cx - rx + 6.0 + i * 8.0
-		if sx < cx + rx - 5.0:
+		var inside := sx < cx + rx - 6.0 and (keep == 0.0 or (keep < 0.0 and sx + 4.0 < tear - 4.0) or (keep > 0.0 and sx > tear + 4.0))
+		if inside:
 			_f(sx, -3 + (i % 2), 4, 1, crust)
 			_f(sx + 1, -4 + (i % 2), 3, 1, crust.lightened(0.1))
 	for i in int(rx / 3.0):
-		_f(cx - rx + 4.0 + i * 5.3, -1 + (i * 7) % 4, 1, 1, Color("f4e6b8"))
-	if cut != 0.0:
-		var fx := cx + cut * (rx - 2.0)
-		_f(fx - 1.0, -5, 3, 10, Color("f2d9a6"))
-		_f(fx - 1.0, -5, 3, 1, loaf)
-		_f(fx, -2, 1, 1, Color("d9bd84"))
-		_f(fx - 1.0, 1, 1, 1, Color("d9bd84"))
-		_f(fx + 0.5, 3, 1, 1, Color("d9bd84"))
+		var px := cx - rx + 5.0 + i * 5.3
+		if px < cx + rx - 4.0 and (keep == 0.0 or (keep < 0.0 and px < tear - 4.0) or (keep > 0.0 and px > tear + 4.0)):
+			_f(px, 0 + (i * 7) % 4, 1, 1, Color("f4e6b8"))
 
 
 func _bread_and_salt() -> void:
@@ -645,43 +669,67 @@ func _bread_and_salt() -> void:
 	_table_carved()
 	_lamp(-47.0)
 	if step == 0:
-		_loaf(0.0, 24.0, 0.0)
+		_loaf(0.0, 24.0)
 	else:
-		# Broken clean in two, the halves drawn apart, crumbs between.
-		var apart := 9.0 * (_ease(_p) if step == 1 else 1.0)
-		_loaf(-13.0 - apart, 13.0, 1.0)
-		_loaf(13.0 + apart, 13.0, -1.0)
+		# Torn in two, the halves drawn apart, crumbs between. Once you've salted a piece
+		# for her, it has come off the right half's torn side.
+		var apart := 8.0 * (_ease(_p) if step == 1 else 1.0)
+		var taken := 0.0 if step < 2 else 7.0 * (_ease(_p) if step == 2 else 1.0)
+		_loaf(-apart, 24.0, -1.0, -apart)
+		_loaf(apart, 24.0, 1.0, apart + taken)
 		for i in 7:
-			_f(-6.0 + i * 2.1 + (i % 2), 4 + (i % 3) * 0.5, 1, 1, Color("f2d9a6") if i % 2 == 0 else Color("c98a3c"))
-	if step >= 2:
-		# The salt in its glazed dish, and the first piece lifted, salted, for her.
-		_oval(41.0, 0.0, 9.0, 7.0, Color("3b4560"), 0.5, 1.0)
-		_oval(41.0, -1.0, 9.0, 7.0, Color("5d6b8a"), 0.5, 0.95)
-		_f(32, -1, 18, 1, Color("8fa0c4"))
-		_f(35, 2, 4, 1, Color("8fa0c4"))
-		_oval(41.0, -1.0, 6.5, 4.0, Color("f4f1ea"), 0.0, 0.5)
-		_f(39, -5, 1, 1, Color.WHITE)
-		_f(43, -4, 1, 1, Color.WHITE)
-		# Once the contract is out, the piece has been eaten.
+			_f(-5.0 + i * 1.8 + (i % 2), 4 + (i % 3) * 0.5, 1, 1, Color("f2d9a6") if i % 2 == 0 else Color("c98a3c"))
 		if step == 2:
-			var lift := 13.0 * _ease(_p)
-			var py := -14.0 - lift
-			# Your fingers under it, and the piece: crumb, a rim of crust, the salt on it.
-			_f(-9, py + 6, 5, 4, YOU["shade"])
-			_f(-8, py + 5, 16, 4, YOU["base"])
-			_f(-8, py + 5, 16, 1, YOU["light"])
-			_f(-3, py + 8, 1, 1, YOU["line"])
-			_f(2, py + 8, 1, 1, YOU["line"])
-			_f(-7, py - 2, 14, 7, Color("f2d9a6"))
-			_f(-7, py - 3, 14, 2, Color("c98a3c"))
-			_f(-6, py - 4, 11, 1, Color("d9a050"))
-			_f(-7, py + 4, 14, 1, Color("d9bd84"))
-			for g in [[-4.0, 0.0], [0.0, -1.0], [3.0, 1.0], [-1.0, 2.0], [5.0, -1.0]]:
-				_f(float(g[0]), py + float(g[1]), 1, 1, Color.WHITE)
-			if _p < 1.0:
-				# Salt falling from your other hand as it's lifted.
-				for i in 4:
-					_f(-3.0 + i * 2.5, py - 8.0 + fposmod(_clock * 22.0 + i * 3.0, 6.0), 1, 1, Color(1, 1, 1, 0.8))
+			_piece(apart)
+	if step >= 2:
+		# The salt in its glazed dish.
+		_oval(45.0, 0.0, 8.0, 7.0, Color("3b4560"), 0.5, 1.0)
+		_oval(45.0, -1.0, 8.0, 7.0, Color("5d6b8a"), 0.5, 0.95)
+		_f(37, -1, 16, 1, Color("8fa0c4"))
+		_f(40, 2, 4, 1, Color("8fa0c4"))
+		_oval(45.0, -1.0, 5.5, 4.0, Color("f4f1ea"), 0.0, 0.5)
+		_f(43, -5, 1, 1, Color.WHITE)
+		_f(47, -4, 1, 1, Color.WHITE)
+
+
+## The piece you tear off for her, in your fingers: it leaves the right half's torn side,
+## passes under your other hand's pinch of salt, and is held out over the table. It is a
+## wedge of that loaf: the crust's curve on top, crumb below, ragged where it was pulled.
+func _piece(apart: float) -> void:
+	var go := _ease(_p)
+	var at := Vector2(apart + 3.0, -1.0).lerp(Vector2(4.0, -24.0), go)
+	var x := at.x
+	var y := at.y
+	# Your hand: fingers under the piece, the thumb over its near corner, the wrist below.
+	_f(x - 3, y + 9, 8, 7, YOU["shade"])
+	_f(x - 2, y + 9, 6, 7, YOU["base"])
+	_f(x - 6, y + 5, 14, 5, YOU["base"])
+	_f(x - 6, y + 5, 14, 1, YOU["light"])
+	_f(x - 6, y + 9, 14, 1, YOU["shade"])
+	for k in 3:
+		_f(x - 3 + k * 4.0, y + 6, 1, 3, YOU["line"])
+	# The wedge.
+	var crust := Color("8a5a24")
+	var loaf := Color("c98a3c")
+	var crumb := Color("f2d9a6")
+	var rows := [[-3.0, 6.0], [-5.0, 9.0], [-6.0, 11.0], [-6.0, 11.0], [-5.0, 10.0], [-5.0, 9.0], [-4.0, 8.0], [-4.0, 7.0]]
+	for r in rows.size():
+		var x0: float = rows[r][0]
+		var w: float = rows[r][1]
+		_f(x + x0, y - 3 + r, w, 1, crust if r == 0 else (loaf.lightened(0.14) if r == 1 else crumb))
+		if r >= 2:
+			_f(x + x0 + w - 1.0, y - 3 + r, 1, 1, loaf)
+	_f(x - 2, y + 1, 1, 1, Color("d9bd84"))
+	_f(x + 1, y + 3, 1, 1, Color("d9bd84"))
+	_f(x - 6, y + 3, 3, 3, YOU["light"])
+	_f(x - 6, y + 5, 3, 1, YOU["line"])
+	# The salt: falling while it's lifted, lying on it after.
+	if go > 0.25:
+		for g in [[-3.0, -1.0], [0.0, 0.0], [2.0, -1.0], [-1.0, 1.0]]:
+			_f(x + float(g[0]), y + float(g[1]), 1, 1, Color.WHITE)
+	if _p < 1.0:
+		for i in 4:
+			_f(x - 3.0 + i * 2.0, y - 10.0 + fposmod(_clock * 22.0 + i * 3.0, 7.0), 1, 1, Color(1, 1, 1, 0.8))
 
 
 # ---------------------------------------------------------------- Ryumon: three cups
