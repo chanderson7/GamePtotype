@@ -151,15 +151,11 @@ func _command() -> void:
 		_unit(String(Troops.ORDER[i % Troops.ORDER.size()]), 1, Vector2(size.x * (0.3 + i * 0.2), 80), 2.2)
 	for i in 3:
 		_unit(String(Troops.ORDER[(i + 1) % Troops.ORDER.size()]), 0, Vector2(size.x * (0.3 + i * 0.2), 200), 2.2)
-	# Drag a line to form your squads along it.
-	var from := Vector2(size.x * 0.24, 150)
-	var to := Vector2(size.x * 0.76, 150)
-	draw_dashed_line(from, from.lerp(to, fposmod(_t * 0.4, 1.0)), Style.BRASS, 4.0, 10.0)
 	var fight := Rect2(Vector2(size.x - 170, 14), Vector2(150, 50))
 	draw_style_box(Style.box(Style.BRASS, Color(0, 0, 0, 0), 0, 12), fight)
 	draw_string(get_theme_default_font(), fight.position + Vector2(44, 34), "Fight", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color("1a1420"))
 	_ring(fight.get_center(), 62.0)
-	_caption("Place companies or drag a line, then press Fight")
+	_caption("Place companies, then press Fight")
 
 
 func _ground() -> void:

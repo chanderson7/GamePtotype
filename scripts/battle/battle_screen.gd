@@ -1024,6 +1024,10 @@ func _begin_title() -> void:
 	if n > 0 and not Style.motion_reduced():
 		cam_center = mine / float(n)
 		cam_zoom = MAX_ZOOM
+		# Wherever the view was left while deploying, the fight opens on the whole field.
+		_camera_hold = false
+		if fit_button != null:
+			fit_button.visible = false
 		_settling = true
 		_apply_camera()
 	_dim_hud(0.35)
@@ -1748,7 +1752,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		_end_title()
 		return
-	# Paused, the field still takes orders: select, target, draw a line.
+	# Paused, the field still takes orders: select, target, carry a company.
 	if sim.winner != -1 or terrain_hint_panel.visible:
 		return
 	if not _view.has_point(mb.position) or _press_touch != -1 or _pinch_lock:
@@ -1776,9 +1780,16 @@ func _begin_press(at: Vector2) -> void:
 
 
 func _move_press(at: Vector2) -> void:
+	var was := _drag_to
 	_drag_to = at
 	if not _drawing and at.distance_to(_press_at) >= DRAG_START:
 		_drawing = true
+		was = _press_at
+	# A finger dragged over open ground slides the view under it. (It used to draw a line
+	# for the army to form on; a swipe now never gives an order.) One that went down on
+	# your own standard carries that company instead.
+	if _drawing and _press_squad == null:
+		_pan_by(at - was)
 
 
 func _end_press(at: Vector2) -> void:
@@ -1795,16 +1806,7 @@ func _end_press(at: Vector2) -> void:
 		_drop_squad(carried, at)
 		return
 	if drew:
-		_line_drawn(_press_field, _to_field(at))
-		return
-	# A line waiting for its tap: a tap on it gives the order, a tap anywhere else drops it.
-	if not _pending_line.is_empty():
-		var waiting: Dictionary = _pending_line
-		_pending_line = {}
-		if _on_pending_line(_press_at, waiting):
-			_order_line(waiting["a"], waiting["b"], null)
-		else:
-			_teach("Line dropped. Drag again to draw another.")
+		# The view was slid; nobody was ordered anywhere.
 		return
 	var tapped = _standard_at(_press_at)
 	if sim.phase == Sim.PHASE_DEPLOY:
@@ -2070,7 +2072,7 @@ func _order_line(a: Vector2, b: Vector2, only) -> void:
 	if sim.phase == Sim.PHASE_DEPLOY:
 		selected_id = -1
 		_hand_placed.clear()
-		_confirm("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.", "line")
+		_confirm("Your army stands on the line. Tap a squad to move it, or press Fight.", "line")
 	elif only != null:
 		_confirm("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])], "line")
 	else:
@@ -2145,12 +2147,12 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_teach("Tap the blue zone to place %s, or drag a line for everyone." % _card_name(e), "place_next")
+			_teach("Tap the blue zone to place %s, or press Auto-place for everyone." % _card_name(e), "place_next")
 			return
 	if sim.caught_on_march(Sim.PLAYER):
 		_hint("Ambushed on the march, strung out along the road! No time to form up. Press Fight.")
 		return
-	_teach("Everyone's placed. Move a squad or drag a new line, then Fight.", "all_placed")
+	_teach("Everyone's placed. Tap a squad to move it, then Fight.", "all_placed")
 
 
 func _tap_battle(p: Vector2, tapped) -> void:
@@ -2177,7 +2179,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 			if thint != "":
 				_hint(thint)
 			else:
-				_teach("Tap a squad to command it, or drag a line across the field and tap it to re-form the army.")
+				_teach("Tap a squad to command it. Drag the field to move the view.")
 		return
 	if foe != null and foe.is_active():
 		_pending_march = {}
@@ -2209,7 +2211,7 @@ func _select(sq) -> void:
 		return
 	if not _taught:
 		_taught = true
-		_teach("%s: drag their flag onto an enemy to attack or onto ground to march, or drag a line to form them up along it." % _company_or_type(sq))
+		_teach("%s: drag their flag onto an enemy to attack, or onto ground to march." % _company_or_type(sq))
 		return
 	var ab := Troops.ability(sq.type)
 	var who := _company_or_type(sq)
@@ -2272,7 +2274,7 @@ func _start_battle() -> void:
 	selected_squad = null
 	_drop_pending()
 	_layout()
-	_teach("Your squads hold, braced, until ordered. Tap a squad to command it, or drag a line across the field and tap it to re-form the army.", "start")
+	_teach("Your squads hold, braced, until ordered. Tap a squad to command it. Drag the field to move the view.", "start")
 
 
 ## Storm the walls, first tap: the plan goes up on the field (who takes a ladder, who goes
@@ -7294,14 +7296,7 @@ func _draw_line_order() -> void:
 	if _drawing and _press_squad != null:
 		_draw_carry()
 		return
-	if _drawing:
-		var b := _to_field(_drag_to)
-		var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
-		var spots := sim.line_preview(Sim.PLAYER, _press_field, b, only)
-		_c.draw_line(_press_field, b, Color(0, 0, 0, 0.5), 7.0)
-		_c.draw_line(_press_field, b, Style.BRASS, 3.0)
-		_draw_spots(spots, sim.line_face(Sim.PLAYER, _press_field, b), 1.0, true)
-	elif not _line_shown.is_empty():
+	if not _drawing and not _line_shown.is_empty():
 		var age: float = _clock - float(_line_shown["at"])
 		if age > LINE_SHOWN:
 			_line_shown = {}

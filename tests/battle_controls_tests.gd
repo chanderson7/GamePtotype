@@ -119,18 +119,22 @@ func _run() -> void:
 	squad.center = Vector2(600, 900)
 	screen._select(squad)
 	var previous: String = squad.order
-	screen._press_at = screen._to_screen(Vector2(60, 620))
-	screen._tap_battle(Vector2(60, 620), null)
+	# Open ground on each side of the field, wherever the fight has left some: a tap near a
+	# company would pick it, or attack it, instead.
+	var west := _clear_ground(screen.sim, 60.0)
+	var east := _clear_ground(screen.sim, 780.0)
+	screen._press_at = screen._to_screen(west)
+	screen._tap_battle(west, null)
 	check(squad.order == previous and screen.hint_label.text.contains("no route"), "unreachable move is explained without replacing the current order")
 	ground.reset()
 	ground.bake()
 	screen.sim.terrain = ground
-	screen._tap_battle(Vector2(60, 620), null)
+	screen._tap_battle(west, null)
 	check(squad.order == previous and not screen._pending_march.is_empty(), "a tap on open ground puts down a march ring and waits for a second")
-	screen._press_at = screen._to_screen(Vector2(780, 640))
-	screen._tap_battle(Vector2(780, 640), null)
-	check(squad.order == previous and screen._pending_march["at"] == Vector2(780, 640), "a tap somewhere else only moves the ring")
-	screen._tap_battle(Vector2(780, 640), null)
+	screen._press_at = screen._to_screen(east)
+	screen._tap_battle(east, null)
+	check(squad.order == previous and screen._pending_march["at"] == east, "a tap somewhere else only moves the ring")
+	screen._tap_battle(east, null)
 	check(squad.order == "move" and screen._pending_march.is_empty() and screen._ordered_at.has(squad) and not screen.floaters.any(func(f): return f["text"] == "MOVE"),
 		"the second tap on the ring marches them, with a destination ring and no floating word")
 	_check_carry_and_slow(screen)
@@ -179,6 +183,19 @@ func _run() -> void:
 	print("Battle controls failures: %d" % failures)
 	quit(failures)
 
+
+
+## A point at `x` with no company of either side within reach of a tap.
+func _clear_ground(sim, x: float) -> Vector2:
+	for y in [620.0, 700.0, 540.0, 780.0, 460.0, 860.0, 380.0, 940.0, 300.0, 1020.0, 1100.0, 220.0]:
+		var p := Vector2(x, y)
+		var free := true
+		for sq in sim.squads:
+			if sq.is_active() and sq.center.distance_to(p) < sq.extent + 90.0:
+				free = false
+		if free:
+			return p
+	return Vector2(x, 620.0)
 
 
 func _press(screen, kind: String, at: Vector2) -> void:
@@ -259,22 +276,40 @@ func _check_carry_and_slow(screen) -> void:
 	var open_a: Vector2 = screen._to_screen(Vector2(200, 900))
 	var open_b: Vector2 = screen._to_screen(Vector2(600, 900))
 	screen._line_shown = {}
+	screen._recenter_camera()
+	var orders_before := {}
+	for sq in sim.squads:
+		orders_before[sq] = [sq.order, sq.order_point]
+	var view_before: Vector2 = screen.cam_center
 	_press(screen, "down", open_a)
 	check(screen._press_squad == null, "a press on open ground does not pick a squad up")
 	_press(screen, "move", open_b)
 	_press(screen, "up", open_b)
-	check(screen._line_shown.is_empty() and not screen._pending_line.is_empty(),
-		"a line drawn with nothing selected waits on the field for a tap, so a stray swipe moves no one")
-	var on_line: Vector2 = (open_a + open_b) * 0.5
-	_press(screen, "down", on_line)
-	_press(screen, "up", on_line)
-	check(not screen._line_shown.is_empty() and screen._pending_line.is_empty(), "a tap on it forms the whole army there")
-	_press(screen, "down", open_a)
-	_press(screen, "move", open_b)
-	_press(screen, "up", open_b)
-	_press(screen, "down", screen._to_screen(Vector2(420, 640)))
-	_press(screen, "up", screen._to_screen(Vector2(420, 640)))
-	check(screen._pending_line.is_empty() and screen.hint_label.text.begins_with("Line dropped"), "a tap anywhere else drops it")
+	var untouched := true
+	for sq in sim.squads:
+		if sq.order != orders_before[sq][0] or sq.order_point != orders_before[sq][1]:
+			untouched = false
+	check(untouched and screen._pending_line.is_empty() and screen._line_shown.is_empty(),
+		"a swipe across open ground draws no line and orders no one")
+	check(screen._camera_hold and screen.fit_button.visible, "it slides the view instead, and the whole-field button comes up")
+	screen.cam_zoom = 2.0
+	screen.cam_center = Sim.ARENA * 0.5
+	screen._apply_camera()
+	view_before = screen.cam_center
+	# Somewhere on the field no standard is, or the press would pick that company up.
+	var from: Vector2 = screen._view.get_center()
+	for try_at in [Vector2(0, 0), Vector2(0, 160), Vector2(0, -160), Vector2(-150, 220), Vector2(150, -220), Vector2(-180, -60)]:
+		if screen._standard_at(screen._view.get_center() + try_at) == null:
+			from = screen._view.get_center() + try_at
+			break
+	# Step by step, as a finger moves.
+	_press(screen, "down", from)
+	# Dragged down, since the field is taller than this window and may be no wider.
+	for step in range(1, 7):
+		_press(screen, "move", from + Vector2(0, 20.0 * step))
+	_press(screen, "up", from + Vector2(0, 120))
+	check(screen.cam_center.y < view_before.y - 10.0, "zoomed in, dragging down slides the field down under the finger (%.0f to %.0f)" % [view_before.y, screen.cam_center.y])
+	screen._recenter_camera()
 	# Slow time: the handle on the field's edge.
 	var handle: Rect2 = screen._slow_handle()
 	check(handle.size.x > 40.0 and screen._view.encloses(handle), "the slow handle sits on the field's edge in battle")
