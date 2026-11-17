@@ -4,6 +4,7 @@
 extends Control
 
 const IdleSoldier = preload("res://scripts/ui/idle_soldier.gd")
+const NoticeBoard = preload("res://scripts/ui/notice_board.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
@@ -1381,6 +1382,23 @@ func _add_court(col: VBoxContainer) -> void:
 	var w = GameState.world
 	if w == null:
 		return
+	# The hall itself at the head of the page, its fires burning, unless a gathering's own
+	# card is about to show it.
+	if _next_gathering().is_empty() and Style.illustrations_on():
+		var court_hour := int(w.hour) % 24
+		var hall_owner: String = w.owner_of(place)
+		var hall_culture: String = WorldData.culture_of(WorldData.settlement(place)["faction"])
+		var strip := Control.new()
+		strip.name = "HallStrip"
+		strip.custom_minimum_size = Vector2(0, 170)
+		strip.clip_contents = true
+		strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var hall_art := HallScene.rect(hall_culture, hall_owner if Heraldry.REALM_SIZES.has(hall_owner) else Heraldry.realm_of_culture(WorldData.culture_of(hall_owner)),
+			"night" if court_hour < 6 or court_hour >= 20 else "day", place.hash())
+		hall_art.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		strip.add_child(hall_art)
+		HallLife.over(hall_art, hall_culture)
+		col.add_child(strip)
 	var residents: Array = w.social.residents_at(place) if w.social != null else []
 	var wedding_here: bool = GameState.wedding_can_begin() and String(GameState.wedding()["place"]) == place
 	if wedding_here:
@@ -2202,6 +2220,9 @@ func _add_local_jobs(col: VBoxContainer) -> void:
 
 	# Notice board offers
 	var active_count: int = GameState.contract_count()
+	var hour_now := int(w.hour) % 24
+	var notice_art := NoticeBoard.make(GameState.jobs_at(place).size(), active_count, hour_now < 6 or hour_now >= 20)
+	col.add_child(notice_art)
 	var capped := active_count >= Jobs.MAX_ACTIVE_JOBS
 	var board := Widgets.card(col, "Notice board", "%d of %d taken" % [active_count, Jobs.MAX_ACTIVE_JOBS],
 		Style.ENEMY_LIGHT if capped else Style.MUTED)

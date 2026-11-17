@@ -700,14 +700,20 @@ func _piece(apart: float) -> void:
 	var at := Vector2(apart + 3.0, -1.0).lerp(Vector2(4.0, -24.0), go)
 	var x := at.x
 	var y := at.y
-	# Your hand: fingers under the piece, the thumb over its near corner, the wrist below.
-	_f(x - 3, y + 9, 8, 7, YOU["shade"])
-	_f(x - 2, y + 9, 6, 7, YOU["base"])
-	_f(x - 6, y + 5, 14, 5, YOU["base"])
-	_f(x - 6, y + 5, 14, 1, YOU["light"])
-	_f(x - 6, y + 9, 14, 1, YOU["shade"])
+	# Your arm reaching in from the left: a wool sleeve and its leather cuff, the forearm,
+	# the palm under the piece and the thumb over its near corner.
+	_f(x - 70, y + 3, 26, 9, WOOL)
+	_f(x - 70, y + 3, 26, 1, WOOL.lightened(0.2))
+	_f(x - 46, y + 2, 6, 11, LEATHER)
+	_f(x - 46, y + 2, 6, 1, LEATHER.lightened(0.25))
+	_f(x - 40, y + 4, 34, 7, YOU["base"])
+	_f(x - 40, y + 4, 34, 1, YOU["light"])
+	_f(x - 40, y + 10, 34, 1, YOU["shade"])
+	_f(x - 8, y + 5, 16, 5, YOU["base"])
+	_f(x - 8, y + 9, 16, 1, YOU["shade"])
+	_f(x + 7, y + 6, 2, 3, YOU["base"])
 	for k in 3:
-		_f(x - 3 + k * 4.0, y + 6, 1, 3, YOU["line"])
+		_f(x - 3 + k * 4.0, y + 7, 1, 3, YOU["line"])
 	# The wedge.
 	var crust := Color("8a5a24")
 	var loaf := Color("c98a3c")
@@ -721,8 +727,9 @@ func _piece(apart: float) -> void:
 			_f(x + x0 + w - 1.0, y - 3 + r, 1, 1, loaf)
 	_f(x - 2, y + 1, 1, 1, Color("d9bd84"))
 	_f(x + 1, y + 3, 1, 1, Color("d9bd84"))
-	_f(x - 6, y + 3, 3, 3, YOU["light"])
-	_f(x - 6, y + 5, 3, 1, YOU["line"])
+	_f(x - 8, y + 1, 5, 4, YOU["light"])
+	_f(x - 8, y + 1, 5, 1, YOU["base"])
+	_f(x - 4, y + 2, 1, 2, YOU["line"])
 	# The salt: falling while it's lifted, lying on it after.
 	if go > 0.25:
 		for g in [[-3.0, -1.0], [0.0, 0.0], [2.0, -1.0], [-1.0, 1.0]]:

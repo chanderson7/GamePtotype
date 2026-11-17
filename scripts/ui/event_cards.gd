@@ -49,7 +49,7 @@ const KINDS := {
 	"war": ["War", "fight", "horn"],
 	"grant": ["Your court", "keep", "page"],
 	"muster": ["The banners", "crown", "horn"],
-	"deed": ["A deed to remember", "renown", "promotion"],
+	"deed": ["A deed to remember", "renown", "quest_done"],
 	"fealty": ["Sworn", "crown", "horn"],
 	"renounce": ["Oath broken", "cancel", "bell"],
 	"fief_lost": ["Your fief", "keep", "bell"],
