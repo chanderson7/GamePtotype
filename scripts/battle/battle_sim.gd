@@ -113,7 +113,7 @@ const LADDER_TOP_POWER := 0.75
 const THROWN_DOWN := 1.0
 ## Companies on foot it takes before a storm plan sends one up each ladder.
 const STORM_SPREAD := 3
-## The garrison's posts. Companies on the wall walk stand two ranks deep, their middle this
+## The garrison's posts. Companies on the wall walk stand three ranks deep, their middle this
 ## far inside the wall; the gate tower is the walk within GATE_TOWER_HALF of the gate.
 const WALK_DEPTH := 38.0
 const GATE_TOWER_HALF := 75.0
@@ -1580,12 +1580,14 @@ func on_gate_tower(p: Vector2) -> bool:
 		and absf(p.y - wall_y) <= WALK_DEPTH + 32.0
 
 
-## Put a company on the wall walk at `x`: two ranks deep along the wall.
+## Put a company on the wall walk at `x`: three ranks deep along the wall, which keeps
+## its length what it was when men stood closer, so a company posted beside a ladder is
+## beside it and not at its head.
 func _post_on_walk(team: int, roster_id: int, x: float) -> void:
 	var sq = place(team, roster_id, Vector2(x, wall_y + inward() * WALK_DEPTH))
 	if sq == null:
 		return
-	_reform(sq, maxi(4, int(ceil(sq.start_men / 2.0))))
+	_reform(sq, maxi(4, int(ceil(sq.start_men / 3.0))))
 	place(team, roster_id, Vector2(x, wall_y + inward() * WALK_DEPTH))
 
 
@@ -1594,7 +1596,7 @@ func _post_on_walk(team: int, roster_id: int, x: float) -> void:
 ## tower to drop stones on the ram, the rest of the foot in a crescent behind the gate
 ## where the breach will come, any more foot waiting to hold the ladder heads, and horse
 ## in the courtyard. `items` are [{key, type}]; returns {key: {at, walk}} (`walk`: a post
-## on the wall walk, where a company stands two ranks deep).
+## on the wall walk, where a company stands three ranks deep).
 func garrison_plan(items: Array) -> Dictionary:
 	var bows := []
 	var foot := []
@@ -1661,10 +1663,10 @@ func _auto_deploy_garrison(team: int, jitter: float = 0.0) -> void:
 		if sq == null:
 			continue
 		if post["walk"]:
-			_reform(sq, maxi(4, int(ceil(sq.start_men / 2.0))))
+			_reform(sq, maxi(4, int(ceil(sq.start_men / 3.0))))
 			place(team, e["roster_id"], at)
 		elif post.get("tower", false):
-			_reform(sq, 7)
+			_reform(sq, 6)
 			place(team, e["roster_id"], at)
 		if post.has("crew") and works != null:
 			sq.crew_of = works.engine_by_id(int(post["crew"]))

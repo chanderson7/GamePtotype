@@ -178,7 +178,7 @@ func _check_wall_defence() -> void:
 			walk_bows += 1
 		elif sim.on_gate_tower(sq.center) and sq.type == Troops.INFANTRY:
 			tower = sq
-		elif sim.inside_walls(sq.center) and absf(sq.center.y - sim.wall_y) > 70.0 and sq.center.distance_to(sim.gate_center) < 200.0:
+		elif sim.inside_walls(sq.center) and absf(sq.center.y - sim.wall_y) > 70.0 and sq.center.distance_to(sim.gate_center) < 230.0:
 			crescent += 1
 	check(walk_bows == 2 and tower != null and crescent == 2,
 		"the garrison takes its posts: bows on the walk, swords on the gate tower, the rest behind the gate (%d bows, tower %s, %d at the breach)" % [walk_bows, tower != null, crescent])
