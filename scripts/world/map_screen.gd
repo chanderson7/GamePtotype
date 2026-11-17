@@ -3451,7 +3451,7 @@ func _open_raise_crown() -> void:
 
 func _on_raise_crown() -> void:
 	if GameState.declare_crown():
-		Sound.play("horn")
+		Sound.play("crown_fanfare")
 	_close_sheet()
 	_refresh_hud()
 	_sync_layers()

@@ -35,7 +35,7 @@ func _ready() -> void:
 	theme = Style.make_theme()
 	_still = Style.motion_reduced()
 	_view = get_viewport_rect().size
-	Sound.play_music("camp_" + (GameState.culture if GameState.culture in ["vardish", "kharzani", "ryumon"] else "vardish"))
+	Sound.play_music("lament_" + (GameState.culture if GameState.culture in ["vardish", "kharzani", "ryumon"] else "vardish"))
 	_build()
 	var focus := Scenes.memorial_focus
 	Scenes.memorial_focus = -1
@@ -531,7 +531,9 @@ func _as_they_were(face: Control, m: Dictionary) -> void:
 func _light(id: int) -> void:
 	if not GameState.light_candle(id):
 		return
-	Sound.play("bell", -6.0)
+	# Each people's own light: a candle, a lamp, incense before the tablet.
+	Sound.play("lamp_lit" if GameState.culture == "kharzani" else "candle")
+	Sound.play("bell", -10.0)
 	Sound.haptic(false)
 	_build()
 	_open_page(id)
@@ -632,6 +634,8 @@ func _do_rite(btn: Button) -> void:
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_gather_col.add_child(l)
 		_words()
+	if GameState.culture == "kharzani":
+		Sound.play("lamp_lit")
 	if _still:
 		_rite_art.progress = 1.0
 		_rite_art.queue_redraw()
@@ -642,7 +646,8 @@ func _do_rite(btn: Button) -> void:
 		if is_instance_valid(_rite_art):
 			var steps := int(v * 6.0)
 			if steps > int(_rite_art.progress * 6.0) and GameState.culture != "kharzani":
-				Sound.play("click", -10.0, 0.08)
+				# A stone on the cairn; a mallet on the tablet.
+				Sound.play("tablet" if GameState.culture == "ryumon" else "stone", -2.0, 0.08)
 			_rite_art.progress = v
 			_rite_art.queue_redraw(), 0.0, 1.0, 1.8)
 	t.tween_callback(done)

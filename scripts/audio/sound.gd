@@ -41,6 +41,7 @@ const SFX_DB := {
 	"laugh": -11.0, "applause": -11.0, "cups": -9.0, "pour": -12.0, "cup_down": -12.0,
 	"cord": -11.0, "knot": -11.0, "bread": -9.0, "salt": -10.0, "quill": -12.0, "brush": -12.0,
 	"seal": -10.0, "lantern": -9.0, "door": -9.0,
+	"crown_fanfare": -4.0, "stone": -8.0, "tablet": -9.0, "candle": -9.0, "lamp_lit": -9.0, "keepsake": -9.0, "letter": -10.0,
 }
 ## How loud each battle sound peaks in play: its loudest tenth of a second, in dBFS, before
 ## where it is on the field and how far out the view is. Each file is trimmed to this from

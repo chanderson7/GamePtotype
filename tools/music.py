@@ -756,13 +756,13 @@ def sfx_footsteps():
 def sfx_camp():
     """A quiet seamless camp: low fire crackle, soft wind and distant night insects."""
     rng = rng_for("camp")
-    n = int(6.0 * SR)
+    n = int(24.0 * SR)
     over = int(0.8 * SR)
     m = n + over
     t = np.arange(m) / SR
     wind_noise = band(rng.standard_normal(m), 90, 800) * (0.10 + 0.025 * np.sin(2 * np.pi * 0.18 * t))
     fire = band(rng.standard_normal(m), 700, 4500) * 0.018
-    for _ in range(70):
+    for _ in range(280):
         s = rng.integers(0, m - int(0.03 * SR))
         k = int(rng.uniform(0.008, 0.03) * SR)
         tt = np.arange(k) / SR
@@ -874,14 +874,14 @@ def sfx_water():
     """A loop of a river running over the stones of a ford: a broad rush that swells and
     falls, and bubbles rising through it."""
     rng = rng_for("water")
-    n = int(5.0 * SR)
+    n = int(21.0 * SR)
     over = int(0.6 * SR)
     m = n + over
     t = np.arange(m) / SR
     rush = band(rng.standard_normal(m), 250, 2600)
     swell = 0.7 + 0.18 * np.sin(2 * np.pi * 0.4 * t) + 0.12 * np.sin(2 * np.pi * 1.1 * t + 1.0)
     out = rush * swell * 0.5
-    for k in range(70):
+    for k in range(300):
         s0 = int(rng.uniform(0, m - 0.05 * SR))
         b = int(rng.uniform(0.02, 0.05) * SR)
         tt = np.arange(b) / SR
@@ -894,7 +894,7 @@ def sfx_birds():
     """A loop of a wood in daylight: leaves stirring, and now and then a bird: a quick
     trill, a two-note call, a rising whistle."""
     rng = rng_for("birds")
-    n = int(7.0 * SR)
+    n = int(28.0 * SR)
     over = int(0.8 * SR)
     m = n + over
     t = np.arange(m) / SR
@@ -925,14 +925,14 @@ def sfx_birds():
             f = np.linspace(rng.uniform(1900, 2400), rng.uniform(3200, 3900), b)
             note = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.sin(np.pi * tt / tt[-1]) ** 2
             out[s0:s0 + b] += note * 0.3
-        at += rng.uniform(0.7, 1.8)
+        at += rng.uniform(0.9, 3.2)
     return seamless(out, n, over)
 
 
 def sfx_road_open():
     """A seamless open-road bed: broad wind, grass at the verge and slow passing gusts."""
     rng = rng_for("road_open")
-    n = int(7.0 * SR)
+    n = int(26.0 * SR)
     over = int(0.8 * SR)
     m = n + over
     t = np.arange(m) / SR
@@ -945,7 +945,7 @@ def sfx_road_open():
 def sfx_road_night():
     """A seamless night road: softer wind with sparse insects and distant low calls."""
     rng = rng_for("road_night")
-    n = int(8.0 * SR)
+    n = int(27.0 * SR)
     over = int(0.9 * SR)
     m = n + over
     t = np.arange(m) / SR
@@ -953,7 +953,7 @@ def sfx_road_night():
     insects = np.maximum(0.0, np.sin(2 * np.pi * 5.6 * t)) ** 10
     insects *= 0.018 * np.sin(2 * np.pi * 4050 * t)
     out += insects
-    for at in (1.3, 4.9, 7.1):
+    for at in sorted(rng.uniform(0.5, 26.0, 8)):
         b = int(0.42 * SR)
         tt = np.arange(b) / SR
         call = np.sin(2 * np.pi * (rng.uniform(420, 520) - 45 * tt) * tt)
@@ -966,14 +966,15 @@ def sfx_road_night():
 def sfx_settlement_edge():
     """A seamless settlement edge: air, indistinct distant activity and an occasional cart."""
     rng = rng_for("settlement_edge")
-    n = int(7.0 * SR)
+    n = int(25.0 * SR)
     over = int(0.8 * SR)
     m = n + over
     t = np.arange(m) / SR
     air = band(rng.standard_normal(m), 100, 1000) * (0.09 + 0.025 * np.sin(2 * np.pi * 0.17 * t))
     murmur = band(rng.standard_normal(m), 180, 700) * (0.025 + 0.015 * np.sin(2 * np.pi * 0.37 * t) ** 2)
     out = air + murmur
-    for at in (1.1, 1.38, 4.8, 5.16):
+    starts = rng.uniform(0.5, 24.0, 6)
+    for at in sorted(list(starts) + [a + rng.uniform(0.25, 0.4) for a in starts]):
         knock = drum(rng.uniform(105, 145), 0.045, noise=0.28, rng=rng, drop=0.2, noise_hi=1700)
         knock = knock[: int(0.22 * SR)] * 0.10
         s = int(at * SR)
@@ -985,7 +986,7 @@ def sfx_settlement_culture(culture):
     """A restrained local-life loop: Vardish carts and smithing, Kharzani market chimes,
     or Ryumon water and wooden work. All share the same quiet air and distant murmur."""
     rng = rng_for("settlement_" + culture)
-    n = int(7.0 * SR)
+    n = int(26.0 * SR)
     over = int(0.8 * SR)
     m = n + over
     t = np.arange(m) / SR
@@ -993,12 +994,17 @@ def sfx_settlement_culture(culture):
     murmur = band(rng.standard_normal(m), 170, 760) * (0.018 + 0.012 * np.sin(2 * np.pi * 0.34 * t) ** 2)
     out = air + murmur
     if culture == "vardish":
-        for at in (0.8, 1.12, 3.9, 5.55, 5.84):
+        starts = rng.uniform(0.5, 25.0, 7)
+        for at in sorted(list(starts) + [a + rng.uniform(0.28, 0.36) for a in starts[:4]]):
             hit = drum(rng.uniform(130, 180), 0.035, noise=0.22, rng=rng, drop=0.22, noise_hi=2600)
             s = int(at * SR)
             out[s:s + len(hit)] += hit[:m - s] * 0.10
     elif culture == "kharzani":
-        for at, note in ((1.15, 78), (1.42, 81), (4.55, 76), (4.83, 83)):
+        chimes = []
+        for a in rng.uniform(0.5, 24.5, 6):
+            first = int(rng.choice([76, 78, 81]))
+            chimes += [(a, first), (a + rng.uniform(0.24, 0.32), first + int(rng.choice([2, 3, 5])))]
+        for at, note in chimes:
             b = int(0.7 * SR)
             tt = np.arange(b) / SR
             chime = np.sin(2 * np.pi * hz(note) * tt) * np.exp(-tt / 0.28)
@@ -1008,7 +1014,7 @@ def sfx_settlement_culture(culture):
     else:
         water = band(rng.standard_normal(m), 350, 2600) * (0.025 + 0.012 * np.sin(2 * np.pi * 0.47 * t))
         out += water
-        for at in (1.0, 2.9, 5.2):
+        for at in sorted(rng.uniform(0.5, 25.0, 10)):
             hit = drum(210, 0.025, noise=0.42, rng=rng, drop=0.16, noise_hi=3600)
             s = int(at * SR)
             out[s:s + len(hit)] += hit[:m - s] * 0.075

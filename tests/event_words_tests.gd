@@ -78,5 +78,15 @@ func _init() -> void:
 	for word in [" he ", " his ", " him ", " king ", " queen ", " my lord"]:
 		check(not said.contains(word), "no \"%s\" in what the events say" % word.strip_edges())
 
+	# ---- the ear: every ceremony's music and sounds are there, and the loops are long
+	for nm in ["lament_vardish", "lament_kharzani", "lament_ryumon", "one_crown", "wedding_vardish", "wedding_kharzani", "wedding_ryumon"]:
+		check(FileAccess.file_exists("res://assets/audio/music/%s.ogg" % nm), "the music %s exists" % nm)
+	for nm in ["crown_fanfare", "stone", "tablet", "candle", "lamp_lit", "keepsake", "letter", "feast_din", "cups", "applause", "laugh"]:
+		check(FileAccess.file_exists("res://assets/audio/sfx/%s.ogg" % nm), "the sound %s exists" % nm)
+	for nm in ["camp", "water", "birds", "road_open", "road_night", "settlement_edge", "settlement_vardish", "settlement_kharzani",
+			"settlement_ryumon", "hearth", "murmur", "feast_din"]:
+		var stream = load("res://assets/audio/sfx/%s.ogg" % nm)
+		check(stream != null and stream.get_length() >= 20.0, "the %s loop runs 20 seconds or more before it repeats" % nm)
+
 	print("FAILURES: %d" % failures)
 	quit(1 if failures > 0 else 0)

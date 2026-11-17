@@ -1059,6 +1059,7 @@ func note(text: String, tone: Color = Style.MORALE_HIGH) -> PanelContainer:
 
 ## A memory kept, in rose: its icon, its words and any chips with it (trust gained).
 func keepsake(text: String, icon_key: String = "cup", fx: Array = []) -> PanelContainer:
+	Sound.play("keepsake", 0.0, 0.0, 0.5)
 	var p := PanelContainer.new()
 	p.name = "Keepsake"
 	p.add_theme_stylebox_override("panel", Style.box(Color("2a1f26"), Style.ROMANCE, 2, 14))

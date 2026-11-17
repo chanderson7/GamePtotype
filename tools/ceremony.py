@@ -1,4 +1,4 @@
-"""The music and sounds of the game's ceremonies, beginning with the wedding.
+"""The music and sounds of the game's ceremonies: the wedding, the memorial, the crown.
 
 The wedding had the campfire tune for its ceremony and the feast tune after, two bells
 and a cheer. It has its own now.
@@ -13,7 +13,18 @@ instrument, each a seamless loop of well over a minute:
   wedding_ryumon    Two Names. E, in the bright (yo) scale: koto figures, the shakuhachi's
                     tune, the harp doubling it, the koto alone.
 
+  lament_vardish    The Cairn Field: a horn alone over the cellos, then the flute.
+  lament_kharzani   The Garden of Lamps: the ney alone over a drone, the oud answering.
+  lament_ryumon     The Lantern Grove: the shakuhachi alone, a koto note, a far gong.
+  one_crown         For the day every capital flies your banner: a broad tune in D.
+
 Sounds (rendered into assets/audio/sfx with the rest):
+
+  crown_fanfare  a crown raised: trumpets, horns, a drum and a cymbal
+  stone, tablet  a stone set on a cairn; a mallet on a wooden tablet
+  candle, lamp_lit  a wick catching; flint struck and the oil taking
+  keepsake       a memory kept: three notes on the harp
+  letter         a letter unfolded
 
   married      the moment of "I do": a harp run up, bells and the strings' chord
   heartbeat    while "I do" is held
@@ -42,7 +53,7 @@ import numpy as np
 
 import battle_sfx as B
 from music import SR, band, bell, drum, hz, lowpass, rng_for, seamless
-from orchestral import held, koto, melody, ney, oud, put, render, render_once, shakuhachi, strike, synth_line
+from orchestral import held, koto, melody, ney, oud, put, render, render_once, shakuhachi, strike, synth_line, timpani
 
 CH = {"D": [50, 54, 57], "G": [43, 47, 50], "A": [45, 49, 52], "Bm": [47, 50, 54], "Em": [40, 43, 47]}
 
@@ -160,7 +171,126 @@ def wedding_ryumon():
     return render("wedding_ryumon", bar * len(order), score, wet=0.4, verb=3.2, loudness=-19.0)
 
 
-MUSIC = {"wedding_vardish": wedding_vardish, "wedding_kharzani": wedding_kharzani, "wedding_ryumon": wedding_ryumon}
+# ------------------------------------------------------------------ the laments
+
+MIN = {"Dm": [50, 53, 57], "Gm": [43, 46, 50], "A": [45, 49, 52], "Bb": [46, 50, 53], "F": [41, 45, 48]}
+
+
+def lament_vardish():
+    """The Cairn Field: D minor, in three, very slow. A horn alone over the cellos; then
+    the flute takes it, an octave up, with the violins under."""
+    bpm, per = 54, 3
+    beat = 60.0 / bpm
+    bar = beat * per
+    prog = ["Dm", "Dm", "Gm", "Dm", "Bb", "F", "Gm", "A", "Dm", "Gm", "A", "Dm"]
+    chords = prog * 2
+    tune = check("cairn", [(69, 3), (65, 2), (64, 1), (62, 3), (57, 3), (65, 2), (67, 1), (69, 3),
+                           (70, 2), (69, 1), (64, 3), (65, 2), (64, 1), (62, 2), (58, 1), (61, 3), (62, 3)], 36)
+
+    def score(tr, off):
+        rng = rng_for("lament_vardish")
+        for i, name in enumerate(chords):
+            ch = MIN[name]
+            t0 = off + i * bar
+            low = ch[0] - 12 if ch[0] >= 46 else ch[0]
+            held(tr, "cellos", low, t0, bar, 0.1, -0.25, rng, attack=1.0)
+            for j, m in enumerate([ch[0], ch[2], ch[1] + 12]):
+                put(tr, "harp", m, t0 + j * beat + rng.uniform(0, 0.015), beat * 2.0, 0.13, 0.3, rng, release=1.6)
+            if i >= 12:
+                held(tr, "violins_soft", ch[1] + 12, t0, bar, 0.04, 0.2, rng, attack=1.2)
+        melody(tr, "horn_soft", tune, off, beat, 0.13, -0.1, rng, legato=0.98, release=0.7)
+        melody(tr, "flute", tune, off + bar * 12, beat, 0.14, -0.15, rng, transpose=12, legato=0.98, release=0.6)
+    return render("lament_vardish", bar * len(chords), score, wet=0.42, verb=3.4, loudness=-20.0)
+
+
+def lament_kharzani():
+    """The Garden of Lamps: the ney alone over a drone, the oud answering low."""
+    bpm = 50
+    beat = 60.0 / bpm
+    bar = beat * 4
+    n1 = check("lamp_1", [(62, 3), (63, 1), (66, 3), (63, 1), (62, 4), (None, 4)], 16)
+    n2 = check("lamp_2", [(69, 3), (70, 1), (69, 2), (66, 2), (67, 2), (66, 1), (63, 1), (62, 4)], 16)
+    n3 = check("lamp_3", [(74, 4), (72, 2), (70, 2), (69, 3), (67, 1), (66, 4)], 16)
+    n4 = check("lamp_4", [(67, 2), (66, 2), (63, 3), (62, 1), (62, 4), (None, 4)], 16)
+
+    def score(tr, off):
+        rng = rng_for("lament_kharzani")
+        for i in range(0, 16, 4):
+            held(tr, "cellos", 38, off + i * bar, bar * 4, 0.11, -0.2, rng, attack=1.6)
+            held(tr, "violas", 45, off + i * bar, bar * 4, 0.05, 0.2, rng, attack=1.8)
+        for i in range(0, 16, 2):
+            tr.add(oud(hz(50), beat * 3, rng), off + i * bar + rng.uniform(0, 0.02), 0.13, 0.25)
+        for k, line in enumerate((n1, n2, n3, n4)):
+            synth_line(tr, ney, line, off + k * 4 * bar, beat, 0.17, -0.15, rng)
+        synth_line(tr, oud, n1[:5], off + bar * 2.5, beat, 0.12, 0.3, rng, transpose=-12)
+        synth_line(tr, oud, n4, off + bar * 12, beat, 0.14, 0.3, rng, transpose=-12)
+    return render("lament_kharzani", bar * 16, score, wet=0.44, verb=3.6, loudness=-20.0)
+
+
+def lament_ryumon():
+    """The Lantern Grove: the shakuhachi alone, a koto note now and then, a far gong."""
+    bpm = 48
+    beat = 60.0 / bpm
+    bar = beat * 4
+    tune = check("grove", [(71, 4), (72, 2), (71, 2), (69, 3), (65, 1), (64, 4), (64, 2), (65, 2), (69, 4),
+                           (71, 3), (72, 1), (76, 4), (72, 2), (71, 2), (69, 2), (65, 2), (64, 6), (None, 2)], 48)
+
+    def score(tr, off):
+        rng = rng_for("lament_ryumon")
+        for i in range(14):
+            t0 = off + i * bar
+            tr.add(koto(hz(52), beat * 2, rng), t0 + rng.uniform(0, 0.02), 0.12, 0.3)
+            tr.add(koto(hz(59 if i % 2 else 57), beat * 2, rng), t0 + beat * 2 + rng.uniform(0, 0.02), 0.09, 0.3)
+            if i % 4 == 0:
+                held(tr, "cellos", 40, t0, bar * 4, 0.08, -0.2, rng, attack=1.8)
+        strike(tr, "gong", off, 0.05, 0.0, rng)
+        strike(tr, "gong", off + bar * 8, 0.04, 0.0, rng)
+        synth_line(tr, shakuhachi, tune, off + bar, beat, 0.18, -0.2, rng)
+    return render("lament_ryumon", bar * 14, score, wet=0.46, verb=3.8, loudness=-20.0)
+
+
+# ------------------------------------------------------------------ the crown
+
+CROWN_PROG = ["D", "G", "D", "A", "Bm", "G", "A", "D", "G", "D", "Em", "A", "D", "G", "A", "D"]
+CROWN_TUNE = [(62, 2), (66, 1), (69, 1), (71, 3), (69, 1), (66, 2), (69, 2), (64, 4),
+              (66, 2), (69, 1), (71, 1), (74, 3), (71, 1), (73, 2), (71, 1), (69, 1), (69, 4),
+              (71, 2), (74, 2), (78, 3), (74, 1), (76, 2), (71, 2), (73, 4),
+              (74, 2), (78, 1), (81, 1), (83, 3), (79, 1), (81, 2), (76, 1), (73, 1), (74, 4)]
+
+
+def one_crown():
+    """One Crown, for the day every capital flies your banner: a broad tune in D, the horn
+    first, then trumpet and violins over the whole band."""
+    bpm = 72
+    beat = 60.0 / bpm
+    bar = beat * 4
+    tune = check("crown", CROWN_TUNE, 64)
+
+    def score(tr, off):
+        rng = rng_for("one_crown")
+        for i, name in enumerate(CROWN_PROG):
+            ch = CH[name]
+            t0 = off + i * bar
+            low = ch[0] - 12 if ch[0] >= 45 else ch[0]
+            held(tr, "cellos", low, t0, bar, 0.12, -0.25, rng, attack=0.5)
+            for m in ch:
+                held(tr, "violas" if i < 8 else "violins_soft", m + (12 if i < 8 else 24), t0, bar, 0.035, 0.2, rng, attack=0.8)
+            for j, m in enumerate([ch[0], ch[2], ch[0] + 12, ch[1] + 12]):
+                put(tr, "harp", m, t0 + j * beat, beat * 1.5, 0.1, 0.3, rng, release=1.2)
+            if i >= 8:
+                tr.add(timpani(38 if name in ("D", "G", "Bm") else 45, rng), t0, 0.16, 0.0)
+            if i in (8, 12):
+                strike(tr, "crash", t0, 0.05, 0.1, rng)
+        melody(tr, "horn", tune[:17], off, beat, 0.14, -0.15, rng, legato=0.97, release=0.5)
+        melody(tr, "trumpet", tune[17:], off + bar * 8, beat, 0.11, 0.1, rng, legato=0.95, release=0.4)
+        melody(tr, "violins", tune[17:], off + bar * 8, beat, 0.08, -0.2, rng, transpose=12, legato=0.97, release=0.5)
+        melody(tr, "horn", [(CH[c][2], 4) for c in CROWN_PROG[8:]], off + bar * 8, beat, 0.07, -0.2, rng, legato=0.98, release=0.5)
+    return render("one_crown", bar * len(CROWN_PROG), score, wet=0.32, verb=2.8, loudness=-19.0)
+
+
+MUSIC = {"wedding_vardish": wedding_vardish, "wedding_kharzani": wedding_kharzani, "wedding_ryumon": wedding_ryumon,
+         "lament_vardish": lament_vardish, "lament_kharzani": lament_kharzani, "lament_ryumon": lament_ryumon,
+         "one_crown": one_crown}
 
 
 # ------------------------------------------------------------------ the moment
@@ -469,7 +599,102 @@ def door():
     return B.tail(B.mix(parts, 0.6), 0.15)
 
 
-SFX = {"married": married, "heartbeat": heartbeat, "hearth": hearth, "murmur": murmur, "feast_din": feast_din,
+# ------------------------------------------------------------------ the crown, the fallen, the page
+
+def crown_fanfare():
+    """A crown raised: trumpets up the chord, the horns under, a drum and a cymbal."""
+    def score(tr, off):
+        rng = rng_for("crown_fanfare")
+        t = off
+        for m, d in ((62, 0.28), (62, 0.14), (66, 0.14), (69, 0.28), (74, 1.8)):
+            put(tr, "trumpet", m, t, d * 0.95, 0.16, 0.1, rng, release=0.25)
+            put(tr, "horn", m - 12, t, d * 0.95, 0.12, -0.2, rng, release=0.3)
+            t += d
+        top = t - 1.8
+        put(tr, "trumpet", 78, top, 1.7, 0.1, 0.25, rng, release=0.4)
+        put(tr, "trombone", 50, top, 1.7, 0.12, -0.1, rng, release=0.4)
+        tr.add(timpani(38, rng), top, 0.3, 0.0)
+        strike(tr, "crash", top, 0.1, 0.1, rng)
+    return _mono(render_once(2.9, score, wet=0.28, verb=2.4, tail=1.4, loudness=-16.0))
+
+
+def stone():
+    """A stone set on a cairn: the knock, and the grit as it settles."""
+    rng = rng_for("stone")
+    parts = [(band(drum(130, 0.035, dur=0.2, noise=0.6, rng=rng, drop=0.25, noise_hi=2600), 80, 4500), 0.0, 1.0),
+             (_swish(rng, 0.03, 900, 5000, lambda t: np.exp(-t / 0.006)), 0.0, 0.6),
+             (_swish(rng, 0.22, 500, 3000, lambda t: np.clip(t / 0.02, 0, 1) * np.exp(-t / 0.07) * (0.5 + 0.5 * np.sin(2 * np.pi * 38 * t) ** 2)), 0.05, 0.22)]
+    return B.tail(B.mix(parts, 0.4), 0.15)
+
+
+def tablet():
+    """A wooden tablet set in the earth: two taps of a mallet on wood."""
+    rng = rng_for("tablet")
+    parts = []
+    for at, g in ((0.0, 0.8), (0.34, 1.0)):
+        parts.append((band(drum(260, 0.03, dur=0.2, noise=0.35, rng=rng, drop=0.15, noise_hi=3500), 150, 5000), at, g))
+        parts.append((B.ring(rng, 700, 1900, 3, 0.03, 0.12), at, 0.25 * g))
+    return B.tail(B.mix(parts, 0.7), 0.15)
+
+
+def _flame(rng, length):
+    return _swish(rng, length, 200, 2400, lambda t: np.clip(t / 0.05, 0, 1) * np.exp(-t / (length * 0.35)))
+
+
+def candle():
+    """A candle lit: the wick catching."""
+    rng = rng_for("candle")
+    parts = [(_swish(rng, 0.05, 2500, 9000, lambda t: np.exp(-t / 0.012)), 0.0, 0.5), (_flame(rng, 0.7), 0.03, 1.0)]
+    return B.tail(B.mix(parts, 0.8), 0.3)
+
+
+def lamp_lit():
+    """A lamp lit: flint struck twice, the oil taking."""
+    rng = rng_for("lamp_lit")
+    parts = []
+    for at in (0.0, 0.2):
+        parts.append((B.ring(rng, 2500, 7000, 4, 0.012, 0.06), at, 0.6))
+        parts.append((_swish(rng, 0.03, 3000, 10000, lambda t: np.exp(-t / 0.006)), at, 0.7))
+    parts.append((_flame(rng, 1.0), 0.26, 1.0))
+    return B.tail(B.mix(parts, 1.3), 0.4)
+
+
+def keepsake():
+    """A memory kept: two notes on the harp, rising, and a small bell over them."""
+    def score(tr, off):
+        rng = rng_for("keepsake")
+        put(tr, "harp", 69, off, 1.6, 0.2, -0.1, rng, release=1.4)
+        put(tr, "harp", 74, off + 0.16, 1.6, 0.2, 0.1, rng, release=1.4)
+        put(tr, "harp", 78, off + 0.32, 1.8, 0.22, 0.2, rng, release=1.6)
+        put(tr, "glock", 90, off + 0.34, 1.2, 0.05, 0.3, rng, release=1.0)
+    return _mono(render_once(1.4, score, wet=0.3, verb=2.0, tail=1.0, loudness=-18.0))
+
+
+def letter():
+    """A letter unfolded: paper, twice, and smoothed flat."""
+    rng = rng_for("letter")
+    L = 0.75
+    n = int(L * SR)
+    out = np.zeros(n)
+    for at, d in ((0.0, 0.2), (0.24, 0.26)):
+        sw = _swish(rng, d, 1200, 8000, lambda t, d=d: np.sin(np.pi * np.clip(t / d, 0, 1)) ** 0.7)
+        s = int(at * SR)
+        out[s:s + len(sw)] += sw * 0.4
+    for _ in range(40):
+        at = rng.uniform(0.0, 0.5)
+        k = int(rng.uniform(0.003, 0.01) * SR)
+        tt = np.arange(k) / SR
+        s = int(at * SR)
+        out[s:s + k] += band(rng.standard_normal(k), 2500, 10000) * np.exp(-tt / 0.002) * rng.uniform(0.2, 0.8)
+    flat = _swish(rng, 0.2, 800, 4000, lambda t: np.sin(np.pi * t / 0.2) ** 2) * 0.2
+    s = int(0.53 * SR)
+    out[s:s + len(flat)] += flat[: n - s]
+    return B.tail(out, 0.15)
+
+
+SFX = {"crown_fanfare": crown_fanfare, "stone": stone, "tablet": tablet, "candle": candle, "lamp_lit": lamp_lit,
+       "keepsake": keepsake, "letter": letter,
+       "married": married, "heartbeat": heartbeat, "hearth": hearth, "murmur": murmur, "feast_din": feast_din,
        "laugh": laugh, "applause": applause, "cups": cups, "pour": pour, "cup_down": cup_down,
        "cord": cord, "knot": knot, "bread": bread, "salt": salt, "quill": quill, "brush": brush,
        "seal": seal, "lantern": lantern, "door": door}

@@ -922,7 +922,7 @@ func _confirm_crown() -> void:
 	var yes := _button("Raise crown", func():
 		Widgets.close_sheet(col)
 		if GameState.declare_crown():
-			Sound.play("horn")
+			Sound.play("crown_fanfare")
 		_build())
 	yes.name = "ConfirmCrown"
 	Style.make_primary(yes)

@@ -1250,7 +1250,7 @@ func _open_letter(id: String) -> void:
 	_letter = id
 	_reply = ""
 	_unfold = true
-	Sound.play("page", 0.0, 0.05)
+	Sound.play("letter", 0.0, 0.05)
 	_build()
 
 
