@@ -3860,9 +3860,11 @@ func _refresh_hud() -> void:
 		var on: bool = b == current
 		b.add_theme_stylebox_override("normal", _pill_box(Style.BRASS if on else Color(Style.PANEL, 0.94)))
 		b.add_theme_stylebox_override("hover", _pill_box(Style.BRASS.lightened(0.1) if on else Color(Style.PANEL, 0.94).lightened(0.08)))
-		var ink := Color(0.1, 0.08, 0.12) if on else Color(0.93, 0.89, 0.8)
+		# The one in use carries its icon on an iron boss, so it reads against the brass.
+		var key: String = "pause" if b == pause_button else ("fast" if b == fast_button else "play")
+		b.icon = Widgets.PixelIcons.boss(key) if on else Widgets.icon(key)
 		for state in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_focus_color"]:
-			b.add_theme_color_override(state, ink)
+			b.add_theme_color_override(state, Color.WHITE)
 	bottom_bar.visible = not _sheet_open()
 	var modal := _sheet in ["encounter", "notice", "warning"]
 	warband_button.disabled = modal
