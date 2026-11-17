@@ -1,6 +1,7 @@
 ## The settlement seen from its gate (settlement_scene.gd paints it), scaled up with crisp
-## pixels and kept a little alive: Vardmark's clouds drift, smoke rises and leans,
-## torches and lanterns flicker, stars twinkle. With reduced motion it holds still.
+## pixels and kept alive: people walk the road before the gate, birds cross the sky by
+## day, Vardmark's clouds drift, smoke rises and leans, torches and lanterns flicker,
+## stars twinkle. With reduced motion it holds still.
 extends Control
 
 const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
@@ -17,6 +18,12 @@ var preset := {}
 var fade := false
 
 var _scene := {}
+## What the scene was painted from (its people, its kind, what it is going through).
+var _params := {}
+## People on the road before the gate: {x, y, speed (pixels a second, signed), map, step}.
+var _walkers: Array = []
+## A few birds crossing the sky together: {x, y, speed, phase}.
+var _birds: Array = []
 var _sky: Texture2D
 var _clouds: Texture2D
 var _front: Texture2D
@@ -58,15 +65,59 @@ static func from_preset(params: Dictionary, height: float = 120.0) -> Control:
 ## Paints the scene again from the world as it is now.
 func refresh() -> void:
 	if not preset.is_empty():
-		_scene = SettlementScene.build(preset)
+		_params = preset
 	elif place == "" or not Data.SETTLEMENTS.has(place):
 		return
 	else:
-		_scene = SettlementScene.build(SettlementScene.params(world, place))
+		_params = SettlementScene.params(world, place)
+	_scene = SettlementScene.build(_params)
+	_people()
 	_sky = ImageTexture.create_from_image(_scene["sky"])
 	_front = ImageTexture.create_from_image(_scene["front"])
 	_clouds = ImageTexture.create_from_image(_scene["clouds"]) if _scene["clouds"] != null else null
 	queue_redraw()
+
+
+## Who is out on the road, by the place and its day: a town's street is busy, a castle's
+## gate and a village's lane less so, and fewer are about at night. Nobody strolls before
+## a besieged gate or through a village that has just been raided. A scene kept with a
+## save holds still.
+func _people() -> void:
+	_walkers = []
+	_birds = []
+	if not preset.is_empty() or Style.motion_reduced():
+		return
+	var condition := String(_params.get("condition", "healthy"))
+	if condition in ["besieged", "raided"]:
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(_params.get("seed", 1)) + 17
+	var kind := String(_params.get("kind", ""))
+	var night: bool = _scene["night"]
+	var count := 6 if kind == Data.TOWN else (3 if kind == Data.CASTLE else 2)
+	if String(_params.get("prosperity", "normal")) == "poor":
+		count -= 1
+	if night:
+		count = int(count / 3)
+	var fig: Dictionary = SettlementScene.FIG.get(String(_params.get("culture", "vardish")), SettlementScene.FIG["vardish"])
+	for i in count:
+		var map: Dictionary = fig["map"].duplicate()
+		if rng.randf() < 0.5:
+			map.merge(fig["alt"], true)
+		var colours := {}
+		for key in map:
+			var c := Color(String(map[key]))
+			if night:
+				c = Color(c.r * SettlementScene.NIGHT_TINT.r, c.g * SettlementScene.NIGHT_TINT.g, c.b * SettlementScene.NIGHT_TINT.b)
+			colours[key] = c
+		var speed := rng.randf_range(3.0, 6.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+		_walkers.append({"x": rng.randf_range(0.0, SettlementScene.W), "y": 69.0 + i * 10.0 / maxf(1.0, count - 1.0) if count > 1 else 74.0,
+			"speed": speed, "map": colours, "rows": fig["rows"], "step": rng.randf_range(0.0, 1.0), "basket": rng.randf() < 0.3})
+	if not night:
+		var by := rng.randf_range(6.0, 18.0)
+		var bx := rng.randf_range(0.0, SettlementScene.W)
+		for i in 3:
+			_birds.append({"x": bx - i * 5.0, "y": by + (i % 2) * 3.0, "speed": 9.0, "phase": i * 0.9})
 
 
 ## Keep the picture's shape: as tall as its width allows.
@@ -79,6 +130,11 @@ func _fit() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	_since += delta
+	for w in _walkers:
+		w["x"] = wrapf(float(w["x"]) + float(w["speed"]) * delta, -6.0, SettlementScene.W + 6.0)
+	for b in _birds:
+		# Off the right edge, the flock is a while coming round again.
+		b["x"] = wrapf(float(b["x"]) + float(b["speed"]) * delta, -40.0, SettlementScene.W + 160.0)
 	if _since >= FRAME and is_visible_in_tree():
 		_since = 0.0
 		queue_redraw()
@@ -114,6 +170,8 @@ func _draw() -> void:
 		draw_rect(Rect2(f.x, f.y, 1, 1), Color("ffd678") if hot else Color("ffb84a"))
 		if hot:
 			draw_rect(Rect2(f.x, f.y - 1, 1, 1), Color("ff7a3a"))
+	_draw_birds()
+	_draw_walkers()
 	for l in _scene["lanterns"]:
 		if night:
 			draw_rect(Rect2(l.x - 2, l.y - 2, 5, 6), Color(1.0, 0.48, 0.29, 0.2 + 0.06 * sin(_t * 5.0 + l.x)))
@@ -132,6 +190,44 @@ func _draw() -> void:
 			PackedColorArray([clear, clear, half, half]))
 		draw_polygon(PackedVector2Array([Vector2(0, mid_y), Vector2(size.x, mid_y), Vector2(size.x, size.y), Vector2(0, size.y)]),
 			PackedColorArray([half, half, dark, dark]))
+
+
+## The people on the road: the scene's own small figures, their legs changing with each
+## step, facing the way they walk, a basket on some.
+func _draw_walkers() -> void:
+	for w in _walkers:
+		var rows: Array = w["rows"]
+		var map: Dictionary = w["map"]
+		var left := float(w["speed"]) < 0.0
+		var x0 := roundf(float(w["x"]))
+		var y0 := roundf(float(w["y"])) - rows.size()
+		var stride := int((_t * absf(float(w["speed"])) * 0.9 + float(w["step"])) * 2.0) % 2
+		for r in rows.size():
+			var row := String(rows[r])
+			# The last row is the feet: apart on one step, together on the next.
+			if r == rows.size() - 1 and stride == 1:
+				row = ".ll."
+			for i in row.length():
+				var ch := row[row.length() - 1 - i] if left else row[i]
+				if ch != ".":
+					draw_rect(Rect2(x0 + i, y0 + r, 1, 1), map[ch])
+		if bool(w["basket"]):
+			draw_rect(Rect2(x0 + (-1 if left else 4), y0 + 3, 2, 2), Color("b8945a") if not _scene["night"] else Color("3c3a55"))
+
+
+## Birds far off: two pixels of wing either side of a body, up on one beat and down on the next.
+func _draw_birds() -> void:
+	for b in _birds:
+		var x := roundf(float(b["x"]))
+		var y := roundf(float(b["y"]) + sin(_t * 0.7 + float(b["phase"])) * 1.5)
+		var up := sin(_t * 9.0 + float(b["phase"])) > 0.0
+		var c := Color(0.16, 0.17, 0.22, 0.85)
+		draw_rect(Rect2(x, y, 1, 1), c)
+		draw_rect(Rect2(x - 1, y + (-1 if up else 0), 1, 1), c)
+		draw_rect(Rect2(x + 1, y + (-1 if up else 0), 1, 1), c)
+		if not up:
+			draw_rect(Rect2(x - 2, y + 1, 1, 1), c)
+			draw_rect(Rect2(x + 2, y + 1, 1, 1), c)
 
 
 ## Two spokes across a mill wheel, turning slowly while the water runs.

@@ -32,6 +32,7 @@ const CourtUI = preload("res://scripts/ui/court_ui.gd")
 const HallScene = preload("res://scripts/ui/hall_scene.gd")
 const HallLife = preload("res://scripts/ui/hall_life.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
+const CompanyRank = preload("res://scripts/ui/company_rank.gd")
 
 ## The food you can buy in one go, in days for the whole warband.
 const FOOD_DAYS := [3, 7]
@@ -2296,10 +2297,14 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var men := Troops.full_size(type)
 	var cost := Economy.recruit_cost(type, men)
 	var wage := Economy.daily_wage({"type": type, "men": men, "level": 1})
+	# The company itself, drawn up to be looked over, and under it what it costs.
+	var card := VBoxContainer.new()
+	card.name = "Offer_%d" % index
+	card.add_theme_constant_override("separation", 10)
+	card.add_child(CompanyRank.make(type, culture, men))
 	var row := HBoxContainer.new()
-	row.name = "Offer_%d" % index
 	row.add_theme_constant_override("separation", 14)
-	row.add_child(_portrait(type, culture))
+	card.add_child(row)
 	var text := _text_column(row)
 	text.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	text.add_child(Style.label(Cultures.troop_name(culture, type), Style.BODY))
@@ -2324,7 +2329,7 @@ func _offer_row(offer: Dictionary, index: int, full: bool) -> Control:
 	var priced := Widgets.priced(b, [["silver", Widgets.thousands(cost), Style.ENEMY_LIGHT if cost > GameState.silver else Style.TEXT]])
 	priced.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(priced)
-	return row
+	return card
 
 
 func _add_squads(col: VBoxContainer) -> void:

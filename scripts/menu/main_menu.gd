@@ -265,7 +265,7 @@ func _on_tab(id: String) -> void:
 func _camp_header() -> Control:
 	var stage := Control.new()
 	stage.name = "WarbandCampStage"
-	stage.custom_minimum_size.y = 190
+	stage.custom_minimum_size.y = 300
 	stage.clip_contents = true
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var camp := StoryArt.location("company_camp", 0)
@@ -273,6 +273,18 @@ func _camp_header() -> Control:
 	camp.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	camp.modulate = _camp_light()
 	stage.add_child(camp)
+	# Your own soldiers about the camp: one from each company, and a second from the first few.
+	var life := camp.get_node_or_null("CampLife")
+	if life != null:
+		var folk: Array = []
+		var colour: Color = Cultures.info(GameState.culture)["color"]
+		for pass_no in 2:
+			for sq in GameState.army:
+				if folk.size() < 10:
+					var unit := String(sq.get("unit", ""))
+					var role := Units.role(unit) if Units.has(unit) else String(sq.get("type", "infantry"))
+					folk.append({"culture": String(sq.get("culture", GameState.culture)), "mounted": role == Troops.CAVALRY and pass_no == 0, "colour": colour})
+		life.folk = folk
 	# Firelight: a slow, slight flicker; still when motion is reduced.
 	if not Style.motion_reduced():
 		var base := camp.modulate

@@ -8,6 +8,7 @@ extends Control
 ## Add it as a child of the TextureRect that shows the camp: CampLife.over(art).
 
 const Style = preload("res://scripts/ui/style.gd")
+const MapArt = preload("res://scripts/art/map_art.gd")
 
 ## Where things stand in the painting, in its pixels.
 const ART := Vector2(240, 160)
@@ -18,6 +19,21 @@ const STARS := [Vector2(47, 1), Vector2(84, 0), Vector2(172, 1), Vector2(103, 2)
 	Vector2(206, 8), Vector2(72, 9), Vector2(76, 13), Vector2(220, 15), Vector2(2, 16)]
 
 const FLAME := [Color("fff1a8"), Color("ffcf6a"), Color("ff9a3a"), Color("e2553f")]
+
+## The company's own soldiers about the camp, one or two from each company: [{culture,
+## mounted, colour}]. Those on foot stand at the fire, riders keep their horses back by the tents,
+## and the first of them walks the watch across the front. Empty where the camp is only
+## a backdrop.
+var folk: Array = []
+
+## Where they stand, in the painting's pixels (their feet), and whether they face left.
+const AT_FIRE := [[104.0, 97.0, false], [138.0, 97.0, true], [92.0, 100.0, false], [150.0, 100.0, true], [112.0, 104.0, false], [130.0, 104.0, true],
+	[80.0, 96.0, false], [162.0, 97.0, true]]
+const BY_TENTS := [[56.0, 108.0, false], [196.0, 109.0, true], [28.0, 104.0, false]]
+const WATCH := [20.0, 220.0, 118.0]     # from x, to x, at y
+const WATCH_PACE := 7.0                 # pixels of the painting a second
+const FOLK_SCALE := 1.0
+const FIRELIT := Color(0.86, 0.76, 0.7)
 
 var _t := 0.0
 var _sparks: Array = []
@@ -98,6 +114,7 @@ func _draw() -> void:
 	var centre := _to(FIRE + Vector2(0, -4))
 	for ring in [[70.0, 0.035], [48.0, 0.05], [30.0, 0.07], [16.0, 0.09]]:
 		draw_circle(centre, float(ring[0]) * k * (0.96 + 0.04 * breath), Color(1.0, 0.6, 0.25, float(ring[1]) * breath))
+	_draw_folk()
 	if _still:
 		return
 	# Smoke: soft grey puffs that rise, lean with the wind and widen as they thin.
@@ -143,3 +160,60 @@ func _draw() -> void:
 		var tw := 0.5 + 0.5 * sin(_t * (1.1 + 0.37 * i) + i * 2.1)
 		if tw > 0.75:
 			_px(STARS[i], Color(1.0, 1.0, 0.92, (tw - 0.75) * 2.4))
+
+
+## One of the company, feet at `foot` (the painting's pixels): a soldier on foot, or a
+## rider by a horse, as they look from the side on the map, in the company's colours.
+func _soldier(who: Dictionary, foot: Vector2, left: bool, frame: int, tone: Color) -> void:
+	var culture := String(who.get("culture", "vardish"))
+	var sprite := ("mounted/" if bool(who.get("mounted", false)) else "follower/") + culture
+	if not MapArt.has(sprite):
+		sprite = "follower/vardish"
+	var tex: Texture2D = MapArt.texture(sprite, frame, who.get("colour", Color(0.29, 0.45, 0.82)))
+	var k := _k() * FOLK_SCALE
+	var sz := Vector2(tex.get_size())
+	var pivot: Vector2 = MapArt.pivot(sprite)
+	var corner := _to(Vector2(roundf(foot.x), roundf(foot.y))) - Vector2((sz.x - pivot.x) if left else pivot.x, sz.y) * k
+	var rect := Rect2(corner, sz * k)
+	if left:
+		rect = Rect2(corner + Vector2(sz.x * k, 0), Vector2(-sz.x * k, sz.y * k))
+	draw_texture_rect(tex, rect, false, tone)
+
+
+## The company about its camp: the watch walking the front, the rest at the fire, shifting
+## their weight now and then; riders hold their horses back by the tents.
+func _draw_folk() -> void:
+	if folk.is_empty():
+		return
+	var fire := 0
+	var tents := 0
+	var watch := false
+	for i in folk.size():
+		var who: Dictionary = folk[i]
+		var mounted := bool(who.get("mounted", false))
+		if not watch and not mounted and not _still:
+			watch = true
+			# The watch: there and back along the front of the camp, a pause at each end.
+			var span: float = WATCH[1] - WATCH[0]
+			var lap := span / WATCH_PACE + 2.5
+			var along := fposmod(_t, lap * 2.0)
+			var back := along >= lap
+			var moving := fposmod(along, lap) < span / WATCH_PACE
+			var walked := minf(fposmod(along, lap), span / WATCH_PACE) * WATCH_PACE
+			var x: float = WATCH[1] - walked if back else WATCH[0] + walked
+			_soldier(who, Vector2(x, WATCH[2]), back, int(_t * 4.0) % 2 if moving else 0, Color(0.62, 0.62, 0.74))
+			continue
+		var spot: Array
+		if mounted:
+			if tents >= BY_TENTS.size():
+				continue
+			spot = BY_TENTS[tents]
+			tents += 1
+		else:
+			if fire >= AT_FIRE.size():
+				continue
+			spot = AT_FIRE[fire]
+			fire += 1
+		var every := 4.0 + (i * 37 % 10) * 0.45
+		var shifting := not _still and fposmod(_t + i * 1.7, every) < 0.35
+		_soldier(who, Vector2(spot[0], spot[1]), spot[2], 1 if shifting else 0, Color(0.72, 0.7, 0.78) if mounted else FIRELIT)

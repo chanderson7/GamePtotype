@@ -10,6 +10,7 @@ const TravelPresentation = preload("res://scripts/world/travel_presentation.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const WorldSim = preload("res://scripts/world/world_sim.gd")
 const SettlementVista = preload("res://scripts/ui/settlement_vista.gd")
+const CompanyRank = preload("res://scripts/ui/company_rank.gd")
 const SettlementScene = preload("res://scripts/ui/settlement_scene.gd")
 const Lords = preload("res://scripts/data/lords.gd")
 const FIRST := "edda_spare_spoon"
@@ -192,6 +193,38 @@ func _check_settlement_conditions() -> void:
 			"%s has a coherent culture, type and condition composition" % id)
 		vista.free()
 	check(cultures.size() == 3 and types.size() == 3, "all three cultures and settlement types use the shared composition")
+	# The places are lived in: people on a town's street, nobody before a besieged gate.
+	var town_id := ""
+	for id in WorldData.SETTLEMENTS:
+		if String(WorldData.SETTLEMENTS[id]["type"]) == WorldData.TOWN and town_id == "":
+			town_id = id
+	var busy := SettlementVista.make(town_id, w, 180.0)
+	busy.refresh()
+	var walkers_at: Array = []
+	for wk in busy._walkers:
+		walkers_at.append(float(wk["x"]))
+	busy._process(1.0)
+	var moved := false
+	for i in busy._walkers.size():
+		moved = moved or not is_equal_approx(float(busy._walkers[i]["x"]), float(walkers_at[i]))
+	check(busy._walkers.size() >= 4 and moved, "people walk a town's street")
+	var shut := SettlementScene.params(w, town_id)
+	shut["condition"] = "besieged"
+	var siege_vista := SettlementVista.new()
+	siege_vista._params = shut
+	siege_vista._scene = SettlementScene.build(shut)
+	siege_vista._people()
+	check(siege_vista._walkers.is_empty() and siege_vista._birds.is_empty(), "nobody strolls before a besieged gate")
+	busy.free()
+	siege_vista.free()
+	# A company for hire is drawn up to be seen: every man of it, when the strip holds them.
+	var rank = CompanyRank.make("archers", "vardish", 20)
+	rank.size = Vector2(590, 124)
+	check(rank.shown() == 20, "all twenty recruits stand in the rank")
+	rank.men = 200
+	rank._laid_for = -1.0
+	check(rank.shown() < 200 and rank.shown() >= 20, "a company too big for the strip shows the ranks that fit")
+	rank.free()
 	var scene_ok := true
 	for id in WorldData.SETTLEMENTS:
 		var o := SettlementScene.params(w, id)
