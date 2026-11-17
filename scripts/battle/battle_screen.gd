@@ -681,7 +681,7 @@ func _ready() -> void:
 		layer.queue_redraw()
 	# Words on the order bar while the orders are new (the objective is in its chip under
 	# the top bar, for every kind of battle).
-	_order_words = GameState.battles < ORDER_WORD_BATTLES
+	_order_words = GameState.battles < ORDER_WORD_BATTLES or Sound.battle_hints
 	# The enemy's people set the music; an assault on walls has its own.
 	Sound.play_battle("siege" if sim.objective == Sim.OBJECTIVE_SIEGE else _enemy_culture)
 	# A river runs through a ford; birds sing in a wood.
@@ -704,9 +704,12 @@ func _ready() -> void:
 	elif _resume_to >= 0:
 		_begin_resume()
 	else:
-		# The one-shot card about the ground waits for Fight (see _end_title), so it never
-		# lands on the deployment hint.
 		_select_next_card()
+		# The one-shot card about the ground (or the objective) comes up now, while you are
+		# still placing your companies and nothing is moving: a fight is never stopped to
+		# be explained.
+		_ground_card_checked = true
+		_maybe_show_terrain_hint()
 	_refresh_hud()
 
 
@@ -818,7 +821,7 @@ func _finish_resume() -> void:
 		_layout()
 		if sim.winner == -1:
 			_set_paused(true)
-			_hint("Back where you left the battle. Resume when you're ready.")
+			_teach("Back where you left the battle. Resume when you're ready.")
 	else:
 		_select_next_card()
 	_refresh_hud()
@@ -1029,8 +1032,8 @@ func _begin_title() -> void:
 func _end_title() -> void:
 	_title = {}
 	_dim_hud(1.0)
-	# The ground's (or the objective's) one-shot card comes up once the fight is on, and
-	# the battle waits for it.
+	# The ground's card was shown at deployment. A battle that had none (an ambush, one
+	# sent straight in) still gets it here, once.
 	if not _ground_card_checked:
 		_ground_card_checked = true
 		_maybe_show_terrain_hint()
@@ -1801,7 +1804,7 @@ func _end_press(at: Vector2) -> void:
 		if _on_pending_line(_press_at, waiting):
 			_order_line(waiting["a"], waiting["b"], null)
 		else:
-			_hint("Line dropped. Drag again to draw another.")
+			_teach("Line dropped. Drag again to draw another.")
 		return
 	var tapped = _standard_at(_press_at)
 	if sim.phase == Sim.PHASE_DEPLOY:
@@ -1914,7 +1917,7 @@ func _on_slow_held() -> void:
 	Sound.haptic()
 	if not _slow_taught:
 		_slow_taught = true
-		_hint("Time slowed. Tap orders with your other hand; let go and the fight runs on.")
+		_teach("Time slowed. Tap orders with your other hand; let go and the fight runs on.")
 
 
 ## Lets go of the handle for every finger: when the battle stops or pauses under it. A
@@ -1967,7 +1970,7 @@ func _drop_squad(sq, at: Vector2) -> void:
 			return
 		_hand_placed[sq.roster_id] = true
 		Sound.haptic()
-		_hint("%s stand there. Drag another flag, or press Fight." % _company_or_type(sq), "placed")
+		_confirm("%s stand there. Drag another flag, or press Fight." % _company_or_type(sq), "placed")
 		return
 	selected_squad = sq
 	if t.has("foe"):
@@ -1982,7 +1985,7 @@ func _order_attack(sq, foe) -> void:
 	_mark_ordered(foe)
 	_callout(foe, "TARGET", Style.ENEMY_LIGHT, true)
 	Sound.play("clash2", -6.0, 0.05)
-	_hint("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()], "attack")
+	_confirm("%s attack the enemy %s, and stay on them until they break." % [_company_or_type(sq), _name(foe.type, Sim.ENEMY).to_lower()], "attack")
 
 
 ## Why `sq` can't march to `p`, or "" if it can.
@@ -2001,7 +2004,7 @@ func _order_move(sq, p: Vector2) -> void:
 		return
 	sim.command("order_move", [sq, p])
 	_mark_ordered(sq)
-	_hint("%s march there and hold." % _company_or_type(sq), "move")
+	_confirm("%s march there and hold." % _company_or_type(sq), "move")
 
 
 ## How a squad of `type` fares against `foe_type`: [arrow, words, colour].
@@ -2031,9 +2034,9 @@ func _line_drawn(a: Vector2, b: Vector2) -> void:
 	_pending_line = {"a": a, "b": b}
 	Sound.play("page", -6.0, 0.05)
 	if sim.phase == Sim.PHASE_DEPLOY:
-		_hint("Tap the line to move the whole warband onto it, the companies you placed too. Tap elsewhere to keep them where they are.")
+		_teach("Tap the line to move the whole warband onto it, the companies you placed too. Tap elsewhere to keep them where they are.")
 	else:
-		_hint("Tap the line to form the whole warband on it. Tap elsewhere to drop it.")
+		_teach("Tap the line to form the whole warband on it. Tap elsewhere to drop it.")
 
 
 ## Whether a tap at `at` (on screen) lands on the waiting line `line`.
@@ -2067,11 +2070,11 @@ func _order_line(a: Vector2, b: Vector2, only) -> void:
 	if sim.phase == Sim.PHASE_DEPLOY:
 		selected_id = -1
 		_hand_placed.clear()
-		_hint("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.", "line")
+		_confirm("Your army stands on the line. Drag again to redraw it, tap a squad to move it, or press Fight.", "line")
 	elif only != null:
-		_hint("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])], "line")
+		_confirm("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])], "line")
 	else:
-		_hint("The army forms up along the line, each squad to its own stretch of it, and holds there.", "line")
+		_confirm("The army forms up along the line, each squad to its own stretch of it, and holds there.", "line")
 
 
 ## The squad whose standard is under a tap, or null.
@@ -2102,7 +2105,7 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 			_select_next_card() # tapping the picked-up squad again leaves it where it is
 		else:
 			selected_id = mine.roster_id
-			_hint("Tap where you want %s to stand." % _company_or_type(mine), "place")
+			_teach("Tap where you want %s to stand." % _company_or_type(mine), "place")
 		return
 	var foe = tapped if tapped != null and tapped.team == Sim.ENEMY else sim.squad_at(Sim.ENEMY, p, 52.0)
 	if foe != null:
@@ -2114,7 +2117,7 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 			_hint(thint)
 			return
 		if sim.all_placed(Sim.PLAYER):
-			_hint("Tap one of your squads to move it, or press Fight.")
+			_teach("Tap one of your squads to move it, or press Fight.")
 		else:
 			_hint("Tap a card first.")
 		return
@@ -2142,12 +2145,12 @@ func _select_next_card() -> void:
 	for e in _cards:
 		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			selected_id = e["roster_id"]
-			_hint("Tap the blue zone to place %s, or drag a line for everyone." % _card_name(e), "place_next")
+			_teach("Tap the blue zone to place %s, or drag a line for everyone." % _card_name(e), "place_next")
 			return
 	if sim.caught_on_march(Sim.PLAYER):
 		_hint("Ambushed on the march, strung out along the road! No time to form up. Press Fight.")
 		return
-	_hint("Everyone's placed. Move a squad or drag a new line, then Fight.", "all_placed")
+	_teach("Everyone's placed. Move a squad or drag a new line, then Fight.", "all_placed")
 
 
 func _tap_battle(p: Vector2, tapped) -> void:
@@ -2174,7 +2177,7 @@ func _tap_battle(p: Vector2, tapped) -> void:
 			if thint != "":
 				_hint(thint)
 			else:
-				_hint("Tap a squad to command it, or drag a line across the field and tap it to re-form the army.")
+				_teach("Tap a squad to command it, or drag a line across the field and tap it to re-form the army.")
 		return
 	if foe != null and foe.is_active():
 		_pending_march = {}
@@ -2195,24 +2198,24 @@ func _tap_battle(p: Vector2, tapped) -> void:
 		_order_move(selected_squad, to)
 		return
 	_pending_march = {"squad": selected_squad, "at": p}
-	_hint("%s: tap the ring again to march there." % _company_or_type(selected_squad))
+	_teach("%s: tap the ring again to march there." % _company_or_type(selected_squad))
 
 
 func _select(sq) -> void:
 	selected_squad = sq
 	_drop_pending()
 	if sq == null:
-		_hint("Orders go to the whole army.", "army")
+		_teach("Orders go to the whole army.", "army")
 		return
 	if not _taught:
 		_taught = true
-		_hint("%s: drag their flag onto an enemy to attack or onto ground to march, or drag a line to form them up along it." % _company_or_type(sq))
+		_teach("%s: drag their flag onto an enemy to attack or onto ground to march, or drag a line to form them up along it." % _company_or_type(sq))
 		return
 	var ab := Troops.ability(sq.type)
 	var who := _company_or_type(sq)
 	if not sq.info.is_empty():
 		who += ", led by %s (%s)" % [sq.info["first"], Captains.traits(sq.info)]
-	_hint("%s. %s: %s" % [who, ab["name"], ab["blurb"]], "select_%s" % sq.type)
+	_teach("%s. %s: %s" % [who, ab["name"], ab["blurb"]], "select_%s" % sq.type)
 
 
 func _on_chip(index: int) -> void:
@@ -2245,7 +2248,7 @@ func _on_auto() -> void:
 	sim.command("auto_deploy", [Sim.PLAYER])
 	_select_next_card()
 	if sim.all_placed(Sim.PLAYER):
-		_hint("Your army is in a battle line. Tap any squad to move it, then press Fight.")
+		_teach("Your army is in a battle line. Tap any squad to move it, then press Fight.")
 
 
 func _on_fight() -> void:
@@ -2269,7 +2272,7 @@ func _start_battle() -> void:
 	selected_squad = null
 	_drop_pending()
 	_layout()
-	_hint("Your squads hold, braced, until ordered. Tap a squad to command it, or drag a line across the field and tap it to re-form the army.", "start")
+	_teach("Your squads hold, braced, until ordered. Tap a squad to command it, or drag a line across the field and tap it to re-form the army.", "start")
 
 
 ## Storm the walls, first tap: the plan goes up on the field (who takes a ladder, who goes
@@ -2280,7 +2283,7 @@ func _on_storm() -> void:
 		return
 	_select(null)
 	_storm_plan = sim.storm_plan(Sim.PLAYER)
-	_hint(_storm_plan_text() + (" Tap a company to change its job." if sim.works != null and (sim.works.has("tower", Sim.PLAYER) or sim.works.has("thrower", Sim.PLAYER)) else " Tap a card to swap ladder and ram."), "storm_plan")
+	_teach(_storm_plan_text() + (" Tap a company to change its job." if sim.works != null and (sim.works.has("tower", Sim.PLAYER) or sim.works.has("thrower", Sim.PLAYER)) else " Tap a card to swap ladder and ram."), "storm_plan")
 
 
 func _storm_plan_text() -> String:
@@ -2342,19 +2345,19 @@ func _on_storm_go() -> void:
 			_mark_ordered(sq)
 	Sound.play("charge", 0.0, 0.05, 0.6)
 	Sound.haptic(false)
-	_hint("Storm the walls! The ladder men climb, the rest put the ram to the gate, the bows shoot the walls.", "storm_go")
+	_confirm("Storm the walls! The ladder men climb, the rest put the ram to the gate, the bows shoot the walls.", "storm_go")
 
 
 func _on_storm_cancel() -> void:
 	_storm_plan = {}
-	_hint("Orders go to the whole army.", "army")
+	_teach("Orders go to the whole army.", "army")
 
 
 ## On the storm plan, a tapped card moves its company to its next job: ladder, ram, the
 ## siege tower, the stone throwers (the jobs there are for it).
 func _swap_storm(sq) -> void:
 	if not _storm_plan.has(sq.id) or String(_storm_plan[sq.id]) == "bows":
-		_hint("%s shoot the walls." % _company_or_type(sq))
+		_confirm("%s shoot the walls." % _company_or_type(sq))
 		return
 	var jobs := []
 	if sim.can_climb(sq):
@@ -2373,7 +2376,7 @@ func _swap_storm(sq) -> void:
 	var now := String(_storm_plan[sq.id])
 	var i := jobs.find(now)
 	_storm_plan[sq.id] = jobs[(i + 1) % jobs.size()]
-	_hint(_storm_plan_text(), "storm_swap")
+	_teach(_storm_plan_text(), "storm_swap")
 
 
 func _on_advance() -> void:
@@ -2383,16 +2386,16 @@ func _on_advance() -> void:
 	if selected_squad != null:
 		sim.command("order_advance", [selected_squad])
 		_mark_ordered(selected_squad)
-		_hint("%s advance on the enemy they fight best." % _company_or_type(selected_squad), "advance")
+		_confirm("%s advance on the enemy they fight best." % _company_or_type(selected_squad), "advance")
 	else:
 		sim.command("order_all", [Sim.PLAYER, "advance"])
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
 		if sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER:
-			_hint("Sally! The garrison leaves its posts and goes for the enemy.", "advance")
+			_confirm("Sally! The garrison leaves its posts and goes for the enemy.", "advance")
 		else:
-			_hint("The whole army advances. Each squad goes for the enemy it fights best.", "advance")
+			_confirm("The whole army advances. Each squad goes for the enemy it fights best.", "advance")
 
 
 ## Defending a siege: send every company to its post on the walls, or, once the gate is
@@ -2403,10 +2406,10 @@ func _on_post() -> void:
 	_select(null)
 	if sim.gate_hp > 0.0:
 		sim.command("man_the_walls", [Sim.PLAYER])
-		_hint("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.", "post")
+		_confirm("Man the walls! Bows to the walk, a company to the gate tower with stones, the rest behind the gate.", "post")
 	else:
 		var sent: Array = sim.command("form_breach", [Sim.PLAYER])
-		_hint("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])), "post_breach")
+		_confirm("Hold the breach! %s form up behind the gate and let them come." % ("Your foot" if sent.size() != 1 else _company_or_type(sent[0])), "post_breach")
 	for sq in sim.squads:
 		if sq.team == Sim.PLAYER and sq.is_active() and not sq.is_ally:
 			_mark_ordered(sq)
@@ -2422,13 +2425,13 @@ func _on_hold() -> void:
 	if selected_squad != null:
 		sim.command("order_hold", [selected_squad])
 		_mark_ordered(selected_squad)
-		_hint("%s hold where they stand. %s" % [_company_or_type(selected_squad), BRACED_WORDS], "hold")
+		_confirm("%s hold where they stand. %s" % [_company_or_type(selected_squad), BRACED_WORDS], "hold")
 	else:
 		sim.command("order_all", [Sim.PLAYER, "hold"])
 		for sq in sim.squads:
 			if sq.team == Sim.PLAYER:
 				_mark_ordered(sq)
-		_hint("The whole army holds and fights anyone who comes close. %s" % BRACED_WORDS, "hold")
+		_confirm("The whole army holds and fights anyone who comes close. %s" % BRACED_WORDS, "hold")
 
 
 func _on_ability() -> void:
@@ -2440,7 +2443,7 @@ func _on_ability() -> void:
 		return
 	var ab := Troops.ability(sq.type)
 	if sim.command("use_ability", [sq]):
-		_hint("%s: %s" % [ab["name"], ab["blurb"]], "ability_%s" % sq.type)
+		_teach("%s: %s" % [ab["name"], ab["blurb"]], "ability_%s" % sq.type)
 	elif sq.ability_cd > 0.0:
 		_hint("%s is ready again in %d seconds." % [ab["name"], ceili(sq.ability_cd)])
 	elif sq.type == Troops.ARCHERS:
@@ -2458,7 +2461,7 @@ func _volley_all() -> void:
 		elif bow.ability_cd > 0.0:
 			soonest = minf(soonest, float(bow.ability_cd))
 	if fired > 0:
-		_hint("Volley from %d compan%s of bows." % [fired, "y" if fired == 1 else "ies"])
+		_confirm("Volley from %d compan%s of bows." % [fired, "y" if fired == 1 else "ies"])
 	elif soonest < INF:
 		_hint("Volley is ready again in %d seconds." % ceili(soonest))
 	else:
@@ -2489,16 +2492,16 @@ func _on_hold_fire() -> void:
 		for bow in bows:
 			sim.command("set_hold_fire", [bow, hold])
 			_mark_ordered(bow)
-		_hint("Every company of bows holds its fire and keeps its arrows." if hold else "Every company of bows looses at will.")
+		_confirm("Every company of bows holds its fire and keeps its arrows." if hold else "Every company of bows looses at will.")
 		return
 	if not sq.ranged:
 		return
 	sim.command("set_hold_fire", [sq, not sq.hold_fire])
 	_mark_ordered(sq)
 	if sq.hold_fire:
-		_hint("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq), "holdfire")
+		_confirm("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq), "holdfire")
 	else:
-		_hint("%s loose at will." % _company_or_type(sq), "loose")
+		_confirm("%s loose at will." % _company_or_type(sq), "loose")
 
 
 func _on_menu() -> void:
@@ -2590,6 +2593,21 @@ func _on_retreat() -> void:
 ##
 ## A keyed line that isn't a narration (`narration` false: a state the field has just
 ## changed, like a company running out of arrows) shows once a battle in every battle.
+## What the field says in words, and when. The fight is to be watched, not read:
+##  - an order you gave is answered on the field (the standard dips, the mark where they
+##    go, the sound), so its sentence (_confirm) is said only with Battle hints switched on;
+##  - how to play (_teach) is said in a campaign's first battles, or with Battle hints on;
+##  - a refusal ("No room there"), or something you tapped to ask about, is always said (_hint).
+func _confirm(text: String, key: String = "") -> void:
+	if Sound.battle_hints:
+		_hint(text, key)
+
+
+func _teach(text: String, key: String = "") -> void:
+	if _order_words:
+		_hint(text, key)
+
+
 func _hint(text: String, key: String = "", narration: bool = true) -> void:
 	if hint_label == null:
 		return
@@ -3167,7 +3185,7 @@ func _consume_events() -> void:
 				# No words: the standard and the card carry an empty quiver from now on.
 				Sound.play_at("quiver_empty", _to_screen(sq.average_pos()))
 				if mine:
-					_hint("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.", "no_arrows", false)
+					_teach("Your archers are out of arrows and draw their blades. They are weak in a melee, so keep them out of one.", "no_arrows")
 			"captain_down":
 				_captain_down(e)
 			"grief":
@@ -3186,7 +3204,7 @@ func _consume_events() -> void:
 			"reinforcements":
 				if int(e["team"]) == Sim.ENEMY:
 					Sound.play("reinforce_" + (_enemy_culture if ["vardish", "kharzani", "ryumon"].has(_enemy_culture) else "vardish"), 0.0, 0.0, 2.0)
-					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT)
+					_tick("More of them come on from the %s!" % String(e["edge"]), Style.ENEMY_LIGHT, "flank")
 			"chief_broken":
 				Sound.play("objective")
 				_hitstop = maxf(_hitstop, CAPTAIN_HITSTOP)
@@ -3703,7 +3721,7 @@ func _tap_engines(p: Vector2, mine) -> bool:
 			return true
 		sim.command("aim_engine", [e, aim])
 		Sound.play("click", -6.0)
-		_hint("%s: aimed." % sim.works.engine_name(e).capitalize())
+		_confirm("%s: aimed." % sim.works.engine_name(e).capitalize())
 		return true
 	if eng == null:
 		return false
@@ -3712,7 +3730,7 @@ func _tap_engines(p: Vector2, mine) -> bool:
 		if selected_squad != null and String(eng.kind) in ["thrower", "yard_thrower", "tower"]:
 			sim.command("order_crew", [selected_squad, eng])
 			_mark_ordered(selected_squad)
-			_hint("%s go to the %s." % [_company_or_type(selected_squad), sim.works.engine_name(eng)])
+			_confirm("%s go to the %s." % [_company_or_type(selected_squad), sim.works.engine_name(eng)])
 			return true
 		if String(eng.kind) in ["thrower", "yard_thrower", "bolt"]:
 			_select(null)
@@ -3727,12 +3745,12 @@ func _tap_engines(p: Vector2, mine) -> bool:
 		if sq.ranged:
 			sim.command("order_burn", [sq, eng])
 			_mark_ordered(sq)
-			_hint("%s shoot fire at their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
+			_confirm("%s shoot fire at their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
 			return true
 		if sim.siege_defender == Sim.PLAYER and sim.gate_hp > 0.0 and sim.works.has_postern():
 			if sim.command("order_sally", [sq, eng]):
 				_mark_ordered(sq)
-				_hint("%s go out by the postern for their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
+				_confirm("%s go out by the postern for their %s." % [_company_or_type(sq), sim.works.engine_name(eng)])
 				return true
 		_order_move(sq, eng.pos)
 		return true
@@ -3755,6 +3773,11 @@ func _drop_stones(hits: Array) -> void:
 
 ## A line in the ticker along the top of the field, for what's happening in the story.
 func _tick(text: String, color: Color, icon: String = "") -> void:
+	# Past a campaign's first battles the story is told in marks, not lines: an event with
+	# an icon shows as the icon alone, and one that is only words (its company's standard,
+	# card and callout already say it) is left unsaid.
+	if not _order_words and icon == "":
+		return
 	for t in ticker:
 		if t["text"] == text:
 			return
@@ -7495,7 +7518,8 @@ func _draw_floaters() -> void:
 		var key := String(f.get("icon", ""))
 		var tex: Texture2D = Widgets.icon(key) if key != "" else null
 		var text := String(f["text"])
-		if tex != null and cam_zoom < CALLOUT_WORDS_ZOOM:
+		# The word is for a campaign's first battles, close up; after that the icon alone.
+		if tex != null and (cam_zoom < CALLOUT_WORDS_ZOOM or not _order_words):
 			text = ""
 		var h := float(fs) + 12.0
 		var lead := h if tex != null else 22.0
@@ -7538,6 +7562,14 @@ func _draw_ticker() -> void:
 		var color: Color = t["color"]
 		# a dark pill behind each line, so it reads over grass and sand alike
 		var icon := Widgets.icon(String(t.get("icon", ""))) if String(t.get("icon", "")) != "" else null
+		if icon != null and not _order_words:
+			# The mark alone, in its side's colour, large enough to read at a glance.
+			var at := Vector2(_view.get_center().x, y - fs * 0.35)
+			_c.draw_circle(at, 22.0, Color(Style.NIGHT, 0.82 * a))
+			_c.draw_arc(at, 22.0, 0.0, TAU, 28, Color(color, 0.9 * a), 2.5)
+			_c.draw_texture_rect(icon, Rect2(at - Vector2(14, 14), Vector2(28, 28)), false, Color(color, a))
+			y += 52.0
+			continue
 		var lead := 34.0 if icon != null else 0.0
 		var w := minf(font.get_string_size(t["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 28.0 + lead, _view.size.x - 16.0)
 		var pill := Rect2(Vector2(_view.get_center().x - w * 0.5, y - fs - 2.0), Vector2(w, fs + 14.0))

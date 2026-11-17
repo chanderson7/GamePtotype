@@ -179,11 +179,13 @@ func _tabs() -> void:
 	var after := col.get_child(bar.get_index() + 1) as CanvasItem
 	check(after != null and is_equal_approx(after.modulate.a, 1.0), "arriving, the page under the tabs is simply there")
 	page._on_tab(other)
-	await _frames(2)
+	# One frame in, the fade has begun and is not yet done. (How far it has got depends on
+	# how long a frame takes on this machine, so the check is only that it is under way.)
+	await _frames(1)
 	bar = page.find_child("SettlementTabs", true, false) as Control
 	col = bar.get_parent()
 	after = col.get_child(bar.get_index() + 1) as CanvasItem
-	check(after != null and after.modulate.a < 0.9, "switching tabs, the page fades up (%.2f)" % (after.modulate.a if after != null else -1.0))
+	check(after != null and after.modulate.a < 0.999, "switching tabs, the page fades up (%.2f)" % (after.modulate.a if after != null else -1.0))
 	await _wait(0.4)
 	check(is_instance_valid(after) and is_equal_approx(after.modulate.a, 1.0), "and is whole a moment later")
 	# Reduced motion: the page is whole at once.

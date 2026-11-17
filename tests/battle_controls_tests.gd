@@ -45,6 +45,23 @@ func _run() -> void:
 	check(screen.hint_label.text == "Out of arrows.", "and only refusals and first sights reach the hint")
 	screen._hint("Your archers are out of arrows.", "state_probe", false)
 	check(screen.hint_label.text == "Your archers are out of arrows.", "but a state the field just changed is still said, in any battle")
+	# Past the first battles the fight is watched, not read: an order's sentence and a
+	# lesson are left unsaid, an event shows as its mark alone, and one that is only words
+	# is dropped. Battle hints in Settings brings the words back.
+	screen._hint("Out of arrows.")
+	screen._confirm("Brann's Pikes march there and hold.")
+	screen._teach("Tap a squad to command it.")
+	check(screen.hint_label.text == "Out of arrows.", "an order isn't confirmed in words, nor the controls taught again")
+	screen.ticker.clear()
+	screen._tick("Brann's Pikes are wavering.", Color.WHITE)
+	screen._tick("The ram is at the gate!", Color.WHITE, "ram")
+	check(screen.ticker.size() == 1 and String(screen.ticker[0]["icon"]) == "ram", "the story keeps its marks and drops its sentences")
+	var sound_node = root.get_node("Sound")
+	sound_node.battle_hints = true
+	screen._confirm("Brann's Pikes march there and hold.")
+	check(screen.hint_label.text.begins_with("Brann's Pikes"), "with Battle hints on, orders are answered in words again")
+	sound_node.battle_hints = false
+	screen.ticker.clear()
 	screen._order_words = true
 	screen._refresh_hud()
 	# With no squad selected, the bows' orders go to every company of them.

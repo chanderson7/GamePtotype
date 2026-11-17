@@ -89,6 +89,9 @@ var text_scale := 1.0
 var reduced_motion := false
 ## Words in a conversation appear whole rather than being written out.
 var instant_text := false
+## Battles explain themselves in words (orders confirmed, the controls taught, the story
+## along the top) as they do in a campaign's first battles. Off, the field speaks in marks.
+var battle_hints := false
 var illustrations_enabled := true
 ## Vibration on supported devices: a light tap for an accepted order, a stronger one for a
 ## decisive moment. Separate from reduced motion.
@@ -548,6 +551,7 @@ func _load_settings() -> void:
 			text_scale = 1.0
 		reduced_motion = bool(cfg.get_value("presentation", "reduced_motion", false))
 		instant_text = bool(cfg.get_value("presentation", "instant_text", false))
+		battle_hints = bool(cfg.get_value("gameplay", "battle_hints", false))
 		illustrations_enabled = bool(cfg.get_value("presentation", "illustrations", true))
 		haptics_enabled = bool(cfg.get_value("presentation", "haptics", true))
 		shake = float(cfg.get_value("presentation", "shake", 1.0))
@@ -569,6 +573,7 @@ func _save_settings() -> void:
 	cfg.set_value("presentation", "text_scale", text_scale)
 	cfg.set_value("presentation", "reduced_motion", reduced_motion)
 	cfg.set_value("presentation", "instant_text", instant_text)
+	cfg.set_value("gameplay", "battle_hints", battle_hints)
 	cfg.set_value("presentation", "illustrations", illustrations_enabled)
 	cfg.set_value("presentation", "haptics", haptics_enabled)
 	cfg.set_value("presentation", "shake", shake)
@@ -731,6 +736,11 @@ func set_show_performance(enabled: bool) -> void:
 
 func set_reduced_motion(enabled: bool) -> void:
 	reduced_motion = enabled
+	_save_settings()
+
+
+func set_battle_hints(enabled: bool) -> void:
+	battle_hints = enabled
 	_save_settings()
 
 
