@@ -4096,7 +4096,10 @@ func _refresh_travel_presentation() -> void:
 		return
 	Sound.set_loop(String(_travel_context["ambience"]))
 	var contact := String(_travel_context["movement_contact"])
-	Sound.set_movement_loop("hooves" if contact == "cavalry" else ("footsteps" if contact == "foot" else ""))
+	# On the map you ride, whatever follows you: your horse at a trot, with the column's
+	# boots behind it when most of the company is on foot. (The battle's own hooves and
+	# footsteps are mixed to sit under a fight, and were barely heard here.)
+	Sound.set_movement_loop("ride" if contact == "cavalry" else ("ride_column" if contact == "foot" else ""))
 
 
 ## Leave evenly spaced contact behind actual movement. This reads the party position after

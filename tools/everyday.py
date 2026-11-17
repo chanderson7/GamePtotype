@@ -19,7 +19,7 @@ Each kind of act has its own now:
 import numpy as np
 
 import battle_sfx as B
-from music import SR, band, drum, rng_for
+from music import SR, band, drum, rng_for, seamless
 
 
 def _swish(rng, length, lo, hi, shape):
@@ -130,5 +130,58 @@ def tear():
     return B.tail(rip, 0.1)
 
 
-SFX = {"provisions": provisions, "muster": muster, "drill": drill, "oath": oath, "build": build, "banner": banner,
+def _trot(rng, length, over):
+    """Your horse at a trot on a packed road: two beats to the stride, each a pair of
+    hooves landing a hair apart, a clip and then a clop, with weight under them; tack
+    jingling, the saddle creaking now and then."""
+    beat = 0.4
+    parts = []
+    k = 0
+    at = 0.0
+    while at < length + over:
+        high = k % 2 == 0
+        for j, late in enumerate((0.0, 0.028)):
+            t0 = at + late + rng.uniform(-0.008, 0.008)
+            knock = band(B.hit("log_hi" if high else "log_lo", rng, shift=rng.uniform(-9, -6) if high else rng.uniform(-6, -3), length=0.14), 180, 4200)
+            parts.append((knock, t0, (0.9 if j == 0 else 0.6) * rng.uniform(0.85, 1.0)))
+            parts.append((B.thud(rng, rng.uniform(85, 115), 0.045, 0.16, slap=0.5), t0, 0.75 if j == 0 else 0.45))
+            grit = _swish(rng, 0.07, 700, 4200, lambda t: np.exp(-t / 0.018))
+            parts.append((grit, t0 + 0.004, 0.16))
+        if k % 2 == 1:
+            parts.append((band(B.hit("shaker", rng, shift=rng.uniform(0, 4), length=0.12), 3500, 12000), at + 0.1, 0.07))
+        if k % 8 == 5:
+            n = int(0.22 * SR)
+            t = np.arange(n) / SR
+            creak = np.sin(2 * np.pi * (240 + 90 * t / 0.22) * t) * (0.5 + 0.5 * np.sign(np.sin(2 * np.pi * 38 * t))) * np.sin(np.pi * t / 0.22)
+            parts.append((band(creak, 180, 1800), at + 0.15, 0.07))
+        at += beat
+        k += 1
+    return B.mix(parts, length + over)
+
+
+def ride():
+    """Riding on the map, the company mostly mounted behind you."""
+    rng = rng_for("ride")
+    L, over = 8.0, 0.4
+    return seamless(_trot(rng, L, over), int(L * SR), int(over * SR))
+
+
+def ride_column():
+    """Riding on the map at the head of a column on foot: your horse, and their boots
+    behind it, quieter, with their mail."""
+    rng = rng_for("ride_column")
+    L, over = 8.0, 0.4
+    x = _trot(rng, L, over)
+    parts = [(x, 0.0, 1.0)]
+    at = 0.0
+    while at < L + over:
+        t0 = at + rng.uniform(-0.015, 0.015)
+        crunch = _swish(rng, 0.09, 350, 3000, lambda t: np.exp(-t / 0.03))
+        parts.append((crunch, t0, rng.uniform(0.1, 0.16)))
+        parts.append((B.thud(rng, rng.uniform(150, 200), 0.025, 0.1, slap=0.8), t0, 0.1))
+        at += 0.2
+    return seamless(B.mix(parts, L + over), int(L * SR), int(over * SR))
+
+
+SFX = {"ride": ride, "ride_column": ride_column, "provisions": provisions, "muster": muster, "drill": drill, "oath": oath, "build": build, "banner": banner,
        "purse": purse, "torch": torch, "tear": tear}

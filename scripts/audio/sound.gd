@@ -43,7 +43,7 @@ const SFX_DB := {
 	"seal": -10.0, "lantern": -9.0, "door": -9.0,
 	# Everyday acts (tools/everyday.py).
 	"provisions": -9.0, "muster": -9.0, "drill": -9.0, "oath": -8.0, "build": -9.0, "banner": -8.0,
-	"purse": -8.0, "torch": -8.0, "tear": -9.0,
+	"purse": -8.0, "torch": -8.0, "tear": -9.0, "ride": -5.0, "ride_column": -5.0,
 	"crown_fanfare": -4.0, "stone": -8.0, "tablet": -9.0, "candle": -9.0, "lamp_lit": -9.0, "keepsake": -9.0, "letter": -10.0,
 }
 ## How loud each battle sound peaks in play: its loudest tenth of a second, in dBFS, before
