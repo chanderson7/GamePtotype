@@ -103,6 +103,8 @@ const HITSTOP_MIN := 0.05
 const HITSTOP_MAX := 0.12
 ## A captain's fall stops the field for this long before the slow time or the death roll.
 const CAPTAIN_HITSTOP := 0.08
+## The beat the field catches for when an enemy company breaks.
+const ROUT_HITSTOP := 0.07
 ## And the view punches in toward it, easing back.
 const PUNCH := 0.03
 const PUNCH_TIME := 0.25
@@ -384,6 +386,9 @@ var _std_small := {}
 ## A standard over a company that is fighting hand to hand is drawn this much smaller,
 ## so the fight under it can be seen.
 const MELEE_STANDARD := 0.56
+## A captain of yours with less than this share of their strength left is in danger, and
+## the standard and the card say so.
+const CAPTAIN_DANGER := 0.4
 var _std_tops := {}
 ## The death roll on screen, and any waiting their turn.
 var _roll := {}
@@ -433,6 +438,11 @@ var _settling := false
 var _camera_grace := 0.0
 ## Shown once the view has been moved by hand: one tap is the whole field again.
 var fit_button: Button
+## Before the fight: hold the picked company back off the field, or bring it up again.
+var hold_back_button: Button
+## In the fight: where a held company comes on (left flank, rear, right flank).
+var reserve_panel: PanelContainer
+var _reserve_pick := -1
 ## The whole army, at the head of the selection strip.
 var army_button: Button
 var _pressing := false
@@ -909,6 +919,8 @@ func _layout() -> void:
 		objective_chip.offset_top = top_h + 14.0
 	if hint_toast != null:
 		hint_toast.offset_bottom = -bottom_h - 10.0
+	if reserve_panel != null:
+		reserve_panel.offset_bottom = -bottom_h - 10.0
 	if inspect_pill != null:
 		inspect_pill.offset_top = top_h + 72.0
 	_layout_tray()
@@ -2145,7 +2157,7 @@ func _tap_deploy(p: Vector2, tapped) -> void:
 func _select_next_card() -> void:
 	selected_id = -1
 	for e in _cards:
-		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
+		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null and not sim.is_held(Sim.PLAYER, e["roster_id"]):
 			selected_id = e["roster_id"]
 			_teach("Tap the blue zone to place %s, or press Auto-place for everyone." % _card_name(e), "place_next")
 			return
@@ -2225,6 +2237,9 @@ func _on_chip(index: int) -> void:
 		return
 	var e: Dictionary = _cards[index]
 	if sim.phase == Sim.PHASE_BATTLE:
+		if sim.is_held(Sim.PLAYER, e["roster_id"]):
+			_pick_reserve(int(e["roster_id"]))
+			return
 		var sq = sim.placed_squad(Sim.PLAYER, e["roster_id"])
 		if sq == null or not sq.is_active():
 			_hint("%s are out of the fight." % _card_name(e))
@@ -2244,6 +2259,48 @@ func _on_chip(index: int) -> void:
 	var veteran := " Level %d veterans." % level if level > 1 else ""
 	_hint("%s%s %s" % [_card_story(e), veteran,
 		"Tap the field to move them." if placed else "Tap the blue zone to place them."], "card_%d" % int(e["roster_id"]))
+
+
+## Before the fight: the picked company is held back off the field, or brought up again.
+func _on_hold_back() -> void:
+	if sim.phase != Sim.PHASE_DEPLOY or selected_id == -1:
+		return
+	if sim.is_held(Sim.PLAYER, selected_id):
+		sim.command("release_hold", [Sim.PLAYER, selected_id])
+		Sound.play("click", 0.0, 0.05)
+	elif sim.command("hold_back", [Sim.PLAYER, selected_id]):
+		Sound.play("click", 0.0, 0.05)
+		_teach("Held in reserve. In the fight, tap their card to bring them on where you need them.", "reserve_held")
+		_select_next_card()
+	_refresh_hud()
+
+
+## In the fight: a held company's card was tapped. The three ways on come up over the orders.
+func _pick_reserve(roster_id: int) -> void:
+	_reserve_pick = -1 if _reserve_pick == roster_id else roster_id
+	reserve_panel.visible = _reserve_pick != -1
+	if reserve_panel.visible:
+		_hint("")
+		Sound.play("click", 0.0, 0.05)
+
+
+## The picked reserve comes on: from the rear, or onto a flank of your half.
+func _commit_reserve(where: String) -> void:
+	if _reserve_pick == -1:
+		return
+	var id := _reserve_pick
+	_reserve_pick = -1
+	reserve_panel.visible = false
+	if not sim.command("commit_reserve", [Sim.PLAYER, id, where]):
+		return
+	Sound.play("horn", -2.0, 0.03)
+	Sound.haptic(true)
+	var sq = sim.placed_squad(Sim.PLAYER, id)
+	if sq != null:
+		_burst(sq.average_pos(), "land", Style.BRASS, 0.7)
+		_burst(sq.average_pos(), "dust", _ground_dust(sq.average_pos()), 0.9)
+		_mark_ordered(sq)
+	_refresh_hud()
 
 
 func _on_auto() -> void:
@@ -3156,6 +3213,12 @@ func _consume_events() -> void:
 					Sound.haptic(true)
 				else:
 					_callout(sq, "BROKEN", Style.PLAYER_LIGHT, true)
+					# Breaking them is felt: the field catches for a beat, a wide ring
+					# goes out from where they stood, and the view is knocked.
+					_hitstop = maxf(_hitstop, ROUT_HITSTOP)
+					_burst(sq.average_pos(), "shock", Style.PLAYER_LIGHT, 0.7)
+					_kick(3.5)
+					Sound.haptic(true)
 			"charge":
 				var sq = e["squad"]
 				_shove(e["victim"], e["pos"], sq)
@@ -3165,6 +3228,10 @@ func _consume_events() -> void:
 					struck_dir = (Vector2(e["pos"]) - sq.avg).normalized()
 				if _clock - float(_charged_at.get(sq, -9.0)) > 1.5:
 					_charged_at[sq] = _clock
+					if sq.team == Sim.PLAYER and e["victim"].team == Sim.ENEMY:
+						# Your own charge going home knocks the view the way it went.
+						_kick(3.0, (Vector2(e["pos"]) - sq.avg).normalized())
+						_burst(e["pos"], "shock", Style.BRASS, 0.5)
 					_burst(e["pos"], "charge", Style.BRASS, 0.55)
 					_burst(e["pos"], "dust", _ground_dust(e["pos"]), 0.8)
 					_callout(sq, "CHARGE", Style.BRASS)
@@ -3203,6 +3270,11 @@ func _consume_events() -> void:
 				var sq = e["squad"]
 				_callout(sq, "BRACED", Style.BRASS if sq.team == Sim.PLAYER else Style.ENEMY_LIGHT)
 				Sound.play_at("brace", _to_screen(sq.average_pos()), 0.0, 0.05, 0.4)
+			"final_phase":
+				# The last stretch: men break sooner and abilities come back faster.
+				Sound.play("horn", 0.0, 0.03)
+				Sound.haptic(true)
+				_moment("The last push", "Nerves fray · abilities return faster", Style.BRASS, "clock")
 			"reinforcements":
 				if int(e["team"]) == Sim.ENEMY:
 					Sound.play("reinforce_" + (_enemy_culture if ["vardish", "kharzani", "ryumon"].has(_enemy_culture) else "vardish"), 0.0, 0.0, 2.0)
@@ -4752,6 +4824,9 @@ func _build_hud() -> void:
 	buttons_row.add_theme_constant_override("separation", 10)
 	col.add_child(buttons_row)
 	auto_button = _order_button("Auto-place", "auto", _on_auto, buttons_row)
+	hold_back_button = _order_button("Hold back", "clock", _on_hold_back, buttons_row)
+	hold_back_button.name = "HoldBack"
+	hold_back_button.visible = false
 	fight_button = _order_button("Fight", "fight", _on_fight, buttons_row, true, true)
 	advance_button = _order_button("Advance all", "advance", _on_advance, buttons_row, true)
 	hold_button = _order_button("Hold all", "hold", _on_hold, buttons_row)
@@ -4820,6 +4895,28 @@ func _build_hud() -> void:
 	hint_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hint_toast.visible = false
 	hud.add_child(hint_toast)
+	# Where a held company comes on: three buttons over the orders, up while one is picked.
+	reserve_panel = PanelContainer.new()
+	reserve_panel.name = "ReservePanel"
+	reserve_panel.add_theme_stylebox_override("panel", _chip_box(Color(Style.NIGHT, 0.94), Color(Style.BRASS, 0.6), 2))
+	reserve_panel.anchor_left = 0.0
+	reserve_panel.anchor_right = 1.0
+	reserve_panel.anchor_top = 1.0
+	reserve_panel.anchor_bottom = 1.0
+	reserve_panel.offset_left = 20.0
+	reserve_panel.offset_right = -20.0
+	reserve_panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	reserve_panel.visible = false
+	hud.add_child(reserve_panel)
+	var reserve_row := HBoxContainer.new()
+	reserve_row.add_theme_constant_override("separation", 10)
+	reserve_panel.add_child(reserve_row)
+	for spec in [["left", "Left flank", "back"], ["rear", "From the rear", "advance"], ["right", "Right flank", "flank"]]:
+		var rb := _button(String(spec[1]), Vector2(0, Style.TOUCH), _commit_reserve.bind(String(spec[0])))
+		rb.name = "Commit_%s" % String(spec[0])
+		rb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_set_icon(rb, String(spec[2]), false, Style.BRASS)
+		reserve_row.add_child(rb)
 	hint_label = Style.label("", Style.SMALL, Style.TEXT)
 	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -5037,10 +5134,26 @@ func _refresh_hud() -> void:
 
 func _refresh_deploy() -> void:
 	var unplaced_player := 0
+	var held_player := 0
 	for e in _cards:
-		if sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
+		if sim.is_held(Sim.PLAYER, e["roster_id"]):
+			held_player += 1
+		elif sim.placed_squad(Sim.PLAYER, e["roster_id"]) == null:
 			unplaced_player += 1
-	status_label.text = "%d of %d placed" % [_cards.size() - unplaced_player, _cards.size()]
+	status_label.text = "%d of %d placed" % [_cards.size() - unplaced_player - held_player, _cards.size() - held_player]
+	if held_player > 0:
+		status_label.text += " · %d in reserve" % held_player
+	# Hold back, for the picked company while it isn't on the field; Bring up, once held.
+	var picked_held: bool = selected_id != -1 and sim.is_held(Sim.PLAYER, selected_id)
+	var can_hold: bool = selected_id != -1 and not picked_held and sim.placed_squad(Sim.PLAYER, selected_id) == null \
+		and sim.objective != Sim.OBJECTIVE_AMBUSH and not (sim.objective == Sim.OBJECTIVE_SIEGE and sim.siege_defender == Sim.PLAYER) \
+		and _cards.size() - held_player > 1
+	hold_back_button.visible = sim.phase == Sim.PHASE_DEPLOY and (picked_held or can_hold)
+	if reserve_panel.visible and (sim.winner != -1 or sim.phase != Sim.PHASE_BATTLE or not sim.is_held(Sim.PLAYER, _reserve_pick)):
+		reserve_panel.visible = false
+		_reserve_pick = -1
+	if hold_back_button.visible:
+		_order_label(hold_back_button, "Bring up" if picked_held else "Hold back")
 	deploy_pips.tooltip_text = status_label.text
 	deploy_pips.queue_redraw()
 	auto_button.disabled = unplaced_player == 0 or sim.winner != -1
@@ -5377,8 +5490,10 @@ func _draw_chip(i: int) -> void:
 	var e: Dictionary = _cards[i]
 	var sq = sim.placed_squad(Sim.PLAYER, e["roster_id"])
 	var battle := sim.phase == Sim.PHASE_BATTLE
-	var out: bool = battle and (sq == null or not sq.is_active())
-	var picked: bool = (not battle and e["roster_id"] == selected_id) or (battle and sq != null and sq == selected_squad)
+	var in_reserve: bool = sim.is_held(Sim.PLAYER, e["roster_id"])
+	var out: bool = battle and not in_reserve and (sq == null or not sq.is_active())
+	var picked: bool = (not battle and e["roster_id"] == selected_id) or (battle and sq != null and sq == selected_squad) \
+		or (battle and in_reserve and _reserve_pick == int(e["roster_id"]))
 	var placed: bool = sq != null
 	var size := b.size
 	# A squad that has just broken: its card cracks and shakes.
@@ -5457,6 +5572,9 @@ func _draw_chip(i: int) -> void:
 				b.draw_string(font, Vector2(size.x - 15.5, 52.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.05, 0.03, 0.03))
 			elif sq.arrows == 0:
 				_draw_empty_quiver(b, Vector2(size.x - 12.0, 46.0), 8.0)
+			if sq.captain != null and sq.captain.alive and sq.captain.hp < sq.captain.max_hp * CAPTAIN_DANGER:
+				# The captain is hurt: the card's edge beats red.
+				b.draw_rect(Rect2(Vector2.ZERO, size), Color(Style.MORALE_LOW, 0.9 if Style.motion_reduced() else 0.45 + 0.45 * absf(sin(_clock * 6.0))), false, 4.0)
 			# Struck from the side or by a charge: the card's edge flashes red.
 			var hit_t: float = _clock - float(_card_hit.get(sq, -9.0))
 			if hit_t < 0.3:
@@ -5477,6 +5595,11 @@ func _draw_chip(i: int) -> void:
 	elif int(e["level"]) > 1:
 		for l in int(e["level"]) - 1:
 			b.draw_circle(Vector2(10 + l * 12, size.y - 12.0), 4.0, Style.BRASS)
+	if in_reserve:
+		# Held back: a brass band along the foot of the card, waiting for its tap.
+		var band_fs := _fs(Style.SMALL)
+		b.draw_rect(Rect2(2, size.y - band_fs - 8.0, size.x - 4, band_fs + 6.0), Color(Style.BRASS, 0.9 if Style.motion_reduced() or not battle else 0.72 + 0.18 * sin(_clock * 3.0)))
+		b.draw_string(font, Vector2(6, size.y - 7.0), "reserve", HORIZONTAL_ALIGNMENT_LEFT, size.x - 8.0, band_fs, Color("14161f"))
 	if not battle and placed:
 		# placed: a tick in the corner
 		var t := Vector2(size.x - 22.0, size.y - 16.0)
@@ -5941,6 +6064,7 @@ func _draw_battle() -> void:
 	_draw_volley_shadows()
 	_draw_front()
 	_draw_orders()
+	_draw_matchups()
 	_draw_targets()
 	_draw_line_order()
 	_draw_bonds()
@@ -6587,6 +6711,10 @@ func _draw_bursts() -> void:
 				_c.draw_arc(pos, 9.0 + 25.0 * t, 0.0, TAU, 24, Color(color, color.a * 0.55), 2.0)
 			"land":
 				_c.draw_arc(pos, 46.0 - 28.0 * t, 0.0, TAU, 32, Color(color, color.a * (1.0 - t)), 3.0)
+			"shock":
+				# A wide ring going out fast and thinning as it goes.
+				var grow := 1.0 - pow(1.0 - t, 3.0)
+				_c.draw_arc(pos, 24.0 + 120.0 * grow, 0.0, TAU, 48, Color(color, (1.0 - t) * 0.7), 6.0 * (1.0 - t) + 1.0)
 			"dust":
 				for i in 5:
 					var d := Vector2.from_angle(float(i) / 5.0 * TAU + 0.6)
@@ -7180,7 +7308,22 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		_draw_flag(_c, top + Vector2(0, 2), FLAG * k, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
 	else:
 		_draw_waving_flag(top + Vector2(0, 2), sq, selected or sq.braced(), lean, edge, k)
-	if sq.is_bodyguard or sq.is_chief:
+	if mine and sq.captain != null and sq.captain.alive and sq.captain.hp < sq.captain.max_hp * CAPTAIN_DANGER and not sq.routing:
+		# Your captain is hurt: a red heart beats over the standard until they are clear.
+		var beat := 1.0 if Sound.reduced_motion else 0.75 + 0.25 * absf(sin(_clock * 6.0))
+		var hc := top + Vector2(-14.0, 6.0)
+		_dot(hc, 11.0 * beat, Color(0.05, 0.03, 0.03, 0.9))
+		var heart := Widgets.icon("heart")
+		if heart != null:
+			_c.draw_texture_rect(heart, Rect2(hc - Vector2(8, 8) * beat, Vector2(16, 16) * beat), false, Style.MORALE_LOW)
+	if sq.is_bodyguard or sq.is_chief or sq.is_lord:
+		# Their leader: a crown over the standard and a gold ring on the ground. Bring this
+		# company down and the whole host feels it.
+		if not mine and not sq.routing and sim.phase == Sim.PHASE_BATTLE:
+			var ring_r: float = (minf(sq.extent, 70.0) + 16.0) * field_scale
+			var glow := 0.55 if Sound.reduced_motion else 0.4 + 0.25 * sin(_clock * 3.0)
+			_c.draw_arc(base, ring_r, 0.0, TAU, 44, Color(0, 0, 0, 0.4), 6.0)
+			_c.draw_arc(base, ring_r, 0.0, TAU, 44, Color(Style.BRASS, glow + 0.3), 3.0)
 		var crown_c := top + Vector2(FLAG.x * k * 0.5, -16.0)
 		_c.draw_colored_polygon(PackedVector2Array([
 			crown_c + Vector2(-9, 5), crown_c + Vector2(-9, -4), crown_c + Vector2(-5, 0),
@@ -7268,6 +7411,28 @@ func _targeted() -> Array:
 
 
 ## A pulsing red ring around every enemy squad you've sent someone to attack.
+## With a company of yours picked, every enemy company it fights best stands in a green
+## ring and every one that has the edge over it in a red one, broken into dashes so the two
+## are told apart without their colours. An even fight has no ring.
+func _draw_matchups() -> void:
+	if selected_squad == null or sim.phase != Sim.PHASE_BATTLE or sim.winner != -1 or selected_squad.team != Sim.PLAYER:
+		return
+	var mine: String = selected_squad.type
+	for foe in sim.squads:
+		if foe.team != Sim.ENEMY or not foe.is_active() or foe.routing:
+			continue
+		var at: Vector2 = foe.average_pos()
+		var r: float = minf(foe.extent, 70.0) + 10.0
+		if Troops.COUNTERED_BY.get(foe.type, "") == mine:
+			_c.draw_arc(at, r, 0.0, TAU, 40, Color(0, 0, 0, 0.45), 6.0)
+			_c.draw_arc(at, r, 0.0, TAU, 40, Color(Style.MORALE_HIGH, 0.9), 3.0)
+		elif Troops.COUNTERED_BY.get(mine, "") == foe.type:
+			for i in 10:
+				var a0 := TAU * i / 10.0 + _clock * 0.4
+				_c.draw_arc(at, r, a0, a0 + TAU / 16.0, 6, Color(0, 0, 0, 0.45), 6.0)
+				_c.draw_arc(at, r, a0, a0 + TAU / 16.0, 6, Color(Style.MORALE_LOW, 0.95), 3.0)
+
+
 func _draw_targets() -> void:
 	var pulse := 0.5 + 0.5 * sin(_clock * 5.0)
 	for foe in _targeted():

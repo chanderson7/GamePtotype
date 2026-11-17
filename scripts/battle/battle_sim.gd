@@ -27,6 +27,11 @@ const PHASE_DEPLOY := 0
 const PHASE_BATTLE := 1
 const STEP := 1.0 / 30.0
 const TIME_LIMIT := 300.0
+## The last stretch of a battle: tired men break sooner and captains' abilities come back
+## faster, so a fight that has gone long is decided on the field and not by the clock.
+const FINAL_PHASE := 75.0
+const FINAL_STRAIN := 1.5
+const FINAL_ABILITY_PACE := 2.0
 ## Distance from the midline to the front edge of each side's deployment zone.
 const DEPLOY_GAP := 70.0
 ## Room kept between squads placed side by side.
@@ -459,10 +464,14 @@ class Squad:
 	func schiltron() -> bool:
 		return type == Troops.SPEARMEN and ability_left > 0.0
 
+	## How much harder every blow to this company's nerve falls: 1 for most of a battle,
+	## more in its last stretch (see BattleSim.FINAL_STRAIN).
+	var strain := 1.0
+
 	func drop_morale(amount: float) -> void:
 		if mechanics.get("steady", false):
 			amount *= 0.8
-		morale -= amount
+		morale -= amount * strain
 
 	## Where the squad's living men are on average, as of the start of this tick.
 	func average_pos() -> Vector2:
@@ -510,6 +519,11 @@ var armies: Array = [[], []]
 var reserves: Array = [[], []]
 ## Squads waiting off-field beyond the 12-squad field cap: [[player_queue], [enemy_queue]].
 var reserve_queue: Array = [[], []]
+## Companies a side chose to hold back before the fight (see hold_back): off the field
+## until it commits them (commit_reserve), each where it says. They count as men still
+## to come on.
+var held: Array = [[], []]
+var _final_called := false
 var projectiles: Array = []
 var corpses: Array = []
 ## Arrows that missed and stuck in the ground: {pos, angle}. Only the screen reads these.
@@ -675,6 +689,8 @@ func setup(player_army: Array, enemy_army: Array, seed_value: int = 0, site_or_t
 			break
 	reserves = [[], []]
 	reserve_queue = [[], []]
+	held = [[], []]
+	_final_called = false
 	for t in 2:
 		if armies[t].size() > FIELD_CAP:
 			if t == PLAYER:
@@ -1293,6 +1309,12 @@ func _spawn_reinforcements(team: int, p_entries: Array, edge: String) -> void:
 			"west":
 				pos = Vector2(60.0, clampf(MID_Y + offset, 80.0, ARENA.y - 80.0))
 				face = Vector2.RIGHT
+			"own_west", "own_east":
+				# A flank of the side's own half: well back from the middle, so a reserve
+				# comes up beside its line and not behind the enemy's.
+				var back := 250.0 if team == PLAYER else -250.0
+				pos = Vector2(60.0 if edge == "own_west" else ARENA.x - 60.0, clampf(MID_Y + back + offset, 80.0, ARENA.y - 80.0))
+				face = Vector2.UP if team == PLAYER else Vector2.DOWN
 			_:
 				pos = Vector2(clampf(ARENA.x * 0.5 + offset, 80.0, ARENA.x - 80.0), 60.0)
 				face = Vector2.DOWN
@@ -1405,8 +1427,85 @@ func placed_squad(team: int, roster_id: int):
 	return null
 
 
+## The battle's last stretch (see FINAL_PHASE).
+func in_final_phase() -> bool:
+	return phase == PHASE_BATTLE and winner == -1 and time >= TIME_LIMIT - FINAL_PHASE
+
+
 func all_placed(team: int) -> bool:
 	return reserves[team].is_empty()
+
+
+## Before the fight: hold a company not yet placed back off the field, to be committed
+## when you choose. One company at least must stand on the field, and there is no holding
+## back in an ambush or on a wall. Returns whether it is now held.
+func hold_back(team: int, roster_id: int) -> bool:
+	if phase != PHASE_DEPLOY or winner != -1 or caught_on_march(team) or (objective == OBJECTIVE_SIEGE and team == siege_defender):
+		return false
+	var others := 0
+	for sq in squads:
+		if sq.team == team:
+			others += 1
+	for e in reserves[team]:
+		if e["roster_id"] != roster_id:
+			others += 1
+	if others == 0:
+		return false
+	for i in reserves[team].size():
+		if reserves[team][i]["roster_id"] == roster_id:
+			held[team].append(reserves[team][i])
+			reserves[team].remove_at(i)
+			return true
+	return false
+
+
+## Before the fight: a held company goes back among those still to be placed.
+func release_hold(team: int, roster_id: int) -> bool:
+	if phase != PHASE_DEPLOY:
+		return false
+	for i in held[team].size():
+		if held[team][i]["roster_id"] == roster_id:
+			reserves[team].append(held[team][i])
+			held[team].remove_at(i)
+			return true
+	return false
+
+
+func is_held(team: int, roster_id: int) -> bool:
+	for e in held[team]:
+		if e["roster_id"] == roster_id:
+			return true
+	return false
+
+
+## In the fight: a held company comes on, from the rear ("rear") or onto a flank of its
+## own half ("left", "right", as its side looks up the field), and advances. Returns
+## whether it came.
+func commit_reserve(team: int, roster_id: int, where: String) -> bool:
+	if phase != PHASE_BATTLE or winner != -1:
+		return false
+	for i in held[team].size():
+		var entry: Dictionary = held[team][i]
+		if entry["roster_id"] != roster_id:
+			continue
+		held[team].remove_at(i)
+		var edge := "south" if team == PLAYER else "north"
+		if where == "left":
+			edge = "own_west" if team == PLAYER else "own_east"
+		elif where == "right":
+			edge = "own_east" if team == PLAYER else "own_west"
+		_spawn_reinforcements(team, [entry], edge)
+		return true
+	return false
+
+
+## With nobody left on the field, whoever was held back comes on at once from the rear:
+## a reserve is not kept while the line it was kept for is gone.
+func _commit_last_reserve(team: int) -> void:
+	if held[team].is_empty() or has_active(team) or phase != PHASE_BATTLE or winner != -1 or withdrawing == team:
+		return
+	for e in held[team].duplicate():
+		commit_reserve(team, int(e["roster_id"]), "rear")
 
 
 ## Put a squad on the field, or move one already placed. Squads dropped on top of each
@@ -1854,6 +1953,7 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.level = entry["level"]
 	sq.power = Troops.power_for(sq.level)
 	sq.is_bodyguard = bool(entry.get("is_bodyguard", false))
+	sq.strain = FINAL_STRAIN if _final_called else 1.0
 	sq.is_chief = bool(entry.get("is_chief", false))
 	sq.chief_name = String(entry.get("chief_name", ""))
 	sq.is_ally = bool(entry.get("is_ally", false))
@@ -2561,8 +2661,15 @@ func step(dt: float = STEP) -> void:
 			ai[t].update(self, dt)
 	if allied_ai != null:
 		allied_ai.update(self, dt)
+	if not _final_called and in_final_phase():
+		_final_called = true
+		for sq in squads:
+			sq.strain = FINAL_STRAIN
+		events.append({"type": "final_phase"})
 	_check_reserve_reinforcements(PLAYER)
 	_check_reserve_reinforcements(ENEMY)
+	_commit_last_reserve(PLAYER)
+	_commit_last_reserve(ENEMY)
 	_build_grid()
 	var order := squads.duplicate()
 	if flip:
@@ -2631,7 +2738,7 @@ func _update_squad(sq, dt: float) -> void:
 	if sq.alive_n == 0:
 		return
 	var avg: Vector2 = sq.avg
-	sq.ability_cd = maxf(0.0, sq.ability_cd - dt)
+	sq.ability_cd = maxf(0.0, sq.ability_cd - dt * (FINAL_ABILITY_PACE if in_final_phase() else 1.0))
 	sq.ability_left = maxf(0.0, sq.ability_left - dt)
 	sq.under_fire = maxf(0.0, sq.under_fire - dt)
 	sq.volley_left = maxf(0.0, sq.volley_left - dt)
@@ -4386,6 +4493,8 @@ func reserve_men(team: int) -> int:
 	var n := 0
 	for e in reserve_queue[team]:
 		n += int(e["men"])
+	for e in held[team]:
+		n += int(e["men"])
 	return n
 
 
@@ -4447,8 +4556,8 @@ func _check_end() -> void:
 			_finish(ENEMY, "village_lost")
 		return
 
-	var standing := [has_active(PLAYER) or _has_pending_reinforcements(PLAYER) or not reserve_queue[PLAYER].is_empty(),
-		has_active(ENEMY) or _has_pending_reinforcements(ENEMY) or not reserve_queue[ENEMY].is_empty()]
+	var standing := [has_active(PLAYER) or _has_pending_reinforcements(PLAYER) or not reserve_queue[PLAYER].is_empty() or not held[PLAYER].is_empty(),
+		has_active(ENEMY) or _has_pending_reinforcements(ENEMY) or not reserve_queue[ENEMY].is_empty() or not held[ENEMY].is_empty()]
 	if standing[PLAYER] and standing[ENEMY]:
 		if time >= TIME_LIMIT:
 			var mine := strength(PLAYER)
@@ -4608,7 +4717,7 @@ func result_for(team: int) -> Dictionary:
 	var killed := 0
 	for e in reserves[team]:
 		by_id[e["roster_id"]] = {"men": int(e["men"]), "kills": 0, "is_ally": bool(e.get("is_ally", false)), "lord_id": int(e.get("lord_id", -1))}
-	for e in reserve_queue[team]:
+	for e in reserve_queue[team] + held[team]:
 		by_id[e["roster_id"]] = {"men": int(e["men"]), "kills": 0, "is_ally": bool(e.get("is_ally", false)), "lord_id": int(e.get("lord_id", -1))}
 	for sq in squads:
 		if sq.team != team:
