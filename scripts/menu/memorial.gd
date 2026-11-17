@@ -765,6 +765,8 @@ class _Rite extends Control:
 	## ground, the company standing either side with heads bowed, and the grave between
 	## them, where the rite is done.
 	func _draw() -> void:
+		if size.x < 40.0 or size.y < 40.0:
+			return
 		var k := maxf(4.0, roundf(size.y / 70.0))
 		var ground := roundf(size.y * 0.74)
 		var base := Vector2(roundf(size.x * 0.5), ground + 4.0 * k)
@@ -785,7 +787,7 @@ class _Rite extends Control:
 		var ridge := PackedVector2Array([Vector2(4, ground)])
 		for i in 13:
 			var x := 4.0 + (size.x - 8.0) * i / 12.0
-			ridge.append(Vector2(x, ground - (10.0 + 9.0 * sin(i * 1.3) + 6.0 * sin(i * 2.9 + 1.0)) * k * 0.35))
+			ridge.append(Vector2(x, ground - maxf(2.0, 10.0 + 9.0 * sin(i * 1.3) + 6.0 * sin(i * 2.9 + 1.0)) * k * 0.35))
 		ridge.append(Vector2(size.x - 4, ground))
 		draw_colored_polygon(ridge, Color("161c30"))
 		draw_rect(Rect2(4, ground, size.x - 8, size.y - ground - 4), Color("1c2a22"))

@@ -279,9 +279,12 @@ func _init() -> void:
 	check(v != null and v.scene_file_path.ends_with("victory.tscn"), "the map hands over to the victory scene")
 	check(not gs.victory_pending, "once")
 	check(v.find_child("Capitals", true, false) != null or v.find_child("OneCrown", true, false) != null, "the three capitals take the crown's banner")
-	for i in 600:
+	# The capitals turn one after another before the crown comes: wait by the clock, since
+	# frames without a screen pass far faster than the scene's seconds do.
+	var crown_by := Time.get_ticks_msec() + 30000
+	while Time.get_ticks_msec() < crown_by:
 		await process_frame
-		if v.find_child("OneCrown", true, false) != null:
+		if v.find_child("RideOn", true, false) != null:
 			break
 	check(v.find_child("VictoryTitle", true, false) != null and v.find_child("ChronicleTiles", true, false) != null and v.find_child("RideOn", true, false) != null,
 		"then One Crown, the chronicle, and Ride on")

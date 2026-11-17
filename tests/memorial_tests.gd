@@ -177,7 +177,9 @@ func _init() -> void:
 	var rite: Button = _find(mem, "Rite_go")
 	check(rite != null and rite.text == "Raise the cairn", "the rite, in the company's way")
 	rite.pressed.emit()
-	for i in 240:
+	# The rite takes its seconds: wait by the clock, not by frames.
+	var rite_by := Time.get_ticks_msec() + 15000
+	while Time.get_ticks_msec() < rite_by:
 		await process_frame
 		if _find(mem, "Words_honour") != null:
 			break
