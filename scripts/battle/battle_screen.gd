@@ -377,6 +377,11 @@ var _broke_at := {}
 var _charged_at := {}
 var _ordered_at := {}
 var _std_x := {}
+## How far each standard has shrunk for the melee under it, 0 (full size) to 1 (see _draw_standard).
+var _std_small := {}
+## A standard over a company that is fighting hand to hand is drawn this much smaller,
+## so the fight under it can be seen.
+const MELEE_STANDARD := 0.56
 var _std_tops := {}
 ## The death roll on screen, and any waiting their turn.
 var _roll := {}
@@ -7049,8 +7054,9 @@ func _draw_standards() -> void:
 			var i := pairs[k]
 			var j := pairs[k + 1]
 			var gap: float = want[j] - want[i]
-			if absf(gap) < need:
-				var push := (need - absf(gap)) * 0.5 * (1.0 if gap >= 0.0 else -1.0)
+			var room := need * (lerpf(1.0, MELEE_STANDARD, float(_std_small.get(shown[i], 0.0))) + lerpf(1.0, MELEE_STANDARD, float(_std_small.get(shown[j], 0.0)))) * 0.5 + 6.0
+			if absf(gap) < room:
+				var push := (room - absf(gap)) * 0.5 * (1.0 if gap >= 0.0 else -1.0)
 				if absf(gap) < 0.01:
 					push = need * 0.5
 				want[i] -= push
@@ -7081,8 +7087,17 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	# A wavering standard trembles.
 	if wavering(sq) and not Sound.reduced_motion:
 		flag_x += sin(_clock * 31.0 + sq.id) * 2.5
-	var top := Vector2(flag_x, base.y) + Vector2(sin(lean), -cos(lean)) * POLE
 	var selected: bool = sq == selected_squad or (mine and sim.phase == Sim.PHASE_DEPLOY and sq.roster_id == selected_id)
+	# Hand to hand, the standard draws in: a small flag on a short pole, its bar and count
+	# small beside it, so the men fighting are what you see. The one you've picked, a
+	# breaking one and the winners' keep their size.
+	var close: bool = sq.engaged and not selected and not sq.routing and sim.phase == Sim.PHASE_BATTLE and sim.winner == -1
+	var small: float = move_toward(float(_std_small.get(sq, 0.0)), 1.0 if close else 0.0, 0.08)
+	if Sound.reduced_motion:
+		small = 1.0 if close else 0.0
+	_std_small[sq] = small
+	var k := lerpf(1.0, MELEE_STANDARD, small)
+	var top := Vector2(flag_x, base.y) + Vector2(sin(lean), -cos(lean)) * POLE * k
 	_c.draw_line(base + Vector2(1, 1), top + Vector2(1, 1), Color(0, 0, 0, 0.5), 4.0)
 	_c.draw_line(base, top, Color("6b4a2a"), 3.0)
 	var ready: bool = mine and sim.ability_ready(sq)
@@ -7094,11 +7109,11 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		# The winners' standards glow, held high.
 		_dot(top + FLAG * 0.5, FLAG.x * 0.95, Color(1.0, 0.85, 0.4, 0.18 + (0.0 if Sound.reduced_motion else 0.06 * sin(_clock * 4.0))))
 	if Sound.reduced_motion or _c != _top_layer:
-		_draw_flag(_c, top + Vector2(0, 2), FLAG, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
+		_draw_flag(_c, top + Vector2(0, 2), FLAG * k, sq.team, sq.type, sq.routing, selected or sq.braced(), lean, edge)
 	else:
-		_draw_waving_flag(top + Vector2(0, 2), sq, selected or sq.braced(), lean, edge)
+		_draw_waving_flag(top + Vector2(0, 2), sq, selected or sq.braced(), lean, edge, k)
 	if sq.is_bodyguard or sq.is_chief:
-		var crown_c := top + Vector2(FLAG.x * 0.5, -16.0)
+		var crown_c := top + Vector2(FLAG.x * k * 0.5, -16.0)
 		_c.draw_colored_polygon(PackedVector2Array([
 			crown_c + Vector2(-9, 5), crown_c + Vector2(-9, -4), crown_c + Vector2(-5, 0),
 			crown_c + Vector2(0, -7), crown_c + Vector2(5, 0), crown_c + Vector2(9, -4),
@@ -7108,26 +7123,28 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		if not mine and ref_type != "":
 			_draw_counter_hint(top, sq.type, ref_type)
 		return
-	var bar := Rect2(top + Vector2(-2, FLAG.y + 9.0), Vector2(36, 6))
+	var bar := Rect2(top + Vector2(-2, FLAG.y * k + 9.0 - 3.0 * small), Vector2(36 * lerpf(1.0, 0.7, small), 6 - 2 * small))
 	var m := clampf(sq.morale / 100.0, 0.0, 1.0)
 	if wavering(sq):
 		# A warning mark beside the flag, steady with reduced motion, pulsing otherwise.
 		var pulse := 1.0 if Sound.reduced_motion else 0.6 + 0.4 * sin(_clock * 9.0)
-		var mark := top + Vector2(FLAG.x + 12.0, 8.0)
+		var mark := top + Vector2(FLAG.x * k + 12.0, 8.0)
 		_dot(mark, 9.0, Color(Style.ENEMY_LIGHT, pulse))
 		_c.draw_string(font, mark + Vector2(-3.5, 6.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(0.05, 0.03, 0.03))
 	if sq.arrows == 0:
 		# Out of arrows: an empty quiver beside the flag, for as long as it lasts.
-		var q := top + Vector2(FLAG.x + 12.0, 8.0 + (22.0 if wavering(sq) else 0.0))
+		var q := top + Vector2(FLAG.x * k + 12.0, 8.0 + (22.0 if wavering(sq) else 0.0))
 		_draw_empty_quiver(_c, q, 9.0)
 	_c.draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
 	_c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 	_draw_morale_mark(_c, bar.position + Vector2(-9.0, bar.size.y * 0.5), sq.morale, 5.0)
 	var count := str(sq.alive_n)
-	_c.draw_string_outline(font, top + Vector2(38, FLAG.y + 19.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), 4, Color(0, 0, 0, 0.9))
-	_c.draw_string(font, top + Vector2(38, FLAG.y + 19.0), count, HORIZONTAL_ALIGNMENT_LEFT, -1, _fs(Style.SMALL), Style.TEXT)
+	var count_at := top + Vector2(bar.size.x + 2.0, FLAG.y * k + 19.0 - 5.0 * small)
+	var count_size := int(round(_fs(Style.SMALL) * lerpf(1.0, 0.72, small)))
+	_c.draw_string_outline(font, count_at, count, HORIZONTAL_ALIGNMENT_LEFT, -1, count_size, 4, Color(0, 0, 0, 0.9))
+	_c.draw_string(font, count_at, count, HORIZONTAL_ALIGNMENT_LEFT, -1, count_size, Style.TEXT)
 	if sq.ability_left > 0.0 or sq.wheeling:
-		_c.draw_rect(Rect2(top + Vector2(-4, -2), FLAG + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
+		_c.draw_rect(Rect2(top + Vector2(-4, -2), FLAG * k + Vector2(8, 8)), Color(Style.BRASS, 0.8), false, 2.0)
 	if not mine and ref_type != "":
 		_draw_counter_hint(top, sq.type, ref_type)
 
@@ -7400,7 +7417,7 @@ func _draw_counter_hint(top: Vector2, type: String, ref_type: String) -> void:
 ## A squad's standard waving in the wind, as Heraldry.flag draws it with a wave of
 ## `_clock * 5 + id * 1.3`, but built once per look as one triangle list and waved by the
 ## top layer's FLAG_SHADER: one draw a flag.
-func _draw_waving_flag(at: Vector2, sq, lit: bool, lean: float, edge: Color) -> void:
+func _draw_waving_flag(at: Vector2, sq, lit: bool, lean: float, edge: Color, k: float = 1.0) -> void:
 	var mine: bool = sq.team == Sim.PLAYER
 	var grey: bool = sq.routing
 	var key := "%d/%s/%d/%d/%s" % [sq.id, sq.type, int(grey), int(lit), edge.to_html()]
@@ -7414,7 +7431,7 @@ func _draw_waving_flag(at: Vector2, sq, lit: bool, lean: float, edge: Color) -> 
 		mesh = Heraldry.cloth_mesh(FLAG, mine, 3.0 if lit else 2.0, sq.id * 1.3, cloth, dark, edge, sq.type,
 			Style.TEXT if not grey else Color(0.85, 0.85, 0.85))
 		_flag_geo[key] = mesh
-	_c.draw_set_transform(at, lean, Vector2.ONE)
+	_c.draw_set_transform(at, lean, Vector2(k, k))
 	RenderingServer.canvas_item_add_triangle_array(_c.get_canvas_item(), mesh["indices"], mesh["points"], mesh["colors"], mesh["uvs"])
 	_c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
