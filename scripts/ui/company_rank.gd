@@ -61,7 +61,7 @@ func shown() -> int:
 
 func _spacing() -> float:
 	var w := float(Art.frame(type, 0, 0, culture).get_width())
-	return maxf(9.0, w * 0.98) * SCALE
+	return maxf(9.0, w * 0.8) * SCALE
 
 
 func _lay() -> void:
