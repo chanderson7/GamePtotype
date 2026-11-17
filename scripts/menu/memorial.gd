@@ -314,7 +314,7 @@ func _overlay_base(id: String) -> VBoxContainer:
 	add_child(o)
 	_overlay = o
 	var bg := ColorRect.new()
-	bg.color = Color(0.02, 0.03, 0.07)
+	bg.color = Color(0.06, 0.045, 0.035)
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	bg.set_meta("close", _close_overlay)

@@ -262,7 +262,7 @@ func _build_stage() -> void:
 		_backdrop_vista = true
 		var sky := ColorRect.new()
 		sky.name = "SkyFill"
-		sky.color = Color("1b2440") if p["night"] else Color("8fb6dc")
+		sky.color = Color("2a221c") if p["night"] else Color("8fb6dc")
 		sky.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_stage.add_child(sky)
 		if when == "dusk":

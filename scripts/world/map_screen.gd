@@ -1927,7 +1927,7 @@ func _open_lord_outcome() -> void:
 	var shade := ColorRect.new()
 	shade.name = "LordOutcome"
 	shade.theme = Style.make_theme()
-	shade.color = Color(0.02, 0.03, 0.07, 0.86)
+	shade.color = Color(0.06, 0.045, 0.035, 0.86)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	_hud.add_child(shade)
@@ -2636,7 +2636,7 @@ func _menu_card(text: String, icon: String, status: String, callback: Callable, 
 	tile.custom_minimum_size = Vector2(76, 76)
 	tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tile.add_theme_stylebox_override("panel", Style.box(Color("141a2e"), Color(0, 0, 0, 0), 0, 18))
+	tile.add_theme_stylebox_override("panel", Style.box(Color("1a1512"), Color(0, 0, 0, 0), 0, 18))
 	row.add_child(tile)
 	var pic := Widgets.icon_rect(icon, 44.0)
 	pic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -4816,9 +4816,9 @@ func _name_plate(at: Vector2, text: String, base_size: int, color: Color, edge: 
 		rect = _dodge(rect)
 	_taken.append(rect)
 	if _plate == null:
-		_plate = Style.box(Color(0.06, 0.07, 0.1, 0.62), Color(0, 0, 0, 0), 0, 8)
+		_plate = Style.box(Color(0.09, 0.075, 0.06, 0.62), Color(0, 0, 0, 0), 0, 8)
 	if edge.a > 0.0:
-		var sb := Style.box(Color(0.06, 0.07, 0.1, 0.78), edge, 2, 8)
+		var sb := Style.box(Color(0.09, 0.075, 0.06, 0.78), edge, 2, 8)
 		sb.draw(labels.get_canvas_item(), rect)
 	else:
 		_plate.draw(labels.get_canvas_item(), rect)
@@ -4881,7 +4881,7 @@ func _icon_plate(at: Vector2, parts: Array, color: Color, edge: Color, dodge: bo
 	if dodge:
 		rect = _dodge(rect)
 	_taken.append(rect)
-	Style.box(Color(0.06, 0.07, 0.1, 0.8), edge, 2, 8).draw(labels.get_canvas_item(), rect)
+	Style.box(Color(0.09, 0.075, 0.06, 0.8), edge, 2, 8).draw(labels.get_canvas_item(), rect)
 	var x := rect.position.x + 8.0
 	var mid := rect.position.y + rect.size.y * 0.5
 	for part in parts:

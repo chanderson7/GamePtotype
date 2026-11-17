@@ -79,7 +79,7 @@ func _plate(at: Vector2, text: String, color: Color = Style.TEXT) -> void:
 	var font := get_theme_default_font()
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 	var rect := Rect2(at - Vector2(w * 0.5 + 10.0, 0), Vector2(w + 20.0, 30))
-	draw_style_box(Style.box(Color(0.06, 0.07, 0.1, 0.8), Color(0, 0, 0, 0), 0, 8), rect)
+	draw_style_box(Style.box(Color(0.09, 0.075, 0.06, 0.8), Color(0, 0, 0, 0), 0, 8), rect)
 	draw_string(font, rect.position + Vector2(10, 22), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, color)
 
 

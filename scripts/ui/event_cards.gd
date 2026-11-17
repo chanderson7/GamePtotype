@@ -126,7 +126,7 @@ func _ready() -> void:
 	var veil := ColorRect.new()
 	veil.name = "Veil"
 	# Solid: the card is the whole screen while it's read.
-	veil.color = Color(0.02, 0.03, 0.07, 1.0)
+	veil.color = Color(0.06, 0.045, 0.035, 1.0)
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	veil.mouse_filter = Control.MOUSE_FILTER_STOP
 	# Escape (a phone's back gesture) deals the next card.
@@ -335,8 +335,8 @@ func _fade_strip(sz: Vector2, y: float) -> Control:
 	f.size = sz
 	f.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	f.draw.connect(func():
-		var clear := Color(0.02, 0.03, 0.07, 0.0)
-		var dark := Color(0.02, 0.03, 0.07, 0.95)
+		var clear := Color(0.06, 0.045, 0.035, 0.0)
+		var dark := Color(0.06, 0.045, 0.035, 0.95)
 		f.draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0), sz, Vector2(0, sz.y)]),
 			PackedColorArray([clear, clear, dark, dark])))
 	return f
@@ -446,7 +446,7 @@ func _build_art(c: Dictionary, box: Control) -> void:
 			how = "falls"
 		_banners(box, banners, how, kind != "crown_risk")
 		return
-	var sky := _sky(sz, Color("1a2240"), Color("0b0f1c"))
+	var sky := _sky(sz, Color("1a2240"), Color("100c0a"))
 	box.add_child(sky)
 
 
@@ -614,7 +614,7 @@ func _memorial(c: Dictionary, box: Control, fallen: bool) -> void:
 	box.add_child(camp)
 	CampLife.over(camp)
 	var dark := ColorRect.new()
-	dark.color = Color(0.02, 0.03, 0.07, 0.45 if fallen else 0.25)
+	dark.color = Color(0.06, 0.045, 0.035, 0.45 if fallen else 0.25)
 	dark.size = box.size
 	dark.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(dark)
@@ -657,7 +657,7 @@ func _memorial(c: Dictionary, box: Control, fallen: bool) -> void:
 
 ## A deed: the company's banner in a slow burst of light.
 func _deed(c: Dictionary, box: Control) -> void:
-	box.add_child(_sky(box.size, Color("2a1f0c"), Color("0b0f1c")))
+	box.add_child(_sky(box.size, Color("2a1f0c"), Color("100c0a")))
 	var rays := _Rays.new()
 	rays.size = box.size
 	rays.still = _still
@@ -680,7 +680,7 @@ func _deed(c: Dictionary, box: Control) -> void:
 ## peace or an alliance, one alone (and falling, for a crown lost or an oath broken).
 func _banners(box: Control, realms: Array, how: String, lit: bool) -> void:
 	var war := how == "clash"
-	box.add_child(_sky(box.size, Color("3a1412") if war else Color("1c2648"), Color("0b0f1c")))
+	box.add_child(_sky(box.size, Color("3a1412") if war else Color("1c2648"), Color("100c0a")))
 	var hills := _Hills.new()
 	hills.size = box.size
 	box.add_child(hills)

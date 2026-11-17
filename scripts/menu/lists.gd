@@ -591,7 +591,7 @@ func _champion() -> void:
 	add_child(o)
 	_overlay = o
 	var veil := ColorRect.new()
-	veil.color = Color(0.02, 0.03, 0.07, 0.8)
+	veil.color = Color(0.06, 0.045, 0.035, 0.8)
 	veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	o.add_child(veil)
 	var rays = load("res://scripts/ui/event_cards.gd")._Rays.new()
@@ -898,7 +898,7 @@ class _Bar extends Control:
 	func _draw() -> void:
 		var w := size.x
 		var h := size.y
-		draw_rect(Rect2(0, h * 0.25, w, h * 0.5), Color("1f2846"))
+		draw_rect(Rect2(0, h * 0.25, w, h * 0.5), Color("2e2823"))
 		draw_rect(Rect2((at - zone) * w, h * 0.2, zone * 2.0 * w, h * 0.6), Color("8a6a2a"))
 		draw_rect(Rect2((at - zone * 0.4) * w, h * 0.15, zone * 0.8 * w, h * 0.7), Color("f3d891"))
 		if tap >= 0.0:

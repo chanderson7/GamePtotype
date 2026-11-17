@@ -4490,7 +4490,7 @@ func _draw_field_vignette(c: Control, won: bool) -> void:
 	c.draw_line(Vector2(finial.x, stand.end.y - 2.0), Vector2(finial.x, ground_y), Heraldry.POLE if up_realm != "ryumon" else Color("2a1d14"), 3.0)
 	if _vignette > 0.0:
 		for i in 6:
-			c.draw_rect(frame.grow(-i * 8.0), Color(0.02, 0.03, 0.08, _vignette * 0.12 * (1.0 - i / 6.0)), false, 8.0)
+			c.draw_rect(frame.grow(-i * 8.0), Color(0.06, 0.045, 0.035, _vignette * 0.12 * (1.0 - i / 6.0)), false, 8.0)
 	var band := Rect2(0, size.y - 44.0, size.x, 44.0)
 	c.draw_rect(band, Color(Style.NIGHT, 0.88))
 	var big: Font = Style.display_font()
@@ -6241,7 +6241,7 @@ func _draw_vignette_edge() -> void:
 		var inset := float(i) * 14.0
 		var r := _view.grow(-inset)
 		var a := _vignette * 0.09 * (1.0 - float(i) / float(steps))
-		_c.draw_rect(r, Color(0.02, 0.03, 0.08, a), false, 14.0)
+		_c.draw_rect(r, Color(0.06, 0.045, 0.035, a), false, 14.0)
 
 
 ## How far the drawn land reaches past the field, in field units.
@@ -7348,7 +7348,7 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		# Out of arrows: an empty quiver beside the flag, for as long as it lasts.
 		var q := top + Vector2(FLAG.x * k + 12.0, 8.0 + (22.0 if wavering(sq) else 0.0))
 		_draw_empty_quiver(_c, q, 9.0)
-	_c.draw_rect(bar.grow(1.5), Color(0.05, 0.05, 0.08, 0.85))
+	_c.draw_rect(bar.grow(1.5), Color(0.07, 0.06, 0.05, 0.85))
 	_c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
 	_draw_morale_mark(_c, bar.position + Vector2(-9.0, bar.size.y * 0.5), sq.morale, 5.0)
 	var count := str(sq.alive_n)
@@ -7393,7 +7393,7 @@ static func _ink(c: Color, n: int) -> PackedColorArray:
 
 ## A state badge: a quiver with no arrows in it, on a dark disc.
 func _draw_empty_quiver(ci: CanvasItem, at: Vector2, r: float) -> void:
-	ci.draw_circle(at, r, Color(0.05, 0.05, 0.08, 0.9))
+	ci.draw_circle(at, r, Color(0.07, 0.06, 0.05, 0.9))
 	ci.draw_arc(at, r, 0.0, TAU, 20, Color(Style.MUTED, 0.9), 1.5)
 	var k := r / 9.0
 	ci.draw_rect(Rect2(at + Vector2(-2.5, -4.0) * k, Vector2(5.0, 9.0) * k), Color("8a6a3a"))

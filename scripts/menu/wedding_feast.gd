@@ -93,7 +93,7 @@ func _make_backdrop(when: String) -> Control:
 	var p := SettlementScene.params(GameState.world, place)
 	p["night"] = when == "night"
 	var sky := ColorRect.new()
-	sky.color = Color("1b2440") if p["night"] else Color("8fb6dc")
+	sky.color = Color("2a221c") if p["night"] else Color("8fb6dc")
 	holder.add_child(sky)
 	var vista := SettlementVista.from_preset(p, 400.0)
 	holder.add_child(vista)

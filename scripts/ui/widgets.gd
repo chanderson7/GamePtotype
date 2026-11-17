@@ -627,7 +627,7 @@ static func framed(pic: TextureRect, size: Vector2, dim: bool = false, overhang:
 	mask.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var arch := StyleBoxFlat.new()
-	arch.bg_color = Color("1a2138")
+	arch.bg_color = Color("241e19")
 	arch.corner_radius_top_left = int(size.x * 0.5)
 	arch.corner_radius_top_right = int(size.x * 0.5)
 	arch.corner_radius_bottom_left = 12
@@ -947,7 +947,7 @@ static func store_tile(tile_name: String, key: String, have: int, cap: int, gain
 static func sheet(host: Control, title: String, sheet_name: String = "Sheet", on_close: Callable = Callable()) -> VBoxContainer:
 	var shade := ColorRect.new()
 	shade.name = sheet_name
-	shade.color = Color(0.012, 0.02, 0.04, 0.6)
+	shade.color = Color(0.03, 0.022, 0.016, 0.6)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	host.add_child(shade)

@@ -261,7 +261,7 @@ func _show_moment(r: Dictionary) -> void:
 	var shade := ColorRect.new()
 	shade.name = "Moment"
 	shade.theme = Style.make_theme()
-	shade.color = Color(0.02, 0.03, 0.07, 0.8)
+	shade.color = Color(0.06, 0.045, 0.035, 0.8)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	# It holds the screen while it's up: the tap that sends it away presses nothing under it.
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -367,7 +367,7 @@ func _show_contract(r: Dictionary) -> void:
 	var shade := ColorRect.new()
 	shade.name = "ContractDone"
 	shade.theme = Style.make_theme()
-	shade.color = Color(0.02, 0.03, 0.07, 0.82)
+	shade.color = Color(0.06, 0.045, 0.035, 0.82)
 	shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	shade.mouse_filter = Control.MOUSE_FILTER_STOP
 	shade.set_meta("contract", true)

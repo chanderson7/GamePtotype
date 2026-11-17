@@ -4,6 +4,7 @@
 ## fire are built on it; a subclass fills it.
 extends Control
 
+const Fittings = preload("res://scripts/ui/skin.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Widgets = preload("res://scripts/ui/widgets.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
@@ -835,7 +836,8 @@ func say(who: String, text: String, speaker: String = "") -> Control:
 	bubble.name = {"them": "Them", "other": "Other"}.get(who, "You")
 	var mine := who == "you"
 	var right := who != "them"
-	var fill := Color("26304f") if mine else (Color("252a3b") if who == "other" else Color("1d2238"))
+	# Your own words sit on your people's colour; theirs on the page's calm surface.
+	var fill := Fittings.livery().darkened(0.1) if mine else (Color("2f2924") if who == "other" else Color("26211d"))
 	var edge := Style.PLAYER_LIGHT.darkened(0.55) if mine else (Style.MUTED.darkened(0.45) if who == "other" else Style.RULE)
 	var sb := Style.box(fill, edge, 2, 16)
 	sb.content_margin_left = 16

@@ -404,7 +404,7 @@ func _faces() -> Control:
 		frame.position = Vector2(i * 46, 0)
 		frame.size = Vector2(60, 76)
 		frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var arch := Style.box(Color("1a2138"), Color("6a5226"), 3, 10)
+		var arch := Style.box(Color("241e19"), Color("6a5226"), 3, 10)
 		arch.corner_radius_top_left = 30
 		arch.corner_radius_top_right = 30
 		frame.add_theme_stylebox_override("panel", arch)
@@ -477,10 +477,10 @@ func _wait_row(name: String, icon: String, bg: Color, fg: Color, head: String, s
 	b.name = name
 	b.custom_minimum_size = Vector2(0, 92)
 	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	var sb := Style.box(Color("1a2138"), Color("2c3556"), 1, 16)
+	var sb := Style.box(Color("241e19"), Color("3a322b"), 1, 16)
 	b.add_theme_stylebox_override("normal", sb)
-	b.add_theme_stylebox_override("hover", Style.box(Color("1f2846"), Color("3d4a78"), 1, 16))
-	b.add_theme_stylebox_override("pressed", Style.box(Color("141a2e"), Color("3d4a78"), 1, 16))
+	b.add_theme_stylebox_override("hover", Style.box(Color("2e2823"), Color("3d4a78"), 1, 16))
+	b.add_theme_stylebox_override("pressed", Style.box(Color("1a1512"), Color("3d4a78"), 1, 16))
 	b.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Color(Style.BRASS, 0.6), 2, 16))
 	b.pressed.connect(action)
 	var row := HBoxContainer.new()

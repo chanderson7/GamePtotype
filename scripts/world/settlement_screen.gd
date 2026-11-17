@@ -2258,7 +2258,7 @@ func _job_row(job: Dictionary, chips: Array, button: Button) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	var badge := PanelContainer.new()
-	var bb := Style.box(Color("1a2138"), Style.RULE, 2, 14)
+	var bb := Style.box(Color("241e19"), Style.RULE, 2, 14)
 	bb.set_content_margin_all(10)
 	badge.add_theme_stylebox_override("panel", bb)
 	badge.size_flags_vertical = Control.SIZE_SHRINK_BEGIN

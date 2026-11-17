@@ -567,7 +567,7 @@ func _beads(cand: String) -> Control:
 
 func _next_box(text: String, icon: String = "ride") -> PanelContainer:
 	var box := PanelContainer.new()
-	var sb := Style.box(Color("1a2138"), Color("2c3556"), 1, 14)
+	var sb := Style.box(Color("241e19"), Color("3a322b"), 1, 14)
 	sb.content_margin_left = 14
 	sb.content_margin_right = 14
 	sb.content_margin_top = 10
@@ -888,8 +888,8 @@ func _keepsake_row(cand: String, e: Dictionary) -> Control:
 	b.name = "Memory_%s" % String(e.get("id", ""))
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_stylebox_override("normal", Style.box(Color("1b1726"), Color("3a2f45"), 2, 14))
-	b.add_theme_stylebox_override("hover", Style.box(Color("221d30"), Style.ROMANCE, 2, 14))
-	b.add_theme_stylebox_override("pressed", Style.box(Color("221d30"), Style.ROMANCE, 2, 14))
+	b.add_theme_stylebox_override("hover", Style.box(Color("261f1a"), Style.ROMANCE, 2, 14))
+	b.add_theme_stylebox_override("pressed", Style.box(Color("261f1a"), Style.ROMANCE, 2, 14))
 	var row := HBoxContainer.new()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 14)
@@ -1287,6 +1287,8 @@ func _parchment(view: Dictionary, own: bool) -> PanelContainer:
 	sb.border_color = Color("c9ae74") if not own else Color("d8cba8")
 	sb.set_border_width_all(2)
 	sb.set_corner_radius_all(6)
+	sb.corner_detail = 1
+	sb.anti_aliasing = false
 	sb.shadow_color = Color(0, 0, 0, 0.55)
 	sb.shadow_size = 18
 	sb.shadow_offset = Vector2(0, 8)
