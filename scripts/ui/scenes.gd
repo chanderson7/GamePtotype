@@ -526,7 +526,7 @@ func _show_contract(r: Dictionary) -> void:
 	add_child(shade)
 	move_child(shade, _veil.get_index())
 	_ribbon = shade
-	Sound.play("morale_low" if failed else "promotion", 0.0, 0.03)
+	Sound.play("morale_low" if failed else "quest_done", 0.0, 0.02)
 	Sound.haptic(true)
 	if still:
 		return

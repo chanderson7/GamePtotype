@@ -670,6 +670,23 @@ def keepsake():
     return _mono(render_once(1.4, score, wet=0.3, verb=2.0, tail=1.0, loudness=-18.0))
 
 
+def quest_done():
+    """A contract done: a wooden flute runs up five notes and holds the last, a harp
+    under it and a drone of low strings, the way a piper marks a thing finished."""
+    def score(tr, off):
+        rng = rng_for("quest_done")
+        beat = 0.17
+        # D E F# A, then up to the D above and held, with a turn before it.
+        melody(tr, "flute", [(74, 1), (76, 1), (78, 1), (81, 1.5), (83, 0.5), (86, 6)], off, beat, 0.24, -0.05, rng, legato=0.96, release=0.5)
+        put(tr, "harp", 50, off, 2.6, 0.2, -0.2, rng, release=2.0)
+        held(tr, "cellos", 38, off, 2.0, 0.05, -0.25, rng, attack=0.3)
+        put(tr, "harp", 62, off + beat * 2, 2.2, 0.16, 0.1, rng, release=1.8)
+        put(tr, "harp", 69, off + beat * 4.5, 2.0, 0.18, 0.2, rng, release=1.8)
+        put(tr, "harp", 74, off + beat * 5, 2.0, 0.18, -0.1, rng, release=1.8)
+        put(tr, "harp", 78, off + beat * 5.2, 2.0, 0.14, 0.25, rng, release=1.8)
+    return _mono(render_once(2.2, score, wet=0.32, verb=2.2, tail=1.2, loudness=-17.0))
+
+
 def letter():
     """A letter unfolded: paper, twice, and smoothed flat."""
     rng = rng_for("letter")
@@ -693,7 +710,7 @@ def letter():
 
 
 SFX = {"crown_fanfare": crown_fanfare, "stone": stone, "tablet": tablet, "candle": candle, "lamp_lit": lamp_lit,
-       "keepsake": keepsake, "letter": letter,
+       "keepsake": keepsake, "letter": letter, "quest_done": quest_done,
        "married": married, "heartbeat": heartbeat, "hearth": hearth, "murmur": murmur, "feast_din": feast_din,
        "laugh": laugh, "applause": applause, "cups": cups, "pour": pour, "cup_down": cup_down,
        "cord": cord, "knot": knot, "bread": bread, "salt": salt, "quill": quill, "brush": brush,

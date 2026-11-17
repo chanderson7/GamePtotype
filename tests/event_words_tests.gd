@@ -101,7 +101,7 @@ func _init() -> void:
 				if not found and not missing.has(nm):
 					missing.append(nm)
 	check(missing.is_empty(), "every sound asked for by name exists (%s)" % ", ".join(missing))
-	for nm in ["crown_fanfare", "stone", "tablet", "candle", "lamp_lit", "keepsake", "letter", "feast_din", "cups", "applause", "laugh"]:
+	for nm in ["crown_fanfare", "stone", "tablet", "candle", "lamp_lit", "keepsake", "letter", "quest_done", "feast_din", "cups", "applause", "laugh"]:
 		check(FileAccess.file_exists("res://assets/audio/sfx/%s.ogg" % nm), "the sound %s exists" % nm)
 	for nm in ["camp", "water", "birds", "road_open", "road_night", "settlement_edge", "settlement_vardish", "settlement_kharzani",
 			"settlement_ryumon", "hearth", "murmur", "feast_din"]:
