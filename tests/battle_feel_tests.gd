@@ -168,7 +168,7 @@ func _init() -> void:
 	sc._shake = 0.0
 	sc._impact(14, mine.avg, Vector2.RIGHT)
 	check(sc._hitstop > small and sc._hitstop <= sc.HITSTOP_MAX, "a charge that strikes more men stops the battle longer (%.2f > %.2f)" % [sc._hitstop, small])
-	check(sc._shake_dir == Vector2.RIGHT and sc._punch > 0.0, "and knocks the view the way it went, punching in")
+	check(sc._shake_dir == Vector2.RIGHT and sc._punch == 0.0, "and knocks the view the way it went, without zooming in")
 	var stop_before: float = sc._hitstop
 	sc._hitstop = 0.0
 	sc._impact(14, mine.avg, Vector2.RIGHT)

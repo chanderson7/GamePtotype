@@ -81,10 +81,6 @@ const INSPECT_LIFE := 4.0
 ## zooms in up to MAX_ZOOM over the whole-field view.
 const CAMERA_MARGIN := 110.0
 const MAX_ZOOM := 1.8
-## Closer still once the lines have met, and how far from the fight (arena units) a
-## company still counts as part of it.
-const FIGHT_ZOOM := 2.3
-const FIGHT_REACH := 110.0
 ## How far a pinch or the mouse wheel can bring the field in, and how much a wheel notch does.
 const MANUAL_ZOOM := 3.2
 const WHEEL_ZOOM := 1.12
@@ -966,22 +962,8 @@ func _update_camera(delta: float) -> void:
 	if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
 		var box := Rect2()
 		var first := true
-		# Once companies are hand to hand the view is theirs: the fight, the company you
-		# have picked, and whoever is close enough to join it. Men running away, and
-		# reserves far behind, no longer hold the view wide. Until then, everyone.
-		var fight := Rect2()
-		var fighting := 0
-		for sq in sim.squads:
-			if sq.is_active() and sq.engaged and not sq.routing:
-				var h: Vector2 = Vector2.ONE * (sq.extent + CAMERA_MARGIN)
-				var fr := Rect2(sq.avg - h, h * 2.0)
-				fight = fr if fighting == 0 else fight.merge(fr)
-				fighting += 1
-		var near := fight.grow(FIGHT_REACH)
 		for sq in sim.squads:
 			if not sq.is_active():
-				continue
-			if fighting >= 2 and sq != selected_squad and (sq.routing or not near.has_point(sq.avg)):
 				continue
 			var half: Vector2 = Vector2.ONE * (sq.extent + CAMERA_MARGIN)
 			var r := Rect2(sq.avg - half, half * 2.0)
@@ -989,8 +971,10 @@ func _update_camera(delta: float) -> void:
 			first = false
 		if not first:
 			want_center = box.get_center()
-			want_zoom = clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0,
-				FIGHT_ZOOM if fighting >= 2 else MAX_ZOOM)
+			# The view only ever draws back on its own, to keep everyone in it. It never
+			# closes in by itself: a view that jumps nearer mid-fight, for no reason you
+			# can see, pulls the eye from the fight. Closer is yours to choose, by pinch.
+			want_zoom = minf(cam_zoom, clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0, MAX_ZOOM))
 	var k := 1.0 - exp(-delta * CAMERA_EASE * (4.0 if not _title.is_empty() else 1.0))
 	cam_zoom = lerpf(cam_zoom, want_zoom, k)
 	cam_center = cam_center.lerp(want_center, k)
@@ -3223,7 +3207,8 @@ func _consume_events() -> void:
 
 
 ## A charge lands on or by your men, striking `men` of them: the battle stops for a beat
-## (longer the more it hit), the view is knocked the way the horses went and punches in.
+## (longer the more it hit) and the view is knocked the way the horses went. It does not
+## zoom: the view never closes in by itself.
 ## Charges landing within a moment of each other share one.
 func _impact(men: int, at: Vector2, dir: Vector2) -> void:
 	if _clock - _stop_at < 0.3:
@@ -3231,9 +3216,6 @@ func _impact(men: int, at: Vector2, dir: Vector2) -> void:
 	_stop_at = _clock
 	_hitstop = clampf(HITSTOP_MIN + 0.006 * float(men - 1), HITSTOP_MIN, HITSTOP_MAX)
 	_kick(4.0 + minf(float(men), 10.0) * 0.4, dir)
-	if not Style.motion_reduced() and not _camera_hold:
-		_punch = PUNCH
-		_punch_at = at
 
 
 ## A charge lands on `victim` at `at`: the men it hits are shoved back the way the charge
