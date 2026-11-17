@@ -19,6 +19,7 @@ extends RefCounted
 
 const Style = preload("res://scripts/ui/style.gd")
 const Fittings = preload("res://scripts/ui/skin.gd")
+const PixelIcons = preload("res://scripts/ui/pixel_icons.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 const ICONS := {
@@ -39,6 +40,10 @@ static var _icons: Dictionary = {}
 ## cache isn't there, as on a fresh headless checkout).
 static func icon(key: String) -> Texture2D:
 	if _icons.has(key):
+		return _icons[key]
+	# A pixel icon where there is one (pixel_icons.gd); the line drawing otherwise.
+	if PixelIcons.has(key):
+		_icons[key] = PixelIcons.texture(key)
 		return _icons[key]
 	# The order and siege icons are o_<key>.svg.
 	var path := String(ICONS.get(key, "res://assets/ui/o_%s.svg" % key))
