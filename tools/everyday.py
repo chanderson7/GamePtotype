@@ -142,13 +142,13 @@ def _trot(rng, length, over):
         high = k % 2 == 0
         for j, late in enumerate((0.0, 0.028)):
             t0 = at + late + rng.uniform(-0.008, 0.008)
-            knock = band(B.hit("log_hi" if high else "log_lo", rng, shift=rng.uniform(-9, -6) if high else rng.uniform(-6, -3), length=0.14), 180, 4200)
-            parts.append((knock, t0, (0.9 if j == 0 else 0.6) * rng.uniform(0.85, 1.0)))
-            parts.append((B.thud(rng, rng.uniform(85, 115), 0.045, 0.16, slap=0.5), t0, 0.75 if j == 0 else 0.45))
-            grit = _swish(rng, 0.07, 700, 4200, lambda t: np.exp(-t / 0.018))
-            parts.append((grit, t0 + 0.004, 0.16))
+            knock = band(B.hit("log_hi" if high else "log_lo", rng, shift=rng.uniform(-16, -13) if high else rng.uniform(-13, -10), length=0.2), 90, 1700)
+            parts.append((knock, t0, (0.6 if j == 0 else 0.4) * rng.uniform(0.85, 1.0)))
+            parts.append((B.thud(rng, rng.uniform(52, 72), 0.07, 0.24, slap=0.25), t0, 1.0 if j == 0 else 0.65))
+            grit = _swish(rng, 0.07, 400, 2200, lambda t: np.exp(-t / 0.022))
+            parts.append((grit, t0 + 0.004, 0.08))
         if k % 2 == 1:
-            parts.append((band(B.hit("shaker", rng, shift=rng.uniform(0, 4), length=0.12), 3500, 12000), at + 0.1, 0.07))
+            parts.append((band(B.hit("shaker", rng, shift=rng.uniform(0, 4), length=0.12), 3500, 12000), at + 0.1, 0.03))
         if k % 8 == 5:
             n = int(0.22 * SR)
             t = np.arange(n) / SR
