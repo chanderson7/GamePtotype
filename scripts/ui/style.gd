@@ -1,12 +1,16 @@
 ## Shared colors and the UI theme, so the camp and the battle look like one game.
 extends RefCounted
 
-const NIGHT := Color("0e1322")
-const PANEL := Color("161d33")
-const RAISED := Color("1f2846")
-const RULE := Color("303b63")
+const Fittings = preload("res://scripts/ui/skin.gd")
+
+## The page is a dark, warm ground: leather and smoke, not the night sky it used to be.
+## PANEL is the calm surface words sit on, RAISED a step lighter, RULE the iron of frames.
+const NIGHT := Color("12100e")
+const PANEL := Color("1e1a17")
+const RAISED := Color("2e2823")
+const RULE := Color("4a505c")
 const TEXT := Color("ece5d3")
-const MUTED := Color("a6adc8")
+const MUTED := Color("b3a78f")
 const BRASS := Color("d9a944")
 const BRASS_INK := Color("1d1505")
 
@@ -89,7 +93,11 @@ static func box(bg: Color, border: Color = Color(0, 0, 0, 0), border_width: int 
 	sb.bg_color = bg
 	sb.border_color = border
 	sb.set_border_width_all(border_width)
-	sb.set_corner_radius_all(radius)
+	# Corners are cut, not rounded, and edges hard: the look of worked metal and wood, and
+	# of the pixel art beside it. A pill (a big radius) keeps a deeper cut.
+	sb.set_corner_radius_all(mini(radius, 12) if radius < 30 else 14)
+	sb.corner_detail = 1
+	sb.anti_aliasing = false
 	sb.content_margin_left = 12.0
 	sb.content_margin_right = 12.0
 	sb.content_margin_top = 8.0
@@ -102,11 +110,13 @@ static func make_theme() -> Theme:
 	t.default_font_size = text_size(BODY)
 	t.set_color("font_color", "Label", TEXT)
 
-	t.set_stylebox("normal", "Button", box(RAISED, RULE, 2))
-	t.set_stylebox("hover", "Button", box(RAISED.lightened(0.06), MUTED, 2))
-	t.set_stylebox("pressed", "Button", box(RAISED.darkened(0.16), BRASS, 4))
-	t.set_stylebox("hover_pressed", "Button", box(RAISED.darkened(0.16), BRASS, 4))
-	t.set_stylebox("disabled", "Button", box(NIGHT.lightened(0.02), RULE.darkened(0.25), 2))
+	# A button is an iron plate (see skin.gd); the one thing to do on a page is brass
+	# (make_primary).
+	t.set_stylebox("normal", "Button", Fittings.plate("iron", "normal"))
+	t.set_stylebox("hover", "Button", Fittings.plate("iron", "hover"))
+	t.set_stylebox("pressed", "Button", Fittings.plate("iron", "pressed"))
+	t.set_stylebox("hover_pressed", "Button", Fittings.plate("iron", "pressed"))
+	t.set_stylebox("disabled", "Button", Fittings.plate("iron", "disabled"))
 	t.set_stylebox("focus", "Button", box(Color(0, 0, 0, 0), BRASS, 2))
 	t.set_color("font_color", "Button", TEXT)
 	t.set_color("font_hover_color", "Button", TEXT)
@@ -126,9 +136,10 @@ static func make_theme() -> Theme:
 ## A primary call-to-action style for one button.
 static func make_primary(button: Button) -> void:
 	button.set_meta("primary", true)
-	button.add_theme_stylebox_override("normal", box(BRASS, Color(0, 0, 0, 0), 0))
-	button.add_theme_stylebox_override("hover", box(BRASS.lightened(0.08), Color(0, 0, 0, 0), 0))
-	button.add_theme_stylebox_override("pressed", box(BRASS.darkened(0.24), TEXT, 3))
+	button.add_theme_stylebox_override("normal", Fittings.plate("brass", "normal"))
+	button.add_theme_stylebox_override("hover", Fittings.plate("brass", "hover"))
+	button.add_theme_stylebox_override("pressed", Fittings.plate("brass", "pressed"))
+	button.add_theme_stylebox_override("hover_pressed", Fittings.plate("brass", "pressed"))
 	button.add_theme_color_override("font_color", BRASS_INK)
 	button.add_theme_color_override("font_hover_color", BRASS_INK)
 	button.add_theme_color_override("font_pressed_color", BRASS_INK)

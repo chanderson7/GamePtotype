@@ -18,6 +18,7 @@
 extends RefCounted
 
 const Style = preload("res://scripts/ui/style.gd")
+const Fittings = preload("res://scripts/ui/skin.gd")
 const Heraldry = preload("res://scripts/ui/heraldry.gd")
 
 const ICONS := {
@@ -69,6 +70,9 @@ static func tile(key: String, value: String, sub: String, tone: Color = Style.TE
 	var t := PanelContainer.new()
 	t.name = "Tile_%s" % key
 	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# An iron frame, with a stripe of your own colour down its inner edge.
+	t.add_theme_stylebox_override("panel", Fittings.frame(false, Vector4(26, 10, 14, 12)))
+	t.draw.connect(func(): t.draw_rect(Rect2(6, 6, 9, t.size.y - 12), Fittings.livery()))
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 12)
 	t.add_child(h)
@@ -111,12 +115,8 @@ static func thousands(n: int) -> String:
 static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: String = "Tabs") -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.name = bar_name
-	var box := Style.box(Style.PANEL, Style.RULE, 2, 18)
-	box.content_margin_left = 6
-	box.content_margin_right = 6
-	box.content_margin_top = 6
-	box.content_margin_bottom = 6
-	bar.add_theme_stylebox_override("panel", box)
+	# The tabs are signs hung from an iron rail: wood, and the one you're on a brass plate.
+	bar.add_theme_stylebox_override("panel", Fittings.rail())
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	bar.add_child(row)
@@ -157,15 +157,15 @@ static func tab_bar(tabs: Array, current: String, on_tab: Callable, bar_name: St
 		var on: bool = t["id"] == current
 		# A gold tab: something on there (a feast), lit in brass.
 		var gold := bool(t.get("gold", false))
-		var flat := Style.box(Color(0, 0, 0, 0), Color(0, 0, 0, 0), 0, 14)
-		var lit := Style.box(Color("33290f") if gold else Style.RAISED, Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5), 2, 14)
+		var flat := Fittings.sign(false, gold)
+		var lit := Fittings.sign(true, gold)
 		if on:
-			line_color = Style.BRASS if gold else Style.PLAYER_LIGHT.darkened(0.5)
-		var hover := Style.box(Color(Style.RAISED, 0.55), Color(0, 0, 0, 0), 0, 14)
+			line_color = Fittings.BRASS_DARK
+		var hover := Fittings.sign(false, gold, true)
 		for state in ["normal", "hover", "pressed", "hover_pressed"]:
 			b.add_theme_stylebox_override(state, lit if on else (hover if state.begins_with("hover") else flat))
 		b.add_theme_stylebox_override("focus", Style.box(Color(0, 0, 0, 0), Color(Style.BRASS, 0.7), 2, 14))
-		var ink := (Color("f3d891") if gold else Style.TEXT) if on else (Style.BRASS if badge > 0 or gold else Style.MUTED)
+		var ink := Style.BRASS_INK if on else (Color("f3d891") if badge > 0 or gold else Style.TEXT)
 		for c in ["font_color", "font_pressed_color", "font_focus_color"]:
 			b.add_theme_color_override(c, ink)
 		b.add_theme_color_override("font_hover_color", ink if on or badge > 0 or gold else Style.TEXT)
@@ -293,27 +293,36 @@ static func _turn_page(bar: Control) -> void:
 ## A gold card is something waiting on you: a feast, a promotion, a moment in camp.
 static func card(parent: Control, title: String, aside: String = "", aside_color: Color = Style.MUTED, gold: bool = false) -> VBoxContainer:
 	var panel := PanelContainer.new()
-	var sb := Style.box(Color("221d10") if gold else Style.PANEL, Style.BRASS if gold else Style.RULE, 2, 20)
-	sb.content_margin_left = 22
-	sb.content_margin_right = 22
-	sb.content_margin_top = 18
-	sb.content_margin_bottom = 20
-	panel.add_theme_stylebox_override("panel", sb)
+	# An iron frame (brass for the one that matters now) round a calm surface.
+	panel.add_theme_stylebox_override("panel", Fittings.frame(gold))
 	parent.add_child(panel)
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	panel.add_child(v)
 	if title != "" or aside != "":
 		var head := HBoxContainer.new()
+		head.name = "CardHead"
 		v.add_child(head)
-		var t := Style.label(title.to_upper(), Style.SMALL, Style.BRASS if gold else Style.MUTED)
+		# The title sits on a band of your own people's colour, over a brass rule.
+		v.add_theme_constant_override("separation", 12)
+		head.custom_minimum_size.y = Style.text_size(Style.SMALL) + 16
+		panel.draw.connect(func():
+			if is_instance_valid(head):
+				Fittings.draw_band(panel, head.position.y + v.position.y + head.size.y + 2.0))
+		# The band follows the title's place, which is only known once the card is laid out.
+		head.resized.connect(panel.queue_redraw)
+		head.item_rect_changed.connect(panel.queue_redraw)
+		var spacer := Control.new()
+		spacer.custom_minimum_size.y = 4
+		var t := Style.label(title.to_upper(), Style.SMALL, Color("f3d891"))
 		t.name = "CardTitle"
 		t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		head.add_child(t)
 		if aside != "":
-			var a := Style.label(aside, Style.SMALL, aside_color)
+			var a := Style.label(aside, Style.SMALL, Style.TEXT if aside_color == Style.MUTED else aside_color)
 			a.name = "CardAside"
 			head.add_child(a)
+		v.add_child(spacer)
 	return v
 
 
@@ -322,12 +331,8 @@ static func card(parent: Control, title: String, aside: String = "", aside_color
 static func bottom_bar(buttons, insets: Dictionary, bar_name: String = "BottomBar") -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.name = bar_name
-	var box := Style.box(Style.NIGHT, Style.RULE, 0, 0)
-	box.border_width_top = 2
-	box.content_margin_left = 32
-	box.content_margin_right = 32
-	box.content_margin_top = 14
-	box.content_margin_bottom = 14 + float(insets.get("bottom", 0))
+	# Planks under an iron edge.
+	var box := Fittings.bar(Vector4(32, 16, 32, 14 + float(insets.get("bottom", 0)))).duplicate() as StyleBoxTexture
 	bar.add_theme_stylebox_override("panel", box)
 	# In a wide window the bar runs edge to edge, its buttons in the page's centred column.
 	bar.resized.connect(func():
