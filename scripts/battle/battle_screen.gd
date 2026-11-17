@@ -56,6 +56,8 @@ const ROLE_BADGES := {
 	"breach": ["breach", "Breach", Color("5a2a24"), Color("ffc0b0")],
 }
 const CHIP_GAP := 8.0
+## The selection row under the cards.
+const STRIP_H := 44.0
 const MAX_CHIPS_PER_ROW := 8
 const ORDER_WORDS := {"hold": "holding", "advance": "advancing", "attack": "attacking", "move": "marching"}
 ## Each order state's icon in the info strip.
@@ -423,9 +425,16 @@ const BLOWS := {Troops.INFANTRY: ["sword", "shield", "sword"], Troops.SPEARMEN: 
 var _low_morale_heard := {}
 ## A press on the field: where it went down (on screen and on the field), where it is
 ## now, and whether it has become a line.
+## The view has been moved by hand (see _hold_camera): the whole-field button shows.
 var _camera_hold := false
+## The opening's pull-out from your line is still running: the one time in a battle the
+## view moves itself. A touch on the view ends it.
+var _settling := false
 var _camera_grace := 0.0
-var camera_button: Button
+## Shown once the view has been moved by hand: one tap is the whole field again.
+var fit_button: Button
+## The whole army, at the head of the selection strip.
+var army_button: Button
 var _pressing := false
 var _drawing := false
 var _press_at := Vector2.ZERO
@@ -909,7 +918,8 @@ func _bottom_height() -> float:
 		# one row of squads, then Auto-place and Fight (hints float above, as a toast)
 		return 14.0 + CHIP_H + 10.0 + _cmd_h() + 14.0
 	var rows := _tray_rows()
-	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + 34.0 + 10.0 + _cmd_h() + 14.0 + Style.TOUCH + 10.0
+	# the cards, the selection row (whole army, what is picked, whole field), the orders
+	return 14.0 + rows * _chip_h() + (rows - 1) * CHIP_GAP + 10.0 + STRIP_H + 10.0 + _cmd_h() + 14.0
 
 
 func _chip_h() -> float:
@@ -959,25 +969,28 @@ func _update_camera(delta: float) -> void:
 	var want_center := Sim.ARENA * 0.5
 	if _deploying():
 		want_center.y = Sim.ARENA.y # clamped to show your whole zone and the enemy's front
-	if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
-		var box := Rect2()
-		var first := true
-		for sq in sim.squads:
-			if not sq.is_active():
-				continue
-			var half: Vector2 = Vector2.ONE * (sq.extent + CAMERA_MARGIN)
-			var r := Rect2(sq.avg - half, half * 2.0)
-			box = r if first else box.merge(r)
-			first = false
-		if not first:
-			want_center = box.get_center()
-			# The view only ever draws back on its own, to keep everyone in it. It never
-			# closes in by itself: a view that jumps nearer mid-fight, for no reason you
-			# can see, pulls the eye from the fight. Closer is yours to choose, by pinch.
-			want_zoom = minf(cam_zoom, clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0, MAX_ZOOM))
+	# In a battle the view is the player's: it stays where a pinch or a drag of two
+	# fingers put it, and nothing moves it for them. Only the opening (the pull-out from
+	# your line under the title) and deployment frame the field themselves.
+	if sim.phase == Sim.PHASE_BATTLE and not _settling:
+		_shake = maxf(0.0, _shake - delta * 30.0)
+		_shake_t += delta
+		_shake_offset = Vector2.ZERO
+		if _shake > 0.0 and not Style.motion_reduced():
+			if _shake_dir != Vector2.ZERO:
+				_shake_offset = _shake_dir * sin(_shake_t * 42.0) * _shake
+			else:
+				_shake_offset = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * _shake
+		_apply_camera()
+		return
 	var k := 1.0 - exp(-delta * CAMERA_EASE * (4.0 if not _title.is_empty() else 1.0))
 	cam_zoom = lerpf(cam_zoom, want_zoom, k)
 	cam_center = cam_center.lerp(want_center, k)
+	# The opening's pull-out is done once the whole field is in view.
+	if _settling and absf(cam_zoom - want_zoom) < 0.004:
+		cam_zoom = want_zoom
+		cam_center = want_center
+		_settling = false
 	_shake = maxf(0.0, _shake - delta * 30.0)
 	_shake_t += delta
 	_shake_offset = Vector2.ZERO
@@ -1008,6 +1021,7 @@ func _begin_title() -> void:
 	if n > 0 and not Style.motion_reduced():
 		cam_center = mine / float(n)
 		cam_zoom = MAX_ZOOM
+		_settling = true
 		_apply_camera()
 	_dim_hud(0.35)
 
@@ -1187,20 +1201,16 @@ func _kick(amount: float, dir: Vector2 = Vector2.ZERO) -> void:
 	_shake_t = 0.0
 
 
-func _toggle_camera() -> void:
-	_camera_hold = not _camera_hold
-	camera_button.text = "Held" if _camera_hold else "Following"
-	camera_button.icon = Widgets.icon("pin" if _camera_hold else "eye")
-
-
-## The view was moved by hand (a pinch, the wheel, a drag): it stays where it was put, and
-## the camera button says so, until Re-center hands it back to the fight.
+## The view was moved by hand (a pinch, the wheel, two fingers dragged): it stays where
+## it was put, and the whole-field button comes up to take it back.
 func _hold_camera() -> void:
-	if not _camera_hold:
-		_toggle_camera()
+	_camera_hold = true
+	_settling = false
 	_shake = 0.0
 	_shake_offset = Vector2.ZERO
 	_punch = 0.0
+	if fit_button != null:
+		fit_button.visible = true
 
 
 ## Zoom the view by `factor` about a point on the screen, which stays under the finger.
@@ -1285,12 +1295,16 @@ func _move_pinch() -> void:
 	_aim_camera(_pinch["spot"], (a + b) * 0.5)
 
 
+## Back to the whole field: the view as it is before anyone has moved it.
 func _recenter_camera() -> void:
 	_camera_hold = false
 	_camera_grace = 0.0
-	camera_button.text = "Following"
-	camera_button.icon = Widgets.icon("eye")
-	_update_camera(1.0)
+	_settling = false
+	cam_zoom = 1.0
+	cam_center = Sim.ARENA * 0.5
+	if fit_button != null:
+		fit_button.visible = false
+	_apply_camera()
 
 
 ## An order was given to `sq`: its standard dips, and the hand feels it (lightly, and not
@@ -4537,6 +4551,8 @@ func _layout_tray() -> void:
 		b.custom_minimum_size.y = CHIP_H if deploying else _chip_h()
 	view_row.visible = not deploying
 	info_strip.visible = not deploying
+	# The whole-army button is lit while a single company is picked: the way back.
+	army_button.disabled = selected_squad == null
 	scout_chip.visible = deploying and _scouting() != ""
 	if scout_chip.visible:
 		var ai = sim.ai[Sim.ENEMY]
@@ -4690,7 +4706,19 @@ func _build_hud() -> void:
 	info_strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	info_strip.mouse_filter = Control.MOUSE_FILTER_PASS
 	info_strip.draw.connect(_draw_info_strip)
-	col.add_child(info_strip)
+	# One row under the cards: the whole army, what is selected, and (once you've moved
+	# the view) the whole field. The view itself is moved on the field: pinch, or drag
+	# two fingers.
+	view_row = HBoxContainer.new()
+	view_row.name = "SelectionRow"
+	view_row.add_theme_constant_override("separation", 10)
+	col.add_child(view_row)
+	army_button = _strip_button("company", "Whole army", func(): _select(null))
+	army_button.name = "WholeArmy"
+	view_row.add_child(info_strip)
+	fit_button = _strip_button("center", "Whole field", _recenter_camera)
+	fit_button.name = "WholeField"
+	fit_button.visible = false
 	info_label = Style.label("", Style.SMALL, Style.TEXT)
 	info_label.visible = false
 	info_strip.add_child(info_label)
@@ -4721,12 +4749,6 @@ func _build_hud() -> void:
 		_order_label(b, b.text)
 
 
-	view_row = HBoxContainer.new()
-	view_row.add_theme_constant_override("separation", 10)
-	col.add_child(view_row)
-	camera_button = _view_button("Following", "eye", _toggle_camera)
-	_view_button("Re-center", "center", _recenter_camera)
-	_view_button("Whole army", "company", func(): _select(null))
 
 	# The objective, under the top bar, for every battle: the kit's chip, dark for the field.
 	objective_chip = Widgets.chip("Objective", Color("f3cf7a"), "", "objective")
@@ -4922,10 +4944,14 @@ func _cmd_h() -> float:
 	return maxf(CMD_H, 44.0 + 2.0 * float(Style.text_size(ORDER_FONT)) * 1.2 + 12.0)
 
 
-func _view_button(text: String, icon_key: String, callback: Callable) -> Button:
-	var b := _wide_button(text, callback, view_row)
-	b.add_theme_font_size_override("font_size", Style.text_size(Style.SMALL))
-	_set_icon(b, icon_key, false, Style.MUTED)
+## A small square button in the selection row, an icon alone; its words are its tooltip.
+func _strip_button(icon_key: String, words: String, callback: Callable) -> Button:
+	var b := _button("", Vector2(Style.TOUCH, STRIP_H), callback)
+	b.tooltip_text = words
+	_set_icon(b, icon_key, false, Style.TEXT)
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.expand_icon = false
+	view_row.add_child(b)
 	return b
 
 

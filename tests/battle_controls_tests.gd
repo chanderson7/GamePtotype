@@ -85,16 +85,14 @@ func _run() -> void:
 	screen._update_camera(0.1)
 	check(screen.cam_center == center and screen.cam_zoom == zoom, "camera remains fixed during formation gesture")
 	screen._pressing = false
-	screen._toggle_camera()
-	screen._update_camera(0.1)
-	check(screen.cam_center == center and screen.cam_zoom == zoom, "Hold view prevents automatic reframing")
+	screen._settling = false
+	for i in 20:
+		screen._update_camera(0.1)
+	check(screen.cam_center == center and screen.cam_zoom == zoom, "in a battle the view stays where it was put: nothing moves it but the player")
 	screen._recenter_camera()
-	check(not screen._camera_hold and screen.sim.time == before, "re-center changes view without advancing simulation")
-	screen._camera_grace = 0.85
-	center = screen.cam_center
-	zoom = screen.cam_zoom
-	screen._update_camera(0.1)
-	check(screen.cam_center == center and screen.cam_zoom == zoom, "gesture release gets a camera grace period")
+	check(not screen._camera_hold and screen.cam_zoom == 1.0 and screen.sim.time == before, "the whole field again, without advancing the simulation")
+	check(screen.find_child("WholeArmy", true, false) != null and screen.find_child("WholeField", true, false) != null
+		and screen.find_child("SelectionRow", true, false) != null, "one row under the cards: whole army, the selection, whole field")
 	var ground = load("res://scripts/battle/terrain.gd").new()
 	ground.reset()
 	for row in ground.ROWS: ground.water[row * ground.COLS + 10] = ground.WATER_DEEP
@@ -298,7 +296,7 @@ func _check_carry_and_slow(screen) -> void:
 	_press(screen, "up", foe_flag)
 	check(screen.paused and mine.order == "attack" and mine.order_target == foe, "paused, a tap on an enemy still orders the attack")
 	screen._set_paused(false)
-	# Two fingers pinch the view; the wheel zooms it; either holds the camera until Re-center.
+	# Two fingers pinch the view; the wheel zooms it; the whole-field button takes it back.
 	screen._select(null)
 	screen._recenter_camera()
 	var z0: float = screen.cam_zoom
@@ -310,12 +308,12 @@ func _check_carry_and_slow(screen) -> void:
 	spread.index = 1
 	spread.position = mid + Vector2(180, 0)
 	screen._input(spread)
-	check(screen.cam_zoom > z0 and screen._camera_hold and screen.camera_button.text == "Held", "spreading the fingers zooms in and holds the camera")
+	check(screen.cam_zoom > z0 and screen._camera_hold and screen.fit_button.visible, "spreading the fingers zooms in, and the whole-field button comes up")
 	_touch(screen, 1, false, mid + Vector2(180, 0))
 	_touch(screen, 0, false, mid - Vector2(60, 0))
 	check(screen._touches.is_empty() and screen._pinch.is_empty() and not screen._pinch_lock, "lifting both fingers ends the pinch")
 	screen._recenter_camera()
-	check(not screen._camera_hold and screen.camera_button.text == "Following", "Re-center hands the camera back to the fight")
+	check(not screen._camera_hold and not screen.fit_button.visible and screen.cam_zoom == 1.0, "one tap on it is the whole field again, and it goes away")
 	var z1: float = screen.cam_zoom
 	var wheel := InputEventMouseButton.new()
 	wheel.button_index = MOUSE_BUTTON_WHEEL_UP
