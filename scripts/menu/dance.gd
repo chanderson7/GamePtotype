@@ -8,6 +8,8 @@ const TalkView = preload("res://scripts/ui/talk_view.gd")
 const Data = preload("res://scripts/world/world_data.gd")
 const Gatherings = preload("res://scripts/data/gatherings.gd")
 const HallScene = preload("res://scripts/ui/hall_scene.gd")
+const HallLife = preload("res://scripts/ui/hall_life.gd")
+const DanceFloor = preload("res://scripts/ui/dance_floor.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
 const LordVoice = preload("res://scripts/data/lord_voice.gd")
 const LordTalk = preload("res://scripts/world/lord_talk.gd")
@@ -17,6 +19,7 @@ const Relationships = preload("res://scripts/data/relationships.gd")
 
 var g: Dictionary = {}
 var place := ""
+var _floor: Control
 
 
 func _ready() -> void:
@@ -33,6 +36,12 @@ func _ready() -> void:
 	var owner: String = w.owner_of(place)
 	var flag := owner if Heraldry.REALM_SIZES.has(owner) else Heraldry.realm_of_culture(Data.culture_of(owner))
 	var hall := HallScene.rect(Data.culture_of(Data.settlement(place)["faction"]), flag, "night" if when == "night" else "dusk", place.hash())
+	# The hall's fires and lanterns burn, and the floor has its dancers.
+	var hall_culture: String = Data.culture_of(Data.settlement(place)["faction"])
+	HallLife.over(hall, hall_culture)
+	_floor = DanceFloor.over(hall, hall_culture)
+	if when != "night":
+		_floor.tone = Color(0.95, 0.88, 0.82)
 	setup(hall, "%s at %s · %s" % [Gatherings.upper_first(String(g["name"])), Data.settlement(place)["name"], when])
 	Sound.play_music("feast_" + String(g.get("culture", Data.culture_of(owner))))
 	Sound.set_loop("feast_din")
@@ -99,6 +108,8 @@ func _dance(kind: String, id: String) -> void:
 		_ask()
 		return
 	Sound.play("page", 0.0, 0.05)
+	if kind != "wall" and _floor != null:
+		_floor.take_floor()
 	if kind in ["romance", "kin", "round"]:
 		Sound.play("applause", -5.0)
 	match kind:

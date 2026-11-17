@@ -599,7 +599,9 @@ func _gather(id: int) -> void:
 	_rite_art = _Rite.new()
 	_rite_art.name = "Rite"
 	_rite_art.culture = GameState.culture
-	_rite_art.custom_minimum_size = Vector2(0, 180)
+	_rite_art.custom_minimum_size = Vector2(0, 430)
+	_rite_art.company = clampi(count, 2, 8)
+	_rite_art.still = _still
 	_rite_art.pennant = MemorialScene.PENNANTS.get(String(m.get("culture", GameState.culture)), MemorialScene.PENNANTS["vardish"])
 	col.add_child(_rite_art)
 	var rite := Button.new()
@@ -741,12 +743,66 @@ class _Rite extends Control:
 	var progress := 0.0
 	var pennant := Color("4a74d1")
 
+	## How many of the company stand round the grave.
+	var company := 6
+	var still := false
+	var _t := 0.0
+	var _since := 0.0
+
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		clip_contents = true
+		set_process(not still)
 
+	func _process(delta: float) -> void:
+		_t += delta
+		_since += delta
+		if _since >= 0.1 and is_visible_in_tree():
+			_since = 0.0
+			queue_redraw()
+
+	## The hill at night, lit by the company's torches: sky and stars, the far ridge, the
+	## ground, the company standing either side with heads bowed, and the grave between
+	## them, where the rite is done.
 	func _draw() -> void:
-		var k := maxf(3.0, roundf(size.y / 45.0))
-		var base := Vector2(size.x * 0.5, size.y - 8.0)
+		var k := maxf(4.0, roundf(size.y / 70.0))
+		var ground := roundf(size.y * 0.74)
+		var base := Vector2(roundf(size.x * 0.5), ground + 4.0 * k)
+		var box := StyleBoxFlat.new()
+		box.bg_color = Color("0b1024")
+		box.set_corner_radius_all(12)
+		draw_style_box(box, Rect2(Vector2.ZERO, size))
+		# Sky: deep blue down to a last band of dusk at the ridge.
+		draw_polygon(PackedVector2Array([Vector2(4, 4), Vector2(size.x - 4, 4), Vector2(size.x - 4, ground), Vector2(4, ground)]),
+			PackedColorArray([Color("0b1024"), Color("0b1024"), Color("3a2c4a"), Color("3a2c4a")]))
+		var stars := RandomNumberGenerator.new()
+		stars.seed = 11
+		for i in 34:
+			var at := Vector2(stars.randf_range(8.0, size.x - 8.0), stars.randf_range(8.0, ground * 0.7))
+			var tw := 0.55 + 0.45 * sin(_t * (0.9 + 0.2 * (i % 5)) + i)
+			draw_rect(Rect2(at.snapped(Vector2(k * 0.5, k * 0.5)), Vector2(k * 0.5, k * 0.5)), Color(0.9, 0.92, 1.0, 0.25 + 0.55 * tw))
+		# The far ridge, and the ground the grave is cut in.
+		var ridge := PackedVector2Array([Vector2(4, ground)])
+		for i in 13:
+			var x := 4.0 + (size.x - 8.0) * i / 12.0
+			ridge.append(Vector2(x, ground - (10.0 + 9.0 * sin(i * 1.3) + 6.0 * sin(i * 2.9 + 1.0)) * k * 0.35))
+		ridge.append(Vector2(size.x - 4, ground))
+		draw_colored_polygon(ridge, Color("161c30"))
+		draw_rect(Rect2(4, ground, size.x - 8, size.y - ground - 4), Color("1c2a22"))
+		draw_rect(Rect2(4, ground, size.x - 8, k), Color("26382a"))
+		# Torchlight: warm on the ground round the grave, brighter as the rite goes on.
+		var breath := 1.0 if still else 0.9 + 0.07 * sin(_t * 7.0) + 0.03 * sin(_t * 13.0 + 1.0)
+		var lit := (0.55 + 0.45 * progress) * breath
+		for ring in [[46.0, 0.05], [32.0, 0.07], [20.0, 0.09], [11.0, 0.1]]:
+			draw_circle(base + Vector2(0, -6.0 * k), float(ring[0]) * k, Color(1.0, 0.62, 0.28, float(ring[1]) * lit))
+		# The company, either side, heads bowed; the two nearest hold the torches.
+		var each_side := int(ceil(company / 2.0))
+		for side in [-1.0, 1.0]:
+			for i in each_side:
+				if side > 0.0 and i >= company - each_side:
+					continue
+				var at := base + Vector2(side * (17.0 + i * 8.5) * k, (-1.0 + (i % 2) * 2.0) * k)
+				_mourner(at, k, side, i == 0, lit)
 		var px := func(x: float, y: float, w: float, h: float, c: Color):
 			draw_rect(Rect2(base.x + x * k, base.y + y * k, w * k, h * k), c)
 		# The fresh earth it stands on.
@@ -779,3 +835,29 @@ class _Rite extends Control:
 				if progress >= 1.0:
 					px.call(0, -38, 1, 18, Color("6b4426"))
 					px.call(1, -38, 7, 4, pennant)
+
+	## One of the company at the grave, feet at `at`: a dark figure with the torchlight on
+	## the side that faces it, head bowed; `torch` holds one up.
+	func _mourner(at: Vector2, k: float, side: float, torch: bool, lit: float) -> void:
+		var dark := Color("1a2034")
+		var cloak := Color("262c44")
+		var rim := Color(0.86, 0.56, 0.3, 0.75 * lit)
+		var r := func(x: float, y: float, w: float, h: float, c: Color):
+			draw_rect(Rect2(at.x + x * k, at.y + y * k, w * k, h * k), c)
+		r.call(-2, -4, 2, 4, dark)
+		r.call(0.5, -4, 2, 4, dark)
+		r.call(-2.5, -11, 5.5, 7.5, cloak)
+		# The head, bowed towards the grave.
+		r.call(-1 - side * 0.8, -13.5, 2.5, 2.5, Color("7a5e52"))
+		r.call(-1 - side * 0.8, -14.2, 2.5, 1.0, Color("2a2230"))
+		# Light on the side facing the grave.
+		var edge := -3.0 if side > 0.0 else 2.5
+		r.call(edge, -11, 0.6, 7.5, rim)
+		r.call(-1 - side * 0.8 + (0.0 if side > 0.0 else 1.9), -13.5, 0.6, 2.5, rim)
+		if torch:
+			var hand := -4.5 if side > 0.0 else 3.6
+			r.call(hand, -15, 0.8, 7, Color("5a3e28"))
+			var flick := 0.0 if still else sin(_t * 11.0 + side) * 0.4
+			r.call(hand - 0.6, -17.5 + flick, 2, 2.5, Color("ff9a3a"))
+			r.call(hand - 0.2, -18.5 + flick, 1.2, 2, Color("ffd678"))
+			draw_circle(at + Vector2(hand + 0.4, -17.0) * k, 7.0 * k, Color(1.0, 0.65, 0.3, 0.1 * lit))
