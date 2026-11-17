@@ -27,12 +27,12 @@ const FLAME := [Color("fff1a8"), Color("ffcf6a"), Color("ff9a3a"), Color("e2553f
 var folk: Array = []
 
 ## Where they stand, in the painting's pixels (their feet), and whether they face left.
-const AT_FIRE := [[104.0, 97.0, false], [138.0, 97.0, true], [92.0, 100.0, false], [150.0, 100.0, true], [112.0, 104.0, false], [130.0, 104.0, true],
-	[80.0, 96.0, false], [162.0, 97.0, true]]
-const BY_TENTS := [[56.0, 108.0, false], [196.0, 109.0, true], [28.0, 104.0, false]]
-const WATCH := [20.0, 220.0, 118.0]     # from x, to x, at y
-const WATCH_PACE := 7.0                 # pixels of the painting a second
-const FOLK_SCALE := 1.0
+const AT_FIRE := [[98.0, 101.0, false], [143.0, 101.0, true], [79.0, 106.0, false], [162.0, 106.0, true], [108.0, 112.0, false], [133.0, 112.0, true]]
+const BY_TENTS := [[40.0, 118.0, false], [208.0, 119.0, true]]
+const WATCH := [14.0, 226.0, 128.0]     # from x, to x, at y
+const WATCH_PACE := 9.0                 # pixels of the painting a second
+## Two painting pixels to a sprite pixel: a man stands as tall as a tent's door.
+const FOLK_SCALE := 2.0
 const FIRELIT := Color(0.86, 0.76, 0.7)
 
 var _t := 0.0
@@ -188,6 +188,8 @@ func _draw_folk() -> void:
 	var fire := 0
 	var tents := 0
 	var watch := false
+	# The watch walks nearest of all, so is drawn last, over whoever stands behind.
+	var front: Array = []
 	for i in folk.size():
 		var who: Dictionary = folk[i]
 		var mounted := bool(who.get("mounted", false))
@@ -201,7 +203,7 @@ func _draw_folk() -> void:
 			var moving := fposmod(along, lap) < span / WATCH_PACE
 			var walked := minf(fposmod(along, lap), span / WATCH_PACE) * WATCH_PACE
 			var x: float = WATCH[1] - walked if back else WATCH[0] + walked
-			_soldier(who, Vector2(x, WATCH[2]), back, int(_t * 4.0) % 2 if moving else 0, Color(0.62, 0.62, 0.74))
+			front = [who, Vector2(x, WATCH[2]), back, int(_t * 4.0) % 2 if moving else 0, Color(0.62, 0.62, 0.74)]
 			continue
 		var spot: Array
 		if mounted:
@@ -217,3 +219,5 @@ func _draw_folk() -> void:
 		var every := 4.0 + (i * 37 % 10) * 0.45
 		var shifting := not _still and fposmod(_t + i * 1.7, every) < 0.35
 		_soldier(who, Vector2(spot[0], spot[1]), spot[2], 1 if shifting else 0, Color(0.72, 0.7, 0.78) if mounted else FIRELIT)
+	if not front.is_empty():
+		_soldier(front[0], front[1], front[2], front[3], front[4])
