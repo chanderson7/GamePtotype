@@ -5103,6 +5103,8 @@ func _refresh_hud() -> void:
 	power_bar.visible = not deploying
 	speed_button.visible = not deploying
 	auto_button.visible = deploying
+	if not deploying:
+		hold_back_button.visible = false
 	fight_button.visible = deploying
 	var planning := not _storm_plan.is_empty()
 	# Running for it, nobody is left to take an order.

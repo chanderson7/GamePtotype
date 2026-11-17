@@ -177,6 +177,33 @@ static func bar(pad: Vector4 = Vector4(32, 14, 32, 14)) -> StyleBoxTexture:
 	return sb
 
 
+## Parchment, for what is a document in the world (a contract, a letter, a register):
+## paper with a darker, nicked edge. Ink and sealing wax go on it, not cream and brass.
+const PAPER := Color("e9dcc0")
+const PAPER_DARK := Color("d9c9a6")
+const PAPER_EDGE := Color("a8946c")
+const INK := Color("2b2118")
+const INK_FAINT := Color("6f5f48")
+const WAX := Color("8c2b2b")
+
+static func parchment(pad: Vector4 = Vector4(26, 22, 26, 24)) -> StyleBoxTexture:
+	var key := "parchment/%s" % pad
+	if _made.has(key):
+		return _made[key]
+	var img := _image(16)
+	_u(img, 0, 0, 16, 16, PAPER)
+	_u(img, 0, 0, 16, 1, PAPER.lightened(0.4))
+	_u(img, 0, 15, 16, 1, PAPER_EDGE)
+	_u(img, 0, 0, 1, 16, PAPER_EDGE)
+	_u(img, 15, 0, 1, 16, PAPER_EDGE)
+	# Nicks in the corners, where a sheet is handled.
+	for at in [Vector2i(0, 0), Vector2i(15, 0), Vector2i(0, 15), Vector2i(15, 15), Vector2i(2, 15), Vector2i(13, 0)]:
+		_u(img, at.x, at.y, 1, 1, Color(0, 0, 0, 0))
+	for at in [Vector2i(3, 3), Vector2i(12, 2), Vector2i(2, 12)]:
+		_u(img, at.x, at.y, 1, 1, PAPER_DARK)
+	return _box(key, img, 4, pad)
+
+
 ## Your own people's colour, as it is worn on the page: deep enough for a header band
 ## that brass and cream read on. Woad for Vardish, saffron for Kharzani, madder for Ryumon.
 static func livery() -> Color:

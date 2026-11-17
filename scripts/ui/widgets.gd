@@ -1145,7 +1145,7 @@ static func switch(on: bool, on_toggle: Callable, switch_name: String = "Switch"
 		var lit := b.button_pressed
 		var track_size := Vector2(minf(b.size.x - 8.0, 88.0), minf(b.size.y - 12.0, 40.0))
 		var track := Rect2((b.size - track_size) * 0.5, track_size)
-		b.draw_style_box(Style.box(Color("c9a046") if lit else Color("2a3458"), Color(0, 0, 0, 0), 0, int(track.size.y / 2)), track)
+		b.draw_style_box(Style.box(Color("c9a046") if lit else Fittings.IRON_DARK, Fittings.BRASS_DARK if lit else Fittings.IRON, 2, int(track.size.y / 2)), track)
 		var r := track.size.y / 2.0 - 4.0
 		var cx := track.end.x - r - 4.0 if lit else track.position.x + r + 4.0
 		b.draw_circle(Vector2(cx, track.get_center().y), r, Style.TEXT))

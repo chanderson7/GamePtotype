@@ -377,14 +377,9 @@ func _show_contract(r: Dictionary) -> void:
 	shade.add_child(center)
 	var card := PanelContainer.new()
 	card.name = "ContractCard"
-	var sb: StyleBoxFlat = Style.box(Style.PANEL, Style.ENEMY if bool(r.get("failed", false)) else Style.BRASS, 3, 22)
-	sb.content_margin_left = 26
-	sb.content_margin_right = 26
-	sb.content_margin_top = 22
-	sb.content_margin_bottom = 24
-	sb.shadow_color = Color(0, 0, 0, 0.6)
-	sb.shadow_size = 18
-	card.add_theme_stylebox_override("panel", sb)
+	# A contract is a document: parchment, ink and wax, where the rest of the page is iron.
+	var Fittings = load("res://scripts/ui/skin.gd")
+	card.add_theme_stylebox_override("panel", Fittings.parchment())
 	card.custom_minimum_size.x = minf(vw - 32.0, 620.0)
 	center.add_child(card)
 	var col := VBoxContainer.new()
@@ -418,11 +413,11 @@ func _show_contract(r: Dictionary) -> void:
 	seal.add_child(mark)
 	col.add_child(seal)
 	var kicker: Label = Style.label("CONTRACT FAILED" if failed else "CONTRACT COMPLETE", Style.SMALL,
-		Style.ENEMY_LIGHT if failed else Style.BRASS)
+		Fittings.INK_FAINT if failed else Fittings.WAX)
 	kicker.name = "ContractKicker"
 	kicker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	col.add_child(kicker)
-	var title: Label = Style.label(String(r.get("title", "Contract")), 40, Color("e8d6c8") if failed else Color("f3d891"))
+	var title: Label = Style.label(String(r.get("title", "Contract")), 40, Fittings.INK)
 	title.name = "ContractTitle"
 	var display: Font = Style.display_font()
 	if display != null:
@@ -450,7 +445,9 @@ func _show_contract(r: Dictionary) -> void:
 		if words == "" and not failed and place != "" and WorldData.SETTLEMENTS.has(place):
 			words = "Word goes round %s that your company keeps its word." % String(WorldData.settlement(place)["name"])
 	if words != "":
-		var said: Label = Style.label(words, Style.BODY, Style.TEXT)
+		var said: Label = Style.label(words, Style.BODY, Fittings.INK)
+		if Style.letter_font() != null:
+			said.add_theme_font_override("font", Style.letter_font())
 		said.name = "ContractWords"
 		said.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		said.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -459,7 +456,7 @@ func _show_contract(r: Dictionary) -> void:
 		who.add_child(said)
 	if who.get_child_count() > 0:
 		var who_box := PanelContainer.new()
-		var wb: StyleBoxFlat = Style.box(Style.NIGHT, Style.RULE, 2, 16)
+		var wb: StyleBoxFlat = Style.box(Fittings.PAPER_DARK, Fittings.PAPER_EDGE, 2, 6)
 		wb.content_margin_left = 14
 		wb.content_margin_right = 16
 		wb.content_margin_top = 12
@@ -482,7 +479,7 @@ func _show_contract(r: Dictionary) -> void:
 		paid.append(["bond", int(r["standing"]), "Standing"])
 	var tiles: Array = []
 	var counts: Array = []
-	var tb_edge: Color = Style.ENEMY if failed else Style.RULE
+	var tb_edge: Color = Fittings.WAX if failed else Fittings.PAPER_EDGE
 	if not paid.is_empty():
 		var row := HBoxContainer.new()
 		row.name = "ContractRewards"
@@ -492,7 +489,7 @@ func _show_contract(r: Dictionary) -> void:
 			var tile := PanelContainer.new()
 			tile.name = "Reward_%s" % String(p[2]).replace(" ", "")
 			tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var tb: StyleBoxFlat = Style.box(Style.RAISED, tb_edge, 2, 16)
+			var tb: StyleBoxFlat = Style.box(Fittings.PAPER_DARK, tb_edge, 2, 6)
 			tb.content_margin_top = 12
 			tb.content_margin_bottom = 12
 			tile.add_theme_stylebox_override("panel", tb)
@@ -502,13 +499,14 @@ func _show_contract(r: Dictionary) -> void:
 			tile.add_child(tv)
 			var ic: TextureRect = Widgets.icon_rect(String(p[0]), 40.0)
 			ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			ic.modulate = Fittings.INK
 			tv.add_child(ic)
 			var n: Label = Style.label(("+%s" if int(p[1]) > 0 else "%s") % Widgets.thousands(int(p[1])), 34,
-				Style.MORALE_HIGH if int(p[1]) > 0 else Style.ENEMY_LIGHT)
+				Color("3d6a2c") if int(p[1]) > 0 else Fittings.WAX)
 			n.name = "Amount"
 			n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			tv.add_child(n)
-			var cap: Label = Style.label(String(p[2]), Style.SMALL, Style.MUTED)
+			var cap: Label = Style.label(String(p[2]), Style.SMALL, Fittings.INK_FAINT)
 			cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			cap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			tv.add_child(cap)
