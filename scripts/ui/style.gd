@@ -2,6 +2,7 @@
 extends RefCounted
 
 const Fittings = preload("res://scripts/ui/skin.gd")
+const PixelIcons = preload("res://scripts/ui/pixel_icons.gd")
 
 ## The page is a dark, warm ground: leather and smoke, not the night sky it used to be.
 ## PANEL is the calm surface words sit on, RAISED a step lighter, RULE the iron of frames.
@@ -144,6 +145,31 @@ static func make_primary(button: Button) -> void:
 	button.add_theme_color_override("font_hover_color", BRASS_INK)
 	button.add_theme_color_override("font_pressed_color", BRASS_INK)
 	button.add_theme_color_override("font_focus_color", BRASS_INK)
+	# Whatever icon it is given, now or later, a pixel icon on brass sits on an iron boss
+	# in its own colours (see _seat_icon); a line drawing stays dark ink.
+	if not button.has_meta("seats_icon"):
+		button.set_meta("seats_icon", true)
+		button.draw.connect(_seat_icon.bind(button))
+
+
+## A brass button's icon, seen as it is about to be drawn: a pixel icon is swapped for the
+## same icon on its iron boss and shown untinted. Nothing to do once that is so.
+static func _seat_icon(button: Button) -> void:
+	if not is_instance_valid(button) or button.icon == null or not bool(button.get_meta("primary", false)):
+		return
+	var key := PixelIcons.key_of(button.icon)
+	if key == "":
+		return
+	_seat_icon_now.call_deferred(button, key)
+
+
+static func _seat_icon_now(button: Button, key: String) -> void:
+	if not is_instance_valid(button):
+		return
+	button.icon = PixelIcons.boss(key)
+	for c in ["icon_normal_color", "icon_hover_color", "icon_pressed_color", "icon_hover_pressed_color", "icon_focus_color"]:
+		button.add_theme_color_override(c, Color.WHITE)
+	button.add_theme_color_override("icon_disabled_color", Color(1, 1, 1, 0.45))
 
 
 ## Ease a panel into view: it fades in and rises the last little way from `anchor`

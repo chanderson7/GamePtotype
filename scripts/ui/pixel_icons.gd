@@ -396,6 +396,54 @@ const SAME := {"journal": "book", "rings": "bond"}
 static var _made := {}
 
 
+## Which key each plain icon texture is (see key_of), and the icons set on an iron boss.
+static var _keys := {}
+static var _bossed := {}
+
+
+## The key of a pixel icon's texture, or "" if `tex` isn't one (a line drawing, a boss).
+static func key_of(tex: Texture2D) -> String:
+	return String(_keys.get(tex, ""))
+
+
+static func is_boss(tex: Texture2D) -> bool:
+	return _bossed.values().has(tex)
+
+
+## The icon in its own colours on a small dark iron boss, for a brass plate: on brass a
+## brass icon would be lost and a tinted one goes flat, so it sits on iron, as a fitting
+## riveted to the button.
+static func boss(key: String) -> Texture2D:
+	key = String(SAME.get(key, key))
+	if _bossed.has(key):
+		return _bossed[key]
+	var plain := texture(key)
+	if plain == null:
+		return null
+	var n := SIZE + 6
+	var img := Image.create_empty(n, n, false, Image.FORMAT_RGBA8)
+	var c := Vector2(n * 0.5, n * 0.5)
+	for y in n:
+		for x in n:
+			var d := Vector2(x + 0.5, y + 0.5).distance_to(c)
+			if d <= 8.6:
+				# An iron rim, lit from the upper left, round a darker face.
+				var rim := d > 7.4
+				var lit := (x + y) < n - 2
+				img.set_pixel(x, y, (Color("78818e") if lit else Color("3d434d")) if rim else Color("22262d"))
+	var small := plain.get_image()
+	small.resize(SIZE + 2, SIZE + 2, Image.INTERPOLATE_NEAREST)
+	for y in SIZE + 2:
+		for x in SIZE + 2:
+			var px := small.get_pixel(x, y)
+			if px.a > 0.0:
+				img.set_pixel(x + 2, y + 2, px)
+	img.resize(n * SCALE, n * SCALE, Image.INTERPOLATE_NEAREST)
+	var tex := ImageTexture.create_from_image(img)
+	_bossed[key] = tex
+	return tex
+
+
 static func has(key: String) -> bool:
 	return ICONS.has(String(SAME.get(key, key)))
 
@@ -441,5 +489,6 @@ static func texture(key: String) -> Texture2D:
 	edged.resize(n * SCALE, n * SCALE, Image.INTERPOLATE_NEAREST)
 	var tex := ImageTexture.create_from_image(edged)
 	_made[key] = tex
+	_keys[tex] = key
 	return tex
 
