@@ -302,7 +302,7 @@ func _confirm_promotion() -> void:
 	var spec := _picked
 	if not GameState.specialize_captain(Scenes.active_captain_id, spec):
 		return
-	Sound.play("charge")
+	Sound.play("promotion")
 	var captain = GameState.captain_by_id(Scenes.active_captain_id)
 	var first := _first(captain) if typeof(captain) == TYPE_DICTIONARY else "The captain"
 	_flash = "%s is now %s: %s." % [first, spec, Captains.SPECIALIZATION_TITLES.get(spec, "")]

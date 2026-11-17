@@ -1070,7 +1070,10 @@ def _ceremony_sfx():
     if not sampler.available():
         return {}
     import ceremony
-    return ceremony.SFX
+    import everyday
+    out = dict(ceremony.SFX)
+    out.update(everyday.SFX)          # the everyday acts of town, camp and road (tools/everyday.py)
+    return out
 
 
 def _battle_sfx():
@@ -1096,7 +1099,7 @@ def main(which):
             write(os.path.join(OUT, "music", name + ".ogg"), fn(), quality=3)
     for name, fn in sounds.items():
         if which in ("all", "sfx", name) or (which == "battle_sfx" and name in recorded) \
-                or (which == "ceremony" and name in ceremonies) \
+                or (which in ("ceremony", "everyday") and name in ceremonies) \
                 or (which.endswith("*") and name.startswith(which[:-1])):
             x = fn()
             x = x / (np.max(np.abs(x)) + 1e-9) * 0.89

@@ -1653,14 +1653,14 @@ func _open_ransom_sheet(lord_id: int) -> void:
 
 func _on_accept_ransom(lord_id: int) -> void:
 	GameState.accept_lord_ransom(lord_id)
-	Sound.play("coins")
+	Sound.play("purse")
 	_close_sheet()
 	_refresh_hud()
 
 
 func _on_deliver_lord_to_employer(lord_id: int) -> void:
 	GameState.deliver_lord_to_employer(lord_id)
-	Sound.play("coins")
+	Sound.play("purse")
 	_close_sheet()
 	_refresh_hud()
 
@@ -3231,7 +3231,7 @@ func _show_letter_banner(l: Dictionary) -> void:
 	letter_banner.offset_top = TOP_BAR + float(insets["top"]) + 12.0
 	letter_banner.visible = true
 	_banner_left = LETTER_BANNER_SECONDS
-	Sound.play("page", 0.0, 0.05)
+	Sound.play("letter", 0.0, 0.05)
 	_drop_banner()
 
 
@@ -3246,7 +3246,7 @@ func _show_invite_banner(g: Dictionary) -> void:
 	letter_banner.offset_top = TOP_BAR + float(insets["top"]) + 12.0
 	letter_banner.visible = true
 	_banner_left = LETTER_BANNER_SECONDS
-	Sound.play("page", 0.0, 0.05)
+	Sound.play("letter", 0.0, 0.05)
 	_drop_banner()
 
 
@@ -3616,7 +3616,7 @@ func _on_siege_build(id: String, kind: String) -> void:
 	if not bool(r["ok"]):
 		_open_notice(String(r["reason"]), "The camp")
 		return
-	Sound.play("coins")
+	Sound.play("build")
 	_refresh_hud()
 	_open_siege(id)
 
@@ -3692,7 +3692,7 @@ func _on_raid_burn(id: String) -> void:
 
 
 func _after_raid(id: String) -> void:
-	Sound.play("coins" if world.is_burned(id) else "bell")
+	Sound.play("torch" if world.is_burned(id) else "bell")
 	_close_sheet()
 	_refresh_hud()
 	_sync_layers()

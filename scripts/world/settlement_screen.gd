@@ -631,7 +631,7 @@ func _add_reparations(card: VBoxContainer, owner: String, why: String) -> void:
 	var check: Dictionary = GameState.reparations_check(owner)
 	var envoy := _button("Send an envoy", func():
 		if GameState.pay_reparations(owner):
-			Sound.play("coins")
+			Sound.play("purse")
 			_build())
 	envoy.name = "SendEnvoy"
 	_with_icon(envoy, "silver")
@@ -756,7 +756,7 @@ func _show_fealty_sheet(owner: String) -> void:
 		var claim := _button("Claim", func():
 			Widgets.close_sheet(col)
 			if GameState.accept_fealty_and_fief(f, owner):
-				Sound.play("charge")
+				Sound.play("oath")
 				_build())
 		claim.name = "Claim_%s" % f
 		claim.custom_minimum_size = Vector2(140, Style.TOUCH)
@@ -768,13 +768,14 @@ func _show_fealty_sheet(owner: String) -> void:
 
 func _on_sign_contract(owner: String) -> void:
 	GameState.sign_contract(owner)
-	Sound.play("charge")
+	Sound.play("quill")
+	Sound.play("seal")
 	_build()
 
 
 func _on_cancel_contract() -> void:
 	GameState.break_contract()
-	Sound.play("alarm")
+	Sound.play("tear")
 	_build()
 
 
@@ -859,7 +860,7 @@ func _show_grant_sheet() -> void:
 		var b := _button("Grant", func():
 			Widgets.close_sheet(col)
 			if GameState.grant_fief(place, lid):
-				Sound.play("horn")
+				Sound.play("banner")
 				_build())
 		b.name = "Grant_%d" % lid
 		b.custom_minimum_size = Vector2(140, Style.TOUCH)
@@ -972,7 +973,7 @@ func _add_exchange_card(col: VBoxContainer) -> void:
 		words.add_child(_note("Castle · %d silver a day in taxes" % int(Fiefs.BASE_TAX[WorldData.CASTLE])))
 		var ask := _button("Ask for it", func():
 			if GameState.exchange_fief(c):
-				Sound.play("horn")
+				Sound.play("banner")
 				_build())
 		ask.name = "AskExchange_%s" % c
 		ask.custom_minimum_size = Vector2(150, Style.TOUCH)
@@ -1035,7 +1036,7 @@ func _add_estate_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 	buttons.add_child(collect)
 	var take := _button("Take food", func():
 		if GameState.collect_fief_food() > 0:
-			Sound.play("coins")
+			Sound.play("provisions")
 			_build())
 	take.name = "TakeFood"
 	_with_icon(take, "food")
@@ -1073,7 +1074,7 @@ func _add_garrison_card(col: VBoxContainer, fief: Dictionary) -> void:
 			continue
 		var take_back := func():
 			if GameState.withdraw_squad_from_fief(index):
-				Sound.play("click")
+				Sound.play("muster")
 				_build()
 		card.add_child(_squad_line(sq, "Take back", not full, "Withdraw_%d" % int(sq["id"]), take_back))
 	if guards > 0:
@@ -1185,7 +1186,7 @@ func _show_station_sheet(holding: bool = false) -> void:
 			Widgets.close_sheet(col)
 			var ok: bool = GameState.station_in_holding(sid) if holding else GameState.station_squad_in_fief(sid)
 			if ok:
-				Sound.play("click")
+				Sound.play("muster")
 				_build()
 		col.add_child(_squad_line(sq, "Station", GameState.army.size() > 1, "Station_%d" % sid, station, wounded > 0, not holding))
 
@@ -1210,7 +1211,7 @@ func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 		rep_row.add_child(rep_text)
 		var rep_btn := _button("Rebuild", func():
 			if GameState.repair_fief().get("ok", false):
-				Sound.play("coins")
+				Sound.play("build")
 				_build())
 		rep_btn.name = "RebuildEstate"
 		rep_btn.custom_minimum_size = Vector2(140, Style.TOUCH)
@@ -1231,7 +1232,7 @@ func _add_manor_card(col: VBoxContainer, fief: Dictionary, is_b: bool) -> void:
 		wall_row.add_child(wall_text)
 		var mend_btn := _button("Mend", func():
 			if GameState.repair_fief_walls().get("ok", false):
-				Sound.play("coins")
+				Sound.play("build")
 				_build())
 		mend_btn.name = "MendWalls"
 		mend_btn.custom_minimum_size = Vector2(140, Style.TOUCH)
@@ -1307,7 +1308,7 @@ func _improvement_row(key: String, built: bool) -> Control:
 	var cost := int(idef["cost"])
 	var b := _button("Build", func():
 		if GameState.build_fief_improvement(key).get("ok", false):
-			Sound.play("coins")
+			Sound.play("build")
 			_just_built = key
 			_build())
 	b.name = "Build_%s" % key
@@ -1333,7 +1334,7 @@ func _confirm_renounce() -> void:
 	var yes := _button("Renounce", func():
 		Widgets.close_sheet(col)
 		GameState.renounce_fief()
-		Sound.play("alarm")
+		Sound.play("tear")
 		_build())
 	yes.name = "ConfirmRenounce"
 	yes.add_theme_stylebox_override("normal", Style.box(Style.ENEMY_DARK, Style.ENEMY, 2))
@@ -2138,7 +2139,7 @@ func _hero_row(hero: Dictionary) -> Control:
 	var can_hire: bool = GameState.silver >= cost and GameState.army.size() < GameState.squad_cap()
 	var hire_btn := _button("Recruit", func():
 		if GameState.recruit_hero(hid):
-			Sound.play("charge")
+			Sound.play("oath")
 			# They're seen to join: their face on a ribbon, and the Squads tab they went to glows.
 			Scenes.ribbon_face("%s joins the company" % name_str, "%s · %s" % [Units.troop_name({"unit": hero.get("unit", "")}, cult), spec.capitalize()], face_tex, "")
 			_build()
@@ -2515,7 +2516,7 @@ func _portrait(type: String, culture: String) -> TextureRect:
 # ---------------------------------------------------------------- actions
 
 func _on_buy_food(rations: int) -> void:
-	_paid(GameState.buy_food(rations))
+	_paid(GameState.buy_food(rations), "provisions")
 
 
 ## Whether paying `cost` leaves less than two days of the warband's wages in the purse.
@@ -2543,7 +2544,7 @@ func _on_hire(index: int) -> void:
 
 func _hire_now(index: int) -> void:
 	# The new company joins the Companies tab, so that's what glows: where it went.
-	_paid(GameState.hire(place, index), "coins", "Tab_squads")
+	_paid(GameState.hire(place, index), "muster", "Tab_squads")
 
 
 ## A hire that would leave under two days of wages: say so, and let the player choose.
@@ -2571,11 +2572,11 @@ func _confirm_hire(index: int, cost: int, days_after: int) -> void:
 
 
 func _on_reinforce(id: int) -> void:
-	_paid(GameState.reinforce_squad(id), "coins", "Squad_%d" % id)
+	_paid(GameState.reinforce_squad(id), "muster", "Squad_%d" % id)
 
 
 func _on_reinforce_all() -> void:
-	_paid(GameState.reinforce() > 0)
+	_paid(GameState.reinforce() > 0, "muster")
 
 
 var _modal: Control = null
@@ -2589,7 +2590,7 @@ func _on_train(id: int) -> void:
 	if (int(s.get("level", 1)) == 1 or s.get("pending_branch", false)) and not branches.is_empty():
 		_show_branch_choice(id, branches)
 	else:
-		_paid(GameState.train_squad(id), "promotion", "Squad_%d" % id)
+		_paid(GameState.train_squad(id), "drill", "Squad_%d" % id)
 
 
 func _show_branch_choice(id: int, branches: Array) -> void:
@@ -2625,7 +2626,7 @@ func _show_branch_choice(id: int, branches: Array) -> void:
 		var bid := String(b_id)
 		var btn := _button("Choose", func():
 			Widgets.close_sheet(col)
-			_paid(GameState.train_squad(id, bid), "promotion")
+			_paid(GameState.train_squad(id, bid), "drill")
 		)
 		btn.name = "Choose_%s" % bid
 		btn.disabled = price > GameState.silver

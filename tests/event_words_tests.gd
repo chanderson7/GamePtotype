@@ -81,6 +81,26 @@ func _init() -> void:
 	# ---- the ear: every ceremony's music and sounds are there, and the loops are long
 	for nm in ["lament_vardish", "lament_kharzani", "lament_ryumon", "one_crown", "wedding_vardish", "wedding_kharzani", "wedding_ryumon"]:
 		check(FileAccess.file_exists("res://assets/audio/music/%s.ogg" % nm), "the music %s exists" % nm)
+	for nm in ["provisions", "muster", "drill", "oath", "build", "banner", "purse", "torch", "tear"]:
+		check(FileAccess.file_exists("res://assets/audio/sfx/%s.ogg" % nm), "the everyday sound %s exists" % nm)
+	# Every sound a script asks for by name has a file behind it (a bank's first take, or a people's).
+	var missing := PackedStringArray()
+	var re := RegEx.new()
+	re.compile("Sound\\.play\\(\"([a-z_0-9]+)\"")
+	var dirs := ["res://scripts/menu", "res://scripts/world", "res://scripts/ui", "res://scripts"]
+	for d in dirs:
+		for f in DirAccess.get_files_at(d):
+			if not f.ends_with(".gd"):
+				continue
+			for m in re.search_all(FileAccess.get_file_as_string(d.path_join(f))):
+				var nm := m.get_string(1)
+				var found := false
+				for cand in [nm, nm + "_1", nm + "1", nm + "vardish"]:
+					for ext in ["ogg", "wav"]:
+						found = found or FileAccess.file_exists("res://assets/audio/sfx/%s.%s" % [cand, ext])
+				if not found and not missing.has(nm):
+					missing.append(nm)
+	check(missing.is_empty(), "every sound asked for by name exists (%s)" % ", ".join(missing))
 	for nm in ["crown_fanfare", "stone", "tablet", "candle", "lamp_lit", "keepsake", "letter", "feast_din", "cups", "applause", "laugh"]:
 		check(FileAccess.file_exists("res://assets/audio/sfx/%s.ogg" % nm), "the sound %s exists" % nm)
 	for nm in ["camp", "water", "birds", "road_open", "road_night", "settlement_edge", "settlement_vardish", "settlement_kharzani",

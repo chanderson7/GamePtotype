@@ -1172,7 +1172,7 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 
 	var ransom_btn := _captive_button("Ransom_%d" % lord_id, "Ransom", func():
 		GameState.accept_lord_ransom(lord_id)
-		Sound.play("coins")
+		Sound.play("purse")
 		_build())
 	btns.add_child(Widgets.priced(ransom_btn, [["silver", "+" + Widgets.thousands(ransom)]]))
 
@@ -1180,7 +1180,7 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 		var bonus: int = int(GameState.contract.get("bonus_per_lord", 100))
 		var deliver_btn := _captive_button("Deliver_%d" % lord_id, "Deliver", func():
 			GameState.deliver_lord_to_employer(lord_id)
-			Sound.play("coins")
+			Sound.play("purse")
 			_build())
 		btns.add_child(Widgets.priced(deliver_btn, [["silver", "+" + Widgets.thousands(bonus)]]))
 
@@ -1195,7 +1195,7 @@ func _captive_lord_row(cl: Dictionary) -> Control:
 		var check: Dictionary = GameState.swear_check(lord_id)
 		var swear := _captive_button("SwearToCrown_%d" % lord_id, "Swear", func():
 			GameState.swear_lord_to_crown(lord_id)
-			Sound.play("horn")
+			Sound.play("oath")
 			_build())
 		swear.icon = Widgets.icon("crown")
 		swear.disabled = not check["ok"]

@@ -1380,7 +1380,7 @@ func _beat_sworn() -> void:
 		_beat_persuade(false)
 		return
 	_raise_crown_banner()
-	Sound.play("horn")
+	Sound.play("oath")
 	gs.save_game()
 	var card := PanelContainer.new()
 	card.name = "Oath"
@@ -1521,7 +1521,7 @@ func _draw_swords() -> void:
 
 func _pay_tribute() -> void:
 	if LordTalk.pay_tribute(gs, lord):
-		Sound.play("coins")
+		Sound.play("purse")
 		gs.save_game()
 		_show(_say("tribute"), [_fx_note([["silver", -LordTalk.TRIBUTE], ["bond", LordTalk.TRIBUTE_REGARD]], "They let you pass.", Style.BRASS)],
 			[_leave_reply("Safe roads.")], "proud")
@@ -1730,7 +1730,7 @@ func _beat_captive() -> void:
 		replies.append({"id": "swear", "text": "Swear to my crown.", "icon": "crown", "tag": "join your realm" if bool(sw["ok"]) else String(sw["reason"]),
 			"tone": "gold" if bool(sw["ok"]) else "locked", "act": func():
 				if gs.swear_lord_to_crown(lid):
-					Sound.play("horn")
+					Sound.play("oath")
 					_raise_crown_banner()
 					_show(_say("captive_swear"), [_note("%s swears to your crown." % LordTalk.short_name(lord), Style.BRASS)], [_leave_reply("Welcome.")], "proud", "nod")})
 	else:
@@ -1744,7 +1744,7 @@ func _beat_captive() -> void:
 	replies.append({"id": "ransom", "text": "Your house will pay %d silver for you." % ransom, "icon": "silver",
 		"fx": [["silver", ransom], ["bond", 5]], "tag": "ransom", "act": func():
 			gs.accept_lord_ransom(lid)
-			Sound.play("coins")
+			Sound.play("purse")
 			_show(_say("captive_ransom"), [_note("Ransomed.", Style.BRASS)], [_leave_reply("Go.")], "", "exit")})
 	if gs.has_contract() and world.at_war(gs.contract_realm(), String(lord.get("realm", ""))):
 		var employer: String = gs.contract_realm()
