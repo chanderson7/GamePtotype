@@ -25,6 +25,8 @@ const CHARGE := 2.0
 ## The run past at speed for a bout nobody's riding.
 const AUTO_CHARGE := 0.9
 const PASSES := 3
+## Where a rider waits before a pass: this far in from their end of the lists.
+const WAIT_AT := 140.0
 
 var _still := false
 var _view := Vector2.ZERO
@@ -169,8 +171,9 @@ func _place_riders(p: float) -> void:
 	var meet := _view.x * 0.5
 	var near_y := _arena.size.y * 0.93
 	var far_y := _arena.size.y * 0.66
-	_near.position = Vector2(lerpf(-60.0, meet - 30.0 * _near.k, p), near_y)
-	_far.position = Vector2(lerpf(_view.x + 60.0, meet + 30.0 * _far.k, p), far_y)
+	# They wait at their ends of the tilt, in sight, the horses restless.
+	_near.position = Vector2(lerpf(WAIT_AT, meet - 30.0 * _near.k, p), near_y)
+	_far.position = Vector2(lerpf(_view.x - WAIT_AT, meet + 30.0 * _far.k, p), far_y)
 
 
 func _build_hud() -> void:
@@ -780,6 +783,9 @@ class _Rider extends Control:
 	var _fall := 0.0
 	var _falling := false
 	var _chips: Array = []
+	## Dust thrown up behind the hooves at the gallop: {p, life}.
+	var _dust: Array = []
+	var _dust_in := 0.0
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -816,6 +822,15 @@ class _Rider extends Control:
 			c["p"] = c["p"] + c["v"] * delta
 			c["life"] = float(c["life"]) - delta
 		_chips = _chips.filter(func(c): return float(c["life"]) > 0.0)
+		if galloping:
+			_dust_in -= delta
+			if _dust_in <= 0.0:
+				_dust_in = 0.07
+				_dust.append({"p": Vector2(randf_range(-16.0, -8.0), randf_range(-3.0, 0.0)), "life": randf_range(0.4, 0.8)})
+		for d in _dust:
+			d["p"] = d["p"] + Vector2(-26.0, -7.0) * delta
+			d["life"] = float(d["life"]) - delta
+		_dust = _dust.filter(func(d): return float(d["life"]) > 0.0)
 		queue_redraw()
 
 	func _px(x: float, y: float, w: float, h: float, c: Color) -> void:
@@ -829,16 +844,25 @@ class _Rider extends Control:
 		var horse_d := Color("4a2e18")
 		# Legs, galloping.
 		var lift := 2.0 if step == 1 else 0.0
+		for d in _dust:
+			var dp: Vector2 = d["p"]
+			_px(dp.x, dp.y, 3, 2, Color(0.86, 0.76, 0.56, minf(0.7, float(d["life"]))))
+		# Waiting, the horse paws the ground now and then and its tail swings; at the
+		# gallop the whole of it rises and falls with the stride.
+		var paw := not galloping and _fall <= 0.0 and fposmod(_t, 3.4) < 0.5 and int(_t * 8.0) % 2 == 0
+		var swish := 0.0 if galloping else roundf(sin(_t * 2.3) * 1.2)
+		if galloping and step == 1:
+			draw_set_transform(Vector2(0, -k), 0.0, Vector2.ONE)
 		_px(-12, -12, 2, 12 - lift, horse_d)
 		_px(-8, -12, 2, 12 - (2.0 - lift), horse_d)
 		_px(6, -12, 2, 12 - (2.0 - lift), horse_d)
-		_px(10, -12, 2, 12 - lift, horse_d)
+		_px(10 + (1.0 if paw else 0.0), -12, 2, 12 - lift - (3.0 if paw else 0.0), horse_d)
 		# Body, neck, head, tail.
 		_px(-14, -22, 26, 10, horse)
 		_px(10, -28, 4, 10, horse)
 		_px(12, -31, 7, 5, horse)
 		_px(17, -29, 2, 2, horse_d)
-		_px(-17, -22, 3, 8, horse_d)
+		_px(-17 - swish, -22, 3, 8, horse_d)
 		# The caparison in the rider's colours.
 		_px(-14, -19, 26, 9, cloth)
 		_px(-14, -11, 26, 1, dark)
@@ -858,6 +882,7 @@ class _Rider extends Control:
 			_px(2, -31, length, 2, Color("c8b080"))
 			if not _broken:
 				_px(34, -34, 6, 3, cloth)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		for c in _chips:
 			var p: Vector2 = c["p"]
 			_px(p.x, p.y, 2, 1, Color("e8dcb8"))
