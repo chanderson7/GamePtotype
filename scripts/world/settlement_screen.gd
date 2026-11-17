@@ -3,6 +3,7 @@
 ## rules live in game_state.gd; this screen shows them and passes the taps on.
 extends Control
 
+const IdleSoldier = preload("res://scripts/ui/idle_soldier.gd")
 const StoryArt = preload("res://scripts/ui/story_art.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
@@ -2509,13 +2510,7 @@ func _with_icon(b: Button, key: String) -> void:
 
 ## A unit portrait, scaled up with hard pixel edges, dressed as `culture` dresses it.
 func _portrait(type: String, culture: String) -> TextureRect:
-	var portrait := TextureRect.new()
-	portrait.texture = Art.icon(type, 0, culture)
-	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	portrait.custom_minimum_size = Vector2(64, 64)
-	return portrait
+	return IdleSoldier.make(type, culture)
 
 
 # ---------------------------------------------------------------- actions

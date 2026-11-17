@@ -4701,7 +4701,31 @@ func _draw_labels() -> void:
 	# Lords' names only once you're looking closely, or the map drowns in them. The plate
 	# shows the name they go by; the full title is on their sheet.
 	if px >= LORD_NAMES_PX:
+		# Lords resting in the same place share one plate ("3 lords" and their men together)
+		# rather than stacking a name each over the town. Tap the place to see who.
+		var resting := {}
 		for lp in world.visible_lord_parties():
+			if _rests_in_company(lp):
+				if not resting.has(lp.node):
+					resting[lp.node] = []
+				resting[lp.node].append(lp)
+		for node in resting:
+			var group: Array = resting[node]
+			if group.size() < 2:
+				continue
+			var men := 0
+			var worst := "neutral"
+			for lp in group:
+				men += world.men_of(lp.army)
+				var r := String(world.relation_to_player(lp.faction))
+				if r == "hostile" or (worst != "hostile" and r in ["friendly", "allied", "employer"]):
+					worst = r
+			var group_edge := Style.ENEMY_LIGHT if worst == "hostile" else (Style.BRASS if worst != "neutral" else Color("6d7699"))
+			_name_plate(_to_screen(Data.pos(String(node))) + Vector2(0, -32.0 * px - 6.0), "%d lords" % group.size(), PARTY_PLATE,
+				Cultures.color(Data.culture_of(group[0].faction)).lightened(0.6), group_edge, men, true)
+		for lp in world.visible_lord_parties():
+			if _rests_in_company(lp) and (resting.get(lp.node, []) as Array).size() >= 2:
+				continue
 			var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
 			var ink := Cultures.color(Data.culture_of(lp.faction)).lightened(0.6)
 			if not army.is_empty() and army["state"] != "gathering":
@@ -4730,6 +4754,15 @@ func _draw_labels() -> void:
 					_icon_plate(Vector2(placed.get_center().x, placed.end.y + 2.0), [{"icon": "ride"}, {"icon": "crown"}],
 						Color("f3b0a0"), Style.ENEMY, false)
 	_label_household(px)
+
+
+## A lord standing in a settlement, not on the road and not marching with a host: one of
+## those who share a plate when several are in the same place.
+func _rests_in_company(lp) -> bool:
+	if lp.moving() or String(lp.node) == "" or not Data.SETTLEMENTS.has(lp.node):
+		return false
+	var army: Dictionary = world.MarshalArmies.for_party(world, lp.id)
+	return army.is_empty() or army["state"] == "gathering"
 
 
 ## Her cart's and envoy's names, under them, when the map is close enough to read names.

@@ -2,6 +2,7 @@
 ## Opened from the map. Run on its own (no campaign yet), it can still start a battle.
 extends Control
 
+const IdleSoldier = preload("res://scripts/ui/idle_soldier.gd")
 const Troops = preload("res://scripts/data/troops.gd")
 const Style = preload("res://scripts/ui/style.gd")
 const Art = preload("res://scripts/art/unit_art.gd")
@@ -110,6 +111,11 @@ func _build() -> void:
 	bonds_tab.visible = _tab == "bonds"
 	deeds.visible = _tab == "deeds"
 	_build_bonds_tab(bonds_tab)
+	for t in [companies, bonds_tab, deeds]:
+		var strip := _camp_header(150.0)
+		strip.name = "CampStrip"
+		t.add_child(strip)
+		t.move_child(strip, 0)
 
 	# --- Camp: the fire, who's there, the last fight, bonds and the remembered.
 	camp.add_child(_camp_header())
@@ -262,10 +268,12 @@ func _on_tab(id: String) -> void:
 	_build()
 
 
-func _camp_header() -> Control:
+## The camp, alive. The Camp tab has it whole; the other tabs keep a strip of it at
+## their head (`height`), so the fire is never out of sight.
+func _camp_header(height: float = 300.0) -> Control:
 	var stage := Control.new()
 	stage.name = "WarbandCampStage"
-	stage.custom_minimum_size.y = 300
+	stage.custom_minimum_size.y = height
 	stage.clip_contents = true
 	stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var camp := StoryArt.location("company_camp", 0)
@@ -275,7 +283,7 @@ func _camp_header() -> Control:
 	stage.add_child(camp)
 	# Your own soldiers about the camp: one from each company, and a second from the first few.
 	var life := camp.get_node_or_null("CampLife")
-	if life != null:
+	if life != null and height >= 300.0:
 		var folk: Array = []
 		var colour: Color = Cultures.info(GameState.culture)["color"]
 		for pass_no in 2:
@@ -1265,13 +1273,7 @@ func _kit(s: Dictionary) -> String:
 
 ## A unit portrait, scaled up with hard pixel edges, dressed as `culture` dresses it.
 func _portrait(type: String, culture: String) -> TextureRect:
-	var portrait := TextureRect.new()
-	portrait.texture = Art.icon(type, 0, culture)
-	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	portrait.custom_minimum_size = Vector2(64, 64)
-	return portrait
+	return IdleSoldier.make(type, culture)
 
 
 func _captain_or_unit(captain, squad: Dictionary) -> TextureRect:

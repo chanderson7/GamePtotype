@@ -141,12 +141,13 @@ static func pixel_size(type: String) -> float:
 	return HORSE_PIXEL if role == "cavalry" or role == "corpse_horse" else FOOT_PIXEL
 
 
-## A square portrait of the troop type, as `culture` dresses it, for cards and rosters.
-static func icon(type: String, team: int = 0, culture: String = "vardish") -> Texture2D:
+## A square portrait of the troop type, as `culture` dresses it, for cards and rosters:
+## frame `index` of it (0 standing).
+static func icon(type: String, team: int = 0, culture: String = "vardish", index: int = 0) -> Texture2D:
 	var name := sprite_name(type, culture)
-	var key := "%s/icon/%d" % [name, team]
+	var key := "%s/icon/%d/%d" % [name, team, index]
 	if not _cache.has(key):
-		var src := _image(name, team, 0)
+		var src := _image(name, team, index)
 		var p := pivot(type, culture)
 		var img := Image.create_empty(ICON_SIZE, ICON_SIZE, false, Image.FORMAT_RGBA8)
 		var ox := int(p.x) - ICON_SIZE / 2

@@ -8,7 +8,6 @@ extends Control
 ## Add it as a child of the TextureRect that shows the camp: CampLife.over(art).
 
 const Style = preload("res://scripts/ui/style.gd")
-const MapArt = preload("res://scripts/art/map_art.gd")
 
 ## Where things stand in the painting, in its pixels.
 const ART := Vector2(240, 160)
@@ -31,8 +30,6 @@ const AT_FIRE := [[98.0, 101.0, false], [143.0, 101.0, true], [79.0, 106.0, fals
 const BY_TENTS := [[40.0, 118.0, false], [208.0, 119.0, true]]
 const WATCH := [14.0, 226.0, 128.0]     # from x, to x, at y
 const WATCH_PACE := 9.0                 # pixels of the painting a second
-## Two painting pixels to a sprite pixel: a man stands as tall as a tent's door.
-const FOLK_SCALE := 2.0
 const FIRELIT := Color(0.86, 0.76, 0.7)
 
 var _t := 0.0
@@ -162,23 +159,72 @@ func _draw() -> void:
 			_px(STARS[i], Color(1.0, 1.0, 0.92, (tw - 0.75) * 2.4))
 
 
-## One of the company, feet at `foot` (the painting's pixels): a soldier on foot, or a
-## rider by a horse, as they look from the side on the map, in the company's colours.
+## One of the company, feet at `foot` (the painting's pixels), drawn in the painting's own
+## pixels: a soldier in a helmet and the company's colour with a spear, 21 high, as tall
+## as a tent's door; or a rider standing at their horse's head. `frame` 1 is the other
+## foot forward (a step, or a shift of weight).
 func _soldier(who: Dictionary, foot: Vector2, left: bool, frame: int, tone: Color) -> void:
-	var culture := String(who.get("culture", "vardish"))
-	var sprite := ("mounted/" if bool(who.get("mounted", false)) else "follower/") + culture
-	if not MapArt.has(sprite):
-		sprite = "follower/vardish"
-	var tex: Texture2D = MapArt.texture(sprite, frame, who.get("colour", Color(0.29, 0.45, 0.82)))
-	var k := _k() * FOLK_SCALE
-	var sz := Vector2(tex.get_size())
-	var pivot: Vector2 = MapArt.pivot(sprite)
-	var corner := _to(Vector2(roundf(foot.x), roundf(foot.y))) - Vector2((sz.x - pivot.x) if left else pivot.x, sz.y) * k
-	var rect := Rect2(corner, sz * k)
-	if left:
-		rect = Rect2(corner + Vector2(sz.x * k, 0), Vector2(-sz.x * k, sz.y * k))
-	draw_texture_rect(tex, rect, false, tone)
+	var cloth: Color = who.get("colour", Color(0.29, 0.45, 0.82))
+	var flip := -1.0 if left else 1.0
+	var x := roundf(foot.x)
+	var y := roundf(foot.y)
+	var f := func(dx: float, dy: float, w: float, h: float, c: Color):
+		var x0 := x + dx if not left else x - dx - w + 1.0
+		_px(Vector2(x0, y + dy), Color(c.r * tone.r, c.g * tone.g, c.b * tone.b, c.a), w, h)
+	if bool(who.get("mounted", false)):
+		_horse(f, cloth)
+		# The rider stands at the horse's head, a hand on the bridle.
+		x += 13.0 * flip
+	f.call(-4, 0, 9, 1, Color(0, 0, 0, 0.3))
+	var dark := Color("2a2430")
+	# Legs and boots: one foot forward on the step.
+	f.call(-2, -7, 2, 7, dark)
+	f.call(1 + frame, -7, 2, 7 - frame, dark)
+	f.call(-2, -1, 3, 1, Color("1a1620"))
+	f.call(1 + frame, -1 - frame, 3, 1, Color("1a1620"))
+	# The tunic in the company's colour, lit on the side towards the fire; a belt.
+	f.call(-3, -15, 6, 9, cloth)
+	f.call(2, -15, 1, 9, cloth.lightened(0.25))
+	f.call(-3, -15, 1, 9, cloth.darkened(0.3))
+	f.call(-3, -9, 6, 1, Color("3a2a1c"))
+	f.call(-2, -6, 4, 1, cloth.darkened(0.2))
+	# The arm on the spear, the head, the helmet with its rim.
+	f.call(3, -14, 1, 5, cloth.darkened(0.15))
+	f.call(3, -10, 1, 1, Color("e2b284"))
+	f.call(-2, -19, 4, 4, Color("e2b284"))
+	f.call(1, -18, 1, 1, Color("5a3a2a"))
+	f.call(-2, -21, 4, 2, Color("9aa0aa"))
+	f.call(-3, -20, 6, 1, Color("7a808a"))
+	f.call(-1, -22, 2, 1, Color("b8bec8"))
+	if not bool(who.get("mounted", false)):
+		f.call(4, -26, 1, 26, Color("6b4a2a"))
+		f.call(4, -28, 1, 2, Color("cfd4dc"))
 
+
+## A horse standing, drawn through `f` (feet of its near hind leg at the origin, facing
+## the way the soldier does), under a saddle-cloth in the company's colour.
+func _horse(f: Callable, cloth: Color) -> void:
+	var coat := Color("6e4a30")
+	var dark := Color("4a301e")
+	f.call(-10, 0, 22, 1, Color(0, 0, 0, 0.3))
+	for leg in [-9.0, -6.0, 5.0, 8.0]:
+		f.call(leg, -8, 2, 8, dark if int(leg) % 2 == 0 else coat)
+		f.call(leg, -1, 2, 1, Color("2a1c14"))
+	f.call(-10, -15, 21, 7, coat)
+	f.call(-10, -15, 21, 1, coat.lightened(0.15))
+	f.call(-9, -9, 19, 1, dark)
+	# Tail, neck, head, ear and mane.
+	f.call(-12, -14, 2, 9, dark)
+	f.call(8, -20, 4, 7, coat)
+	f.call(10, -23, 6, 4, coat)
+	f.call(15, -21, 1, 2, dark)
+	f.call(10, -25, 1, 2, coat)
+	f.call(7, -21, 2, 7, dark)
+	f.call(13, -22, 1, 1, Color("14100c"))
+	# Saddle-cloth and saddle.
+	f.call(-4, -16, 8, 5, cloth)
+	f.call(-4, -12, 8, 1, cloth.darkened(0.3))
+	f.call(-3, -17, 6, 1, Color("3a2a1c"))
 
 ## The company about its camp: the watch walking the front, the rest at the fire, shifting
 ## their weight now and then; riders hold their horses back by the tents.
@@ -203,7 +249,7 @@ func _draw_folk() -> void:
 			var moving := fposmod(along, lap) < span / WATCH_PACE
 			var walked := minf(fposmod(along, lap), span / WATCH_PACE) * WATCH_PACE
 			var x: float = WATCH[1] - walked if back else WATCH[0] + walked
-			front = [who, Vector2(x, WATCH[2]), back, int(_t * 4.0) % 2 if moving else 0, Color(0.62, 0.62, 0.74)]
+			front = [who, Vector2(x, WATCH[2]), back, int(_t * 3.0) % 2 if moving else 0, Color(0.62, 0.62, 0.74)]
 			continue
 		var spot: Array
 		if mounted:
