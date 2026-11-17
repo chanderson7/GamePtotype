@@ -4682,6 +4682,10 @@ func _finish(team: int, reason: String) -> void:
 	# A chief who wasn't cut down gets away from a lost field, hurt or not. One who won it
 	# stays at the head of his band.
 	if objective == OBJECTIVE_CHIEF:
+		# One fate, never two: struck down in a fight his band went on to win, he is carried
+		# off by his own men and keeps it.
+		if winner != PLAYER:
+			chief_killed = false
 		chief_escaped = winner == PLAYER and not chief_killed
 	if is_lord and winner == PLAYER:
 		if not lord_captured and not lord_killed:

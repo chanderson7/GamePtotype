@@ -26,7 +26,9 @@ const Units = preload("res://scripts/data/units.gd")
 const UnitArt = preload("res://scripts/art/unit_art.gd")
 const Politics = preload("res://scripts/data/politics.gd")
 
-const DUEL_SEEDS := 12
+## Twice the dozen it was: over a dozen fights one unlucky run of seeds decided a matchup
+## (bows against foot won 8 of the first 12 and 23 of the next 24).
+const DUEL_SEEDS := 24
 const BRANCH_SEEDS := 4
 ## Attacking into good ground: battles per commander on each kind of ground, how much
 ## stronger the attacker is, and how many points less often it should win there than on
