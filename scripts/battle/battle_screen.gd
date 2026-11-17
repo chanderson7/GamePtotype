@@ -81,6 +81,10 @@ const INSPECT_LIFE := 4.0
 ## zooms in up to MAX_ZOOM over the whole-field view.
 const CAMERA_MARGIN := 110.0
 const MAX_ZOOM := 1.8
+## Closer still once the lines have met, and how far from the fight (arena units) a
+## company still counts as part of it.
+const FIGHT_ZOOM := 2.3
+const FIGHT_REACH := 110.0
 ## How far a pinch or the mouse wheel can bring the field in, and how much a wheel notch does.
 const MANUAL_ZOOM := 3.2
 const WHEEL_ZOOM := 1.12
@@ -962,8 +966,22 @@ func _update_camera(delta: float) -> void:
 	if sim.phase == Sim.PHASE_BATTLE and sim.winner == -1:
 		var box := Rect2()
 		var first := true
+		# Once companies are hand to hand the view is theirs: the fight, the company you
+		# have picked, and whoever is close enough to join it. Men running away, and
+		# reserves far behind, no longer hold the view wide. Until then, everyone.
+		var fight := Rect2()
+		var fighting := 0
+		for sq in sim.squads:
+			if sq.is_active() and sq.engaged and not sq.routing:
+				var h: Vector2 = Vector2.ONE * (sq.extent + CAMERA_MARGIN)
+				var fr := Rect2(sq.avg - h, h * 2.0)
+				fight = fr if fighting == 0 else fight.merge(fr)
+				fighting += 1
+		var near := fight.grow(FIGHT_REACH)
 		for sq in sim.squads:
 			if not sq.is_active():
+				continue
+			if fighting >= 2 and sq != selected_squad and (sq.routing or not near.has_point(sq.avg)):
 				continue
 			var half: Vector2 = Vector2.ONE * (sq.extent + CAMERA_MARGIN)
 			var r := Rect2(sq.avg - half, half * 2.0)
@@ -971,7 +989,8 @@ func _update_camera(delta: float) -> void:
 			first = false
 		if not first:
 			want_center = box.get_center()
-			want_zoom = clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0, MAX_ZOOM)
+			want_zoom = clampf(minf(_view.size.x / (box.size.x * _fit_scale), _view.size.y / (box.size.y * _fit_scale)), 1.0,
+				FIGHT_ZOOM if fighting >= 2 else MAX_ZOOM)
 	var k := 1.0 - exp(-delta * CAMERA_EASE * (4.0 if not _title.is_empty() else 1.0))
 	cam_zoom = lerpf(cam_zoom, want_zoom, k)
 	cam_center = cam_center.lerp(want_center, k)
@@ -2813,7 +2832,7 @@ func _battle_sounds(delta: float) -> void:
 	# The din of the melee under everything, and over it single blows where the lines meet,
 	# of the kinds the men fighting there trade.
 	Sound.set_melee(clampf(float(engaged) / 6.0, 0.0, 1.0) if sim.phase == Sim.PHASE_BATTLE else 0.0)
-	Sound.set_field_distance(1.0 - (cam_zoom - 1.0) / maxf(0.01, MAX_ZOOM - 1.0))
+	Sound.set_field_distance(clampf(1.0 - (cam_zoom - 1.0) / maxf(0.01, MAX_ZOOM - 1.0), 0.0, 1.0))
 	if engaged > 0 and _roll.is_empty() and _hitstop <= 0.0:
 		_clash_clock -= delta * speed * (0.6 + engaged * 0.3)
 		if _clash_clock <= 0.0:
@@ -6857,6 +6876,11 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var index: int = 2 if so.swing > 0.0 else WALK[int(so.stride / (STRIDE * 0.25)) % 4]
 	if _pi >= 0:
 		index = _pi
+	elif sim.phase == Sim.PHASE_DEPLOY and not still:
+		# Drawn up and waiting, nobody stands like a statue: now one man shifts his
+		# weight, now another, each to his own time.
+		if fposmod(_clock + i * 1.37 + sq.id * 0.61, 4.5 + (i % 5) * 0.8) < 0.32:
+			index = 3
 	var face: Vector2 = _pf if _pf_set else so.facing
 	var angle: float = face.angle() + PI * 0.5 + _pt
 	var at: Vector2 = so.pos + _po
