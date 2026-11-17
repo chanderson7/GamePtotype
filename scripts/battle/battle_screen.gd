@@ -5293,16 +5293,17 @@ func _draw_power() -> void:
 		power_bar.draw_rect(track, Style.NIGHT)
 		power_bar.draw_rect(Rect2(track.position, Vector2(track.size.x * share, track.size.y)), Color(0.91, 0.63, 0.24).lerp(Style.ENEMY, 1.0 - share))
 		power_bar.draw_rect(track, Style.RULE, false, 1.0)
-	var start_mine := maxf(1.0, float(sim.start_men(Sim.PLAYER)))
-	var start_theirs := maxf(1.0, float(sim.start_men(Sim.ENEMY)))
 	var res_mine := float(sim.reserve_men(Sim.PLAYER))
 	var res_theirs := float(sim.reserve_men(Sim.ENEMY))
-	var mine: float = sim.strength(Sim.PLAYER)
-	var theirs: float = sim.strength(Sim.ENEMY)
-	# The bar shows the men just lost as a pale bite at each side's inner end, draining away.
-	var was_mine: float = maxf(mine, (_shown_men[Sim.PLAYER] + res_mine) / start_mine)
-	var was_theirs: float = maxf(theirs, (_shown_men[Sim.ENEMY] + res_theirs) / start_theirs)
-	var total := maxf(0.0001, was_mine + was_theirs)
+	# The meter is men: how many each side still has, on the field and still to come on.
+	# Each side's stretch of the bar is its men, so the larger host is the longer stretch,
+	# and the numbers at its ends are headcounts.
+	var mine: float = float(sim.men_on_field(Sim.PLAYER)) + res_mine
+	var theirs: float = float(sim.men_on_field(Sim.ENEMY)) + res_theirs
+	# The men just lost show as a pale bite at each side's inner end, draining away.
+	var was_mine: float = maxf(mine, _shown_men[Sim.PLAYER] + res_mine)
+	var was_theirs: float = maxf(theirs, _shown_men[Sim.ENEMY] + res_theirs)
+	var total := maxf(1.0, was_mine + was_theirs)
 	var blue := w * mine / total
 	var split := w * was_mine / total
 	var red_start := w - w * theirs / total
@@ -5312,26 +5313,36 @@ func _draw_power() -> void:
 	power_bar.draw_rect(Rect2(split, y, red_start - split, h), Style.ENEMY_LIGHT)
 	power_bar.draw_rect(Rect2(red_start, y, w - red_start, h), Style.ENEMY)
 	# Each side's reserve, still to come on: the outer end of its share, hatched.
-	_draw_reserve(Rect2(0, y, w * (res_mine / start_mine) / total, h), Style.PLAYER_LIGHT)
-	var res_theirs_w := w * (res_theirs / start_theirs) / total
+	_draw_reserve(Rect2(0, y, w * res_mine / total, h), Style.PLAYER_LIGHT)
+	var res_theirs_w := w * res_theirs / total
 	_draw_reserve(Rect2(w - res_theirs_w, y, res_theirs_w, h), Style.ENEMY_LIGHT)
-	# The middle: where the split must be, at the end of time, to win.
-	power_bar.draw_rect(Rect2(w * 0.5 - 1.0, y + h - 7.0, 2.0, 9.0), Color(Style.NIGHT, 0.85))
 	power_bar.draw_rect(Rect2(split - 2.0, y - 5.0, 4.0, h + 10.0), Style.TEXT)
 	var fs := _fs(Style.SMALL)
-	var mine_text := "%d%%" % roundi(mine * 100.0)
-	var theirs_text := "%d%%" % roundi(theirs * 100.0)
-	power_bar.draw_string(font, Vector2(8, y + h - 5.0), mine_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
-	power_bar.draw_string(font, Vector2(w - 98.0, y + h - 5.0), theirs_text, HORIZONTAL_ALIGNMENT_RIGHT, 90.0, fs, Style.TEXT)
+	var left := Sim.TIME_LIMIT - sim.time
+	# The number is the men on the field; a reserve is said after it ("+30 in reserve").
+	var mine_text := str(int(round(mine - res_mine)))
+	var theirs_text := str(int(round(theirs - res_theirs)))
+	# In the last minute, when time will decide it, the share of its host each side has
+	# kept (which is what decides it) is said beside its men.
+	if left < 60.0 and sim.winner == -1:
+		mine_text += " · %d%%" % roundi(sim.strength(Sim.PLAYER) * 100.0)
+		theirs_text = "%d%% · " % roundi(sim.strength(Sim.ENEMY) * 100.0) + theirs_text
+	var men_icon := Widgets.icon("men")
+	var lead := 0.0
+	if men_icon != null:
+		lead = fs + 4.0
+		power_bar.draw_texture_rect(men_icon, Rect2(6, y + (h - fs) * 0.5, fs, fs), false, Style.TEXT)
+		power_bar.draw_texture_rect(men_icon, Rect2(w - 6.0 - fs, y + (h - fs) * 0.5, fs, fs), false, Style.TEXT)
+	power_bar.draw_string(font, Vector2(8 + lead, y + h - 5.0), mine_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
+	power_bar.draw_string(font, Vector2(w - 8.0 - lead - 140.0, y + h - 5.0), theirs_text, HORIZONTAL_ALIGNMENT_RIGHT, 140.0, fs, Style.TEXT)
 	var room := w * 0.5 - 24.0
 	if res_mine > 0.0:
-		var x := 8.0 + font.get_string_size(mine_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 8.0
+		var x := 8.0 + lead + font.get_string_size(mine_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 8.0
 		power_bar.draw_string(font, Vector2(x, y + h - 5.0), _reserve_text(int(res_mine), fs, room - x), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
 	if res_theirs > 0.0:
-		var x2 := w - 8.0 - font.get_string_size(theirs_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x - 8.0
+		var x2 := w - 8.0 - lead - font.get_string_size(theirs_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x - 8.0
 		var said := _reserve_text(int(res_theirs), fs, room - (w - x2))
 		power_bar.draw_string(font, Vector2(x2 - font.get_string_size(said, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x, y + h - 5.0), said, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Style.TEXT)
-	var left := Sim.TIME_LIMIT - sim.time
 	if left < 60.0 and sim.winner == -1:
 		var clock := "%d:%02d" % [floori(left / 60.0), int(left) % 60]
 		power_bar.draw_string_outline(font, Vector2(0, y + h - 5.0), clock, HORIZONTAL_ALIGNMENT_CENTER, w, _fs(Style.SMALL), 5, Style.NIGHT)
