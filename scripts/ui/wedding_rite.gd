@@ -64,10 +64,13 @@ func _draw() -> void:
 	_pool()
 	match culture:
 		Cultures.KHARZANI:
+			_grid = TABLE_GRID
 			_bread_and_salt()
 		Cultures.RYUMON:
+			_grid = TABLE_GRID
 			_three_cups()
 		_:
+			_grid = FINE
 			_the_cord()
 
 
@@ -108,6 +111,10 @@ func _ease(t: float) -> float:
 ## stage), near the grain of her portrait, so that hands, a cuff and a twisted cord can be
 ## told apart. Positions below are in those units, from the prop's centre.
 const FINE := 265.0
+## The two table rites are smaller things than two arms and a brazier, so are drawn a
+## little larger: this many units across the stage.
+const TABLE_GRID := 200.0
+var _grid := FINE
 const IRON_LIGHT := Color("5d6676")
 const IRON_DARK := Color("22252d")
 const CORD_LIGHT := Color("e8674f")
@@ -134,7 +141,7 @@ var choice := ""
 func _f(x: float, y: float, w: float, h: float, c: Color) -> void:
 	if w <= 0.0 or h <= 0.0:
 		return
-	var u := size.x / FINE
+	var u := size.x / _grid
 	var o := _origin()
 	var x0 := roundf(o.x + x * u)
 	var y0 := roundf(o.y + y * u)
@@ -172,7 +179,7 @@ func _the_cord() -> void:
 
 ## The fire's light on everything near it: many faint rings, so it has no edge.
 func _glow() -> void:
-	var u := size.x / FINE
+	var u := size.x / _grid
 	var c := _origin() + Vector2(0.0, 6.0 * u)
 	var flick := 0.5 + 0.5 * sin(_clock * 7.0)
 	for i in 10:
@@ -509,102 +516,283 @@ func _knot(p: float) -> void:
 # ---------------------------------------------------------------- Kharzani: bread and salt
 
 ## A low carved table, with her people's runner on it.
+## The Kharzani and Ryumon rites are drawn on the same fine grid as the cord (FINE units
+## across the stage, from the prop's centre), so a loaf has a crust and a cup a rim.
+
+## A filled oval in fine units, a row at a time: `top` and `bottom` cut it (0 to 1 down
+## its height), so a dome, a bowl or a whole loaf come from the one shape.
+func _oval(cx: float, cy: float, rx: float, ry: float, c: Color, top: float = 0.0, bottom: float = 1.0) -> void:
+	var y0 := int(round(-ry + 2.0 * ry * top))
+	var y1 := int(round(-ry + 2.0 * ry * bottom))
+	for y in range(y0, y1):
+		var half := rx * sqrt(maxf(0.0, 1.0 - pow((y + 0.5) / ry, 2.0)))
+		_f(cx - half, cy + y, half * 2.0, 1.0, c)
+
+
+## A small flame, flickering.
+func _flame(x: float, y: float) -> void:
+	var lick := sin(_clock * 9.0 + x) * 0.6
+	_f(x - 1.5, y - 4.0, 3.0, 4.0, FLAMES[1])
+	_f(x - 1.0 + lick * 0.5, y - 6.5, 2.0, 3.0, FLAMES[3])
+	_f(x - 0.5 + lick, y - 8.0, 1.0, 2.0, FLAMES[4])
+	var u := size.x / _grid
+	draw_circle(_origin() + Vector2(x, y - 5.0) * u, 16.0 * u, Color(1.0, 0.62, 0.25, 0.07 + 0.015 * sin(_clock * 7.0)))
+
+
+## A low carved table under an embroidered runner: a thick top with a lit edge, an apron
+## inlaid with brass, turned legs, the cloth's border in her house's colour and its fringe.
 func _table_carved() -> void:
-	_r(-26, 13, 3, 5, WOOD_DARK)
-	_r(23, 13, 3, 5, WOOD_DARK)
-	_r(-30, 7, 60, 6, WOOD_DARK)
-	for i in 7:
-		_r(-27 + i * 9, 9, 2, 2, Color("d9a944"))
-	_r(-31, 5, 62, 2, WOOD)
+	for side in [-1.0, 1.0]:
+		var lx := -50.0 if side < 0.0 else 44.0
+		_f(lx, 22, 6, 9, WOOD_DARK)
+		_f(lx - 1, 25, 8, 2, WOOD)
+		_f(lx + 1, 31, 4, 2, WOOD_DARK.darkened(0.3))
+	_f(-55, 12, 110, 10, WOOD_DARK)
+	_f(-55, 12, 110, 1, WOOD_DARK.darkened(0.35))
+	for i in 9:
+		var x := -48.0 + i * 12.0
+		_f(x, 16, 2, 2, GOLD)
+		_f(x - 1, 17, 1, 1, GOLD.darkened(0.3))
+		_f(x + 2, 17, 1, 1, GOLD.darkened(0.3))
+		_f(x, 15, 1, 1, GOLD_LIGHT)
+	_f(-57, 8, 114, 4, WOOD)
+	_f(-57, 8, 114, 1, WOOD.lightened(0.25))
+	_f(-57, 11, 114, 1, WOOD_DARK)
+	# The runner: linen, a border, a thin red line, and a fringe over the table's edge.
 	var border := HERS.get(culture, Color("1f7a6e")) as Color
-	_r(-20, 4, 40, 2, Color("e9dcc0"))
-	_r(-20, 4, 40, 1, border)
-	_r(-20, 6, 40, 1, Color("c8443c"))
+	_f(-38, 6, 76, 3, Color("e9dcc0"))
+	_f(-38, 6, 76, 1, Color("f6ecd6"))
+	_f(-38, 9, 76, 4, Color("e9dcc0"))
+	_f(-38, 10, 76, 1, border)
+	_f(-38, 12, 76, 1, Color("c8443c"))
+	for i in 26:
+		_f(-37.5 + i * 3.0, 13, 1, 2 + (i % 2), Color("d8c8a4"))
+	for i in 12:
+		_f(-34 + i * 6.0, 7, 2, 1, border.lightened(0.25))
+
+
+## A brass lamp with its flame, at the table's end.
+func _lamp(x: float) -> void:
+	_f(x - 3, 3, 6, 2, GOLD.darkened(0.25))
+	_f(x - 5, -1, 10, 4, GOLD)
+	_f(x - 5, -1, 10, 1, GOLD_LIGHT)
+	_f(x - 1, -3, 2, 2, GOLD)
+	_f(x + 5, 0, 3, 1, GOLD)
+	_flame(x, -3.0)
+
+
+## One half of the loaf, or the whole of it: a domed flatbread, golden on top, darker
+## under, scored and seeded. `cut` is the side the pale crumb shows on (-1, 1, or 0).
+func _loaf(cx: float, rx: float, cut: float) -> void:
+	var crust := Color("8a5a24")
+	var loaf := Color("c98a3c")
+	var x0 := cx - rx
+	_f(x0 + 1, 5, rx * 2 - 2, 1, Color(0.1, 0.07, 0.05, 0.35))
+	_oval(cx, 5.0, rx, 12.0, crust, 0.0, 0.5)
+	_oval(cx, 4.0, rx - 1.0, 11.0, loaf, 0.0, 0.5)
+	_oval(cx, 1.0, rx - 4.0, 8.0, loaf.lightened(0.16), 0.0, 0.42)
+	_oval(cx - rx * 0.2, -1.0, rx * 0.45, 5.0, loaf.lightened(0.3), 0.0, 0.4)
+	for i in int(rx / 4.0):
+		var sx := cx - rx + 6.0 + i * 8.0
+		if sx < cx + rx - 5.0:
+			_f(sx, -3 + (i % 2), 4, 1, crust)
+			_f(sx + 1, -4 + (i % 2), 3, 1, crust.lightened(0.1))
+	for i in int(rx / 3.0):
+		_f(cx - rx + 4.0 + i * 5.3, -1 + (i * 7) % 4, 1, 1, Color("f4e6b8"))
+	if cut != 0.0:
+		var fx := cx + cut * (rx - 2.0)
+		_f(fx - 1.0, -5, 3, 10, Color("f2d9a6"))
+		_f(fx - 1.0, -5, 3, 1, loaf)
+		_f(fx, -2, 1, 1, Color("d9bd84"))
+		_f(fx - 1.0, 1, 1, 1, Color("d9bd84"))
+		_f(fx + 0.5, 3, 1, 1, Color("d9bd84"))
 
 
 func _bread_and_salt() -> void:
+	_glow()
 	if step >= 3:
 		# The contract, unrolled behind it all on its rods, signed and sealed.
-		var open := _ease(_p)
-		var w := 48.0 * open
-		_r(-w * 0.5, -24, w, 15, PAPER)
-		_r(-w * 0.5 - 2, -25, 2, 17, WOOD)
-		_r(w * 0.5, -25, 2, 17, WOOD)
-		if open > 0.8:
-			for i in 4:
-				_r(-19, -22 + i * 3.0, 30 - (i % 2) * 8, 1, INK)
-			_r(14, -16, 5, 5, Color("c8443c"))
-			_r(15, -15, 3, 3, Color("e88a7a"))
-	_table_carved()
-	var crust := Color("8a5a24")
-	var loaf := Color("c98a3c")
-	if step == 0:
-		_r(-12, -5, 24, 9, loaf)
-		_r(-10, -7, 20, 2, loaf.lightened(0.15))
-		for i in 4:
-			_r(-8 + i * 5, -6, 3, 1, crust)
-		_r(-12, 3, 24, 1, crust)
-	else:
-		# Broken clean in two, the halves drawn apart.
-		var apart := 5.0 * (_ease(_p) if step == 1 else 1.0)
+		var open := _ease(_p) if step == 3 else 1.0
+		var w := 86.0 * open
+		_f(-w * 0.5, -44, w, 30, PAPER)
+		_f(-w * 0.5, -44, w, 1, PAPER.lightened(0.2))
+		_f(-w * 0.5, -15, w, 1, PAPER.darkened(0.2))
 		for side in [-1.0, 1.0]:
-			var x := -13.0 - apart if side < 0 else 1.0 + apart
-			_r(x, -5, 12, 9, loaf)
-			_r(x + 2, -7, 8, 2, loaf.lightened(0.15))
-			_r(x + (11.0 if side < 0 else 0.0), -4, 1, 7, Color("f2d9a6"))
-		for i in 4:
-			_r(-3 + i * 2, 3, 1, 1, crust)
+			var rx := -w * 0.5 - 3.0 if side < 0.0 else w * 0.5
+			_f(rx, -47, 3, 36, WOOD)
+			_f(rx, -47, 1, 36, WOOD.lightened(0.25))
+			_f(rx - 1, -49, 5, 2, GOLD)
+			_f(rx - 1, -11, 5, 2, GOLD)
+		if open > 0.8:
+			# The clauses, in a small hand; then the last, short, the one she showed nobody.
+			var lines := [58.0, 50.0, 62.0, 44.0, 56.0, 38.0]
+			for i in lines.size():
+				var lw: float = lines[i]
+				var x := -36.0
+				var k := 0
+				while x < -36.0 + lw:
+					var word := 3.0 + ((i * 5 + k * 3) % 5)
+					_f(x, -41 + i * 3.6, minf(word, -36.0 + lw - x), 1, INK)
+					x += word + 2.0
+					k += 1
+			_f(-36, -19, 9, 1.5, Color("8c2b2b"))
+			# Ribbon and seal.
+			_f(26, -24, 3, 12, Color("c8443c").darkened(0.2))
+			_f(30, -23, 2, 9, Color("c8443c").darkened(0.3))
+			_oval(29.0, -24.0, 6.0, 5.0, Color("b8322a"))
+			_oval(28.5, -24.5, 4.0, 3.0, Color("d9584a"))
+			_f(26.5, -26.5, 2, 1, Color("f0a090"))
+	_table_carved()
+	_lamp(-47.0)
+	if step == 0:
+		_loaf(0.0, 24.0, 0.0)
+	else:
+		# Broken clean in two, the halves drawn apart, crumbs between.
+		var apart := 9.0 * (_ease(_p) if step == 1 else 1.0)
+		_loaf(-13.0 - apart, 13.0, 1.0)
+		_loaf(13.0 + apart, 13.0, -1.0)
+		for i in 7:
+			_f(-6.0 + i * 2.1 + (i % 2), 4 + (i % 3) * 0.5, 1, 1, Color("f2d9a6") if i % 2 == 0 else Color("c98a3c"))
 	if step >= 2:
-		# The salt in its dish, and the first piece lifted, salted, for her.
-		_r(18, -1, 10, 5, Color("5d6b8a"))
-		_r(19, 3, 8, 1, Color("3b4560"))
-		_r(20, -3, 6, 2, Color("f4f1ea"))
-		var lift := 7.0 * (_ease(_p) if step == 2 else 1.0)
-		_r(-4, -13 - lift, 8, 5, Color("f2d9a6"))
-		_r(-3, -14 - lift, 1, 1, Color("ffffff"))
-		_r(1, -13 - lift, 1, 1, Color("ffffff"))
-		_r(2, -14 - lift, 1, 1, Color("ffffff"))
+		# The salt in its glazed dish, and the first piece lifted, salted, for her.
+		_oval(41.0, 0.0, 9.0, 7.0, Color("3b4560"), 0.5, 1.0)
+		_oval(41.0, -1.0, 9.0, 7.0, Color("5d6b8a"), 0.5, 0.95)
+		_f(32, -1, 18, 1, Color("8fa0c4"))
+		_f(35, 2, 4, 1, Color("8fa0c4"))
+		_oval(41.0, -1.0, 6.5, 4.0, Color("f4f1ea"), 0.0, 0.5)
+		_f(39, -5, 1, 1, Color.WHITE)
+		_f(43, -4, 1, 1, Color.WHITE)
+		# Once the contract is out, the piece has been eaten.
+		if step == 2:
+			var lift := 13.0 * _ease(_p)
+			var py := -14.0 - lift
+			# Your fingers under it, and the piece: crumb, a rim of crust, the salt on it.
+			_f(-9, py + 6, 5, 4, YOU["shade"])
+			_f(-8, py + 5, 16, 4, YOU["base"])
+			_f(-8, py + 5, 16, 1, YOU["light"])
+			_f(-3, py + 8, 1, 1, YOU["line"])
+			_f(2, py + 8, 1, 1, YOU["line"])
+			_f(-7, py - 2, 14, 7, Color("f2d9a6"))
+			_f(-7, py - 3, 14, 2, Color("c98a3c"))
+			_f(-6, py - 4, 11, 1, Color("d9a050"))
+			_f(-7, py + 4, 14, 1, Color("d9bd84"))
+			for g in [[-4.0, 0.0], [0.0, -1.0], [3.0, 1.0], [-1.0, 2.0], [5.0, -1.0]]:
+				_f(float(g[0]), py + float(g[1]), 1, 1, Color.WHITE)
+			if _p < 1.0:
+				# Salt falling from your other hand as it's lifted.
+				for i in 4:
+					_f(-3.0 + i * 2.5, py - 8.0 + fposmod(_clock * 22.0 + i * 3.0, 6.0), 1, 1, Color(1, 1, 1, 0.8))
 
 
 # ---------------------------------------------------------------- Ryumon: three cups
 
-## A low table of black lacquer with a red edge.
+## A low table of black lacquer: a red edge, a sheen along the top, gold sprinkled in the
+## lacquer, legs that curve in.
 func _table_lacquer() -> void:
-	_r(-26, 13, 3, 5, Color("15121a"))
-	_r(23, 13, 3, 5, Color("15121a"))
-	_r(-30, 7, 60, 6, Color("1e1a22"))
-	_r(-30, 7, 60, 1, Color("8c2b2b"))
-	_r(-31, 5, 62, 2, Color("2e2833"))
+	var black := Color("1e1a22")
+	for side in [-1.0, 1.0]:
+		var lx := -50.0 if side < 0.0 else 45.0
+		_f(lx, 20, 5, 8, Color("15121a"))
+		_f(lx + side * -1.0, 28, 5, 3, Color("15121a"))
+		_f(lx, 20, 1, 8, Color("2e2833"))
+	_f(-55, 11, 110, 9, black)
+	_f(-55, 19, 110, 1, Color("0f0d12"))
+	_f(-55, 11, 110, 1, Color("8c2b2b"))
+	_f(-57, 7, 114, 4, Color("2e2833"))
+	_f(-57, 7, 114, 1, Color("4a4352"))
+	_f(-30, 8, 34, 1, Color("5c5466"))
+	for i in 14:
+		_f(-50.0 + i * 7.5 + (i % 3), 13 + (i * 5) % 5, 1, 1, GOLD if i % 2 == 0 else GOLD.darkened(0.3))
+	# A plum branch in gold along the apron.
+	for i in 6:
+		_f(18.0 + i * 4.0, 16 - (i % 2), 4, 1, GOLD.darkened(0.2))
+	for b in [[22.0, 13.0], [30.0, 14.0], [37.0, 13.0]]:
+		_f(float(b[0]), float(b[1]), 2, 2, Color("e8a0a8"))
+
+
+## One of the three cups, a shallow red-lacquer saucer on a small foot, `rx` wide: full,
+## or drunk and turned down with its foot on top (`tip` 0 to 1 as it settles).
+func _cup(cx: float, rx: float, down: bool, tip: float) -> void:
+	var red := Color("a8261c")
+	var deep := Color("6e1c16")
+	if down:
+		var y := 7.0 - 5.0 * (1.0 - tip)
+		_oval(cx, y, rx, 5.0, deep, 0.0, 0.5)
+		_oval(cx, y, rx - 1.0, 4.0, red, 0.0, 0.5)
+		_f(cx - rx * 0.5, y - 3.5, rx * 0.5, 1, Color("d9584a"))
+		_f(cx - 2.5, y - 7, 5, 2, deep)
+		_f(cx - 2.5, y - 7, 5, 1, GOLD)
+		_f(cx - rx, y - 1, rx * 2.0, 1, GOLD.darkened(0.2))
+	else:
+		_f(cx - 2.5, 5, 5, 2, deep)
+		_oval(cx, 0.0, rx, 5.0, deep, 0.5, 1.0)
+		_oval(cx, -0.5, rx - 1.0, 4.5, red, 0.5, 1.0)
+		# The rim, the sake in it, and a glint.
+		_f(cx - rx, -1, rx * 2.0, 1, GOLD)
+		_f(cx - rx + 2.0, 0, rx * 2.0 - 4.0, 1, Color("efe9d8"))
+		_f(cx - rx + 3.0, 0, 3, 1, Color.WHITE)
+		_f(cx + rx * 0.3, 2.5, rx * 0.4, 1, Color("d9584a"))
 
 
 func _three_cups() -> void:
-	_table_lacquer()
+	_glow()
 	if step >= 3:
-		# The register, opened on its stand behind the cups.
+		# The register, opened on its stand behind the cups: ruled columns, a red seal.
 		var open := _ease(_p) if step == 3 else 1.0
-		_r(-22 * open, -16, 22 * open, 10, PAPER)
-		_r(0, -16, 22 * open, 10, PAPER.darkened(0.05))
-		_r(-1, -16, 2, 10, Color("c9b98e"))
-		_r(-23 * open, -6, 46 * open, 1, Color("8a7a5a"))
-		_r(-2, -5, 4, 5, Color("2e2833"))
+		var w := 40.0 * open
+		_f(-3, -12, 6, 20, Color("2e2833"))
+		_f(-w - 2.0, -15, w * 2.0 + 4.0, 2, Color("8a7a5a"))
+		_f(-w, -40, w, 26, PAPER)
+		_f(0, -40, w, 26, PAPER.darkened(0.06))
+		_f(-w, -40, w * 2.0, 1, PAPER.lightened(0.2))
+		_f(-1, -40, 2, 26, Color("c9b98e"))
+		if open > 0.8:
+			for i in 4:
+				_f(-34.0 + i * 8.0, -38, 0.6, 22, Color("d9cba0"))
+				_f(8.0 + i * 8.0, -38, 0.6, 22, Color("cfc198"))
+			# Names written before yours, faint, at the pages' outer edges.
+			for i in 6:
+				_f(-33, -37 + i * 3.4, 2 + (i % 2), 2, Color(INK, 0.45))
+				_f(33 - (i % 2), -37 + i * 3.4, 2 + (i % 2), 2, Color(INK, 0.45))
 		if step >= 4:
-			# Your names, written in: a column of brush strokes on each page.
+			# Your names, written in: a column of brush strokes on each page, and the seal.
 			var ink := _ease(_p)
-			for i in int(4 * ink):
-				_r(-14, -14 + i * 2.0, 3, 1, INK)
-				_r(10, -14 + i * 2.0, 3, 1, INK)
+			for i in int(6 * ink):
+				var wide := 3.0 + ((i * 3) % 3)
+				_f(-16 - wide * 0.5, -37 + i * 3.4, wide, 2, INK)
+				_f(-16 + ((i % 2) * 2.0 - 1.0), -36 + i * 3.4, 1, 2, INK)
+				_f(16 - wide * 0.5, -37 + i * 3.4, wide, 2, INK)
+				_f(16 - ((i % 2) * 2.0 - 1.0), -36 + i * 3.4, 1, 2, INK)
+			if ink > 0.9:
+				_f(13, -17, 6, 2, Color("b8322a"))
+				_f(-19, -17, 6, 2, Color("b8322a"))
+	_table_lacquer()
+	# The ewer the sake is poured from: gold, long-handled, at the table's end.
+	_oval(-44.0, 2.0, 7.0, 6.0, GOLD.darkened(0.25))
+	_oval(-44.5, 1.5, 6.0, 5.0, GOLD)
+	_f(-47, -2, 3, 2, GOLD_LIGHT)
+	_f(-38, -1, 6, 1, GOLD)
+	_f(-33, -2, 2, 1, GOLD)
+	_f(-46, -9, 1, 6, GOLD.darkened(0.2))
+	_f(-46, -10, 6, 1, GOLD.darkened(0.2))
+	_f(-41, -9, 1, 4, GOLD.darkened(0.2))
+	# The brush on its rest and the inkstone, at the other end.
+	_f(40, 3, 12, 4, Color("2a2e3a"))
+	_f(41, 4, 7, 2, Color("0f1016"))
+	_f(40, 3, 12, 1, Color("4a5060"))
+	_f(34, -2, 16, 1, Color("c8a878"))
+	_f(31, -2, 3, 1, INK)
+	_f(30, -1, 2, 1, INK)
 	var turned := mini(step, 3)
 	for i in 3:
-		var x := -17.0 + i * 15.0
-		var y := 0.0
+		# Small, middle, great: each cup wider than the last.
+		var rx := 7.0 + i * 2.0
+		var x := -20.0 + i * 19.0
 		if i < turned:
-			# Drunk, and turned down: the foot on top. The newest tips over as it settles.
-			var tip := _ease(_p) if i == turned - 1 and step <= 3 else 1.0
-			_r(x - 4, y - 2 - 3 * (1.0 - tip), 9, 6, Color("ece5d3"))
-			_r(x - 4, y + 3 - 3 * (1.0 - tip), 9, 1, Color("b9b2a0"))
-			_r(x - 1, y - 3 - 3 * (1.0 - tip), 3, 1, Color("b9b2a0"))
+			_cup(x, rx, true, _ease(_p) if i == turned - 1 and step <= 3 else 1.0)
 		else:
-			_r(x - 4, y - 4, 9, 8, Color("ece5d3"))
-			_r(x - 4, y - 4, 9, 1, Color("b9b2a0"))
-			_r(x - 3, y - 3, 7, 1, Color("6a3a22"))
-			_r(x - 4, y + 3, 9, 1, Color("b9b2a0"))
+			_cup(x, rx, false, 1.0)
+	# A petal or two come in from the garden and settle on the lacquer.
+	for i in 3:
+		var fall := fposmod(_clock * 0.12 + i * 0.37, 1.0)
+		_f(-30.0 + i * 31.0 + sin(_clock * 0.9 + i) * 4.0, -46.0 + fall * 52.0, 2, 1, Color(0.95, 0.72, 0.78, 0.8 * sin(fall * PI)))
