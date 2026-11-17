@@ -151,9 +151,7 @@ func _draw_rivers() -> void:
 func _draw_river_pass(line: PackedVector2Array, color: Color, scale: float, extra: float) -> void:
 	for k in line.size() - 1:
 		var w := lerpf(RIVER_WIDTH.x, RIVER_WIDTH.y, float(k) / float(line.size() - 1)) * scale + extra
-		detail_layer.draw_line(line[k], line[k + 1], color, w)
-		if k > 0 and color.a >= 1.0:
-			detail_layer.draw_circle(line[k], w * 0.5, color)
+		_pixel_line(line[k], line[k + 1], w, color)
 
 
 ## A river's course smoothed through its points, for drawing.
@@ -175,8 +173,35 @@ func _draw_roads() -> void:
 		if r[2]:
 			detail_layer.draw_dashed_line(a, b, Color(SEA_LANE, 0.55), 1.6, 5.0)
 		else:
-			detail_layer.draw_line(a, b, ROAD_EDGE, 5.5)
-			detail_layer.draw_line(a, b, ROAD, 3.0)
+			_pixel_line(a, b, 6.0, ROAD_EDGE)
+			_pixel_line(a, b, 4.0, ROAD)
+			_ruts(a, b)
+
+
+## A line in the map's own pixels (MapTerrain.DECOR_PIXEL map units each), `width` map
+## units wide: squares on the pixel grid, so roads and rivers step the way the trees and
+## towns beside them do. Each square is drawn once, even where two strokes share it.
+func _pixel_line(a: Vector2, b: Vector2, width: float, color: Color) -> void:
+	var px: float = MapTerrain.DECOR_PIXEL
+	var w := maxf(px, roundf(width / px) * px)
+	var steps := maxi(1, int(ceil(a.distance_to(b) / px)))
+	var last := Vector2(INF, INF)
+	for i in steps + 1:
+		var at := ((a.lerp(b, float(i) / steps) - Vector2(w, w) * 0.5) / px).round() * px
+		if at != last:
+			detail_layer.draw_rect(Rect2(at, Vector2(w, w)), color)
+			last = at
+
+
+## Worn patches along a road: a darker pixel here and there, so it reads as packed earth.
+func _ruts(a: Vector2, b: Vector2) -> void:
+	var px: float = MapTerrain.DECOR_PIXEL
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(a) ^ hash(b)
+	var n := int(a.distance_to(b) / 9.0)
+	for i in n:
+		var at := ((a.lerp(b, rng.randf()) + Vector2(rng.randf_range(-1.5, 1.5), rng.randf_range(-1.5, 1.5))) / px).floor() * px
+		detail_layer.draw_rect(Rect2(at, Vector2(px, px)), ROAD.darkened(0.18))
 
 
 ## A corner of the outlines' far frame, well out of sight.

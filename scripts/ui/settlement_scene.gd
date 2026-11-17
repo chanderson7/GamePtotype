@@ -14,7 +14,11 @@ const W := 180
 const H := 80
 const HZ := 44
 const BAYER := [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
-const NIGHT_TINT := Color("4a5488")
+## Night is moonlight, not the dark: blue, and bright enough that dark roofs keep their shapes.
+const NIGHT_TINT := Color("6674b4")
+## What the moon lifts the shadows towards, and by how much.
+const MOONLIGHT := Color("4a5c94")
+const MOON_LIFT := 0.16
 const DARK := Color("2a2430")
 const GOLD := Color("d9a944")
 
@@ -303,6 +307,8 @@ static func _night(sky: Painter, front: Painter, o: Dictionary) -> void:
 			lit.append(l)
 	sky.multiply(NIGHT_TINT)
 	front.multiply(NIGHT_TINT)
+	# Dark roofs and walls would go to black under the tint alone; the moon lifts them.
+	front.wash(MOONLIGHT, MOON_LIFT)
 	var mx := 34 if o.get("culture") == "kharzani" else 148
 	for dy in range(-4, 5):
 		for dx in range(-4, 5):
