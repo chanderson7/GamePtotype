@@ -32,6 +32,10 @@ const CAP := 8
 const SITES := [["open", "Open field"], ["hills", "Hills"], ["woods", "Woods"], ["river", "River"], ["pass", "Pass"],
 	["town", "Town siege"], ["castle", "Castle siege"]]
 const TIMES := [["Day", 12.0], ["Dusk", 18.5], ["Night", 23.0]]
+## How fast the fight runs at 1x, for trying out the pace: a second on screen is this much of
+## a second of battle (a campaign battle runs at BattleScreen.BATTLE_PACE, the one marked).
+const PACES := [0.25, 0.35, 0.5, 0.7, 1.0]
+const PACE_DEFAULT := 0.5
 ## The enemy's commander: "" lets the battle pick one.
 const TEMPERS := [["", "Any"], [Commander.PATIENT, "Patient"], [Commander.HAMMER, "Hammer"], [Commander.RECKLESS, "Reckless"]]
 const ATTACK_ENGINES := [[SiegeWorks.RAM, "Ram"], [SiegeWorks.LADDERS, "Ladders"], [SiegeWorks.MORE_LADDERS, "More ladders"],
@@ -65,7 +69,7 @@ var _ladders: Array = []
 # ---------------------------------------------------------------- the setup, as data
 
 static func default_setup() -> Dictionary:
-	return {"site": "open", "land": Cultures.VARDISH, "defend": false, "time": 0, "temper": "",
+	return {"site": "open", "land": Cultures.VARDISH, "defend": false, "time": 0, "temper": "", "pace": PACE_DEFAULT,
 		"attack": [SiegeWorks.RAM, SiegeWorks.LADDERS], "defense": [], "enemy": [], "mine": [], "seed": 1}
 
 
@@ -88,6 +92,8 @@ static func load_setup() -> Dictionary:
 		out["temper"] = ""
 	out["defend"] = bool(parsed.get("defend", false))
 	out["time"] = clampi(int(parsed.get("time", 0)), 0, TIMES.size() - 1)
+	var pace := float(parsed.get("pace", PACE_DEFAULT))
+	out["pace"] = pace if PACES.has(pace) else PACE_DEFAULT
 	out["seed"] = maxi(1, int(parsed.get("seed", 1)))
 	for key in ["attack", "defense"]:
 		if parsed.get(key) is Array:
@@ -139,6 +145,7 @@ static func pending(s: Dictionary) -> Dictionary:
 		"culture": String(theirs[0]["culture"]) if not theirs.is_empty() else land,
 		"objective": Sim.OBJECTIVE_SIEGE if is_siege(s) else Sim.OBJECTIVE_ROUT, "site": site_of(s),
 		"temperament": String(s["temper"]), "hour": float(TIMES[int(s["time"])][1]), "seed": int(s["seed"]),
+		"pace": float(s.get("pace", PACE_DEFAULT)),
 		"places": places, "can_withdraw": true}
 	if is_siege(s):
 		var stormers: Array = theirs if bool(s["defend"]) else mine
@@ -246,6 +253,11 @@ func _build_options() -> void:
 	col.add_child(Widgets.section("Hour"))
 	col.add_child(Widgets.segmented(TIMES.map(func(t): return t[0]), int(setup["time"]), func(i: int):
 		setup["time"] = i, "Hour"))
+	col.add_child(Widgets.section("Battle speed"))
+	col.add_child(Widgets.segmented(PACES.map(func(p): return ("%s×" % str(p)) + (" ·" if is_equal_approx(p, PACE_DEFAULT) else "")),
+		maxi(0, PACES.find(float(setup.get("pace", PACE_DEFAULT)))), func(i: int):
+		setup["pace"] = PACES[i], "Pace"))
+	col.add_child(Page.note("How much of a second of battle passes in a second at 1×. The campaign runs at %s× (marked ·)." % str(PACE_DEFAULT), Style.SMALL))
 	col.add_child(Widgets.section("Their commander"))
 	col.add_child(Widgets.segmented(TEMPERS.map(func(t): return t[1]), TEMPERS.map(func(t): return t[0]).find(setup["temper"]), func(i: int):
 		setup["temper"] = TEMPERS[i][0], "Temper"))

@@ -493,6 +493,8 @@ var _cut_off := false
 ## The one-shot card about the ground or the objective has been looked for (after Fight).
 var _ground_card_checked := false
 var _accumulator := 0.0
+## How fast this fight runs at 1× (BATTLE_PACE, unless the sandbox set another to try).
+var _battle_pace := BATTLE_PACE
 ## How far the clock has run into the next tick, 0 to 1: men and missiles are drawn this far
 ## from where they stood as the last tick began toward where it left them (_blend).
 var _blend_t := 1.0
@@ -654,6 +656,8 @@ func _ready() -> void:
 		var obj: String = String(pending.get("objective", Sim.OBJECTIVE_ROUT))
 		_test = bool(pending.get("test", false))
 		_sandbox = bool(pending.get("sandbox", false))
+		if _sandbox and pending.has("pace"):
+			_battle_pace = clampf(float(pending["pace"]), 0.1, 2.0)
 		var player_host: Array = (pending["army"] as Array).duplicate(true) if _test or _sandbox else GameState.army.duplicate(true)
 		var has_allies := false
 		if pending.has("allies") and not pending["allies"].is_empty():
@@ -1723,11 +1727,11 @@ func _process(delta: float) -> void:
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty() \
 			and not terrain_hint_panel.visible:
 		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
-		var rate := speed * BATTLE_PACE
+		var rate := speed * _battle_pace
 		if slow_held():
 			# The thumb's slow is the same pace at 1× or 2×, and a captain's fall slows it no
 			# further than it already is.
-			rate = BATTLE_PACE
+			rate = _battle_pace
 			pace = minf(pace, HAND_PACE) if not _roll.is_empty() else HAND_PACE
 		if _hitstop > 0.0:
 			_hitstop -= delta

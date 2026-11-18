@@ -59,7 +59,9 @@ func _init() -> void:
 	await process_frame
 	check(sc.find_child("Side", true, false) != null and sc.find_child("Attack", true, false) != null and sc.find_child("Defense", true, false) != null,
 		"a siege asks your side of the wall and each side's engines")
-	check(sc.find_child("Temper", true, false) != null and sc.find_child("Hour", true, false) != null, "and every fight asks the hour and their commander")
+	check(sc.find_child("Temper", true, false) != null and sc.find_child("Hour", true, false) != null and sc.find_child("Pace", true, false) != null,
+		"and every fight asks the hour, the battle's speed and their commander")
+	sc.setup["pace"] = 0.35
 
 	# Step 1: the enemy.
 	sc._go(1)
@@ -104,9 +106,12 @@ func _init() -> void:
 		and p["army"].size() == 2 and p["enemy"].size() == 2 and p["places"].size() == 4, "the setup becomes a battle: both hosts, where each stands, the wall and its engines")
 	check(String(p["army"][1]["unit"]) == "vardish_longbowmen" and int(p["army"][1]["men"]) == Units.full_size("vardish_longbowmen"), "each company at full strength, as the troop it is")
 
+	check(is_equal_approx(float(p["pace"]), 0.35), "the battle's speed goes with it")
+
 	# Remembered.
 	SB.save_setup(sc.setup)
 	var back: Dictionary = SB.load_setup()
+	check(is_equal_approx(float(back["pace"]), 0.35), "and so is the battle's speed")
 	check(back["site"] == "castle" and back["enemy"].size() == 2 and back["mine"].size() == 2 and String(back["mine"][1]["unit"]) == "vardish_longbowmen",
 		"the last setup is remembered")
 
@@ -117,6 +122,7 @@ func _init() -> void:
 	await _arrive("battle.tscn")
 	var screen = current_scene
 	check(screen._sandbox and screen.sim.phase == Sim.PHASE_BATTLE, "Start battle begins the fight at once")
+	check(is_equal_approx(screen._battle_pace, 0.35), "at the speed chosen (%.2f)" % screen._battle_pace)
 	var foot = screen.sim.placed_squad(Sim.PLAYER, 9000)
 	check(foot != null and foot.center.distance_to(mine_zone.get_center()) < 90.0, "your company stands where you dropped it")
 	check(screen.sim.placed_squad(Sim.ENEMY, 9100) != null and screen.sim.placed_squad(Sim.ENEMY, 9101) != null, "and so do theirs")
