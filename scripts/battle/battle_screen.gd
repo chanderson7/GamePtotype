@@ -324,6 +324,10 @@ void vertex() {
 """
 ## The bodies' batches grow this many at a time.
 const CORPSE_STEP := 64
+## How fast a battle runs at 1×: a second on screen is this much of a second of the fight.
+## Under 1, everything on the field (marching, blows, arrows in the air) moves slower, and
+## the fight is easier to follow and answer.
+const BATTLE_PACE := 0.5
 ## The white disc behind _dot, made once for every battle.
 static var _disc_cache: Texture2D = null
 var _disc_tex: Texture2D = null
@@ -1700,11 +1704,11 @@ func _process(delta: float) -> void:
 	if sim.winner == -1 and sim.phase == Sim.PHASE_BATTLE and not paused and _storm_plan.is_empty() and _title.is_empty() \
 			and not terrain_hint_panel.visible:
 		var pace := ROLL_PACE if not _roll.is_empty() else (SLOW_PACE if _slow > 0.0 else 1.0)
-		var rate := speed
+		var rate := speed * BATTLE_PACE
 		if slow_held():
 			# The thumb's slow is the same pace at 1× or 2×, and a captain's fall slows it no
 			# further than it already is.
-			rate = 1.0
+			rate = BATTLE_PACE
 			pace = minf(pace, HAND_PACE) if not _roll.is_empty() else HAND_PACE
 		if _hitstop > 0.0:
 			_hitstop -= delta

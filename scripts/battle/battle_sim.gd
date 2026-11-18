@@ -26,6 +26,9 @@ const ENEMY := 1
 const PHASE_DEPLOY := 0
 const PHASE_BATTLE := 1
 const STEP := 1.0 / 30.0
+## Every man's health, against the troop tables (troops.gd, units.gd): under 1, each blow and
+## arrow is that much more of a man, and a fight is decided in fewer of them.
+const HP_SCALE := 0.5
 const TIME_LIMIT := 300.0
 ## The last stretch of a battle: tired men break sooner and captains' abilities come back
 ## faster, so a fight that has gone long is decided on the field and not by the clock.
@@ -2057,7 +2060,7 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 		so.radius = sq.radius
 		so.slot = slots[i]
 		so.facing = sq.facing
-		so.max_hp = float(sq.stats["hp"]) * sq.power
+		so.max_hp = float(sq.stats["hp"]) * sq.power * HP_SCALE
 		so.hp = so.max_hp
 		so.cooldown = rng.randf_range(0.0, 0.4)
 		so.javelins = javelins_per_man
