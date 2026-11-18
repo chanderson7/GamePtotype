@@ -1407,9 +1407,10 @@ func _update_effects(delta: float) -> void:
 			if p.volley:
 				flying[p] = true
 		for p in _volley_seen.keys():
-			if not flying.has(p) and p.target != null and p.target.squad != null:
+			var under = p.at_squad if p.at_squad != null else (p.target.squad if p.target != null else null)
+			if not flying.has(p) and under != null:
 				var dir: Vector2 = (p.aim - p.origin).normalized()
-				for so in p.target.squad.soldiers:
+				for so in under.soldiers:
 					if so.alive and so.pos.distance_squared_to(p.aim) < 196.0 and not _shoved.has(so):
 						_shoved[so] = {"dir": dir, "k": 0.3, "age": 0.0}
 		_volley_seen = flying

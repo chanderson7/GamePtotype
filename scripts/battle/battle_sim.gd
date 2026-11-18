@@ -239,9 +239,10 @@ const HOLD_LEASH := 4.0
 ## The most men who set on one enemy hand to hand; a man right on top of another fights
 ## him whatever the count.
 const MAX_ATTACKERS := 2
-## Bows in a fight close up only until their front rank is this share of their range off,
-## and a bowman steps up out of his rank as far as this to loose at a mark just out of range.
-const SHOT_CLOSE := 0.9
+## Bows in a fight close up until their front rank is this share of their range off the
+## nearest of their mark: near enough that the whole depth of a company is in bowshot, not
+## just its front rank, and their arrows fall across all of it.
+const SHOT_CLOSE := 0.6
 const SHOT_LEASH := 30.0
 ## How fast a squad closes up to the enemy, as a share of its pace.
 const CLOSE_PACE := 0.6
@@ -539,6 +540,8 @@ class Projectile:
 	## Loosed at a spot, not a man: it flies there without turning and hits whoever of the
 	## enemy stands there when it comes down, or the ground (see _aim_arrow).
 	var loose := false
+	## The company a loosed arrow was meant for, hit or not.
+	var at_squad = null
 	var done := false
 
 
@@ -2995,7 +2998,7 @@ func _update_squad(sq, dt: float) -> void:
 
 	var to: Vector2 = Vector2.ZERO if sq.schiltron() else target_pt - sq.center
 	var is_final_leg: bool = sq.waypoints.is_empty()
-	var stop := reach * 0.85 if chasing and sq.ranged and is_final_leg else 0.0 # archers halt at bow range on final leg
+	var stop := reach * SHOT_CLOSE if chasing and sq.ranged and is_final_leg else 0.0 # archers halt well inside bow range on final leg
 	if sq.stand_off and gate_hp > 0.0:
 		if not sq.ranged:
 			# Out of arrows: bowmen wait for the gate to give rather than join the press
@@ -4139,6 +4142,7 @@ func _aim_arrow(p, so, sq, target, volley: bool) -> void:
 	var along := to.normalized() if dist > 0.01 else Vector2.UP
 	var across := along.orthogonal()
 	p.aim = target.pos + lead + along * rng.randfn(0.0, spread * 1.4) + across * rng.randfn(0.0, spread)
+	p.at_squad = ts
 	p.target = null
 	p.loose = true
 
