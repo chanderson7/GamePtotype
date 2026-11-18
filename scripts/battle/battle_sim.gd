@@ -78,7 +78,7 @@ const WALL_Y := (WALL_ROW + 0.5) * 30.0
 const GATE_CENTER := Vector2((13 + 1) * 30.0, (WALL_ROW + 0.5) * 30.0)
 ## Gate strength by kind of settlement, in blows; each attacker on foot within GATE_REACH
 ## of the gate strikes it once a second (horsemen at half that).
-const GATE_HP := {"castle": 750.0, "town": 600.0}
+const GATE_HP := {"castle": 650.0, "town": 520.0}
 const GATE_REACH := 46.0
 const GATE_HORSE := 0.5
 ## Defenders on the wall walk (this close behind the wall) take arrows at WALL_ARROWS of
@@ -101,6 +101,11 @@ const CASTLE_BUILDINGS := [
 	{"kind": "house", "cell": Rect2i(24, 1, 3, 2)},
 ]
 const WALL_ARROWS := 0.5
+## Men on the walk who carry no bow keep down behind the merlons until an assault comes on
+## (foot or horse within WALL_STAND_TO of the wall): what's left of an arrow loosed at them
+## from outside until then. Bows alone don't empty a wall.
+const WALL_STAND_TO := 260.0
+const WALL_ARROWS_FOOT := 0.05
 ## Stones from the gate tower: each man on foot up there drops one this often, doing this
 ## much to a man at the ram before its roof (RAM_ROOF) takes its share.
 const STONE_EVERY := 1.0
@@ -157,7 +162,7 @@ const AMBUSH_SURPRISE := 5.0
 ## target is this close; then they charge at full speed.
 const MARCH_SPEED := 38.0
 const CHARGE_DISTANCE := 180.0
-const ARROW_SPEED := 420.0
+const ARROW_SPEED := 340.0
 const MAX_CORPSES := 500
 ## Spent arrows left sticking out of the ground, for the screen.
 const MAX_STUCK_ARROWS := 240
@@ -394,6 +399,8 @@ class Squad:
 	var bonus := {}
 	## Arrows left for the whole squad; -1 for troops that don't shoot.
 	var arrows := -1
+	## Bows on foot carry all they need: their arrows are never counted down.
+	var endless := false
 	# Kept up to date as men fall, and refreshed once a tick, because nearly every
 	# decision in the battle asks for them.
 	var alive_n := 0
@@ -503,6 +510,8 @@ class Projectile:
 	var volley := false
 	var kind := "arrow" # arrow | javelin
 	var piercing := 0.0
+	## The chance this one comes down wide (Troops.BOW_MISS_NEAR to BOW_MISS_FAR by distance).
+	var miss := 0.0
 	var done := false
 
 
@@ -1192,6 +1201,15 @@ func siege_role(sq) -> String:
 
 
 ## Whether `p` is on the garrison's side of the wall (and clear of it).
+## Whether the besiegers have men who fight hand to hand close under the wall.
+func _wall_threatened() -> bool:
+	for sq in squads:
+		if sq.team != siege_defender and not sq.ranged and sq.is_active() and not sq.routing \
+				and absf(sq.center.y - wall_y) < WALL_STAND_TO:
+			return true
+	return false
+
+
 func inside_walls(p: Vector2) -> bool:
 	return p.y < wall_y - 15.0 if siege_defender == ENEMY else p.y > wall_y + 15.0
 
@@ -1985,6 +2003,7 @@ func _spawn(team: int, entry: Dictionary, at: Vector2):
 	sq.alive_n = men
 	if sq.ranged:
 		sq.arrows = men * int(sq.stats.get("arrows", 8))
+		sq.endless = bool(sq.stats.get("endless", false))
 	var slots := _formation_slots(men, sq.radius * 2.0 + 5.0)
 	var javelins_per_man: int = int(sq.mechanics.get("javelins", 0))
 	for i in men:
@@ -3886,6 +3905,8 @@ func _strike(so, sq, target, gap: float) -> void:
 		if volley:
 			dmg *= Troops.VOLLEY_POWER
 		_shoot(so, sq, target, dmg, volley)
+		if sq.endless:
+			return
 		sq.arrows -= 1
 		if sq.arrows <= 0:
 			_draw_blades(sq)
@@ -4018,6 +4039,10 @@ func _shoot(so, sq, target, dmg: float, volley: bool = false, kind: String = "ar
 	p.volley = volley
 	p.kind = kind
 	p.piercing = sq.piercing
+	if sq.endless and kind == "arrow":
+		# A lofted shot: surer the closer the mark stands.
+		var far := clampf(so.pos.distance_to(target.pos) / maxf(1.0, float(sq.stats["range"])), 0.0, 1.0)
+		p.miss = lerpf(Troops.BOW_MISS_NEAR, Troops.BOW_MISS_FAR, far)
 	projectiles.append(p)
 
 
@@ -4031,6 +4056,10 @@ func _update_projectiles(dt: float) -> void:
 			p.done = true
 			if p.target == null or not p.target.alive:
 				_stick(p, p.aim)
+				continue
+			if p.miss > 0.0 and rng.randf() < p.miss:
+				# wide of the mark
+				_stick(p, p.target.pos + Vector2(rng.randf_range(-24.0, 24.0), rng.randf_range(-24.0, 24.0)))
 				continue
 			var friends: int = p.source.team if p.source != null else -1
 			if friends != -1 and _fighters_near(p.target.pos, friends, 40.0) and rng.randf() < Troops.MELEE_MISS:
@@ -4053,6 +4082,8 @@ func _update_projectiles(dt: float) -> void:
 			if objective == OBJECTIVE_SIEGE and vs.team == siege_defender and inside_walls(p.target.pos) \
 					and absf(p.target.pos.y - wall_y) < WALL_COVER:
 				dmg *= WALL_ARROWS if works == null else works.walk_arrows()
+				if not vs.ranged and not vs.engaged and not inside_walls(p.origin) and not _wall_threatened():
+					dmg *= WALL_ARROWS_FOOT / WALL_ARROWS
 			# Attackers working the ram are under its roof (if they brought one)
 			if objective == OBJECTIVE_SIEGE and vs.team != siege_defender and gate_hp > 0.0 \
 					and p.target.pos.distance_to(gate_center) <= GATE_REACH + 14.0 and (works == null or works.ram_roof()):

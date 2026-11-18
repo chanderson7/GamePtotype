@@ -85,7 +85,7 @@ const UNITS := {
 	"vardish_crossbowmen": {
 		"role": Troops.ARCHERS, "culture": Cultures.VARDISH, "tier": 2, "branch_of": "vardish_archers",
 		"name": "Crossbowmen", "blurb": "Heavy steel crossbows that punch through shields and armor.",
-		"stats": {"damage": 60.0, "cooldown": 1.8, "range": 230.0},
+		"stats": {"damage": 28.0, "cooldown": 1.8, "range": 295.0},
 		"mechanics": {"piercing": 0.8},
 		"cost_mult": 1.25, "wage_mult": 1.2,
 	},
@@ -93,7 +93,7 @@ const UNITS := {
 	"vardish_longbowmen": {
 		"role": Troops.ARCHERS, "culture": Cultures.VARDISH, "tier": 2, "branch_of": "vardish_archers",
 		"name": "Longbowmen", "blurb": "Yew warbows raining rapid heavy shafts across immense distances.",
-		"stats": {"range": 290.0, "cooldown": 1.35},
+		"stats": {"range": 370.0, "cooldown": 1.35},
 		"mechanics": {},
 		"cost_mult": 1.2, "wage_mult": 1.2,
 	},
@@ -177,7 +177,7 @@ const UNITS := {
 	"kharzani_composite_bowmen": {
 		"role": Troops.ARCHERS, "culture": Cultures.KHARZANI, "tier": 2, "branch_of": "kharzani_archers",
 		"name": "Composite bowmen", "blurb": "Horn-and-sinew composite bows shooting further and faster.",
-		"stats": {"range": 287.5, "cooldown": 1.275, "hp": 396.0},
+		"stats": {"range": 365.0, "cooldown": 1.275, "hp": 396.0},
 		"mechanics": {},
 		"cost_mult": 1.2, "wage_mult": 1.2,
 	},
@@ -269,7 +269,7 @@ const UNITS := {
 	"ryumon_yumi_samurai": {
 		"role": Troops.ARCHERS, "culture": Cultures.RYUMON, "tier": 2, "branch_of": "ryumon_archers",
 		"name": "Yumi samurai", "blurb": "Armored samurai archers who draw razor-sharp swords in close melee.",
-		"stats": {"range": 260.0, "hp": 380.0, "reach": 12.0},
+		"stats": {"range": 330.0, "hp": 380.0, "reach": 12.0},
 		"mechanics": {"samurai_sidearm": true},
 		"cost_mult": 1.3, "wage_mult": 1.3,
 	},

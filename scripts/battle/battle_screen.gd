@@ -7067,7 +7067,7 @@ func _draw_arrows() -> void:
 		var done: float = p.origin.distance_to(p.pos)
 		var total: float = done + to.length()
 		var t: float = done / maxf(1.0, total)
-		var rise := minf(70.0, total * 0.2)
+		var rise := minf(150.0, total * 0.42)
 		var height := 4.0 * rise * t * (1.0 - t)
 		var dir := to.normalized()
 		_c.draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
