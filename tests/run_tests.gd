@@ -203,7 +203,7 @@ func _expect(ok: bool, what: String) -> void:
 func _check_deployment() -> void:
 	var sim := Sim.new()
 	sim.setup(_army(5), _army(6), 5)
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		sim.step()
 	_expect(sim.time == 0.0, "time stands still while deploying")
 	_expect(sim.place(Sim.PLAYER, 1, Vector2(360, 300)) == null, "can't place a squad in the enemy half")
@@ -253,24 +253,24 @@ func _check_orders() -> void:
 	var theirs = sim.place(Sim.ENEMY, 2, Vector2(360, 250))
 	sim.start_battle()
 	var start: Vector2 = mine.center
-	for i in 150:
+	for i in Sim.ticks_for(150 / 30.0):
 		sim.step()
 	_expect(mine.center.distance_to(start) < 3.0 and theirs.center.distance_to(Vector2(360, 250)) < 3.0,
 		"squads hold where they were placed until ordered")
 
 	sim.order_all(Sim.PLAYER, "advance")
-	for i in 120:
+	for i in Sim.ticks_for(120 / 30.0):
 		sim.step()
 	_expect(mine.order == "advance" and start.y - mine.center.y > 100.0, "Advance sends a squad at the enemy")
 
 	sim.order_all(Sim.PLAYER, "hold")
 	var held: Vector2 = mine.center
-	for i in 90:
+	for i in Sim.ticks_for(90 / 30.0):
 		sim.step()
 	_expect(mine.order == "hold" and mine.center.distance_to(held) < 3.0, "Hold stops it where it stands")
 
 	sim.order_move(mine, Vector2(150, 700))
-	for i in 240:
+	for i in Sim.ticks_for(240 / 30.0):
 		sim.step()
 	_expect(mine.order == "hold" and mine.center.distance_to(Vector2(150, 700)) < 8.0, "a march order ends holding the new ground")
 	sim.dispose()
@@ -292,7 +292,7 @@ func _check_march_fights_back() -> void:
 	while mine.struck_at < 0.0 and sim.time < 20.0:
 		sim.step()
 	var left_to_go: float = mine.center.distance_to(march_to)
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		sim.step()
 	_expect(mine.struck_at >= 0.0 and mine.order == "hold" and mine.focus == theirs and mine.engaged,
 		"a squad struck on the march stops and fights back (order %s)" % mine.order)
@@ -324,7 +324,7 @@ func _check_retreat() -> void:
 	var free := Sim.new()
 	free.setup(_army(5), _army(6), 11)
 	free.start_battle()
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		free.step()
 	var cost := free.withdraw_cost(Sim.PLAYER)
 	var before := free.men_on_field(Sim.PLAYER)
@@ -343,7 +343,7 @@ func _check_retreat() -> void:
 	cut.place(Sim.ENEMY, 4, Vector2(540, 500))
 	cut.start_battle()
 	cut.order_all(Sim.ENEMY, "advance")
-	for i in 60:
+	for i in Sim.ticks_for(60 / 30.0):
 		cut.step()
 	cut.concede(Sim.PLAYER, true)
 	_expect(cut.winner == -1 and cut.withdrawing == Sim.PLAYER and not cut.has_active(Sim.PLAYER),
@@ -384,12 +384,12 @@ func _check_march_pace() -> void:
 	sim.start_battle()
 	sim.order_attack(horse, foot)
 	var y0: float = horse.center.y
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		sim.step()
 	_expect(y0 - horse.center.y <= Sim.MARCH_SPEED + 2.0, "horse sent at a far target ride at marching pace (%.0f in a second)" % (y0 - horse.center.y))
 	while not horse.engaged and sim.time < 60.0:
 		sim.step()
-	for i in 60:
+	for i in Sim.ticks_for(60 / 30.0):
 		sim.step()
 	_expect(sim.events.any(func(e): return e["type"] == "charge" and e["squad"] == horse), "and their charge lands at the end of the run")
 	sim.dispose()
@@ -409,7 +409,7 @@ func _check_quiverless_bows() -> void:
 	sim.set_hold_fire(holding, true)
 	sim.order_advance(empty)
 	sim.order_advance(holding)
-	for i in 300:
+	for i in Sim.ticks_for(300 / 30.0):
 		sim.step()
 	_expect(empty.center.y > foot.center.y and empty.center.distance_to(sim._park_spot(empty)) < 30.0 and empty.center.distance_to(foe.avg) > 400.0,
 		"archers out of arrows sent to advance wait behind their own foot")
@@ -556,12 +556,12 @@ func _check_hold_fire() -> void:
 	sim._move_formation(sim.placed_squad(Sim.ENEMY, 2), Vector2(420, 800))
 	sim.set_hold_fire(bows, true)
 	var held_fire := true
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		sim.step()
 		held_fire = held_fire and sim.projectiles.is_empty()
 	var loosed := sim.use_ability(bows)
 	var flew := 0
-	for i in 60:
+	for i in Sim.ticks_for(60 / 30.0):
 		sim.step()
 		flew = maxi(flew, sim.projectiles.size())
 	_expect(held_fire and loosed and not bows.hold_fire and flew > 0,
@@ -674,7 +674,7 @@ func _check_brace() -> void:
 	var mine = sim.place(Sim.PLAYER, 1, Vector2(420, 800))
 	sim.place(Sim.ENEMY, 2, Vector2(420, 300))
 	sim.start_battle()
-	for i in 90:
+	for i in Sim.ticks_for(90 / 30.0):
 		sim.step()
 	var braced: bool = mine.braced()
 	sim.order_advance(mine)
@@ -757,7 +757,7 @@ func _check_terrain() -> void:
 		sim.start_battle()
 		sim.order_all(Sim.PLAYER, "hold")
 		sim.order_all(Sim.ENEMY, "hold")
-		for step_i in 300:
+		for step_i in Sim.ticks_for(300 / 30.0):
 			sim.step()
 		var p_sq = sim.squads[0] if sim.squads[0].team == Sim.PLAYER else sim.squads[1]
 		var total_hp_lost := 0.0
@@ -904,7 +904,7 @@ func _check_terrain() -> void:
 					for so in sq.soldiers:
 						if so.alive and field.has_point(so.pos) and not site_t.passable(so.pos):
 							any_impassable_stand = true
-			for i in 300:
+			for i in Sim.ticks_for(300 / 30.0):
 				test_sim.step()
 			for sq in test_sim.squads:
 				fought += sq.start_men
@@ -983,13 +983,13 @@ func _check_shield_wall() -> void:
 		sim.start_battle()
 		if walled == 1:
 			sim.use_ability(wall)
-		for i in 240:
+		for i in Sim.ticks_for(240 / 30.0):
 			sim.step()
 		for so in wall.soldiers:
 			hurt[walled] += so.max_hp - (so.hp if so.alive else 0.0)
 		var from: Vector2 = wall.center
 		sim.order_move(wall, from + Vector2(0, 200))
-		for i in 30:
+		for i in Sim.ticks_for(30 / 30.0):
 			sim.step()
 		pace[walled] = wall.center.distance_to(from)
 		sim.dispose()
@@ -1037,7 +1037,7 @@ func _check_volley() -> void:
 		var bows = sim.place(Sim.PLAYER, 1, Vector2(420, 760))
 		var foot = sim.place(Sim.ENEMY, 2, Vector2(420, 545))
 		sim.start_battle()
-		for i in 45:
+		for i in Sim.ticks_for(45 / 30.0):
 			sim.step()
 		var morale: float = foot.morale
 		var men: int = foot.alive_count()
@@ -1047,12 +1047,12 @@ func _check_volley() -> void:
 			_expect(is_equal_approx(bows.ability_cd, sim.ability_cooldown(bows)) and is_equal_approx(sim.ability_cooldown(bows), 20.0 * 0.7),
 				"the wait is the branch's own (ability_cooldown, which the button's fill reads too)")
 		var aloft := 0
-		for i in 15:
+		for i in Sim.ticks_for(15 / 30.0):
 			sim.step()
 			aloft = maxi(aloft, sim.projectiles.size())
 		if v == 1:
 			quick = aloft
-		for i in 45:
+		for i in Sim.ticks_for(45 / 30.0):
 			sim.step()
 		# Morale lost beyond what the dead alone cost.
 		shock[v] = morale - foot.morale - (men - foot.alive_count()) * (100.0 / 20.0 * 0.8 + 2.0)
@@ -2022,7 +2022,7 @@ func _check_captains() -> void:
 	sim.setup([_captained(Troops.INFANTRY, 1), wounded], [{"id": 9, "type": Troops.INFANTRY, "men": 20}], 3)
 	var sq = sim.place(Sim.PLAYER, 1, Vector2(300, 900))
 	var hurt = sim.place(Sim.PLAYER, 2, Vector2(560, 900))
-	var base := float(Troops.stats(Troops.INFANTRY)["hp"])
+	var base := float(Troops.stats(Troops.INFANTRY)["hp"]) * Sim.HP_SCALE
 	var heart := true
 	for so in sq.soldiers:
 		if so.slot.length() < sq.captain.slot.length() - 0.1:
@@ -2130,7 +2130,7 @@ func _check_bonds_and_grief() -> void:
 	sim.order_all(Sim.PLAYER, "advance")
 	sim.order_all(Sim.ENEMY, "advance")
 	var power := 0.0
-	for i in 600:
+	for i in Sim.ticks_for(600 / 30.0):
 		sim.step()
 		power = maxf(power, sb.bond_power)
 	var key := "1|2"
@@ -2730,7 +2730,7 @@ func _check_objectives() -> void:
 	sim.auto_deploy(Sim.ENEMY)
 	sim.start_battle()
 	_expect(sim.squads.size() == 2, "initial battle has 2 squads before reinforcement time")
-	for i in 65:
+	for i in Sim.ticks_for(65 / 30.0):
 		sim.step(Sim.STEP)
 	_expect(sim.squads.size() == 3, "reinforcement squad arrived on time (3 squads total)")
 	var arrived_sq = sim.squads[2]

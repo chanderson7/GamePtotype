@@ -98,7 +98,7 @@ func _check_ram() -> void:
 		_put(sim, sq, sim.gate_center + Vector2(0, 30))
 		sim.order_hold(sq)
 		var before: float = sim.gate_hp
-		for i in 300:
+		for i in Sim.ticks_for(10.0):
 			_put(sim, sq, sim.gate_center + Vector2(0, 30))
 			sim.step()
 		dealt.append(before - sim.gate_hp)
@@ -119,24 +119,24 @@ func _check_crews_and_fire() -> void:
 	# Away from it, it stands idle.
 	_put(sim, crew, Vector2(100, 1200))
 	sim.order_hold(crew)
-	for i in 300:
+	for i in Sim.ticks_for(300 / 30.0):
 		sim.step()
 	check(sim.works.stones[Sim.PLAYER] == 0 and not t.crewed(), "an engine nobody stands at does nothing")
 	_put(sim, crew, sim.works.crew_post(t))
-	for i in 600:
+	for i in Sim.ticks_for(20.0):
 		_put(sim, crew, sim.works.crew_post(t))
 		sim.step()
 	check(sim.works.stones[Sim.PLAYER] > 0 and t.crewed(), "a company standing at it works it (%d stones)" % sim.works.stones[Sim.PLAYER])
 	var hp: float = t.hp
 	sim.works.ignite(t)
-	for i in 90:
+	for i in Sim.ticks_for(3.0):
 		_put(sim, crew, sim.works.crew_post(t))
 		sim.step()
 	check(t.hp < hp - 15.0 and t.burning > 0.0, "set alight, it burns")
 	check(t.burning < SiegeWorks.BURN_TIME - 3.0 * 1.5, "and a crew at it fights the fire (it goes out twice as fast)")
 	t.hp = 5.0
 	sim.works.ignite(t)
-	for i in 60:
+	for i in Sim.ticks_for(60 / 30.0):
 		sim.step()
 	check(t.burnt and not t.working() and sim.works.burned[Sim.PLAYER] == 1, "burned out, it's done for")
 	sim.dispose()
@@ -185,7 +185,7 @@ func _check_tower() -> void:
 	var idx: int = sim.wall_row * Terrain.COLS + int(bridge[0])
 	check(is_equal_approx(sim._foot[idx], SiegeWorks.TOWER_CLIMB) and bridge.size() == 2, "and lays a bridge two men wide onto the walk")
 	tw.hp = -1.0
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		sim.step()
 	check(tw.burnt and sim._foot[idx] == 0.0, "when it falls, the wall there is whole again")
 	sim.dispose()

@@ -90,7 +90,7 @@ func _run() -> void:
 	again.replay(journal, 400)
 	check(again.ticks == 400 and _state(again) == at_400, "fought again from the journal, the battle at step 400 is the same, man for man")
 	var chunks := 0
-	while not again.replay(journal, 1 << 30, 50):
+	while not again.replay(journal, 1 << 30, Sim.ticks_for(50.0 / 30.0)):
 		chunks += 1
 	check(_state(again) == end_state and again.winner == sim.winner and chunks > 5,
 		"and fought on in pieces, it ends the same: the same winner, at the same step")

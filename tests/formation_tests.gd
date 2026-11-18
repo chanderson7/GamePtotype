@@ -84,7 +84,7 @@ func _init() -> void:
 			sim.step()
 			if a.engaged and a.in_contact:
 				fought += Sim.STEP
-				if fought > 1.0 and int(fought / Sim.STEP) % 30 == 0:
+				if fought > 1.0 and int(fought / Sim.STEP) % Sim.ticks_for(1.0) == 0:
 					shapes.append(_shape(a))
 					var now: Vector2 = (sim.squads[1].avg - a.avg).normalized()
 					if axis != Vector2.ZERO:
@@ -202,7 +202,7 @@ func _init() -> void:
 	var last := {}
 	var flicks := 0
 	var steps := 0
-	while sim.winner == -1 and steps < 30 * 240:
+	while sim.winner == -1 and steps < Sim.ticks_for(240.0):
 		sim.step()
 		steps += 1
 		for sq in sim.squads:

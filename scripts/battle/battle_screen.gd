@@ -323,6 +323,8 @@ void vertex() {
 """
 ## The bodies' batches grow this many at a time.
 const CORPSE_STEP := 64
+## A man or missile that moved further than this in one tick jumped: drawn where it landed.
+const BLEND_JUMP := 40.0
 ## How fast a battle runs at 1×: a second on screen is this much of a second of the fight.
 ## Under 1, everything on the field (marching, blows, arrows in the air) moves slower, and
 ## the fight is easier to follow and answer.
@@ -491,6 +493,9 @@ var _cut_off := false
 ## The one-shot card about the ground or the objective has been looked for (after Fight).
 var _ground_card_checked := false
 var _accumulator := 0.0
+## How far the clock has run into the next tick, 0 to 1: men and missiles are drawn this far
+## from where they stood as the last tick began toward where it left them (_blend).
+var _blend_t := 1.0
 var _result_shown := false
 var _left_battle := false
 var _pending_result := {}
@@ -667,7 +672,7 @@ func _ready() -> void:
 			var kept: Dictionary = pending.duplicate(true)
 			kept["site"] = site
 			GameState.battle_resume = {"setup": GameState.pack({"pending": kept, "host": player_host, "seed": seed_value}),
-				"journal": GameState.pack([]), "ticks": 0}
+				"journal": GameState.pack([]), "ticks": 0, "rate": Sim.ticks_for(1.0)}
 		sim.siege_kind = String(pending.get("siege_kind", "castle"))
 		sim.siege_defender = Sim.PLAYER if bool(pending.get("siege_defend", false)) else Sim.ENEMY
 		sim.siege_engines = (pending.get("siege_engines", {}) as Dictionary).duplicate(true)
@@ -775,6 +780,16 @@ func _resume_setup() -> Dictionary:
 		return {}
 	_resume_journal = journal
 	_resume_to = maxi(0, int(kept.get("ticks", 0)))
+	# A battle kept at another tick rate (30 a second before the rules went to 15): its
+	# orders are put at the same moments of the battle, counted in this rate's ticks. The
+	# fight comes out near where it was rather than to the man.
+	var rate := int(kept.get("rate", 30))
+	if rate != Sim.ticks_for(1.0) and rate > 0:
+		var k := float(Sim.ticks_for(1.0)) / float(rate)
+		_resume_to = roundi(_resume_to * k)
+		for entry in _resume_journal:
+			if entry is Array and not entry.is_empty():
+				entry[0] = roundi(float(entry[0]) * k)
 	return setup
 
 
@@ -785,6 +800,7 @@ func _keep_battle() -> void:
 		return
 	GameState.battle_resume["journal"] = GameState.pack(sim.journal)
 	GameState.battle_resume["ticks"] = sim.ticks
+	GameState.battle_resume["rate"] = Sim.ticks_for(1.0)
 	GameState.save_game()
 
 
@@ -1763,6 +1779,7 @@ func _process(delta: float) -> void:
 		burst["age"] += delta
 	bursts = bursts.filter(func(burst): return burst["age"] < burst["life"])
 	_age_overlays(delta)
+	_blend_t = clampf(_accumulator / Sim.STEP, 0.0, 1.0) if sim.phase == Sim.PHASE_BATTLE else 1.0
 	_refresh_hud()
 	_redraw()
 
@@ -7093,7 +7110,7 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 			index = 3
 	var face: Vector2 = _pf if _pf_set else so.facing
 	var angle: float = face.angle() + PI * 0.5 + _pt
-	var at: Vector2 = so.pos + _po
+	var at: Vector2 = _blend(so.prev_pos, so.pos) + _po
 	_add_shadow(so, sq, at)
 	if look["cheering"] and not still:
 		var beat := sin(_clock * 9.0 + i * 1.7)
@@ -7126,6 +7143,17 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not _still_men else 0.0
 	_put_man(look["cells"][clampi(index, 0, 3)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
 
+## Where a man or a missile is drawn: between where it stood as the last tick began and
+## where the tick left it, as far as the clock has run into the next (_blend_t). The rules
+## run fewer ticks a second than the screen draws frames, and this keeps the field moving
+## smoothly between them. A jump further than BLEND_JUMP (placed, re-formed, over a wall)
+## is drawn where it lands.
+func _blend(prev: Vector2, now: Vector2) -> Vector2:
+	if _blend_t >= 1.0 or prev.distance_squared_to(now) > BLEND_JUMP * BLEND_JUMP:
+		return now
+	return prev.lerp(now, _blend_t)
+
+
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.
 func _draw_arrows() -> void:
 	# Every shadow and streak, then every arrow, so the lines go as one batch and the
@@ -7134,20 +7162,21 @@ func _draw_arrows() -> void:
 	var turn := PackedFloat32Array()
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	for p in sim.projectiles:
-		var to: Vector2 = p.aim - p.pos
+		var pp := _blend(p.prev_pos, p.pos)
+		var to: Vector2 = p.aim - pp
 		if to.length() < 0.01:
 			continue
-		var done: float = p.origin.distance_to(p.pos)
+		var done: float = p.origin.distance_to(pp)
 		var total: float = done + to.length()
 		var t: float = done / maxf(1.0, total)
 		var rise := minf(150.0, total * 0.42)
 		var height := 4.0 * rise * t * (1.0 - t)
 		var dir := to.normalized()
-		_c.draw_line(p.pos - dir * 4.0, p.pos + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
+		_c.draw_line(pp - dir * 4.0, pp + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
 		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
 		var screen_dir := (dir - Vector2(0, slope)).normalized()
 		# A streak behind it, so a volley reads as a flight of arrows.
-		var lifted: Vector2 = p.pos - Vector2(0, height)
+		var lifted: Vector2 = pp - Vector2(0, height)
 		_c.draw_line(lifted - screen_dir * 16.0, lifted - screen_dir * 3.0, Color(1, 1, 1, 0.3), 1.0)
 		at.append(lifted)
 		turn.append(screen_dir.angle() + PI * 0.5)

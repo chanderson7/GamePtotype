@@ -40,7 +40,7 @@ func _init() -> void:
 	check(sim.placed_squad(Sim.PLAYER, 3) == null and sim.is_held(Sim.PLAYER, 3), "the fight begins without it")
 	var full := sim.strength(Sim.PLAYER)
 	check(is_equal_approx(full, 1.0), "held men count towards the side's strength")
-	for i in 60:
+	for i in Sim.ticks_for(60 / 30.0):
 		sim.step()
 	check(sim.commit_reserve(Sim.PLAYER, 3, "left"), "in the fight it is committed where you say")
 	var sq = sim.placed_squad(Sim.PLAYER, 3)
@@ -59,7 +59,7 @@ func _init() -> void:
 		if sq2.team == Sim.PLAYER:
 			sq2.morale = 0.0
 			sq2.routing = true
-	for i in 30:
+	for i in Sim.ticks_for(30 / 30.0):
 		sim.step()
 	check(sim.placed_squad(Sim.PLAYER, 2) != null and sim.winner == -1, "a reserve is not kept once the line it was kept for is gone")
 	sim.dispose()

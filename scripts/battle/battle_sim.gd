@@ -25,7 +25,15 @@ const PLAYER := 0
 const ENEMY := 1
 const PHASE_DEPLOY := 0
 const PHASE_BATTLE := 1
-const STEP := 1.0 / 30.0
+## A tick of the rules, in battle seconds. Fifteen a second is plenty for men who walk at
+## forty and ride at a hundred units a second; the screen draws between ticks (_blend in
+## battle_screen.gd), so the field moves smoothly at any frame rate.
+const STEP := 1.0 / 15.0
+
+
+## How many ticks make `seconds` of battle, for anything that steps the rules by hand.
+static func ticks_for(seconds: float) -> int:
+	return maxi(1, roundi(seconds / STEP))
 ## Every man's health, against the troop tables (troops.gd, units.gd): under 1, each blow and
 ## arrow is that much more of a man, and a fight is decided in fewer of them.
 const HP_SCALE := 0.5
@@ -294,6 +302,9 @@ class Soldier:
 	var squad = null
 	var radius := 7.0
 	var pos := Vector2.ZERO
+	## Where he stood when this tick began: the screen draws him between the two
+	## (see BattleScreen._blend), so the field moves smoothly between ticks.
+	var prev_pos := Vector2.ZERO
 	var facing := Vector2.UP
 	var hp := 100.0
 	var max_hp := 100.0
@@ -539,6 +550,8 @@ class Projectile:
 	var volley := false
 	var kind := "arrow" # arrow | javelin
 	var piercing := 0.0
+	## Where it was when this tick began (drawn between the two, like a man).
+	var prev_pos := Vector2.ZERO
 	## Loosed at a spot, not a man: it flies there without turning and hits whoever of the
 	## enemy stands there when it comes down, or the ground (see _aim_arrow).
 	var loose := false
@@ -2685,6 +2698,12 @@ func step(dt: float = STEP) -> void:
 		return
 	ticks += 1
 	time += dt
+	# Where everyone and everything in the air stands as the tick begins.
+	for sq in squads:
+		for so in sq.soldiers:
+			so.prev_pos = so.pos
+	for p in projectiles:
+		p.prev_pos = p.pos
 	for r in scheduled_reinforcements:
 		if not r.get("spawned", false) and time >= float(r.get("at_time", 0.0)):
 			r["spawned"] = true
@@ -4113,6 +4132,7 @@ func _draw_blades(sq) -> void:
 func _shoot(so, sq, target, dmg: float, volley: bool = false, kind: String = "arrow") -> void:
 	var p := Projectile.new()
 	p.pos = so.pos
+	p.prev_pos = so.pos
 	p.origin = so.pos
 	p.target = target
 	p.aim = target.pos
