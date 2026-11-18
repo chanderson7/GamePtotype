@@ -435,6 +435,8 @@ class Squad:
 	var extent := 0.0
 	## How many ranks deep the squad stands while it fights in line.
 	var ranks := 1
+	## What its ranks were last sorted for (_rank_up): men standing, width, schiltron or not.
+	var ranked_for := -1
 	## Whether its front rank has met the enemy's (fighting in line).
 	var in_contact := false
 	# Captain: the soldier leading the squad (null if none or fallen), his record from
@@ -1244,27 +1246,6 @@ func inside_walls(p: Vector2) -> bool:
 	return p.y < wall_y - 15.0 if siege_defender == ENEMY else p.y > wall_y + 15.0
 
 
-## How many of each side's men are inside the walls.
-func men_inside_walls() -> Array:
-	var count := [0, 0]
-	for sq in squads:
-		if sq.is_active() and not sq.routing:
-			for so in sq.soldiers:
-				if so.alive and inside_walls(so.pos):
-					count[sq.team] += 1
-	return count
-
-
-func set_objective(obj: String, c_name: String = "") -> void:
-	objective = obj
-	if c_name != "":
-		chief_name = c_name
-	if objective == OBJECTIVE_CHIEF:
-		_setup_chief()
-	elif objective == OBJECTIVE_VILLAGE:
-		_setup_village_waves()
-
-
 func set_terrain(t: RefCounted) -> void:
 	terrain = t
 	terrain.bake()
@@ -1729,17 +1710,6 @@ func breach_posts(n: int, at: Vector2 = Vector2.INF) -> Array:
 func on_gate_tower(p: Vector2) -> bool:
 	return objective == OBJECTIVE_SIEGE and inside_walls(p) and absf(p.x - gate_center.x) <= GATE_TOWER_HALF \
 		and absf(p.y - wall_y) <= WALK_DEPTH + 32.0
-
-
-## Put a company on the wall walk at `x`: three ranks deep along the wall, which keeps
-## its length what it was when men stood closer, so a company posted beside a ladder is
-## beside it and not at its head.
-func _post_on_walk(team: int, roster_id: int, x: float) -> void:
-	var sq = place(team, roster_id, Vector2(x, wall_y + inward() * WALK_DEPTH))
-	if sq == null:
-		return
-	_reform(sq, maxi(4, int(ceil(sq.start_men / 3.0))))
-	place(team, roster_id, Vector2(x, wall_y + inward() * WALK_DEPTH))
 
 
 ## Where each company of a garrison stands: its first company of swords (or spears) on
@@ -3396,6 +3366,12 @@ func _line_spacing(sq) -> float:
 ## Each man's place in the fighting line: his own file, the ranks closed up from the front
 ## as men fall, so the man behind steps into the gap. A schiltron keeps its ring.
 func _rank_up(sq) -> void:
+	# The ranks only change when a man falls, the company re-forms to a new width, or the
+	# schiltron forms or breaks: sort them again only then.
+	var ranked: int = sq.alive_n * 1000000 + sq.files * 10 + (1 if sq.schiltron() else 0)
+	if ranked == sq.ranked_for:
+		return
+	sq.ranked_for = ranked
 	if sq.schiltron():
 		for so in sq.soldiers:
 			so.line_slot = so.slot
@@ -3543,8 +3519,11 @@ func _count_attackers() -> void:
 		for so in sq.soldiers:
 			so.attackers = 0
 	for sq in squads:
+		# Whether its men count (_counts) is the company's to say, once for all of them.
+		if not in_line(sq) or (sq.ranged and not sq.hold_fire):
+			continue
 		for so in sq.soldiers:
-			if so.alive and so.target != null and so.target.alive and _counts(so):
+			if so.alive and so.target != null and so.target.alive:
 				so.target.attackers += 1
 
 
@@ -3571,27 +3550,39 @@ func _line_target_ok(so, sq, home: Vector2, limit: float) -> bool:
 func _line_target(so, sq, home: Vector2, limit: float):
 	var best = null
 	var best_score := INF
-	for e in _nearby(home, limit + so.radius + 12.0):
-		if e.squad.team == sq.team or e.squad.routing:
-			continue
-		var adjacent: bool = so.pos.distance_to(e.pos) <= so.radius + e.radius + 4.0
-		var rel: Vector2 = e.pos - home
-		var d := rel.length()
-		if not adjacent:
-			if d > limit + so.radius + e.radius:
-				continue
-			if rel.dot(sq.facing) / maxf(d, 0.01) < FRONT_CONE:
-				continue
-			# Two men on him already: another goes for someone else.
-			if e.attackers >= MAX_ATTACKERS and e != so.target:
-				continue
-		var score: float = d + LANE_WEIGHT * absf(rel.cross(sq.facing))
-		if e.attackers >= MAX_ATTACKERS and e != so.target:
-			# Right on him, but two on him already: anyone else right there comes first.
-			score += 60.0
-		if score < best_score:
-			best_score = score
-			best = e
+	# The men near his place, cell by cell in the same order _nearby takes them, without
+	# building a list: this runs for many men every tick.
+	var radius: float = limit + so.radius + 12.0
+	var r2 := radius * radius
+	var x0 := clampi(floori((home.x - radius) / CELL), 0, GRID_W - 1)
+	var x1 := clampi(floori((home.x + radius) / CELL), 0, GRID_W - 1)
+	var y0 := clampi(floori((home.y - radius) / CELL), 0, GRID_H - 1)
+	var y1 := clampi(floori((home.y + radius) / CELL), 0, GRID_H - 1)
+	for cy in range(y0, y1 + 1):
+		for cx in range(x0, x1 + 1):
+			for e in _cells[cx + cy * GRID_W]:
+				if not e.alive or home.distance_squared_to(e.pos) > r2:
+					continue
+				if e.squad.team == sq.team or e.squad.routing:
+					continue
+				var adjacent: bool = so.pos.distance_to(e.pos) <= so.radius + e.radius + 4.0
+				var rel: Vector2 = e.pos - home
+				var d := rel.length()
+				if not adjacent:
+					if d > limit + so.radius + e.radius:
+						continue
+					if rel.dot(sq.facing) / maxf(d, 0.01) < FRONT_CONE:
+						continue
+					# Two men on him already: another goes for someone else.
+					if e.attackers >= MAX_ATTACKERS and e != so.target:
+						continue
+				var score: float = d + LANE_WEIGHT * absf(rel.cross(sq.facing))
+				if e.attackers >= MAX_ATTACKERS and e != so.target:
+					# Right on him, but two on him already: anyone else right there comes first.
+					score += 60.0
+				if score < best_score:
+					best_score = score
+					best = e
 	return best
 
 
@@ -3600,18 +3591,29 @@ func _line_target(so, sq, home: Vector2, limit: float):
 func _wing_target(so, sq, home: Vector2, limit: float):
 	var best = null
 	var best_d := INF
-	for e in _nearby(home, limit + so.radius + 12.0):
-		if e.squad.team == sq.team or e.squad.routing:
-			continue
-		var rel: Vector2 = e.pos - home
-		var d := rel.length()
-		if d > limit + so.radius + e.radius or rel.dot(sq.facing) / maxf(d, 0.01) < -0.3:
-			continue
-		if e.attackers >= MAX_ATTACKERS:
-			continue
-		if d < best_d:
-			best_d = d
-			best = e
+	# As in _line_target: the cells walked directly, in _nearby's order.
+	var radius: float = limit + so.radius + 12.0
+	var r2 := radius * radius
+	var x0 := clampi(floori((home.x - radius) / CELL), 0, GRID_W - 1)
+	var x1 := clampi(floori((home.x + radius) / CELL), 0, GRID_W - 1)
+	var y0 := clampi(floori((home.y - radius) / CELL), 0, GRID_H - 1)
+	var y1 := clampi(floori((home.y + radius) / CELL), 0, GRID_H - 1)
+	for cy in range(y0, y1 + 1):
+		for cx in range(x0, x1 + 1):
+			for e in _cells[cx + cy * GRID_W]:
+				if not e.alive or home.distance_squared_to(e.pos) > r2:
+					continue
+				if e.squad.team == sq.team or e.squad.routing:
+					continue
+				var rel: Vector2 = e.pos - home
+				var d := rel.length()
+				if d > limit + so.radius + e.radius or rel.dot(sq.facing) / maxf(d, 0.01) < -0.3:
+					continue
+				if e.attackers >= MAX_ATTACKERS:
+					continue
+				if d < best_d:
+					best_d = d
+					best = e
 	return best
 
 
@@ -4476,9 +4478,14 @@ func _build_grid() -> void:
 		_cells[c].clear()
 	_used_cells.clear()
 	for sq in squads:
+		# A company with nobody left standing has nobody to sort (_remove keeps alive_n).
+		if sq.alive_n <= 0:
+			continue
 		for so in sq.soldiers:
 			if so.alive:
-				var c := _cell_of(so.pos)
+				# _cell_of, written out: this runs for every man two or three times a tick.
+				var p: Vector2 = so.pos
+				var c: int = clampi(floori(p.x / CELL), 0, GRID_W - 1) + clampi(floori(p.y / CELL), 0, GRID_H - 1) * GRID_W
 				var cell: Array = _cells[c]
 				if cell.is_empty():
 					_used_cells.append(c)

@@ -275,7 +275,6 @@ func _check_carry_and_slow(screen) -> void:
 	screen._select(null)
 	var open_a: Vector2 = screen._to_screen(Vector2(200, 900))
 	var open_b: Vector2 = screen._to_screen(Vector2(600, 900))
-	screen._line_shown = {}
 	screen._recenter_camera()
 	var orders_before := {}
 	for sq in sim.squads:
@@ -289,7 +288,7 @@ func _check_carry_and_slow(screen) -> void:
 	for sq in sim.squads:
 		if sq.order != orders_before[sq][0] or sq.order_point != orders_before[sq][1]:
 			untouched = false
-	check(untouched and screen._pending_line.is_empty() and screen._line_shown.is_empty(),
+	check(untouched and screen._pending_march.is_empty(),
 		"a swipe across open ground draws no line and orders no one")
 	check(screen._camera_hold and screen.fit_button.visible, "it slides the view instead, and the whole-field button comes up")
 	screen.cam_zoom = 2.0

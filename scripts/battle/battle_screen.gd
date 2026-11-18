@@ -115,7 +115,6 @@ const DRAG_START := 24.0
 ## A second tap this close (screen units) to a march ring or a waiting line confirms it.
 const CONFIRM_TAP := 56.0
 ## Seconds the line just ordered stays on the field.
-const LINE_SHOWN := 1.4
 ## The sound of the ground the battle is fought on, under the music.
 const AMBIENCE := {"river": "water", "woods": "birds"}
 ## Branches that shoot bolts rather than arrows.
@@ -429,6 +428,7 @@ var _cultures := {}
 var _clash_clock := 0.0
 ## The missiles in the air last frame, so each volley is heard once.
 var _heard := {}
+var _heard_stamp := 0
 ## The ram's swing last frame, to hear each blow land.
 var _ram_swing := 0.0
 ## Which blows each kind of fighter trades: a pick from these banks for each clash.
@@ -470,7 +470,6 @@ var _slow_touches := {}
 var _slow_mouse := false
 var _slow_taught := false
 ## The line just ordered, fading: {spots, face, at}.
-var _line_shown := {}
 ## Whether the hint has shown how to command one squad yet this battle.
 var _taught := false
 ## Field touches by finger (screen positions), for a pinch; the pinch under way; whether
@@ -483,7 +482,6 @@ var _pan_mouse := false
 ## Orders that wait for a second tap: a march for the selected squad to a ring on the
 ## ground ({squad, at}, `at` on the field), and a line for the whole warband ({a, b}).
 var _pending_march := {}
-var _pending_line := {}
 ## Your squads placed by hand before the fight (by roster id): a line over them waits for
 ## a tap rather than moving them at once.
 var _hand_placed := {}
@@ -530,6 +528,10 @@ var scout_chip: Button
 var view_row: HBoxContainer
 const SCOUT_SHORT := {"reckless": "Reckless commander", "patient": "Patient commander", "hammer": "Hammer and anvil"}
 var chip_buttons: Array = []
+## Each company card is repainted only when what it shows changes (_chip_state), or while
+## something on it is moving: what it showed when last painted, and whether it was moving.
+var _chip_seen: Array = []
+var _chip_live: Array = []
 var info_label: Label
 var auto_button: Button
 var fight_button: Button
@@ -2052,65 +2054,9 @@ func _matchup(type: String, foe_type: String) -> Array:
 	return ["·", "an even fight", Style.MORALE_MID]
 
 
-## A line has been drawn from `a` to `b`. For the one squad selected it is an order at
-## once. For the whole warband it waits for a tap on it, so a stray swipe never re-forms
-## the army: in battle always, and before the fight once you have placed a company by hand
-## (a line over an army still unplaced, or placed by Auto-place or a line, goes at once).
-func _line_drawn(a: Vector2, b: Vector2) -> void:
-	if not _storm_plan.is_empty():
-		return
-	var only = selected_squad if sim.phase == Sim.PHASE_BATTLE else null
-	if only != null or (sim.phase == Sim.PHASE_DEPLOY and _hand_placed.is_empty()):
-		_order_line(a, b, only)
-		return
-	if sim.line_preview(Sim.PLAYER, a, b, null).is_empty():
-		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
-		return
-	_pending_march = {}
-	_pending_line = {"a": a, "b": b}
-	Sound.play("page", -6.0, 0.05)
-	if sim.phase == Sim.PHASE_DEPLOY:
-		_teach("Tap the line to move the whole warband onto it, the companies you placed too. Tap elsewhere to keep them where they are.")
-	else:
-		_teach("Tap the line to form the whole warband on it. Tap elsewhere to drop it.")
-
-
-## Whether a tap at `at` (on screen) lands on the waiting line `line`.
-func _on_pending_line(at: Vector2, line: Dictionary) -> bool:
-	var a := _to_screen(line["a"])
-	var b := _to_screen(line["b"])
-	return Geometry2D.get_closest_point_to_segment(at, a, b).distance_to(at) <= CONFIRM_TAP
-
-
 ## Drops any order waiting for its second tap.
 func _drop_pending() -> void:
-	_pending_line = {}
 	_pending_march = {}
-
-
-## Form up along a line drawn from `a` to `b`: the squad `only`, or the whole army (before
-## the battle, the whole army always: it's placed there at once).
-func _order_line(a: Vector2, b: Vector2, only) -> void:
-	if not _storm_plan.is_empty():
-		return
-	if sim.phase != Sim.PHASE_BATTLE:
-		only = null
-	var spots: Array = sim.command("order_line", [Sim.PLAYER, a, b, only])
-	if spots.is_empty():
-		_hint("Cannot form a line there. Choose clear ground in the deployment zone.")
-		return
-	for spot in spots:
-		_mark_ordered(spot["squad"])
-	_line_shown = {"spots": spots, "face": sim.line_face(Sim.PLAYER, a, b), "at": _clock}
-	Sound.play("page", 0.0, 0.05)
-	if sim.phase == Sim.PHASE_DEPLOY:
-		selected_id = -1
-		_hand_placed.clear()
-		_confirm("Your army stands on the line. Tap a squad to move it, or press Fight.", "line")
-	elif only != null:
-		_confirm("%s form up along the line, %d men wide, and hold there." % [_company_or_type(only), int(spots[0]["files"])], "line")
-	else:
-		_confirm("The army forms up along the line, each squad to its own stretch of it, and holds there.", "line")
 
 
 ## The squad whose standard is under a tap, or null.
@@ -2603,7 +2549,7 @@ func _on_back() -> void:
 		_set_paused(false)
 	elif not _title.is_empty():
 		_end_title()
-	elif not _pending_line.is_empty() or not _pending_march.is_empty():
+	elif not _pending_march.is_empty():
 		_drop_pending()
 	elif not _storm_plan.is_empty():
 		_on_storm_cancel()
@@ -2735,16 +2681,6 @@ func _name(type: String, team: int = Sim.PLAYER, roster_id: int = -1) -> String:
 	if record.is_empty():
 		record = {"type": type}
 	return Units.troop_name(record, GameState.culture)
-
-
-## "Brann's Shields, led by Brann of Ostmark (Vengeful, Lucky). Bonds: Mira (B)."
-func _led_by(sq) -> String:
-	if sq.info.is_empty():
-		return "%s, without a captain." % _company_or_type(sq)
-	var who := "%s, led by %s (%s)" % [_company(sq.roster_id), sq.info["name"], Captains.traits(sq.info)]
-	if sq.captain == null:
-		who = "%s. %s is down" % [_company(sq.roster_id), sq.info["name"]]
-	return who + _bond_text(sq.info) + "."
 
 
 func _card_story(e: Dictionary) -> String:
@@ -2939,19 +2875,27 @@ func _battle_sounds(delta: float) -> void:
 			Sound.play_at(String(kinds[randi() % kinds.size()]), _to_screen(sq.average_pos()), randf_range(-2.5, 0.0), 0.08)
 	# Each kind of missile has its own sound going up, where it was loosed, and coming down,
 	# where it lands, played when enough of them fly at once.
+	# Each missile's sound is looked up once, when it is loosed; one still in the air this
+	# frame is stamped, and one that wasn't has come down where it last was.
 	var loosed := {}
 	var landed := {}
-	var seen := {}
+	_heard_stamp += 1
 	for p in sim.projectiles:
-		seen[p] = [_missile_sound(p), p.pos]
-		if not _heard.has(p):
-			_tally(loosed, String(seen[p][0]), p.origin)
-	for p in _heard:
-		if not seen.has(p):
-			_tally(landed, LANDING[String(_heard[p][0])], _heard[p][1])
-			var down: Vector2 = _heard[p][1]
+		var h = _heard.get(p)
+		if h == null:
+			h = [_missile_sound(p), p.pos, _heard_stamp]
+			_heard[p] = h
+			_tally(loosed, String(h[0]), p.origin)
+		else:
+			h[1] = p.pos
+			h[2] = _heard_stamp
+	for p in _heard.keys():
+		var h: Array = _heard[p]
+		if int(h[2]) != _heard_stamp:
+			_tally(landed, LANDING[String(h[0])], h[1])
+			var down: Vector2 = h[1]
 			_puff(down, Vector2(0, -6), 2.0, 6.0, 0.5, _ground_dust(down), 0.35)
-	_heard = seen
+			_heard.erase(p)
 	for kind in loosed:
 		if int(loosed[kind][0]) >= (6 if kind == "arrows" else 3):
 			Sound.play_at(kind, _to_screen(loosed[kind][1] / float(loosed[kind][0])), 0.0, 0.08, 0.6)
@@ -5115,8 +5059,15 @@ func _refresh_hud() -> void:
 		_refresh_deploy()
 	else:
 		_refresh_battle()
-	for b in chip_buttons:
-		b.queue_redraw()
+	if _chip_seen.size() != chip_buttons.size():
+		_chip_seen.resize(chip_buttons.size())
+		_chip_live.resize(chip_buttons.size())
+		_chip_live.fill(true)
+	for i in chip_buttons.size():
+		var state := _chip_state(i)
+		if _chip_live[i] or state != _chip_seen[i]:
+			_chip_seen[i] = state
+			chip_buttons[i].queue_redraw()
 	power_bar.queue_redraw()
 	roll_layer.queue_redraw()
 	beat_layer.queue_redraw()
@@ -5475,7 +5426,28 @@ func _reserve_text(men: int, fs: int, width: float) -> String:
 
 ## A card in the tray: the squad's standard, its captain, its men, and in battle its
 ## morale and whether its ability is ready.
+## Everything a company card shows that can change, as one value to compare frame to frame.
+func _chip_state(i: int) -> Array:
+	var e: Dictionary = _cards[i]
+	var battle := sim.phase == Sim.PHASE_BATTLE
+	var sq = sim.placed_squad(Sim.PLAYER, e["roster_id"])
+	var held: bool = sim.is_held(Sim.PLAYER, e["roster_id"])
+	var picked: bool = (not battle and e["roster_id"] == selected_id) or (battle and sq != null and sq == selected_squad) \
+		or (battle and held and _reserve_pick == int(e["roster_id"]))
+	var state := [battle, held, picked, sq != null, int(e["men"]), int(e["level"])]
+	if sq != null:
+		var role := ""
+		if sim.objective == Sim.OBJECTIVE_SIEGE:
+			role = String(_storm_plan.get(sq.id, "")) if not _storm_plan.is_empty() else sim.siege_role(sq)
+		state.append_array([sq.alive_n, sq.is_active(), roundi(sq.morale * 2.0), roundi(float(_card_morale.get(sq, sq.morale)) * 2.0),
+			sim.ability_ready(sq), wavering(sq), sq.arrows == 0, role, _ready_at.get(sq, -9.0), _card_hit.get(sq, -9.0),
+			_card_broke.get(sq, -9.0), sq.captain != null and sq.captain.alive and sq.captain.hp < sq.captain.max_hp * CAPTAIN_DANGER])
+	return state
+
+
 func _draw_chip(i: int) -> void:
+	if i < _chip_live.size():
+		_chip_live[i] = false
 	var b: Button = chip_buttons[i]
 	var e: Dictionary = _cards[i]
 	var sq = sim.placed_squad(Sim.PLAYER, e["roster_id"])
@@ -5489,6 +5461,7 @@ func _draw_chip(i: int) -> void:
 	# A squad that has just broken: its card cracks and shakes.
 	var broke_t: float = _clock - float(_card_broke.get(sq, -9.0)) if sq != null else 9.0
 	if broke_t < 0.3 and not Style.motion_reduced():
+		_chip_moving(i)
 		b.draw_set_transform(Vector2(sin(broke_t * 70.0) * 4.0 * (1.0 - broke_t / 0.3), 0.0), 0.0, Vector2.ONE)
 	var bg := Style.RAISED
 	if picked:
@@ -5552,11 +5525,14 @@ func _draw_chip(i: int) -> void:
 				var since: float = _clock - float(_ready_at.get(sq, -9.0))
 				var r := 5.0
 				if since < 0.3 and not Style.motion_reduced():
+					_chip_moving(i)
 					r = 5.0 * (1.0 + 0.6 * sin(since / 0.3 * PI))
 					b.draw_arc(dot, 6.0 + since * 40.0, 0.0, TAU, 20, Color(Style.BRASS, 1.0 - since / 0.3), 2.0)
 				b.draw_circle(dot, r, Style.BRASS)
 			# States, as badges: wavering, out of arrows.
 			if wavering(sq):
+				if not Style.motion_reduced():
+					_chip_moving(i)
 				var pulse := 1.0 if Style.motion_reduced() else 0.6 + 0.4 * sin(_clock * 9.0)
 				b.draw_circle(Vector2(size.x - 12.0, 46.0), 8.0, Color(Style.ENEMY_LIGHT, pulse))
 				b.draw_string(font, Vector2(size.x - 15.5, 52.0), "!", HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(0.05, 0.03, 0.03))
@@ -5564,10 +5540,13 @@ func _draw_chip(i: int) -> void:
 				_draw_empty_quiver(b, Vector2(size.x - 12.0, 46.0), 8.0)
 			if sq.captain != null and sq.captain.alive and sq.captain.hp < sq.captain.max_hp * CAPTAIN_DANGER:
 				# The captain is hurt: the card's edge beats red.
+				if not Style.motion_reduced():
+					_chip_moving(i)
 				b.draw_rect(Rect2(Vector2.ZERO, size), Color(Style.MORALE_LOW, 0.9 if Style.motion_reduced() else 0.45 + 0.45 * absf(sin(_clock * 6.0))), false, 4.0)
 			# Struck from the side or by a charge: the card's edge flashes red.
 			var hit_t: float = _clock - float(_card_hit.get(sq, -9.0))
 			if hit_t < 0.3:
+				_chip_moving(i)
 				b.draw_rect(Rect2(Vector2.ZERO, size), Color(Style.MORALE_LOW, 1.0 - hit_t / 0.3), false, 4.0)
 			_draw_role_badge(b, sq)
 		else:
@@ -5575,6 +5554,8 @@ func _draw_chip(i: int) -> void:
 			if _card_broke.has(sq):
 				# The crack it took when it broke.
 				var k := clampf(broke_t / 0.12, 0.0, 1.0)
+				if k < 1.0:
+					_chip_moving(i)
 				var pts := PackedVector2Array([Vector2(size.x * 0.62, 0), Vector2(size.x * 0.48, size.y * 0.3), Vector2(size.x * 0.6, size.y * 0.52), Vector2(size.x * 0.44, size.y * 0.8), Vector2(size.x * 0.52, size.y)])
 				var shown_pts := PackedVector2Array()
 				for j in pts.size():
@@ -5588,6 +5569,8 @@ func _draw_chip(i: int) -> void:
 	if in_reserve:
 		# Held back: a brass band along the foot of the card, waiting for its tap.
 		var band_fs := _fs(Style.SMALL)
+		if battle and not Style.motion_reduced():
+			_chip_moving(i)
 		b.draw_rect(Rect2(2, size.y - band_fs - 8.0, size.x - 4, band_fs + 6.0), Color(Style.BRASS, 0.9 if Style.motion_reduced() or not battle else 0.72 + 0.18 * sin(_clock * 3.0)))
 		b.draw_string(font, Vector2(6, size.y - 7.0), "reserve", HORIZONTAL_ALIGNMENT_LEFT, size.x - 8.0, band_fs, Color("14161f"))
 	if not battle and placed:
@@ -5595,6 +5578,12 @@ func _draw_chip(i: int) -> void:
 		var t := Vector2(size.x - 22.0, size.y - 16.0)
 		b.draw_polyline(PackedVector2Array([t, t + Vector2(5, 5), t + Vector2(14, -6)]), Style.BRASS, 3.0)
 	b.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Card `i` is drawing something that moves: paint it again next frame.
+func _chip_moving(i: int) -> void:
+	if i < _chip_live.size():
+		_chip_live[i] = true
 
 
 ## In a siege, a pill on the card under the name: what the company is doing (on the storm
@@ -6115,7 +6104,7 @@ func _draw_battle() -> void:
 	_draw_orders()
 	_draw_matchups()
 	_draw_targets()
-	_draw_line_order()
+	_draw_orders_in_hand()
 	_draw_bonds()
 	_draw_bursts()
 	_draw_falling()
@@ -7503,33 +7492,18 @@ func _draw_crossed_swords(c: Vector2) -> void:
 			_c.draw_line(hilt - (hilt - tip).normalized() * 3.0 + guard, hilt - (hilt - tip).normalized() * 3.0 - guard, col, w)
 
 
-## The line being drawn, with where each squad will stand on it and which way it will
-## face; then, for a moment, the line just ordered.
-func _draw_line_order() -> void:
+## Orders in hand: a march waiting for its second tap, and a company being carried.
+func _draw_orders_in_hand() -> void:
 	_draw_pending()
 	if _drawing and _press_squad != null:
 		_draw_carry()
-		return
-	if not _drawing and not _line_shown.is_empty():
-		var age: float = _clock - float(_line_shown["at"])
-		if age > LINE_SHOWN:
-			_line_shown = {}
-			return
-		_draw_spots(_line_shown["spots"], _line_shown["face"], 1.0 - age / LINE_SHOWN, false)
 
 
-## Orders waiting for their second tap, pulsing (steady under Reduced motion): the whole
-## warband's line with each company's stretch of it, or a march ring with a thread from
-## the squad.
+## A march waiting for its second tap, pulsing (steady under Reduced motion): a ring
+## with a thread from the squad.
 func _draw_pending() -> void:
 	var k := 1.0 / maxf(0.1, field_scale)
 	var pulse := 1.0 if Style.motion_reduced() else 0.7 + 0.3 * sin(_clock * 6.0)
-	if not _pending_line.is_empty() and not _drawing:
-		var a: Vector2 = _pending_line["a"]
-		var b: Vector2 = _pending_line["b"]
-		_c.draw_line(a, b, Color(0, 0, 0, 0.45), 7.0 * k)
-		_c.draw_dashed_line(a, b, Color(Style.BRASS, pulse), 3.0 * k, 12.0 * k)
-		_draw_spots(sim.line_preview(Sim.PLAYER, a, b, null), sim.line_face(Sim.PLAYER, a, b), 0.75 * pulse, true)
 	if not _pending_march.is_empty():
 		var sq = _pending_march["squad"]
 		if sq == null or not sq.is_active() or sq != selected_squad:
@@ -7656,26 +7630,6 @@ func _draw_slow() -> void:
 	var label := _fit("¼×" if held else "hold", tab_fs, r.size.x - 6.0)
 	var lw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, tab_fs).x
 	_c.draw_string(font, Vector2(r.get_center().x - lw * 0.5 + 2.0, r.end.y - 10.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1, tab_fs, ink)
-
-
-## Each squad's place on a line: the ground it will cover and an arrow the way it faces,
-## and while drawing, a thread from where it stands now.
-func _draw_spots(spots: Array, face: Vector2, alpha: float, live: bool) -> void:
-	var right := Vector2(-face.y, face.x)
-	for spot in spots:
-		var at: Vector2 = spot["at"]
-		var half: Vector2 = spot["half"]
-		var sq = spot["squad"]
-		if live and sq.alive_n > 0:
-			_c.draw_dashed_line(sq.average_pos(), at, Color(Style.BRASS, 0.45 * alpha), 2.0, 8.0)
-		var box := PackedVector2Array([at - right * half.x - face * half.y, at + right * half.x - face * half.y,
-			at + right * half.x + face * half.y, at - right * half.x + face * half.y])
-		_c.draw_colored_polygon(box, Color(Style.BRASS, 0.16 * alpha))
-		box.append(box[0])
-		_c.draw_polyline(box, Color(Style.BRASS, 0.9 * alpha), 2.0)
-		var tip := at + face * (half.y + 16.0)
-		_c.draw_colored_polygon(PackedVector2Array([tip, tip - face * 10.0 + right * 7.0, tip - face * 10.0 - right * 7.0]),
-			Color(Style.BRASS, 0.9 * alpha))
 
 
 ## ▲ over an enemy your selected squad beats; ▼ over one that beats it.

@@ -128,7 +128,8 @@ func _init() -> void:
 	sim.projectiles.clear()
 	screen._heard = {}
 	for i in 6:
-		screen._heard[RefCounted.new()] = ["arrows", Vector2(200 + i, 300)]
+		# [sound, where it last was, the frame it was last seen]: an old stamp has landed.
+		screen._heard[RefCounted.new()] = ["arrows", Vector2(200 + i, 300), -1]
 	screen._battle_sounds(0.1)
 	check(int(sound.placed.get("arrows_land", 0)) > 0, "a volley is heard landing where it falls")
 	var pos: Vector2 = mine.average_pos()
