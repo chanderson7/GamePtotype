@@ -163,6 +163,22 @@ const AMBUSH_SURPRISE := 5.0
 const MARCH_SPEED := 38.0
 const CHARGE_DISTANCE := 180.0
 const ARROW_SPEED := 340.0
+## An arrow's scatter where it comes down: ARROW_SCATTER plus ARROW_SCATTER_PER of the
+## distance, as one standard deviation across the flight (along it, 1.4 times that), for a
+## recruit's bow. A trained branch, a company's elite and each level of experience shrink it.
+const ARROW_SCATTER := 6.0
+const ARROW_SCATTER_PER := 0.07
+const ARROW_SKILL := {1: 1.0, 2: 0.78, 3: 0.62}
+const ARROW_VETERAN := 0.9
+## A volley is loosed all at once at the company, not each man at his mark: wider.
+const ARROW_VOLLEY_SPREAD := 1.3
+## How much of a marching mark's way a bowman allows for (he judges it short).
+const ARROW_LEAD := 0.7
+## An arrow strikes a man when it comes down this close outside his body's edge.
+const ARROW_BODY := 2.0
+## How far a bowman's mark leans toward the near side of the company he shoots at: 1 is any
+## man in bowshot alike, higher picks the nearer ranks more often.
+const SHOT_SPREAD := 1.6
 const MAX_CORPSES := 500
 ## Spent arrows left sticking out of the ground, for the screen.
 const MAX_STUCK_ARROWS := 240
@@ -510,8 +526,9 @@ class Projectile:
 	var volley := false
 	var kind := "arrow" # arrow | javelin
 	var piercing := 0.0
-	## The chance this one comes down wide (Troops.BOW_MISS_NEAR to BOW_MISS_FAR by distance).
-	var miss := 0.0
+	## Loosed at a spot, not a man: it flies there without turning and hits whoever of the
+	## enemy stands there when it comes down, or the ground (see _aim_arrow).
+	var loose := false
 	var done := false
 
 
@@ -3476,6 +3493,29 @@ func _retarget(so, t, melee: bool) -> void:
 		t.attackers += 1
 
 
+## A bowman's mark in the company his own is shooting at: not the one nearest man every
+## bow would pick, but any man of it in bowshot, the nearer ranks more often
+## (SHOT_SPREAD), so a company's arrows fall across the company they're loosed at.
+func _shot_at(so, sq, walled: bool):
+	var reach: float = _fighting_reach(sq) * sq.range_mult + so.radius + 12.0
+	var near := []
+	var nearest = null
+	var nearest_d := INF
+	for e in sq.focus.soldiers:
+		if not e.alive or (walled and across_wall(so.pos, e.pos)):
+			continue
+		var d: float = so.pos.distance_to(e.pos)
+		if d < nearest_d:
+			nearest_d = d
+			nearest = e
+		if d <= reach:
+			near.append([d, e])
+	if near.is_empty():
+		return nearest
+	near.sort_custom(func(a, b): return a[0] < b[0])
+	return near[mini(near.size() - 1, int(pow(rng.randf(), SHOT_SPREAD) * near.size()))][1]
+
+
 ## Whether a man's foe counts him among its attackers: a man of a company fighting hand to
 ## hand in its ranks (not bows still shooting, not the loose fight at a siege's walls).
 func _counts(so) -> bool:
@@ -3884,7 +3924,11 @@ func _pick_target(so, sq):
 	var best = null
 	var best_d := INF
 	var walled := _walled(sq)
-	if sq.focus != null:
+	if sq.ranged and not sq.hold_fire and sq.focus != null:
+		best = _shot_at(so, sq, walled)
+		if best != null:
+			best_d = so.pos.distance_squared_to(best.pos)
+	elif sq.focus != null:
 		for e in sq.focus.soldiers:
 			if e.alive and not (walled and across_wall(so.pos, e.pos)):
 				var d: float = so.pos.distance_squared_to(e.pos)
@@ -3926,6 +3970,9 @@ func _strike(so, sq, target, gap: float) -> void:
 		if volley:
 			dmg *= Troops.VOLLEY_POWER
 		_shoot(so, sq, target, dmg, volley)
+		# The next arrow goes at whichever man of the company he picks then.
+		if not sq.hold_fire and sq.focus != null and target.squad == sq.focus:
+			_retarget(so, _pick_target(so, sq), false)
 		if sq.endless:
 			return
 		sq.arrows -= 1
@@ -4060,11 +4107,44 @@ func _shoot(so, sq, target, dmg: float, volley: bool = false, kind: String = "ar
 	p.volley = volley
 	p.kind = kind
 	p.piercing = sq.piercing
-	if sq.endless and kind == "arrow":
-		# A lofted shot: surer the closer the mark stands.
-		var far := clampf(so.pos.distance_to(target.pos) / maxf(1.0, float(sq.stats["range"])), 0.0, 1.0)
-		p.miss = lerpf(Troops.BOW_MISS_NEAR, Troops.BOW_MISS_FAR, far)
+	if kind == "arrow" and sq.ranged:
+		_aim_arrow(p, so, sq, target, volley)
 	projectiles.append(p)
+
+
+## Where a bowman's arrow comes down: where his mark will be when it lands (judged from
+## his company's march, and judged short), thrown off by a scatter that grows with the
+## distance, longer along the flight than across it, and shrinks with the bowman's skill
+## (ARROW_SKILL by the troop's tier, and his company's experience).
+func _aim_arrow(p, so, sq, target, volley: bool) -> void:
+	var to: Vector2 = target.pos - so.pos
+	var dist := to.length()
+	var lead := Vector2.ZERO
+	var ts = target.squad
+	if not ts.engaged and ts.goal.distance_to(ts.center) > 12.0:
+		lead = (ts.goal - ts.center).normalized() * ts.speed * (dist / ARROW_SPEED) * ARROW_LEAD
+	var skill: float = float(ARROW_SKILL.get(Units.tier(sq.unit) if sq.unit != "" else 1, 1.0))
+	skill *= pow(ARROW_VETERAN, maxi(0, sq.level - 1))
+	var spread := (ARROW_SCATTER + dist * ARROW_SCATTER_PER) * skill * (ARROW_VOLLEY_SPREAD if volley else 1.0)
+	var along := to.normalized() if dist > 0.01 else Vector2.UP
+	var across := along.orthogonal()
+	p.aim = target.pos + lead + along * rng.randfn(0.0, spread * 1.4) + across * rng.randfn(0.0, spread)
+	p.target = null
+	p.loose = true
+
+
+## The enemy man an arrow coming down at `at` strikes: the nearest whose body it falls in.
+func _arrow_victim(at: Vector2, team: int):
+	var best = null
+	var best_d := INF
+	for e in _nearby(at, 16.0):
+		if not e.alive or e.squad.team == team or e.climbing:
+			continue
+		var d: float = at.distance_to(e.pos)
+		if d <= e.radius + ARROW_BODY and d < best_d:
+			best_d = d
+			best = e
+	return best
 
 
 func _update_projectiles(dt: float) -> void:
@@ -4075,12 +4155,11 @@ func _update_projectiles(dt: float) -> void:
 		var to: Vector2 = p.aim - p.pos
 		if to.length() <= travel:
 			p.done = true
+			if p.loose:
+				# It comes down where it was loosed at: on a man, or in the ground.
+				p.target = _arrow_victim(p.aim, p.source.team if p.source != null else -1)
 			if p.target == null or not p.target.alive:
 				_stick(p, p.aim)
-				continue
-			if p.miss > 0.0 and rng.randf() < p.miss:
-				# wide of the mark
-				_stick(p, p.target.pos + Vector2(rng.randf_range(-24.0, 24.0), rng.randf_range(-24.0, 24.0)))
 				continue
 			var friends: int = p.source.team if p.source != null else -1
 			if friends != -1 and _fighters_near(p.target.pos, friends, 40.0) and rng.randf() < Troops.MELEE_MISS:

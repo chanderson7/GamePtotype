@@ -60,10 +60,6 @@ const TYPES := {
 ## Extra damage on a cavalry strike after a run-up (not against braced spearmen).
 const CHARGE_MULTIPLIER := 6.0
 const CHARGE_RUNUP := 60.0
-## Bows on foot loose high and far, and not every shaft finds a man: the share that comes
-## down wide, from a mark at their feet to one at the end of their range.
-const BOW_MISS_NEAR := 0.2
-const BOW_MISS_FAR := 0.55
 ## Archers caught in melee shoot rushed, at this fraction of their damage.
 const POINT_BLANK := 0.2
 ## Archers out of arrows draw short blades: this damage, reach and pace, no bonuses.
