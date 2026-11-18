@@ -112,6 +112,9 @@ const CASTLE_BUILDINGS := [
 	{"kind": "house", "cell": Rect2i(24, 1, 3, 2)},
 ]
 const WALL_ARROWS := 0.5
+## What's left of an arrow loosed from outside at the garrison back in the yard, beyond the
+## walk: it comes over the wall blind.
+const COURT_ARROWS := 1.0
 ## Men on the walk who carry no bow keep down behind the merlons until an assault comes on
 ## (foot or horse within WALL_STAND_TO of the wall): what's left of an arrow loosed at them
 ## from outside until then. Bows alone don't empty a wall.
@@ -276,6 +279,9 @@ const STEER_KEEP := 25.0
 const SIDE_ARRIVE := 8.0
 ## A company on the march that took a blow hand to hand this recently stops and fights.
 const STRUCK_MEMORY := 0.5
+## A company of bows struck hand to hand this recently is caught: all its arrows are rushed
+## (Troops.POINT_BLANK), not just the front rank's.
+const CAUGHT_MEMORY := 1.5
 ## Seconds a company of skirmishers (horse archers, kiting bowmen) can spend riding or
 ## running clear of foot that comes at it, over its whole quiver; then it stands and
 ## shoots, and fights whoever reaches it. A wheel away from a melee costs KITE_WHEEL.
@@ -3991,8 +3997,11 @@ func _strike(so, sq, target, gap: float) -> void:
 		# Holding fire: a short blade, no arrow spent.
 		dmg = float(Troops.SIDEARM["damage"]) * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
 	elif sq.ranged:
-		if gap < 30.0:
-			if sq.mechanics.get("samurai_sidearm", false):
+		# Caught: a company of bows that foot or horse have reached shoots rushed, every man
+		# of it, the rear ranks over the front as much as the man face to face with a sword.
+		var caught: bool = time - sq.struck_at < CAUGHT_MEMORY and sq.struck_by != null and not sq.struck_by.ranged
+		if gap < 30.0 or caught:
+			if gap < 30.0 and sq.mechanics.get("samurai_sidearm", false):
 				# Ryumon yumi samurai fight like infantry when caught in melee
 				dmg = SAMURAI_SIDEARM * sq.power * so.might * boost * rng.randf_range(0.8, 1.2)
 				_struck(target, sq)
@@ -4175,7 +4184,11 @@ func _near_miss(p) -> void:
 	for e in _nearby(p.aim, NEAR_MISS_REACH):
 		if e.alive and e.squad.team != team and e.pos.distance_to(p.aim) <= NEAR_MISS_REACH:
 			e.squad.under_fire = 2.0
-			e.squad.drop_morale(NEAR_MISS_SHOCK / float(e.squad.start_men))
+			var shaken: float = NEAR_MISS_SHOCK / float(e.squad.start_men)
+			# A garrison behind its wall hears them strike the stone.
+			if objective == OBJECTIVE_SIEGE and e.squad.team == siege_defender and inside_walls(e.pos) and not inside_walls(p.origin):
+				shaken *= WALL_ARROWS
+			e.squad.drop_morale(shaken)
 			return
 
 
@@ -4226,26 +4239,36 @@ func _update_projectiles(dt: float) -> void:
 					wall_block += float(vs.mechanics["shield_wall_boost"])
 				wall_block *= (1.0 - p.piercing)
 				dmg *= (1.0 - minf(0.95, wall_block))
-			# Defenders behind their wall
-			if objective == OBJECTIVE_SIEGE and vs.team == siege_defender and inside_walls(p.target.pos) \
-					and absf(p.target.pos.y - wall_y) < WALL_COVER:
-				dmg *= WALL_ARROWS if works == null else works.walk_arrows()
+			# What stands between him and the arrow: the battlements, the wall itself, a roof,
+			# a mantlet. It takes the sting out of the shaft and the fright out of it alike.
+			var cover := 1.0
+			if objective == OBJECTIVE_SIEGE and vs.team == siege_defender and inside_walls(p.target.pos):
+				# Defenders on the walk, behind the battlements; the yard behind is open to
+				# arrows lobbed over (COURT_ARROWS).
+				var on_walk := absf(p.target.pos.y - wall_y) < WALL_COVER
+				if on_walk:
+					cover *= WALL_ARROWS if works == null else works.walk_arrows()
+				elif not inside_walls(p.origin):
+					cover *= COURT_ARROWS
+				# Men without bows keep down, on the walk or under it, until an assault comes
+				# on: only bows stand up to the arrows from outside.
 				if not vs.ranged and not vs.engaged and not inside_walls(p.origin) and not _wall_threatened():
-					dmg *= WALL_ARROWS_FOOT / WALL_ARROWS
+					cover = minf(cover, WALL_ARROWS_FOOT)
 			# Attackers working the ram are under its roof (if they brought one)
 			if objective == OBJECTIVE_SIEGE and vs.team != siege_defender and gate_hp > 0.0 \
 					and p.target.pos.distance_to(gate_center) <= GATE_REACH + 14.0 and (works == null or works.ram_roof()):
-				dmg *= RAM_ROOF
+				cover *= RAM_ROOF
 			# Behind a mantlet, inside the tower, at an engine's timbers
 			if works != null:
-				dmg *= works.arrow_cover(p.target)
+				cover *= works.arrow_cover(p.target)
+			dmg *= cover
 			# Armor on target
 			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
 			dmg *= (1.0 - minf(0.8, eff_armor))
 			vs.under_fire = 2.0
 			# Every shaft that strikes a man shakes the men round him, killed or not; less
 			# behind locked shields.
-			var nerve: float = ARROW_SHOCK / float(vs.start_men)
+			var nerve: float = ARROW_SHOCK / float(vs.start_men) * cover
 			if vs.shield_wall() and vs.facing.dot((p.origin - p.target.pos).normalized()) > FLANK_DOT:
 				nerve *= 0.4
 			vs.drop_morale(nerve)

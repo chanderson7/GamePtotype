@@ -33,6 +33,18 @@ func _fight(seed_value: int, holds: bool, mine: String = Troops.INFANTRY, theirs
 	return sim
 
 
+## The middle of the men of `sq` still standing who also stood when `was` was taken: where
+## they stood then (`then`), or where they stand now.
+func _middle(sq, was: Dictionary, then: bool) -> Vector2:
+	var sum := Vector2.ZERO
+	var n := 0
+	for so in sq.soldiers:
+		if so.alive and was.has(so):
+			sum += Vector2(was[so]) if then else so.pos
+			n += 1
+	return sum / maxf(1.0, n)
+
+
 ## Width of a squad across its own front over its depth.
 func _shape(sq) -> float:
 	var side: Vector2 = sq.facing.orthogonal()
@@ -78,7 +90,7 @@ func _init() -> void:
 	for s in range(1, 5):
 		var sim := _fight(s, false)
 		var a = sim.squads[0]
-		var axis := Vector2.ZERO
+		var was := {}
 		var fought := 0.0
 		while sim.winner == -1 and sim.time < 60.0:
 			sim.step()
@@ -86,10 +98,18 @@ func _init() -> void:
 				fought += Sim.STEP
 				if fought > 1.0 and int(fought / Sim.STEP) % Sim.ticks_for(1.0) == 0:
 					shapes.append(_shape(a))
-					var now: Vector2 = (sim.squads[1].avg - a.avg).normalized()
-					if axis != Vector2.ZERO:
-						turns.append(rad_to_deg(absf(axis.angle_to(now))))
-					axis = now
+					# The way from one line to the other, a second ago and now, taken over the
+					# same men both times: the men who fell in between don't swing it.
+					if not was.is_empty():
+						var then_axis := _middle(sim.squads[1], was, true) - _middle(a, was, true)
+						var now_axis := _middle(sim.squads[1], was, false) - _middle(a, was, false)
+						if then_axis.length() > 1.0 and now_axis.length() > 1.0:
+							turns.append(rad_to_deg(absf(then_axis.angle_to(now_axis))))
+					was = {}
+					for sq in sim.squads:
+						for so in sq.soldiers:
+							if so.alive:
+								was[so] = so.pos
 		sim.dispose()
 	var mean_shape := 0.0
 	for x in shapes:

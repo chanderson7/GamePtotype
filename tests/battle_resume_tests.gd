@@ -125,8 +125,8 @@ func _run() -> void:
 	for i in 30:
 		screen._process(0.1)
 	var ticks: int = screen.sim.ticks
-	check(ticks > 300 and screen.sim.winner == -1 and screen.sim.journal.size() >= 4,
-		"the battle is under way, with orders given (%d steps, %d orders)" % [ticks, screen.sim.journal.size()])
+	check(screen.sim.time > 5.0 and screen.sim.winner == -1 and screen.sim.journal.size() >= 4,
+		"the battle is under way, with orders given (%.1f s, %d steps, %d orders)" % [screen.sim.time, ticks, screen.sim.journal.size()])
 	screen._notification(Node.NOTIFICATION_APPLICATION_PAUSED)
 	var when_closed := _state(screen.sim)
 	check(screen.paused, "going to the background pauses the battle")
