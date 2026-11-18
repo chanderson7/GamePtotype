@@ -27,6 +27,7 @@ const MapArt = preload("res://scripts/art/map_art.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const FieldArt = preload("res://scripts/battle/field_art.gd")
 const SiegeTown = preload("res://scripts/battle/siege_town.gd")
+const Sandbox = preload("res://scripts/menu/sandbox.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
@@ -494,6 +495,9 @@ var _pending_result := {}
 ## A test battle from Settings: twelve companies a side, the computer commanding both, the
 ## readout on; it never touches the campaign.
 var _test := false
+## A battle made in the sandbox (scripts/menu/sandbox.gd): both sides stand where they were
+## dropped, it starts at once, and its result goes nowhere.
+var _sandbox := false
 ## Whether the renderer is timing each frame for the readout.
 var _measuring := false
 ## A battle the phone closed mid-fight, being fought again to where it was (see
@@ -638,7 +642,8 @@ func _ready() -> void:
 		_enemy_culture = String(pending.get("culture", Cultures.VARDISH))
 		var obj: String = String(pending.get("objective", Sim.OBJECTIVE_ROUT))
 		_test = bool(pending.get("test", false))
-		var player_host: Array = (pending["army"] as Array).duplicate(true) if _test else GameState.army.duplicate(true)
+		_sandbox = bool(pending.get("sandbox", false))
+		var player_host: Array = (pending["army"] as Array).duplicate(true) if _test or _sandbox else GameState.army.duplicate(true)
 		var has_allies := false
 		if pending.has("allies") and not pending["allies"].is_empty():
 			player_host.append_array(pending["allies"])
@@ -676,6 +681,10 @@ func _ready() -> void:
 		_biome = _castle_culture
 		if GameState.world != null:
 			_garrison_realm = String(GameState.world.owner_of(siege_at))
+	# The sandbox names its land outright.
+	if pending.has("land"):
+		_biome = String(pending["land"])
+		_castle_culture = _biome
 	# A lord's army flies its realm's banner; a band only roams a realm, under its own rag.
 	_enemy_realm = String(pending.get("enemy_faction", "bandits")) if bool(pending.get("is_lord", false)) else "bandits"
 	if not Heraldry.REALM_SIZES.has(_enemy_realm):
@@ -689,7 +698,7 @@ func _ready() -> void:
 		_my_realm = String(GameState.world.owner_of(siege_at))
 	_setup_terrain_visuals()
 	_scatter_doodads()
-	_set_hour(float(GameState.world.hour) if GameState.world != null else 12.0)
+	_set_hour(float(pending["hour"]) if pending.has("hour") else (float(GameState.world.hour) if GameState.world != null else 12.0))
 	for layer in _field_layers:
 		layer.queue_redraw()
 	# Words on the order bar while the orders are new (the objective is in its chip under
@@ -700,7 +709,10 @@ func _ready() -> void:
 	# A river runs through a ford; birds sing in a wood.
 	Sound.set_loop(AMBIENCE.get(_terrain_site_type, ""))
 	# The enemy lines up first, so you can see what you're facing while you deploy.
-	sim.ai[Sim.ENEMY].deploy(sim)
+	if _sandbox:
+		_sandbox_deploy(pending)
+	else:
+		sim.ai[Sim.ENEMY].deploy(sim)
 	if sim.allied_ai != null:
 		sim.allied_ai.deploy(sim)
 	if sim.caught_on_march(Sim.PLAYER):
@@ -713,6 +725,8 @@ func _ready() -> void:
 		sim.ai[Sim.PLAYER] = Commander.new(Sim.PLAYER)
 		sim.ai[Sim.PLAYER].deploy(sim)
 		speed = 1.0 if _test else 4.0
+		_start_battle()
+	elif _sandbox:
 		_start_battle()
 	elif _resume_to >= 0:
 		_begin_resume()
@@ -737,7 +751,7 @@ func keeps_full_pace() -> bool:
 ## Whether this battle is kept in the campaign save while it's fought: a campaign's battle,
 ## not the test battle or a smoke test's.
 func _keeps_battle() -> bool:
-	return GameState.has_campaign() and not GameState.pending_battle.is_empty() and not _test and not autoplay
+	return GameState.has_campaign() and not GameState.pending_battle.is_empty() and not _test and not _sandbox and not autoplay
 
 
 ## The battle a phone closed mid-fight, read back from the save: {pending, host, seed}, with
@@ -847,7 +861,7 @@ func _finish_resume() -> void:
 func _no_way_out(pending: Dictionary) -> bool:
 	if sim.objective == Sim.OBJECTIVE_AMBUSH:
 		return true
-	if pending.is_empty() or _test:
+	if pending.is_empty() or _test or _sandbox:
 		return false
 	if pending.has("can_withdraw"):
 		return not bool(pending["can_withdraw"])
@@ -3830,6 +3844,9 @@ func _show_result() -> void:
 	if _test:
 		_back_to_camp()
 		return
+	if _sandbox:
+		_show_sandbox_result()
+		return
 	paused = false
 	pause_panel.visible = false
 	selected_id = -1
@@ -4636,6 +4653,9 @@ func _back_to_camp() -> void:
 	if _test:
 		GameState.pending_battle = {}
 		Scenes.go("res://scenes/main_menu.tscn")
+		return
+	if _sandbox:
+		_leave_sandbox(1)
 		return
 	if _pending_result.is_empty():
 		_pending_result = _result()
@@ -5731,6 +5751,65 @@ func _draw() -> void:
 	_place_field_layers()
 	_draw_battle()
 	_perf_draw_us += Time.get_ticks_usec() - t
+
+
+## A sandbox battle's companies go where they were dropped; any that can't stand there
+## (the ground was changed under them) are placed as the game would place them.
+func _sandbox_deploy(pending: Dictionary) -> void:
+	var places: Dictionary = pending.get("places", {})
+	for team in [Sim.ENEMY, Sim.PLAYER]:
+		for e in sim.reserves[team].duplicate():
+			var id: int = e["roster_id"]
+			if places.has(id):
+				sim.place(team, id, places[id])
+		sim.auto_deploy(team)
+
+
+## The end of a sandbox battle: who won and what it cost, and the ways on from here.
+func _show_sandbox_result() -> void:
+	paused = false
+	pause_panel.visible = false
+	var panel := _centered_panel(pause_panel.get_parent() as Control)
+	panel.name = "SandboxResult"
+	panel.custom_minimum_size = Vector2(minf(560.0, get_viewport_rect().size.x - 40.0), 0)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	panel.add_child(v)
+	var won: bool = sim.winner == Sim.PLAYER
+	var title := Style.label("Victory" if won else "Defeat", 44, Style.BRASS if won else Style.ENEMY_LIGHT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(title)
+	var mine: Dictionary = sim.result_for(Sim.PLAYER)
+	var theirs: Dictionary = sim.result_for(Sim.ENEMY)
+	var body := Style.label("You lost %d of %d men. They lost %d of %d.\nFought in %d seconds." % [int(mine["lost"]), sim.start_men(Sim.PLAYER),
+		int(theirs["lost"]), sim.start_men(Sim.ENEMY), int(sim.time)], Style.BODY)
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(body)
+	var again := _button("Fight again", Vector2(0, Style.TOUCH), func():
+		_left_battle = true
+		Sandbox.fight(Sandbox.setup if not Sandbox.setup.is_empty() else Sandbox.load_setup()))
+	again.name = "FightAgain"
+	Style.make_primary(again)
+	v.add_child(again)
+	var edit := _button("Edit setup", Vector2(0, Style.TOUCH), _leave_sandbox.bind(1))
+	edit.name = "EditSetup"
+	v.add_child(edit)
+	var home := _button("Home", Vector2(0, Style.TOUCH), _leave_sandbox.bind(-1))
+	home.name = "SandboxHome"
+	v.add_child(home)
+	panel.visible = true
+
+
+## Out of a sandbox battle: back to its setup at `step`, or Home (-1).
+func _leave_sandbox(step: int) -> void:
+	_left_battle = true
+	GameState.pending_battle = {}
+	if step < 0:
+		Scenes.go("res://scenes/title.tscn")
+		return
+	Sandbox.open_step = step
+	Scenes.go(Sandbox.SCENE)
 
 
 ## Set up the test battle: twelve full companies of your people against twelve of another's,

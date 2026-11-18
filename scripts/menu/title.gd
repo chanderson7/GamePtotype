@@ -127,9 +127,10 @@ func _build() -> void:
 	bar.add_theme_constant_override("margin_top", 10)
 	bar.add_theme_constant_override("margin_bottom", 18 + int(insets["bottom"]))
 	frame.add_child(bar)
-	var row := HBoxContainer.new()
+	var row := GridContainer.new()
 	row.name = "MinorButtons"
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("h_separation", 12)
+	row.add_theme_constant_override("v_separation", 12)
 	# The first time, the big Begin stands over the row, always on screen whatever the
 	# phone: the peoples' cards above it scroll.
 	if _new_button != null and _new_button.get_parent() == null:
@@ -148,9 +149,14 @@ func _build() -> void:
 	# The first time, Learn to play stands up top by the peoples, not down here.
 	if find_child("FirstLearn", true, false) == null:
 		row.add_child(_minor("Learn to play", "book", _on_learn))
+	var sandbox := _minor("Sandbox", "battle", func(): Scenes.go("res://scenes/sandbox.tscn"))
+	sandbox.name = "Sandbox"
+	row.add_child(sandbox)
 	row.add_child(_minor("Settings", "gear", func():
 		Scenes.settings_return = "res://scenes/title.tscn"
 		Scenes.go("res://scenes/settings.tscn")))
+	# All in one line; at the larger text sizes four don't fit, and they stand two by two.
+	row.columns = 2 if row.get_child_count() > 3 and Sound.text_scale > 1.1 else row.get_child_count()
 	if not Style.motion_reduced():
 		col.modulate.a = 0.0
 		col.create_tween().tween_property(col, "modulate:a", 1.0, 0.35)
