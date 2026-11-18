@@ -43,7 +43,7 @@ const TYPES := {
 	},
 	ARCHERS: {
 		"name": "Archers", "size": 20,
-		"hp": 360.0, "damage": 19.0, "cooldown": 1.5, "reach": 0.0, "range": 320.0,
+		"hp": 360.0, "damage": 34.0, "cooldown": 1.5, "reach": 0.0, "range": 320.0,
 		"speed": 40.0, "radius": 8.5, "ranged": true, "arrows": 8, "endless": true,
 		"bonus": {INFANTRY: 1.6, CAVALRY: 0.75},
 		"blurb": "Loose far and never run dry, though not every arrow lands. Best behind a line; helpless when caught.",

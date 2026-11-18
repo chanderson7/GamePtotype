@@ -174,6 +174,13 @@ const ARROW_VETERAN := 0.9
 const ARROW_VOLLEY_SPREAD := 1.3
 ## How much of a marching mark's way a bowman allows for (he judges it short).
 const ARROW_LEAD := 0.7
+## The nerve an arrow costs the company it falls on, whole company over its men: one that
+## strikes a man (on top of what his death costs, if it kills), and one that comes down
+## within NEAR_MISS_REACH of a man and strikes nobody. A company under a steady arrowstorm
+## wavers in a minute or two, fighting or not, so bows have to be dealt with.
+const ARROW_SHOCK := 1.6
+const NEAR_MISS_SHOCK := 0.6
+const NEAR_MISS_REACH := 16.0
 ## An arrow strikes a man when it comes down this close outside his body's edge.
 const ARROW_BODY := 2.0
 ## How far a bowman's mark leans toward the near side of the company he shoots at: 1 is any
@@ -4133,6 +4140,16 @@ func _aim_arrow(p, so, sq, target, volley: bool) -> void:
 	p.loose = true
 
 
+## An arrow that strikes nobody but comes down among men still shakes them a little.
+func _near_miss(p) -> void:
+	var team: int = p.source.team if p.source != null else -1
+	for e in _nearby(p.aim, NEAR_MISS_REACH):
+		if e.alive and e.squad.team != team and e.pos.distance_to(p.aim) <= NEAR_MISS_REACH:
+			e.squad.under_fire = 2.0
+			e.squad.drop_morale(NEAR_MISS_SHOCK / float(e.squad.start_men))
+			return
+
+
 ## The enemy man an arrow coming down at `at` strikes: the nearest whose body it falls in.
 func _arrow_victim(at: Vector2, team: int):
 	var best = null
@@ -4158,6 +4175,8 @@ func _update_projectiles(dt: float) -> void:
 			if p.loose:
 				# It comes down where it was loosed at: on a man, or in the ground.
 				p.target = _arrow_victim(p.aim, p.source.team if p.source != null else -1)
+				if p.target == null:
+					_near_miss(p)
 			if p.target == null or not p.target.alive:
 				_stick(p, p.aim)
 				continue
@@ -4195,6 +4214,12 @@ func _update_projectiles(dt: float) -> void:
 			var eff_armor := maxf(0.0, vs.armor * (1.0 - p.piercing))
 			dmg *= (1.0 - minf(0.8, eff_armor))
 			vs.under_fire = 2.0
+			# Every shaft that strikes a man shakes the men round him, killed or not; less
+			# behind locked shields.
+			var nerve: float = ARROW_SHOCK / float(vs.start_men)
+			if vs.shield_wall() and vs.facing.dot((p.origin - p.target.pos).normalized()) > FLANK_DOT:
+				nerve *= 0.4
+			vs.drop_morale(nerve)
 			if p.volley:
 				var shock: float = Troops.VOLLEY_SHOCK / float(vs.start_men)
 				if _rough and terrain.in_woods(p.target.pos):

@@ -85,7 +85,7 @@ const UNITS := {
 	"vardish_crossbowmen": {
 		"role": Troops.ARCHERS, "culture": Cultures.VARDISH, "tier": 2, "branch_of": "vardish_archers",
 		"name": "Crossbowmen", "blurb": "Heavy steel crossbows that punch through shields and armor.",
-		"stats": {"damage": 28.0, "cooldown": 1.8, "range": 295.0},
+		"stats": {"damage": 50.0, "cooldown": 1.8, "range": 295.0},
 		"mechanics": {"piercing": 0.8},
 		"cost_mult": 1.25, "wage_mult": 1.2,
 	},
