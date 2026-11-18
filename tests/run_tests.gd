@@ -145,7 +145,8 @@ func _init() -> void:
 	print("Counter duels (one squad each, %d seeds):" % DUEL_SEEDS)
 	_check_counter(Troops.SPEARMEN, Troops.CAVALRY)
 	_check_counter(Troops.CAVALRY, Troops.ARCHERS)
-	_check_counter(Troops.ARCHERS, Troops.INFANTRY)
+	_check_counter(Troops.INFANTRY, Troops.ARCHERS)
+	_check_screened_bows()
 	_check_counter(Troops.INFANTRY, Troops.SPEARMEN)
 	_check_counter(Troops.SPEARMEN, Troops.CAVALRY, true)
 
@@ -554,29 +555,44 @@ func _check_hold_fire() -> void:
 	sim.placed_squad(Sim.ENEMY, 2).center = Vector2(420, 800)
 	sim._move_formation(sim.placed_squad(Sim.ENEMY, 2), Vector2(420, 800))
 	sim.set_hold_fire(bows, true)
+	var held_fire := true
 	for i in 30:
 		sim.step()
-	var kept: int = bows.arrows
+		held_fire = held_fire and sim.projectiles.is_empty()
 	var loosed := sim.use_ability(bows)
+	var flew := 0
 	for i in 60:
 		sim.step()
-	_expect(kept == arrows and loosed and not bows.hold_fire and bows.arrows < kept,
+		flew = maxi(flew, sim.projectiles.size())
+	_expect(held_fire and loosed and not bows.hold_fire and flew > 0,
 		"a volley ends the hold: the bows loose at once")
 	sim.dispose()
 
 
 func _check_arrows() -> void:
+	# Bows on foot never run dry; bows in the saddle carry a quiver and empty it.
 	var sim := Sim.new()
 	sim.setup([{"id": 1, "type": Troops.ARCHERS, "men": 20}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 4)
 	var bows = sim.place(Sim.PLAYER, 1, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y + 200.0))
 	sim.place(Sim.ENEMY, 2, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y - 60.0))
 	sim.start_battle()
 	var full: int = bows.arrows
-	bows.arrows = 5 # a short quiver, so the check doesn't wait on a whole barrage
-	while sim.winner == -1 and sim.time < 30.0 and bows.arrows > 0:
+	var loosed := 0
+	while sim.winner == -1 and sim.time < 12.0:
 		sim.step()
-	_expect(full == 20 * int(Troops.stats(Troops.ARCHERS)["arrows"]) and bows.arrows == 0 and not bows.ranged,
-		"archers run out of arrows (%d) and draw their blades" % full)
+		loosed = maxi(loosed, sim.projectiles.size())
+	_expect(bows.endless and loosed > 0 and bows.arrows == full and bows.ranged,
+		"archers on foot loose without counting arrows, and never draw blades for want of them")
+	sim.dispose()
+	sim = Sim.new()
+	sim.setup([{"id": 1, "type": Troops.CAVALRY, "unit": "kharzani_horse_archers", "men": 16}], [{"id": 2, "type": Troops.INFANTRY, "men": 20}], 4)
+	var riders = sim.place(Sim.PLAYER, 1, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y + 200.0))
+	sim.place(Sim.ENEMY, 2, Vector2(Sim.ARENA.x * 0.5, Sim.MID_Y - 60.0))
+	sim.start_battle()
+	var quiver: int = riders.arrows
+	while sim.winner == -1 and sim.time < 12.0:
+		sim.step()
+	_expect(not riders.endless and riders.arrows < quiver, "horse archers still carry a quiver and spend it")
 	sim.dispose()
 
 
@@ -1023,7 +1039,6 @@ func _check_volley() -> void:
 		sim.start_battle()
 		for i in 45:
 			sim.step()
-		var arrows: int = bows.arrows
 		var morale: float = foot.morale
 		var men: int = foot.alive_count()
 		if v == 1:
@@ -1031,10 +1046,12 @@ func _check_volley() -> void:
 			_expect(sim.use_ability(bows) and not sim.ability_ready(bows), "a volley goes off, then has to wait for its cooldown")
 			_expect(is_equal_approx(bows.ability_cd, sim.ability_cooldown(bows)) and is_equal_approx(sim.ability_cooldown(bows), 20.0 * 0.7),
 				"the wait is the branch's own (ability_cooldown, which the button's fill reads too)")
+		var aloft := 0
 		for i in 15:
 			sim.step()
+			aloft = maxi(aloft, sim.projectiles.size())
 		if v == 1:
-			quick = arrows - bows.arrows
+			quick = aloft
 		for i in 45:
 			sim.step()
 		# Morale lost beyond what the dead alone cost.
@@ -1139,7 +1156,6 @@ func _check_units() -> void:
 	_expect(dressed, "every trained branch has its own sprite and portrait, unlike its recruit's")
 	# 1. Matchup duels: each new unit wins the fight it was made for.
 	var matchups := [
-		["vardish_crossbowmen", "vardish_men_at_arms", false, "crossbowmen pierce armored men-at-arms"],
 		["vardish_knights", "vardish_infantry", false, "knights charge crushes standard infantry"],
 		["vardish_pikemen", "vardish_knights", true, "braced pikemen stop knights cold"],
 		["kharzani_horse_archers", "vardish_infantry", false, "horse archers skirmish down footmen"],
@@ -1153,6 +1169,30 @@ func _check_units() -> void:
 			if _unit_duel(m[0], m[1], s, m[2])["winner"] == Sim.PLAYER:
 				wins += 1
 		_expect(wins >= int(DUEL_SEEDS * 0.8), "%s (%d/%d)" % [m[3], wins, DUEL_SEEDS])
+
+	# A crossbow's bolt goes through a locked shield where an arrow glances off.
+	var behind_shields := [0.0, 0.0]
+	for v in [0, 1]:
+		for s in range(1, 5):
+			var sim := Sim.new()
+			sim.setup([{"id": 1, "type": Troops.ARCHERS, "unit": ["vardish_archers", "vardish_crossbowmen"][v], "men": 20}],
+				[{"id": 2, "type": Troops.INFANTRY, "unit": "vardish_men_at_arms", "men": 20}], s)
+			sim.place(Sim.PLAYER, 1, Vector2(420, 900))
+			var wall = sim.place(Sim.ENEMY, 2, Vector2(420, 680))
+			sim.start_battle()
+			sim.order_all(Sim.ENEMY, "hold")
+			sim.use_ability(wall)
+			var hp := 0.0
+			for so in wall.soldiers:
+				hp += so.hp
+			while sim.winner == -1 and sim.time < 12.0:
+				sim.step()
+			for so in wall.soldiers:
+				hp -= maxf(0.0, so.hp)
+			behind_shields[v] += hp
+			sim.dispose()
+	_expect(behind_shields[1] > behind_shields[0] * 1.5,
+		"crossbowmen pierce a shield wall of men-at-arms (%.0f damage against a bowman's %.0f)" % [behind_shields[1], behind_shields[0]])
 
 	# Halberdiers are still spearmen, and footmen still beat spearmen, but the sweep makes
 	# them pay for it.
@@ -2438,6 +2478,33 @@ func _check_campaigns() -> void:
 # ---------------------------------------------------------------- duels
 
 ## `braced`: the stronger squad holds and lets the other come to it.
+## Bows no longer win alone against foot that reaches them (see the duel above): their
+## worth is behind a line. Foot with a company of bows behind it holds its own against
+## twice the foot.
+func _check_screened_bows() -> void:
+	var wins := 0
+	for s in range(1, DUEL_SEEDS + 1):
+		var sim := Sim.new()
+		sim.setup([{"id": 1, "type": Troops.INFANTRY, "men": 20}, {"id": 2, "type": Troops.ARCHERS, "men": 20}],
+			[{"id": 3, "type": Troops.INFANTRY, "men": 20}, {"id": 4, "type": Troops.INFANTRY, "men": 20}], s)
+		sim.place(Sim.PLAYER, 1, Vector2(420, Sim.MID_Y + 280.0))
+		sim.place(Sim.PLAYER, 2, Vector2(420, Sim.MID_Y + 340.0))
+		sim.place(Sim.ENEMY, 3, Vector2(335, Sim.MID_Y - 280.0))
+		sim.place(Sim.ENEMY, 4, Vector2(505, Sim.MID_Y - 280.0))
+		sim.start_battle()
+		sim.order_all(Sim.PLAYER, "advance")
+		sim.order_all(Sim.ENEMY, "advance")
+		while sim.winner == -1 and sim.time < Sim.TIME_LIMIT:
+			sim.step()
+		if sim.winner == Sim.PLAYER:
+			wins += 1
+		sim.dispose()
+	var ok := wins >= int(DUEL_SEEDS * 0.4) and wins <= int(DUEL_SEEDS * 0.9)
+	if not ok:
+		failures += 1
+	print("  foot and bows against twice the foot  %2d/%d  %s" % [wins, DUEL_SEEDS, "ok" if ok else "FAIL"])
+
+
 func _check_counter(strong: String, weak: String, braced: bool = false) -> void:
 	var wins := 0
 	var survivors := 0

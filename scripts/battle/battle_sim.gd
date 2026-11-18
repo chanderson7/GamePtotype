@@ -132,7 +132,7 @@ const BREACH_SPREAD := 55.0
 const LADDER_HEAD_BACK := 100.0
 ## Bows on the walk stand this far from a ladder toward the gate; a company holding a
 ## ladder head stands this far inside the wall.
-const WALK_BESIDE_LADDER := 115.0
+const WALK_BESIDE_LADDER := 150.0
 const LADDER_HEAD_POST := 45.0
 const COURTYARD_HORSE := Vector2(230.0, 240.0)
 
@@ -1644,11 +1644,19 @@ func inward() -> float:
 	return -1.0 if siege_defender == ENEMY else 1.0
 
 
-## The wall walk's posts for bows, by x: beside each ladder on the gate side (so its head
-## is free for men with blades), then over the ladders themselves.
+## The wall walk's posts for bows, by x, for a garrison with no foot to put on the walk:
+## between each outer ladder and the gate, clear of every ladder's head. With more ladders
+## than two there is no such stretch (see garrison_plan).
 func walk_posts() -> Array:
 	var lps := ladder_points()
-	return [lps[0].x + WALK_BESIDE_LADDER, lps[1].x - WALK_BESIDE_LADDER, lps[0].x, lps[1].x]
+	var out := []
+	for x in [lps[0].x + WALK_BESIDE_LADDER, lps[lps.size() - 1].x - WALK_BESIDE_LADDER]:
+		var clear := absf(x - gate_center.x) > GATE_TOWER_HALF + 50.0
+		for lp in lps:
+			clear = clear and absf(x - lp.x) >= WALK_BESIDE_LADDER - 1.0
+		if clear:
+			out.append(x)
+	return out
 
 
 ## Where a company holding ladder `i`'s head stands: on the walk at its top.
@@ -1704,10 +1712,10 @@ func _post_on_walk(team: int, roster_id: int, x: float) -> void:
 	place(team, roster_id, Vector2(x, wall_y + inward() * WALK_DEPTH))
 
 
-## Where each company of a garrison stands: bows on the wall walk beside the ladders
-## (then over them, then behind), its first company of swords (or spears) on the gate
-## tower to drop stones on the ram, the rest of the foot in a crescent behind the gate
-## where the breach will come, any more foot waiting to hold the ladder heads, and horse
+## Where each company of a garrison stands: its first company of swords (or spears) on
+## the gate tower to drop stones on the ram, the next of the foot at the ladder heads,
+## bows in the yard just behind the walk, shooting over it,
+## the rest of the foot in a crescent behind the gate where the breach will come, and horse
 ## in the courtyard. `items` are [{key, type}]; returns {key: {at, walk}} (`walk`: a post
 ## on the wall walk, where a company stands three ranks deep).
 func garrison_plan(items: Array) -> Dictionary:
@@ -1723,13 +1731,17 @@ func garrison_plan(items: Array) -> Dictionary:
 			_:
 				foot.append(it)
 	var plan := {}
-	var posts := walk_posts()
+	# Bows shoot over the wall from the yard just behind the walk, either side of the gate,
+	# with the foot on the walk in front of them. Only a garrison with no foot at all puts
+	# its bows on the walk. None stands at a ladder's head.
+	var posts: Array = walk_posts() if foot.is_empty() else []
+	var behind := [gate_center.x - 150.0, gate_center.x + 150.0, gate_center.x - 270.0, gate_center.x + 270.0]
 	for i in bows.size():
-		var x: float = posts[i % posts.size()]
-		if i >= posts.size():
-			plan[bows[i]["key"]] = {"at": Vector2(x, wall_y + inward() * (WALK_DEPTH + 60.0)), "walk": false}
+		if i < posts.size():
+			plan[bows[i]["key"]] = {"at": Vector2(posts[i], wall_y + inward() * WALK_DEPTH), "walk": true}
 		else:
-			plan[bows[i]["key"]] = {"at": Vector2(x, wall_y + inward() * WALK_DEPTH), "walk": true}
+			var k: int = (i - posts.size()) % behind.size()
+			plan[bows[i]["key"]] = {"at": Vector2(behind[k], wall_y + inward() * (WALK_DEPTH + 70.0)), "walk": false}
 	if not foot.is_empty():
 		var tower = foot[0]
 		for it in foot:
@@ -1749,13 +1761,22 @@ func garrison_plan(items: Array) -> Dictionary:
 			crew = foot.pop_back()
 		if crew != null:
 			plan[crew["key"]] = {"at": works.crew_post(yard), "walk": false, "crew": yard.id}
-	var crescent := breach_posts(mini(3, foot.size()))
-	for i in foot.size():
+	# The next of the foot hold the ladder heads from the start, on the walk at the top of
+	# each (the outer two first), so whoever climbs meets blades, with the bows beside them.
+	var lps := ladder_points()
+	var heads := [0, lps.size() - 1] if lps.size() > 1 else [0]
+	for i in range(1, lps.size() - 1):
+		heads.append(i)
+	var held := mini(heads.size(), foot.size())
+	for i in held:
+		plan[foot[i]["key"]] = {"at": Vector2(lps[heads[i]].x, wall_y + inward() * WALK_DEPTH), "walk": true}
+	var rest := foot.slice(held)
+	var crescent := breach_posts(mini(3, rest.size()))
+	for i in rest.size():
 		if i < crescent.size():
-			plan[foot[i]["key"]] = {"at": crescent[i], "walk": false}
+			plan[rest[i]["key"]] = {"at": crescent[i], "walk": false}
 		else:
-			var lp: Vector2 = ladder_points()[(i - crescent.size()) % 2]
-			plan[foot[i]["key"]] = {"at": Vector2(lp.x, wall_y + inward() * LADDER_HEAD_BACK), "walk": false}
+			plan[rest[i]["key"]] = {"at": gate_center + Vector2((-1.0 if i % 2 == 0 else 1.0) * 120.0, inward() * (BREACH_RADIUS + 90.0)), "walk": false}
 	for i in horse.size():
 		var sx := -1.0 if i % 2 == 0 else 1.0
 		plan[horse[i]["key"]] = {"at": gate_center + Vector2(sx * COURTYARD_HORSE.x, inward() * (COURTYARD_HORSE.y + 70.0 * (i / 2))), "walk": false}
@@ -1804,8 +1825,8 @@ func man_the_walls(team: int) -> int:
 	var plan := garrison_plan(items)
 	for id in plan:
 		var sq = by_id[id]
-		if plan[id]["walk"] and sq.ranged:
-			_reform(sq, maxi(4, int(ceil(sq.alive_n / 2.0))))
+		if plan[id]["walk"]:
+			_reform(sq, maxi(4, int(ceil(sq.alive_n / (2.0 if sq.ranged else 3.0)))))
 		order_move(sq, plan[id]["at"])
 	return plan.size()
 

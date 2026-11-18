@@ -105,8 +105,8 @@ func _check_battlefield() -> void:
 	var bows_on_wall := true
 	for sq in sim.squads:
 		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
-			bows_on_wall = bows_on_wall and absf(sq.center.y - Sim.WALL_Y) < 60.0
-	check(bows_on_wall, "the garrison's bows stand on the wall walk")
+			bows_on_wall = bows_on_wall and sim.inside_walls(sq.center) and absf(sq.center.y - Sim.WALL_Y) < 200.0
+	check(bows_on_wall, "the garrison's bows stand close behind the wall, to shoot over it")
 	# The storm plan: shields to a ladder or the ram, bows shoot; a changed plan is obeyed.
 	var foot = sim.squads[0]
 	var shooters = sim.squads[1]
@@ -169,25 +169,26 @@ func _check_wall_defence() -> void:
 	sim.auto_deploy(Sim.ENEMY)
 	# E: the garrison's posts.
 	var tower = null
-	var walk_bows := 0
-	var crescent := 0
+	var yard_bows := 0
+	var heads := 0
 	for sq in sim.squads:
 		if sq.team != Sim.ENEMY:
 			continue
-		if sq.type == Troops.ARCHERS and sim.on_walk(sq.center):
-			walk_bows += 1
+		if sq.type == Troops.ARCHERS:
+			if sim.inside_walls(sq.center) and not sim.on_walk(sq.center) and absf(sq.center.y - sim.wall_y) < 200.0:
+				yard_bows += 1
 		elif sim.on_gate_tower(sq.center) and sq.type == Troops.INFANTRY:
 			tower = sq
-		elif sim.inside_walls(sq.center) and absf(sq.center.y - sim.wall_y) > 70.0 and sq.center.distance_to(sim.gate_center) < 230.0:
-			crescent += 1
-	check(walk_bows == 2 and tower != null and crescent == 2,
-		"the garrison takes its posts: bows on the walk, swords on the gate tower, the rest behind the gate (%d bows, tower %s, %d at the breach)" % [walk_bows, tower != null, crescent])
+		elif absf(sq.center.y - sim.wall_y) < 70.0 and (absf(sq.center.x - sim.ladder_points()[0].x) < 20.0 or absf(sq.center.x - sim.ladder_points()[1].x) < 20.0):
+			heads += 1
+	check(yard_bows == 2 and tower != null and heads == 2,
+		"the garrison takes its posts: swords on the gate tower, foot at each ladder's head, bows behind them (%d bows, tower %s, %d at the ladders)" % [yard_bows, tower != null, heads])
 	var head_clear := true
 	for sq in sim.squads:
 		if sq.team == Sim.ENEMY and sq.type == Troops.ARCHERS:
 			for i in 2:
 				head_clear = head_clear and sq.center.distance_to(sim.ladder_head_post(i)) > 60.0
-	check(head_clear, "and the bows stand beside the ladders, leaving the heads for men with blades")
+	check(head_clear, "and no bows stand at a ladder's head: that is for men with blades")
 	sim.start_battle()
 	# A: the shut gate is a door.
 	var inside := Vector2(Sim.GATE_CENTER.x + 120.0, sim.wall_y - 20.0)
@@ -269,7 +270,11 @@ func _check_wall_defence() -> void:
 	sim._hold_ladders()
 	check(sim.ladder_held[0] and is_equal_approx(sim._foot[sim.wall_row * Terrain.COLS + cell], Sim.LADDER_HELD_PACE),
 		"a garrison man at a ladder's head slows the climb")
-	guard.pos = Vector2(400.0, 100.0)
+	for sq in sim.squads:
+		if sq.team == Sim.ENEMY:
+			for so in sq.soldiers:
+				if so.pos.distance_to(sim.ladder_head_post(0)) < 120.0:
+					so.pos = Vector2(400.0, 100.0)
 	sim._hold_ladders()
 	check(not sim.ladder_held[0] and is_equal_approx(sim._foot[sim.wall_row * Terrain.COLS + cell], Sim.LADDER_PACE), "and an unheld ladder is climbed as before")
 	sim.dispose()
@@ -323,7 +328,7 @@ func _check_wall_defence() -> void:
 	s3.auto_deploy(Sim.PLAYER)
 	var posted := 0
 	for sq in s3.squads:
-		if sq.team == Sim.PLAYER and (s3.on_walk(sq.center) or s3.on_gate_tower(sq.center)):
+		if sq.team == Sim.PLAYER and not sq.ranged and (absf(sq.center.y - s3.wall_y) < 70.0 or s3.on_gate_tower(sq.center)):
 			posted += 1
 	check(posted == 3, "Auto-place puts your garrison at its posts too (%d on the wall)" % posted)
 	s3.auto_deploy(Sim.ENEMY)

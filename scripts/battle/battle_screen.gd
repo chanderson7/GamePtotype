@@ -2554,14 +2554,14 @@ func _on_hold_fire() -> void:
 		for bow in bows:
 			sim.command("set_hold_fire", [bow, hold])
 			_mark_ordered(bow)
-		_confirm("Every company of bows holds its fire and keeps its arrows." if hold else "Every company of bows looses at will.")
+		_confirm("Every company of bows holds its fire." if hold else "Every company of bows looses at will.")
 		return
 	if not sq.ranged:
 		return
 	sim.command("set_hold_fire", [sq, not sq.hold_fire])
 	_mark_ordered(sq)
 	if sq.hold_fire:
-		_confirm("%s hold their fire and keep their arrows. They draw blades if the enemy reaches them." % _company_or_type(sq), "holdfire")
+		_confirm("%s hold their fire. They draw blades if the enemy reaches them." % _company_or_type(sq), "holdfire")
 	else:
 		_confirm("%s loose at will." % _company_or_type(sq), "loose")
 

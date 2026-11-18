@@ -168,7 +168,7 @@ func _init() -> void:
 	var shot := false
 	while sim.winner == -1 and sim.time < 30.0 and not shot:
 		sim.step()
-		shot = sim.squads[0].arrows < int(Troops.stats(Troops.ARCHERS)["arrows"]) * 20
+		shot = not sim.projectiles.is_empty()
 	check(shot and sim.in_line(sim.squads[0]), "bows on Hold shoot from their ranks")
 	sim.dispose()
 
