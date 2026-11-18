@@ -1177,8 +1177,8 @@ func _check_units() -> void:
 			var sim := Sim.new()
 			sim.setup([{"id": 1, "type": Troops.ARCHERS, "unit": ["vardish_archers", "vardish_crossbowmen"][v], "men": 20}],
 				[{"id": 2, "type": Troops.INFANTRY, "unit": "vardish_men_at_arms", "men": 20}], s)
-			sim.place(Sim.PLAYER, 1, Vector2(420, 900))
-			var wall = sim.place(Sim.ENEMY, 2, Vector2(420, 680))
+			sim.place(Sim.PLAYER, 1, Vector2(420, 780))
+			var wall = sim.place(Sim.ENEMY, 2, Vector2(420, 560))
 			sim.start_battle()
 			sim.order_all(Sim.ENEMY, "hold")
 			sim.use_ability(wall)

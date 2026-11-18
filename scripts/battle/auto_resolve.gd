@@ -31,7 +31,7 @@ const WIN_LOSS_SCALE := 0.30
 const WIN_LOSS_POWER := 1.5
 ## Share the loser loses: LOSE_LOSS_BASE + LOSE_LOSS_SCALE * r. In the full sim a broken
 ## army loses a little under half its men whatever the odds; the rest get away.
-const LOSE_LOSS_BASE := 0.56
+const LOSE_LOSS_BASE := 0.51
 const LOSE_LOSS_SCALE := -0.06
 ## When you send your men in without commanding them, they lose this many more.
 const UNLED := 1.25
