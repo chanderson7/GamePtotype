@@ -26,6 +26,7 @@ const Heraldry = preload("res://scripts/ui/heraldry.gd")
 const MapArt = preload("res://scripts/art/map_art.gd")
 const BattleSite = preload("res://scripts/battle/battle_site.gd")
 const FieldArt = preload("res://scripts/battle/field_art.gd")
+const SiegeTown = preload("res://scripts/battle/siege_town.gd")
 const Terrain = preload("res://scripts/battle/terrain.gd")
 const WorldData = preload("res://scripts/world/world_data.gd")
 const CaptainArt = preload("res://scripts/ui/captain_art.gd")
@@ -402,6 +403,8 @@ var _enemy_culture := Cultures.VARDISH
 var _biome := Cultures.VARDISH
 ## Whose castle a siege is fought at: the people who built it, for its look.
 var _castle_culture := Cultures.VARDISH
+## The besieged place as painted for this battle (SiegeTown.bake), and what it was painted for.
+var _town := {}
 ## Whose banners fly in a siege: the garrison's realm, and your own side's.
 var _garrison_realm := "vardmark"
 var _my_realm := "vardmark"
@@ -3003,96 +3006,53 @@ func _draw_walls() -> void:
 	var w: float = Sim.ARENA.x
 	# `inward` points from the wall into the courtyard.
 	var inward := -1.0 if sim.siege_defender == Sim.ENEMY else 1.0
-	var court := Rect2(0, 0, w, top) if inward < 0.0 else Rect2(0, top + cell, w, Sim.ARENA.y - top - cell)
-	_c.draw_rect(court, Color(st["paving"], 0.55))
-	for cy in range(int(court.position.y / cell), int(court.end.y / cell)):
-		for cx in Terrain.COLS:
-			if (cx * 7 + cy * 13) % 5 == 0:
-				_c.draw_rect(Rect2(cx * cell + 3.0 + (cy % 2) * 12.0, cy * cell + 4.0, 14.0, 9.0), Color(Color(st["paving"]).lightened(0.12), 0.45))
-	# Buildings.
+	# The place itself is painted once (SiegeTown.bake) and laid down as one picture.
+	var key := "%s/%s" % [_castle_culture, inward]
+	if String(_town.get("key", "")) != key:
+		_town = SiegeTown.bake(st, _castle_culture, Sim.CASTLE_BUILDINGS, Sim.WALL_ROW, TOWER_COLS, Sim.GATE_COLS, inward > 0.0)
+		_town["key"] = key
+	_c.draw_texture_rect(_town["texture"], _town["rect"], false)
+	# The realm's flag over the keep.
 	for b in sim.castle_buildings:
+		if String(b["kind"]) != "keep":
+			continue
 		var cr: Rect2i = b["cell"]
 		var r := Rect2(cr.position.x * cell, cr.position.y * cell, cr.size.x * cell, cr.size.y * cell).grow(-3.0)
-		_c.draw_rect(Rect2(r.position + Vector2(7, 7), r.size), Color(0, 0, 0, 0.35))
-		if String(b["kind"]) == "keep":
-			_c.draw_rect(r, st["stone"])
-			_c.draw_rect(r.grow(-7.0), st["top"])
-			var x := r.position.x
-			while x < r.end.x - 4.0:
-				_c.draw_rect(Rect2(x, r.position.y - 4.0, 8.0, 7.0), st["light"])
-				_c.draw_rect(Rect2(x, r.end.y - 3.0, 8.0, 7.0), st["light"])
-				x += 14.0
-			if st["dome"]:
-				_c.draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.32, st["dome_color"])
-				_c.draw_circle(r.get_center() - Vector2(8, 8), minf(r.size.x, r.size.y) * 0.1, Color(st["dome_color"]).lightened(0.3))
-			elif st["tiers"]:
-				_c.draw_rect(r.grow(-16.0), st["roof"])
-				_c.draw_rect(r.grow(-30.0), st["roof_light"])
-			else:
-				_c.draw_rect(r.grow(-20.0), Color(st["top"]).darkened(0.15))
-			# the realm's flag over the keep
-			var pole := Vector2(r.end.x - 10.0, r.position.y + 8.0)
-			var held := _garrison_realm if sim.siege_defender == Sim.ENEMY else _my_realm
-			Heraldry.realm_banner(_c, held if Heraldry.REALM_SIZES.has(held) else "bandits", Rect2(pole + Vector2(-2, -62), Vector2(46, 64)),
-				true, false, Transform2D(0.0, Vector2(field_scale, field_scale), 0.0, field_origin))
-		else:
-			_c.draw_rect(r, st["roof"])
-			_c.draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.5)), st["roof_light"])
-			_c.draw_line(Vector2(r.position.x, r.get_center().y), Vector2(r.end.x, r.get_center().y), Color(st["roof"]).darkened(0.3), 2.0)
-			if st["dome"]:
-				_c.draw_circle(r.get_center(), minf(r.size.x, r.size.y) * 0.28, st["dome_color"])
-	# The wall walk's depth: the stretch behind the battlements where men are covered.
-	var cover: float = Sim.WALL_COVER - cell * 0.5
-	var band := Rect2(0, top - cover, w, cover) if inward < 0.0 else Rect2(0, top + cell, w, cover)
-	_c.draw_rect(band, Color(st["walk"], 0.55))
-	var inner_y: float = band.position.y if inward < 0.0 else band.end.y
-	_c.draw_line(Vector2(0, inner_y), Vector2(w, inner_y), Color(st["dark"], 0.7), 2.0)
-	# The wall: its body, a wall walk on the inside, battlements on the outside.
-	var body := Rect2(0, top, w, cell)
-	_c.draw_rect(Rect2(body.position + Vector2(0, 8.0 * -inward), body.size), Color(0, 0, 0, 0.3))
-	_c.draw_rect(body, st["stone"])
-	var walk_y := top + (cell - 4.0 if inward > 0.0 else -10.0)
-	_c.draw_rect(Rect2(0, walk_y, w, 14.0), st["walk"])
-	var outer_y := top + (cell if inward < 0.0 else -8.0)
-	var x2 := 0.0
-	while x2 < w:
-		_c.draw_rect(Rect2(x2 + 2.0, outer_y, 9.0, 8.0), st["light"])
-		x2 += 15.0
-	_c.draw_rect(Rect2(0, top + cell - 5.0 if inward < 0.0 else top, w, 5.0), st["dark"])
-	# Towers.
-	for tc in TOWER_COLS:
-		var tr := Rect2(tc * cell - 6.0, top - 14.0, cell + 12.0, cell + 28.0)
-		_c.draw_rect(Rect2(tr.position + Vector2(5, 6), tr.size), Color(0, 0, 0, 0.3))
-		_c.draw_rect(tr, st["stone"])
-		if st["round"]:
-			_c.draw_circle(tr.get_center(), tr.size.x * 0.36, st["roof"])
-			_c.draw_circle(tr.get_center(), tr.size.x * 0.2, st["roof_light"])
-		elif st["tiers"]:
-			_c.draw_rect(tr.grow(-5.0), st["roof"])
-			_c.draw_rect(tr.grow(-11.0), st["roof_light"])
-		else:
-			_c.draw_rect(tr.grow(-5.0), st["top"])
-			var bx := tr.position.x
-			while bx < tr.end.x - 3.0:
-				_c.draw_rect(Rect2(bx, tr.position.y - 4.0, 6.0, 5.0), st["light"])
-				bx += 10.0
-	# The gatehouse and its gate.
+		var pole := Vector2(r.end.x - 10.0, r.position.y + 8.0)
+		var held := _garrison_realm if sim.siege_defender == Sim.ENEMY else _my_realm
+		Heraldry.realm_banner(_c, held if Heraldry.REALM_SIZES.has(held) else "bandits", Rect2(pole + Vector2(-2, -62), Vector2(46, 64)),
+			true, false, Transform2D(0.0, Vector2(field_scale, field_scale), 0.0, field_origin))
+	# What the fight has done so far: the ground before the wall, the parapet, the roofs.
+	var fought := 0.0 if _deploying() else clampf(sim.time / 150.0, 0.0, 1.0)
 	var gate := Rect2(Sim.GATE_COLS[0] * cell, top, cell * Sim.GATE_COLS.size(), cell)
-	for side in [-1.0, 1.0]:
-		var gx := gate.position.x - 34.0 if side < 0.0 else gate.end.x + 4.0
-		var gt := Rect2(gx, top - 18.0, 30.0, cell + 36.0)
-		_c.draw_rect(Rect2(gt.position + Vector2(5, 6), gt.size), Color(0, 0, 0, 0.3))
-		_c.draw_rect(gt, st["stone"])
-		_c.draw_rect(gt.grow(-5.0), st["top"])
+	var battered := 1.0 - sim.gate_hp / maxf(1.0, sim.gate_max)
+	var breached := sim.gate_hp <= 0.0
+	if sim.works != null and not sim.works.sections.is_empty():
+		var lost := 0.0
+		for sec in sim.works.sections:
+			lost += 1.0 - float(sec["hp"]) / maxf(1.0, float(sec["hp_max"]))
+			breached = breached or bool(sec["broken"])
+		battered = maxf(battered * 0.5, lost / float(sim.works.sections.size()))
+	SiegeTown.draw_wear(_c, fought, top + cell if inward < 0.0 else top, -inward)
+	SiegeTown.draw_chips(_c, clampf(battered * 0.6 + fought * 0.4, 0.0, 1.0), top if inward < 0.0 else top + cell - 10.0, st["stone"], gate)
+	var heat := clampf((1.0 - sim.strength(sim.siege_defender)) * 1.1 + (0.25 if breached else 0.0), 0.0, 1.0)
+	SiegeTown.draw_fires(_c, _town, 0.0 if _deploying() else heat, _clock, Style.motion_reduced())
+	SiegeTown.draw_camp(_c, Sim.ARENA.y if inward < 0.0 else 0.0, -inward, _clock, Style.motion_reduced())
 	var share := sim.gate_hp / maxf(1.0, sim.gate_max)
 	if sim.gate_hp > 0.0:
-		_c.draw_rect(gate, Color("2a1a10"))
-		for i in 7:
-			var gx2 := gate.position.x + 3.0 + i * (gate.size.x - 6.0) / 6.0
-			_c.draw_line(Vector2(gx2, gate.position.y), Vector2(gx2, gate.end.y), Color("8a8f98"), 2.0)
-		for j in 4:
-			var gy := gate.position.y + 3.0 + j * (gate.size.y - 6.0) / 3.0
-			_c.draw_line(Vector2(gate.position.x, gy), Vector2(gate.end.x, gy), Color("8a8f98"), 2.0)
+		# Oak doors, iron-banded and studded.
+		_c.draw_rect(gate, Color("26221e"))
+		var doors := gate.grow_individual(-2.0, -2.0, -2.0, -2.0)
+		_c.draw_rect(doors, Color("6a4a2c"))
+		_c.draw_rect(Rect2(doors.position, Vector2(doors.size.x, 2.0)), Color("8a6238"))
+		var px := doors.position.x + 6.0
+		while px < doors.end.x - 2.0:
+			_c.draw_rect(Rect2(px, doors.position.y, 2.0, doors.size.y), Color("4a321c"))
+			px += 8.0
+		_c.draw_rect(Rect2(doors.get_center().x - 1.0, doors.position.y, 2.0, doors.size.y), Color("26221e"))
+		for band_y in [doors.position.y + 6.0, doors.end.y - 10.0]:
+			_c.draw_rect(Rect2(doors.position.x, band_y, doors.size.x, 4.0), Color("59616c"))
+			_c.draw_rect(Rect2(doors.position.x, band_y, doors.size.x, 2.0), Color("8d97a6"))
 		# cracks as it weakens
 		var cracks := int((1.0 - share) * 6.0)
 		for k in cracks:
@@ -3106,13 +3066,16 @@ func _draw_walls() -> void:
 	for lp in sim.ladder_points():
 		var foot := Vector2(lp.x, top + (cell + 30.0 if inward < 0.0 else -30.0))
 		var head := Vector2(lp.x, top + (-4.0 if inward < 0.0 else cell + 4.0))
-		for rail in [-7.0, 7.0]:
-			_c.draw_line(foot + Vector2(rail, 0), head + Vector2(rail * 0.7, 0), Color("8a5a2a"), 3.0)
-		var t := 0.0
-		while t <= 1.0:
-			var p := foot.lerp(head, t)
-			_c.draw_line(p + Vector2(-7, 0), p + Vector2(7, 0), Color("8a5a2a"), 2.0)
-			t += 0.12
+		var ly := minf(foot.y, head.y)
+		var lh := absf(foot.y - head.y)
+		_c.draw_rect(Rect2(lp.x - 10.0, ly, 20.0, lh), Color("26221e"))
+		_c.draw_rect(Rect2(lp.x - 8.0, ly, 16.0, lh), Color("3a2c20"))
+		for rail in [-8.0, 6.0]:
+			_c.draw_rect(Rect2(lp.x + rail, ly, 2.0, lh), Color("b88a52"))
+		var ry := ly + 4.0
+		while ry < ly + lh - 2.0:
+			_c.draw_rect(Rect2(lp.x - 8.0, ry, 16.0, 2.0), Color("b88a52"))
+			ry += 8.0
 	# The ram under its roof, swinging while men work it (drawn as an engine when the
 	# siege has its engines: see _draw_engines).
 	if sim.gate_hp > 0.0 and sim.gate_blows > 0.0 and sim.works == null:
