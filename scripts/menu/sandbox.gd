@@ -34,8 +34,8 @@ const SITES := [["open", "Open field"], ["hills", "Hills"], ["woods", "Woods"], 
 const TIMES := [["Day", 12.0], ["Dusk", 18.5], ["Night", 23.0]]
 ## How fast the fight runs at 1x, for trying out the pace: a second on screen is this much of
 ## a second of battle (a campaign battle runs at BattleScreen.BATTLE_PACE, the one marked).
-const PACES := [0.25, 0.35, 0.5, 0.7, 1.0]
-const PACE_DEFAULT := 0.5
+const PACES := [0.35, 0.5, 0.75, 1.0, 1.25]
+const PACE_DEFAULT := 0.75
 ## The enemy's commander: "" lets the battle pick one.
 const TEMPERS := [["", "Any"], [Commander.PATIENT, "Patient"], [Commander.HAMMER, "Hammer"], [Commander.RECKLESS, "Reckless"]]
 const ATTACK_ENGINES := [[SiegeWorks.RAM, "Ram"], [SiegeWorks.LADDERS, "Ladders"], [SiegeWorks.MORE_LADDERS, "More ladders"],

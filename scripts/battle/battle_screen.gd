@@ -345,7 +345,7 @@ const BLEND_JUMP := 40.0
 ## How fast a battle runs at 1×: a second on screen is this much of a second of the fight.
 ## Under 1, everything on the field (marching, blows, arrows in the air) moves slower, and
 ## the fight is easier to follow and answer.
-const BATTLE_PACE := 0.5
+const BATTLE_PACE := 0.75
 ## The white disc behind _dot, made once for every battle.
 static var _disc_cache: Texture2D = null
 var _disc_tex: Texture2D = null
