@@ -1623,6 +1623,10 @@ func _draw_front() -> void:
 func _draw_volley_shadows() -> void:
 	var groups := {}
 	for p in sim.projectiles:
+		# Only an ordered volley gets its landing marked: bows loosing at will keep a few
+		# arrows in the air all the time, and marking those left ovals under every company.
+		if not p.volley:
+			continue
 		var key := Vector2i(int(p.aim.x / 60.0), int(p.aim.y / 60.0))
 		var done: float = p.origin.distance_to(p.pos)
 		var total: float = done + p.pos.distance_to(p.aim)
@@ -7264,7 +7268,12 @@ func _draw_arrows() -> void:
 		var rise := minf(150.0, total * 0.42)
 		var height := 4.0 * rise * t * (1.0 - t)
 		var dir := to.normalized()
-		_c.draw_line(pp - dir * 4.0, pp + dir * 4.0, Color(0, 0, 0, 0.22), 1.5)
+		# Its shadow on the ground: faint and short while it is high, darker and closer to
+		# its full length as it comes down to meet it, so a high flight doesn't leave a
+		# trail of dark sticks in the grass far below the arrows.
+		var low: float = 1.0 - clampf(height / 40.0, 0.0, 1.0)
+		if low > 0.0:
+			_c.draw_line(pp - dir * 4.0 * low, pp + dir * 4.0 * low, Color(0, 0, 0, 0.22 * low), 1.5)
 		var slope := 4.0 * rise * (1.0 - 2.0 * t) / maxf(1.0, total)
 		var screen_dir := (dir - Vector2(0, slope)).normalized()
 		# A streak behind it, so a volley reads as a flight of arrows.
