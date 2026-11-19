@@ -156,9 +156,6 @@ var _hit_seen := {}
 var _std_morale := {}
 var _bite_at := {}
 var _biting := {}
-## Companies hit in the flank or rear: which way the blows came from, whether from behind,
-## and how long since the last (see _draw_flanks).
-var _flanks := {}
 var _last_corpse = null
 var _sq_last_avg := {}
 var _sq_speed := {}
@@ -171,8 +168,6 @@ var _decided_at := -1.0
 const MAX_SPARKS := 260
 const BITE := 12.0
 const BITE_DRAIN := 22.0
-## A flank marker lasts this long after the last blow from that side.
-const FLANK_LINGER := 2.0
 const MAX_PUFFS := 220
 ## A stride in four frames: a step, the legs passing, the other step, the legs passing
 ## (see tools/unit_sprites.py). A man takes one every STRIDE of ground, twice as fast
@@ -1475,19 +1470,6 @@ func _update_effects(delta: float) -> void:
 		return
 	# Blows that have just landed: sparks thrown off steel away from the striker, and a
 	# spatter now and then.
-	for fsq in _flanks.keys():
-		var f: Dictionary = _flanks[fsq]
-		if not fsq.is_active():
-			_flanks.erase(fsq)
-			continue
-		# Still being struck from off its front: the marker stays, and follows the blows.
-		if sim.time - fsq.struck_at < 0.5 and fsq.struck_by != null and fsq.struck_by != fsq.focus and fsq.struck_by.alive_n > 0:
-			f["age"] = 0.0
-			f["dir"] = (fsq.struck_by.avg - fsq.avg).normalized()
-		else:
-			f["age"] = float(f["age"]) + delta
-			if float(f["age"]) > FLANK_LINGER:
-				_flanks.erase(fsq)
 	# Every blow the rules count shows once, however soon after the last (Soldier.blows):
 	# the hit flash fades within a tick, so it can't be relied on to catch them.
 	for sq in sim.squads:
@@ -3315,11 +3297,12 @@ func _consume_events() -> void:
 				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Slain in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
+				var where := "REAR" if e["rear"] else "FLANK"
 				Sound.play_at("heavy", _to_screen(e["pos"]), 3.0, 0.1, 0.3)
-				# Chevrons on the ground on the side it came from say where (_draw_flanks), and
-				# the men on that side are knocked inward; its card's edge flashes red.
+				_callout(sq, where, Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
+				# The REAR or FLANK word over the squad, the men on that side knocked inward, and
+				# its card's red edge say it.
 				var from_dir: Vector2 = (Vector2(e.get("from", e["pos"])) - sq.avg).normalized()
-				_flanks[sq] = {"dir": from_dir, "rear": bool(e["rear"]), "age": 0.0}
 				if not Style.motion_reduced():
 					for so in sq.soldiers:
 						if so.alive and (so.pos - sq.avg).dot(from_dir) > 0.0 and not _shoved.has(so):
@@ -6203,37 +6186,6 @@ func _draw_battle() -> void:
 	_draw_falling()
 
 
-## Where a company is being hit from off its front: fat chevrons over its men on that side,
-## pointing in (over them, since the men doing the flanking stand on the ground beside), red
-## on yours and brass where yours are doing the flanking, two rows from behind. They fade out
-## FLANK_LINGER seconds after the last blow from there.
-func _draw_flanks() -> void:
-	if _flanks.is_empty():
-		return
-	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
-	for sq in _flanks:
-		var f: Dictionary = _flanks[sq]
-		var dir: Vector2 = f["dir"]
-		if dir == Vector2.ZERO:
-			continue
-		var a: float = 1.0 - clampf(float(f["age"]) / FLANK_LINGER, 0.0, 1.0)
-		var col := Color(Style.MORALE_LOW if sq.team == Sim.PLAYER else Style.BRASS, a)
-		var across := dir.orthogonal()
-		var rows := 2 if bool(f["rear"]) else 1
-		var slide: float = 0.0 if Style.motion_reduced() else fposmod(_clock * 1.5, 1.0) * 6.0
-		for row in rows:
-			var mid: Vector2 = sq.avg + dir * (minf(sq.extent, 70.0) * 0.5 + row * 16.0 + 4.0 - slide)
-			for j in 3:
-				var c: Vector2 = mid + across * (float(j) - 1.0) * 26.0
-				var tip: Vector2 = c - dir * 9.0
-				# A chevron as two thick strokes meeting at its point (filled shapes don't take
-				# on this layer's shader).
-				for wing in [c + dir * 7.0 + across * 12.0, c + dir * 7.0 - across * 12.0]:
-					_c.draw_line(tip, wing, Color(0.05, 0.04, 0.03, 0.9 * a), 9.0)
-				for wing in [c + dir * 7.0 + across * 12.0, c + dir * 7.0 - across * 12.0]:
-					_c.draw_line(tip, wing, col, 5.0)
-
-
 ## The troop layer: every shadow in one draw, the captains' rings and the charging streaks,
 ## then every man in one draw: the squads out of the fight in turn, then the men of the
 ## melee back to front across squads.
@@ -6287,7 +6239,6 @@ func _draw_above() -> void:
 	_draw_arrows()
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_sparks()
-	_draw_flanks()
 	_draw_settled()
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_engines()
