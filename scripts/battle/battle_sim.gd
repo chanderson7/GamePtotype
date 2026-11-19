@@ -279,6 +279,10 @@ const STEER_KEEP := 25.0
 const SIDE_ARRIVE := 8.0
 ## A company on the march that took a blow hand to hand this recently stops and fights.
 const STRUCK_MEMORY := 0.5
+## How a blow reads on the screen (Soldier.blow_tier): harder than this share of the striker's
+## usual is a hard blow, under this share a turned one.
+const HARD_BLOW := 1.6
+const TURNED_BLOW := 0.6
 ## A company of bows struck hand to hand this recently is caught: all its arrows are rushed
 ## (Troops.POINT_BLANK), not just the front rank's.
 const CAUGHT_MEMORY := 1.5
@@ -311,6 +315,11 @@ class Soldier:
 	## Where he stood when this tick began: the screen draws him between the two
 	## (see BattleScreen._blend), so the field moves smoothly between ticks.
 	var prev_pos := Vector2.ZERO
+	## Blows taken so far, and how the last one landed: 0 turned (on a braced front, a shield
+	## wall's face, or barely biting), 1 an ordinary blow, 2 a hard one (a charge, from behind,
+	## or a blow far over the striker's usual). For the screen; the rules don't read them.
+	var blows := 0
+	var blow_tier := 1
 	var facing := Vector2.UP
 	var hp := 100.0
 	var max_hp := 100.0
@@ -4293,6 +4302,14 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 	if not victim.alive:
 		return
 	var vs = victim.squad
+	var tier := 1
+	if charge or side == REAR or (attacker != null and attacker.damage > 0.0 and dmg >= attacker.damage * HARD_BLOW):
+		tier = 2
+	elif (side == FRONT and ((vs.brace > 0.0 and in_line(vs)) or vs.shield_wall())) \
+			or (attacker != null and attacker.damage > 0.0 and dmg < attacker.damage * TURNED_BLOW):
+		tier = 0
+	victim.blows += 1
+	victim.blow_tier = tier
 	# A braced line fighting in formation takes the blows to its front on locked shields.
 	if side == FRONT and vs.brace > 0.0 and in_line(vs):
 		dmg *= BRACE_GUARD
@@ -4308,7 +4325,8 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 		vs.drop_morale(REAR_SHOCK / float(vs.start_men) * (1.0 if side == REAR else 0.5))
 		if time - vs.flanked_at > 4.0:
 			vs.flanked_at = time
-			events.append({"type": "flanked", "squad": vs, "pos": victim.pos, "rear": side == REAR})
+			events.append({"type": "flanked", "squad": vs, "pos": victim.pos, "rear": side == REAR,
+				"from": attacker.avg if attacker != null else victim.pos})
 	if victim.hp <= 0.0:
 		_remove(victim)
 		vs.drop_morale((100.0 / float(vs.start_men) * 0.8 + 2.0) * vs.led)

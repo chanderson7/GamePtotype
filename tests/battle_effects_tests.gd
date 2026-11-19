@@ -43,6 +43,8 @@ func _init() -> void:
 	var victim = theirs.soldiers[0]
 	victim.target = mine.soldiers[0]
 	victim.flash = 1.0
+	victim.blows += 1
+	victim.blow_tier = 1
 	sc._update_effects(0.016)
 	check(sc._sparks.size() >= 6, "a blow throws sparks (%d)" % sc._sparks.size())
 	var before: int = sc._sparks.size()

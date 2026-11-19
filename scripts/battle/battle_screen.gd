@@ -151,6 +151,14 @@ var _falling: Array = []
 var _litter: Array = []
 var _fallen_flags: Array = []
 var _hit_seen := {}
+## Each standard's morale as its bar shows it, lagging the real one so a loss lingers (BITE_DRAIN
+## a second); when a bite of BITE or more came, and whether one is being shown.
+var _std_morale := {}
+var _bite_at := {}
+var _biting := {}
+## Companies hit in the flank or rear: which way the blows came from, whether from behind,
+## and how long since the last (see _draw_flanks).
+var _flanks := {}
 var _last_corpse = null
 var _sq_last_avg := {}
 var _sq_speed := {}
@@ -161,6 +169,10 @@ var _slow := 0.0
 ## When the battle was decided, for the winners' cheer before the result.
 var _decided_at := -1.0
 const MAX_SPARKS := 260
+const BITE := 12.0
+const BITE_DRAIN := 22.0
+## A flank marker lasts this long after the last blow from that side.
+const FLANK_LINGER := 2.0
 const MAX_PUFFS := 220
 ## A stride in four frames: a step, the legs passing, the other step, the legs passing
 ## (see tools/unit_sprites.py). A man takes one every STRIDE of ground, twice as fast
@@ -183,10 +195,20 @@ const FALL_TIME := 0.6
 const SWING := 0.3
 const STRIKE_HOLD := 0.08
 const LUNGE := 4.5
+## A bowman's rock back on the loose (he doesn't lunge like a swordsman).
+const LOOSE_RECOIL := 1.2
 const WINDUP := 0.12
 const WIND_BACK := 2.5
 const FLINCH := 3.5
+## How far a struck man reels, by how the blow landed (Soldier.blow_tier): turned, ordinary, hard.
+const BLOW_KNOCK := [0.3, 1.0, 1.8]
 const SHOVE := 9.0
+## A company breaking: the time from its rear rank turning to its front rank, the time over
+## which the block comes apart into a crowd, and how far apart (at most) it is drawn from
+## where the rules have each man.
+const ROUT_GIVE := 0.35
+const ROUT_SPREAD := 1.5
+const ROUT_SCATTER := 10.0
 const SHOVE_TIME := 0.35
 const SHOVE_REACH := 30.0
 ## Men a charge has shoved, while it lasts: soldier -> {dir, k, age}.
@@ -1166,6 +1188,16 @@ func _ease_hud(delta: float) -> void:
 	if sim.phase != Sim.PHASE_BATTLE:
 		return
 	for sq in sim.squads:
+		# Every standard's bar: what was just lost lingers and drains (slower than a card's),
+		# and a big bite at once makes the flag jerk.
+		var shown := float(_std_morale.get(sq, sq.morale))
+		_std_morale[sq] = move_toward(shown, sq.morale, delta * BITE_DRAIN)
+		var gap: float = float(_std_morale[sq]) - sq.morale
+		if gap >= BITE and not bool(_biting.get(sq, false)):
+			_biting[sq] = true
+			_bite_at[sq] = _clock
+		elif gap < BITE * 0.3:
+			_biting[sq] = false
 		if sq.team != Sim.PLAYER:
 			continue
 		_card_morale[sq] = move_toward(float(_card_morale.get(sq, sq.morale)), sq.morale, delta * 60.0)
@@ -1443,13 +1475,26 @@ func _update_effects(delta: float) -> void:
 		return
 	# Blows that have just landed: sparks thrown off steel away from the striker, and a
 	# spatter now and then.
+	for fsq in _flanks.keys():
+		var f: Dictionary = _flanks[fsq]
+		if not fsq.is_active():
+			_flanks.erase(fsq)
+			continue
+		# Still being struck from off its front: the marker stays, and follows the blows.
+		if sim.time - fsq.struck_at < 0.5 and fsq.struck_by != null and fsq.struck_by != fsq.focus and fsq.struck_by.alive_n > 0:
+			f["age"] = 0.0
+			f["dir"] = (fsq.struck_by.avg - fsq.avg).normalized()
+		else:
+			f["age"] = float(f["age"]) + delta
+			if float(f["age"]) > FLANK_LINGER:
+				_flanks.erase(fsq)
+	# Every blow the rules count shows once, however soon after the last (Soldier.blows):
+	# the hit flash fades within a tick, so it can't be relied on to catch them.
 	for sq in sim.squads:
 		for so in sq.soldiers:
-			if so.flash >= 0.95 and not _hit_seen.has(so):
-				_hit_seen[so] = true
-				_blow(so)
-			elif so.flash < 0.5 and _hit_seen.has(so):
-				_hit_seen.erase(so)
+			if so.blows != int(_hit_seen.get(so, 0)):
+				_hit_seen[so] = so.blows
+				_blow(so, so.blow_tier)
 	# Men who have just fallen: each takes a moment to go down.
 	var fresh := []
 	for i in range(sim.corpses.size() - 1, -1, -1):
@@ -1475,6 +1520,11 @@ func _update_effects(delta: float) -> void:
 		# Men wading a ford, on the move or fighting in it, leave rings on the water.
 		if spawn and sq.is_active() and (sq.engaged or float(_sq_speed[sq]) >= 8.0):
 			_ripple_under(sq)
+		if spawn and sq.routing and sq.alive_n > 0 and float(_sq_speed[sq]) >= 8.0 and randf() < 0.35:
+			# A broken company running: ragged dust behind the crowd.
+			var rd := v.normalized()
+			var ra: Vector2 = now - rd * (sq.extent * 0.6) + rd.orthogonal() * randf_range(-1.0, 1.0) * sq.extent * 0.8
+			_puff(ra, -rd * randf_range(3.0, 10.0), randf_range(4.0, 6.0), 10.0, randf_range(0.8, 1.3), _ground_dust(ra), 0.2)
 		if not spawn or not sq.is_active() or sq.engaged or float(_sq_speed[sq]) < 8.0:
 			continue
 		var cav: bool = sq.type == Troops.CAVALRY
@@ -1498,19 +1548,32 @@ func _ripple_under(sq) -> void:
 
 
 ## Sparks off a blow that has just landed on `so`.
-func _blow(so) -> void:
-	# A blow throws up to nine: only start one if all of them fit.
-	if _sparks.size() + 9 > MAX_SPARKS:
+func _blow(so, tier: int = 1) -> void:
+	# A blow throws up to twelve: only start one if all of them fit.
+	if _sparks.size() + 12 > MAX_SPARKS:
 		return
 	var dir := Vector2.from_angle(randf() * TAU)
 	if so.target != null:
 		dir = (so.pos - so.target.pos).normalized()
 	var at: Vector2 = so.pos - dir * 4.0
-	for k in 6:
+	if Style.motion_reduced():
+		# Still: one bright pixel where it landed, pale if it was turned, red if it bit deep.
+		var still_c := Color(0.85, 0.85, 0.8) if tier == 0 else (Color(0.85, 0.12, 0.08) if tier == 2 else Color(1.0, 0.8, 0.35))
+		_sparks.append({"p": at, "v": Vector2.ZERO, "age": 0.0, "life": 0.22, "c": still_c, "size": 2.0})
+		return
+	if tier == 0:
+		# Turned on a shield or a braced front: a few dull chips, and no more.
+		for k in 3:
+			_sparks.append({"p": at, "v": dir.rotated(randf_range(-1.3, 1.3)) * randf_range(25.0, 55.0), "age": 0.0,
+				"life": randf_range(0.12, 0.2), "c": Color(0.82, 0.82, 0.76), "size": 1.5})
+		return
+	var n := 6 if tier == 1 else 9
+	var spread := 1.1 if tier == 1 else 1.5
+	for k in n:
 		var c := Color(1.0, 0.97, 0.75) if k < 2 else (Color(1.0, 0.75, 0.3) if k < 4 else Color(0.95, 0.45, 0.15))
-		_sparks.append({"p": at, "v": dir.rotated(randf_range(-1.1, 1.1)) * randf_range(40.0, 110.0), "age": 0.0,
-			"life": randf_range(0.16, 0.32), "c": c, "size": 1.6})
-	if randf() < 0.3:
+		_sparks.append({"p": at, "v": dir.rotated(randf_range(-spread, spread)) * randf_range(40.0, 110.0 if tier == 1 else 140.0), "age": 0.0,
+			"life": randf_range(0.16, 0.32), "c": c, "size": 1.6 if tier == 1 else 2.0})
+	if tier == 2 or randf() < 0.3:
 		for k in 3:
 			_sparks.append({"p": at, "v": dir.rotated(randf_range(-0.5, 0.5)) * randf_range(18.0, 45.0), "age": 0.0,
 				"life": 0.38, "c": Color(0.55, 0.06, 0.05), "size": 1.8})
@@ -1611,6 +1674,8 @@ func _draw_falling() -> void:
 			_c.draw_texture(Art.flash(type, 2, culture), -Art.pivot(type, culture), Color(1, 1, 1, 0.5 * (1.0 - st)))
 			continue
 		var t := clampf((age - STAGGER_TIME) / (FALL_TIME - STAGGER_TIME), 0.0, 1.0)
+		if Sound.reduced_motion:
+			t = 1.0
 		var fall := t * t
 		var tint := Color(1, 1, 1).lerp(Color(0.75, 0.72, 0.7), fall)
 		_sprite(type, int(c["team"]), 2 if t < 0.25 else 1, p + Vector2(0, 2.0 * fall), lerp_angle(end - 1.4, end, fall), tint, 1.0 - 0.1 * fall, culture)
@@ -2903,12 +2968,14 @@ func _battle_sounds(delta: float) -> void:
 	_heard_stamp += 1
 	for p in sim.projectiles:
 		var h = _heard.get(p)
+		# Where it comes down: a loosed arrow at the spot it was loosed at, anything else
+		# where it was last seen.
 		if h == null:
-			h = [_missile_sound(p), p.pos, _heard_stamp]
+			h = [_missile_sound(p), p.aim if p.loose else p.pos, _heard_stamp]
 			_heard[p] = h
 			_tally(loosed, String(h[0]), p.origin)
 		else:
-			h[1] = p.pos
+			h[1] = p.aim if p.loose else p.pos
 			h[2] = _heard_stamp
 	for p in _heard.keys():
 		var h: Array = _heard[p]
@@ -3248,10 +3315,15 @@ func _consume_events() -> void:
 				_moment("%s falls" % String(e.get("lord_name", "The lord")), "Slain in the fray", Style.BRASS, "crown")
 			"flanked":
 				var sq = e["squad"]
-				var where := "REAR" if e["rear"] else "FLANK"
 				Sound.play_at("heavy", _to_screen(e["pos"]), 3.0, 0.1, 0.3)
-				_callout(sq, where, Style.ENEMY_LIGHT if sq.team == Sim.PLAYER else Style.BRASS)
-				# The REAR or FLANK arrow over the squad and its card's red edge say it.
+				# Chevrons on the ground on the side it came from say where (_draw_flanks), and
+				# the men on that side are knocked inward; its card's edge flashes red.
+				var from_dir: Vector2 = (Vector2(e.get("from", e["pos"])) - sq.avg).normalized()
+				_flanks[sq] = {"dir": from_dir, "rear": bool(e["rear"]), "age": 0.0}
+				if not Style.motion_reduced():
+					for so in sq.soldiers:
+						if so.alive and (so.pos - sq.avg).dot(from_dir) > 0.0 and not _shoved.has(so):
+							_shoved[so] = {"dir": -from_dir, "k": 0.5, "age": 0.0}
 				if sq.team == Sim.PLAYER:
 					_card_hit[sq] = _clock
 	sim.events.clear()
@@ -6131,6 +6203,37 @@ func _draw_battle() -> void:
 	_draw_falling()
 
 
+## Where a company is being hit from off its front: fat chevrons over its men on that side,
+## pointing in (over them, since the men doing the flanking stand on the ground beside), red
+## on yours and brass where yours are doing the flanking, two rows from behind. They fade out
+## FLANK_LINGER seconds after the last blow from there.
+func _draw_flanks() -> void:
+	if _flanks.is_empty():
+		return
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	for sq in _flanks:
+		var f: Dictionary = _flanks[sq]
+		var dir: Vector2 = f["dir"]
+		if dir == Vector2.ZERO:
+			continue
+		var a: float = 1.0 - clampf(float(f["age"]) / FLANK_LINGER, 0.0, 1.0)
+		var col := Color(Style.MORALE_LOW if sq.team == Sim.PLAYER else Style.BRASS, a)
+		var across := dir.orthogonal()
+		var rows := 2 if bool(f["rear"]) else 1
+		var slide: float = 0.0 if Style.motion_reduced() else fposmod(_clock * 1.5, 1.0) * 6.0
+		for row in rows:
+			var mid: Vector2 = sq.avg + dir * (minf(sq.extent, 70.0) * 0.5 + row * 16.0 + 4.0 - slide)
+			for j in 3:
+				var c: Vector2 = mid + across * (float(j) - 1.0) * 26.0
+				var tip: Vector2 = c - dir * 9.0
+				# A chevron as two thick strokes meeting at its point (filled shapes don't take
+				# on this layer's shader).
+				for wing in [c + dir * 7.0 + across * 12.0, c + dir * 7.0 - across * 12.0]:
+					_c.draw_line(tip, wing, Color(0.05, 0.04, 0.03, 0.9 * a), 9.0)
+				for wing in [c + dir * 7.0 + across * 12.0, c + dir * 7.0 - across * 12.0]:
+					_c.draw_line(tip, wing, col, 5.0)
+
+
 ## The troop layer: every shadow in one draw, the captains' rings and the charging streaks,
 ## then every man in one draw: the squads out of the fight in turn, then the men of the
 ## melee back to front across squads.
@@ -6184,6 +6287,7 @@ func _draw_above() -> void:
 	_draw_arrows()
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_sparks()
+	_draw_flanks()
 	_draw_settled()
 	if sim.objective == Sim.OBJECTIVE_SIEGE:
 		_draw_engines()
@@ -6744,7 +6848,7 @@ func _draw_bonds() -> void:
 			var points := float(a.info.get("bonds", {}).get(str(b.info.get("id", -1)), 0.0))
 			if Captains.rank_for(points) <= 0:
 				continue
-			var pulse := 0.18 + sin(_clock * 3.0) * 0.05
+			var pulse := 0.2 if Style.motion_reduced() else 0.18 + sin(_clock * 3.0) * 0.05
 			var ap: Vector2 = a.average_pos()
 			var bp: Vector2 = b.average_pos()
 			_c.draw_dashed_line(ap, bp, Color(Style.BRASS, pulse), 2.0, 11.0)
@@ -7027,8 +7131,23 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 	_pf_set = false
 	var fwd: Vector2 = so.facing
 	if sq.routing:
-		# Running for their own edge, leaning into it, at twice the stride.
-		fwd = Vector2.DOWN if sq.team == Sim.PLAYER else Vector2.UP
+		var run: Vector2 = Vector2.DOWN if sq.team == Sim.PLAYER else Vector2.UP
+		var broke: float = _clock - float(_broke_at.get(sq, -9.0))
+		if _broke_at.has(sq) and not look["still"] and broke < ROUT_GIVE + ROUT_SPREAD:
+			# A break runs through the ranks: the rear turns and runs first, the front a beat
+			# later, backing off still facing the foe until it does; then the block comes
+			# apart into a ragged crowd (a withdrawal in order keeps its shape: no _broke_at).
+			var depth: float = clampf((so.pos - sq.avg).dot(so.facing) / maxf(10.0, sq.extent), -1.0, 1.0)
+			var turn_at: float = (depth + 1.0) * 0.5 * ROUT_GIVE
+			var h := fposmod(float(so.slot.x) * 12.9898 + float(so.slot.y) * 78.233 + float(sq.id), 1.0)
+			if broke < turn_at:
+				_po -= so.facing * 2.0 * (broke / maxf(0.01, turn_at))
+				_pi = WALK[int(so.stride / (STRIDE * 0.125)) % 4]
+				return
+			var k := clampf((broke - turn_at) / ROUT_SPREAD, 0.0, 1.0) * (1.0 - clampf(so.flash, 0.0, 1.0))
+			_po += (run * (h - 0.5) * 14.0 + run.orthogonal() * (fposmod(h * 7.31, 1.0) - 0.5) * 12.0) * k
+			_po = _po.limit_length(ROUT_SCATTER)
+		fwd = run
 		_pf = fwd
 		_pf_set = true
 		_pi = WALK[int(so.stride / (STRIDE * 0.125)) % 4]
@@ -7038,12 +7157,25 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 	if look["still"]:
 		return
 	var side := 1.0 if i % 2 == 0 else -1.0
-	if so.swing > 0.0:
+	var shooting: bool = look["ranged"] and not sq.hold_fire and so.target != null \
+			and so.pos.distance_squared_to(so.target.pos) > 900.0
+	if so.swing > 0.0 and shooting:
+		# The loose: the string snaps and the bowman rocks back a little, and holds, bow up.
+		var e: float = SWING - so.swing
+		var k := 1.0 if e < STRIKE_HOLD * 2.0 else 1.0 - _ease_out((e - STRIKE_HOLD * 2.0) / maxf(0.01, SWING - STRIKE_HOLD * 2.0))
+		_po -= fwd * LOOSE_RECOIL * k
+		_pi = 2
+	elif so.swing > 0.0:
 		# The blow: a lunge at the target, then easing back to his place.
 		var e: float = SWING - so.swing
 		var k := 1.0 if e < STRIKE_HOLD else 1.0 - _ease_out((e - STRIKE_HOLD) / (SWING - STRIKE_HOLD))
 		_po += fwd * LUNGE * k
 		_pt += deg_to_rad(6.0) * k * side
+		_pi = 2
+	elif so.volley and look["ranged"] and not sq.hold_fire:
+		# Ordered to loose together: every bow drawn and held until the word.
+		_po -= fwd * WIND_BACK
+		_pt -= deg_to_rad(8.0) * side
 		_pi = 2
 	elif so.target != null and so.cooldown > 0.0 and ((sq.engaged and so.cooldown < WINDUP) or (look["ranged"] and so.cooldown < WINDUP * 2.0)):
 		# The wind-up, just before the next blow (or the bow drawn before the loose).
@@ -7053,9 +7185,11 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 		if look["ranged"]:
 			_pi = 2
 	if so.flash > 0.0:
-		# Struck: knocked back from the man he faces, and turned by it.
-		_po -= fwd * FLINCH * so.flash
-		_pt += deg_to_rad(14.0) * so.flash * side
+		# Struck: knocked back from the man he faces, and turned by it, as far as the blow
+		# was hard (a turned blow barely moves him).
+		var knock: float = BLOW_KNOCK[clampi(so.blow_tier, 0, 2)]
+		_po -= fwd * FLINCH * so.flash * knock
+		_pt += deg_to_rad(14.0) * so.flash * side * knock
 	var shove = _shoved.get(so)
 	if shove != null:
 		var t: float = float(shove["age"]) / SHOVE_TIME
@@ -7165,8 +7299,11 @@ func _draw_arrows() -> void:
 	var at := PackedVector2Array()
 	var turn := PackedFloat32Array()
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	var last_leg: float = Sim.ARROW_SPEED * Sim.STEP
 	for p in sim.projectiles:
-		var pp := _blend(p.prev_pos, p.pos)
+		# One that comes down at the next tick is drawn on down to where it lands, not left
+		# hanging in the air until it vanishes.
+		var pp := _blend(p.prev_pos, p.aim if p.pos.distance_to(p.aim) <= last_leg else p.pos)
 		var to: Vector2 = p.aim - pp
 		if to.length() < 0.01:
 			continue
@@ -7350,6 +7487,10 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 	var since: float = _clock - float(_ordered_at.get(sq, -9.0))
 	if since < 0.5:
 		dip = sin(since / 0.5 * PI) * 0.35
+	# A big bite out of its nerve jerks the flag once.
+	var bitten: float = _clock - float(_bite_at.get(sq, -9.0))
+	if bitten < 0.3 and not Style.motion_reduced():
+		dip += sin(bitten / 0.3 * PI) * -0.3
 	var lean := deg_to_rad(68.0) * fall * (1.0 if mine else -1.0) + dip * (1.0 if sq.facing.x >= 0.0 else -1.0)
 	# A wavering standard trembles.
 	if wavering(sq) and not Sound.reduced_motion:
@@ -7418,7 +7559,14 @@ func _draw_standard(sq, flag_x: float, ref_type: String) -> void:
 		var q := top + Vector2(FLAG.x * k + 12.0, 8.0 + (22.0 if wavering(sq) else 0.0))
 		_draw_empty_quiver(_c, q, 9.0)
 	_c.draw_rect(bar.grow(1.5), Color(0.07, 0.06, 0.05, 0.85))
+	var lost: float = clampf(float(_std_morale.get(sq, sq.morale)) / 100.0, 0.0, 1.0)
+	if lost > m + 0.005:
+		# What it has just lost, pale red, draining away.
+		_c.draw_rect(Rect2(bar.position + Vector2(bar.size.x * m, 0), Vector2(bar.size.x * (lost - m), bar.size.y)), Color(Style.ENEMY_LIGHT, 0.85))
 	_c.draw_rect(Rect2(bar.position, Vector2(bar.size.x * m, bar.size.y)), Style.morale_color(sq.morale))
+	# Where it breaks: a dark notch at the rout line, not at the bar's end.
+	var notch_x: float = bar.position.x + bar.size.x * Sim.ROUT_MORALE / 100.0
+	_c.draw_rect(Rect2(Vector2(floorf(notch_x) - 1.0, bar.position.y - 2.0), Vector2(2.0, bar.size.y + 4.0)), Color(0.05, 0.04, 0.04, 0.95))
 	_draw_morale_mark(_c, bar.position + Vector2(-9.0, bar.size.y * 0.5), sq.morale, 5.0)
 	var count := str(sq.alive_n)
 	var count_at := top + Vector2(bar.size.x + 2.0, FLAG.y * k + 19.0 - 5.0 * small)
@@ -7499,13 +7647,13 @@ func _draw_matchups() -> void:
 			_c.draw_arc(at, r, 0.0, TAU, 40, Color(Style.MORALE_HIGH, 0.9), 3.0)
 		elif Troops.COUNTERED_BY.get(mine, "") == foe.type:
 			for i in 10:
-				var a0 := TAU * i / 10.0 + _clock * 0.4
+				var a0 := TAU * i / 10.0 + (0.0 if Style.motion_reduced() else _clock * 0.4)
 				_c.draw_arc(at, r, a0, a0 + TAU / 16.0, 6, Color(0, 0, 0, 0.45), 6.0)
 				_c.draw_arc(at, r, a0, a0 + TAU / 16.0, 6, Color(Style.MORALE_LOW, 0.95), 3.0)
 
 
 func _draw_targets() -> void:
-	var pulse := 0.5 + 0.5 * sin(_clock * 5.0)
+	var pulse := 1.0 if Style.motion_reduced() else 0.5 + 0.5 * sin(_clock * 5.0)
 	for foe in _targeted():
 		var r: float = minf(foe.extent, 70.0) + 18.0 + pulse * 5.0
 		_c.draw_arc(foe.average_pos(), r, 0.0, TAU, 40, Color(0, 0, 0, 0.55), 8.0)
