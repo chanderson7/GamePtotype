@@ -44,10 +44,19 @@ func _has_text(n: Node, text: String) -> bool:
 
 
 ## A warband of `n` squads of `men` spearmen each.
+## A company of the army as it started, to copy: a lost fight earlier in the test can
+## leave the army empty, and a company copied from nothing has no troop type.
+var _company := {}
+
+
 func _army(n: int, men: int) -> void:
+	if not gs.army.is_empty() and _company.is_empty():
+		_company = gs.army[0].duplicate(true)
+	if _company.is_empty():
+		_company = {"type": Troops.INFANTRY, "men": men, "xp": 0}
 	var out := []
 	for i in n:
-		var sq: Dictionary = gs.army[0].duplicate(true) if not gs.army.is_empty() else {}
+		var sq: Dictionary = _company.duplicate(true)
 		sq["id"] = 500 + i
 		sq["men"] = men
 		sq["wounded"] = 0

@@ -155,6 +155,14 @@ var _falling: Array = []
 var _litter: Array = []
 var _fallen_flags: Array = []
 var _hit_seen := {}
+## Arrows sticking in men for a moment after they strike: [{so, off, dir, age}], the point
+## it went in (off) and the way it points back to the bow (dir), both in the man's own
+## sprite space (x to his right, y toward his back), so they turn and lunge with him.
+## Men carrying one (soldier -> [where he was drawn, his angle] this frame, or true).
+var _shafts: Array = []
+var _shaft_men := {}
+var _shaft_count := {}
+var _arrow_seen := {}
 ## Each standard's morale as its bar shows it, lagging the real one so a loss lingers (BITE_DRAIN
 ## a second); when a bite of BITE or more came, and whether one is being shown.
 var _std_morale := {}
@@ -171,6 +179,19 @@ var _slow := 0.0
 var _decided_at := -1.0
 const MAX_SPARKS := 260
 const MAX_MARKS := 64
+## Arrows in men: at most MAX_SHAFTS at once, SHAFTS_PER_MAN in one man, each for SHAFT_LIFE
+## seconds; the shaft stands SHAFT_LEN out of him.
+const MAX_SHAFTS := 120
+const SHAFTS_PER_MAN := 3
+const SHAFT_LIFE := 3.0
+const SHAFT_LEN := 6.0
+## Arrows in the ground: plain for STUCK_FADE seconds of battle, then fading in two steps
+## and gone at STUCK_GONE; never more than STUCK_PER_PATCH, the newest, in a STUCK_PATCH
+## square of ground, so a target's ground doesn't fill in solid.
+const STUCK_FADE := 20.0
+const STUCK_GONE := 30.0
+const STUCK_PATCH := 18.0
+const STUCK_PER_PATCH := 4
 ## How long each kind of mark stays: turned, ordinary, hard.
 const MARK_LIFE := [0.16, 0.2, 0.34]
 ## Neither a mark's pixels nor dust's are drawn smaller than this, in screen pixels, so
@@ -215,8 +236,11 @@ const FALL_TIME := 0.6
 const SWING := 0.3
 const STRIKE_HOLD := 0.08
 const LUNGE := 4.5
-## A bowman's rock back on the loose (he doesn't lunge like a swordsman).
-const LOOSE_RECOIL := 1.2
+## A bowman draws over DRAW_TIME before he looses (the string back, the arrow on it), and on
+## the loose the string snaps straight and he rocks back LOOSE_RECOIL (he doesn't lunge like
+## a swordsman), easing back up over the swing.
+const DRAW_TIME := 0.45
+const LOOSE_RECOIL := 2.4
 const WINDUP := 0.12
 const WIND_BACK := 2.5
 const FLINCH := 3.5
@@ -907,6 +931,13 @@ func _resume_frame() -> void:
 func _finish_resume() -> void:
 	_resume_to = -1
 	_resume_journal = []
+	# What the replay already did is old news: no burst of marks, shafts or falling men
+	# for blows struck before the battle was left.
+	for sq in sim.squads:
+		for so in sq.soldiers:
+			_hit_seen[so] = so.blows
+			_arrow_seen[so] = so.arrows_in
+	_last_corpse = null if sim.corpses.is_empty() else sim.corpses.back()
 	var layer := get_node_or_null("ResumeLayer")
 	if layer != null:
 		layer.queue_free()
@@ -1461,6 +1492,12 @@ func _update_effects(delta: float) -> void:
 	for e in _marks:
 		e["age"] += delta
 	_marks = _marks.filter(func(e): return e["age"] < e["life"])
+	if not _shafts.is_empty():
+		for e in _shafts:
+			e["age"] += delta
+		# Kept in the order they went in, so the spent ones are always at the front.
+		while not _shafts.is_empty() and float(_shafts[0]["age"]) >= SHAFT_LIFE:
+			_unshaft(_shafts.pop_front()["so"])
 	for e in _puffs:
 		e["age"] += delta
 		e["p"] += (e["v"] + _wind) * delta
@@ -1503,11 +1540,22 @@ func _update_effects(delta: float) -> void:
 	# spatter now and then.
 	# Every blow the rules count shows once, however soon after the last (Soldier.blows):
 	# the hit flash fades within a tick, so it can't be relied on to catch them.
+	# An arrow that strikes counts as a blow too; it shows as the shaft in him, not a mark.
+	# Every arrow that strikes is a blow too, so only a man with new blows is looked at.
 	for sq in sim.squads:
 		for so in sq.soldiers:
-			if so.blows != int(_hit_seen.get(so, 0)):
+			var fresh: int = so.blows - int(_hit_seen.get(so, 0))
+			if fresh != 0:
 				_hit_seen[so] = so.blows
-				_blow(so, so.blow_tier)
+				var shown := 0
+				var shots: int = so.arrows_in - int(_arrow_seen.get(so, 0))
+				if shots > 0:
+					_arrow_seen[so] = so.arrows_in
+					if _shaft(so, so.blow_tier):
+						shown = shots
+				# A blow by hand, or an arrow that killed him (no shaft to show): its mark.
+				if fresh > shown:
+					_blow(so, so.blow_tier)
 	# Men who have just fallen: each takes a moment to go down.
 	var fresh := []
 	for i in range(sim.corpses.size() - 1, -1, -1):
@@ -1593,6 +1641,51 @@ func _blow(so, tier: int = 1) -> void:
 		for k in 3:
 			_sparks.append({"p": at, "v": dir.rotated(randf_range(-0.5, 0.5)) * randf_range(18.0, 45.0), "age": 0.0,
 				"life": 0.38, "c": Color(0.55, 0.06, 0.05), "size": 1.8})
+
+
+## An arrow has struck `so`: its shaft stands in him for a moment. One turned (a shield
+## up, a shield wall, mail it didn't bite through) is in his shield on his left arm; one
+## that bit, in his body. It points back the way it came, in the frame he is drawn in (a
+## routed man is drawn turned to run, whatever way the rules have him facing). Returns
+## whether it is shown (not for a man it killed).
+func _shaft(so, tier: int) -> bool:
+	if not so.alive:
+		return false
+	if int(_shaft_count.get(so, 0)) >= SHAFTS_PER_MAN:
+		for i in _shafts.size():
+			if _shafts[i]["so"] == so:
+				_unshaft(so)
+				_shafts.remove_at(i)
+				break
+	elif _shafts.size() >= MAX_SHAFTS:
+		_unshaft(_shafts.pop_front()["so"])
+	var drawn = _shaft_men.get(so)
+	var angle: float
+	if drawn is Array:
+		angle = drawn[1]
+	else:
+		var face: Vector2 = so.facing
+		if so.squad != null and so.squad.routing:
+			face = Vector2.DOWN if so.squad.team == Sim.PLAYER else Vector2.UP
+		angle = face.angle() + PI * 0.5
+	# Into his own sprite space: x to his right, y toward his back.
+	var back: Vector2 = (so.shot_from - so.pos).normalized().rotated(-angle)
+	var off := Vector2(-8.0, -1.0) if tier == 0 else Vector2(randf_range(-3.0, 3.0), randf_range(-2.0, 2.5))
+	_shafts.append({"so": so, "off": off + back * 1.5, "dir": back, "age": 0.0})
+	_shaft_count[so] = int(_shaft_count.get(so, 0)) + 1
+	if not _shaft_men.has(so):
+		_shaft_men[so] = true
+	return true
+
+
+## One shaft less in `so`.
+func _unshaft(so) -> void:
+	var n: int = int(_shaft_count.get(so, 0)) - 1
+	if n <= 0:
+		_shaft_count.erase(so)
+		_shaft_men.erase(so)
+	else:
+		_shaft_count[so] = n
 
 
 func _puff(at: Vector2, v: Vector2, r0: float, r1: float, life: float, color: Color, alpha: float) -> void:
@@ -1718,31 +1811,6 @@ func _draw_front() -> void:
 			var mid: Vector2 = so.pos.lerp(so.target.pos, 0.5)
 			_dot(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
 			_dot(mid, 5.0, Color(1.0, 0.82, 0.45, 0.11 + pulse))
-
-
-## Where a volley will land: a shadow on the ground, darker as the arrows come down.
-func _draw_volley_shadows() -> void:
-	var groups := {}
-	for p in sim.projectiles:
-		# Only an ordered volley gets its landing marked: bows loosing at will keep a few
-		# arrows in the air all the time, and marking those left ovals under every company.
-		if not p.volley:
-			continue
-		var key := Vector2i(int(p.aim.x / 60.0), int(p.aim.y / 60.0))
-		var done: float = p.origin.distance_to(p.pos)
-		var total: float = done + p.pos.distance_to(p.aim)
-		var g: Array = groups.get(key, [Vector2.ZERO, 0, 0.0])
-		groups[key] = [Vector2(g[0]) + p.aim, int(g[1]) + 1, maxf(float(g[2]), done / maxf(1.0, total))]
-	for key in groups:
-		var g: Array = groups[key]
-		if int(g[1]) < 3:
-			continue
-		var c: Vector2 = Vector2(g[0]) / float(g[1])
-		var near: float = g[2]
-		_c.draw_set_transform(field_origin + c * field_scale, 0.0, Vector2(field_scale, field_scale * 0.62))
-		_c.draw_circle(Vector2.ZERO, 22.0, Color(0.08, 0.04, 0.02, 0.06 + 0.18 * near))
-		_c.draw_arc(Vector2.ZERO, 22.0, 0.0, TAU, 36, Color(1.0, 0.82, 0.45, 0.2 + 0.4 * near), 1.6)
-	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 
 
 ## Men going down, and what they dropped.
@@ -6181,6 +6249,12 @@ func _place_field_layers() -> void:
 		sig.append(sim.corpses.back()["pos"])
 	if not sim.stuck_arrows.is_empty():
 		sig.append(sim.stuck_arrows.back()["pos"])
+		# While arrows are fading, redraw every few seconds so they step down and go; once
+		# the newest has gone too, nothing changes and the layer stays as it is.
+		var oldest: float = sim.time - float(sim.stuck_arrows[0].get("t", sim.time))
+		var newest: float = sim.time - float(sim.stuck_arrows.back().get("t", sim.time))
+		if oldest >= STUCK_FADE and newest < STUCK_GONE + 3.0:
+			sig.append(int(sim.time / 3.0))
 	if sig != _litter_sig and (_clock - _litter_at >= LITTER_EVERY or _clock < _litter_at):
 		_litter_sig = sig
 		_litter_at = _clock
@@ -6285,7 +6359,6 @@ func _draw_battle() -> void:
 	_draw_litter(_litter.slice(_snap_litter))
 	_draw_stuck_arrows(_since(sim.stuck_arrows, _snap_arrow))
 	_draw_puffs()
-	_draw_volley_shadows()
 	_draw_front()
 	_draw_orders()
 	_draw_matchups()
@@ -6346,6 +6419,7 @@ func _draw_above() -> void:
 		_c.draw_rect(Rect2(-0.8, 0.0, 1.6, 1.2), Style.ENEMY)
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_treetops()
+	_draw_shafts()
 	_draw_arrows()
 	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
 	_draw_sparks()
@@ -6829,13 +6903,33 @@ func _draw_objectives() -> void:
 
 
 func _draw_stuck_arrows(arrows: Array) -> void:
-	# Every shaft, then every fletching, so each goes as one batch.
-	for a in arrows:
+	# Newest first, so a patch of ground keeps its newest STUCK_PER_PATCH; every shaft,
+	# then every fletching, so each goes as one batch. A spent arrow is a dark stick with a
+	# dull fletching, not a pale dot that reads as a flower, and old ones fade away.
+	var now: float = sim.time
+	var per := {}
+	var tails := PackedVector2Array()
+	var tips := PackedVector2Array()
+	var alphas := PackedFloat32Array()
+	for i in range(arrows.size() - 1, -1, -1):
+		var a: Dictionary = arrows[i]
+		var age: float = now - float(a.get("t", now))
+		if age >= STUCK_GONE:
+			break
 		var p: Vector2 = a["pos"]
+		var cell := Vector2i(floori(p.x / STUCK_PATCH), floori(p.y / STUCK_PATCH))
+		var n: int = per.get(cell, 0)
+		if n >= STUCK_PER_PATCH:
+			continue
+		per[cell] = n + 1
 		var d := Vector2.from_angle(float(a["angle"]))
-		_c.draw_line(p - d * 5.0, p + d * 1.5, Color(0.29, 0.2, 0.12, 0.85), 1.4)
-	for a in arrows:
-		_dot(Vector2(a["pos"]) - Vector2.from_angle(float(a["angle"])) * 5.0, 1.3, Color(0.93, 0.9, 0.84, 0.85))
+		tails.append(p - d * 5.0)
+		tips.append(p + d * 1.5)
+		alphas.append(0.85 if age < STUCK_FADE else (0.5 if age < (STUCK_FADE + STUCK_GONE) * 0.5 else 0.25))
+	for i in tails.size():
+		_c.draw_line(tails[i], tips[i], Color(0.2, 0.13, 0.08, alphas[i]), 1.4)
+	for i in tails.size():
+		_c.draw_rect(Rect2(tails[i] - Vector2(0.9, 0.9), Vector2(1.8, 1.8)), Color(0.5, 0.45, 0.36, alphas[i]))
 
 
 ## Draw sprite `name` with its pivot at arena point `at`, turned by `angle` (0 = facing
@@ -7222,11 +7316,13 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 	var shooting: bool = look["ranged"] and not sq.hold_fire and so.target != null \
 			and so.pos.distance_squared_to(so.target.pos) > 900.0
 	if so.swing > 0.0 and shooting:
-		# The loose: the string snaps and the bowman rocks back a little, and holds, bow up.
+		# The loose: the string snaps straight with the arrow gone (the bow at rest, frame 0)
+		# and the bowman rocks back and twists with it, then eases back up.
 		var e: float = SWING - so.swing
-		var k := 1.0 if e < STRIKE_HOLD * 2.0 else 1.0 - _ease_out((e - STRIKE_HOLD * 2.0) / maxf(0.01, SWING - STRIKE_HOLD * 2.0))
+		var k := 1.0 if e < STRIKE_HOLD else 1.0 - _ease_out((e - STRIKE_HOLD) / maxf(0.01, SWING - STRIKE_HOLD))
 		_po -= fwd * LOOSE_RECOIL * k
-		_pi = 2
+		_pt += deg_to_rad(7.0) * k * side
+		_pi = 0
 	elif so.swing > 0.0:
 		# The blow: a lunge at the target, then easing back to his place.
 		var e: float = SWING - so.swing
@@ -7239,13 +7335,14 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 		_po -= fwd * WIND_BACK
 		_pt -= deg_to_rad(8.0) * side
 		_pi = 2
-	elif so.target != null and so.cooldown > 0.0 and ((sq.engaged and so.cooldown < WINDUP) or (look["ranged"] and so.cooldown < WINDUP * 2.0)):
-		# The wind-up, just before the next blow (or the bow drawn before the loose).
-		var k: float = 1.0 - so.cooldown / (WINDUP * (2.0 if look["ranged"] else 1.0))
+	elif so.target != null and so.cooldown > 0.0 and ((sq.engaged and so.cooldown < WINDUP) or (look["ranged"] and so.cooldown < DRAW_TIME)):
+		# The wind-up, just before the next blow; or the bow raised and drawn before the
+		# loose, the string coming back with the arrow on it once he is a third of the way.
+		var k: float = 1.0 - so.cooldown / (DRAW_TIME if look["ranged"] else WINDUP)
 		_po -= fwd * WIND_BACK * k
 		_pt -= deg_to_rad(12.0) * k * side
 		if look["ranged"]:
-			_pi = 2
+			_pi = 2 if k > 0.33 else 0
 	if so.flash > 0.0:
 		# Struck: knocked back from the man he faces, and turned by it, as far as the blow
 		# was hard (a turned blow barely moves him).
@@ -7343,6 +7440,8 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 			_kits[key] = {"cells": cells, "piv": Art.pivot(type, culture), "px": Art.pixel_size(type),
 				"width": (0.92 if role == Troops.CAVALRY else 0.86) if (Troops.TYPES.has(type) or Units.has(type)) else 1.0}
 		look.merge(_kits[key])
+	if _shaft_men.has(so):
+		_shaft_men[so] = [at, angle]
 	var k: float = float(look["px"]) * grow
 	# A pale flash of the hit, light enough that the kit still reads (none under Reduced motion).
 	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not _still_men else 0.0
@@ -7357,6 +7456,40 @@ func _blend(prev: Vector2, now: Vector2) -> Vector2:
 	if _blend_t >= 1.0 or prev.distance_squared_to(now) > BLEND_JUMP * BLEND_JUMP:
 		return now
 	return prev.lerp(now, _blend_t)
+
+
+## Arrows standing in the men they struck: a dark shaft on a darker rim, pale fletching at
+## its end, where the man is drawn and turned with him; gone in a step at the end.
+func _draw_shafts() -> void:
+	if _shafts.is_empty():
+		return
+	_c.draw_set_transform(field_origin, 0.0, Vector2(field_scale, field_scale))
+	var ends := PackedVector2Array()
+	var fades := PackedFloat32Array()
+	for e in _shafts:
+		var so = e["so"]
+		if not so.alive:
+			continue
+		var drawn = _shaft_men.get(so)
+		var at: Vector2
+		var angle: float
+		if drawn is Array:
+			at = drawn[0]
+			angle = drawn[1]
+		else:
+			at = _blend(so.prev_pos, so.pos)
+			angle = so.facing.angle() + PI * 0.5
+		var hit: Vector2 = at + Vector2(e["off"]).rotated(angle)
+		ends.append(hit)
+		ends.append(hit + Vector2(e["dir"]).rotated(angle) * SHAFT_LEN)
+		fades.append(1.0 if float(e["age"]) < SHAFT_LIFE * 0.75 else 0.5)
+	# Every rim, then every shaft, then every fletching: three batches, not one a shaft.
+	for i in fades.size():
+		_c.draw_line(ends[i * 2], ends[i * 2 + 1], Color(0.07, 0.05, 0.05, 0.8 * fades[i]), 2.6)
+	for i in fades.size():
+		_c.draw_line(ends[i * 2], ends[i * 2 + 1], Color(0.45, 0.3, 0.16, fades[i]), 1.3)
+	for i in fades.size():
+		_c.draw_rect(Rect2(ends[i * 2 + 1] - Vector2(1.1, 1.1), Vector2(2.2, 2.2)), Color(0.86, 0.83, 0.76, fades[i]))
 
 
 ## Arrows rise and fall on their way, with a shadow on the ground beneath them.

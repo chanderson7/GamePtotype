@@ -203,6 +203,9 @@ const SHOT_SPREAD := 1.6
 const MAX_CORPSES := 500
 ## Spent arrows left sticking out of the ground, for the screen.
 const MAX_STUCK_ARROWS := 240
+## An ordered volley's bows loose in a ripple along the line over this many seconds (and
+## a little scatter on top of it, up to the third of a second a volley takes).
+const VOLLEY_RIPPLE := 0.24
 ## Which side of a squad a blow lands on, by its facing. A squad can't be flanked by the
 ## squad it's already fighting, only by someone else coming from beside or behind.
 const FRONT := 0
@@ -320,6 +323,9 @@ class Soldier:
 	## or a blow far over the striker's usual). For the screen; the rules don't read them.
 	var blows := 0
 	var blow_tier := 1
+	## Arrows that have struck him, and where the last was loosed from (for the screen).
+	var arrows_in := 0
+	var shot_from := Vector2.ZERO
 	var facing := Vector2.UP
 	var hp := 100.0
 	var max_hp := 100.0
@@ -2521,11 +2527,20 @@ func use_ability(sq, target = null) -> bool:
 			sq.hold_fire = false
 			sq.volley_target = foe
 			sq.volley_left = 1.5
+			# The bows go up in a ripple from the left of the line to the right, within the
+			# same third of a second they always took.
+			var lo := INF
+			var hi := -INF
+			for so in sq.soldiers:
+				if so.alive:
+					lo = minf(lo, so.slot.x)
+					hi = maxf(hi, so.slot.x)
 			for so in sq.soldiers:
 				if so.alive:
 					so.volley = true
 					so.target = null
-					so.cooldown = rng.randf_range(0.0, 0.3)
+					var along: float = (so.slot.x - lo) / (hi - lo) if hi > lo else 0.0
+					so.cooldown = VOLLEY_RIPPLE * along + rng.randf_range(0.0, 0.3 - VOLLEY_RIPPLE)
 		Troops.CAVALRY:
 			_start_wheel(sq)
 		Troops.SPEARMEN:
@@ -4286,6 +4301,9 @@ func _update_projectiles(dt: float) -> void:
 				if _rough and terrain.in_woods(p.target.pos):
 					shock *= TerrainRules.WOODS_VOLLEY_SHOCK
 				vs.drop_morale(shock)
+			# The shaft is in him (or his shield): the screen draws it there for a moment.
+			p.target.arrows_in += 1
+			p.target.shot_from = p.origin
 			_damage(p.target, dmg, p.source, false, p.shooter)
 		else:
 			p.pos += to.normalized() * travel
@@ -4293,7 +4311,8 @@ func _update_projectiles(dt: float) -> void:
 
 
 func _stick(p, at: Vector2) -> void:
-	stuck_arrows.append({"pos": at, "angle": (p.aim - p.origin).angle()})
+	# When it came down ("t"): the screen lets old ones fade into the grass.
+	stuck_arrows.append({"pos": at, "angle": (p.aim - p.origin).angle(), "t": time})
 	if stuck_arrows.size() > MAX_STUCK_ARROWS:
 		stuck_arrows.pop_front()
 

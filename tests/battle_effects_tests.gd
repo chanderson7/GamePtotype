@@ -75,6 +75,99 @@ func _init() -> void:
 	sc._sparks.clear()
 	sc._marks.clear()
 
+	# ---- an arrow strikes: its shaft stands in him for a moment, not a blow's mark
+	var shot = theirs.soldiers[1]
+	shot.shot_from = shot.pos + Vector2(0, 200)
+	shot.arrows_in += 1
+	shot.blows += 1
+	shot.blow_tier = 1
+	sc._update_effects(0.016)
+	check(sc._shafts.size() == 1 and sc._marks.is_empty(), "an arrow that strikes stands in the man, with no blow mark")
+	var tail_back: Vector2 = Vector2(sc._shafts[0]["dir"]).rotated(shot.facing.angle() + PI * 0.5)
+	check(tail_back.dot(Vector2(0, 1)) > 0.9, "its shaft points back the way it came")
+	shot.arrows_in += 1
+	shot.blows += 1
+	shot.blow_tier = 0
+	sc._update_effects(0.016)
+	check(sc._shafts.size() == 2 and Vector2(sc._shafts[1]["off"]).x < -3.0, "one turned is in his shield, on his left")
+	for i in 6:
+		shot.arrows_in += 1
+		shot.blows += 1
+		sc._update_effects(0.016)
+	check(sc._shafts.size() == sc.SHAFTS_PER_MAN, "no more than %d in one man" % sc.SHAFTS_PER_MAN)
+	sc._update_effects(sc.SHAFT_LIFE)
+	check(sc._shafts.is_empty() and sc._shaft_count.is_empty() and sc._shaft_men.is_empty(), "and they go after a moment")
+	# An arrow that kills leaves its mark where it struck (there is no man to stand in).
+	var killed = theirs.soldiers[3]
+	killed.shot_from = killed.pos + Vector2(0, 200)
+	killed.arrows_in += 1
+	killed.blows += 1
+	killed.alive = false
+	sc._update_effects(0.016)
+	check(sc._shafts.is_empty() and sc._marks.size() == 1, "an arrow that kills leaves a blow's mark instead")
+	killed.alive = true
+	sc._marks.clear()
+	sc._sparks.clear()
+	# A routed man is drawn turned to run: his shaft still points back at the bows.
+	theirs.routing = true
+	var runner = theirs.soldiers[4]
+	runner.shot_from = runner.pos + Vector2(0, 200)
+	runner.arrows_in += 1
+	runner.blows += 1
+	sc._update_effects(0.016)
+	var run_angle: float = Vector2.UP.angle() + PI * 0.5
+	check(sc._shafts.size() == 1 and Vector2(sc._shafts[0]["dir"]).rotated(run_angle).dot(Vector2(0, 1)) > 0.9,
+		"a routed man's shaft points back at the bows too")
+	theirs.routing = false
+	sc._update_effects(sc.SHAFT_LIFE)
+	victim.blows += 1
+	victim.blow_tier = 1
+	sc._update_effects(0.016)
+	check(sc._marks.size() == 1, "a blow by hand still leaves its mark")
+	sc._marks.clear()
+	sc._sparks.clear()
+	check(not sc.has_method("_draw_volley_shadows"), "no ovals are drawn on the ground where a volley will land")
+	check(sc.STUCK_GONE > sc.STUCK_FADE and sc.STUCK_PER_PATCH >= 1, "arrows in the ground fade and go, and a patch of ground keeps only its newest")
+
+	# ---- a bowman draws, then the string snaps straight on the loose
+	var bows = null
+	for sq in sim.squads:
+		if sq.ranged and sq.team == Sim.PLAYER and bows == null:
+			bows = sq
+	if bows != null:
+		var bm = bows.soldiers[0]
+		var bow_look: Dictionary = sc._squad_look(bows)
+		bow_look["ranged"] = true
+		bm.target = theirs.soldiers[2]
+		bm.pos = bm.target.pos + Vector2(0, 200)
+		bm.swing = 0.0
+		bm.cooldown = sc.DRAW_TIME * 0.2
+		check(int(sc._pose(bm, bows, 0, bow_look)["index"]) == 2, "a bowman about to loose has the string drawn back")
+		bm.cooldown = 2.0
+		bm.swing = sc.SWING - 0.01
+		var loose: Dictionary = sc._pose(bm, bows, 0, bow_look)
+		check(int(loose["index"]) == 0 and Vector2(loose["off"]).dot(bm.facing) < -1.5, "on the loose the string snaps straight and he rocks back")
+		bm.swing = 0.0
+		bm.target = null
+		# A volley's bows go up in a ripple along the line, left to right.
+		if sim.use_ability(bows):
+			var left_cd := 0.0
+			var right_cd := 0.0
+			var lo := INF
+			var hi := -INF
+			for m in bows.soldiers:
+				if m.alive and m.slot.x < lo:
+					lo = m.slot.x
+					left_cd = m.cooldown
+				if m.alive and m.slot.x > hi:
+					hi = m.slot.x
+					right_cd = m.cooldown
+			check(right_cd - left_cd > sim.VOLLEY_RIPPLE * 0.5 and right_cd <= 0.3, "a volley ripples along the line, left to right, within a third of a second")
+		else:
+			check(false, "the test battle's bows can loose a volley")
+	else:
+		check(false, "the test battle has bows of ours")
+
 	# ---- a man falls
 	sim.corpses.append({"pos": victim.pos, "team": Sim.ENEMY, "type": Troops.INFANTRY})
 	sc._update_effects(0.016)
