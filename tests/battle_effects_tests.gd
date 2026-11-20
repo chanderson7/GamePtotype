@@ -46,19 +46,34 @@ func _init() -> void:
 	victim.blows += 1
 	victim.blow_tier = 1
 	sc._update_effects(0.016)
-	check(sc._sparks.size() >= 6, "a blow throws sparks (%d)" % sc._sparks.size())
+	check(sc._marks.size() == 1 and int(sc._marks[0]["tier"]) == 1, "a blow leaves one mark where it lands, of its kind")
+	check(sc._sparks.size() >= 3, "and throws sparks (%d)" % sc._sparks.size())
 	var before: int = sc._sparks.size()
 	sc._update_effects(0.016)
-	check(sc._sparks.size() <= before, "once per blow, not every frame")
+	check(sc._sparks.size() <= before and sc._marks.size() == 1, "once per blow, not every frame")
 	for i in 5:
 		sc._update_effects(0.1)
-	check(sc._sparks.is_empty(), "and they die away")
+	check(sc._sparks.is_empty() and sc._marks.is_empty(), "and they die away")
+	# A hard blow's mark outlasts an ordinary one's, and a turned blow's is the shortest.
+	check(float(sc.MARK_LIFE[2]) > float(sc.MARK_LIFE[1]) and float(sc.MARK_LIFE[1]) > float(sc.MARK_LIFE[0]),
+		"a hard blow's mark stays longest, a turned one's least")
+	var sound_node = root.get_node("Sound")
+	var sound_was: bool = sound_node.reduced_motion
+	sound_node.reduced_motion = true
+	victim.blows += 1
+	victim.blow_tier = 2
+	sc._update_effects(0.016)
+	check(sc._marks.size() == 1 and sc._sparks.is_empty(), "under Reduced motion a blow leaves its still mark and throws nothing")
+	sound_node.reduced_motion = sound_was
+	sc._marks.clear()
 	for i in 400:
 		victim.flash = 1.0
 		sc._hit_seen.clear()
 		sc._update_effects(0.001)
 	check(sc._sparks.size() <= sc.MAX_SPARKS, "never more than %d sparks" % sc.MAX_SPARKS)
+	check(sc._marks.size() <= sc.MAX_MARKS, "never more than %d marks" % sc.MAX_MARKS)
 	sc._sparks.clear()
+	sc._marks.clear()
 
 	# ---- a man falls
 	sim.corpses.append({"pos": victim.pos, "team": Sim.ENEMY, "type": Troops.INFANTRY})
@@ -76,6 +91,8 @@ func _init() -> void:
 	for i in 600:
 		sc._puff(Vector2.ZERO, Vector2.ZERO, 1.0, 2.0, 5.0, Color.WHITE, 0.2)
 	check(sc._puffs.size() <= sc.MAX_PUFFS, "and dust is capped")
+	var clumps: PackedVector3Array = sc._puffs.back()["k"]
+	check(clumps.size() >= 3 and clumps.size() <= 4, "a puff of dust is a few square clumps, not a soft disc")
 
 	# ---- a squad breaks (what its men drop is a roll each: seeded, so the check is the
 	# same every run)

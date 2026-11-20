@@ -146,6 +146,10 @@ const MAX_BURSTS := 36
 ## dust kicked up by squads on the move and by arrows coming down, men falling, gear and
 ## standards left on the ground.
 var _sparks: Array = []
+## Where a blow lands: one chunky mark in sprite pixels, by how it landed (Soldier.blow_tier):
+## a grey tink where it was turned, a white-gold cross for an ordinary blow, a red slash held
+## longer for a hard one. [{p, tier, age, life, flip}]
+var _marks: Array = []
 var _puffs: Array = []
 var _falling: Array = []
 var _litter: Array = []
@@ -166,6 +170,24 @@ var _slow := 0.0
 ## When the battle was decided, for the winners' cheer before the result.
 var _decided_at := -1.0
 const MAX_SPARKS := 260
+const MAX_MARKS := 64
+## How long each kind of mark stays: turned, ordinary, hard.
+const MARK_LIFE := [0.16, 0.2, 0.34]
+## Neither a mark's pixels nor dust's are drawn smaller than this, in screen pixels, so
+## they still read with the field zoomed out.
+const MARK_MIN := 2.0
+## The marks' shapes, in their pixels round where the blow landed. A tink is a short dash
+## across the line of the blow, flat or upright, whichever is nearer; a cross is an X two
+## pixels each way (CROSS_IN, its inner half, is what is left as it fades); a slash is a
+## diagonal cut five pixels long, thickened through its middle.
+const MARK_TINK := [Vector2i(-1, 0), Vector2i(0, 0), Vector2i(1, 0)]
+const MARK_CROSS := [Vector2i(0, 0), Vector2i(-1, -1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(1, 1),
+	Vector2i(-2, -2), Vector2i(2, -2), Vector2i(-2, 2), Vector2i(2, 2)]
+const CROSS_IN := 5
+const MARK_SLASH := [Vector2i(-2, -2), Vector2i(-1, -1), Vector2i(0, 0), Vector2i(1, 1), Vector2i(2, 2),
+	Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, -2)]
+## Dust is drawn in steps, not a smooth fade: this many strengths between none and its own.
+const DUST_STEPS := 3.0
 const BITE := 12.0
 const BITE_DRAIN := 22.0
 const MAX_PUFFS := 220
@@ -173,6 +195,9 @@ const MAX_PUFFS := 220
 ## (see tools/unit_sprites.py). A man takes one every STRIDE of ground, twice as fast
 ## when he runs for his life.
 const WALK := [0, 3, 1, 3]
+## Running for his life the same way, in the frames with his weapon thrown away and his
+## head down (4 and 5 the strides, 6 the passing step).
+const RUN := [4, 6, 5, 6]
 const STRIDE := 14.0
 ## Rings on the water where men wade a ford: [{p, age}].
 const MAX_RIPPLES := 70
@@ -443,6 +468,9 @@ var _ripples: Array = []
 var _paddies: Array = []
 ## The culture each squad was raised in, by "team/roster id", which dresses its men.
 var _cultures := {}
+## Each kind of man's atlas cells, pivot, pixel size and width, by "type/team/culture"
+## (_draw_man fills it as each kind is first drawn).
+var _kits := {}
 ## When the next clash of steel sounds, and how many arrows were in the air last frame.
 var _clash_clock := 0.0
 ## The missiles in the air last frame, so each volley is heard once.
@@ -1430,6 +1458,9 @@ func _update_effects(delta: float) -> void:
 		e["p"] += e["v"] * delta
 		e["v"] *= maxf(0.0, 1.0 - delta * 5.0)
 	_sparks = _sparks.filter(func(e): return e["age"] < e["life"])
+	for e in _marks:
+		e["age"] += delta
+	_marks = _marks.filter(func(e): return e["age"] < e["life"])
 	for e in _puffs:
 		e["age"] += delta
 		e["p"] += (e["v"] + _wind) * delta
@@ -1531,30 +1562,33 @@ func _ripple_under(sq) -> void:
 
 ## Sparks off a blow that has just landed on `so`.
 func _blow(so, tier: int = 1) -> void:
-	# A blow throws up to twelve: only start one if all of them fit.
-	if _sparks.size() + 12 > MAX_SPARKS:
-		return
 	var dir := Vector2.from_angle(randf() * TAU)
 	if so.target != null:
 		dir = (so.pos - so.target.pos).normalized()
 	var at: Vector2 = so.pos - dir * 4.0
-	if Style.motion_reduced():
-		# Still: one bright pixel where it landed, pale if it was turned, red if it bit deep.
-		var still_c := Color(0.85, 0.85, 0.8) if tier == 0 else (Color(0.85, 0.12, 0.08) if tier == 2 else Color(1.0, 0.8, 0.35))
-		_sparks.append({"p": at, "v": Vector2.ZERO, "age": 0.0, "life": 0.22, "c": still_c, "size": 2.0})
+	# The mark itself, steady even under Reduced motion: it stands still where it landed.
+	if _marks.size() >= MAX_MARKS:
+		_marks.pop_front()
+	var across := dir.orthogonal()
+	_marks.append({"p": at, "tier": tier, "age": 0.0, "life": float(MARK_LIFE[clampi(tier, 0, 2)]),
+		# A slash runs across the line of the blow, on the nearer of the two diagonals; a
+		# tink stands upright when the blow came from the side.
+		"flip": across.x * across.y < 0.0, "upright": absf(across.y) > absf(across.x)})
+	# Then what flies off it: none under Reduced motion, and none past the cap.
+	if Style.motion_reduced() or _sparks.size() + 8 > MAX_SPARKS:
 		return
 	if tier == 0:
-		# Turned on a shield or a braced front: a few dull chips, and no more.
-		for k in 3:
+		# Turned on a shield or a braced front: a couple of dull chips, and no more.
+		for k in 2:
 			_sparks.append({"p": at, "v": dir.rotated(randf_range(-1.3, 1.3)) * randf_range(25.0, 55.0), "age": 0.0,
-				"life": randf_range(0.12, 0.2), "c": Color(0.82, 0.82, 0.76), "size": 1.5})
+				"life": randf_range(0.12, 0.2), "c": Color(0.82, 0.82, 0.76), "size": 1.6})
 		return
-	var n := 6 if tier == 1 else 9
+	var n := 3 if tier == 1 else 5
 	var spread := 1.1 if tier == 1 else 1.5
 	for k in n:
-		var c := Color(1.0, 0.97, 0.75) if k < 2 else (Color(1.0, 0.75, 0.3) if k < 4 else Color(0.95, 0.45, 0.15))
-		_sparks.append({"p": at, "v": dir.rotated(randf_range(-spread, spread)) * randf_range(40.0, 110.0 if tier == 1 else 140.0), "age": 0.0,
-			"life": randf_range(0.16, 0.32), "c": c, "size": 1.6 if tier == 1 else 2.0})
+		var c := Color(1.0, 0.97, 0.75) if k < 1 else (Color(1.0, 0.75, 0.3) if k < 3 else Color(0.95, 0.45, 0.15))
+		_sparks.append({"p": at, "v": dir.rotated(randf_range(-spread, spread)) * randf_range(50.0, 110.0 if tier == 1 else 140.0), "age": 0.0,
+			"life": randf_range(0.16, 0.3), "c": c, "size": 1.8 if tier == 1 else 2.0})
 	if tier == 2 or randf() < 0.3:
 		for k in 3:
 			_sparks.append({"p": at, "v": dir.rotated(randf_range(-0.5, 0.5)) * randf_range(18.0, 45.0), "age": 0.0,
@@ -1564,7 +1598,14 @@ func _blow(so, tier: int = 1) -> void:
 func _puff(at: Vector2, v: Vector2, r0: float, r1: float, life: float, color: Color, alpha: float) -> void:
 	if _puffs.size() >= MAX_PUFFS:
 		_puffs.pop_front()
-	_puffs.append({"p": at, "v": v, "r0": r0, "r1": r1, "age": 0.0, "life": life, "c": color, "a": alpha})
+	# Drawn as a few square clumps (_draw_puffs): where each sits in the puff, as a share
+	# of its radius, and how big it is against the first.
+	var clumps := PackedVector3Array()
+	clumps.append(Vector3(randf_range(-0.15, 0.15), randf_range(-0.15, 0.15), 1.0))
+	for k in randi_range(2, 3):
+		var o := Vector2.from_angle(randf() * TAU) * randf_range(0.45, 0.8)
+		clumps.append(Vector3(o.x, o.y, randf_range(0.45, 0.65)))
+	_puffs.append({"p": at, "v": v, "r0": r0, "r1": r1, "age": 0.0, "life": life, "c": color.lightened(0.18), "a": alpha, "k": clumps})
 
 
 ## A squad breaks: shields and spears dropped where its men turned to run, and its
@@ -1582,12 +1623,52 @@ func _spotlight(at: Vector2, life: float) -> void:
 	_spot = {"pos": at, "age": 0.0, "life": life}
 
 
-## Sparks and spatter, over everything on the field.
+## Sparks and spatter, and the marks where blows land, over everything on the field.
 func _draw_sparks() -> void:
 	for e in _sparks:
 		var a := 1.0 - float(e["age"]) / float(e["life"])
 		var size: float = e["size"]
 		_c.draw_rect(Rect2(e["p"] - Vector2(size, size) * 0.5, Vector2(size, size)), Color(e["c"], a))
+	if _marks.is_empty():
+		return
+	# A mark's pixels are the men's own size, and never smaller than MARK_MIN on screen;
+	# each sits on a dark rim, so it reads on pale kit as well as on grass.
+	var u := maxf(Art.FOOT_PIXEL, MARK_MIN / maxf(0.01, field_scale))
+	var rim := maxf(u * 0.5, 1.0 / maxf(0.01, field_scale))
+	var cells := PackedVector2Array()
+	var colors := PackedColorArray()
+	# Under Reduced motion a mark shows whole and in its own colour from the start, with no
+	# white flash and no shrinking, and only fades.
+	var still := Style.motion_reduced()
+	for e in _marks:
+		var t: float = float(e["age"]) / float(e["life"])
+		var tier: int = e["tier"]
+		var fade := 1.0 if t < 0.6 else 1.0 - (t - 0.6) / 0.4
+		var shape: Array = MARK_TINK
+		var n := shape.size()
+		var col := Color(0.86, 0.87, 0.84)
+		var upright := bool(e.get("upright", false)) and tier == 0
+		if tier == 1:
+			shape = MARK_CROSS
+			# The whole cross, white for an instant then gold, then only its heart as it goes.
+			n = shape.size() if t < 0.6 or still else CROSS_IN
+			col = Color(1.0, 0.98, 0.82) if t < 0.15 and not still else Color(1.0, 0.8, 0.3)
+		elif tier >= 2:
+			shape = MARK_SLASH
+			n = shape.size()
+			# A white cut for an instant, then red.
+			col = Color(1.0, 0.95, 0.9) if float(e["age"]) < 0.05 and not still else Color(0.88, 0.1, 0.06)
+		var flip := -1 if bool(e["flip"]) else 1
+		var at: Vector2 = e["p"]
+		for k in n:
+			var c: Vector2i = shape[k]
+			cells.append(at + (Vector2(c.y, c.x) if upright else Vector2(c.x * flip, c.y)) * u)
+			colors.append(Color(col, fade))
+	for i in cells.size():
+		_c.draw_rect(Rect2(cells[i] - Vector2(u * 0.5 + rim, u * 0.5 + rim), Vector2(u + rim * 2.0, u + rim * 2.0)),
+			Color(0.07, 0.05, 0.06, 0.85 * colors[i].a))
+	for i in cells.size():
+		_c.draw_rect(Rect2(cells[i] - Vector2(u, u) * 0.5, Vector2(u, u)), colors[i])
 
 
 ## Dust on the ground: kicked up behind squads and where arrows come down.
@@ -1595,13 +1676,29 @@ func _draw_puffs() -> void:
 	for e in _wades:
 		var k: float = float(e["age"]) / RIPPLE_LIFE
 		_c.draw_arc(e["p"], 2.0 + 8.0 * k, 0.0, TAU, 14, Color(0.88, 0.95, 1.0, 0.55 * (1.0 - k)), 1.2)
+	# Dust in the men's own pixels: each puff a few square clumps on the field's pixel grid,
+	# growing a pixel at a time and fading in DUST_STEPS steps, not a soft round blur.
+	var u := maxf(Art.FOOT_PIXEL, MARK_MIN / maxf(0.01, field_scale))
+	var inv := 1.0 / u
 	for e in _puffs:
 		var t := float(e["age"]) / float(e["life"])
 		var r: float = lerpf(e["r0"], e["r1"], t)
-		_dot(e["p"], r, Color(Color(e["c"]).lightened(0.18), float(e["a"]) * (1.0 - t) * minf(1.0, t * 6.0 + 0.2)))
+		var a: float = (1.0 - t) * minf(1.0, t * 6.0 + 0.2)
+		a = ceilf(a * DUST_STEPS) / DUST_STEPS * float(e["a"])
+		var col := Color(e["c"] as Color, a)
+		var p: Vector2 = e["p"]
+		var clumps: PackedVector3Array = e["k"]
+		for c: Vector3 in clumps:
+			var side := maxf(1.0, roundf(r * 1.3 * c.z * inv)) * u
+			var h := side * 0.5
+			_c.draw_rect(Rect2(roundf((p.x + c.x * r - h) * inv) * u, roundf((p.y + c.y * r - h) * inv) * u, side, side), col)
 
 
 ## Where the lines meet: a warm glow along the front, under the men.
+## How close two men must be for the glow to show between them: hand to hand.
+const FRONT_REACH := 32.0
+
+
 func _draw_front() -> void:
 	if sim.phase != Sim.PHASE_BATTLE:
 		return
@@ -1613,6 +1710,10 @@ func _draw_front() -> void:
 		for so in sq.soldiers:
 			i += 1
 			if i % 2 == 1 or not so.alive or so.target == null or not so.target.alive or so.target.squad == null or so.target.squad.team == sq.team:
+				continue
+			# Only between men fighting hand to hand: a bowman's mark is across the field, and
+			# a glow halfway to it lit empty grass.
+			if so.pos.distance_squared_to(so.target.pos) > FRONT_REACH * FRONT_REACH:
 				continue
 			var mid: Vector2 = so.pos.lerp(so.target.pos, 0.5)
 			_dot(mid, 12.0, Color(1.0, 0.6, 0.2, 0.08 + pulse))
@@ -1653,18 +1754,23 @@ func _draw_falling() -> void:
 		var end := fposmod(p.x * 12.9898 + p.y * 78.233, TAU)
 		var type := String(c.get("type", Troops.INFANTRY))
 		var culture := GameState.culture if int(c["team"]) == Sim.PLAYER else _enemy_culture
+		# A man cut down running goes down as he ran, his weapon already thrown away
+		# (RUN's frames); one who fell fighting, in his strike and with it in hand.
+		var routed := bool(c.get("routed", false))
+		var struck: int = RUN[0] if routed else 2
 		if age < STAGGER_TIME and not Sound.reduced_motion:
 			# The blow that kills him: he reels, whitened, before he goes down.
 			var st := age / STAGGER_TIME
-			_sprite(type, int(c["team"]), 2, p, end - 1.4 - deg_to_rad(10.0) * sin(st * PI), Color(1, 1, 1).lerp(Color(0.85, 0.82, 0.8), st), 1.0, culture)
-			_c.draw_texture(Art.flash(type, 2, culture), -Art.pivot(type, culture), Color(1, 1, 1, 0.5 * (1.0 - st)))
+			_sprite(type, int(c["team"]), struck, p, end - 1.4 - deg_to_rad(10.0) * sin(st * PI), Color(1, 1, 1).lerp(Color(0.85, 0.82, 0.8), st), 1.0, culture)
+			_c.draw_texture(Art.flash(type, struck, culture), -Art.pivot(type, culture), Color(1, 1, 1, 0.5 * (1.0 - st)))
 			continue
 		var t := clampf((age - STAGGER_TIME) / (FALL_TIME - STAGGER_TIME), 0.0, 1.0)
 		if Sound.reduced_motion:
 			t = 1.0
 		var fall := t * t
 		var tint := Color(1, 1, 1).lerp(Color(0.75, 0.72, 0.7), fall)
-		_sprite(type, int(c["team"]), 2 if t < 0.25 else 1, p + Vector2(0, 2.0 * fall), lerp_angle(end - 1.4, end, fall), tint, 1.0 - 0.1 * fall, culture)
+		var down: int = (RUN[0] if t < 0.25 else RUN[1]) if routed else (2 if t < 0.25 else 1)
+		_sprite(type, int(c["team"]), down, p + Vector2(0, 2.0 * fall), lerp_angle(end - 1.4, end, fall), tint, 1.0 - 0.1 * fall, culture)
 
 
 ## What the fallen leave beside them: a dark patch, a weapon, a shield. Drawn kind by kind
@@ -7011,7 +7117,8 @@ func _squad_look(sq) -> Dictionary:
 		# A trained squad is drawn in its branch's own kit.
 		"type": sq.unit if sq.unit != "" else sq.type,
 		"culture": _culture_of(sq),
-		"tint": Color(0.72, 0.72, 0.72, 0.9) if sq.routing else Color.WHITE,
+		# A broken company runs weaponless (RUN), and that is what tells it; the grey only helps.
+		"tint": Color(0.86, 0.86, 0.86, 0.95) if sq.routing else Color.WHITE,
 		"still": still,
 		# The winners cheer: weapons up, each man bobbing on his own beat.
 		"cheering": sim.winner != -1 and sq.team == sim.winner and sq.is_active(),
@@ -7105,7 +7212,7 @@ func _pose_now(so, sq, i: int, look: Dictionary) -> void:
 		fwd = run
 		_pf = fwd
 		_pf_set = true
-		_pi = WALK[int(so.stride / (STRIDE * 0.125)) % 4]
+		_pi = RUN[int(so.stride / (STRIDE * 0.125)) % 4]
 		if not look["still"]:
 			_pt = sin(so.stride * 0.45 + i) * deg_to_rad(15.0)
 		return
@@ -7224,17 +7331,22 @@ func _draw_man(so, sq, i: int, look: Dictionary) -> void:
 		grow = 1.2
 		_rings.append([at, sq.team, type])
 	if not look.has("cells"):
+		# Looked up once a battle for each kind of man, not once a frame for each squad:
+		# every frame he has (Art.FRAMES), so a company breaking needs nothing new.
 		var team := int(look["team"])
-		look["cells"] = [Art.atlas_cell(type, team, 0, culture), Art.atlas_cell(type, team, 1, culture), Art.atlas_cell(type, team, 2, culture),
-			Art.atlas_cell(type, team, 3, culture)]
-		look["piv"] = Art.pivot(type, culture)
-		var role := Units.role(type) if Units.has(type) else type
-		look["width"] = (0.92 if role == Troops.CAVALRY else 0.86) if (Troops.TYPES.has(type) or Units.has(type)) else 1.0
-		look["px"] = Art.pixel_size(type)
+		var key := "%s/%d/%s" % [type, team, culture]
+		if not _kits.has(key):
+			var cells := []
+			for f in Art.FRAMES:
+				cells.append(Art.atlas_cell(type, team, f, culture))
+			var role := Units.role(type) if Units.has(type) else type
+			_kits[key] = {"cells": cells, "piv": Art.pivot(type, culture), "px": Art.pixel_size(type),
+				"width": (0.92 if role == Troops.CAVALRY else 0.86) if (Troops.TYPES.has(type) or Units.has(type)) else 1.0}
+		look.merge(_kits[key])
 	var k: float = float(look["px"]) * grow
 	# A pale flash of the hit, light enough that the kit still reads (none under Reduced motion).
 	var flash: float = so.flash * 0.45 if so.flash > 0.05 and not _still_men else 0.0
-	_put_man(look["cells"][clampi(index, 0, 3)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
+	_put_man(look["cells"][clampi(index, 0, Art.FRAMES - 1)], at, angle, k * float(look["width"]), k * _ps, look["piv"], look["tint"], flash)
 
 ## Where a man or a missile is drawn: between where it stood as the last tick began and
 ## where the tick left it, as far as the clock has run into the next (_blend_t). The rules

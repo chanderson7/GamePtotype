@@ -4336,7 +4336,8 @@ func _damage(victim, dmg: float, attacker, charge: bool = false, killer = null, 
 				attacker.captain_kills += 1
 		if victim.captain:
 			_captain_falls(vs, victim)
-		corpses.append({"pos": victim.pos, "team": vs.team, "type": vs.type})
+		# Whether he fell running (the screen draws him down without his weapon).
+		corpses.append({"pos": victim.pos, "team": vs.team, "type": vs.type, "routed": vs.routing})
 		if corpses.size() > MAX_CORPSES:
 			corpses.pop_front()
 

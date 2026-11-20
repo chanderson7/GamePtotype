@@ -259,9 +259,18 @@ func _init() -> void:
 	var frames_ok := true
 	for sprite in SpriteData.SPRITES:
 		var n: int = (SpriteData.SPRITES[sprite]["frames"] as Array).size()
-		if n != 1 and n != 4:
+		if n != 1 and n != UnitArt.FRAMES:
 			frames_ok = false
-	check(frames_ok, "every soldier's sprite has four frames: two steps, the strike, and the passing step between")
+	check(frames_ok and UnitArt.FRAMES == 7,
+		"every soldier's sprite has seven frames: two steps, the strike, the passing step between, and the same three running away")
+	var runs_bare := true
+	for troop in [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.CAVALRY]:
+		for f in [4, 5, 6]:
+			var run_img: Image = UnitArt.frame(troop, Sim.PLAYER, f, "vardish").get_image()
+			var walk_img: Image = UnitArt.frame(troop, Sim.PLAYER, [0, 1, 3][f - 4], "vardish").get_image()
+			if run_img.get_data() == walk_img.get_data():
+				runs_bare = false
+	check(runs_bare, "running away is its own picture, the weapon gone, for foot, spear, bow and horse")
 	var all_differ := true
 	for troop in [Troops.INFANTRY, Troops.SPEARMEN, Troops.ARCHERS, Troops.CAVALRY]:
 		var pass_img: Image = UnitArt.frame(troop, Sim.PLAYER, 3, "vardish").get_image()
@@ -272,12 +281,20 @@ func _init() -> void:
 	var was_stride: float = so.stride
 	var seen := []
 	mine.routing = true
+	# Broken a while ago: past the first moments, when the front rank still backs away armed.
+	var broke_was = sc._broke_at.get(mine)
+	sc._broke_at[mine] = sc._clock - 10.0
 	for k in 4:
 		so.stride = sc.STRIDE * 0.125 * (k + 0.5)
 		seen.append(int(sc._pose(so, mine, 0, sc._squad_look(mine))["index"]))
+	if broke_was == null:
+		sc._broke_at.erase(mine)
+	else:
+		sc._broke_at[mine] = broke_was
 	mine.routing = false
 	so.stride = was_stride
-	check(seen == [0, 3, 1, 3] and sc.WALK == [0, 3, 1, 3], "a running man's stride goes step, passing, step, passing (%s)" % str(seen))
+	check(seen == [4, 6, 5, 6] and sc.RUN == [4, 6, 5, 6] and sc.WALK == [0, 3, 1, 3],
+		"a routed man's stride goes step, passing, step, passing, in the frames without his weapon (%s)" % str(seen))
 	so.target = null
 	so.cooldown = 0.0
 	# Boots hardly show from above: the step is in the body.

@@ -35,8 +35,13 @@ static var _atlas_cells := {}
 static var _atlas_dirty := false
 
 
-## Frame `index` (0 and 1 walk, 2 strike, 3 the passing step between the walks) of a troop type as `culture` dresses it, in
-## a team's colors. Bodies and arrows look the same for everyone.
+## How many frames a soldier has: 0 and 1 walk, 2 strike, 3 the passing step between the
+## walks; then 4 and 5 running away with his weapon thrown down, 6 their passing step.
+const FRAMES := 7
+
+
+## Frame `index` (see FRAMES) of a troop type as `culture` dresses it, in a team's colors.
+## Bodies and arrows look the same for everyone.
 static func frame(type: String, team: int, index: int, culture: String = "vardish") -> Texture2D:
 	var name := sprite_name(type, culture)
 	var key := "%s/%d/%d" % [name, team, index]
